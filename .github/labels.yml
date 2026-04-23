@@ -69,3 +69,7 @@
 - name: critical
   color: "b60205"
   description: Highest urgency - triggers all agents in ticket-gate
+
+- name: contribution
+  color: "7057ff"
+  description: Suggested addition or improvement to claude-scaffold from a downstream project

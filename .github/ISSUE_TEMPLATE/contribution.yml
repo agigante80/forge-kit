@@ -1,0 +1,59 @@
+name: Contribution
+description: Suggest an agent, command, skill, or issue template to add to claude-scaffold
+title: "Contribution: "
+labels: ["contribution"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What type of contribution is this?
+      options:
+        - agent
+        - command
+        - skill
+        - issue template
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What it does
+      description: One paragraph describing what this contribution does and the problem it solves.
+      placeholder: "e.g. Reviews React Native screens for WCAG 2.2 AA compliance - touch targets, screen reader support, color contrast, and cognitive accessibility."
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Why it would be useful across projects
+      description: Explain why this belongs in claude-scaffold rather than staying project-specific.
+      placeholder: "e.g. Any project with a mobile UI needs accessibility review. This agent is domain-agnostic and requires only minor configuration."
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: Source project
+      description: GitHub repo this came from, or "private".
+      placeholder: "owner/repo"
+
+  - type: textarea
+    id: content
+    attributes:
+      label: Content or link
+      description: Paste the file content here, or link to the source file.
+      render: markdown
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before merging
+      options:
+        - label: Generalise any hardcoded project references (repo names, product names, domain-specific paths)
+        - label: Add entry to claude-scaffold README.md component table
+        - label: Add or update docs/guides/ if the contribution needs explanation
+        - label: Verify no sensitive data (tokens, keys, internal URLs) in the content
