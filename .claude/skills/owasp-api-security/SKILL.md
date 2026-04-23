@@ -311,20 +311,3 @@ describe('ENDPOINT security', () => {
   })
 })
 ```
-
-## Arivit-Specific Security Concerns
-
-### Safety-Critical Paths
-- `POST /alerts/sos` - must NEVER fail silently; transaction integrity required
-- Heartbeat pipeline - must not be blockable by malformed input
-- Escalation chain - must not skip guardians due to data corruption
-
-### PII Protection
-- All PII in Databunker vault - never in API responses directly
-- GDPR erasure (`DELETE /members/me`) must cascade to all related data
-- Export (`GET /members/me/export`) must include all stored PII
-
-### Subscription Tier Enforcement
-- Premium endpoints must return 403 for FREE tier
-- Tier cannot be modified via API mass assignment
-- Webhook handlers must validate signatures before updating tiers
