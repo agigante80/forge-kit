@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs claude-scaffold skills and agents into ~/.claude/ so they are
+# Installs ai-projectforge skills and agents into ~/.claude/ so they are
 # available in EVERY project without per-project copying.
 #
 # Safe to re-run - existing files are only overwritten if you confirm.
@@ -9,7 +9,7 @@ SCAFFOLD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GLOBAL_DIR="$HOME/.claude"
 
 echo ""
-echo "claude-scaffold global install"
+echo "ai-projectforge global install"
 echo "=============================="
 echo "Installs to: $GLOBAL_DIR"
 echo ""
@@ -41,7 +41,7 @@ mkdir -p "$GLOBAL_DIR/skills"
 install_item \
   "$SCAFFOLD_DIR/.claude/skills/upgrade-audit" \
   "$GLOBAL_DIR/skills/upgrade-audit" \
-  "upgrade-audit (gap report vs claude-scaffold)"
+  "upgrade-audit (gap report vs ai-projectforge)"
 
 echo ""
 echo "Agents (optional - available in all projects):"
@@ -78,5 +78,5 @@ echo "Note: ticket-gate.md installed globally still needs {{GITHUB_REPO}} replac
 echo "per-project. Either keep it in .claude/agents/ per project, or set it to a"
 echo "default repo in the global copy."
 echo ""
-echo "To update global installs after pulling claude-scaffold:"
+echo "To update global installs after pulling ai-projectforge:"
 echo "  $SCAFFOLD_DIR/install-global.sh"

@@ -1,6 +1,6 @@
 # Getting Started
 
-Add claude-scaffold governance to a new or existing project in 5 minutes.
+Add ai-projectforge governance to a new or existing project in 5 minutes.
 
 ## Prerequisites
 
@@ -13,11 +13,11 @@ Add claude-scaffold governance to a new or existing project in 5 minutes.
 From inside your project directory:
 
 ```bash
-# Clone claude-scaffold (if you haven't already)
-git clone https://github.com/agigante80/claude-scaffold ~/[redacted]/claude-scaffold
+# Clone ai-projectforge (if you haven't already)
+git clone https://github.com/agigante80/ai-projectforge ~/[redacted]/ai-projectforge
 
 # Run the bootstrap script
-~/[redacted]/claude-scaffold/bootstrap.sh
+~/[redacted]/ai-projectforge/bootstrap.sh
 ```
 
 The script will:
@@ -28,7 +28,7 @@ The script will:
 
 ## Option B: Use as a GitHub template
 
-1. Go to `https://github.com/agigante80/claude-scaffold`
+1. Go to `https://github.com/agigante80/ai-projectforge`
 2. Click **"Use this template"** -> **"Create a new repository"**
 3. Clone your new repo
 4. Run `./bootstrap.sh` to fill in placeholders and create labels
@@ -61,10 +61,10 @@ is outdated. No manual upgrades needed.
 
 ### 4. Run upgrade-audit periodically
 
-Keep your project in sync with the claude-scaffold reference:
+Keep your project in sync with the ai-projectforge reference:
 ```bash
-# Pull latest claude-scaffold
-git -C ~/[redacted]/claude-scaffold pull
+# Pull latest ai-projectforge
+git -C ~/[redacted]/ai-projectforge pull
 
 # Run the audit in your project
 # (use /upgrade-audit or mention "run upgrade audit" to Claude Code)
