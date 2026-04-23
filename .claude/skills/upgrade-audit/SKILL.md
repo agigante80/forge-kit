@@ -147,7 +147,8 @@ auto-synthesis pipeline).
 
 ### Step 6: Build the gap report
 
-Produce only the sections relevant to the current focus:
+Produce only the sections relevant to the current focus. Number every gap item
+sequentially across all priorities — this numbering is used in Step 6.5 for selection.
 
 ```
 ## upgrade-audit report
@@ -158,44 +159,84 @@ Skill version: <installed version>
 
 ### P0 - Critical governance gaps
 [Always included. P0 = ticket-gate missing or has no auto-synthesis, issue templates have no version marker]
+1. [P0] <description>
+   cp ~/dev-github-personal/ai-projectforge/.claude/agents/ticket-gate.md .claude/agents/ticket-gate.md
 
 ### P1 - Missing core agents
 [Include when focus = all or agents]
-[Agents in ai-projectforge/.claude/agents/ that are not in current .claude/agents/]
+2. [P1] <agent-name> missing
+   cp ~/dev-github-personal/ai-projectforge/.claude/agents/<name>.md .claude/agents/<name>.md
 
 ### P2 - Outdated issue templates
 [Include when focus = all or templates]
-[Templates where current project version < ai-projectforge version]
+3. [P2] <template-name> is version vN (current: vM)
+   cp ~/dev-github-personal/ai-projectforge/.github/ISSUE_TEMPLATE/<name>.yml .github/ISSUE_TEMPLATE/<name>.yml
 
 ### P3 - Optional enhancements
 [Include when focus = all or commands or skills]
-[Commands and skills in ai-projectforge that are not in the current project - filtered by focus]
+4. [P3] <command-or-skill-name> not present
+   cp ~/dev-github-personal/ai-projectforge/.claude/commands/<name>.md .claude/commands/<name>.md
+   (or: cp -r ~/dev-github-personal/ai-projectforge/.claude/skills/<name> .claude/skills/<name>)
 
 ### Already up to date
-[Items in the focused area that match ai-projectforge]
+[Items in the focused area that match ai-projectforge — no number, no action needed]
+```
+
+After printing the report, end with:
+
+```
+Which gaps would you like to apply?
+Reply with numbers (e.g. "1 3 5"), "all", or "none" to skip.
+```
+
+Then wait for the user's reply before continuing.
 
 ---
-### How to apply a gap
 
-To copy an agent:
-  cp ~/dev-github-personal/ai-projectforge/.claude/agents/<name>.md .claude/agents/<name>.md
+### Step 6.5: Apply selected gaps
 
-To copy a skill directory:
-  cp -r ~/dev-github-personal/ai-projectforge/.claude/skills/<name> .claude/skills/<name>
+Parse the user's reply and apply only the selected items.
 
-To copy a command:
-  cp ~/dev-github-personal/ai-projectforge/.claude/commands/<name>.md .claude/commands/<name>.md
+**If the reply is "none", "0", or empty:** print `Skipping gap application.` and proceed to Step 7.
 
-To copy issue templates:
-  cp ~/dev-github-personal/ai-projectforge/.github/ISSUE_TEMPLATE/*.yml .github/ISSUE_TEMPLATE/
+**Otherwise:**
 
-After copying ticket-gate.md, replace {{GITHUB_REPO}} with your repo (owner/name):
-  sed -i 's/{{GITHUB_REPO}}/owner\/repo/g' .claude/agents/ticket-gate.md
+**6.5a. Detect the current repo** (used for placeholder adaptation):
+
+```bash
+git remote get-url origin 2>/dev/null \
+  | sed 's|.*github\.com[:/]\(.*\)\.git|\1|; s|.*github\.com[:/]\(.*\)|\1|'
+```
+
+Store the result (e.g. `myorg/my-project`) as `CURRENT_REPO`.
+
+**6.5b. For each selected gap number**, run its `cp` command exactly as printed in the report.
+
+**6.5c. Adapt copied files** — after copying, check for `{{GITHUB_REPO}}` in the file:
+
+```bash
+grep -l '{{GITHUB_REPO}}' <destination-path> 2>/dev/null
+```
+
+If found, replace the placeholder with the detected repo:
+
+```bash
+sed -i 's|{{GITHUB_REPO}}|'"$CURRENT_REPO"'|g' <destination-path>
+```
+
+This applies primarily to agent files (`ticket-gate.md`, `dep-auditor.md`, `health-check.md`).
+Skills, commands, and issue templates do not use this placeholder — skip adaptation for them.
+
+**6.5d. Confirm what was done:**
+
+```
+Applied gaps: <list of numbers and names>
+Adapted placeholders in: <list of files where {{GITHUB_REPO}} was replaced, or "none">
 ```
 
 ### Step 7: Potential contributions to ai-projectforge
 
-Run this step after Step 6. Skip if focus is set (only run in full-audit mode).
+Run this step after Step 6.5 (gap application). Skip if focus is set (only run in full-audit mode).
 
 **7a. Collect project-only items**
 
@@ -294,11 +335,12 @@ Print the issue URL after each creation.
 
 ## Rules
 
-- **Report only - never auto-apply gaps.** Always list what should change, never change project files.
+- **Present gaps as a numbered list and wait for user selection** before applying anything.
+- **After copying any agent file, run `{{GITHUB_REPO}}` adaptation** using the detected git remote. Skills, commands, and templates do not need this.
+- **Step 7 (contributions) runs after Step 6.5 (gap application) is complete**, not before.
 - **Skip upgrade-audit itself** when comparing skills (globally installed, not a project gap).
 - **Ignore project-specific agents** not in ai-projectforge (safety-logic-reviewer, prisma-schema-guardian, etc.) - intentionally project-specific.
 - **P0 is a hard gate.** If ticket-gate is missing or outdated, say so prominently first.
-- **For each gap, provide the exact copy command** so the user can act in one step.
-- **Step 0 is the only exception to "report only"** - it may overwrite `~/.claude/skills/upgrade-audit/SKILL.md`.
+- **Step 0 is the only exception** — it may overwrite `~/.claude/skills/upgrade-audit/SKILL.md` without user selection.
 - **Step 7 only runs in full-audit mode** (no focus keyword). Skip it when focus is set.
 - **Never auto-create contribution issues.** Always wait for explicit user confirmation.
