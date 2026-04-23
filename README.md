@@ -23,9 +23,10 @@ The primary tool is the **`upgrade-audit` skill** — run it in any existing pro
 |---|---|
 | `upgrade-audit` skill | **Start here.** Compares your project against this reference and produces a prioritized gap report with exact copy commands |
 | `ticket-gate` agent | Scores every GitHub issue before implementation (5 core agents + dynamic routing). Auto-synthesises missing GWT scenarios and test specs from old issues |
-| 9 specialist agents | code-reviewer, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer |
+| 11 specialist agents | code-reviewer, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer, dep-auditor, health-check |
 | `gate-ticket` command | `/gate-ticket <N>` slash command |
 | `full-review` command | Multi-phase code review orchestrator |
+| `ci-health` command | `/ci-health` — check all GitHub Actions workflows, create P0 tickets for failures, gate and auto-fix safe failures |
 | 7 skills | upgrade-audit, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration |
 
 ## Install and run upgrade-audit
