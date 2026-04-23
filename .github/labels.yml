@@ -1,0 +1,71 @@
+- name: bug
+  color: "d73a4a"
+  description: Something isn't working
+
+- name: enhancement
+  color: "a2eeef"
+  description: New feature or request
+
+- name: feature
+  color: "0075ca"
+  description: New feature (alias for enhancement, more specific)
+
+- name: security
+  color: "e4e669"
+  description: Security vulnerability or hardening
+
+- name: infrastructure
+  color: "c5def5"
+  description: DevOps, CI/CD, deployment, hosting
+
+- name: design
+  color: "f9d0c4"
+  description: Wireframes, UX, accessibility
+
+- name: documentation
+  color: "0e8a16"
+  description: Documentation updates or additions
+
+- name: api
+  color: "bfd4f2"
+  description: API routes or contracts
+
+- name: web
+  color: "e0d3f5"
+  description: Web frontend
+
+- name: mobile
+  color: "fef2c0"
+  description: Mobile app
+
+- name: backend
+  color: "d4edda"
+  description: Backend services and logic
+
+- name: database
+  color: "f0c0f0"
+  description: Database schema or migrations
+
+- name: testing
+  color: "fbca04"
+  description: Tests, QA, coverage
+
+- name: P0
+  color: "b60205"
+  description: Critical - blocks release or safety-impacting
+
+- name: P1
+  color: "d93f0b"
+  description: High priority - important for current milestone
+
+- name: P2
+  color: "e4e669"
+  description: Medium priority - should do, not blocking
+
+- name: P3
+  color: "0e8a16"
+  description: Low priority - nice to have
+
+- name: critical
+  color: "b60205"
+  description: Highest urgency - triggers all agents in ticket-gate
