@@ -1,41 +1,54 @@
-# claude-scaffold
+# ai-projectforge
 
-Claude Code governance kit for any software project.
+AI-assisted project governance scaffold — AI-agnostic patterns, Claude Code automation.
 
-Provides the structural support that keeps a Claude Code project disciplined over time:
-versioned issue templates, a ticket readiness gate with auto-synthesis, specialist agents,
-and an upgrade-audit skill that tells you exactly what your project is missing.
+The **governance layer** (issue templates, GWT scenarios, OWASP checklists, labels) works for any team regardless of which AI tool they use. The **automation layer** (agents, skills, slash commands) is Claude Code-native and optional.
+
+The primary tool is the **`upgrade-audit` skill** — run it in any existing project to get a prioritized gap report with exact copy commands for everything your project is missing.
 
 ## What's included
 
+### Governance layer — works without Claude Code
+
 | Component | What it does |
 |---|---|
-| `ticket-gate` agent | Scores every GitHub issue before implementation (5 core agents + dynamic routing). Auto-synthesises missing GWT scenarios and test specs from old issues - no manual upgrades. |
+| 6 issue templates | feature, bug, security, infrastructure, design, contribution — v4 with GWT scenarios, unit test specs, E2E test specs, GDPR and security checklists |
+| GitHub labels | Standard label taxonomy for issue routing and prioritization |
+| `CLAUDE.md.template` | Fill-in project instructions template (Claude Code-specific, but the conventions inside are universal) |
+| `bootstrap.sh` | Copies templates, fills placeholders, creates GitHub labels — also installs the Claude automation layer if you want it |
+
+### Automation layer — Claude Code-native
+
+| Component | What it does |
+|---|---|
+| `upgrade-audit` skill | **Start here.** Compares your project against this reference and produces a prioritized gap report with exact copy commands |
+| `ticket-gate` agent | Scores every GitHub issue before implementation (5 core agents + dynamic routing). Auto-synthesises missing GWT scenarios and test specs from old issues |
 | 9 specialist agents | code-reviewer, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer |
-| `upgrade-audit` skill | Compares your project against this reference and produces a prioritized gap report with exact copy commands |
-| 5 issue templates | feature, bug, security, infrastructure, design - all v4 with GWT scenarios, unit test specs, and E2E test specs |
-| GitHub labels | Standard label set for issue routing and agent triggering |
 | `gate-ticket` command | `/gate-ticket <N>` slash command |
 | `full-review` command | Multi-phase code review orchestrator |
-| 5 skills | api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation |
-| `CLAUDE.md.template` | Fill-in project instructions template |
-| `bootstrap.sh` | Interactive setup: copies files, fills placeholders, creates GitHub labels |
+| 7 skills | upgrade-audit, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration |
 
-## Two use cases
+## Install and run upgrade-audit
 
-### 1. Bootstrap a new project
+### Step 1 — clone this repo
 
 ```bash
-git clone https://github.com/agigante80/claude-scaffold ~/[redacted]/claude-scaffold
-cd your-new-project
-~/[redacted]/claude-scaffold/bootstrap.sh
+git clone https://github.com/agigante80/ai-projectforge ~/ai-projectforge
 ```
 
-Or use GitHub's "Use this template" button on this repo.
+### Step 2 — install the skill globally
 
-### 2. Upgrade an existing project (primary use case)
+```bash
+~/ai-projectforge/install-global.sh
+```
 
-Run the `upgrade-audit` skill in any Claude Code session:
+When prompted, say **y** to `upgrade-audit`. Skip the agents and commands for now — you can install them selectively later.
+
+This copies `.claude/skills/upgrade-audit/` into `~/.claude/skills/` so the skill is available in every project without any per-project setup.
+
+### Step 3 — run it in your project
+
+Open Claude Code in your project and say:
 
 ```
 Run upgrade-audit
@@ -45,26 +58,58 @@ You'll get a prioritized report like:
 
 ```
 ## upgrade-audit report
-Reference: claude-scaffold (commit: abc1234)
+Reference: ai-projectforge (commit: abc1234)
 
 ### P0 - Critical governance gaps
-- ticket-gate agent missing -> copy from claude-scaffold and customize
+- ticket-gate agent missing -> copy from ai-projectforge and customize
 
 ### P1 - Missing core agents
 - security-auditor: not present
-  cp ~/[redacted]/claude-scaffold/.claude/agents/security-auditor.md .claude/agents/
+  cp ~/ai-projectforge/.claude/agents/security-auditor.md .claude/agents/
 
 ### P2 - Outdated issue templates
 - feature.yml: v3 detected, current is v4
-  cp ~/[redacted]/claude-scaffold/.github/ISSUE_TEMPLATE/feature.yml .github/ISSUE_TEMPLATE/
+  cp ~/ai-projectforge/.github/ISSUE_TEMPLATE/feature.yml .github/ISSUE_TEMPLATE/
 ```
 
 Apply selectively. The report includes a one-line command for each gap.
 
-Keep claude-scaffold updated to get new agents and improvements:
+### Keeping it up to date
+
 ```bash
-git -C ~/[redacted]/claude-scaffold pull
+git -C ~/ai-projectforge pull
+~/ai-projectforge/install-global.sh  # re-run to update the skill
 ```
+
+## Bootstrap a new project from scratch
+
+If you're starting a new project rather than upgrading an existing one:
+
+```bash
+git clone https://github.com/agigante80/ai-projectforge ~/ai-projectforge
+cd your-new-project
+~/ai-projectforge/bootstrap.sh
+```
+
+Or use GitHub's "Use this template" button on this repo.
+
+## Using without Claude Code
+
+If your team uses Cursor, GitHub Copilot, or no AI CLI at all, you can still adopt the governance layer directly:
+
+```bash
+git clone https://github.com/agigante80/ai-projectforge ~/ai-projectforge
+cd your-project
+~/ai-projectforge/bootstrap.sh
+```
+
+When the installer asks about agents and skills, skip them. What you get:
+
+- **Issue templates** in `.github/ISSUE_TEMPLATE/` — structured tickets with GWT scenarios, test specs, GDPR and security checklists
+- **GitHub labels** — standard taxonomy for routing and prioritization
+- **`CLAUDE.md.template`** — rename to `AI.md` or `AGENTS.md` and fill in your project's conventions for whichever AI tool your team uses
+
+The automation layer (agents, skills, `/gate-ticket`) requires Claude Code and can be added later.
 
 ## The ticket-gate (how it works)
 

@@ -1,6 +1,7 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Not using Claude Code? Rename this file `AI.md` or `AGENTS.md` and adapt the conventions below for your AI tool of choice — the patterns are AI-agnostic.
 
 # {{PROJECT_NAME}}
 
