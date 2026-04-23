@@ -121,11 +121,37 @@ else
 fi
 
 echo ""
+echo "Global install (optional)"
+echo "-------------------------"
+echo "Skills and agents installed in ~/.claude/ are available in ALL projects without"
+echo "per-project copying. The upgrade-audit skill is the most useful one to install globally."
+echo ""
+read -rp "Install upgrade-audit skill globally in ~/.claude/skills/? (Y/n): " GLOBAL_SKILL
+if [[ "$GLOBAL_SKILL" != "n" && "$GLOBAL_SKILL" != "N" ]]; then
+  mkdir -p "$HOME/.claude/skills"
+  cp -r "$SCAFFOLD_DIR/.claude/skills/upgrade-audit" "$HOME/.claude/skills/"
+  echo "  Installed: upgrade-audit -> ~/.claude/skills/upgrade-audit/"
+  echo "  It is now available in every Claude Code project."
+fi
+
+echo ""
+read -rp "Install gate-ticket command globally in ~/.claude/commands/? (y/N): " GLOBAL_CMD
+if [[ "$GLOBAL_CMD" == "y" || "$GLOBAL_CMD" == "Y" ]]; then
+  mkdir -p "$HOME/.claude/commands"
+  cp "$SCAFFOLD_DIR/.claude/commands/gate-ticket.md" "$HOME/.claude/commands/gate-ticket.md"
+  echo "  Installed: /gate-ticket -> ~/.claude/commands/gate-ticket.md"
+fi
+
+echo ""
+echo "For a full interactive global install (all agents + commands), run:"
+echo "  $SCAFFOLD_DIR/install-global.sh"
+
+echo ""
 echo "Done!"
 echo ""
 echo "Next steps:"
 echo "  1. Fill in CLAUDE.md - replace all {{TODO: ...}} sections"
-echo "  2. Commit the added files: git add .claude/ .github/ CLAUDE.md && git commit -m 'chore: add claude-scaffold governance'"
+echo "  2. Commit: git add .claude/ .github/ CLAUDE.md && git commit -m 'chore: add claude-scaffold governance'"
 echo "  3. File a test issue using the feature template on GitHub"
 echo "  4. Run /gate-ticket <issue-number> in Claude Code to verify the gate works"
 echo "  5. Keep claude-scaffold updated: git -C $SCAFFOLD_DIR pull"
