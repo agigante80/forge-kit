@@ -139,8 +139,5 @@ Then run forge-adapt again in your project. Phase 4 shows which of your installe
 
 ## Docs
 
-- `docs/guides/getting-started.md` — 5-minute setup
-- `docs/guides/upgrade-existing.md` — forge-adapt in detail
 - `docs/guides/template-versioning.md` — v4 GWT versioning and auto-synthesis
 - `docs/guides/labels.md` — label taxonomy and agent routing rules
-- `docs/references/claude-code-resources.md` — official Claude Code docs and community
