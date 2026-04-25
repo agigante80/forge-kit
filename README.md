@@ -67,7 +67,6 @@ forge-kit ships two layers.
 |---|---|
 | 6 issue templates | feature, bug, security, infrastructure, design, contribution — v4 with GWT scenarios, unit test specs, E2E test specs, GDPR and security checklists |
 | GitHub labels | Standard label taxonomy for issue routing and prioritisation |
-| `CLAUDE.md.template` | Fill-in project instructions template |
 
 ### Automation layer — Claude Code-native
 
@@ -120,7 +119,7 @@ Then open Claude Code in your project and say "run forge-adapt". It will find fo
 
 ## Using without Claude Code
 
-If your team uses Cursor, GitHub Copilot, or no AI CLI, you can still adopt the governance layer. Copy `.github/ISSUE_TEMPLATE/` and `.github/labels.yml` into your project, and use `CLAUDE.md.template` as a starting point for your project's AI instructions file (rename it `AI.md` or `AGENTS.md` for your tool of choice). The automation layer — forge-adapt, agents, slash commands — requires Claude Code and can be added later.
+If your team uses Cursor, GitHub Copilot, or no AI CLI, you can still adopt the governance layer. Copy `.github/ISSUE_TEMPLATE/` and `.github/labels.yml` into your project. The automation layer — forge-adapt, agents, slash commands — requires Claude Code and can be added later.
 
 ## Keeping up to date
 
