@@ -121,10 +121,21 @@ cat go.mod Cargo.toml pom.xml 2>/dev/null | head -30
 # Project intent and constraints
 cat CLAUDE.md 2>/dev/null
 
-# Already-installed governance (will be excluded from recommendations)
-ls .claude/agents/ 2>/dev/null
-ls .claude/skills/ 2>/dev/null
-ls .claude/commands/ 2>/dev/null
+# Already-installed governance — read frontmatter name so matching is exact
+echo "=== Installed agents ==="
+for f in .claude/agents/*.md; do
+  [ -f "$f" ] && grep -m1 "^name:" "$f" | sed "s/name: *//" || true
+done
+
+echo "=== Installed skills ==="
+for f in .claude/skills/*/SKILL.md; do
+  [ -f "$f" ] && grep -m1 "^name:" "$f" | sed "s/name: *//" || true
+done
+
+echo "=== Installed commands ==="
+for f in .claude/commands/*.md; do
+  [ -f "$f" ] && grep -m1 "^name:" "$f" | sed "s/name: *//" || true
+done
 
 # Git remote (used later for {{GITHUB_REPO}} replacement)
 CURRENT_REPO=$(git remote get-url origin 2>/dev/null \
@@ -143,8 +154,11 @@ Project profile:
   Domain: <what the project does and for whom>
   Security surface: <auth method, external APIs, data sensitivity>
   Architecture: <monorepo/microservices/monolith/REST API/etc.>
-  Governance already installed: <list or "none">
+  Governance already installed: <component names from frontmatter, comma-separated, or "none">
 ```
+
+Note: component names come from the `name:` frontmatter field — use these exact strings when
+cross-referencing against the forge-kit catalogue in Phase 4.
 
 Store this profile — it is used in Phase 5 to drive adaptation.
 
@@ -163,7 +177,10 @@ for plugin_dir in $FORGE_KIT_DIR/plugins/*/; do
 done
 ```
 
-For each component, read its first 15 lines to capture name, description, and purpose:
+For each component, read its first 15 lines and record:
+- The `name:` field from the YAML frontmatter — this is the canonical match key used in Phase 4
+- The `description:` field — used for recommendation rationale
+
 ```bash
 head -15 <path-to-component-file>
 ```
@@ -175,8 +192,12 @@ head -15 <path-to-component-file>
 Claude cross-references the project profile (Phase 2) against the catalogue (Phase 3).
 
 **Exclude** from recommendations:
-- Components already installed in `.claude/`
+- Components whose `name:` field matches a name in "Governance already installed" from the Phase 2 profile
 - Components clearly irrelevant to the detected stack or domain
+
+Matching is by `name:` field, not by filename or directory name. Example: if `.claude/skills/forge-adapt/SKILL.md`
+has `name: forge-adapt` and the forge-kit catalogue lists a component with `name: forge-adapt`,
+they are the same component — exclude it from recommendations.
 
 **Flag separately** as "version check":
 - Components present in `.claude/` but whose content differs from the forge-kit reference
