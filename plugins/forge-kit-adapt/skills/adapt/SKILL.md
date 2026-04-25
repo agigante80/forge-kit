@@ -40,32 +40,27 @@ Follow these phases in order. Do not skip ahead.
 Run before anything else.
 
 ```bash
-# 1. Local blob SHA
-LOCAL_SHA=$(git hash-object ~/.claude/skills/forge-adapt/SKILL.md 2>/dev/null)
-
-# 2. Remote blob SHA
+CURRENT_SHA=$(git hash-object "${CLAUDE_SKILL_DIR}/SKILL.md" 2>/dev/null)
 REMOTE_SHA=$(gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-adapt/skills/adapt/SKILL.md \
   --jq '.sha' 2>/dev/null)
 ```
 
 | Condition | Action |
 |---|---|
-| Either SHA empty | Skip silently |
-| `LOCAL_SHA == REMOTE_SHA` | Skip silently |
-| `LOCAL_SHA != REMOTE_SHA` | Auto-update |
+| `REMOTE_SHA` empty | Skip silently — no network or gh not authenticated |
+| `CURRENT_SHA == REMOTE_SHA` | Skip silently — up to date |
+| `CURRENT_SHA != REMOTE_SHA` | Print update notice, then continue |
 
-**Auto-update:**
-```bash
-REMOTE_DATE=$(gh api "repos/agigante80/forge-kit/commits?path=plugins/forge-kit-adapt/skills/adapt/SKILL.md&per_page=1" \
-  --jq '.[0].commit.committer.date[:10]' 2>/dev/null)
-
-gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-adapt/skills/adapt/SKILL.md \
-  --jq '.content' | base64 -d > ~/.claude/skills/forge-adapt/SKILL.md
+**Update notice:**
+```
+forge-adapt: a newer version is available.
+To update:
+  /plugin marketplace update forge-kit
+  /reload-plugins
+Continuing with current version.
 ```
 
-Print: `forge-adapt updated to ${REMOTE_DATE:-latest} (${REMOTE_SHA:0:7}). Continuing with new version.`
-
-Store `LOCAL_SHA` for the report header.
+Store `CURRENT_SHA` for the report header.
 
 ---
 
@@ -190,7 +185,7 @@ Produce a **numbered recommendation table**:
 ```
 ## forge-adapt — <project name or repo>
 
-Skill: forge-adapt @ <LOCAL_SHA[:7]>
+Skill: forge-adapt @ <CURRENT_SHA[:7]>
 forge-kit: <latest commit hash> (<date>)
 
 Project: <project profile summary>
@@ -376,7 +371,7 @@ Next steps:
 ## Rules
 
 - **Never write files in Phase 0–4.** All writes happen in Phase 5 only, after user approval.
-- **Phase 0 is the only exception** — it may overwrite `~/.claude/skills/forge-adapt/SKILL.md` without user selection. Versioning is by git blob SHA, not a manual version field.
+- **Phase 0 is read-only.** It checks for a newer version and notifies the user but never writes files. Updates are done by the user via `/plugin marketplace update forge-kit`.
 - **Never auto-create contribution issues.** Always wait for explicit user confirmation in Phase 6.
 - **ticket-gate is P0.** If it is missing, always list it first.
 - **Adapt, do not pad.** Every customisation in Phase 5 must be traceable to a specific project characteristic from Phase 2. Do not add generic best-practice text that the original template already covers.
