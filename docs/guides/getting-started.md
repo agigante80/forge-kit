@@ -62,7 +62,7 @@ Open `CLAUDE.md` and replace all `{{TODO: ...}}` sections with your project-spec
 
 ### 2. Customize ticket-gate (optional)
 
-If your project has domain-specific agents (e.g., a schema reviewer, mobile reviewer), add them to the dynamic agent table in `.claude/agents/ticket-gate.md`. See `docs/guides/agent-selection.md` for the pattern.
+If your project has domain-specific agents (e.g., a schema reviewer, mobile reviewer), add them to the dynamic agent table in `.claude/agents/ticket-gate.md`.
 
 ### 3. File your first issue and run the gate
 
