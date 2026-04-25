@@ -5,45 +5,38 @@
     "email": "a.gigante@gmail.com"
   },
   "metadata": {
-    "description": "AI-assisted project governance scaffold with mandatory quality gates",
-    "pluginRoot": "./plugins"
+    "description": "AI-assisted project governance scaffold with mandatory quality gates"
   },
   "plugins": [
     {
       "name": "forge-kit-governance",
-      "source": "forge-kit-governance",
-      "description": "Core ticket gate, gate-ticket command, and forge-adapt skill. Install this first.",
-      "version": "1.0.0"
+      "source": "./plugins/forge-kit-governance",
+      "description": "Core ticket gate, gate-ticket command, and forge-adapt skill. Install this first."
     },
     {
       "name": "forge-kit-review",
-      "source": "forge-kit-review",
-      "description": "Code review agents (code-reviewer, architect-review, backend-architect) and full-review/pr-enhance commands.",
-      "version": "1.0.0"
+      "source": "./plugins/forge-kit-review",
+      "description": "Code review agents (code-reviewer, architect-review, backend-architect) and full-review/pr-enhance commands."
     },
     {
       "name": "forge-kit-security",
-      "source": "forge-kit-security",
-      "description": "Security agents (security-auditor, backend-security-coder, api-security-tester) and OWASP checklist skill.",
-      "version": "1.0.0"
+      "source": "./plugins/forge-kit-security",
+      "description": "Security agents (security-auditor, backend-security-coder, api-security-tester) and OWASP checklist skill."
     },
     {
       "name": "forge-kit-testing",
-      "source": "forge-kit-testing",
-      "description": "Testing agents: tdd-orchestrator, test-automator, performance-engineer.",
-      "version": "1.0.0"
+      "source": "./plugins/forge-kit-testing",
+      "description": "Testing agents: tdd-orchestrator, test-automator, performance-engineer."
     },
     {
       "name": "forge-kit-devops",
-      "source": "forge-kit-devops",
-      "description": "dep-auditor, health-check agents and /ci-health command.",
-      "version": "1.0.0"
+      "source": "./plugins/forge-kit-devops",
+      "description": "dep-auditor, health-check agents and /ci-health command."
     },
     {
       "name": "forge-kit-backend",
-      "source": "forge-kit-backend",
-      "description": "Backend architecture and API design skills.",
-      "version": "1.0.0"
+      "source": "./plugins/forge-kit-backend",
+      "description": "Backend architecture and API design skills."
     }
   ]
 }
