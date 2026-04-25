@@ -61,4 +61,4 @@ Use a **skill** when:
 - You want to inject domain knowledge into Claude's current conversation
 - The task is a checklist or pattern reference
 - It doesn't produce an independent artifact
-- Examples: upgrade-audit, owasp-api-security checklist, API design principles
+- Examples: forge-adapt, owasp-api-security checklist, API design principles

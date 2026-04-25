@@ -65,7 +65,7 @@ gh api repos/OWNER/REPO/contents/.claude/agents/AGENT.md \
 - Domain knowledge injected into the main conversation
 - No isolated context - adds to Claude's current session
 - Used for patterns, checklists, or guidelines Claude applies inline
-- Examples: owasp-api-security, api-design-principles, upgrade-audit
+- Examples: owasp-api-security, api-design-principles, forge-adapt
 
 ### Command (`.claude/commands/*.md`)
 - User-facing slash command the user invokes with `/command-name`

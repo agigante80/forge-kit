@@ -1,126 +1,95 @@
-# ai-projectforge
+# forge-kit
 
-AI-assisted project governance scaffold — AI-agnostic patterns, Claude Code automation.
+forge-adapt reads your codebase and installs the governance tools that fit — rewritten for your stack, not copy-pasted.
 
-The **governance layer** (issue templates, GWT scenarios, OWASP checklists, labels) works for any team regardless of which AI tool they use. The **automation layer** (agents, skills, slash commands) is Claude Code-native and optional.
+forge-kit is a library of project governance components: ticket gates, code reviewers, security auditors, dependency auditors, and more. `forge-adapt` is the skill that bridges forge-kit and your project — it reads your codebase, recommends what's relevant, and writes project-specific versions into `.claude/`. Nothing generic. Every component knows your stack.
 
-The primary tool is the **`upgrade-audit` skill** — run it in any existing project to get a prioritized gap report with exact copy commands for everything your project is missing.
+## How it works
 
-## What's included
+```
+1. Install forge-kit          /plugin marketplace add agigante80/forge-kit
+                              /plugin install forge-kit-governance@forge-kit
+
+2. Open your project          cd my-project
+   and run forge-adapt        (say "run forge-adapt" to Claude Code)
+```
+
+forge-adapt takes it from there.
+
+## What forge-adapt does
+
+When you say "run forge-adapt", it:
+
+1. **Analyses your project** — reads your stack files, CLAUDE.md, source structure, and existing `.claude/` contents to build a project profile
+2. **Recommends components** — cross-references your profile against the forge-kit library, ranks by relevance and priority, shows you why each component fits your project specifically
+3. **Waits for your approval** — nothing is written until you select what to install
+4. **Writes adapted versions** — Claude rewrites each component using your project profile. "Check for SQL injection" becomes "check for Prisma `$queryRaw` / `$executeRaw` injection in `src/db/`"
+
+## Example
+
+```
+Project profile:
+  Language/framework: TypeScript / Next.js 14
+  Domain: SaaS — multi-tenant project management with billing
+  Security surface: JWT auth, Stripe webhooks, PostgreSQL via Prisma
+  Governance already installed: none
+
+### Recommended to install and adapt
+| # | Component          | Type    | Why this project needs it                        | Priority |
+|---|--------------------|---------|--------------------------------------------------|----------|
+| 1 | ticket-gate        | agent   | Quality gate — universal need                    | P0       |
+| 2 | security-auditor   | agent   | JWT + Stripe webhook surface has OWASP exposure  | P0       |
+| 3 | api-security-tester| agent   | Public REST API with auth and payment endpoints  | P0       |
+| 4 | dep-auditor        | agent   | npm ecosystem with deep transitive deps          | P1       |
+| 5 | code-reviewer      | agent   | TypeScript/Next.js patterns and type safety      | P1       |
+| 6 | forge-adapt        | skill   | Keeps governance in sync with forge-kit          | P1       |
+
+Which would you like to import and adapt?
+Reply with numbers (e.g. "1 3 5"), "all", or "none".
+
+> all
+
+✓ ticket-gate (agent) — adapted for agigante80/my-saas; Prisma + Stripe checks added
+✓ security-auditor (agent) — JWT algorithm and webhook signature checks injected
+✓ api-security-tester (agent) — Stripe webhook endpoint added to test surface
+✓ dep-auditor (agent) — npm audit + license checks for payment libraries
+✓ code-reviewer (agent) — Next.js App Router patterns and Prisma query safety
+✓ forge-adapt (skill) — installed and self-updating
+```
+
+## The library
+
+forge-kit ships two layers.
 
 ### Governance layer — works without Claude Code
 
 | Component | What it does |
 |---|---|
 | 6 issue templates | feature, bug, security, infrastructure, design, contribution — v4 with GWT scenarios, unit test specs, E2E test specs, GDPR and security checklists |
-| GitHub labels | Standard label taxonomy for issue routing and prioritization |
-| `CLAUDE.md.template` | Fill-in project instructions template (Claude Code-specific, but the conventions inside are universal) |
-| `bootstrap.sh` | Copies templates, fills placeholders, creates GitHub labels — also installs the Claude automation layer if you want it |
+| GitHub labels | Standard label taxonomy for issue routing and prioritisation |
+| `CLAUDE.md.template` | Fill-in project instructions template |
 
 ### Automation layer — Claude Code-native
 
 | Component | What it does |
 |---|---|
-| `upgrade-audit` skill | **Start here.** Compares your project against this reference and produces a prioritized gap report with exact copy commands |
-| `ticket-gate` agent | Scores every GitHub issue before implementation (5 core agents + dynamic routing). Auto-synthesises missing GWT scenarios and test specs from old issues |
+| `forge-adapt` skill | Analyses the target project, recommends relevant components, writes project-customised versions, and surfaces contribution candidates back to forge-kit |
+| `ticket-gate` agent | Scores every GitHub issue before implementation (5 core agents + dynamic routing by label). ALL must score 10/10 to pass |
 | 11 specialist agents | code-reviewer, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer, dep-auditor, health-check |
-| `gate-ticket` command | `/gate-ticket <N>` slash command |
-| `full-review` command | Multi-phase code review orchestrator |
-| `ci-health` command | `/ci-health` — check all GitHub Actions workflows, create P0 tickets for failures, gate and auto-fix safe failures |
-| 7 skills | upgrade-audit, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration |
+| `/full-review` | Multi-phase code review orchestrator with a mid-run checkpoint |
+| `/pr-enhance` | Pull request description and checklist generation |
+| `/ci-health` | Check all GitHub Actions workflows, create P0 tickets for failures, auto-fix safe failures |
+| 7 skills | forge-adapt, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration |
 
-## Install and run upgrade-audit
+## After setup
 
-### Step 1 — clone this repo
-
-```bash
-git clone https://github.com/agigante80/ai-projectforge ~/ai-projectforge
-```
-
-### Step 2 — install the skill globally
-
-```bash
-~/ai-projectforge/install-global.sh
-```
-
-When prompted, say **y** to `upgrade-audit`. Skip the agents and commands for now — you can install them selectively later.
-
-This copies `.claude/skills/upgrade-audit/` into `~/.claude/skills/` so the skill is available in every project without any per-project setup.
-
-### Step 3 — run it in your project
-
-Open Claude Code in your project and say:
+Once forge-adapt has installed your components, the governance workflow looks like this:
 
 ```
-Run upgrade-audit
+file ticket → gate it (10/10 from all specialists) → implement → review
 ```
 
-You'll get a prioritized report like:
-
-```
-## upgrade-audit report
-Reference: ai-projectforge (commit: abc1234)
-
-### P0 - Critical governance gaps
-- ticket-gate agent missing -> copy from ai-projectforge and customize
-
-### P1 - Missing core agents
-- security-auditor: not present
-  cp ~/ai-projectforge/.claude/agents/security-auditor.md .claude/agents/
-
-### P2 - Outdated issue templates
-- feature.yml: v3 detected, current is v4
-  cp ~/ai-projectforge/.github/ISSUE_TEMPLATE/feature.yml .github/ISSUE_TEMPLATE/
-```
-
-Apply selectively. The report includes a one-line command for each gap.
-
-### Keeping it up to date
-
-```bash
-git -C ~/ai-projectforge pull
-~/ai-projectforge/install-global.sh  # re-run to update the skill
-```
-
-## Bootstrap a new project from scratch
-
-If you're starting a new project rather than upgrading an existing one:
-
-```bash
-git clone https://github.com/agigante80/ai-projectforge ~/ai-projectforge
-cd your-new-project
-~/ai-projectforge/bootstrap.sh
-```
-
-Or use GitHub's "Use this template" button on this repo.
-
-## Using without Claude Code
-
-If your team uses Cursor, GitHub Copilot, or no AI CLI at all, you can still adopt the governance layer directly:
-
-```bash
-git clone https://github.com/agigante80/ai-projectforge ~/ai-projectforge
-cd your-project
-~/ai-projectforge/bootstrap.sh
-```
-
-When the installer asks about agents and skills, skip them. What you get:
-
-- **Issue templates** in `.github/ISSUE_TEMPLATE/` — structured tickets with GWT scenarios, test specs, GDPR and security checklists
-- **GitHub labels** — standard taxonomy for routing and prioritization
-- **`CLAUDE.md.template`** — rename to `AI.md` or `AGENTS.md` and fill in your project's conventions for whichever AI tool your team uses
-
-The automation layer (agents, skills, `/gate-ticket`) requires Claude Code and can be added later.
-
-## The ticket-gate (how it works)
-
-`/gate-ticket <N>` runs 5 mandatory specialist agents on a GitHub issue + dynamic agents
-by label. All must score 10/10.
-
-**Auto-synthesis:** If an issue was filed on an older template version, the gate
-automatically synthesises the missing content (GWT scenarios, unit test specs, E2E test specs)
-from the existing issue body - no human intervention. It updates the issue, posts a comment,
-and re-scores.
+`/gate-ticket <N>` runs on every GitHub issue before a line of code is written. If the issue was filed against an older template, the gate auto-synthesises missing GWT scenarios and test specs — no manual rework needed.
 
 ```
 /gate-ticket 42
@@ -128,32 +97,53 @@ and re-scores.
 Running ticket readiness gate on #42...
 
 Template auto-upgraded to v4 - content synthesised
-- Test scenarios (GWT): 3 conditions, 6 scenarios
+- GWT scenarios: 3 conditions, 6 scenarios
 - Unit tests: 4 specific cases
 - E2E tests: 2 specific cases
 
 Security:  10/10 PASS
 Architect: 10/10 PASS
 Developer: 10/10 PASS
-QA:         10/10 PASS
+QA:        10/10 PASS
 GDPR:      10/10 PASS
 
 PASS - Ticket #42 is ready for implementation
 ```
 
+## Manual install (without plugin marketplace)
+
+```bash
+git clone https://github.com/agigante80/forge-kit ~/forge-kit
+```
+
+Then open Claude Code in your project and say "run forge-adapt". It will find forge-kit at `~/forge-kit/` and run all phases from there.
+
+## Using without Claude Code
+
+If your team uses Cursor, GitHub Copilot, or no AI CLI, you can still adopt the governance layer. Copy `.github/ISSUE_TEMPLATE/` and `.github/labels.yml` into your project, and use `CLAUDE.md.template` as a starting point for your project's AI instructions file (rename it `AI.md` or `AGENTS.md` for your tool of choice). The automation layer — forge-adapt, agents, slash commands — requires Claude Code and can be added later.
+
+## Keeping up to date
+
+forge-adapt auto-updates itself on every run via a blob SHA check against the GitHub remote — no manual steps needed.
+
+To pull new or updated library components:
+
+```bash
+# Plugin marketplace
+/reload-plugins   # after enabling auto-update in /plugin → Marketplaces
+
+# Manual install
+git -C ~/forge-kit pull
+```
+
+Then run forge-adapt again in your project. Phase 4 shows which of your installed components have drifted from the forge-kit reference and offers to refresh them.
+
 ## Docs
 
-- `docs/guides/getting-started.md` - 5-minute setup
-- `docs/guides/upgrade-existing.md` - using upgrade-audit
-- `docs/guides/agent-selection.md` - which agents does your project need?
-- `docs/guides/template-versioning.md` - how v4 GWT versioning + auto-synthesis works
-- `docs/guides/labels.md` - label taxonomy and agent routing rules
-- `docs/references/claude-code-resources.md` - official docs, community, finding more agents
-- `.claude/agents/README.md` - taxonomy (agents vs skills vs commands), adding new agents
-
-## After bootstrapping
-
-1. Fill in `CLAUDE.md` - replace `{{TODO: ...}}` sections with your project details
-2. File a test issue using the feature template
-3. Run `/gate-ticket <N>` to verify the gate works
-4. Consider adding project-specific agents (see `docs/guides/agent-selection.md`)
+- `docs/guides/getting-started.md` — 5-minute setup
+- `docs/guides/upgrade-existing.md` — forge-adapt in detail
+- `docs/guides/agent-selection.md` — which agents does your project need?
+- `docs/guides/template-versioning.md` — v4 GWT versioning and auto-synthesis
+- `docs/guides/labels.md` — label taxonomy and agent routing rules
+- `docs/guides/agents.md` — agents vs skills vs commands; adding new ones
+- `docs/references/claude-code-resources.md` — official Claude Code docs and community

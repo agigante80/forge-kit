@@ -1,5 +1,5 @@
 name: Contribution
-description: Suggest an agent, command, skill, or issue template to add to ai-projectforge
+description: Suggest an agent, command, skill, or issue template to add to forge-kit
 title: "Contribution: "
 labels: ["contribution"]
 body:
@@ -29,7 +29,7 @@ body:
     id: rationale
     attributes:
       label: Why it would be useful across projects
-      description: Explain why this belongs in ai-projectforge rather than staying project-specific.
+      description: Explain why this belongs in forge-kit rather than staying project-specific.
       placeholder: "e.g. Any project with a mobile UI needs accessibility review. This agent is domain-agnostic and requires only minor configuration."
     validations:
       required: true
@@ -54,6 +54,6 @@ body:
       label: Before merging
       options:
         - label: Generalise any hardcoded project references (repo names, product names, domain-specific paths)
-        - label: Add entry to ai-projectforge README.md component table
+        - label: Add entry to forge-kit README.md component table
         - label: Add or update docs/guides/ if the contribution needs explanation
         - label: Verify no sensitive data (tokens, keys, internal URLs) in the content

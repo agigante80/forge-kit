@@ -1,91 +1,94 @@
-# Upgrading an Existing Project
+# Keeping Your Project in Sync with forge-kit
 
-ai-projectforge is a living reference. As new agents, patterns, and governance improvements
-are added, you can pull them into existing projects using the `upgrade-audit` skill.
+forge-kit is a living reference. As new agents, patterns, and governance improvements
+are added, `forge-adapt` pulls them into your project — selecting only what's relevant
+and rewriting each component to fit your specific stack and domain.
 
-## How it works
+## How forge-adapt works
 
-The `upgrade-audit` skill compares the current project's `.claude/` directory and GitHub
-issue templates against `~/[redacted]/ai-projectforge/` and produces a
-prioritized gap report.
+When you run `forge-adapt`, it runs eight phases:
 
-## Running upgrade-audit
+| Phase | What happens |
+|---|---|
+| 0 | Self-update check — compares local vs remote blob SHA, auto-updates if different |
+| 1 | Verify forge-kit is available at `~/forge-kit/` |
+| 2 | Analyse your project — stack, domain, security surface, existing governance |
+| 3 | Catalogue forge-kit — reads all available agents, commands, and skills |
+| 4 | Produce a ranked recommendation table — waits for your selection |
+| 5 | Adapt and install approved items — Claude rewrites each template for your project |
+| 6 | Scan for contribution candidates — project-only components worth sharing back |
+| 7 | Create GitHub issues on forge-kit for accepted contribution candidates |
 
-In any Claude Code session in your project, say:
+Phases 0–4 are read-only. No files are written until you approve selections in Phase 4.
 
-```
-Run upgrade-audit
-```
+## Running forge-adapt
 
-Or invoke the skill by name. Claude will:
-1. List recent changes to ai-projectforge (via git log)
-2. Compare your project's agents, commands, skills, and templates
-3. Produce a report with exact copy commands for each gap
-
-## Example report output
-
-```
-## upgrade-audit report
-Reference: ~/[redacted]/ai-projectforge (commit: abc1234)
-Date: 2026-04-23
-
-### P0 - Critical governance gaps
-- ticket-gate agent missing -> copy from ai-projectforge and customize {{GITHUB_REPO}}
-
-### P1 - Missing core agents
-- security-auditor: not present
-  cp ~/[redacted]/ai-projectforge/.claude/agents/security-auditor.md .claude/agents/
-
-### P2 - Outdated issue templates
-- feature.yml: v3 detected, current is v4
-  cp ~/[redacted]/ai-projectforge/.github/ISSUE_TEMPLATE/feature.yml .github/ISSUE_TEMPLATE/
-
-### P3 - Optional enhancements
-- tdd-orchestrator: not present
-  cp ~/[redacted]/ai-projectforge/.claude/agents/tdd-orchestrator.md .claude/agents/
-
-### Already up to date
-- code-reviewer, architect-review: present
-- gate-ticket command: present
-```
-
-## Applying a gap
-
-The report includes a copy command for each gap. Apply selectively:
+First, make sure forge-kit is cloned locally:
 
 ```bash
-# Copy an agent
-cp ~/[redacted]/ai-projectforge/.claude/agents/security-auditor.md .claude/agents/
-
-# Copy a skill directory
-cp -r ~/[redacted]/ai-projectforge/.claude/skills/owasp-api-security .claude/skills/
-
-# Copy issue templates
-cp ~/[redacted]/ai-projectforge/.github/ISSUE_TEMPLATE/feature.yml .github/ISSUE_TEMPLATE/
+git clone https://github.com/agigante80/forge-kit ~/forge-kit
 ```
 
-After copying `ticket-gate.md`, replace the placeholder with your repo:
+Then open Claude Code in your project and say:
+
+```
+run forge-adapt
+```
+
+### Example Phase 4 output
+
+```
+## forge-adapt — my-saas-app
+
+Skill: forge-adapt @ a3f7c12
+forge-kit: 0b9d948 (2026-04-23)
+
+Project: TypeScript/Next.js SaaS with PostgreSQL and JWT auth.
+         REST API, 3 external integrations, GDPR-relevant user data.
+
+### Recommended to install and adapt
+| # | Component | Type | Why this project needs it | Priority |
+|---|-----------|------|--------------------------|----------|
+| 1 | ticket-gate | agent | Quality gate — universal need | P0 |
+| 2 | security-auditor | agent | JWT + PostgreSQL surface has OWASP exposure | P0 |
+| 3 | api-security-tester | agent | Public REST API with auth endpoints | P0 |
+| 4 | dep-auditor | agent | npm ecosystem with transitive deps | P1 |
+| 5 | forge-adapt | skill | Keeps governance in sync over time | P1 |
+
+### Already installed — version check
+| # | Component | Status |
+|---|-----------|--------|
+| 6 | code-reviewer | ⚠ Differs from forge-kit reference — consider updating |
+
+Which would you like to import and adapt?
+Reply with numbers (e.g. "1 3 5"), "all", or "none".
+```
+
+### What "adapt" means
+
+When you select a component, forge-adapt does not copy the generic template.
+It reads both the template and your project profile, then generates a version
+specific to your project. For example:
+
+- Generic: "check for SQL injection in database queries"
+- Adapted: "check for Prisma `$queryRaw` / `$executeRaw` injection; verify parameterized queries are used in all raw SQL calls"
+
+Every customisation is traceable to a specific characteristic of your project.
+
+## Keeping forge-kit up to date
+
 ```bash
-sed -i 's/{{GITHUB_REPO}}/owner\/repo/g' .claude/agents/ticket-gate.md
+git -C ~/forge-kit pull
 ```
 
-## Keeping ai-projectforge up to date
+Then run `forge-adapt` in your project — it will detect what has changed (via blob SHA comparison) and offer to update your installed components.
 
-```bash
-git -C ~/[redacted]/ai-projectforge pull
-```
+## "Am I up to date?"
 
-Run upgrade-audit after pulling to see what's new.
+The Phase 4 "Already installed — version check" table shows every component whose
+content differs from the current forge-kit reference. Run `forge-adapt`, skip
+Phase 4 new installs (reply "none"), and update only the outdated items.
 
-## Issue template auto-upgrade
+## Backward compatibility
 
-You don't need to manually upgrade issue templates for existing tickets. When you run
-`/gate-ticket` on an old ticket (filed against template v3, current is v4), the gate's
-Step 0c auto-synthesis pipeline will:
-1. Detect the version mismatch
-2. Synthesise the missing GWT scenarios and test specs from the existing issue body
-3. Update the issue body via `gh issue edit`
-4. Post a void+synthesis comment
-5. Re-score all agents against the enriched body
-
-No human intervention needed for per-ticket upgrades.
+`forge-adapt` also responds to "run upgrade-audit" for projects that used the old skill name.

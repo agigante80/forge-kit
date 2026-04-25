@@ -39,7 +39,7 @@ GitHub labels serve dual purpose: issue organization AND dynamic agent routing i
 
 ## Installing labels
 
-`bootstrap.sh` creates all labels automatically via `gh label create`.
+After installing forge-kit, create all labels using `gh label create` or import them directly from `.github/labels.yml`.
 
 To recreate labels in a new repo manually:
 ```bash

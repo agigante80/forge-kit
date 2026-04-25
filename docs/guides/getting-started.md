@@ -1,6 +1,6 @@
 # Getting Started
 
-Add ai-projectforge governance to a new or existing project in 5 minutes.
+Add forge-kit governance to a new or existing project in 5 minutes.
 
 ## Prerequisites
 
@@ -8,32 +8,48 @@ Add ai-projectforge governance to a new or existing project in 5 minutes.
 - GitHub CLI installed (`gh`) and authenticated (`gh auth login`)
 - Git repository with a GitHub remote
 
-## Option A: Bootstrap an existing project
+## Option A: Plugin marketplace (recommended for Claude Code users)
 
-From inside your project directory:
+The fastest path — no cloning required.
 
-```bash
-# Clone ai-projectforge (if you haven't already)
-git clone https://github.com/agigante80/ai-projectforge ~/[redacted]/ai-projectforge
-
-# Run the bootstrap script
-~/[redacted]/ai-projectforge/bootstrap.sh
+```shell
+/plugin marketplace add agigante80/forge-kit
+/plugin install forge-kit-governance@forge-kit
 ```
 
-The script will:
-1. Ask for your GitHub owner/repo (e.g. `myorg/my-project`)
-2. Copy `.claude/`, `.github/ISSUE_TEMPLATE/`, and `CLAUDE.md.template` into your project
-3. Replace `{{GITHUB_REPO}}` and `{{PROJECT_NAME}}` placeholders
-4. Create GitHub labels from `.github/labels.yml`
+Install additional groups as needed:
 
-## Option B: Use as a GitHub template
+```shell
+/plugin install forge-kit-security@forge-kit
+/plugin install forge-kit-review@forge-kit
+/plugin install forge-kit-testing@forge-kit
+/plugin install forge-kit-devops@forge-kit
+/plugin install forge-kit-backend@forge-kit
+```
 
-1. Go to `https://github.com/agigante80/ai-projectforge`
-2. Click **"Use this template"** -> **"Create a new repository"**
-3. Clone your new repo
-4. Run `./bootstrap.sh` to fill in placeholders and create labels
+Run `/reload-plugins` to activate. Enable auto-update in `/plugin` → **Marketplaces** to stay current automatically.
 
-## After bootstrapping
+## Option B: forge-adapt (existing project, no plugin marketplace)
+
+Clone forge-kit once, then run `forge-adapt` from inside your target project:
+
+```bash
+git clone https://github.com/agigante80/forge-kit ~/forge-kit
+```
+
+Open Claude Code in your project and say:
+
+```
+run forge-adapt
+```
+
+forge-adapt will:
+1. Analyse your codebase — stack, domain, security surface, existing governance
+2. Recommend the most relevant forge-kit components with reasoning
+3. Wait for your selection before writing anything
+4. Write project-customised versions directly into `.claude/` — not generic copies
+
+## After setup
 
 ### 1. Fill in CLAUDE.md
 
@@ -44,9 +60,9 @@ Open `CLAUDE.md` and replace all `{{TODO: ...}}` sections with your project-spec
 - Architecture notes and service boundaries
 - Branch strategy
 
-### 2. Customize ticket-gate.md (optional)
+### 2. Customize ticket-gate (optional)
 
-If your project has domain-specific agents (e.g., a schema reviewer, mobile reviewer), add them to the dynamic agent table in `.claude/agents/ticket-gate.md`.
+If your project has domain-specific agents (e.g., a schema reviewer, mobile reviewer), add them to the dynamic agent table in `.claude/agents/ticket-gate.md`. See `docs/guides/agent-selection.md` for the pattern.
 
 ### 3. File your first issue and run the gate
 
@@ -56,18 +72,18 @@ If your project has domain-specific agents (e.g., a schema reviewer, mobile revi
 # /gate-ticket <issue-number>
 ```
 
-The gate will auto-synthesise missing GWT scenarios and test specs if the template version
-is outdated. No manual upgrades needed.
+The gate auto-synthesises missing GWT scenarios and test specs if the template version
+is outdated — no manual upgrades needed.
 
-### 4. Run upgrade-audit periodically
+### 4. Run forge-adapt periodically
 
-Keep your project in sync with the ai-projectforge reference:
+Keep your project in sync with the forge-kit reference:
+
 ```bash
-# Pull latest ai-projectforge
-git -C ~/[redacted]/ai-projectforge pull
+# Pull latest forge-kit
+git -C ~/forge-kit pull
 
-# Run the audit in your project
-# (use /upgrade-audit or mention "run upgrade audit" to Claude Code)
+# Run forge-adapt in your project — it detects what has changed and offers to update
 ```
 
-See `docs/guides/upgrade-existing.md` for details on the upgrade-audit workflow.
+See `docs/guides/upgrade-existing.md` for details on the forge-adapt workflow.
