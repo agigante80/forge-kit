@@ -53,9 +53,9 @@ Key agents:
 
 Note: `dep-auditor` and `health-check` are agent types, not slash commands. Trigger them by mentioning "health check" or "audit dependencies" in conversation.
 
-**Skills** (`plugins/<group>/skills/*/SKILL.md`) — Domain knowledge injected into the main conversation (not isolated). Frontmatter requires only `name` and `description`. Some skills have `assets/` (checklists, templates) and `references/` (supporting docs) subdirectories alongside `SKILL.md`. Triggered automatically when relevant or by user invocation. Includes: `forge-adapt`, `api-design-principles`, `owasp-api-security`, `architecture-patterns`, `microservices-patterns`, `cqrs-implementation`, `saga-orchestration`.
+**Skills** (`plugins/<group>/skills/*/SKILL.md`) — Domain knowledge injected into the main conversation (not isolated). Frontmatter requires only `name` and `description`. Skills can have `assets/` (checklists, templates) and `references/` (supporting docs) subdirectories alongside `SKILL.md` — only `api-design-principles` in `forge-kit-backend` currently uses this pattern. Triggered automatically when relevant or by user invocation. Includes: `forge-adapt`, `api-design-principles`, `owasp-api-security`, `architecture-patterns`, `microservices-patterns`, `cqrs-implementation`, `saga-orchestration`.
 
-**Issue Templates** (`.github/ISSUE_TEMPLATE/*.yml`) — All templates carry `<!-- template-version: 4 -->` and include mandatory sections: GWT scenarios, unit test specs, E2E test specs, GDPR considerations, security checklist, and required reviews checkbox. The `ticket-gate` agent auto-synthesizes missing v4 sections from earlier-version tickets.
+**Issue Templates** (`.github/ISSUE_TEMPLATE/*.yml`) — Six templates: `feature.yml`, `bug.yml`, `security.yml`, `infrastructure.yml`, `design.yml`, `contribution.yml`. All carry `<!-- template-version: 4 -->` and include mandatory sections: GWT scenarios, unit test specs, E2E test specs, GDPR considerations, security checklist, and required reviews checkbox. The `ticket-gate` agent auto-synthesizes missing v4 sections from earlier-version tickets. See `docs/guides/template-versioning.md` for the versioning scheme and auto-synthesis logic.
 
 ## Plugin Structure
 
