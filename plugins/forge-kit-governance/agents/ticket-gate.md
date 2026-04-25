@@ -166,6 +166,42 @@ gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json labels --jq '.labels[].name
 gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json number,title,body,labels,milestone
 ```
 
+### Step 1.5: Thin ticket pre-check
+
+Before running any scoring agents, assess whether the ticket contains enough implementation
+detail to score meaningfully. A thin ticket that would score low purely due to missing
+information is better halted now with targeted questions than scored low across 5+ agents.
+
+Launch a `general-purpose` sub-agent with the issue title and full body. Ask it to evaluate:
+1. Does the ticket have specific acceptance criteria (not just a description)?
+2. Is there enough implementation detail for a developer to start without asking questions?
+3. Are there obvious missing constraints, edge cases, or open questions that would materially
+   affect agent scores?
+
+**Threshold:** If the sub-agent identifies 3+ unanswered questions that would materially
+change scoring (not cosmetic style or wording questions), halt with BLOCKED:
+
+```bash
+gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "$(cat <<'EOF'
+## ticket-gate: clarification needed before scoring
+
+This ticket lacks enough implementation detail to score accurately. Please answer the
+following questions in the ticket body (not in comments) before re-running the gate:
+
+1. [Question 1]
+2. [Question 2]
+3. [Question 3 — up to 5 questions]
+
+Answering in the body ensures the next gate run can score the complete spec.
+EOF
+)"
+```
+
+Print: `BLOCKED - #<N> needs clarification before scoring. Questions posted as a comment.`
+**Do NOT proceed to Step 2.** Return immediately.
+
+If fewer than 3 material questions, note the assessment briefly and proceed to Step 2.
+
 ### Step 2: Read project context
 
 Read these files to give agents full context:
@@ -236,11 +272,61 @@ After selecting agents, assess whether the ticket needs additional research befo
 - Log all research in the scorecard under a **"Research performed"** section
 - Research does NOT block scoring - it enhances context. If a search fails, log it and proceed.
 
+### Step 2.9: Codebase exploration
+
+Map existing code patterns relevant to this ticket. Findings are passed to the Architect and
+Developer agents to ground their scores in the actual codebase state.
+
+**1. Check if `codebase_context` is already populated in the issue body:**
+```bash
+gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json body --jq '.body' | grep -A 30 "Codebase Context"
+```
+- If the section has non-placeholder content (i.e., contains more than the default placeholder
+  text): skip re-exploration. Log: `codebase context: using cached findings from previous gate run`
+- If empty or shows the default placeholder: run the exploration sub-agent below.
+
+**2. Launch a `general-purpose` sub-agent** with:
+- The ticket title and key domain nouns extracted from the title, labels, and body
+- The CLAUDE.md project context from Step 2
+
+Ask the sub-agent to use Glob and Grep to locate and summarise:
+- Existing files and patterns in the area relevant to this ticket
+- Any conflicting patterns or constraints that affect the proposed approach
+- Related existing tests that the ticket's implementation should build on
+
+**3. Write the findings to the issue** (replacing the Codebase Context placeholder):
+
+Build a structured block:
+```markdown
+<!-- ticket-gate: populated <YYYY-MM-DD> -->
+**Relevant files:**
+- `<path>` — <one-line summary>
+
+**Existing tests:**
+- `<path>` — <one-line summary>
+
+**Constraints:**
+- <constraint relevant to implementation choices>
+```
+
+```bash
+# Build the updated body with findings injected into the Codebase Context section
+# then update via:
+gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
+```
+
+If no relevant files exist, write `greenfield area — no existing patterns in scope` and note
+this to the Architect agent (absence of patterns is itself useful architectural context).
+
+**4. Pass the populated `Codebase Context` section to the Architect and Developer agents**
+in Step 3 as additional context alongside the issue body and project files.
+
 ### Step 3: Run selected agents SEQUENTIALLY
 
 Run each selected agent one at a time. Each agent receives:
 - The issue title + body
 - The project context files read in Step 2
+- The `Codebase Context` findings from Step 2.9 (Architect and Developer agents specifically)
 - The scores and notes from all previous agents
 
 Each agent MUST return a JSON block:
@@ -292,6 +378,23 @@ Score criteria (1-10):
 - Consistency: does it follow conventions in CLAUDE.md (file length, naming, error format)?
 - Scalability: will this approach work at scale? Any N+1 queries?
 - Dependencies: are new dependencies justified? Could we use what's already installed?
+
+**When Architect scores < 5 (fundamental design issue):**
+
+After receiving the Architect agent's result, immediately launch a `general-purpose`
+sub-agent with:
+- The ticket body
+- The Architect agent's score, notes, and `required_changes`
+- The `Codebase Context` from Step 2.9
+
+Ask the sub-agent to propose 2–3 alternative implementation approaches that address the
+Architect's concerns. Each alternative must include:
+- A 1-line description of the approach
+- Why it resolves the Architect's specific objection
+- Key trade-offs
+
+Store these as `architecture_alternatives`. They will be appended to the auto-remediated
+issue body in Step 6 so the ticket author can pick an approach before re-running the gate.
 
 #### Developer (core - always runs)
 Use agent type: `code-reviewer`
@@ -399,10 +502,69 @@ Build a markdown scorecard table:
 gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "<scorecard>"
 ```
 
-### Step 6: Return result
+### Step 6: Return result and auto-remediate
 
-If ALL scores = 10: print "✅ PASS - Ticket #<N> is ready for implementation"
-If ANY score < 10: print "❌ BLOCKED - Ticket #<N> needs fixes from: [agent list]"
+**If ALL scores = 10:**
+Print: `✅ PASS - Ticket #<N> is ready for implementation`
+
+**If ANY score < 10:**
+
+Classify failures by severity:
+- **Fundamental** (score 1–4): blocking — always auto-remediate; override never available
+- **Significant** (score 5–7): failing — auto-remediate by default
+- **Near-pass** (score 8–9): minor findings — auto-remediate by default
+
+**Default behaviour: auto-remediate without prompting.**
+
+Build an updated issue body:
+1. Preserve all existing content verbatim
+2. For each failing agent, append a `### Required additions — <Agent>` section with
+   `required_changes` formatted as a checklist
+3. If `architecture_alternatives` were generated (Architect scored < 5), append a
+   `### Architecture alternatives` section with the 2–3 options
+
+Update the issue:
+```bash
+gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
+```
+
+Print:
+```
+❌ FAIL — Ticket #<N> auto-remediated.
+Issue updated with required changes for: <agent list>
+Re-run /gate-ticket <N> after reviewing the additions.
+```
+
+---
+
+**Prompt mode** (only when CLAUDE.md contains `ticket-gate: remediation = prompt`):
+
+Instead of auto-remediating, present severity-aware options and wait for user reply:
+
+| Tier | Options |
+|------|---------|
+| Fundamental (1–4) | 1. Auto-remediate issue body  2. Post remediation guide as GitHub comment  *(no override)* |
+| Significant (5–7) | 1. Auto-remediate issue body  2. Post remediation guide as GitHub comment  3. Override and proceed |
+| Near-pass (8–9)   | 1. Create follow-up ticket(s)  2. Auto-remediate issue body  3. Proceed as-is |
+
+**Option 2 (remediation guide):**
+```bash
+gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "$(cat <<'EOF'
+## ticket-gate: remediation guide
+
+### <Agent name> — <score>/10
+- [ ] <required change 1>
+- [ ] <required change 2>
+EOF
+)"
+```
+
+**Option 1 near-pass (follow-up tickets):**
+For each near-miss agent: `gh issue create --repo {{GITHUB_REPO}} --title "Follow-up: <finding summary> (from #<N>)" --label "enhancement" --body "<agent notes as checklist> — source: #<N>"`
+Print each created URL, then: `✅ PASS (deferred) — Ticket #<N> cleared; <N> follow-up ticket(s) created.`
+
+**Option 3 override (significant only):**
+Print: `⚠️ OVERRIDE — Proceeding despite <N> failing agents. Scores on record in GitHub comment.`
 
 ---
 
@@ -421,3 +583,15 @@ If ANY score < 10: print "❌ BLOCKED - Ticket #<N> needs fixes from: [agent lis
 - **Auto-synthesis voids all scores.** If the current run triggered Step 0c, ALL agents must
   re-score regardless of any prior passing scores. No scores carry forward from a
   pre-synthesis run.
+- **Thin ticket check (Step 1.5) runs before any scoring agent.** If the ticket needs
+  clarification (3+ material unanswered questions), post questions as a GitHub comment and
+  halt with BLOCKED. No scoring agents run until the ticket is sufficiently detailed.
+- **Codebase exploration (Step 2.9) always runs.** Findings are written to the issue body's
+  `Codebase Context` section and passed to the Architect and Developer agents.
+- **Architecture alternatives are generated automatically** when the Architect agent scores
+  < 5. They are appended to the issue body during auto-remediation.
+- **Default on FAIL: auto-remediate.** Update the issue body with required changes per agent
+  and print the FAIL result. No user prompt unless CLAUDE.md sets
+  `ticket-gate: remediation = prompt`.
+- **Override is never available for fundamental failures (score < 5).** These represent
+  blocking issues that must be resolved before implementation begins.
