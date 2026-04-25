@@ -133,12 +133,13 @@ Rating scale:
 
 ### Gaps (categories scoring < 3)
 
-For each gap, provide a ready-to-paste CLAUDE.md addition:
+Suggested additions target `docs/coding-standards.md` — the canonical home for
+human-readable standards. CLAUDE.md should reference that file, not duplicate it.
 
 #### <Category name> — score X/3
-Current: <what CLAUDE.md says now, or "not defined">
+Current: <what the existing standards files say, or "not defined">
 
-Suggested addition:
+Suggested addition for `docs/coding-standards.md`:
 \`\`\`markdown
 ## <Category heading>
 
@@ -149,7 +150,7 @@ is/has/should (e.g. isLoading, hasError).">
 
 ---
 
-### Already mechanically enforced — no CLAUDE.md rule needed
+### Already mechanically enforced — no docs/coding-standards.md rule needed
 The following are handled by <tool> and do not need manual guidelines:
 - <list of categories/rules>
 ```
@@ -161,9 +162,13 @@ The following are handled by <tool> and do not need manual guidelines:
 - Any category covered by a linter/formatter config (ESLint, Prettier, Black, Ruff, golangci-lint,
   rustfmt) scores **3 automatically** — do not suggest redundant CLAUDE.md rules for things
   a tool already catches.
-- Suggested CLAUDE.md additions must be specific and actionable.
+- Suggested additions must be specific and actionable and target `docs/coding-standards.md`.
   Bad: "follow naming conventions" — Good: "Use camelCase for variables and functions.
   Use PascalCase for classes. Use SCREAMING_SNAKE_CASE for module-level constants."
-- If CLAUDE.md has no coding standards section at all, open the report with:
-  "No coding standards section found in CLAUDE.md. The additions below provide a
-  complete starting point for <detected stack>."
+- If `docs/coding-standards.md` does not exist, open the report with:
+  "`docs/coding-standards.md` not found. The additions below provide a complete starting
+  point for <detected stack>. Create the file and paste them in."
+- After the gap report, if CLAUDE.md exists but has no reference to `docs/coding-standards.md`,
+  append this note:
+  "Add this line to CLAUDE.md so Claude Code knows where your standards live:
+  `Coding standards: see docs/coding-standards.md`"
