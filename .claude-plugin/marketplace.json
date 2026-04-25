@@ -11,7 +11,7 @@
     {
       "name": "forge-kit-adapt",
       "source": "./plugins/forge-kit-adapt",
-      "description": "Install this first. forge-adapt analyses your project and installs the right components."
+      "description": "Install this first. forge-adapt analyses your project, suggests the right components, and installs what you choose."
     },
     {
       "name": "forge-kit-governance",
