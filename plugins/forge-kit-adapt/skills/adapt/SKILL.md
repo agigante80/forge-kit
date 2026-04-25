@@ -74,9 +74,12 @@ FORGE_KIT_DIR=""
 PLUGIN_INFERRED_ROOT=$(realpath "${CLAUDE_SKILL_DIR}/../../../../" 2>/dev/null)
 if [ -d "${PLUGIN_INFERRED_ROOT}/plugins/forge-kit-governance" ]; then
   FORGE_KIT_DIR="$PLUGIN_INFERRED_ROOT"
-# Fall back to manual clone
 elif [ -d ~/forge-kit/plugins ]; then
   FORGE_KIT_DIR=~/forge-kit
+else
+  echo "forge-adapt: cloning forge-kit reference library to ~/forge-kit..."
+  git clone https://github.com/agigante80/forge-kit ~/forge-kit --depth 1 --quiet \
+    && FORGE_KIT_DIR=~/forge-kit
 fi
 
 # Diagnostic — reveals the actual resolved paths for debugging
