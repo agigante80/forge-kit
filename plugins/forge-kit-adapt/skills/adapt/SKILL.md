@@ -121,20 +121,32 @@ cat go.mod Cargo.toml pom.xml 2>/dev/null | head -30
 # Project intent and constraints
 cat CLAUDE.md 2>/dev/null
 
-# Already-installed governance — read frontmatter name so matching is exact
+# Already-installed governance — read name + description for exact matching and overlap detection
 echo "=== Installed agents ==="
 for f in .claude/agents/*.md; do
-  [ -f "$f" ] && grep -m1 "^name:" "$f" | sed "s/name: *//" || true
+  if [ -f "$f" ]; then
+    n=$(grep -m1 "^name:" "$f" | sed "s/name: *//")
+    d=$(grep -m1 "^description:" "$f" | sed "s/description: *//")
+    echo "  $n | $d"
+  fi
 done
 
 echo "=== Installed skills ==="
 for f in .claude/skills/*/SKILL.md; do
-  [ -f "$f" ] && grep -m1 "^name:" "$f" | sed "s/name: *//" || true
+  if [ -f "$f" ]; then
+    n=$(grep -m1 "^name:" "$f" | sed "s/name: *//")
+    d=$(grep -m1 "^description:" "$f" | sed "s/description: *//")
+    echo "  $n | $d"
+  fi
 done
 
 echo "=== Installed commands ==="
 for f in .claude/commands/*.md; do
-  [ -f "$f" ] && grep -m1 "^name:" "$f" | sed "s/name: *//" || true
+  if [ -f "$f" ]; then
+    n=$(grep -m1 "^name:" "$f" | sed "s/name: *//")
+    d=$(grep -m1 "^description:" "$f" | sed "s/description: *//")
+    echo "  $n | $d"
+  fi
 done
 
 # Git remote (used later for {{GITHUB_REPO}} replacement)
@@ -157,8 +169,9 @@ Project profile:
   Governance already installed: <component names from frontmatter, comma-separated, or "none">
 ```
 
-Note: component names come from the `name:` frontmatter field — use these exact strings when
-cross-referencing against the forge-kit catalogue in Phase 4.
+Note: each installed component is listed as `name | description`. Use the `name` field for
+exact-match exclusion in Phase 4. Use the `description` field to detect semantic overlap with
+forge-kit components that have a different name but similar purpose.
 
 Store this profile — it is used in Phase 5 to drive adaptation.
 
@@ -199,6 +212,14 @@ Matching is by `name:` field, not by filename or directory name. Example: if `.c
 has `name: forge-adapt` and the forge-kit catalogue lists a component with `name: forge-adapt`,
 they are the same component — exclude it from recommendations.
 
+**Flag separately** as "potential overlap" (do NOT exclude automatically):
+- Forge-kit components that are not an exact-name match but whose purpose substantially overlaps
+  with a local component's `description:` field — e.g., a local `pr-reviewer` agent that does
+  code quality review overlaps with forge-kit's `code-reviewer`. List these in the overlap table
+  so the user can decide whether to install alongside, replace, or skip.
+- Use judgement: overlap means the same governance concern is already addressed, not just that
+  both components touch code. A linter and a code-reviewer are not overlapping.
+
 **Flag separately** as "version check":
 - Components present in `.claude/` but whose content differs from the forge-kit reference
   (diff first 30 lines to detect staleness)
@@ -227,8 +248,16 @@ Project: <project profile summary>
 | N | code-reviewer | ⚠ Differs from forge-kit reference — consider updating |
 ...
 
+### Potentially overlapping — review before installing
+| # | Forge-kit component | Local component | Why they may overlap |
+|---|---------------------|-----------------|----------------------|
+| M | code-reviewer | pr-reviewer | Both address code quality review |
+...
+(omit this table entirely if no overlaps are detected)
+
 Which would you like to import and adapt?
 Reply with numbers (e.g. "1 3 5"), "all", or "none".
+Numbers from the "Potentially overlapping" table are also valid — installing them is allowed.
 ```
 
 Wait for user reply before continuing.
