@@ -41,20 +41,38 @@ Run before anything else.
 
 ```bash
 CURRENT_SHA=$(git hash-object "${CLAUDE_SKILL_DIR}/SKILL.md" 2>/dev/null)
-REMOTE_SHA=$(gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-adapt/skills/adapt/SKILL.md \
-  --jq '.sha' 2>/dev/null)
+REMOTE_JSON=$(gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-adapt/skills/adapt/SKILL.md \
+  2>/dev/null)
+REMOTE_SHA=$(echo "$REMOTE_JSON" | jq -r '.sha // empty' 2>/dev/null)
 ```
 
 | Condition | Action |
 |---|---|
 | `REMOTE_SHA` empty | Skip silently — no network or gh not authenticated |
 | `CURRENT_SHA == REMOTE_SHA` | Skip silently — up to date |
-| `CURRENT_SHA != REMOTE_SHA` | Print update notice, then continue |
+| `CURRENT_SHA != REMOTE_SHA` | Auto-update (see below) |
 
-**Update notice:**
+**Auto-update steps (run when `CURRENT_SHA != REMOTE_SHA`):**
+```bash
+echo "$REMOTE_JSON" | jq -r '.content' | base64 -d > "${CLAUDE_SKILL_DIR}/SKILL.md"
 ```
-forge-adapt: a newer version is available.
-To update:
+
+| Write outcome | Action |
+|---|---|
+| Succeeded (exit 0) | Print auto-update message (below), read `${CLAUDE_SKILL_DIR}/SKILL.md` in full, then continue from Phase 1 of the updated file — do not re-run Phase 0 |
+| Failed (non-zero exit) | Print fallback notice (below) and continue with current version |
+
+**Auto-update message (on success):**
+```
+forge-adapt: auto-updated to latest version.
+Run /reload-plugins to activate the new version for all future sessions.
+Continuing this run with the updated instructions.
+```
+
+**Fallback notice (on write failure):**
+```
+forge-adapt: a newer version is available (auto-update failed — cache may be read-only).
+To update manually:
   /plugin marketplace update forge-kit
   /reload-plugins
 Continuing with current version.
@@ -422,8 +440,8 @@ Next steps:
 
 ## Rules
 
-- **Never write files in Phase 0–4.** All writes happen in Phase 5 only, after user approval.
-- **Phase 0 is read-only.** It checks for a newer version and notifies the user but never writes files. Updates are done by the user via `/plugin marketplace update forge-kit`.
+- **Never write files in Phase 1–4.** All governance writes happen in Phase 5 only, after user approval. Phase 0 is the sole exception — it may write its own SKILL.md.
+- **Phase 0 auto-updates.** When a newer version is available it writes the updated SKILL.md to `${CLAUDE_SKILL_DIR}/SKILL.md` and continues from Phase 1 of the new file. If the write fails it falls back to a manual notice. The user should run `/reload-plugins` after an auto-update to activate the new version for all future sessions.
 - **Never auto-create contribution issues.** Always wait for explicit user confirmation in Phase 6.
 - **ticket-gate is P0.** If it is missing, always list it first.
 - **Adapt, do not pad.** Every customisation in Phase 5 must be traceable to a specific project characteristic from Phase 2. Do not add generic best-practice text that the original template already covers.
