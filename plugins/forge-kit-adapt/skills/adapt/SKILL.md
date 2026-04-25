@@ -279,6 +279,8 @@ Numbers from the "Potentially overlapping" table are also valid — installing t
 ```
 
 Wait for user reply before continuing.
+- If the user replied with numbers (or "all"): proceed to Phase 5.
+- If the user replied "none": skip Phase 5 and proceed immediately to Phase 6.
 
 ---
 
@@ -324,6 +326,8 @@ sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <written-file-path>
 **5e. Confirm**
 Print: `✓ <name> (<type>) — installed and adapted for <detected stack>`
 
+After confirming all approved components, proceed immediately to Phase 6.
+
 ---
 
 ### Phase 6: Contribution candidates
@@ -366,6 +370,9 @@ For surviving candidates, read their description and present:
 ...
 
 Reply with numbers to open contribution issues, or "none" to skip.
+Wait for user reply, then:
+- If the user replied with numbers: proceed to Phase 7 for each accepted candidate.
+- If the user replied "none": skip Phase 7 and proceed immediately to Phase 8.
 ```
 
 If no candidates survive the filter:
@@ -373,6 +380,7 @@ If no candidates survive the filter:
 ### Potential contributions to forge-kit
 No generalisable candidates found — all project-only items appear domain-specific.
 ```
+Proceed immediately to Phase 8.
 
 ---
 
@@ -413,6 +421,8 @@ EOF
 ```
 
 Print the issue URL after each creation.
+
+After creating all issues, proceed immediately to Phase 8.
 
 ---
 
