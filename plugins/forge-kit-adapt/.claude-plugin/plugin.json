@@ -1,5 +1,4 @@
 {
   "name": "forge-kit-adapt",
-  "description": "forge-adapt skill — analyses your project and installs the right forge-kit components",
-  "version": "1.0.0"
+  "description": "forge-adapt skill — analyses your project and installs the right forge-kit components"
 }

@@ -1,5 +1,4 @@
 {
   "name": "forge-kit-governance",
-  "description": "ticket-gate agent and gate-ticket slash command",
-  "version": "1.0.0"
+  "description": "ticket-gate agent and gate-ticket slash command"
 }
