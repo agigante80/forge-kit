@@ -44,7 +44,7 @@ Run before anything else.
 LOCAL_SHA=$(git hash-object ~/.claude/skills/forge-adapt/SKILL.md 2>/dev/null)
 
 # 2. Remote blob SHA
-REMOTE_SHA=$(gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-governance/skills/forge-adapt/SKILL.md \
+REMOTE_SHA=$(gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-adapt/skills/adapt/SKILL.md \
   --jq '.sha' 2>/dev/null)
 ```
 
@@ -56,10 +56,10 @@ REMOTE_SHA=$(gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-govern
 
 **Auto-update:**
 ```bash
-REMOTE_DATE=$(gh api "repos/agigante80/forge-kit/commits?path=plugins/forge-kit-governance/skills/forge-adapt/SKILL.md&per_page=1" \
+REMOTE_DATE=$(gh api "repos/agigante80/forge-kit/commits?path=plugins/forge-kit-adapt/skills/adapt/SKILL.md&per_page=1" \
   --jq '.[0].commit.committer.date[:10]' 2>/dev/null)
 
-gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-governance/skills/forge-adapt/SKILL.md \
+gh api repos/agigante80/forge-kit/contents/plugins/forge-kit-adapt/skills/adapt/SKILL.md \
   --jq '.content' | base64 -d > ~/.claude/skills/forge-adapt/SKILL.md
 ```
 
@@ -72,19 +72,41 @@ Store `LOCAL_SHA` for the report header.
 ### Phase 1: Verify forge-kit is available
 
 ```bash
-ls ~/forge-kit/plugins/ 2>/dev/null | head -5
+# Detect forge-kit root — works for plugin install (any scope) and manual clone
+FORGE_KIT_DIR=""
+# When installed via plugin marketplace, SKILL.md is inside the full forge-kit repo tree.
+# ${CLAUDE_SKILL_DIR} resolves to the skill's directory; going up 4 levels reaches repo root.
+PLUGIN_INFERRED_ROOT=$(realpath "${CLAUDE_SKILL_DIR}/../../../../" 2>/dev/null)
+if [ -d "${PLUGIN_INFERRED_ROOT}/plugins/forge-kit-governance" ]; then
+  FORGE_KIT_DIR="$PLUGIN_INFERRED_ROOT"
+# Fall back to manual clone
+elif [ -d ~/forge-kit/plugins ]; then
+  FORGE_KIT_DIR=~/forge-kit
+fi
+
+# Diagnostic — reveals the actual resolved paths for debugging
+echo "forge-adapt: CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR}"
+echo "forge-adapt: FORGE_KIT_DIR=${FORGE_KIT_DIR:-not found}"
 ```
 
-If the directory does not exist, stop and print:
+If `FORGE_KIT_DIR` is empty, stop and print:
 ```
-forge-kit not found at ~/forge-kit/
-Clone it: git clone https://github.com/agigante80/forge-kit ~/forge-kit
+forge-kit not found. Options:
+
+  Plugin marketplace (recommended):
+    /plugin marketplace add agigante80/forge-kit
+    /plugin install forge-kit-adapt@forge-kit
+    /reload-plugins
+
+  Manual clone:
+    git clone https://github.com/agigante80/forge-kit ~/forge-kit
+
 Then re-run forge-adapt.
 ```
 
 Show recent commits so the user knows which version they are running against:
 ```bash
-git -C ~/forge-kit log --oneline -5
+git -C "$FORGE_KIT_DIR" log --oneline -5
 ```
 
 ---
@@ -136,7 +158,7 @@ Store this profile — it is used in Phase 5 to drive adaptation.
 Read all available components:
 
 ```bash
-for plugin_dir in ~/forge-kit/plugins/*/; do
+for plugin_dir in $FORGE_KIT_DIR/plugins/*/; do
   echo "=== $(basename $plugin_dir) ==="
   ls "$plugin_dir/agents/"   2>/dev/null | sed 's/^/  agent: /'
   ls "$plugin_dir/commands/" 2>/dev/null | sed 's/^/  command: /'
@@ -201,9 +223,9 @@ For each item the user approved:
 
 **5a. Read the generic template**
 ```bash
-cat ~/forge-kit/plugins/<group>/<type>/<name>.md
+cat $FORGE_KIT_DIR/plugins/<group>/<type>/<name>.md
 # or for skills:
-cat ~/forge-kit/plugins/<group>/skills/<name>/SKILL.md
+cat $FORGE_KIT_DIR/plugins/<group>/skills/<name>/SKILL.md
 ```
 
 **5b. Claude generates an adapted version**
@@ -247,17 +269,17 @@ After Phase 5, scan for project-only components that could benefit the forge-kit
 # Agents in project but not in any forge-kit plugin:
 comm -23 \
   <(ls .claude/agents/ 2>/dev/null | sort) \
-  <(ls ~/forge-kit/plugins/*/agents/ 2>/dev/null | xargs -n1 basename | sort -u)
+  <(ls $FORGE_KIT_DIR/plugins/*/agents/ 2>/dev/null | xargs -n1 basename | sort -u)
 
 # Commands:
 comm -23 \
   <(ls .claude/commands/ 2>/dev/null | sort) \
-  <(ls ~/forge-kit/plugins/*/commands/ 2>/dev/null | xargs -n1 basename | sort -u)
+  <(ls $FORGE_KIT_DIR/plugins/*/commands/ 2>/dev/null | xargs -n1 basename | sort -u)
 
 # Skills (exclude forge-adapt itself):
 comm -23 \
   <(ls .claude/skills/ 2>/dev/null | grep -v "^forge-adapt$" | sort) \
-  <(ls ~/forge-kit/plugins/*/skills/ 2>/dev/null | xargs -n1 basename | sort -u)
+  <(ls $FORGE_KIT_DIR/plugins/*/skills/ 2>/dev/null | xargs -n1 basename | sort -u)
 ```
 
 **Generalisation filter** — skip candidates that:
