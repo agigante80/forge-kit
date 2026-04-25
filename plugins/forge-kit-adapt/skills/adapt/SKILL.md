@@ -269,13 +269,14 @@ Project: <project profile summary>
 ### Potentially overlapping — review before installing
 | # | Forge-kit component | Local component | Why they may overlap |
 |---|---------------------|-----------------|----------------------|
-| M | code-reviewer | pr-reviewer | Both address code quality review |
+| P1 | code-reviewer | pr-reviewer | Both address code quality review |
 ...
 (omit this table entirely if no overlaps are detected)
+Overlap items use the prefix P (P1, P2, …) to avoid ambiguity with the numbered recommendation list.
 
 Which would you like to import and adapt?
-Reply with numbers (e.g. "1 3 5"), "all", or "none".
-Numbers from the "Potentially overlapping" table are also valid — installing them is allowed.
+Reply with numbers for recommended items (e.g. "1 3 5"), "all", or "none".
+To also install overlapping items, include their P-prefixed numbers (e.g. "1 3 P1").
 ```
 
 Wait for user reply before continuing.
