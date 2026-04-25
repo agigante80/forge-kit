@@ -26,8 +26,19 @@ cat go.mod 2>/dev/null | head -10
 cat Cargo.toml 2>/dev/null | head -10
 cat pom.xml build.gradle 2>/dev/null | head -20
 
-# Read existing guidelines
+# Read existing guidelines — check all common locations
 cat CLAUDE.md 2>/dev/null
+cat CONTRIBUTING.md 2>/dev/null
+cat STYLE_GUIDE.md STYLE-GUIDE.md styleguide.md 2>/dev/null
+cat CODE_STYLE.md CODE-STYLE.md code-style.md 2>/dev/null
+cat STANDARDS.md standards.md 2>/dev/null
+cat .editorconfig 2>/dev/null
+cat .github/copilot-instructions.md 2>/dev/null
+cat .cursor/rules/*.md 2>/dev/null
+find docs/ -iname "*standard*" -o -iname "*style*" -o -iname "*guideline*" -o -iname "*convention*" \
+  2>/dev/null | head -10 | xargs cat 2>/dev/null
+# Extract any coding-standards section from README
+grep -A 50 -i "coding standard\|style guide\|conventions\|contributing" README.md 2>/dev/null | head -80
 
 # Read linter/formatter config — these indicate what is already mechanically enforced
 cat .eslintrc* .eslintrc.json .eslintrc.js 2>/dev/null
@@ -36,6 +47,8 @@ cat pyproject.toml 2>/dev/null | grep -A20 "\[tool\.ruff\]\|\[tool\.black\]\|\[t
 cat .golangci.yml 2>/dev/null
 cat rustfmt.toml .rustfmt.toml 2>/dev/null
 ```
+
+Note which files contained standards — list them in the report header so the user knows what was read. If no standards files were found at all, note that explicitly before scoring.
 
 ## Phase 2: Score each standard category
 
@@ -98,6 +111,7 @@ For each category score 0–3:
 ## Coding Standards Audit — <project name or repo>
 
 Stack: <detected language/framework>
+Standards found in: <list of files that contained standards, e.g. "CLAUDE.md, CONTRIBUTING.md" or "none found">
 Mechanically enforced by: <detected linter/formatter tools, or "none detected">
 
 ### Scores
