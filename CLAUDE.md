@@ -19,7 +19,7 @@ The kit is organized into four layers, all living under `plugins/<group>/`:
 | `forge-kit-devops` | dep-auditor, health-check agents; ci-health command |
 | `forge-kit-backend` | api-design-principles, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration skills |
 
-Users install via the plugin marketplace (`/plugin marketplace add agigante80/forge-kit`) or by cloning the repo and running `forge-adapt` from within the target project.
+Users install via the plugin marketplace (`/plugin marketplace add https://github.com/agigante80/forge-kit`) or by cloning the repo and running `forge-adapt` from within the target project.
 
 
 
@@ -50,7 +50,7 @@ Note: `dep-auditor` and `health-check` are agent types, not slash commands. Trig
 - Commands → user-facing entry points; delegate to agents
 
 **Installation paths:**
-- Plugin marketplace: `/plugin marketplace add agigante80/forge-kit` then `/plugin install <group>@forge-kit`
+- Plugin marketplace: `/plugin marketplace add https://github.com/agigante80/forge-kit` then `/plugin install <group>@forge-kit`
 - Manual: clone `~/forge-kit`, then run `forge-adapt` from the target project — it reads the codebase, recommends components, and writes adapted versions into `.claude/`
 - `.claude/` in a project repo = project-scoped; `~/.claude/` = global across all projects
 - `{{GITHUB_REPO}}` placeholder in agents must be replaced at install time — `forge-adapt` handles this automatically; manual installs need `sed -i 's/{{GITHUB_REPO}}/owner\/repo/g'`
