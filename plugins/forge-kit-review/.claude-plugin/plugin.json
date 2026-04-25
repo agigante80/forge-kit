@@ -1,4 +1,4 @@
 {
   "name": "forge-kit-review",
-  "description": "Code review agents and full-review/pr-enhance commands"
+  "description": "Code review agents (code-reviewer, architect-review, backend-architect, code-simplifier, coding-standards-auditor) and full-review/pr-enhance commands."
 }
