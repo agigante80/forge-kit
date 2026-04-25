@@ -67,17 +67,18 @@ Store `CURRENT_SHA` for the report header.
 ### Phase 1: Verify forge-kit is available
 
 ```bash
-# Detect forge-kit root — works for plugin install (any scope) and manual clone
+# Detect the forge-kit template library.
+# Marketplace installs: CLAUDE_SKILL_DIR resolves to the per-plugin cache dir;
+# the full repo tree is NOT present there. Try the plugin-inferred root first
+# (works for direct repo checkouts), then ~/forge-kit, then auto-clone.
 FORGE_KIT_DIR=""
-# When installed via plugin marketplace, SKILL.md is inside the full forge-kit repo tree.
-# ${CLAUDE_SKILL_DIR} resolves to the skill's directory; going up 4 levels reaches repo root.
 PLUGIN_INFERRED_ROOT=$(realpath "${CLAUDE_SKILL_DIR}/../../../../" 2>/dev/null)
 if [ -d "${PLUGIN_INFERRED_ROOT}/plugins/forge-kit-governance" ]; then
   FORGE_KIT_DIR="$PLUGIN_INFERRED_ROOT"
 elif [ -d ~/forge-kit/plugins ]; then
   FORGE_KIT_DIR=~/forge-kit
 else
-  echo "forge-adapt: cloning forge-kit reference library to ~/forge-kit..."
+  echo "forge-adapt: cloning template library to ~/forge-kit (one-time setup — separate from the skill update in Phase 0)..."
   git clone https://github.com/agigante80/forge-kit ~/forge-kit --depth 1 --quiet \
     && FORGE_KIT_DIR=~/forge-kit
 fi
@@ -89,15 +90,13 @@ echo "forge-adapt: FORGE_KIT_DIR=${FORGE_KIT_DIR:-not found}"
 
 If `FORGE_KIT_DIR` is empty, stop and print:
 ```
-forge-kit not found. Options:
+forge-adapt: could not clone the template library automatically.
+Run manually:
+  git clone https://github.com/agigante80/forge-kit ~/forge-kit
 
-  Plugin marketplace (recommended):
-    /plugin marketplace add agigante80/forge-kit
-    /plugin install forge-kit-adapt@forge-kit
-    /reload-plugins
-
-  Manual clone:
-    git clone https://github.com/agigante80/forge-kit ~/forge-kit
+Note: to update the skill itself, use:
+  /plugin marketplace update forge-kit
+  /reload-plugins
 
 Then re-run forge-adapt.
 ```
