@@ -11,7 +11,9 @@ forge-kit is a library of project governance components: ticket gates, code revi
 
 2. Install the plugin       /plugin install forge-kit-adapt@forge-kit
 
-3. Open your project        /forge-kit-adapt:adapt
+3. Activate                 /reload-plugins
+
+4. Open your project        /forge-kit-adapt:adapt
    and run forge-adapt      (or say "run forge-adapt" to Claude Code)
 ```
 
