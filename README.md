@@ -7,8 +7,8 @@ forge-kit is a library of project governance components: ticket gates, code revi
 ## How it works
 
 ```
-1. Install forge-kit          /plugin marketplace add agigante80/forge-kit
-                              /plugin install forge-kit-governance@forge-kit
+1. Install forge-adapt        /plugin marketplace add agigante80/forge-kit
+                              /plugin install forge-kit-adapt@forge-kit
 
 2. Open your project          cd my-project
    and run forge-adapt        (say "run forge-adapt" to Claude Code)
