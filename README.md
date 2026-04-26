@@ -131,7 +131,11 @@ forge-adapt auto-updates itself on every run via a blob SHA check against the Gi
 To pull new or updated library components:
 
 ```bash
-# Plugin marketplace — update the skill itself
+# Plugin marketplace — upgrade to the latest version
+/plugin update forge-kit-adapt
+/reload-plugins
+
+# Plugin marketplace — reinstall from scratch (force)
 /plugin install forge-kit-adapt@forge-kit
 /reload-plugins
 
