@@ -314,6 +314,13 @@ they are the same component — exclude it from recommendations.
 
 Produce a **numbered recommendation table**:
 
+**Formatting rules (strictly enforced):**
+- `Why this project needs it` cell: ≤ 60 characters — one tight phrase, not a sentence.
+  Pick the single most important signal. Never write a full explanation in the cell.
+  Good: `Inline standards in CLAUDE.md — extract automatically`
+  Bad: `P0 — coding standards state is inline. CLAUDE.md contains extensive naming conventions…`
+- `Already installed` section: list format, not a table. ≤ 80 chars per line.
+
 ```
 ## forge-adapt — <project name or repo>
 
@@ -326,15 +333,16 @@ Project: <project profile summary>
 | # | Component | Type | Why this project needs it | Priority |
 |---|-----------|------|--------------------------|----------|
 | 1 | ticket-gate | agent | Quality gate — universal need | P0 |
-| 2 | security-auditor | agent | Your <stack> surface has specific OWASP exposure | P0 |
+| 2 | security-auditor | agent | JWT + Stripe surface — OWASP exposure | P0 |
 | 3 | forge-adapt | skill | Keeps governance in sync with forge-kit | P1 |
 ...
 
 ### Already installed — version check
-| # | Component | Status |
-|---|-----------|--------|
-| N | code-reviewer | ⚠ Differs from forge-kit reference — consider updating |
+Include a number to update. Numbers continue the sequence above.
+
+⚠ N · <component> — <what changed, ≤ 80 chars>
 ...
+
 
 ### Potentially overlapping — review before installing
 | # | Forge-kit component | Local component | Why they may overlap |
