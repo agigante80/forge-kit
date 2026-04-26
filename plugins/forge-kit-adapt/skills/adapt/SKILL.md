@@ -319,7 +319,9 @@ Produce a **numbered recommendation table**:
   Pick the single most important signal. Never write a full explanation in the cell.
   Good: `Inline standards in CLAUDE.md — extract automatically`
   Bad: `P0 — coding standards state is inline. CLAUDE.md contains extensive naming conventions…`
-- `Already installed` section: list format, not a table. ≤ 80 chars per line.
+- `Key change` cell in "Already installed": ≤ 60 characters — one tight phrase.
+  Good: `⚠ auto-creates GitHub tickets for findings`
+  Bad: `⚠ forge-kit added auto-creates prioritised GitHub tickets for every finding`
 
 ```
 ## forge-adapt — <project name or repo>
@@ -338,9 +340,9 @@ Project: <project profile summary>
 ...
 
 ### Already installed — version check
-Include a number to update. Numbers continue the sequence above.
-
-⚠ N · <component> — <what changed, ≤ 80 chars>
+| # | Component | Key change |
+|---|-----------|------------|
+| N | code-reviewer | ⚠ <what changed, ≤ 60 chars> |
 ...
 
 
