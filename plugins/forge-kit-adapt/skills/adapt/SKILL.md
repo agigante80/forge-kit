@@ -167,6 +167,19 @@ for f in .claude/commands/*.md; do
   fi
 done
 
+echo "=== Issue templates ==="
+found_templates=0
+for f in .github/ISSUE_TEMPLATE/*.yml; do
+  if [ -f "$f" ]; then
+    found_templates=1
+    name=$(basename "$f" .yml)
+    version=$(grep -oP 'template-version: \K\d+' "$f" 2>/dev/null | head -1)
+    ids=$(grep -oP '(?<=    id: )\S+' "$f" 2>/dev/null | tr '\n' ' ')
+    echo "  $name | v${version:-unknown} | ids: $ids"
+  fi
+done
+[ "$found_templates" -eq 0 ] && echo "  none found"
+
 # Git remote (used later for {{GITHUB_REPO}} replacement)
 CURRENT_REPO=$(git remote get-url origin 2>/dev/null \
   | sed 's|.*github\.com[:/]\(.*\)\.git|\1|; s|.*github\.com[:/]\(.*\)|\1|')
@@ -185,6 +198,7 @@ Project profile:
   Security surface: <auth method, external APIs, data sensitivity>
   Architecture: <monorepo/microservices/monolith/REST API/etc.>
   Governance already installed: <component names from frontmatter, comma-separated, or "none">
+  Templates: <N of 5 present, e.g. "3 of 5">; missing: <comma-separated list or "none">; versions: <e.g. "feature v3, bug v4, security v4">
 ```
 
 Note: each installed component is listed as `name | description`. Use the `name` field for
@@ -215,6 +229,25 @@ For each component, read its first 15 lines and record:
 ```bash
 head -15 <path-to-component-file>
 ```
+
+Also catalogue forge-kit's issue templates (the governance-layer reference):
+
+```bash
+echo "=== forge-kit issue templates (reference) ==="
+FORGE_KIT_TEMPLATE_VERSION=$(grep -oP 'template-version: \K\d+' \
+  "$FORGE_KIT_DIR/.github/ISSUE_TEMPLATE/feature.yml" 2>/dev/null | head -1)
+
+for f in "$FORGE_KIT_DIR"/.github/ISSUE_TEMPLATE/*.yml; do
+  [ -f "$f" ] || continue
+  name=$(basename "$f" .yml)
+  [ "$name" = "contribution" ] && continue  # contribution.yml is forge-kit-specific
+  ids=$(grep -oP '(?<=    id: )\S+' "$f" 2>/dev/null | tr '\n' ' ')
+  echo "  $name | v$FORGE_KIT_TEMPLATE_VERSION | ids: $ids"
+done
+```
+
+Store `$FORGE_KIT_TEMPLATE_VERSION` and the canonical section-ID list per template for use
+in the Phase 4 diff.
 
 ---
 
@@ -274,9 +307,33 @@ Project: <project profile summary>
 (omit this table entirely if no overlaps are detected)
 Overlap items use the prefix P (P1, P2, …) to avoid ambiguity with the numbered recommendation list.
 
+### Issue template audit
+
+forge-kit reference: v<FORGE_KIT_TEMPLATE_VERSION>
+
+For each of the 5 forge-kit templates (`feature`, `bug`, `security`, `infrastructure`,
+`design`), compare against what the project has:
+- **Missing** (❌): file not in `.github/ISSUE_TEMPLATE/`
+- **Outdated** (⚠️): `template-version` < `FORGE_KIT_TEMPLATE_VERSION`
+- **Incomplete** (🔧): version matches but one or more forge-kit section IDs absent
+- **Current** (✅): version matches and all IDs present — do not surface as action item
+
+Produce a T-prefixed table for templates needing action only:
+
+| # | Template | Status | What's needed |
+|---|---|---|---|
+| T1 | feature.yml | ⚠️ v3 outdated | upgrade to v4; missing: codebase_context |
+| T2 | security.yml | ❌ missing | install from forge-kit |
+| T3 | design.yml | 🔧 incomplete | add section: codebase_context |
+
+Already current (no action needed): <list or "none">
+
+(Omit the table entirely if all 5 templates are current.)
+
 Which would you like to import and adapt?
 Reply with numbers for recommended items (e.g. "1 3 5"), "all", or "none".
 To also install overlapping items, include their P-prefixed numbers (e.g. "1 3 P1").
+To install/upgrade templates, include their T-prefixed numbers (e.g. "1 3 T1 T2") or "T-all".
 ```
 
 Wait for user reply before continuing.
@@ -327,7 +384,50 @@ sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <written-file-path>
 **5e. Confirm**
 Print: `✓ <name> (<type>) — installed and adapted for <detected stack>`
 
-After confirming all approved components, proceed immediately to Phase 6.
+---
+
+**For T-prefixed items (issue templates):**
+
+**5a-T. Read the forge-kit reference template**
+```bash
+cat "$FORGE_KIT_DIR/.github/ISSUE_TEMPLATE/<name>.yml"
+```
+
+**5b-T. Read the existing project template (if present)**
+```bash
+cat ".github/ISSUE_TEMPLATE/<name>.yml" 2>/dev/null
+```
+
+**5c-T. Generate the target file**
+
+You have in context:
+- The forge-kit reference template (from 5a-T)
+- The existing project template, if any (from 5b-T)
+- The project profile (from Phase 2): stack, domain, source structure
+
+Rules:
+- **If missing**: use the forge-kit template as the base. Adapt the `areas` dropdown options
+  to reflect the project's actual source structure (e.g., if Phase 2 found `packages/api/`,
+  `packages/web/`, use those as options rather than the generic forge-kit list). Keep all
+  other sections verbatim.
+- **If outdated or incomplete**: produce a merged file — preserve ALL existing content
+  verbatim (custom labels, options, placeholder text, values), add missing sections in the
+  same relative position as they appear in the forge-kit reference, update the
+  `template-version` marker to `$FORGE_KIT_TEMPLATE_VERSION`.
+
+**5d-T. Write the file**
+```bash
+mkdir -p .github/ISSUE_TEMPLATE
+```
+Use the Write tool to write the file to `.github/ISSUE_TEMPLATE/<name>.yml`.
+
+**5e-T. Confirm**
+Print: `✓ <name>.yml — <action>` where action is one of:
+- `installed (adapted areas for <detected stack>)`
+- `upgraded v<old>→v<new>`
+- `patched: <list of added section IDs>`
+
+After confirming all approved components and templates, proceed immediately to Phase 6.
 
 ---
 
@@ -458,3 +558,8 @@ Next steps:
 - **Adapt, do not pad.** Every customisation in Phase 5 must be traceable to a specific project characteristic from Phase 2. Do not add generic best-practice text that the original template already covers.
 - **Respect existing installations.** Items already in `.claude/` are excluded from recommendations unless they differ from forge-kit (version check).
 - **Focus mode**: if the invocation includes `agents`, `skills`, `commands`, or `templates`, restrict Phase 3–5 to that area only. Phase 6–7 always run in full.
+- **`contribution.yml` is excluded from the template audit** — it is forge-kit-specific and not applicable to target projects.
+- **Templates are identified by filename**, not by a frontmatter `name:` field. The T-prefix in Phase 4 maps directly to the filename.
+- **For template upgrades, all existing content is preserved verbatim.** Only add missing sections. Never remove or rewrite content the project author wrote.
+- **Template `areas` dropdown is the primary adaptation target** when installing a fresh (missing) template. Infer options from the project's actual source package structure detected in Phase 2.
+- **Template files go to `.github/ISSUE_TEMPLATE/` in the project root**, not to `.claude/`.
