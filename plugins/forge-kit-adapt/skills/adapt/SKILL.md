@@ -24,14 +24,26 @@ Claude-written adaptations that know your stack.
 - "suggest forge-kit components for this project"
 - "run upgrade-audit" ← backward-compatible
 - Any time you want to import, update, or contribute forge-kit governance
+- "forge-adapt contributions" / "check forge-adapt contributions" ← contributions-only mode (Phase 6+)
 
-Focus keywords: `forge-adapt agents`, `forge-adapt skills`, `forge-adapt templates`
+Focus keywords: `forge-adapt agents`, `forge-adapt skills`, `forge-adapt templates`, `forge-adapt contributions`
 
 ---
 
 ## How to run
 
 Follow these phases in order. Do not skip ahead.
+
+**Contributions-only mode** — when the invocation includes `contributions` or `contribute`:
+Skip Phases 2–5. Run Phase 0, then Phase 1, then this minimal setup, then jump to Phase 6:
+
+```bash
+# Minimal setup for contributions-only mode
+CURRENT_REPO=$(git remote get-url origin 2>/dev/null \
+  | sed 's|.*github\.com[:/]\(.*\)\.git|\1|; s|.*github\.com[:/]\(.*\)|\1|')
+```
+
+Then proceed directly to Phase 6. Do not run Phases 2–5.
 
 ---
 
@@ -487,7 +499,25 @@ Proceed immediately to Phase 8.
 
 ### Phase 7: Create contribution issues
 
-For each accepted candidate, create a GitHub issue:
+For each accepted candidate, **check for an existing issue before creating**:
+
+```bash
+gh issue list \
+  --repo agigante80/forge-kit \
+  --label "contribution" \
+  --state all \
+  --search "Contribution: <name>" \
+  --json number,title,state \
+  --jq '.[] | select(.title | test("Contribution: <name>"))'
+```
+
+| Result | Action |
+|--------|--------|
+| Open issue found | Skip creation. Print: `⟳ <name> — contribution issue already open (#<N>)` |
+| Closed issue found | Print: `⚠ <name> — contribution issue was previously closed (#<N>). Create a new one? (yes/no)`. Wait for reply. |
+| No match | Proceed to create the issue below. |
+
+Create the issue:
 
 ```bash
 gh issue create \
@@ -558,6 +588,8 @@ Next steps:
 - **Adapt, do not pad.** Every customisation in Phase 5 must be traceable to a specific project characteristic from Phase 2. Do not add generic best-practice text that the original template already covers.
 - **Respect existing installations.** Items already in `.claude/` are excluded from recommendations unless they differ from forge-kit (version check).
 - **Focus mode**: if the invocation includes `agents`, `skills`, `commands`, or `templates`, restrict Phase 3–5 to that area only. Phase 6–7 always run in full.
+- **Contributions-only mode**: if the invocation includes `contributions` or `contribute`, run Phase 0 + Phase 1 + minimal `CURRENT_REPO` setup, then jump directly to Phase 6. Skip Phases 2–5 entirely.
+- **Duplicate issue guard**: Phase 7 always checks for an existing open or closed contribution issue before creating a new one. Never create a duplicate open issue.
 - **`contribution.yml` is excluded from the template audit** — it is forge-kit-specific and not applicable to target projects.
 - **Templates are identified by filename**, not by a frontmatter `name:` field. The T-prefix in Phase 4 maps directly to the filename.
 - **For template upgrades, all existing content is preserved verbatim.** Only add missing sections. Never remove or rewrite content the project author wrote.
