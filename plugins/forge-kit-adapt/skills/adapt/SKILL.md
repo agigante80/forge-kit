@@ -315,13 +315,18 @@ they are the same component — exclude it from recommendations.
 Produce a **numbered recommendation table**:
 
 **Formatting rules (strictly enforced):**
+- ALL sections MUST be rendered as Markdown tables. Never use key-value block format
+  (e.g. `#: 1 / Component: foo / Why: ...`). If a cell would exceed the limit, truncate
+  with `…` — do NOT switch to block format.
 - `Why this project needs it` cell: ≤ 60 characters — one tight phrase, not a sentence.
-  Pick the single most important signal. Never write a full explanation in the cell.
+  Pick the single most important signal.
   Good: `Inline standards in CLAUDE.md — extract automatically`
-  Bad: `P0 — coding standards state is inline. CLAUDE.md contains extensive naming conventions…`
+  Bad: `CLAUDE.md has 6+ inline standards sections (TypeScript, naming, file length…)`
 - `Key change` cell in "Already installed": ≤ 60 characters — one tight phrase.
   Good: `⚠ auto-creates GitHub tickets for findings`
   Bad: `⚠ forge-kit added auto-creates prioritised GitHub tickets for every finding`
+- Prefix key: plain numbers = recommended; I-prefix = already installed needing update;
+  P-prefix = potentially overlapping; T-prefix = issue templates.
 
 ```
 ## forge-adapt — <project name or repo>
@@ -342,9 +347,9 @@ Project: <project profile summary>
 ### Already installed — version check
 | # | Component | Key change |
 |---|-----------|------------|
-| N | code-reviewer | ⚠ <what changed, ≤ 60 chars> |
+| I1 | dep-auditor | ⚠ auto-creates GitHub tickets for findings |
+| I2 | health-check | ⚠ auto-detects runtime and package manager |
 ...
-
 
 ### Potentially overlapping — review before installing
 | # | Forge-kit component | Local component | Why they may overlap |
@@ -352,20 +357,10 @@ Project: <project profile summary>
 | P1 | code-reviewer | pr-reviewer | Both address code quality review |
 ...
 (omit this table entirely if no overlaps are detected)
-Overlap items use the prefix P (P1, P2, …) to avoid ambiguity with the numbered recommendation list.
 
 ### Issue template audit
 
 forge-kit reference: v<FORGE_KIT_TEMPLATE_VERSION>
-
-For each of the 5 forge-kit templates (`feature`, `bug`, `security`, `infrastructure`,
-`design`), compare against what the project has:
-- **Missing** (❌): file not in `.github/ISSUE_TEMPLATE/`
-- **Outdated** (⚠️): `template-version` < `FORGE_KIT_TEMPLATE_VERSION`
-- **Incomplete** (🔧): version matches but one or more forge-kit section IDs absent
-- **Current** (✅): version matches and all IDs present — do not surface as action item
-
-Produce a T-prefixed table for templates needing action only:
 
 | # | Template | Status | What's needed |
 |---|---|---|---|
@@ -374,24 +369,25 @@ Produce a T-prefixed table for templates needing action only:
 | T3 | design.yml | 🔧 incomplete | add section: codebase_context |
 
 Already current (no action needed): <list or "none">
-
 (Omit the table entirely if all 5 templates are current.)
 
 Which would you like to import and adapt?
 Reply with numbers for recommended items (e.g. "1 3 5"), "all", or "none".
-To also install overlapping items, include their P-prefixed numbers (e.g. "1 3 P1").
-To install/upgrade templates, include their T-prefixed numbers (e.g. "1 3 T1 T2") or "T-all".
+To update installed components, include I-prefixed numbers (e.g. "1 3 I1 I2") or "I-all".
+To install overlapping items, include P-prefixed numbers (e.g. "1 3 P1").
+To install/upgrade templates, include T-prefixed numbers (e.g. "1 3 T1 T2") or "T-all".
 ```
 
 Wait for user reply before continuing.
-- If the user replied with numbers (or "all"): proceed to Phase 5.
+- If the user replied with any numbers or prefixed items (or "all"): proceed to Phase 5.
 - If the user replied "none": skip Phase 5 and proceed immediately to Phase 6.
 
 ---
 
 ### Phase 5: Adapt and install
 
-For each item the user approved:
+For each item the user approved (plain numbers = new installs; I-prefixed = updates to
+already-installed components; P-prefixed = overlapping items to install; T-prefixed = templates):
 
 **5a. Read the generic template**
 ```bash
