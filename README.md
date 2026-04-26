@@ -131,14 +131,25 @@ forge-adapt auto-updates itself on every run via a blob SHA check against the Gi
 To pull new or updated library components:
 
 ```bash
-# Plugin marketplace
-/reload-plugins   # after enabling auto-update in /plugin → Marketplaces
+# Plugin marketplace — update the skill itself
+/plugin install forge-kit-adapt@forge-kit
+/reload-plugins
 
 # Manual install
 git -C ~/forge-kit pull
 ```
 
 Then run forge-adapt again in your project. Phase 4 shows which of your installed components have drifted from the forge-kit reference and offers to refresh them.
+
+## Checking contribution candidates only
+
+If you want to surface project-specific components worth contributing back to forge-kit without running a full governance analysis, use contributions-only mode:
+
+```
+forge-adapt contributions
+```
+
+This skips the analysis and install phases (2–5) and jumps directly to Phase 6: it scans your `.claude/` directory for components not present in forge-kit, filters out domain-specific ones, and lets you open contribution issues for the rest.
 
 ## Docs
 
