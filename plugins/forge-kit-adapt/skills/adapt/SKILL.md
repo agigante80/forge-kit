@@ -179,6 +179,25 @@ for f in .claude/commands/*.md; do
   fi
 done
 
+echo "=== Coding standards ==="
+STANDARDS_STATE="missing"
+[ -f "docs/coding-standards.md" ] && STANDARDS_STATE="file-exists"
+if [ "$STANDARDS_STATE" = "file-exists" ]; then
+  grep -qi "coding.standards\|see docs/coding-standards" CLAUDE.md 2>/dev/null \
+    && STANDARDS_STATE="proper" || STANDARDS_STATE="file-no-reference"
+fi
+# Detect inline standards in CLAUDE.md (more than a reference line)
+if grep -qi "naming convention\|error handling\|camelCase\|PascalCase\|docstring\|import order" \
+    CLAUDE.md 2>/dev/null; then
+  [ "$STANDARDS_STATE" = "proper" ] && STANDARDS_STATE="inline-and-proper" \
+    || STANDARDS_STATE="inline"
+fi
+# Detect scattered standards files
+for f in CONTRIBUTING.md STYLE_GUIDE.md STYLE-GUIDE.md CODE_STYLE.md styleguide.md; do
+  [ -f "$f" ] && { STANDARDS_STATE="${STANDARDS_STATE}+scattered"; break; }
+done
+echo "  standards state: $STANDARDS_STATE"
+
 echo "=== Issue templates ==="
 found_templates=0
 for f in .github/ISSUE_TEMPLATE/*.yml; do
@@ -210,6 +229,7 @@ Project profile:
   Security surface: <auth method, external APIs, data sensitivity>
   Architecture: <monorepo/microservices/monolith/REST API/etc.>
   Governance already installed: <component names from frontmatter, comma-separated, or "none">
+  Coding standards: <proper / missing / inline / scattered / incomplete — one-line reason>
   Templates: <N of 5 present, e.g. "3 of 5">; missing: <comma-separated list or "none">; versions: <e.g. "feature v3, bug v4, security v4">
 ```
 
@@ -266,6 +286,11 @@ in the Phase 4 diff.
 ### Phase 4: Recommendations
 
 Claude cross-references the project profile (Phase 2) against the catalogue (Phase 3).
+
+**Coding standards priority rule:** If the project profile shows coding standards as anything
+other than `proper`, always recommend `coding-standards-auditor` at **P0** regardless of
+what other components are selected. It writes `docs/coding-standards.md`, removes inline
+standards from CLAUDE.md, and consolidates scattered files automatically.
 
 **Exclude** from recommendations:
 - Components whose `name:` field matches a name in "Governance already installed" from the Phase 2 profile
