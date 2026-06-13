@@ -10,6 +10,8 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
+<!-- forge-adapt-version: 1 -->
+
 # forge-adapt
 
 Surveys the current project, matches it against the forge-kit library, and installs
