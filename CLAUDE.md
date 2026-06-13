@@ -16,7 +16,7 @@ The kit is organized into plugin groups under `plugins/<group>/`:
 |---|---|
 | `forge-kit-adapt` | forge-adapt skill (the entry point — install this first) |
 | `forge-kit-governance` | ticket-gate agent, gate-ticket command |
-| `forge-kit-review` | code-reviewer, architect-review, backend-architect agents; full-review, pr-enhance commands |
+| `forge-kit-review` | code-reviewer, architect-review, backend-architect, code-simplifier, coding-standards-auditor agents; full-review, pr-enhance commands |
 | `forge-kit-security` | security-auditor, backend-security-coder, api-security-tester agents; owasp-api-security skill |
 | `forge-kit-testing` | tdd-orchestrator, test-automator, performance-engineer agents |
 | `forge-kit-devops` | dep-auditor, health-check agents; ci-health command |
@@ -40,12 +40,15 @@ color: red           # optional; used in Claude Code UI
 
 Key agents:
 - `ticket-gate` — Orchestrator that runs 5 core scoring agents + dynamic agents selected by issue labels, then posts a scorecard to GitHub. All agents must score 10/10 to pass.
-- `full-review` — 5-phase code review orchestrator with a mid-run user checkpoint. Persists progress state to `.full-review/` in the project root; can be resumed after interruption.
 - `dep-auditor` — Scans workspace packages for unused deps, unmaintained libraries, and vulnerabilities; caches results in `docs/audit/dep-audit-cache.json` (30-day window); creates GitHub tickets for every finding.
 - `health-check` — Verifies the dev environment (runtime, package manager, Docker, TypeScript, env files, GitHub CLI).
+- `coding-standards-auditor` — Consolidates coding standards from wherever they live (inline CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md, docs/) into a canonical `docs/coding-standards.md`, then replaces the inline standards with a reference line.
+- `code-simplifier` — Runs proactively after a code change to simplify recently modified code while preserving functionality.
 - Specialist agents: `security-auditor`, `architect-review`, `backend-architect`, `code-reviewer`, `api-security-tester`, `tdd-orchestrator`, `test-automator`, `performance-engineer`, `backend-security-coder`.
 
-**Commands** (`plugins/<group>/commands/*.md`) — Thin slash-command wrappers that delegate to agents. Frontmatter requires only `name` and `description`. Users invoke these directly:
+Note: the 5-phase `full-review` orchestrator is a **command** (`/full-review`), not an agent — see Commands below. There is no `full-review` agent type.
+
+**Commands** (`plugins/<group>/commands/*.md`) — Thin slash-command wrappers that delegate to agents. The command name comes from the filename (`full-review.md` → `/full-review`), so YAML frontmatter is optional and inconsistent across the kit: `gate-ticket`, `pr-enhance`, and `ci-health` have no frontmatter at all (markdown body only); `full-review` uses `description` + `argument-hint`. Don't assume a `name:` field exists. Users invoke these directly:
 - `/gate-ticket <N>` — Run the ticket readiness gate on GitHub issue N.
 - `/full-review [path] [--security-focus] [--performance-critical] [--strict-mode] [--framework name]` — 5-phase code review.
 - `/pr-enhance` — Pull request enhancement (description, scope review, checklist generation).
