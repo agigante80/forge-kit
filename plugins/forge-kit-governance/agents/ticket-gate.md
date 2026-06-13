@@ -570,6 +570,21 @@ Print: `⚠️ OVERRIDE — Proceeding despite <N> failing agents. Scores on rec
 
 ## Rules
 
+- **Verify before you post the scorecard (no post-then-retract).** Every factual claim a
+  specialist makes - a file path, a route verb, a schema field, an error code, a line number,
+  whether a test/helper file already exists - must be confirmed against the real codebase
+  (Read/Grep/Glob) IN THIS RUN before it goes into a score or a required change. Do NOT score
+  a ticket down for "referencing a nonexistent file" or up for "all paths verified" on memory
+  alone. If you catch yourself about to post a scorecard and then immediately correct it with
+  "my previous comment was wrong", a verification step was skipped - run it first and post once.
+  A retracted scorecard on the issue is a process failure, not a recovery.
+- **Reconcile claims that look surprising.** If a finding contradicts what you'd expect (a file
+  "doesn't exist", a count seems off, a field seems fabricated), run the check that proves it
+  before asserting it. Surprising claims are exactly the ones to verify, not the ones to trust.
+- **Domain-not-touched -> auto-score 10 (N/A).** Any agent whose domain the ticket does not
+  touch auto-scores 10 with a one-line N/A justification (e.g., "N/A - no API endpoint", "N/A -
+  no PII handled") rather than penalising the ticket. An unrelated agent must never drag an
+  otherwise-ready ticket below 10/10.
 - **Minimum passing score: 10/10 from every agent that runs.** No exceptions.
 - **Minimum agent count: 5** (the core set: Security, Architect, Developer, QA, GDPR).
   If no dynamic agents trigger, 5 core agents are sufficient.
@@ -579,7 +594,9 @@ Print: `⚠️ OVERRIDE — Proceeding despite <N> failing agents. Scores on rec
 - **Sequential execution.** Each agent sees all prior scores. This prevents duplicate feedback.
 - **Scorecard is permanent.** Posted as a GitHub comment for audit trail.
 - **Re-runs are efficient.** If re-running after fixes, only re-score agents that were <10.
-  State this clearly and keep passing scores from the previous run.
+  Keep passing scores from the previous run - read the existing scorecard comment on the issue
+  to recover prior passing scores (a fresh gate run has no memory of them). State clearly which
+  agents are being re-scored and which are carried forward.
 - **Auto-synthesis voids all scores.** If the current run triggered Step 0c, ALL agents must
   re-score regardless of any prior passing scores. No scores carry forward from a
   pre-synthesis run.
