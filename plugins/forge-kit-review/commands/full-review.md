@@ -3,6 +3,8 @@ description: "Orchestrate comprehensive multi-dimensional code review using spec
 argument-hint: "<target path or description> [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
+<!-- full-review-version: 1 -->
+
 # Comprehensive Code Review Orchestrator
 
 ## CRITICAL BEHAVIORAL RULES
