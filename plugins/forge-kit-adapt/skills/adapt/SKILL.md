@@ -133,6 +133,14 @@ most valuable for THIS project. Skip any category with nothing relevant. Exclude
 already installed (match by `name:`). Give every item a tight, specific reason (<= 60 chars) -
 the single strongest signal, never generic boilerplate.
 
+**Use the reference files for the signal map and canonical "why" phrasing** - one per category,
+so reasons stay consistent run to run:
+- `references/subagents.md` · `references/skills.md` · `references/commands.md` · `references/hooks.md`
+
+The live `ls` from Setup S3 is the source of truth for what EXISTS; the references fix the
+canonical reason + priority. If a reference row names a component that is not in the live
+catalogue, skip that row.
+
 ```
 ## forge-adapt - <project> (<stack>)
 
