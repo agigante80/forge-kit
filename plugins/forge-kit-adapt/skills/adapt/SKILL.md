@@ -53,18 +53,30 @@ REMOTE_SHA=$(echo "$REMOTE_JSON" | jq -r '.sha // empty' 2>/dev/null)
 | `CURRENT_SHA == REMOTE_SHA` | Skip silently (up to date) |
 | `CURRENT_SHA != REMOTE_SHA` | `echo "$REMOTE_JSON" \| jq -r '.content' \| base64 -d > "${CLAUDE_SKILL_DIR}/SKILL.md"`, then read the updated file and continue from its Setup. On success print one line: `forge-adapt: updated to latest - run /reload-plugins to persist.` On write failure print: `forge-adapt: a newer version exists but auto-update failed; run /plugin marketplace update forge-kit && /reload-plugins.` |
 
-**S2. Locate the forge-kit library** (try plugin root, then `~/forge-kit`, then clone):
+**S2. Locate AND refresh the forge-kit library** (try plugin root, then `~/forge-kit`, then clone).
+The skill self-updates in S1, but the component library is a SEPARATE checkout - if it is stale,
+new components (e.g. a newly added hook) are invisible to the catalogue. Always refresh it.
 
 ```bash
-FORGE_KIT_DIR=""
+FORGE_KIT_DIR=""; FORGE_KIT_SRC=""
 PLUGIN_INFERRED_ROOT=$(realpath "${CLAUDE_SKILL_DIR}/../../../../" 2>/dev/null)
 if [ -d "${PLUGIN_INFERRED_ROOT}/plugins/forge-kit-governance" ]; then
-  FORGE_KIT_DIR="$PLUGIN_INFERRED_ROOT"
+  FORGE_KIT_DIR="$PLUGIN_INFERRED_ROOT"; FORGE_KIT_SRC="plugin"
 elif [ -d ~/forge-kit/plugins ]; then
-  FORGE_KIT_DIR=~/forge-kit
+  FORGE_KIT_DIR=~/forge-kit; FORGE_KIT_SRC="clone"
 else
-  git clone https://github.com/agigante80/forge-kit ~/forge-kit --depth 1 --quiet && FORGE_KIT_DIR=~/forge-kit
+  git clone https://github.com/agigante80/forge-kit ~/forge-kit --depth 1 --quiet && { FORGE_KIT_DIR=~/forge-kit; FORGE_KIT_SRC="clone"; }
 fi
+
+# Refresh so the catalogue reflects the latest forge-kit (block-dashes, slimmed agents, etc.).
+if [ "$FORGE_KIT_SRC" = "clone" ]; then
+  git -C "$FORGE_KIT_DIR" fetch --depth 1 origin --quiet 2>/dev/null \
+    && git -C "$FORGE_KIT_DIR" reset --hard origin/HEAD --quiet 2>/dev/null \
+    || echo "forge-adapt: could not refresh ~/forge-kit; catalogue may be behind (fix: git -C ~/forge-kit pull)."
+elif [ "$FORGE_KIT_SRC" = "plugin" ]; then
+  echo "forge-adapt: using the marketplace-managed library. If a just-added component is missing, run: /plugin marketplace update forge-kit"
+fi
+echo "forge-adapt: library at $(git -C "$FORGE_KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?') ($FORGE_KIT_SRC)"
 ```
 
 If `FORGE_KIT_DIR` is still empty, stop and tell the user to clone it manually
@@ -274,6 +286,9 @@ forge-kit-specific - exclude it from the audit.
 
 ## Rules
 
+- **The skill and the library update independently.** S1 refreshes this SKILL.md; S2 refreshes the
+  component checkout (`~/forge-kit` via fetch+reset, or marketplace-managed). A stale library hides
+  newly added components - always refresh in S2 before cataloguing, never trust an existing clone as-is.
 - **Lead with the recommendation, not the setup.** Setup (self-update, locate library, catalogue)
   runs quietly. The first substantial thing the user sees is the profile + top picks.
 - **Top 1-2 per category.** Do not dump the whole catalogue. "more <category>" expands one category on request.
