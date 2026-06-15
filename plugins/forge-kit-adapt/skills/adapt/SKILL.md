@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 4 -->
+<!-- forge-adapt-version: 5 -->
 
 # forge-adapt
 
@@ -168,38 +168,45 @@ Profile
   Security surface: <...>
   Installed: <... or none>
 
-Top picks for this project
+### Recommended (top picks for this project)
+| Component | Type | Why this project needs it | Priority |
+|---|---|---|---|
+| ticket-gate | 🤖 subagent | quality gate before implementation | P0 |
+| security-auditor | 🤖 subagent | JWT + Stripe webhook OWASP surface | P0 |
+| owasp-api-security | 🎯 skill | public REST API with auth + payments | P1 |
+| /gate-ticket | 🧩 command | run the readiness gate on a GitHub issue | P1 |
+| block-dashes | ⚡ hook | enforce the no-dash writing rule | P1 |
 
-🤖 Subagents
-  ticket-gate       quality gate before implementation · P0
-  security-auditor  JWT + Stripe webhook OWASP surface · P0
-🎯 Skills
-  owasp-api-security  public REST API with auth + payments
-🧩 Commands
-  /gate-ticket        run the readiness gate on a GitHub issue
-⚡ Hooks
-  block-dashes        enforce the no-dash writing rule
+(If nothing new applies, write one line instead: "Nothing new - every catalogue component is already installed.")
 
-Updates available (versioned locally, but behind forge-kit)
-  ↻ ticket-gate    v1 → v2
-(omit this block entirely if nothing versioned is behind)
+### Updates available (versioned locally, behind forge-kit)
+| Component | Local | forge-kit | Action |
+|---|---|---|---|
+| ticket-gate | v1 | v2 | reply: refresh ticket-gate |
 
-Unversioned (predate markers - not necessarily behind; refresh to deep-compare)
-  api-security-tester · code-reviewer · security-auditor · ...
-(omit if every installed component already carries a marker)
+(Omit this table entirely if nothing versioned is behind.)
 
-Reply with names to install (I adapt each to your stack), "all", or "none".
-"refresh <name>" deep-compares an installed component and updates it if genuinely behind.
-"refresh" (no name) reports drift across everything, writes nothing.
-Say "more subagents" / "more skills" / "more commands" / "more hooks" for the full catalog of a category.
+### Unversioned (predate markers - not necessarily behind)
+| Component | Type | Note |
+|---|---|---|
+| code-reviewer | 🤖 subagent | refresh code-reviewer to deep-compare |
+
+(Omit if every installed component carries a marker. If the list is long, collapse to one line:
+"<N> components predate markers - refresh <name> to deep-compare.")
+
+Reply:
+- names to install (I adapt each to your stack), "all", or "none"
+- "refresh <name>" - deep-compare one installed component and merge genuine improvements
+- "refresh" - full drift report (writes nothing)
+- "more subagents" / "more skills" / "more commands" / "more hooks" - full catalogue for a category, as a table
 ```
 
 Rules for this step:
 - **ticket-gate is always P0** when missing - list it first under Subagents.
 - **coding-standards-auditor is P0** whenever the profile shows coding standards as anything but
   `proper` (inline in CLAUDE.md, scattered across CONTRIBUTING/STYLE_GUIDE, or missing).
-- **"more <category>"** prints the full catalogue for that one category (name + one-line why each),
-  then repeats the same reply prompt.
+- **"more <category>"** prints the full catalogue for that one category as a table
+  (Component | Why | Priority), then repeats the same reply prompt.
 - **"Updates available" = a VERSIONED local copy that is strictly behind.** Compare each installed
   component's `<name>-version` marker (captured in Step 1) against the catalogue marker. Put a
   component here (`↻ <name>  v<old> → v<new>`) ONLY when the local copy HAS a marker AND it is
@@ -275,16 +282,16 @@ compare its `<name>-version` marker against the catalogue and print a drift repo
 ```
 forge-adapt drift report - <project>
 
-Behind forge-kit (local marker is strictly lower):
-  ↻ ticket-gate    v1 → v2   refresh to update
-Current (marker matches):
-  security-auditor v1 · gate-ticket v1 · ...
-Unversioned (no local marker - predate versioning, not necessarily behind):
-  <list> - "refresh <name>" to deep-compare
+| Component | Local | forge-kit | Status |
+|---|---|---|---|
+| ticket-gate | v1 | v2 | behind - refresh to update |
+| security-auditor | v1 | v1 | current |
+| code-reviewer | none | v1 | unversioned - refresh to deep-compare |
+| ... | | | |
 ```
 
-Stop after the report. Do not modify anything. Only the "Behind" bucket means genuinely stale; an
-unmarked copy lands in "Unversioned", never in "Behind".
+Stop after the report. Do not modify anything. Status `behind` requires a local marker strictly
+lower than forge-kit; a copy with no local marker is `unversioned`, never `behind`.
 
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
 This is the only place a full content diff is justified, and it must NEVER blind-overwrite (that
@@ -301,11 +308,11 @@ would clobber intentional adaptation). Steps:
    ```
    refresh: <name>  (installed v<old> → forge-kit v<new>)
 
-   Keeping your adaptation:
-     - <e.g. references comprehensive-review:* agent variants>
-   Would add from forge-kit v<new>:
-     - <e.g. "no post-then-retract" verification rule>
-     - <e.g. domain-not-touched auto-score 10 rule>
+   | Difference | Classification | Action |
+   |---|---|---|
+   | references comprehensive-review:* agent variants | adaptation | keep |
+   | "no post-then-retract" verification rule | forge-kit improvement | add |
+   | domain-not-touched auto-score 10 rule | forge-kit improvement | add |
 
    Apply this merge? (yes / no)
    ```
@@ -367,7 +374,11 @@ forge-kit-specific - exclude it from the audit.
   newly added components - always refresh in S2 before cataloguing, never trust an existing clone as-is.
 - **Lead with the recommendation, not the setup.** Setup (self-update, locate library, catalogue)
   runs quietly. The first substantial thing the user sees is the profile + top picks.
-- **Top 1-2 per category.** Do not dump the whole catalogue. "more <category>" expands one category on request.
+- **Render every listing as a Markdown table.** The Recommended picks, Updates available, Unversioned,
+  the `drift` report, the `refresh` classification, and "more <category>" output are all tables - never
+  bullet lists or key-value blocks. The Profile is the only block that stays prose. Keep "Why" cells <= 60 chars.
+- **Recommended table = top picks, not the whole catalogue.** Lead with the most valuable per category;
+  "more <category>" expands one category into its full-catalogue table on request.
 - **Every "why" is specific and <= 60 chars.** One strongest signal, never generic best-practice text.
 - **Never write outside Step 3 or a confirmed `refresh <name>`.** Recommendations, the "Updates
   available" block, and the `refresh`/`drift` report all write nothing. Self-update (Setup S1) is the
