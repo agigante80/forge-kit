@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 6 -->
+<!-- forge-adapt-version: 7 -->
 
 # forge-adapt
 
@@ -215,7 +215,8 @@ Rules for this step:
 - **coding-standards-auditor is P0** whenever the profile shows coding standards as anything but
   `proper` (inline in CLAUDE.md, scattered across CONTRIBUTING/STYLE_GUIDE, or missing).
 - **"more <category>"** prints the full catalogue for that one category as a table
-  (Component | Why | Priority), then repeats the same reply prompt.
+  (Component | Why | Priority | Installed?), marking each row `✓` if already in `.claude/` or
+  `+ new` if not (so the user sees what they have vs what is available), then repeats the reply prompt.
 - **Version status table = every marked local copy; `behind` only when strictly lower.** Compare each
   installed component's `<name>-version` marker (captured in Step 1) against the catalogue marker. Show
   marked components in the Version status table; Status is `behind → refresh <name>` ONLY when the local

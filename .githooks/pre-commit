@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# forge-kit pre-commit: enforce version-marker discipline on components.
+#
+# A component whose body changes must bump its `<name>-version` marker so forge-adapt's
+# drift detection stays honest. New components must ship a marker. For a genuinely trivial
+# edit (comment typo, whitespace) bypass with:  git commit --no-verify
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+set -uo pipefail
+
+# Read a component's OWN version number from stdin. Ignores body references to
+# `template-version` (issue-template marker, unrelated to component versioning).
+ver_of() {
+  grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | head -1 | grep -oP ': \K\d+'
+}
+
+files=$(git diff --cached --name-only --diff-filter=AM \
+  | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$' || true)
+[ -z "$files" ] && exit 0
+
+violations=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  staged_ver=$(git show ":$f" 2>/dev/null | ver_of)
+  if git cat-file -e "HEAD:$f" 2>/dev/null; then
+    head_ver=$(git show "HEAD:$f" 2>/dev/null | ver_of)
+    if [ -z "$staged_ver" ]; then
+      echo "  ✗ $f — version marker missing or removed (expected '<name>-version: N')"
+      violations=$((violations + 1))
+    elif [ "$staged_ver" = "$head_ver" ]; then
+      echo "  ✗ $f — changed but still v$staged_ver (bump the <name>-version marker)"
+      violations=$((violations + 1))
+    fi
+  else
+    if [ -z "$staged_ver" ]; then
+      echo "  ✗ $f — new component without a version marker (add '<name>-version: 1')"
+      violations=$((violations + 1))
+    fi
+  fi
+done <<< "$files"
+
+if [ "$violations" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: $violations component change(s) need a version-marker bump."
+  echo "Bump the marker, or for a trivial edit re-run with: git commit --no-verify"
+  exit 1
+fi
+exit 0
