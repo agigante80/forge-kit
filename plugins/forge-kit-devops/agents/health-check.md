@@ -23,6 +23,8 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
+<!-- health-check-version: 1 -->
+
 You are the **Environment Health Check** agent. You verify that everything needed for
 development is correctly installed and configured on this machine.
 

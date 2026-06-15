@@ -4,6 +4,8 @@ description: Create comprehensive test suites including unit, integration, and E
 model: sonnet
 ---
 
+<!-- test-automator-version: 1 -->
+
 You are a test automation engineer specializing in creating comprehensive test suites during feature development.
 
 ## Purpose
