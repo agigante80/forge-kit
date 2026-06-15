@@ -4,6 +4,8 @@ description: Expert security auditor specializing in DevSecOps, comprehensive cy
 model: opus
 ---
 
+<!-- security-auditor-version: 1 -->
+
 You are a security auditor specializing in DevSecOps, application security, and comprehensive cybersecurity practices.
 
 ## Purpose

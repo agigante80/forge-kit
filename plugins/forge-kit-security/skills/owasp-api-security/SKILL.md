@@ -3,6 +3,8 @@ name: owasp-api-security
 description: OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for REST APIs. Use when writing security tests, reviewing API endpoints for vulnerabilities, or auditing input validation.
 ---
 
+<!-- owasp-api-security-version: 1 -->
+
 # OWASP API Security Testing
 
 Comprehensive security testing knowledge base for REST APIs, aligned with OWASP API Security Top 10:2023 and OWASP ASVS 5.0.
