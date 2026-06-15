@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 5 -->
+<!-- forge-adapt-version: 6 -->
 
 # forge-adapt
 
@@ -114,7 +114,13 @@ for f in .claude/agents/*.md .claude/commands/*.md .claude/skills/*/SKILL.md; do
   d=$(grep -m1 '^description:' "$f" | sed 's/description: *//')
   echo "  $n | v${v:-none} | $d"
 done
-ls .claude/hooks/ 2>/dev/null
+# Hooks carry markers too (e.g. # block-dashes-version: N) - include them in drift detection:
+for f in .claude/hooks/*; do
+  [ -f "$f" ] || continue
+  n=$(basename "$f"); n=${n%.*}
+  v=$(grep -oP -- "${n}-version: \K\d+" "$f" | head -1)
+  echo "  $n (hook) | v${v:-none}"
+done
 # Repo slug for the {{GITHUB_REPO}} placeholder later:
 CURRENT_REPO=$(git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]\(.*\)\.git|\1|; s|.*github\.com[:/]\(.*\)|\1|')
 # Domain/pattern sample:
@@ -179,12 +185,15 @@ Profile
 
 (If nothing new applies, write one line instead: "Nothing new - every catalogue component is already installed.")
 
-### Updates available (versioned locally, behind forge-kit)
-| Component | Local | forge-kit | Action |
-|---|---|---|---|
-| ticket-gate | v1 | v2 | reply: refresh ticket-gate |
+### Version status (components carrying a marker)
+| Component | Type | Local | forge-kit | Status |
+|---|---|---|---|---|
+| ticket-gate | 🤖 subagent | v1 | v2 | behind → refresh ticket-gate |
+| full-review | 🧩 command | v1 | v1 | current |
+| block-dashes | ⚡ hook | v1 | v1 | current |
 
-(Omit this table entirely if nothing versioned is behind.)
+(One table covering every installed component that HAS a marker. Status is `current` or
+`behind → refresh <name>`. Omit the whole section only if no installed component carries a marker.)
 
 ### Unversioned (predate markers - not necessarily behind)
 | Component | Type | Note |
@@ -207,10 +216,10 @@ Rules for this step:
   `proper` (inline in CLAUDE.md, scattered across CONTRIBUTING/STYLE_GUIDE, or missing).
 - **"more <category>"** prints the full catalogue for that one category as a table
   (Component | Why | Priority), then repeats the same reply prompt.
-- **"Updates available" = a VERSIONED local copy that is strictly behind.** Compare each installed
-  component's `<name>-version` marker (captured in Step 1) against the catalogue marker. Put a
-  component here (`↻ <name>  v<old> → v<new>`) ONLY when the local copy HAS a marker AND it is
-  strictly lower than the catalogue's. This is a grep and is high-confidence staleness.
+- **Version status table = every marked local copy; `behind` only when strictly lower.** Compare each
+  installed component's `<name>-version` marker (captured in Step 1) against the catalogue marker. Show
+  marked components in the Version status table; Status is `behind → refresh <name>` ONLY when the local
+  marker is strictly lower than the catalogue's, else `current`. This is a grep, high-confidence.
 - **Unmarked local copy ≠ behind.** A component with NO local marker was almost always adapted before
   versioning existed - it is "unversioned", NOT stale. Do NOT render these as `v0 → v1` Updates (that
   floods the report with false positives - the exact failure this design avoids). Collapse ALL unmarked
@@ -234,10 +243,14 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
      webhook signature, per-tenant isolation, etc.).
    - Keep structure, phase order, scoring logic, and tool lists intact.
    - Adapt, do not pad: every change must trace to a Step-1 signal. Do not restate the template.
+   - **Preserve the `<!-- <name>-version: N -->` marker from the template verbatim.** This is what
+     makes the adapted copy detectable next run - an adaptation that drops the marker resets the
+     component to "unversioned" and defeats drift detection forever. If the template somehow lacks a
+     marker, add one matching the catalogue version.
 3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`;
    command -> `.claude/commands/<name>.md`.
 4. Replace the repo placeholder: `sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <file>`.
-5. Confirm: `✓ <name> (<type>) - adapted for <stack>`.
+5. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
 **Hooks** (e.g. `block-dashes`):
 1. Copy the script verbatim from `$FORGE_KIT_DIR/plugins/<group>/hooks/<file>` to
@@ -374,9 +387,11 @@ forge-kit-specific - exclude it from the audit.
   newly added components - always refresh in S2 before cataloguing, never trust an existing clone as-is.
 - **Lead with the recommendation, not the setup.** Setup (self-update, locate library, catalogue)
   runs quietly. The first substantial thing the user sees is the profile + top picks.
-- **Render every listing as a Markdown table.** The Recommended picks, Updates available, Unversioned,
+- **Render every listing as a Markdown table.** The Recommended picks, Version status, Unversioned,
   the `drift` report, the `refresh` classification, and "more <category>" output are all tables - never
   bullet lists or key-value blocks. The Profile is the only block that stays prose. Keep "Why" cells <= 60 chars.
+- **Adapted copies keep the version marker.** Step 3 preserves the `<name>-version` marker so the next
+  run can detect drift; an install that strips it resets the component to "unversioned".
 - **Recommended table = top picks, not the whole catalogue.** Lead with the most valuable per category;
   "more <category>" expands one category into its full-catalogue table on request.
 - **Every "why" is specific and <= 60 chars.** One strongest signal, never generic best-practice text.
