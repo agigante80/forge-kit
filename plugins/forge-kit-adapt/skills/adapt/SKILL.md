@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 3 -->
+<!-- forge-adapt-version: 4 -->
 
 # forge-adapt
 
@@ -180,10 +180,13 @@ Top picks for this project
 ⚡ Hooks
   block-dashes        enforce the no-dash writing rule
 
-Updates available (installed, but behind forge-kit)
-  ↻ ticket-gate    v0 → v1
-  ↻ code-reviewer  v0 → v1
-(omit this block entirely if nothing is behind)
+Updates available (versioned locally, but behind forge-kit)
+  ↻ ticket-gate    v1 → v2
+(omit this block entirely if nothing versioned is behind)
+
+Unversioned (predate markers - not necessarily behind; refresh to deep-compare)
+  api-security-tester · code-reviewer · security-auditor · ...
+(omit if every installed component already carries a marker)
 
 Reply with names to install (I adapt each to your stack), "all", or "none".
 "refresh <name>" deep-compares an installed component and updates it if genuinely behind.
@@ -197,13 +200,16 @@ Rules for this step:
   `proper` (inline in CLAUDE.md, scattered across CONTRIBUTING/STYLE_GUIDE, or missing).
 - **"more <category>"** prints the full catalogue for that one category (name + one-line why each),
   then repeats the same reply prompt.
-- **"Updates available" is version-marker based, not a diff.** For each installed component, compare
-  its `<name>-version` marker (captured in Step 1) against the same component's marker in the
-  catalogue. List ONLY where installed < canonical, or installed has no marker but canonical does
-  (`↻ <name>  v<old> → v<new>`; show `v0` for an unmarked local copy). This is a grep - it does NOT
-  flag intentional adaptation, only genuine staleness. Components unversioned on BOTH sides are
-  omitted; if any exist, say once: "N components predate versioning - `refresh <name>` to deep-compare."
-  **Never content-diff every component up front** - it is expensive and mis-reads adaptation as drift.
+- **"Updates available" = a VERSIONED local copy that is strictly behind.** Compare each installed
+  component's `<name>-version` marker (captured in Step 1) against the catalogue marker. Put a
+  component here (`↻ <name>  v<old> → v<new>`) ONLY when the local copy HAS a marker AND it is
+  strictly lower than the catalogue's. This is a grep and is high-confidence staleness.
+- **Unmarked local copy ≠ behind.** A component with NO local marker was almost always adapted before
+  versioning existed - it is "unversioned", NOT stale. Do NOT render these as `v0 → v1` Updates (that
+  floods the report with false positives - the exact failure this design avoids). Collapse ALL unmarked
+  components into ONE quiet line: "Unversioned (predate markers - not necessarily behind): <names> -
+  `refresh <name>` to deep-compare." Components unversioned on both sides fold into the same line.
+- **Never content-diff every component up front** - it is expensive and mis-reads adaptation as drift.
 - Wait for the reply. Names or "all" -> Step 3. `refresh`/`refresh <name>` -> refresh mode (below).
   "none" -> stop (offer contributions/templates modes).
 
@@ -269,15 +275,16 @@ compare its `<name>-version` marker against the catalogue and print a drift repo
 ```
 forge-adapt drift report - <project>
 
-Behind forge-kit (version marker lags):
-  ↻ ticket-gate    v0 → v1   refresh to update
-  ↻ code-reviewer  v0 → v1   refresh to update
+Behind forge-kit (local marker is strictly lower):
+  ↻ ticket-gate    v1 → v2   refresh to update
 Current (marker matches):
   security-auditor v1 · gate-ticket v1 · ...
-Unversioned (cannot tell cheaply): <list> - "refresh <name>" to deep-compare
+Unversioned (no local marker - predate versioning, not necessarily behind):
+  <list> - "refresh <name>" to deep-compare
 ```
 
-Stop after the report. Do not modify anything.
+Stop after the report. Do not modify anything. Only the "Behind" bucket means genuinely stale; an
+unmarked copy lands in "Unversioned", never in "Behind".
 
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
 This is the only place a full content diff is justified, and it must NEVER blind-overwrite (that
