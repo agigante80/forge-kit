@@ -5,12 +5,14 @@ description: >
   subagents, skills, commands, and hooks - grouped by type with a per-item reason,
   then adapt and install the ones you pick (rewritten for your stack, not copy-pasted).
   Use for first-time setup OR ongoing maintenance ("am I up to date?", "what governance
-  am I missing?"). Secondary modes: "forge-adapt contributions" surfaces project-only
+  am I missing?"). Secondary modes: "refresh"/"drift" reports which installed components are
+  behind forge-kit (version-marker based) and "refresh <name>" deep-compares and updates one
+  while preserving project adaptation; "forge-adapt contributions" surfaces project-only
   components worth contributing back; "forge-adapt templates" audits issue templates.
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 2 -->
+<!-- forge-adapt-version: 3 -->
 
 # forge-adapt
 
@@ -104,9 +106,13 @@ Detect stack, domain, and what is already installed. Synthesise - do not dump ra
 cat package.json 2>/dev/null | head -50
 cat pyproject.toml requirements.txt go.mod Cargo.toml pom.xml 2>/dev/null | head -40
 cat CLAUDE.md 2>/dev/null
-# Already installed (match by name: field, used to avoid re-recommending):
-for f in .claude/agents/*.md .claude/skills/*/SKILL.md .claude/commands/*.md; do
-  [ -f "$f" ] && echo "  $(grep -m1 '^name:' "$f" | sed 's/name: *//') | $(grep -m1 '^description:' "$f" | sed 's/description: *//')"
+# Already installed (name = match key; <name>-version marker = cheap drift signal):
+for f in .claude/agents/*.md .claude/commands/*.md .claude/skills/*/SKILL.md; do
+  [ -f "$f" ] || continue
+  case "$f" in */skills/*) n=$(basename "$(dirname "$f")");; *) n=$(basename "$f" .md);; esac
+  v=$(grep -oP -- "${n}-version: \K\d+" "$f" | head -1)   # name-scoped: ignores body template-version refs
+  d=$(grep -m1 '^description:' "$f" | sed 's/description: *//')
+  echo "  $n | v${v:-none} | $d"
 done
 ls .claude/hooks/ 2>/dev/null
 # Repo slug for the {{GITHUB_REPO}} placeholder later:
@@ -174,7 +180,14 @@ Top picks for this project
 ⚡ Hooks
   block-dashes        enforce the no-dash writing rule
 
+Updates available (installed, but behind forge-kit)
+  ↻ ticket-gate    v0 → v1
+  ↻ code-reviewer  v0 → v1
+(omit this block entirely if nothing is behind)
+
 Reply with names to install (I adapt each to your stack), "all", or "none".
+"refresh <name>" deep-compares an installed component and updates it if genuinely behind.
+"refresh" (no name) reports drift across everything, writes nothing.
 Say "more subagents" / "more skills" / "more commands" / "more hooks" for the full catalog of a category.
 ```
 
@@ -184,10 +197,15 @@ Rules for this step:
   `proper` (inline in CLAUDE.md, scattered across CONTRIBUTING/STYLE_GUIDE, or missing).
 - **"more <category>"** prints the full catalogue for that one category (name + one-line why each),
   then repeats the same reply prompt.
-- If an installed component differs from the forge-kit reference (diff first 30 lines), add one
-  line under its category: `↻ <name> - installed copy is behind forge-kit; reply "update <name>" to refresh`.
-  Do not build a big version-check table - keep it to the components that actually drifted.
-- Wait for the reply. Names or "all" -> Step 3. "none" -> stop (offer contributions/templates modes).
+- **"Updates available" is version-marker based, not a diff.** For each installed component, compare
+  its `<name>-version` marker (captured in Step 1) against the same component's marker in the
+  catalogue. List ONLY where installed < canonical, or installed has no marker but canonical does
+  (`↻ <name>  v<old> → v<new>`; show `v0` for an unmarked local copy). This is a grep - it does NOT
+  flag intentional adaptation, only genuine staleness. Components unversioned on BOTH sides are
+  omitted; if any exist, say once: "N components predate versioning - `refresh <name>` to deep-compare."
+  **Never content-diff every component up front** - it is expensive and mis-reads adaptation as drift.
+- Wait for the reply. Names or "all" -> Step 3. `refresh`/`refresh <name>` -> refresh mode (below).
+  "none" -> stop (offer contributions/templates modes).
 
 ### Step 3: Install (adapt, then write)
 
@@ -241,6 +259,57 @@ Run forge-adapt again anytime to stay current, or "forge-adapt contributions" to
 
 Run only when explicitly invoked, or offer them after the user replies "none".
 
+### Refresh / drift mode  ("refresh", "refresh <name>", "drift")
+
+The deep, expensive counterpart to the cheap "Updates available" block. Two shapes:
+
+**`refresh` / `drift` (no name) - report only, writes nothing.** For every installed component,
+compare its `<name>-version` marker against the catalogue and print a drift report:
+
+```
+forge-adapt drift report - <project>
+
+Behind forge-kit (version marker lags):
+  ↻ ticket-gate    v0 → v1   refresh to update
+  ↻ code-reviewer  v0 → v1   refresh to update
+Current (marker matches):
+  security-auditor v1 · gate-ticket v1 · ...
+Unversioned (cannot tell cheaply): <list> - "refresh <name>" to deep-compare
+```
+
+Stop after the report. Do not modify anything.
+
+**`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
+This is the only place a full content diff is justified, and it must NEVER blind-overwrite (that
+would clobber intentional adaptation). Steps:
+
+1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy.
+2. **Classify every difference** into two buckets:
+   - **Adaptation (keep):** project-specific stack/domain customisation - stack references, added
+     scoring criteria, local agent-type names, injected invariants.
+   - **Behind forge-kit (offer to apply):** structural/behavioural improvements present in the
+     catalogue copy but missing locally (new rules, new sections, the version bump).
+3. Print the report - what is adaptation, what is missing, and the proposed merge:
+
+   ```
+   refresh: <name>  (installed v<old> → forge-kit v<new>)
+
+   Keeping your adaptation:
+     - <e.g. references comprehensive-review:* agent variants>
+   Would add from forge-kit v<new>:
+     - <e.g. "no post-then-retract" verification rule>
+     - <e.g. domain-not-touched auto-score 10 rule>
+
+   Apply this merge? (yes / no)
+   ```
+4. On `yes`: produce a MERGED file - preserve all adaptation verbatim, splice in only the missing
+   forge-kit improvements, bump the local `<name>-version` marker to the catalogue value. Write it,
+   re-apply `{{GITHUB_REPO}}` if needed, confirm `✓ <name> refreshed v<old> → v<new> (adaptation preserved)`.
+   On `no`: write nothing.
+
+If the marker already matches the catalogue, say so and offer a content diff anyway (the project
+may have edited a same-version copy) - but default to "already current, nothing to do".
+
 ### Contributions mode  ("forge-adapt contributions" / "contribute")
 
 Skip Steps 1-3. After Setup, surface project-only components that could help the wider kit.
@@ -293,8 +362,15 @@ forge-kit-specific - exclude it from the audit.
   runs quietly. The first substantial thing the user sees is the profile + top picks.
 - **Top 1-2 per category.** Do not dump the whole catalogue. "more <category>" expands one category on request.
 - **Every "why" is specific and <= 60 chars.** One strongest signal, never generic best-practice text.
-- **Never write outside Step 3.** Recommendations write nothing. Self-update (Setup S1) is the only
-  exception and only ever writes its own SKILL.md.
+- **Never write outside Step 3 or a confirmed `refresh <name>`.** Recommendations, the "Updates
+  available" block, and the `refresh`/`drift` report all write nothing. Self-update (Setup S1) is the
+  only other exception and only ever writes its own SKILL.md.
+- **Drift is detected by version markers, not by diffing.** The cheap up-front signal and the
+  `drift` report compare `<name>-version` markers (a grep that ignores intentional adaptation). A full
+  content diff happens ONLY inside `refresh <name>`, on demand.
+- **`refresh <name>` reports before it writes and never blind-overwrites.** It classifies changes as
+  adaptation-to-keep vs forge-kit-improvement-missing, shows the proposed merge, waits for confirmation,
+  then merges preserving all adaptation (same discipline as template upgrades).
 - **Adapt, do not pad.** Every customisation must trace to a Step-1 signal. Hooks are copied verbatim, not rewritten.
 - **Match installed components by `name:`**, not filename, to avoid re-recommending.
 - **ticket-gate is P0; coding-standards-auditor is P0 when standards are not `proper`.**
