@@ -19,7 +19,7 @@ The kit is organized into plugin groups under `plugins/<group>/`:
 | `forge-kit-review` | code-reviewer, architect-review, backend-architect, code-simplifier, coding-standards-auditor agents; full-review, pr-enhance commands |
 | `forge-kit-security` | security-auditor, backend-security-coder, api-security-tester agents; owasp-api-security skill |
 | `forge-kit-testing` | tdd-orchestrator, test-automator, performance-engineer agents |
-| `forge-kit-devops` | dep-auditor, health-check agents; ci-health command |
+| `forge-kit-devops` | dep-auditor, health-check agents; ci-health command; find-dead-code skill |
 | `forge-kit-backend` | api-design-principles, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration skills |
 
 Users install via the plugin marketplace (`/plugin marketplace add agigante80/forge-kit`) or by cloning the repo and running `forge-adapt` from within the target project.
@@ -56,7 +56,7 @@ Note: the 5-phase `full-review` orchestrator is a **command** (`/full-review`), 
 
 Note: `dep-auditor` and `health-check` are agent types, not slash commands. Trigger them by mentioning "health check" or "audit dependencies" in conversation.
 
-**Skills** (`plugins/<group>/skills/*/SKILL.md`) — Domain knowledge injected into the main conversation (not isolated). Frontmatter requires only `name` and `description`. Skills can have `assets/` (checklists, templates) and `references/` (supporting docs) subdirectories alongside `SKILL.md` — `api-design-principles` (`forge-kit-backend`) uses `assets/` + `references/`, and `forge-adapt` (`forge-kit-adapt`) uses `references/` (one signal→component→why map per recommendation category). Triggered automatically when relevant or by user invocation. Includes: `forge-adapt`, `api-design-principles`, `owasp-api-security`, `architecture-patterns`, `microservices-patterns`, `cqrs-implementation`, `saga-orchestration`.
+**Skills** (`plugins/<group>/skills/*/SKILL.md`) — Domain knowledge injected into the main conversation (not isolated). Frontmatter requires only `name` and `description`. Skills can have `assets/` (checklists, templates) and `references/` (supporting docs) subdirectories alongside `SKILL.md` — `api-design-principles` (`forge-kit-backend`) uses `assets/` + `references/`, and `forge-adapt` (`forge-kit-adapt`) uses `references/` (one signal→component→why map per recommendation category). Triggered automatically when relevant or by user invocation. Includes: `forge-adapt`, `api-design-principles`, `owasp-api-security`, `architecture-patterns`, `microservices-patterns`, `cqrs-implementation`, `saga-orchestration`, `find-dead-code` (the source-code counterpart to the `dep-auditor` agent).
 
 **Issue Templates** (`.github/ISSUE_TEMPLATE/*.yml`) — Six templates: `feature.yml`, `bug.yml`, `security.yml`, `infrastructure.yml`, `design.yml`, `contribution.yml`. All carry `<!-- template-version: 4 -->` and include mandatory sections: GWT scenarios, unit test specs, E2E test specs, GDPR considerations, security checklist, and required reviews checkbox. The `ticket-gate` agent auto-synthesizes missing v4 sections from earlier-version tickets. See `docs/guides/template-versioning.md` for the versioning scheme and auto-synthesis logic.
 
