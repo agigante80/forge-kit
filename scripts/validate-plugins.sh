@@ -26,6 +26,8 @@ done
 # 2. marketplace.json integrity
 MP=.claude-plugin/marketplace.json
 if jq -e . "$MP" >/dev/null 2>&1; then
+  jq -e '(.plugins | type == "array") and (.plugins | length > 0)' "$MP" >/dev/null 2>&1 \
+    || fail "$MP: .plugins must be a non-empty array"
   while IFS= read -r src; do
     [ -n "$src" ] || continue
     [ -f "${src#./}/.claude-plugin/plugin.json" ] || fail "marketplace.json: source '$src' has no plugin.json"
