@@ -1,4 +1,5 @@
 {
   "name": "forge-kit-testing",
-  "description": "Testing agents: tdd-orchestrator, test-automator, performance-engineer"
+  "description": "Testing agents: tdd-orchestrator, test-automator, performance-engineer",
+  "version": "0.1.0"
 }

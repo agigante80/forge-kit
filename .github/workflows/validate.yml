@@ -1,0 +1,38 @@
+name: Validate
+
+# Governance CI for the forge-kit marketplace. Makes the version-marker + plugin-structure
+# discipline authoritative (a required check), rather than relying on the opt-in local
+# .githooks/pre-commit. Modelled on anthropics/claude-plugins-official's validate-plugins.
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/**'
+      - '.claude-plugin/**'
+      - 'scripts/validate-plugins.sh'
+      - 'scripts/check-version-bump.sh'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - '.claude-plugin/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Structural validation (plugin.json + marketplace + version markers)
+        run: bash scripts/validate-plugins.sh
+
+      - name: Version-bump discipline (changed component must bump its marker)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/check-version-bump.sh "origin/$BASE_REF"

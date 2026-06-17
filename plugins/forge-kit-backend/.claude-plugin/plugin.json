@@ -1,4 +1,5 @@
 {
   "name": "forge-kit-backend",
-  "description": "Backend architecture and API design skills"
+  "description": "Backend architecture and API design skills",
+  "version": "0.1.0"
 }
