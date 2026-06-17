@@ -3,19 +3,15 @@ name: Validate
 # Governance CI for the forge-kit marketplace. Makes the version-marker + plugin-structure
 # discipline authoritative (a required check), rather than relying on the opt-in local
 # .githooks/pre-commit. Modelled on anthropics/claude-plugins-official's validate-plugins.
+#
+# Runs on EVERY pull_request (no path filter) on purpose: a path-filtered required check
+# never reports on PRs that miss the paths, leaving them blocked forever. The job is fast,
+# so running it unconditionally is the cost of being a reliable required status check.
 
 on:
   pull_request:
-    paths:
-      - 'plugins/**'
-      - '.claude-plugin/**'
-      - 'scripts/validate-plugins.sh'
-      - 'scripts/check-version-bump.sh'
   push:
     branches: [main]
-    paths:
-      - 'plugins/**'
-      - '.claude-plugin/**'
 
 permissions:
   contents: read
@@ -36,3 +32,17 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-version-bump.sh "origin/$BASE_REF"
+
+      # Advisory only: layer in the official validator when the CLI is available. Never
+      # fails the build (continue-on-error) - our own validate-plugins.sh is the gate.
+      - name: Official validation (claude plugin validate, advisory)
+        continue-on-error: true
+        run: |
+          if ! npm install -g @anthropic-ai/claude-code >/dev/null 2>&1; then
+            echo "claude CLI could not be installed; skipping advisory validation."; exit 0
+          fi
+          if claude plugin validate --help >/dev/null 2>&1; then
+            claude plugin validate . || echo "claude plugin validate reported issues (advisory)."
+          else
+            echo "claude plugin validate subcommand unavailable in this CLI version; skipping."
+          fi

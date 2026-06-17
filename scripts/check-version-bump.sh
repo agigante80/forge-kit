@@ -6,9 +6,17 @@
 set -uo pipefail
 base="${1:-origin/main}"
 
+# Fail CLOSED if the base ref is missing: otherwise `git diff` errors, the pipeline yields no
+# files, and the gate would silently pass without checking anything.
+if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+  echo "check-version-bump: base ref '$base' not found — cannot verify version bumps." >&2
+  exit 1
+fi
+
 ver_of() { grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | head -1 | grep -oP ': \K\d+'; }
 
-files=$(git diff --name-only --diff-filter=AM "$base"...HEAD \
+# AMR: also catch renamed components (the new path is what git reports).
+files=$(git diff --name-only --diff-filter=AMR "$base"...HEAD \
   | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$' || true)
 [ -z "$files" ] && { echo "no component changes vs $base"; exit 0; }
 
