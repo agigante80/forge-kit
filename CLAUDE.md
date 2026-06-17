@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-**forge-kit** is an AI-assisted project governance scaffold — AI-agnostic at the governance layer (issue templates, labels, GWT scenarios), Claude Code-native at the automation layer (agents, skills, slash commands). It is a template repository, not a buildable application. Its purpose is to be bootstrapped into other projects or used as an upgrade reference via the `forge-adapt` skill. There are no build steps, package managers, or CI pipelines.
+**forge-kit** is an AI-assisted project governance scaffold — AI-agnostic at the governance layer (issue templates, labels, GWT scenarios), Claude Code-native at the automation layer (agents, skills, slash commands). It is a template repository, not a buildable application. Its purpose is to be bootstrapped into other projects or used as an upgrade reference via the `forge-adapt` skill. There are no build steps or package managers. The only CI is a governance `Validate` workflow (`.github/workflows/validate.yml`) that checks plugin/marketplace structure and version-marker discipline — there is no application build/test pipeline.
 
 **Validation approach:** There is no local test runner. To validate a component change, install it into a test project via `forge-adapt` and exercise the workflow there.
 
@@ -62,13 +62,15 @@ Note: `dep-auditor` and `health-check` are agent types, not slash commands. Trig
 
 ## Plugin Structure
 
-Each plugin group has a `.claude-plugin/plugin.json` with just `name` and `description` (no version field):
+Each plugin group has a `.claude-plugin/plugin.json` with `name`, `description`, and a semver `version` (the ecosystem-standard plugin version, distinct from the per-component `<name>-version` markers):
 
 ```json
-{ "name": "forge-kit-<group>", "description": "..." }
+{ "name": "forge-kit-<group>", "version": "0.1.0", "description": "..." }
 ```
 
 The root `.claude-plugin/marketplace.json` lists all plugins with their local `source` paths. This is the file the plugin marketplace reads to discover installable plugins.
+
+**Two versioning levels (don't conflate them):** the **plugin** version (`version` in `plugin.json`, semver) is the standard unit-of-install version read by the marketplace/tooling, set per plugin group. The **component** version (`<!-- <name>-version: N -->` markers) is forge-kit's finer-grained signal for detecting drift in a single component that `forge-adapt` cherry-picked and rewrote into a project's `.claude/` — divorced from its plugin, a loose adapted file needs its own marker. The `Validate` CI workflow enforces both: `scripts/validate-plugins.sh` checks structure + semver + marker presence; `scripts/check-version-bump.sh` fails a PR whose component changed without a marker bump (the authoritative, server-side counterpart to the opt-in `.githooks/pre-commit`).
 
 ## Key Conventions
 

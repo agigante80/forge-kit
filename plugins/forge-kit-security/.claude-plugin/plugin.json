@@ -1,4 +1,5 @@
 {
   "name": "forge-kit-security",
-  "description": "Security agents and OWASP checklist skill"
+  "description": "Security agents and OWASP checklist skill",
+  "version": "0.1.0"
 }
