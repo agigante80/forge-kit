@@ -3,7 +3,7 @@ name: release
 description: Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verify CI is green, tag, and close the tickets the release shipped. Includes a version-check guard (fail if version sources disagree) for CI/pre-commit. Generic skill - forge-adapt tailors the version files, branching model, tag format, and publish pipeline to the project. Use when the user asks to "release", "cut a release", "bump the version", "ship vX.Y.Z", or "tag a release".
 ---
 
-<!-- release-version: 1 -->
+<!-- release-version: 2 -->
 
 # Release
 
@@ -31,11 +31,15 @@ during adaptation:
 ## The version-check guard (wire into CI + pre-commit)
 
 The cheap, high-value piece: a script that **fails if the version sources disagree**, so drift is
-caught before release, not during. Generic shape (adapt the file list):
+caught before release, not during. Generic shape - adapt to the project's actual sources; with a
+single source there is nothing to cross-check, so the guard is a no-op:
 
 ```bash
-# fail if package.json version != VERSION file (ignoring pre-release metadata after first '-')
-a=$(jq -r .version package.json); b=$(cat VERSION)
+# Two-mirror example: package.json is canonical, VERSION mirrors it. (Node-specific - swap the
+# files for pyproject.toml/__init__.py, Cargo.toml/Cargo.lock, etc.) Compares the base version,
+# ignoring any pre-release metadata after the first '-'.
+[ -f package.json ] && [ -f VERSION ] || { echo "single source; nothing to cross-check"; exit 0; }
+a=$(jq -r '.version // "missing"' package.json); b=$(cat VERSION)
 [ "${a%%-*}" = "${b%%-*}" ] || { echo "version mismatch: package.json=$a VERSION=$b"; exit 1; }
 ```
 
