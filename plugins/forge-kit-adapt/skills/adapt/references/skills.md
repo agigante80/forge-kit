@@ -13,6 +13,7 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | Scaling reads / event sourcing | `cqrs-implementation` | backend | separate read + write models | P2 |
 | Multi-step distributed transactions | `saga-orchestration` | backend | choreography / orchestration sagas | P2 |
 | Aging / large codebase, pre-refactor or pre-release cleanup | `find-dead-code` | devops | find unused funcs/exports a linter misses | P2 |
+| Ships releases / has a VERSION or package.json version | `release` | devops | semver bump + sync + tag + close shipped tickets | P2 |
 
 Note: the backend skills are injected knowledge, not actions — recommend them when the project's
 domain matches, not by default. `find-dead-code` is the source-code counterpart to the `dep-auditor`
