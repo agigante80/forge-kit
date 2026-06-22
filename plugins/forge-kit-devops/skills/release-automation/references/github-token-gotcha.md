@@ -34,14 +34,16 @@ the bump commit now fires `on: push`/`workflow_run` again, including this workfl
 an explicit guard. The templates use:
 
 - **Recursion guard** — the first real step inspects the head commit subject and exits early if it
-  is our own `chore(release): bump version …` commit. This terminates the loop after exactly one
-  extra (no-op) CI run.
+  is our own `chore(release): automated version bump …` commit. This terminates the loop after
+  exactly one extra (no-op) CI run.
 - **`concurrency` with `cancel-in-progress: false`** — collapses pile-ups from rapid merges
   without ever cancelling a half-finished tag/release.
 
-> **Footgun:** the recursion guard matches the commit subject `^chore(release): bump version`.
-> A *manual* bump must NOT use that exact prefix, or the guard will silently skip a real release.
-> Keep manual bumps on a different subject (e.g. `chore: bump version to X.Y.Z`).
+> **Reserved subject — why it is distinct.** The guard matches `^chore(release): automated version
+> bump`, which only this lane's bot uses. It is deliberately different from the `release` skill's
+> *human* `chore(release): bump version to X.Y.Z`, so a real human-cut release is never mistaken
+> for the bot's own commit and silently skipped. Don't reuse the `automated version bump` subject
+> for manual commits.
 
 ## 3. Why `workflow_run` + `head_sha`, not `on: push`
 
@@ -54,6 +56,13 @@ workflow's `name:` exactly — forge-adapt wires this.
 Note: in the `equal` case the lane tags the bump commit it just pushed (the new version lives only
 there). That bump commit is a mechanical one-line change on top of a validated tree; its own CI
 re-run is redundant but harmless, and the recursion guard turns it into a no-op.
+
+**Push-race handling.** Because checkout is detached at `head_sha`, the branch tip may have advanced
+by the time the lane pushes. The template `git fetch origin "$BRANCH" && git rebase FETCH_HEAD`
+before pushing, so the push is a fast-forward — never `--force`. A genuine concurrent version bump
+surfaces as a rebase conflict (the run fails loudly and is retried on the next trigger) rather than
+a silently lost release. The tag/release step is idempotent (skips an existing tag/release), so a
+retried or half-finished run converges instead of wedging on `tag already exists`.
 
 ## Sources
 - GITHUB_TOKEN does not trigger workflows: https://docs.github.com/en/actions/concepts/security/github_token
