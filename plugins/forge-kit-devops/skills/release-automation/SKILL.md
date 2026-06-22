@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. Installs a release gate (block a PR that did not bump the version past the last release) plus, on the same shared version<->tag primitive, optional auto-release lanes (auto-release a dependency-bot update; auto-release every merge on a CD trunk). The enforced/automated sibling of the invoked `release` skill. Generic template - forge-adapt tailors the production branch, version source, and CI provider. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 5 -->
+<!-- release-automation-version: 6 -->
 
 # Release automation
 
@@ -39,6 +39,9 @@ the gate); **`release-run.sh`** is the shared side-effecting driver for the writ
 recursion guard, optional dependency scope gate, decide+bump, idempotent tag+release. Lanes B and C
 are thin YAML wrappers that set env and call `release-run.sh`, so a mechanics fix lands once, not
 copy-pasted. `release-run.sh` also honours `DRY_RUN=1` (print would-be actions, write nothing).
+Every source reader yields *empty* (never a sentinel) when the version is absent, and the verdict
+validates the value is semver-shaped — so a misconfigured source fails closed with a clear error
+rather than tagging garbage (e.g. `vundefined`).
 
 ## The three lanes (route by who authored the change)
 

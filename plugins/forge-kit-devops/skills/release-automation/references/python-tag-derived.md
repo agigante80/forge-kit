@@ -56,7 +56,7 @@ This applies to the build, the publish job, and `version-lib.sh` in every mode.
 ## How the release-automation lanes apply
 
 Set `VERSION_SOURCE=git`. `read_version` then returns the latest tag's version (via
-`git describe --tags --abbrev=0`).
+`git describe --tags --abbrev=0 --match "$TAG_GLOB"`).
 
 - **The Lane A gate is moot.** There is no file a PR can bump — the version always equals the
   latest tag — so "was the version bumped?" is unanswerable. Don't install the file-bump gate for a

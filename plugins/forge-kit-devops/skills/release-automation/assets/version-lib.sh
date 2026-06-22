@@ -29,16 +29,21 @@ set -uo pipefail
 
 VERSION_SOURCE="${VERSION_SOURCE:-file}"
 VERSION_FILE="${VERSION_FILE:-VERSION}"
-TAG_GLOB="${TAG_GLOB:-v*}"
 TAG_PREFIX="${TAG_PREFIX:-v}"
+TAG_GLOB="${TAG_GLOB:-${TAG_PREFIX}*}"   # derive from the prefix so a custom prefix can't desync the glob
 
-# read_version — print the project's current (working-tree) canonical version, prefix-free.
+# _is_semver — true if $1 is X.Y.Z with an optional -prerelease / +build suffix.
+_is_semver() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ ]]; }
+
+# read_version — print the project's current (working-tree) canonical version, prefix-free. Each
+# source yields EMPTY when the version is absent/unreadable (never a sentinel like "undefined"), so
+# classify_version's emptiness + semver checks fail closed instead of releasing garbage.
 read_version() {
   case "$VERSION_SOURCE" in
     file)   [ -f "$VERSION_FILE" ] && tr -d '[:space:]' < "$VERSION_FILE" ;;
-    node)   node -p "require('./package.json').version" 2>/dev/null ;;
-    python) python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])" 2>/dev/null ;;
-    cargo)  grep -m1 '^version' Cargo.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/' ;;
+    node)   node -p "require('./package.json').version || ''" 2>/dev/null ;;   # '' not "undefined" when missing
+    python) python3 -c "import tomllib;d=tomllib.load(open('pyproject.toml','rb'));print(d.get('project',{}).get('version') or d.get('tool',{}).get('poetry',{}).get('version') or '')" 2>/dev/null ;;
+    cargo)  awk '/^\[package\]/{p=1;next} /^\[/{p=0} p&&/^[[:space:]]*version[[:space:]]*=/{if(match($0,/"[^"]+"/)){print substr($0,RSTART+1,RLENGTH-2);exit}}' Cargo.toml 2>/dev/null ;;  # scoped to [package]
     git)    git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null | sed "s/^${TAG_PREFIX}//" || true ;;  # empty (exit 0) when no tag, so callers under `set -e` don't abort
     cmd)    eval "${VERSION_CMD:?VERSION_CMD must be set when VERSION_SOURCE=cmd}" ;;
     *)      echo "version-lib: unknown VERSION_SOURCE '$VERSION_SOURCE'" >&2; return 2 ;;
@@ -73,7 +78,11 @@ classify_version() {
   now="${1-$(read_version)}"
   tag="${2-$(latest_tag)}"
   if [ -z "$now" ]; then echo "version-lib: could not read the working version (VERSION_SOURCE=$VERSION_SOURCE)" >&2; return 2; fi
+  # Reject non-semver values (e.g. node's "undefined", a stray cmd output) instead of letting
+  # `sort -V` rank them above real versions and mis-classify as `ahead` → a garbage release.
+  _is_semver "$now" || { echo "version-lib: working version '$now' is not semver (VERSION_SOURCE=$VERSION_SOURCE)" >&2; return 2; }
   if [ -z "$tag" ]; then echo "first-release"; return 0; fi
+  _is_semver "$tag" || { echo "version-lib: latest tag '$tag' is not semver — check TAG_GLOB ('$TAG_GLOB') / TAG_PREFIX ('$TAG_PREFIX')" >&2; return 2; }
   # Compare the RELEASE CORES (strip any -prerelease/+build): `sort -V` ranks `1.2.0-rc1` ABOVE
   # `1.2.0`, which would wrongly read a prerelease as `ahead` and ship it as production. Comparing
   # cores means a prerelease of an already-released core reads as `equal` (the gate then asks for a
