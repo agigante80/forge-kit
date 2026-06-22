@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. Installs a release gate (block a PR that did not bump the version past the last release) plus, on the same shared version<->tag primitive, optional auto-release lanes (auto-release a dependency-bot update; auto-release every merge on a CD trunk). The enforced/automated sibling of the invoked `release` skill. Generic template - forge-adapt tailors the production branch, version source, and CI provider. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 3 -->
+<!-- release-automation-version: 6 -->
 
 # Release automation
 
@@ -34,23 +34,33 @@ The `ahead`/`behind` handling is the load-bearing part: it is what stops a naive
 merge" from double-bumping a deliberate `1.5.0` into `1.5.1`, and what refuses to publish a
 regression. Build the comparison once (this script); each lane is a thin policy on top.
 
+Two scripts, single-sourced: **`version-lib.sh`** is the pure read-only verdict (used directly by
+the gate); **`release-run.sh`** is the shared side-effecting driver for the write-lanes (B and C) —
+recursion guard, optional dependency scope gate, decide+bump, idempotent tag+release. Lanes B and C
+are thin YAML wrappers that set env and call `release-run.sh`, so a mechanics fix lands once, not
+copy-pasted. `release-run.sh` also honours `DRY_RUN=1` (print would-be actions, write nothing).
+Every source reader yields *empty* (never a sentinel) when the version is absent, and the verdict
+validates the value is semver-shaped — so a misconfigured source fails closed with a clear error
+rather than tagging garbage (e.g. `vundefined`).
+
 ## The three lanes (route by who authored the change)
 
 | Lane | Trigger | Policy on `equal` | Default? |
 |---|---|---|---|
 | **A — Gate** | PR to the production branch | **block the merge** | yes — every project |
 | **B — Auto-release on dependency** | bot PR (Dependabot/Renovate), CI green | auto-patch + tag + release | yes, if a dep bot is present |
-| **C — Auto-release on merge** | every merge to the production branch, CI green | auto-patch + tag + release | opt-in (planned, slice 3) |
+| **C — Auto-release on merge** | every merge to the production branch, CI green | auto-patch + tag + release | opt-in, true CD trunks only |
 
 The routing rule: **auto-bump only where there is no human author and impact is bounded**
 (dependency updates); **gate where a human must declare impact** (feature/fix PRs). A gate fails
 loud and early and needs no tokens; auto-bump needs an App token + a recursion guard + concurrency
 control, so it is confined to the lanes that genuinely earn it.
 
-> **Status:** this skill ships **Lane A (the gate)** and **Lane B (auto-release on dependency)**,
-> both on the shared `version-lib.sh`. Lane C (`assets/lane-c-auto-release-on-merge.yml`) reuses
-> the same verdict and lands next. The write-lanes (B/C) carry the App-token + recursion-guard
-> handling — see `references/github-token-gotcha.md`.
+> **Status:** all three lanes ship — **A (gate)**, **B (auto-release on dependency)**, and
+> **C (auto-release on merge)** — on the shared `version-lib.sh`. The write-lanes (B/C) carry the
+> App-token + recursion-guard handling (`references/github-token-gotcha.md`). Tag-derived Python
+> projects (`setuptools-scm`/`hatch-vcs`) are supported via `VERSION_SOURCE=git`
+> (`references/python-tag-derived.md`).
 
 ## Lane A — the release gate (install this)
 
@@ -79,23 +89,51 @@ default token's free loop immunity. Dependency **majors**, and anything not bot-
 dependency-only, fall through to the Lane A gate. This is the lane that ships an upstream
 security/CVE fix without a human in the loop. See `references/github-token-gotcha.md`.
 
+## Lane C — auto-release on merge (opt-in, CD trunks)
+
+`assets/lane-c-auto-release-on-merge.yml` is the blanket auto-bump: **every** green merge is
+released (no dependency scope gate). Same verdict handling and write-lane machinery as Lane B, just
+applied to all merges. Use it **only on a true continuous-deployment trunk** where every merge is
+genuinely a release — for deliberate/batched releases use the Lane A gate. The two are mutually
+exclusive on the `equal` policy (the gate *blocks* an unbumped merge; this *auto-patches* it),
+though they can coexist as "gate + auto-tag" (the gate forces every merge to be `ahead`, so this
+lane only tags the already-chosen version).
+
+It also supports **tag-derived** projects (`VERSION_SOURCE=git`, e.g. `setuptools-scm`/`hatch-vcs`):
+there is no file to bump, so a release is just the next **tag** — no commit. In git mode the verdict
+is always `equal`, so it carries no signal; `release-run.sh` instead gates on `unreleased_commits`,
+releasing only when there are commits since the latest tag — otherwise a CI re-run on an
+already-tagged HEAD would cut a phantom tag every time. A project with no tags yet is left untouched
+until you push an initial tag to bootstrap. See `references/python-tag-derived.md`.
+
+> **Lane C supersedes Lane B — never install both.** Lane C already releases every merge (dependency
+> merges included); co-installing makes both fire on the same CI run, share the concurrency group,
+> and the second bump conflicts with the first. Choose: the Lane A gate (deliberate releases) **or**
+> Lane C (CD) — and Lane B only when you have the gate, not Lane C.
+
 ## Install (what forge-adapt does)
 
 1. Pick the canonical **version source** (`references/source-of-truth.md`) and set the workflow's
    `env:` block (`VERSION_SOURCE`/`VERSION_FILE`/…) + the `version-lib.sh` path.
 2. Copy `assets/version-lib.sh` into the project (e.g. `scripts/version-lib.sh`) — stack-agnostic,
-   `chmod +x`.
+   `chmod +x`. Also copy `assets/release-run.sh` alongside it if installing Lane B or C (the gate
+   needs only `version-lib.sh`). For a non-file writable source (node/python/cargo), replace
+   `release-run.sh`'s file-write bump with the project's bump command (the comment marks the spot).
 3. Copy `assets/lane-a-gate.yml` to `.github/workflows/release-gate.yml`, setting the production
    branch. Recommend making the `version-bumped` job a **required status check** on the branch —
    the gate only governs once it can block merges.
 4. Generate/update **`docs/versioning.md`** from `references/semver-operator-contract.md`, in the
    project's own terms (its env vars, volumes, platforms).
-5. Add **Lane B** (`assets/lane-b-auto-release-on-dependency.yml`) when `dependabot.yml` /
-   `renovate.json` is present: wire the CI workflow `name:`, the production branch, the bot logins,
-   the `DEP_PATHS` globs, the bump command for non-file sources, and the App-token secrets
-   (`references/github-token-gotcha.md`). Lane C is planned (slice 3) — only offer/copy a lane whose
-   asset file actually exists in the catalogue; never reference a missing asset.
-6. Install the `release` skill as the companion **invoked** workflow (the gate enforces; `release`
+5. Add **Lane B** (`assets/lane-b-auto-release-on-dependency.yml`, with `release-run.sh`) when
+   `dependabot.yml` / `renovate.json` is present: wire the CI workflow `name:`, the production
+   branch, the bot logins (`BOT_LOGINS`), the `DEP_PATHS` globs, and the App-token secrets
+   (`references/github-token-gotcha.md`).
+6. Offer **Lane C** (`assets/lane-c-auto-release-on-merge.yml`, with `release-run.sh`) only for a
+   true continuous-deploy trunk, as an *alternative* to the Lane A gate. **Do not co-install Lane B
+   and Lane C** (C supersedes B). For a tag-derived Python package set `VERSION_SOURCE=git` and
+   follow `references/python-tag-derived.md` (and skip the Lane A file-bump gate — it is moot
+   without a version file).
+7. Install the `release` skill as the companion **invoked** workflow (the gate enforces; `release`
    is how a human cuts the release).
 
 ## Interaction with the rest of the kit
