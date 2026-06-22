@@ -3,7 +3,7 @@ name: release
 description: Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verify CI is green, tag, and close the tickets the release shipped. Includes a version-check guard (fail if version sources disagree) for CI/pre-commit. Generic skill - forge-adapt tailors the version files, branching model, tag format, and publish pipeline to the project. Use when the user asks to "release", "cut a release", "bump the version", "ship vX.Y.Z", or "tag a release".
 ---
 
-<!-- release-version: 2 -->
+<!-- release-version: 3 -->
 
 # Release
 
@@ -13,6 +13,10 @@ reporting throughout - **never claim "released" until the publish/CI pipeline is
 
 > **Generic template.** `forge-adapt` adapts the version sources, branching model (trunk vs
 > develop-to-main), tag format, and publish-pipeline checks to the project.
+>
+> **This skill is the *invoked* ship.** To make its "bumped past the last tag" precondition
+> *unforgettable* — enforced on every PR, not just when someone runs a release — install the
+> `release-automation` skill (the CI gate + auto-release lanes built on the same version↔tag math).
 
 ## Version sources (single source of truth + mirrors)
 
@@ -53,8 +57,10 @@ actual-mcp-server's `version-check.js`.
 | `patch` / `minor` / `major` | bump the canonical version, propagate to all mirrors, sync doc markers |
 | `sync` | do NOT bump; only re-sync mirrors + doc markers to the current canonical (fixes drift) |
 
-Choose the level by change type (fix→patch, feature→minor, breaking→major). Bumping is a
-single committed step (`chore(release): bump version to X.Y.Z`) BEFORE the release runs.
+Choose the level per the project's `docs/versioning.md` — the single semver authority (the
+operator-contract: breaking the deployment → major, opt-in feature → minor, fix/CVE/dep → patch).
+Bumping is a single committed step (`chore(release): bump version to X.Y.Z`) BEFORE the release
+runs. The bump *level* is a human judgement; do not auto-infer it.
 
 ## Release flow
 
