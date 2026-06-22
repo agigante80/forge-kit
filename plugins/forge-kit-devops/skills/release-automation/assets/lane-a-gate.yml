@@ -37,7 +37,7 @@ jobs:
             ahead|first-release)
               echo "::notice::release-gate: version is ahead of the last release — gate passes." ;;
             equal)
-              echo "::error::release-gate: the version was NOT bumped past the last release. Bump it (patch/minor/major per docs/versioning.md) before merging. This gate is an intentional governance signal, not a CI breakage."
+              echo "::error::release-gate: the version was NOT bumped past the last release. Bump it past the latest tag before merging — choose patch/minor/major by impact (see docs/versioning.md if your project defines one). This gate is an intentional governance signal, not a CI breakage."
               exit 1 ;;
             behind)
               echo "::error::release-gate: the version is BEHIND the last release — this branch is stale. Merge/rebase the production branch, then re-bump."
