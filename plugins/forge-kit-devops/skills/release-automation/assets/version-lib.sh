@@ -59,6 +59,18 @@ classify_version() {
   if [ "$highest" = "$now" ]; then echo "ahead"; else echo "behind"; fi
 }
 
+# next_patch — print the next PATCH version (X.Y.Z -> X.Y.(Z+1)), dropping any -prerelease
+# suffix. PURE: prints, never writes. The auto-release lanes use this to compute the bump; the
+# gate never calls it (the gate only reads). Arg optional: $1=base version (default read_version).
+next_patch() {
+  local v="${1:-$(read_version)}"
+  v="${v%%-*}"                       # base version, drop any -prerelease/+meta
+  case "$v" in
+    *.*.*) printf '%s.%s.%s' "${v%%.*}" "$(printf '%s' "$v" | cut -d. -f2)" "$(( ${v##*.} + 1 ))" ;;
+    *)     echo "next_patch: not semver: $v" >&2; return 2 ;;
+  esac
+}
+
 # Executed directly (not sourced): emit the verdict on stdout, a human line on stderr.
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   _now=$(read_version); _tag=$(latest_tag)

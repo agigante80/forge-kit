@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. Installs a release gate (block a PR that did not bump the version past the last release) plus, on the same shared version<->tag primitive, optional auto-release lanes (auto-release a dependency-bot update; auto-release every merge on a CD trunk). The enforced/automated sibling of the invoked `release` skill. Generic template - forge-adapt tailors the production branch, version source, and CI provider. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 1 -->
+<!-- release-automation-version: 2 -->
 
 # Release automation
 
@@ -47,11 +47,10 @@ The routing rule: **auto-bump only where there is no human author and impact is 
 loud and early and needs no tokens; auto-bump needs an App token + a recursion guard + concurrency
 control, so it is confined to the lanes that genuinely earn it.
 
-> **Status:** this skill ships **Lane A (the gate)** and the shared `version-lib.sh` today.
-> Lanes B and C reuse the same verdict and land as `assets/lane-b-auto-release-on-dependency.yml`
-> and `assets/lane-c-auto-release-on-merge.yml` — when added, they MUST carry the App-token note
-> (`GITHUB_TOKEN`-pushed tags do not trigger downstream publish workflows) and a recursion guard,
-> because adopting an App token to fix that forfeits the default token's free loop immunity.
+> **Status:** this skill ships **Lane A (the gate)** and **Lane B (auto-release on dependency)**,
+> both on the shared `version-lib.sh`. Lane C (`assets/lane-c-auto-release-on-merge.yml`) reuses
+> the same verdict and lands next. The write-lanes (B/C) carry the App-token + recursion-guard
+> handling — see `references/github-token-gotcha.md`.
 
 ## Lane A — the release gate (install this)
 
@@ -62,6 +61,22 @@ branch is stale, rebase". This is exactly the `release` skill's "bumped past the
 precondition, moved from *checked when you run release* to *enforced on every PR*.
 
 Zero machinery: no tokens, no recursion, no concurrency — it only reads.
+
+## Lane B — auto-release on dependency update
+
+`assets/lane-b-auto-release-on-dependency.yml` is the one auto-bump that is safe by construction:
+the author is a dependency bot (no human to make the bump call) and the impact is bounded
+(consume an upstream release → PATCH). On `workflow_run` after CI is green it checks out the
+validated `head_sha`, confirms the change is **bot-authored and confined to dependency
+manifests/lockfiles**, then acts on the `version-lib.sh` verdict: `equal`/`first-release` →
+auto-patch + commit + push; `ahead` → release as-is; `behind` → refuse (regression). Then it tags
+and cuts the release.
+
+Because it writes, it needs an **App token** (so the pushed tag triggers the downstream publish
+workflow) and therefore a **recursion guard + concurrency** — adopting that token forfeits the
+default token's free loop immunity. Dependency **majors**, and anything not bot-authored or not
+dependency-only, fall through to the Lane A gate. This is the lane that ships an upstream
+security/CVE fix without a human in the loop. See `references/github-token-gotcha.md`.
 
 ## Install (what forge-adapt does)
 
@@ -74,8 +89,10 @@ Zero machinery: no tokens, no recursion, no concurrency — it only reads.
    the gate only governs once it can block merges.
 4. Generate/update **`docs/versioning.md`** from `references/semver-operator-contract.md`, in the
    project's own terms (its env vars, volumes, platforms).
-5. Add Lane B if `dependabot.yml`/`renovate.json` is present (slice 2); offer Lane C only for a
-   continuous-deploy trunk (slice 3).
+5. Add **Lane B** (`assets/lane-b-auto-release-on-dependency.yml`) when `dependabot.yml` /
+   `renovate.json` is present: wire the CI workflow `name:`, the production branch, the bot logins,
+   the `DEP_PATHS` globs, the bump command for non-file sources, and the App-token secrets
+   (`references/github-token-gotcha.md`). Offer Lane C only for a continuous-deploy trunk (slice 3).
 6. Install the `release` skill as the companion **invoked** workflow (the gate enforces; `release`
    is how a human cuts the release).
 
