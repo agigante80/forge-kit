@@ -14,8 +14,10 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | Multi-step distributed transactions | `saga-orchestration` | backend | choreography / orchestration sagas | P2 |
 | Aging / large codebase, pre-refactor or pre-release cleanup | `find-dead-code` | devops | find unused funcs/exports a linter misses | P2 |
 | Ships releases / has a VERSION or package.json version | `release` | devops | semver bump + sync + tag + close shipped tickets | P2 |
+| Merges to main as a release; bump/tag is manual (easily forgotten) | `release-automation` | devops | CI gate: block a merge that did not bump the version | P1 |
 
 Note: the backend skills are injected knowledge, not actions — recommend them when the project's
 domain matches, not by default. `find-dead-code` is the source-code counterpart to the `dep-auditor`
-agent (deps); recommend it for cleanup/refactor intent. Lead with at most the top 1-2; "more skills"
-expands the rest.
+agent (deps); recommend it for cleanup/refactor intent. `release-automation` is the *enforced* CI
+sibling of `release` — recommend both together (the gate makes the bump unforgettable; `release`
+is how a human cuts the release). Lead with at most the top 1-2; "more skills" expands the rest.

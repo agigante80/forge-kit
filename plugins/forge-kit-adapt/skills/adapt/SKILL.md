@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 7 -->
+<!-- forge-adapt-version: 8 -->
 
 # forge-adapt
 
@@ -137,6 +137,8 @@ find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep
 | Dependency depth | lockfiles, package count | dep-auditor |
 | Tests present | tests/, *_test, *.spec | tdd-orchestrator, test-automator |
 | GitHub Actions | .github/workflows/ | /ci-health command |
+| Ships releases (version + tags) | VERSION, package.json/pyproject version, git tags | release skill; release-automation gate |
+| Dependabot / Renovate present | .github/dependabot.yml, renovate.json | release-automation Lane B (auto-release dep updates) |
 | Coding standards state | CLAUDE.md inline / CONTRIBUTING / STYLE_GUIDE | coding-standards-auditor |
 | Writing rules in CLAUDE.md | "no em dash", style rules | block-dashes hook |
 
