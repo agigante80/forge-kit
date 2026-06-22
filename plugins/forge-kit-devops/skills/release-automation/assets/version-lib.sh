@@ -39,7 +39,7 @@ read_version() {
     node)   node -p "require('./package.json').version" 2>/dev/null ;;
     python) python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])" 2>/dev/null ;;
     cargo)  grep -m1 '^version' Cargo.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/' ;;
-    git)    git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null | sed "s/^${TAG_PREFIX}//" ;;
+    git)    git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null | sed "s/^${TAG_PREFIX}//" || true ;;  # empty (exit 0) when no tag, so callers under `set -e` don't abort
     cmd)    eval "${VERSION_CMD:?VERSION_CMD must be set when VERSION_SOURCE=cmd}" ;;
     *)      echo "version-lib: unknown VERSION_SOURCE '$VERSION_SOURCE'" >&2; return 2 ;;
   esac
@@ -51,7 +51,7 @@ read_version() {
 # (In git mode there is no file to pre-bump, so the version always equals HEAD's tag → `equal`.)
 latest_tag() {
   if [ "$VERSION_SOURCE" = git ]; then
-    git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null | sed "s/^${TAG_PREFIX}//"
+    git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null | sed "s/^${TAG_PREFIX}//" || true
   else
     git tag --list "$TAG_GLOB" --sort=-v:refname | head -1 | sed "s/^${TAG_PREFIX}//"
   fi
@@ -91,8 +91,9 @@ next_patch() {
   local v="${1:-$(read_version)}"
   v="${v%%[-+]*}"                    # release core, drop any -prerelease AND +build metadata
   case "$v" in
-    *.*.*) printf '%s.%s.%s' "${v%%.*}" "$(printf '%s' "$v" | cut -d. -f2)" "$(( ${v##*.} + 1 ))" ;;
-    *)     echo "next_patch: not semver: $v" >&2; return 2 ;;
+    *.*.*.*) echo "next_patch: not 3-part semver: $v" >&2; return 2 ;;   # reject 4+ fields
+    *.*.*)   printf '%s.%s.%s' "${v%%.*}" "$(printf '%s' "$v" | cut -d. -f2)" "$(( ${v##*.} + 1 ))" ;;
+    *)       echo "next_patch: not semver: $v" >&2; return 2 ;;
   esac
 }
 

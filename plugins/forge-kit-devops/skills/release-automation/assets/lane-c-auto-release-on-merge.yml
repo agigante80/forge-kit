@@ -1,16 +1,18 @@
 # Auto-release on merge (lane C) — OPT-IN, continuous-deployment trunks only. Every merge to the
 # production branch that passes CI is released: if nobody bumped, auto-patch; if already bumped,
-# release as-is. This is the blanket auto-bump — use it ONLY where every merge is genuinely a
-# release. For deliberate/batched releases use the lane-A gate instead. The two are mutually
-# exclusive on the `equal` policy: the gate BLOCKS an unbumped merge, this AUTO-PATCHES it. (They
-# *can* coexist as "gate + auto-tag" — the gate forces every merge to be `ahead`, so this lane only
-# ever tags the already-chosen version — but the default is one or the other.)
+# release as-is. The blanket auto-bump — use it ONLY where every merge is genuinely a release.
 #
-# Supports tag-derived projects (VERSION_SOURCE=git, e.g. setuptools-scm/hatch-vcs): there is no
-# file to bump, so a release is just the next tag — no commit. See references/python-tag-derived.md.
+# Lane C SUPERSEDES Lane B: it already releases every merge (dependency merges included), so do
+# NOT install both — co-installing makes both fire on the same CI run, share the concurrency group,
+# and the second one's bump conflicts with the first. Pick the gate (lane A) for deliberate/batched
+# releases, OR Lane C for CD — not Lane A's auto-counterpart and Lane B together.
 #
-# Installed by the forge-kit `release-automation` skill for CD trunks. Same token / recursion-guard
-# / concurrency / idempotency handling as lane B — see references/github-token-gotcha.md.
+# Supports tag-derived projects (VERSION_SOURCE=git, e.g. setuptools-scm/hatch-vcs): no file to
+# bump, so a release is just the next tag (no commit), gated on there being commits since the last
+# tag. See references/python-tag-derived.md.
+#
+# The release MECHANICS live in scripts/release-run.sh (shared with lane B). Same App-token /
+# recursion-guard / concurrency / idempotency / push-race handling — see references/github-token-gotcha.md.
 
 name: Auto-release on merge
 
@@ -25,7 +27,7 @@ permissions:
 
 concurrency:
   group: auto-release-${{ github.ref }}
-  cancel-in-progress: false      # never cancel a half-finished tag/release
+  cancel-in-progress: false
 
 jobs:
   auto-release:
@@ -37,6 +39,7 @@ jobs:
       TAG_GLOB: 'v*'
       TAG_PREFIX: v
       BRANCH: ${{ github.event.workflow_run.head_branch }}
+      # REQUIRE_DEP_SCOPE defaults to 0 — lane C releases EVERY merge, no dependency scope gate.
     steps:
       - name: Mint a token that CAN trigger downstream workflows
         id: token
@@ -54,79 +57,7 @@ jobs:
           fetch-tags: true
           token: ${{ steps.token.outputs.token }}
 
-      - name: Recursion guard — skip our own auto-bump commit
-        id: guard
-        run: |
-          msg=$(git log -1 --pretty=%s)
-          # Reserved subject for THIS lane's bot commit; distinct from the `release` skill's human
-          # `chore(release): bump version to X.Y.Z`, so a human release is never swallowed.
-          if printf '%s' "$msg" | grep -q '^chore(release): automated version bump'; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::own auto-bump commit — nothing to do."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Decide + bump
-        id: decide
-        if: steps.guard.outputs.skip != 'true'
-        run: |
-          set -euo pipefail
-          # Tag-derived projects have no version file; they must be bootstrapped with an initial tag.
-          # Key on read_version (HEAD's nearest ancestor release tag), not the repo-wide latest tag,
-          # so "no release tag reachable from HEAD" is a graceful skip rather than a hard error.
-          if [ "$VERSION_SOURCE" = git ] && [ -z "$(bash -c 'source scripts/version-lib.sh; read_version')" ]; then
-            echo "::notice::tag-derived project with no release tag reachable from HEAD — push an initial tag (e.g. ${TAG_PREFIX}0.1.0) to bootstrap; auto-release takes over afterwards."
-            echo "skip_release=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          verdict=$(bash scripts/version-lib.sh)
-          case "$verdict" in
-            behind)
-              echo "::error::version is behind the latest release — refusing to publish a regression."; exit 1 ;;
-            ahead|first-release)
-              # already at / establishing the version to ship — tag it as-is, no bump.
-              v=$(bash -c 'source scripts/version-lib.sh; read_version')
-              echo "version=$v" >> "$GITHUB_OUTPUT" ;;
-            equal)
-              next=$(bash -c 'source scripts/version-lib.sh; next_patch')
-              if [ "$VERSION_SOURCE" = git ]; then
-                # tag-derived: the release IS the next tag — no file write, no commit.
-                echo "version=$next" >> "$GITHUB_OUTPUT"
-              else
-                # forge-adapt: for non-file sources replace this write with the project's bump,
-                # e.g.  npm version "$next" --no-git-tag-version  (node). File-mode default:
-                printf '%s\n' "$next" > "$VERSION_FILE"
-                git config user.name 'github-actions[bot]'
-                git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-                git add -A
-                git commit -m "chore(release): automated version bump to $next"
-                # Re-sync onto the branch tip (it may have advanced since CI validated head_sha) so
-                # the push is a fast-forward — never --force. A concurrent bump fails loud (rebase
-                # conflict) rather than being silently lost.
-                git fetch origin "$BRANCH"
-                git rebase FETCH_HEAD
-                git push origin "HEAD:$BRANCH"
-                echo "version=$next" >> "$GITHUB_OUTPUT"
-              fi ;;
-          esac
-
-      - name: Tag + release (idempotent)
-        if: steps.guard.outputs.skip != 'true' && steps.decide.outputs.skip_release != 'true'
+      - name: Auto-release
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-        run: |
-          set -euo pipefail
-          v='${{ steps.decide.outputs.version }}'
-          [ -n "$v" ] || { echo "::error::no version decided"; exit 1; }
-          tag="${TAG_PREFIX}${v}"
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "::notice::tag $tag already exists — not re-tagging."
-          else
-            git tag -a "$tag" -m "Release $tag"
-            git push origin "$tag"
-          fi
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::notice::release $tag already exists — nothing to publish."
-          else
-            gh release create "$tag" --title "$tag" --generate-notes
-          fi
+        run: bash scripts/release-run.sh   # forge-adapt: adjust the path if installed elsewhere
