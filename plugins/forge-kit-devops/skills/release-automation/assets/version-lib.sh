@@ -49,14 +49,19 @@ latest_tag() {
 
 # classify_version — print one verdict word. Optional args: $1=working version, $2=latest tag.
 classify_version() {
-  local now tag highest
+  local now tag nb tb highest
   now="${1-$(read_version)}"
   tag="${2-$(latest_tag)}"
   if [ -z "$now" ]; then echo "version-lib: could not read the working version (VERSION_SOURCE=$VERSION_SOURCE)" >&2; return 2; fi
   if [ -z "$tag" ]; then echo "first-release"; return 0; fi
-  if [ "$now" = "$tag" ]; then echo "equal"; return 0; fi
-  highest=$(printf '%s\n%s\n' "$now" "$tag" | sort -V | tail -1)
-  if [ "$highest" = "$now" ]; then echo "ahead"; else echo "behind"; fi
+  # Compare the RELEASE CORES (strip any -prerelease/+build): `sort -V` ranks `1.2.0-rc1` ABOVE
+  # `1.2.0`, which would wrongly read a prerelease as `ahead` and ship it as production. Comparing
+  # cores means a prerelease of an already-released core reads as `equal` (the gate then asks for a
+  # real bump). Full prerelease precedence is out of scope — the version source should be a clean core.
+  nb="${now%%[-+]*}"; tb="${tag%%[-+]*}"
+  if [ "$nb" = "$tb" ]; then echo "equal"; return 0; fi
+  highest=$(printf '%s\n%s\n' "$nb" "$tb" | sort -V | tail -1)
+  if [ "$highest" = "$nb" ]; then echo "ahead"; else echo "behind"; fi
 }
 
 # next_patch — print the next PATCH version (X.Y.Z -> X.Y.(Z+1)), dropping any -prerelease
@@ -64,7 +69,7 @@ classify_version() {
 # gate never calls it (the gate only reads). Arg optional: $1=base version (default read_version).
 next_patch() {
   local v="${1:-$(read_version)}"
-  v="${v%%-*}"                       # base version, drop any -prerelease/+meta
+  v="${v%%[-+]*}"                    # release core, drop any -prerelease AND +build metadata
   case "$v" in
     *.*.*) printf '%s.%s.%s' "${v%%.*}" "$(printf '%s' "$v" | cut -d. -f2)" "$(( ${v##*.} + 1 ))" ;;
     *)     echo "next_patch: not semver: $v" >&2; return 2 ;;

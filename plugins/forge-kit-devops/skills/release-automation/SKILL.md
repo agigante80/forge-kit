@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. Installs a release gate (block a PR that did not bump the version past the last release) plus, on the same shared version<->tag primitive, optional auto-release lanes (auto-release a dependency-bot update; auto-release every merge on a CD trunk). The enforced/automated sibling of the invoked `release` skill. Generic template - forge-adapt tailors the production branch, version source, and CI provider. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 2 -->
+<!-- release-automation-version: 3 -->
 
 # Release automation
 
@@ -40,7 +40,7 @@ regression. Build the comparison once (this script); each lane is a thin policy 
 |---|---|---|---|
 | **A — Gate** | PR to the production branch | **block the merge** | yes — every project |
 | **B — Auto-release on dependency** | bot PR (Dependabot/Renovate), CI green | auto-patch + tag + release | yes, if a dep bot is present |
-| **C — Auto-release on merge** | every merge to the production branch, CI green | auto-patch + tag + release | opt-in, true CD trunks only |
+| **C — Auto-release on merge** | every merge to the production branch, CI green | auto-patch + tag + release | opt-in (planned, slice 3) |
 
 The routing rule: **auto-bump only where there is no human author and impact is bounded**
 (dependency updates); **gate where a human must declare impact** (feature/fix PRs). A gate fails
@@ -68,9 +68,10 @@ Zero machinery: no tokens, no recursion, no concurrency — it only reads.
 the author is a dependency bot (no human to make the bump call) and the impact is bounded
 (consume an upstream release → PATCH). On `workflow_run` after CI is green it checks out the
 validated `head_sha`, confirms the change is **bot-authored and confined to dependency
-manifests/lockfiles**, then acts on the `version-lib.sh` verdict: `equal`/`first-release` →
-auto-patch + commit + push; `ahead` → release as-is; `behind` → refuse (regression). Then it tags
-and cuts the release.
+manifests/lockfiles**, then acts on the `version-lib.sh` verdict: `equal` → auto-patch + commit +
+push; `ahead`/`first-release` → release the current version as-is (a first release must not be
+patched, or the initial version is skipped); `behind` → refuse (regression). Then it tags and cuts
+the release (idempotently — a re-run never double-tags).
 
 Because it writes, it needs an **App token** (so the pushed tag triggers the downstream publish
 workflow) and therefore a **recursion guard + concurrency** — adopting that token forfeits the
@@ -92,7 +93,8 @@ security/CVE fix without a human in the loop. See `references/github-token-gotch
 5. Add **Lane B** (`assets/lane-b-auto-release-on-dependency.yml`) when `dependabot.yml` /
    `renovate.json` is present: wire the CI workflow `name:`, the production branch, the bot logins,
    the `DEP_PATHS` globs, the bump command for non-file sources, and the App-token secrets
-   (`references/github-token-gotcha.md`). Offer Lane C only for a continuous-deploy trunk (slice 3).
+   (`references/github-token-gotcha.md`). Lane C is planned (slice 3) — only offer/copy a lane whose
+   asset file actually exists in the catalogue; never reference a missing asset.
 6. Install the `release` skill as the companion **invoked** workflow (the gate enforces; `release`
    is how a human cuts the release).
 
