@@ -6,7 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **forge-kit** is an AI-assisted project governance scaffold — AI-agnostic at the governance layer (issue templates, labels, GWT scenarios), Claude Code-native at the automation layer (agents, skills, slash commands). It is a template repository, not a buildable application. Its purpose is to be bootstrapped into other projects or used as an upgrade reference via the `forge-adapt` skill. There are no build steps or package managers. The only CI is a governance `Validate` workflow (`.github/workflows/validate.yml`) that checks plugin/marketplace structure and version-marker discipline — there is no application build/test pipeline.
 
-**Validation approach:** There is no local test runner. To validate a component change, install it into a test project via `forge-adapt` and exercise the workflow there.
+**Validation approach:** There is no application test runner. Two kinds of validation exist:
+
+1. **Structural / discipline checks** (the same gates CI runs — run these before committing):
+
+   ```bash
+   bash scripts/validate-plugins.sh            # plugin.json + marketplace.json + version markers (whole tree)
+   bash scripts/check-version-bump.sh origin/main   # fail if a changed component didn't bump its <name>-version marker
+   git config core.hooksPath .githooks         # one-time: enable the local pre-commit version-bump guard
+   ```
+
+   `validate-plugins.sh` requires `jq`. `check-version-bump.sh` diffs against the given base ref (CI passes `origin/$BASE_REF`).
+
+2. **Behavioural validation:** there is no way to run an agent/skill/command in isolation here — install it into a test project via `forge-adapt` and exercise the workflow there.
 
 ## Architecture
 
@@ -82,7 +94,7 @@ The root `.claude-plugin/marketplace.json` lists all plugins with their local `s
 **`{{GITHUB_REPO}}` placeholder:** Appears in agents that call the GitHub API (e.g., `ticket-gate`). Must be replaced with `owner/repo` at install time. `forge-adapt` handles this automatically; manual installs need `sed -i 's/{{GITHUB_REPO}}/owner\/repo/g'`.
 
 **Installation paths:**
-- Plugin marketplace: `/plugin marketplace add agigante80/forge-kit` then `/plugin install forge-kit-adapt@forge-kit` — forge-adapt installs everything else
+- Plugin marketplace: `/plugin marketplace add agigante80/forge-kit` then `/plugin install forge-kit-adapt@forge-kit` — forge-adapt installs everything else. The skill's frontmatter `name` is `forge-adapt`, but its directory is `skills/adapt/`, so the slash form is `/forge-kit-adapt:adapt` (not `/forge-adapt`); in conversation, "run forge-adapt" also triggers it.
 - Manual: clone `~/forge-kit`, then run `forge-adapt` from the target project — it reads the codebase, recommends components, and writes adapted versions into `.claude/`
 - `.claude/` in a project repo = project-scoped; `~/.claude/` = global across all projects
 
