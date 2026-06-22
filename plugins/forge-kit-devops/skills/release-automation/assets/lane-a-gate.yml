@@ -1,0 +1,48 @@
+# Release Gate (lane A) — block a PR to the production branch unless it bumps the version
+# past the latest release tag. This is the CI-enforced counterpart of the `release` skill's
+# "version was bumped past the last published tag" precondition: enforced on EVERY PR, not
+# only when someone remembers to run a release. No tokens, no recursion — it only reads.
+#
+# Installed by the forge-kit `release-automation` skill. forge-adapt tailors: the production
+# branch, the version source (env below), and the script path. See references/source-of-truth.md.
+name: Release Gate
+
+on:
+  pull_request:
+    branches: [main]          # forge-adapt: set to the production branch (e.g. main / trunk)
+
+permissions:
+  contents: read
+
+jobs:
+  version-bumped:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_SOURCE: file    # forge-adapt: file | node | python | cargo | cmd
+      VERSION_FILE: VERSION   # used when VERSION_SOURCE=file
+      TAG_GLOB: 'v*'
+      TAG_PREFIX: v
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # full history + tags, or the version<->tag compare is wrong
+          fetch-tags: true
+
+      - name: Require a version bump past the latest release
+        run: |
+          set -euo pipefail
+          # forge-adapt: adjust the path if version-lib.sh is installed elsewhere.
+          verdict=$(bash scripts/version-lib.sh)   # stderr already logged the working/tag detail
+          case "$verdict" in
+            ahead|first-release)
+              echo "::notice::release-gate: version is ahead of the last release — gate passes." ;;
+            equal)
+              echo "::error::release-gate: the version was NOT bumped past the last release. Bump it past the latest tag before merging — choose patch/minor/major by impact (see docs/versioning.md if your project defines one). This gate is an intentional governance signal, not a CI breakage."
+              exit 1 ;;
+            behind)
+              echo "::error::release-gate: the version is BEHIND the last release — this branch is stale. Merge/rebase the production branch, then re-bump."
+              exit 1 ;;
+            *)
+              echo "::error::release-gate: unexpected verdict '$verdict' — check version-lib.sh config."
+              exit 1 ;;
+          esac
