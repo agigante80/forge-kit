@@ -45,9 +45,16 @@ read_version() {
   esac
 }
 
-# latest_tag — print the highest released semver tag (prefix stripped), or empty if none exist.
+# latest_tag — the latest release to compare against. Repo-wide highest by default; for tag-derived
+# git mode it is HEAD-relative (nearest ancestor release tag) to MATCH read_version's frame — else a
+# higher tag on an unmerged sibling branch makes HEAD look `behind` and the engine wrongly refuses.
+# (In git mode there is no file to pre-bump, so the version always equals HEAD's tag → `equal`.)
 latest_tag() {
-  git tag --list "$TAG_GLOB" --sort=-v:refname | head -1 | sed "s/^${TAG_PREFIX}//"
+  if [ "$VERSION_SOURCE" = git ]; then
+    git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null | sed "s/^${TAG_PREFIX}//"
+  else
+    git tag --list "$TAG_GLOB" --sort=-v:refname | head -1 | sed "s/^${TAG_PREFIX}//"
+  fi
 }
 
 # unreleased_commits — count commits on HEAD since its NEAREST ANCESTOR release tag (all of HEAD if
