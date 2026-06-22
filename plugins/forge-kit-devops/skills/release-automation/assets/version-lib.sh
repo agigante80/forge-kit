@@ -39,7 +39,7 @@ read_version() {
     node)   node -p "require('./package.json').version" 2>/dev/null ;;
     python) python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])" 2>/dev/null ;;
     cargo)  grep -m1 '^version' Cargo.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/' ;;
-    git)    git describe --tags --abbrev=0 2>/dev/null | sed "s/^${TAG_PREFIX}//" ;;
+    git)    git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null | sed "s/^${TAG_PREFIX}//" ;;
     cmd)    eval "${VERSION_CMD:?VERSION_CMD must be set when VERSION_SOURCE=cmd}" ;;
     *)      echo "version-lib: unknown VERSION_SOURCE '$VERSION_SOURCE'" >&2; return 2 ;;
   esac
@@ -50,12 +50,13 @@ latest_tag() {
   git tag --list "$TAG_GLOB" --sort=-v:refname | head -1 | sed "s/^${TAG_PREFIX}//"
 }
 
-# unreleased_commits — count commits on HEAD since the latest release tag (all of HEAD if no tag).
-# For tag-derived projects there is no version file to compare, so "are there unreleased commits?"
-# is the meaningful gate signal (release = cut a tag) instead of "was the version bumped?".
+# unreleased_commits — count commits on HEAD since its NEAREST ANCESTOR release tag (all of HEAD if
+# none). Uses `git describe` (HEAD-relative), not the repo-wide highest tag, so a release tag sitting
+# on an unmerged sibling branch does not skew the count. For tag-derived projects there is no version
+# file to compare, so "are there unreleased commits?" is the meaningful signal (release = cut a tag).
 unreleased_commits() {
   local t
-  t=$(git tag --list "$TAG_GLOB" --sort=-v:refname | head -1)
+  t=$(git describe --tags --abbrev=0 --match "$TAG_GLOB" 2>/dev/null)
   if [ -z "$t" ]; then git rev-list --count HEAD; else git rev-list --count "${t}..HEAD"; fi
 }
 
