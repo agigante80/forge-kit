@@ -1,5 +1,5 @@
 {
   "name": "forge-kit-devops",
-  "description": "dep-auditor, health-check agents and /ci-health command",
-  "version": "0.1.0"
+  "description": "dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation skills",
+  "version": "0.2.0"
 }

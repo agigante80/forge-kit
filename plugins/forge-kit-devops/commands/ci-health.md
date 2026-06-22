@@ -1,4 +1,4 @@
-<!-- ci-health-version: 1 -->
+<!-- ci-health-version: 2 -->
 
 # CI Health Monitor
 
@@ -44,6 +44,12 @@ Report a summary table:
 
 If ALL workflows are passing, report "All workflows green" and stop.
 
+**Classify governance workflows separately.** A red **release / version-gate** workflow (e.g.
+`Release Gate`, or any version-bump enforcement from the `release-automation` skill) is an
+*intentional governance signal* — the PR author must bump the version — **not** a CI breakage.
+Do not file a P0 bug for it and do not carry it into the fix phases; surface it as "action: bump
+the version per docs/versioning.md" and move on (see Phase 4).
+
 ### Phase 2: Create tickets for failures
 
 For each failing job:
@@ -87,6 +93,9 @@ For each gated ticket:
 **DO NOT AUTO-IMPLEMENT** (investigate only, leave a comment):
 - E2E test failures — comment: "E2E: investigation complete, manual review required before fix"
 - Security scan findings — comment with findings summary, do not auto-fix
+- Release / version-gate failures — the bump is the PR author's call (patch/minor/major per
+  `docs/versioning.md`). Never auto-bump the version to make the gate pass — that defeats the
+  gate's entire purpose. Comment the required action, or skip it entirely per Phase 1.
 
 After implementing, run the project's lint and test commands (check CLAUDE.md for the
 exact commands, e.g. `pnpm lint && pnpm typecheck && pnpm test:unit`), then:
