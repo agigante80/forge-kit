@@ -11,7 +11,9 @@
 #   behind         working version < latest tag — branch is behind a release; REGRESSION, hard stop
 #
 # Config via env (forge-adapt sets these for the project's canonical version source):
-#   VERSION_SOURCE  file|node|python|cargo|cmd   (default: file)
+#   VERSION_SOURCE  file|node|python|cargo|git|cmd   (default: file)
+#                   git = tag-derived (setuptools-scm/hatch-vcs): the version IS the latest tag,
+#                   so there is no file to bump; releasing means pushing the next tag.
 #   VERSION_FILE    path to a plain-text version  (default: VERSION)
 #   VERSION_CMD     shell command printing the version (used when VERSION_SOURCE=cmd)
 #   TAG_GLOB        glob matching release tags     (default: v*)
@@ -37,6 +39,7 @@ read_version() {
     node)   node -p "require('./package.json').version" 2>/dev/null ;;
     python) python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])" 2>/dev/null ;;
     cargo)  grep -m1 '^version' Cargo.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/' ;;
+    git)    git describe --tags --abbrev=0 2>/dev/null | sed "s/^${TAG_PREFIX}//" ;;
     cmd)    eval "${VERSION_CMD:?VERSION_CMD must be set when VERSION_SOURCE=cmd}" ;;
     *)      echo "version-lib: unknown VERSION_SOURCE '$VERSION_SOURCE'" >&2; return 2 ;;
   esac
@@ -45,6 +48,15 @@ read_version() {
 # latest_tag — print the highest released semver tag (prefix stripped), or empty if none exist.
 latest_tag() {
   git tag --list "$TAG_GLOB" --sort=-v:refname | head -1 | sed "s/^${TAG_PREFIX}//"
+}
+
+# unreleased_commits — count commits on HEAD since the latest release tag (all of HEAD if no tag).
+# For tag-derived projects there is no version file to compare, so "are there unreleased commits?"
+# is the meaningful gate signal (release = cut a tag) instead of "was the version bumped?".
+unreleased_commits() {
+  local t
+  t=$(git tag --list "$TAG_GLOB" --sort=-v:refname | head -1)
+  if [ -z "$t" ]; then git rev-list --count HEAD; else git rev-list --count "${t}..HEAD"; fi
 }
 
 # classify_version — print one verdict word. Optional args: $1=working version, $2=latest tag.
