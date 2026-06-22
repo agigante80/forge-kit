@@ -39,8 +39,9 @@ an explicit guard. The templates use:
 - **`concurrency` with `cancel-in-progress: false`** — collapses pile-ups from rapid merges
   without ever cancelling a half-finished tag/release.
 
-> **Reserved subject — why it is distinct.** The guard matches `^chore(release): automated version
-> bump`, which only this lane's bot uses. It is deliberately different from the `release` skill's
+> **Reserved subject — why it is distinct.** The guard matches the literal commit-subject prefix
+> `chore(release): automated version bump` (a quoted `case` pattern, not a regex), which only this
+> lane's bot uses. It is deliberately different from the `release` skill's
 > *human* `chore(release): bump version to X.Y.Z`, so a real human-cut release is never mistaken
 > for the bot's own commit and silently skipped. Don't reuse the `automated version bump` subject
 > for manual commits.

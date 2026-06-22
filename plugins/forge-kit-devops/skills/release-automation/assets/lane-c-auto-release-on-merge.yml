@@ -1,0 +1,63 @@
+# Auto-release on merge (lane C) — OPT-IN, continuous-deployment trunks only. Every merge to the
+# production branch that passes CI is released: if nobody bumped, auto-patch; if already bumped,
+# release as-is. The blanket auto-bump — use it ONLY where every merge is genuinely a release.
+#
+# Lane C SUPERSEDES Lane B: it already releases every merge (dependency merges included), so do
+# NOT install both — co-installing makes both fire on the same CI run, share the concurrency group,
+# and the second one's bump conflicts with the first. Pick the gate (lane A) for deliberate/batched
+# releases, OR Lane C for CD — not Lane A's auto-counterpart and Lane B together.
+#
+# Supports tag-derived projects (VERSION_SOURCE=git, e.g. setuptools-scm/hatch-vcs): no file to
+# bump, so a release is just the next tag (no commit), gated on there being commits since the last
+# tag. See references/python-tag-derived.md.
+#
+# The release MECHANICS live in scripts/release-run.sh (shared with lane B). Same App-token /
+# recursion-guard / concurrency / idempotency / push-race handling — see references/github-token-gotcha.md.
+
+name: Auto-release on merge
+
+on:
+  workflow_run:
+    workflows: ["CI"]            # forge-adapt: the EXACT name: of the CI workflow that validates the branch
+    types: [completed]
+    branches: [main]             # forge-adapt: the production branch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  auto-release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION_SOURCE: file       # forge-adapt: file | node | python | cargo | git | cmd
+      VERSION_FILE: VERSION
+      TAG_GLOB: 'v*'
+      TAG_PREFIX: v
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      # REQUIRE_DEP_SCOPE defaults to 0 — lane C releases EVERY merge, no dependency scope gate.
+    steps:
+      - name: Mint a token that CAN trigger downstream workflows
+        id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        # forge-adapt: no App available? Swap for a PAT secret. The default GITHUB_TOKEN will NOT
+        # trigger the publish workflow on the pushed tag.
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}   # release exactly what CI validated
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.token.outputs.token }}
+
+      - name: Auto-release
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: bash scripts/release-run.sh   # forge-adapt: adjust the path if installed elsewhere
