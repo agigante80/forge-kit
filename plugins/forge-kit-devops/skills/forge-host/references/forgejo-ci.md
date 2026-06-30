@@ -1,9 +1,10 @@
-# Forgejo CI / auto-release — the runner-gated path (design; verify against a live runner)
+# Forgejo CI / auto-release — what's implemented vs runner-gated
 
-The runner-FREE forge operations (issues, tags, releases via `forge_*`) are done and verified. The
-CI-execution pieces below need a **Forgejo Actions runner** to build and test, which is why they are
-a documented design rather than shipped, verified code. Implement + verify each against a live runner
-before relying on it. Use placeholders (`https://forge.example.com`) — never commit a private host.
+The runner-FREE forge operations (issues, tags, releases via `forge_*`) are done and verified, and
+**`forge_ci_status`'s Forgejo branch is now implemented** (commit-status, below). What remains
+**runner-gated** — needing a live Forgejo Actions runner to build/verify — is: *confirming* a real
+green run flips the status, and the auto-release lane. Use placeholders (`https://forge.example.com`)
+— never commit a private host.
 
 ## Forgejo Actions in one screen
 
@@ -13,33 +14,33 @@ before relying on it. Use placeholders (`https://forge.example.com`) — never c
 - Each job gets an **automatic token** (`${{ secrets.GITHUB_TOKEN }}` / `FORGEJO_TOKEN`) scoped to
   the repo. **There is no GitHub-Apps equivalent** and no `actions/create-github-app-token`.
 
-## `forge_ci_status` — the Forgejo branch to implement
+## `forge_ci_status` — the Forgejo branch (implemented: commit-status)
 
-Today `forge_ci_status` returns `not_configured` on Forgejo (graceful). When a runner exists, replace
-that arm with a query against the **Forgejo Actions API**, which is **version-split** (verified
-against Forgejo docs/source):
-
-- **Forgejo ≥ v12.0.0:** `GET /repos/{o}/{r}/actions/runs` (and `/actions/runs/{run_id}`) — GitHub-
-  style run objects (`head_branch`, status/conclusion).
-- **Older Forgejo:** `GET /repos/{o}/{r}/actions/tasks` — `ActionTask` objects with `head_branch`,
-  `head_sha`, `status`, `run_number`. **There is no `conclusion` field — `status` carries
-  success/failure** (`waiting|running|success|failure|…`). Read `.status`, not `.conclusion`.
+**Implemented (`forge-lib.sh`): the combined commit-status API, not the Actions API.** Forgejo
+Actions writes a **commit status** per job (verified in Forgejo source `services/actions/
+commit_status.go`: `toCommitStatus` maps each Actions status onto a commit-status state), and
+Forgejo exposes the same `GET /repos/{o}/{r}/commits/{sha}/status` combined endpoint GitHub has. So
+"is CI green?" is **one rolled-up call** — simpler and more robust than listing/aggregating the
+version-split `/actions/runs` (v12+) vs `/actions/tasks` Actions API. `forge_ci_status`'s Forgejo
+branch does exactly this:
 
 ```sh
-# Older-Forgejo (tasks) form — status carries the result, not a separate conclusion:
-# Wrap the whole pipeline in (...) // "none": first() yields an EMPTY STREAM (not null) on no
-# match, so the `// "none"` must be OUTSIDE first()/the if — else the no-run case prints '' not none.
-forge_api GET "/repos/$(forge_repo)/actions/tasks" \
-  | jq -r --arg b "$1" '(first(.tasks[]? | select(.head_branch==$b))
-      | (if .status=="success" then "success"
-         elif .status=="failure" then "failure"
-         else "pending" end)) // "none"'
+# Resolve to a SHA (combined status has quirks on branch/tag refs), then read .state/.total_count.
+sha=$(git rev-parse "$BRANCH"); cs=$(forge_api GET "/repos/$(forge_repo)/commits/$sha/status")
+# total_count==0 -> no statuses -> not_configured (no CI / no runner); else map .state:
+#   success->success | pending->pending | failure|error->failure
 ```
 
-**Hard fact, not a maybe — job LOGS are NOT reachable via the Forgejo API** (the Actions-API PR
-explicitly did not add log endpoints; only artifacts via `/actions/artifacts/{id}`). So on Forgejo
-`ci-health` can **detect** a failed run but **cannot fetch logs to auto-fix** — its Forgejo path must
-be detect-and-ticket only, never auto-fix-from-logs.
+Mapping caveats baked in: pass a **SHA**, not a branch; Actions maps `skipped→success` and
+`cancelled→failure` (so those don't surface distinctly); `warning` never appears from Actions; and
+**`total_count: 0`/no-statuses means "not run", not "failed"** — so a runner-less repo stays
+`not_configured` and callers keep the local-gate fallback. **Runner-gated remainder:** confirming a
+real *green* run actually flips the combined status to `success` needs a live runner to produce one.
+
+**Hard fact — job LOGS are NOT reachable via the Forgejo API** (the Actions-API PR added no log
+endpoints; only artifacts via `/actions/artifacts/{id}`). So on Forgejo `ci-health` can **detect** a
+failed run (via the commit status) but **cannot fetch logs to auto-fix** — its Forgejo path must be
+detect-and-ticket only, never auto-fix-from-logs.
 
 ## Auto-release lanes (B/C) on Forgejo
 
@@ -66,7 +67,8 @@ command and run it on Forgejo. Runner-free; do it any time.
 ## Order of operations once a runner is up
 
 1. Stand up a Forgejo Actions runner; confirm a trivial `.forgejo/workflows/ci.yml` runs.
-2. Implement + verify the `forge_ci_status` Forgejo branch (above) against real runs.
+2. **Verify** the (already-implemented) `forge_ci_status` Forgejo branch against a real run — confirm
+   a passing job flips the combined commit status to `success`.
 3. Mirror the auto-release lane(s) into `.forgejo/workflows/` with the token/notes/trigger
    differences; verify a real dependency merge produces a tag + release.
 4. Then `ci-health`'s Forgejo path (needs run logs) — only if the API exposes them.
