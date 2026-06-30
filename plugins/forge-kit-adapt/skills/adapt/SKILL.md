@@ -123,7 +123,12 @@ for f in .claude/hooks/*; do
 done
 # Forge host + repo slug (host-aware: GitHub or self-hosted Forgejo).
 REMOTE_URL=$(git remote get-url origin 2>/dev/null)
-case "$REMOTE_URL" in *github.com*|'') FORGE_HOST=github ;; *) FORGE_HOST=forgejo ;; esac
+# Anchor github.com to the HOST slot (matches forge-lib.sh's forge_host) — a Forgejo URL that merely
+# contains 'github.com' in its path/vanity host must NOT read as github.
+case "$REMOTE_URL" in
+  ''|*://github.com/*|*://*@github.com/*|git@github.com:*) FORGE_HOST=github ;;
+  *) FORGE_HOST=forgejo ;;
+esac
 CURRENT_REPO=$(printf '%s' "$REMOTE_URL" | sed -E 's#\.git$##; s#/$##; s#^.*://[^/]+/##; s#^[^@]*@[^:/]+[:/]##')
 # Domain/pattern sample:
 find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep -vE 'node_modules|\.claude|dist' | head -20
@@ -259,8 +264,10 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 5. **Forge-host dependency:** if the component does forge operations (ticket-gate, gate-ticket,
    dep-auditor, ci-health, release/release-automation) AND it is not GitHub-only, also install the
    `forge-host` adapter: copy `forge-lib.sh` to `scripts/`, and for a Forgejo or dual-remote repo
-   (`$FORGE_HOST=forgejo`) copy `forge.conf.example` → `.forge.conf`, fill it in, and remind the
-   user to export the token. A GitHub-only repo needs neither (the components fall back to `gh`).
+   (`$FORGE_HOST=forgejo`) copy `forge.conf.example` → `.forge.conf`. The Forgejo **base URL** and
+   **token-env name** cannot be auto-detected — ASK the user for them (or read an existing
+   `.forge.conf`) to fill it in, and remind them to export the token. A GitHub-only repo needs
+   neither (the components fall back to `gh`).
 6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
 **Hooks** (e.g. `block-dashes`):

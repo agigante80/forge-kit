@@ -50,3 +50,9 @@ not have. Re-order by what works on a runner-less Forgejo **today**:
    exposes run conclusion + logs.
 
 Keep every change additive: GitHub-only repos (no `.forge.conf`) must behave exactly as before.
+
+**Known limitation (phase 2b).** The adopted components carry a host-aware *preamble* (source the
+adapter, use `forge_*`), but their many inline `gh …` snippets are kept as the GitHub *reference
+form* rather than rewritten in place. A long agent (e.g. `ticket-gate`) relies on the preamble being
+applied to each snippet. A future pass should replace the inline `gh` snippets with their `forge_*`
+equivalents inline, so an agent can't pattern-match a raw `gh` command and run it on Forgejo.
