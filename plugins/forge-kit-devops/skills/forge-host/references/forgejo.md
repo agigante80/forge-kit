@@ -8,7 +8,7 @@ into a committed file; put yours in the repo's own (committed) `.forge.conf` and
 ## API
 
 - Base: `https://<your-forge>/api/v1` (the `forge_api_base` helper appends `/api/v1`).
-- Auth: `Authorization: token <TOKEN>` header (same scheme as Gitea).
+- Auth: `Authorization: token <TOKEN>` header (same scheme as Gitea; `Bearer <TOKEN>` also works).
 - Shapes: issues, comments, releases, tags mirror GitHub's REST closely (`number`, `title`, `body`,
   `state`, `tag_name`, `name`). Closing an issue is `PATCH /repos/{o}/{r}/issues/{n}` with
   `{"state":"closed"}` — same as GitHub.
@@ -16,6 +16,10 @@ into a committed file; put yours in the repo's own (committed) `.forge.conf` and
   `/issues`). Forgejo's `/issues` honours `type=issues` to exclude PRs server-side; **GitHub's
   `/issues` ignores `type=` and still returns PRs**, so `forge_issue_list` filters them out with
   `jq 'select(.pull_request|not)'` on the github path. Some GitHub fields are absent on Forgejo.
+- **Labels (verified):** `POST /issues` takes label **IDs** (`[]int64`) — names are not accepted on
+  create, which is why `forge_issue_create` omits labels. `POST /issues/{n}/labels` accepts **both
+  IDs and names** (`[]any`) on recent Forgejo, so `forge_issue_label` could pass names directly;
+  it resolves names→IDs anyway so it also works on older (IDs-only) Forgejo.
 
 ## Tokens
 
@@ -32,22 +36,25 @@ Export it under the name your `.forge.conf` declares (`FORGE_TOKEN_ENV`, default
 export FORGEJO_TOKEN=<token>
 ```
 
-Never commit the token. Scope it down from `all` to `write:issue,write:repository` for CI use.
+Never commit the token. `--scopes all` is the **admin-CLI** form (valid there). The token API /
+web UI need explicit scopes — strings are `{read|write}:{resource}` (resource ∈ `issue, repository,
+user, organization, package, …`). For CI, scope it down, e.g. `write:issue,write:repository`.
 
 ## CI — Forgejo Actions
 
-- Forgejo Actions is GitHub-Actions-compatible and reads **`.forgejo/workflows/`** *and*
-  `.github/workflows/`. Runners are **self-hosted** and **optional** — there may be none.
+- Forgejo Actions is GitHub-Actions-compatible and reads **`.forgejo/workflows/`**, falling back to
+  `.github/workflows/` only when `.forgejo/workflows/` is absent (a fallback, not a merge). Runners
+  are **self-hosted** and **optional** — there may be none.
 - **No GitHub-Apps equivalent.** The `release-automation` lanes' `actions/create-github-app-token`
-  + `secrets.RELEASE_APP_*` mechanism does not exist on Forgejo. Forgejo Actions injects an
-  automatic token to the runner; whether a tag pushed with it re-triggers downstream workflows
-  differs from GitHub and must be verified per Forgejo version before relying on it.
+  + `secrets.RELEASE_APP_*` mechanism does not exist on Forgejo. The automatic job token suppresses
+  downstream triggers (like GitHub's), and **Forgejo does not support the `workflow_run` trigger** —
+  so the lanes don't port as-is; see `forgejo-ci.md` for the in-CI-final-job / PAT approach.
 - `gh release create --generate-notes` has no Forgejo equivalent — build notes from `git log`.
 - **Until a runner exists, there are no Actions runs to query.** `forge_ci_status` returns
   `not_configured` so callers fall back to a local gate (e.g. `make test` pre-push). Implementing
-  the real status against the Forgejo Actions API (`/repos/{o}/{r}/actions/...`) is **phase 2**,
-  gated on standing up a runner — and on verifying that API exposes per-workflow run *conclusion*
-  and failed-job *logs* (it is newer/less complete than GitHub's).
+  the real status (the version-split `/actions/runs` vs `/actions/tasks` API, where `status` carries
+  the result and **job logs are not API-reachable**) is **phase 2**, gated on standing up a runner.
+  The full design and the exact endpoints are in `forgejo-ci.md`.
 
 ## Issue templates
 
