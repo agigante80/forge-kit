@@ -181,17 +181,37 @@ forge_release_create() {
 
 # --- CI status (runner-dependent) ---
 
-# forge_ci_status <branch>  -> pending | none | not_configured | the run's conclusion
-# (success | failure | cancelled | timed_out | skipped | ... — github passes the raw GH conclusion
-# through). `pending` = a run exists but has not concluded; `none` = no run; `not_configured` =
-# Forgejo with no runner, so callers (ci-health, release) degrade gracefully (e.g. a local `make
-# test` gate) instead of hard-failing.
-# PHASE 2: implement the Forgejo branch against the Forgejo Actions API once a runner is stood up.
+# forge_ci_status <branch>  -> success | failure | pending | none | not_configured (github also
+# passes raw GH conclusions like cancelled/timed_out/skipped through). `pending` = a run exists but
+# has not concluded; `none` = no run; `not_configured` = no CI to check (Forgejo with no statuses,
+# e.g. no runner), so callers (ci-health, release) degrade gracefully (e.g. a local `make test`
+# gate) instead of hard-failing.
+#
+# Forgejo: Forgejo Actions writes a COMMIT STATUS per job, so the combined commit-status endpoint
+# (`/commits/{sha}/status`) is the simple, correct "is CI green?" check — better than the
+# version-split /actions/runs|/actions/tasks API. (On GitHub the combined status does NOT reflect
+# Actions — those are Checks — so the github path uses `gh run list`.) We resolve to a SHA because
+# the combined status has known quirks on branch/tag refs; total_count == 0 (no statuses) means no
+# CI ran -> not_configured, preserving the runner-less fallback.
 forge_ci_status() {
   case "$(forge_host)" in
     github)  gh run list --branch "$1" --limit 1 --json status,conclusion \
                -q '.[0] | if . == null then "none" elif .status != "completed" then "pending" else (.conclusion // "none") end' 2>/dev/null || echo none ;;
-    forgejo) echo not_configured ;;
+    forgejo)
+      local sha cs total state
+      sha=$(git rev-parse "$1" 2>/dev/null || printf '%s' "$1")
+      cs=$(forge_api GET "/repos/$(forge_repo)/commits/$sha/status" 2>/dev/null) || { echo not_configured; return 0; }
+      [ -n "$cs" ] || { echo not_configured; return 0; }                 # empty body / dry-run
+      total=$(printf '%s' "$cs" | jq -r '.total_count // 0' 2>/dev/null)
+      case "$total" in ''|*[!0-9]*) total=0 ;; esac
+      [ "$total" -eq 0 ] && { echo not_configured; return 0; }           # no commit statuses -> no CI
+      state=$(printf '%s' "$cs" | jq -r '.state // "unknown"' 2>/dev/null)
+      case "$state" in
+        success)       echo success ;;
+        pending)       echo pending ;;
+        failure|error) echo failure ;;                                   # error == infra failure
+        *)             echo "${state:-unknown}" ;;
+      esac ;;
   esac
 }
 
