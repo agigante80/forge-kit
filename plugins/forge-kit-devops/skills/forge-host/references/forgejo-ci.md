@@ -15,23 +15,29 @@ before relying on it. Use placeholders (`https://forge.example.com`) — never c
 
 ## `forge_ci_status` — the Forgejo branch to implement
 
-Today `forge_ci_status` returns `not_configured` on Forgejo (graceful). When a runner exists,
-replace that arm with a query against the **Gitea/Forgejo Actions API**. Candidate (verify the exact
-shape on your version — the Actions API is newer and less complete than GitHub's):
+Today `forge_ci_status` returns `not_configured` on Forgejo (graceful). When a runner exists, replace
+that arm with a query against the **Forgejo Actions API**, which is **version-split** (verified
+against Forgejo docs/source):
+
+- **Forgejo ≥ v12.0.0:** `GET /repos/{o}/{r}/actions/runs` (and `/actions/runs/{run_id}`) — GitHub-
+  style run objects (`head_branch`, status/conclusion).
+- **Older Forgejo:** `GET /repos/{o}/{r}/actions/tasks` — `ActionTask` objects with `head_branch`,
+  `head_sha`, `status`, `run_number`. **There is no `conclusion` field — `status` carries
+  success/failure** (`waiting|running|success|failure|…`). Read `.status`, not `.conclusion`.
 
 ```sh
-# GET /repos/{owner}/{repo}/actions/tasks  (or .../runs on newer Forgejo) -> list of runs/tasks.
-# Map the latest run for $branch: status (waiting|running|success|failure) -> our vocabulary.
+# Older-Forgejo (tasks) form — status carries the result, not a separate conclusion:
 forge_api GET "/repos/$(forge_repo)/actions/tasks" \
-  | jq -r --arg b "$1" 'first(.workflow_runs[]? // .tasks[]? | select(.head_branch==$b))
+  | jq -r --arg b "$1" 'first(.tasks[]? | select(.head_branch==$b))
       | (if .status=="success" then "success"
          elif .status=="failure" then "failure"
          else "pending" end) // "none"'
 ```
 
-**Must verify before shipping:** that the endpoint exists on the target Forgejo version, that it
-exposes per-workflow run **conclusion** *and* the branch, and (for `ci-health`) whether failed-job
-**logs** are reachable via the API at all — if not, `ci-health` can report failure but not auto-fix.
+**Hard fact, not a maybe — job LOGS are NOT reachable via the Forgejo API** (the Actions-API PR
+explicitly did not add log endpoints; only artifacts via `/actions/artifacts/{id}`). So on Forgejo
+`ci-health` can **detect** a failed run but **cannot fetch logs to auto-fix** — its Forgejo path must
+be detect-and-ticket only, never auto-fix-from-logs.
 
 ## Auto-release lanes (B/C) on Forgejo
 
@@ -40,9 +46,9 @@ The lane workflows are GitHub-Actions-specific in three places; the Forgejo mirr
 
 | GitHub lane | Forgejo equivalent |
 |---|---|
-| `actions/create-github-app-token` (so the pushed tag triggers the publish workflow) | **No App.** Use a **PAT stored as a repo/org secret** for the push + API. Whether a tag pushed with it re-triggers a downstream workflow is **version-dependent — verify**; if it doesn't, trigger publish in the same job or via a Forgejo `workflow_dispatch`/`repository_dispatch` equivalent. |
-| `gh release create --generate-notes` | `forge_release_create <tag> <title> "<notes from git log>"` (no auto-notes on Forgejo — build notes from `git log $PREV..HEAD`). `release-run.sh` should call `forge_*` when `VERSION_SOURCE`/host is Forgejo. |
-| `on: workflow_run` (chain off the CI workflow) | Confirm Forgejo supports `workflow_run`; if not, gate the release job inside the CI workflow itself (a final job) rather than a separate chained workflow. |
+| `actions/create-github-app-token` (so the pushed tag triggers the publish workflow) | **No App** on Forgejo. The auto job token (`FORGEJO_TOKEN`/`GITHUB_TOKEN` alias) is repo-scoped and, like GitHub's, **suppresses downstream triggers** ("no workflow is triggered as a side effect of a change authored with this token"). To chain a publish off a pushed tag, push with a **PAT stored as a repo/org secret**, not the auto token. |
+| `gh release create --generate-notes` | `forge_release_create <tag> <title> "<notes from git log>"` (no auto-notes on Forgejo — build notes from `git log $PREV..HEAD`). `release-run.sh` should call `forge_*` when the host is Forgejo. |
+| `on: workflow_run` (chain off the CI workflow) | **Forgejo does NOT support `workflow_run`** (verified — unimplemented). Don't chain a separate release workflow off CI completion. Instead make the release a **final job in the CI workflow itself** (gated on the prior jobs), or use **`workflow_call`** (which Forgejo does support) / `workflow_dispatch`. |
 
 The **recursion guard** (`chore(release): automated version bump` subject), **concurrency**, the
 **idempotent tag/release**, and the **version-vs-tag logic** (`version-lib.sh`) are all host-agnostic
