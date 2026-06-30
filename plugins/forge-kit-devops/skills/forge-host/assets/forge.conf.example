@@ -1,0 +1,13 @@
+# .forge.conf — commit this at the repo root to make forge host detection DETERMINISTIC.
+# Only needed for Forgejo repos, or to disambiguate a repo that has BOTH remotes during migration.
+# A repo with no .forge.conf defaults to GitHub (backward-compatible). KEY=value, # comments ok.
+
+FORGE_HOST=forgejo                    # github | forgejo
+FORGE_API_URL=https://forge.example.com   # your Forgejo base URL (NO trailing /api/v1 — it is appended)
+FORGE_REPO=youruser/your-repo         # owner/name as it exists on the forge
+FORGE_TOKEN_ENV=FORGEJO_TOKEN         # name of the env var holding the access token (default: FORGEJO_TOKEN)
+FORGE_REMOTE=forgejo                  # optional: which git remote name points at the forge (default: origin)
+
+# The token itself is NEVER committed — export it in the environment that runs the components:
+#   export FORGEJO_TOKEN=...   (mint with: docker exec -u git <forgejo-container> \
+#                  forgejo admin user generate-access-token --username <user> --scopes all --raw)
