@@ -52,9 +52,9 @@ user, organization, package, …`). For CI, scope it down, e.g. `write:issue,wri
 - `gh release create --generate-notes` has no Forgejo equivalent — build notes from `git log`.
 - **Until a runner exists, there are no Actions runs to query.** `forge_ci_status` returns
   `not_configured` so callers fall back to a local gate (e.g. `make test` pre-push). Implementing
-  the real status against the Forgejo Actions API (`/repos/{o}/{r}/actions/...`) is **phase 2**,
-  gated on standing up a runner — and on verifying that API exposes per-workflow run *conclusion*
-  and failed-job *logs* (it is newer/less complete than GitHub's).
+  the real status (the version-split `/actions/runs` vs `/actions/tasks` API, where `status` carries
+  the result and **job logs are not API-reachable**) is **phase 2**, gated on standing up a runner.
+  The full design and the exact endpoints are in `forgejo-ci.md`.
 
 ## Issue templates
 

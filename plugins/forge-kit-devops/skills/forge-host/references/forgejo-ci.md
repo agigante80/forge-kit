@@ -27,11 +27,13 @@ against Forgejo docs/source):
 
 ```sh
 # Older-Forgejo (tasks) form — status carries the result, not a separate conclusion:
+# Wrap the whole pipeline in (...) // "none": first() yields an EMPTY STREAM (not null) on no
+# match, so the `// "none"` must be OUTSIDE first()/the if — else the no-run case prints '' not none.
 forge_api GET "/repos/$(forge_repo)/actions/tasks" \
-  | jq -r --arg b "$1" 'first(.tasks[]? | select(.head_branch==$b))
+  | jq -r --arg b "$1" '(first(.tasks[]? | select(.head_branch==$b))
       | (if .status=="success" then "success"
          elif .status=="failure" then "failure"
-         else "pending" end) // "none"'
+         else "pending" end)) // "none"'
 ```
 
 **Hard fact, not a maybe — job LOGS are NOT reachable via the Forgejo API** (the Actions-API PR

@@ -60,7 +60,7 @@ Source it; call `forge_*` instead of `gh` directly:
 **CI status degrades gracefully.** On Forgejo with no runner yet, `forge_ci_status` returns
 `not_configured` (rather than failing), so a caller can fall back to a local gate (e.g. `make
 test`) instead of hard-failing. Implementing the real Forgejo Actions status is phase 2, gated on a
-runner existing — see `references/forgejo.md`.
+runner existing — designed in `references/forgejo-ci.md`.
 
 ## Install (what forge-adapt does)
 
