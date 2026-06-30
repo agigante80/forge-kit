@@ -50,11 +50,13 @@ user, organization, package, …`). For CI, scope it down, e.g. `write:issue,wri
   downstream triggers (like GitHub's), and **Forgejo does not support the `workflow_run` trigger** —
   so the lanes don't port as-is; see `forgejo-ci.md` for the in-CI-final-job / PAT approach.
 - `gh release create --generate-notes` has no Forgejo equivalent — build notes from `git log`.
-- **Until a runner exists, there are no Actions runs to query.** `forge_ci_status` returns
-  `not_configured` so callers fall back to a local gate (e.g. `make test` pre-push). Implementing
-  the real status (the version-split `/actions/runs` vs `/actions/tasks` API, where `status` carries
-  the result and **job logs are not API-reachable**) is **phase 2**, gated on standing up a runner.
-  The full design and the exact endpoints are in `forgejo-ci.md`.
+- **`forge_ci_status` is implemented** via the **combined commit-status API** (`/commits/{sha}/
+  status`) — Forgejo Actions writes a commit status per job, so one call answers "is CI green?"
+  (simpler than the version-split `/actions/runs`/`/actions/tasks` Actions API). With no runner there
+  are no statuses, so it returns `not_configured` and callers fall back to a local gate (e.g. `make
+  test` pre-push). **Job logs are not API-reachable** (so `ci-health` on Forgejo is detect-only).
+  Confirming a real green run flips the status, and the auto-release lane, still want a runner —
+  design in `forgejo-ci.md`.
 
 ## Issue templates
 
