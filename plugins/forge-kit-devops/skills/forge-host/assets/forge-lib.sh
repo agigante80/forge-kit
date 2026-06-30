@@ -65,8 +65,9 @@ forge_repo() {
     *)       repo="" ;;
   esac
   case "$repo" in
-    */*/*|'') echo "forge-lib: cannot parse owner/repo from remote '$url' — set FORGE_REPO in .forge.conf" >&2; return 2 ;;
-    */*)      printf '%s\n' "$repo" ;;
+    */*/*) echo "forge-lib: remote path '$repo' is not a plain owner/repo — set FORGE_REPO in .forge.conf" >&2; return 2 ;;
+    */*)   printf '%s\n' "$repo" ;;
+    *)     echo "forge-lib: cannot parse owner/repo from remote '$url' — set FORGE_REPO in .forge.conf" >&2; return 2 ;;  # 0 or 1 segment
   esac
 }
 
@@ -127,8 +128,12 @@ forge_issue_close() { forge_api PATCH "/repos/$(forge_repo)/issues/$1" '{"state"
 # Forgejo excludes PRs server-side with type=issues. Both return the same shape (a PR-free array).
 forge_issue_list() {
   local repo state; repo="$(forge_repo)" || return 2; state="${1:-open}"
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    printf '[dry-run] GET %s/repos/%s/issues?state=%s (issues only, all pages)\n' "$(forge_api_base)" "$repo" "$state" >&2; return 0
+  fi
   case "$(forge_host)" in
-    github)  gh api --paginate "repos/$repo/issues?state=$state" -q 'map(select(.pull_request | not))' ;;
+    # gh merges paginated arrays into ONE array only WITHOUT -q; filter PRs with a single jq pass after.
+    github)  gh api --paginate "repos/$repo/issues?state=$state" | jq 'map(select(.pull_request | not))' ;;
     forgejo) forge_api GET "/repos/$repo/issues?state=$state&type=issues" ;;
   esac
 }
