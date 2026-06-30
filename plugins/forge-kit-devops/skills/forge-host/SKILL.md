@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible — a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 1 -->
+<!-- forge-host-version: 2 -->
 
 # forge-host — host-aware forge operations
 
@@ -50,7 +50,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_view <n>` / `forge_issue_list [state]` | read issues |
 | `forge_issue_comment <n> <body>` / `forge_issue_close <n>` | act on issues |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
-| `forge_ci_status <branch>` | `success\|failure\|pending\|none\|not_configured` |
+| `forge_ci_status <branch>` | `pending\|none\|not_configured`, else the run's conclusion (`success\|failure\|cancelled\|…` — github passes the raw GH conclusion through) |
 
 `FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them. Run
 `bash forge-lib.sh detect` for a one-line host/repo/api/ci diagnostic.
