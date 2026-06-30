@@ -54,7 +54,7 @@ REPO="$(forge_repo)"           # owner/repo on the detected host — replaces {{
 | comment on an issue | `forge_issue_comment <N> "<body>"` |
 | close an issue | `forge_issue_close <N>` |
 | edit an issue body | `forge_api PATCH "/repos/$REPO/issues/<N>" "$(jq -nc --arg b "<body>" '{body:$b}')"` |
-| create a follow-up issue | `forge_issue_create "<title>" "<body>"` |
+| create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels |
 | list/search issues | `forge_issue_list [state]`, filter client-side |
 
 The `gh …` snippets below are the **GitHub reference form** — apply the `forge_*` equivalent so the

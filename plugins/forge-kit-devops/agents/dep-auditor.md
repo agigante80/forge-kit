@@ -42,8 +42,9 @@ REPO="$(forge_repo)"
 Then: create with `forge_issue_create "<title>" "<body>"`; check duplicates with
 `forge_issue_list open` filtered by title client-side; read a milestone with
 `forge_api GET "/repos/$REPO/milestones"`. **Do not call `gh` directly** — the `gh …` snippets below
-are the GitHub reference form; the adapter handles Forgejo. (Labels differ per host — GitHub takes
-names, Forgejo takes IDs — so set labels in a host-specific follow-up, not in `forge_issue_create`.)
+are the GitHub reference form; the adapter handles Forgejo. `forge_issue_create` omits labels (GitHub
+takes label names, Forgejo takes IDs); set the table's labels right after creating with
+`forge_issue_label <N> <name…>` — it adds by name on either host (resolving names→IDs on Forgejo).
 
 ---
 

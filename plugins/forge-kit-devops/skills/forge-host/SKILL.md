@@ -49,7 +49,8 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_api <METHOD> <path> [body]` | authenticated REST call (the low-level primitive) |
 | `forge_issue_view <n>` / `forge_issue_list [state]` | read issues |
 | `forge_issue_comment <n> <body>` / `forge_issue_close <n>` | act on issues |
-| `forge_issue_create <title> <body>` | open an issue (labels are host-specific — add separately) |
+| `forge_issue_create <title> <body>` | open an issue (labels omitted — add with the next op) |
+| `forge_issue_label <n> <name…>` | add labels by name (resolves names→IDs on Forgejo) |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
 | `forge_ci_status <branch>` | `pending\|none\|not_configured`, else the run's conclusion (`success\|failure\|cancelled\|…` — github passes the raw GH conclusion through) |
 
