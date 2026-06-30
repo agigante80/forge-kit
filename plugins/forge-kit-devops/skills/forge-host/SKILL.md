@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible — a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 3 -->
+<!-- forge-host-version: 4 -->
 
 # forge-host — host-aware forge operations
 
@@ -60,7 +60,7 @@ Source it; call `forge_*` instead of `gh` directly:
 **CI status degrades gracefully.** On Forgejo with no runner yet, `forge_ci_status` returns
 `not_configured` (rather than failing), so a caller can fall back to a local gate (e.g. `make
 test`) instead of hard-failing. Implementing the real Forgejo Actions status is phase 2, gated on a
-runner existing — see `references/forgejo.md`.
+runner existing — designed in `references/forgejo-ci.md`.
 
 ## Install (what forge-adapt does)
 
@@ -78,7 +78,9 @@ runner-free operations (issues, comments, releases/tags) implemented for both ho
 across the GitHub-coupled components (`ci-health`, `release`/`release-automation`, `ticket-gate`,
 `gate-ticket`, `dep-auditor`, `health-check`, forge-adapt's `templates` mode) is the follow-on
 work; the CI/Actions backend (and porting `release-automation`'s GitHub-App-token lanes) is gated
-on a Forgejo runner. See `references/adopting-forge-lib.md`.
+on a Forgejo runner — designed in `references/forgejo-ci.md`. See `references/adopting-forge-lib.md`
+for the per-component swaps. (The invoked `release` skill is already host-aware for its tag/release/
+ticket-close steps; only its remote-CI-green check is runner-gated and degrades to `not_configured`.)
 
 ## Notes for forge-adapt
 
