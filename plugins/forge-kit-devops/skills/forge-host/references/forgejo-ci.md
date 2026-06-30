@@ -1,9 +1,10 @@
-# Forgejo CI / auto-release — the runner-gated path (design; verify against a live runner)
+# Forgejo CI / auto-release — what's implemented vs runner-gated
 
-The runner-FREE forge operations (issues, tags, releases via `forge_*`) are done and verified. The
-CI-execution pieces below need a **Forgejo Actions runner** to build and test, which is why they are
-a documented design rather than shipped, verified code. Implement + verify each against a live runner
-before relying on it. Use placeholders (`https://forge.example.com`) — never commit a private host.
+The runner-FREE forge operations (issues, tags, releases via `forge_*`) are done and verified, and
+**`forge_ci_status`'s Forgejo branch is now implemented** (commit-status, below). What remains
+**runner-gated** — needing a live Forgejo Actions runner to build/verify — is: *confirming* a real
+green run flips the status, and the auto-release lane. Use placeholders (`https://forge.example.com`)
+— never commit a private host.
 
 ## Forgejo Actions in one screen
 
@@ -13,7 +14,7 @@ before relying on it. Use placeholders (`https://forge.example.com`) — never c
 - Each job gets an **automatic token** (`${{ secrets.GITHUB_TOKEN }}` / `FORGEJO_TOKEN`) scoped to
   the repo. **There is no GitHub-Apps equivalent** and no `actions/create-github-app-token`.
 
-## `forge_ci_status` — the Forgejo branch to implement
+## `forge_ci_status` — the Forgejo branch (implemented: commit-status)
 
 **Implemented (`forge-lib.sh`): the combined commit-status API, not the Actions API.** Forgejo
 Actions writes a **commit status** per job (verified in Forgejo source `services/actions/
@@ -66,7 +67,8 @@ command and run it on Forgejo. Runner-free; do it any time.
 ## Order of operations once a runner is up
 
 1. Stand up a Forgejo Actions runner; confirm a trivial `.forgejo/workflows/ci.yml` runs.
-2. Implement + verify the `forge_ci_status` Forgejo branch (above) against real runs.
+2. **Verify** the (already-implemented) `forge_ci_status` Forgejo branch against a real run — confirm
+   a passing job flips the combined commit status to `success`.
 3. Mirror the auto-release lane(s) into `.forgejo/workflows/` with the token/notes/trigger
    differences; verify a real dependency merge produces a tag + release.
 4. Then `ci-health`'s Forgejo path (needs run logs) — only if the API exposes them.
