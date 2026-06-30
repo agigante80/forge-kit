@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 8 -->
+<!-- forge-adapt-version: 9 -->
 
 # forge-adapt
 
@@ -121,8 +121,15 @@ for f in .claude/hooks/*; do
   v=$(grep -oP -- "${n}-version: \K\d+" "$f" | head -1)
   echo "  $n (hook) | v${v:-none}"
 done
-# Repo slug for the {{GITHUB_REPO}} placeholder later:
-CURRENT_REPO=$(git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]\(.*\)\.git|\1|; s|.*github\.com[:/]\(.*\)|\1|')
+# Forge host + repo slug (host-aware: GitHub or self-hosted Forgejo).
+REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+# Anchor github.com to the HOST slot (matches forge-lib.sh's forge_host) — a Forgejo URL that merely
+# contains 'github.com' in its path/vanity host must NOT read as github.
+case "$REMOTE_URL" in
+  ''|*://github.com/*|*://*@github.com/*|git@github.com:*) FORGE_HOST=github ;;
+  *) FORGE_HOST=forgejo ;;
+esac
+CURRENT_REPO=$(printf '%s' "$REMOTE_URL" | sed -E 's#\.git$##; s#/$##; s#^.*://[^/]+/##; s#^[^@]*@[^:/]+[:/]##')
 # Domain/pattern sample:
 find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep -vE 'node_modules|\.claude|dist' | head -20
 ```
@@ -137,6 +144,7 @@ find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep
 | Dependency depth | lockfiles, package count | dep-auditor |
 | Tests present | tests/, *_test, *.spec | tdd-orchestrator, test-automator |
 | GitHub Actions | .github/workflows/ | /ci-health command |
+| Forge host: GitHub vs Forgejo | origin remote (github.com vs other) | forge-host adapter — required by ticket-gate/gate-ticket/dep-auditor/ci-health/release on a non-GitHub host |
 | Ships releases (version + tags) | VERSION, package.json/pyproject version, git tags | release skill; release-automation gate |
 | Dependabot / Renovate present | .github/dependabot.yml, renovate.json | release-automation Lane B (auto-release dep updates) |
 | Coding standards state | CLAUDE.md inline / CONTRIBUTING / STYLE_GUIDE | coding-standards-auditor |
@@ -253,7 +261,14 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`;
    command -> `.claude/commands/<name>.md`.
 4. Replace the repo placeholder: `sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <file>`.
-5. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
+5. **Forge-host dependency:** if the component does forge operations (ticket-gate, gate-ticket,
+   dep-auditor, ci-health, release/release-automation) AND it is not GitHub-only, also install the
+   `forge-host` adapter: copy `forge-lib.sh` to `scripts/`, and for a Forgejo or dual-remote repo
+   (`$FORGE_HOST=forgejo`) copy `forge.conf.example` → `.forge.conf`. The Forgejo **base URL** and
+   **token-env name** cannot be auto-detected — ASK the user for them (or read an existing
+   `.forge.conf`) to fill it in, and remind them to export the token. A GitHub-only repo needs
+   neither (the components fall back to `gh`).
+6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
 **Hooks** (e.g. `block-dashes`):
 1. Copy the script verbatim from `$FORGE_KIT_DIR/plugins/<group>/hooks/<file>` to
@@ -378,8 +393,9 @@ Show a per-template status table (missing / outdated / incomplete / current), as
 install or upgrade, then for each: use the forge-kit template as base when missing (adapt the
 `areas` dropdown to the project's real package structure), or merge when outdated/incomplete
 (preserve ALL existing content verbatim, add only missing sections, bump the `template-version`
-marker). Templates write to `.github/ISSUE_TEMPLATE/`, never `.claude/`. `contribution.yml` is
-forge-kit-specific - exclude it from the audit.
+marker). Templates write to `.github/ISSUE_TEMPLATE/` on GitHub, or to `.forgejo/issue_template/`
+when `$FORGE_HOST=forgejo` (Forgejo also reads `.gitea/ISSUE_TEMPLATE/`); never `.claude/`.
+`contribution.yml` is forge-kit-specific - exclude it from the audit.
 
 ---
 

@@ -111,7 +111,8 @@ forge_api() {
 
 # --- Issue operations (REST shapes match across GitHub + Forgejo/Gitea) ---
 
-# forge_issue_view <n>  -> JSON (fields: number, title, body, state, labels[].name)
+# forge_issue_view <n>  -> the full issue JSON (number, title, body, state, labels[].name,
+# milestone.title, assignees, … — the raw REST object, near-identical on GitHub and Forgejo)
 forge_issue_view() { forge_api GET "/repos/$(forge_repo)/issues/$1"; }
 
 # forge_issue_comment <n> <body>
@@ -135,6 +136,35 @@ forge_issue_list() {
     # gh merges paginated arrays into ONE array only WITHOUT -q; filter PRs with a single jq pass after.
     github)  gh api --paginate "repos/$repo/issues?state=$state" | jq 'map(select(.pull_request | not))' ;;
     forgejo) forge_api GET "/repos/$repo/issues?state=$state&type=issues" ;;
+  esac
+}
+
+# forge_issue_create <title> <body>  -> JSON of the created issue (number, html_url, ...)
+# Labels are intentionally omitted: GitHub's create takes label NAMES, Forgejo's takes label IDs —
+# add them in a follow-up host-specific step rather than risk a cross-host mismatch here.
+forge_issue_create() {
+  local repo payload; repo="$(forge_repo)" || return 2
+  payload="$(jq -nc --arg t "$1" --arg b "$2" '{title:$t, body:$b}')"
+  forge_api POST "/repos/$repo/issues" "$payload"
+}
+
+# forge_issue_label <n> <label> [label...]  — add labels BY NAME on either host. GitHub's API takes
+# names directly; Forgejo's takes label IDs, so the forgejo path resolves names -> IDs via the repo's
+# label list (unknown names are dropped). This is the host-aware way to set the labels that
+# forge_issue_create intentionally omits.
+forge_issue_label() {
+  local n="$1"; shift; [ "$#" -gt 0 ] || return 0
+  local repo; repo="$(forge_repo)" || return 2
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[dry-run] label issue %s on %s with: %s\n' "$n" "$repo" "$*" >&2; return 0; fi
+  case "$(forge_host)" in
+    github)
+      forge_api POST "/repos/$repo/issues/$n/labels" "$(printf '%s\n' "$@" | jq -R . | jq -sc '{labels: .}')" >/dev/null ;;
+    forgejo)
+      local all ids
+      all="$(forge_api GET "/repos/$repo/labels?limit=100")" || return 2
+      ids="$(printf '%s\n' "$@" | jq -R . | jq -sc --argjson all "$all" \
+        'map(. as $n | ($all[] | select(.name==$n) | .id)) | map(select(. != null))')"
+      forge_api POST "/repos/$repo/issues/$n/labels" "$(jq -nc --argjson l "$ids" '{labels:$l}')" >/dev/null ;;
   esac
 }
 
