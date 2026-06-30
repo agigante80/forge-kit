@@ -138,6 +138,15 @@ forge_issue_list() {
   esac
 }
 
+# forge_issue_create <title> <body>  -> JSON of the created issue (number, html_url, ...)
+# Labels are intentionally omitted: GitHub's create takes label NAMES, Forgejo's takes label IDs —
+# add them in a follow-up host-specific step rather than risk a cross-host mismatch here.
+forge_issue_create() {
+  local repo payload; repo="$(forge_repo)" || return 2
+  payload="$(jq -nc --arg t "$1" --arg b "$2" '{title:$t, body:$b}')"
+  forge_api POST "/repos/$repo/issues" "$payload"
+}
+
 # --- Release / tag operations ---
 
 # forge_tag_exists <tag>  -> exit 0 if the tag exists on the forge
