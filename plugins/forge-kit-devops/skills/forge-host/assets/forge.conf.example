@@ -9,5 +9,5 @@ FORGE_TOKEN_ENV=FORGEJO_TOKEN         # name of the env var holding the access t
 FORGE_REMOTE=forgejo                  # optional: which git remote name points at the forge (default: origin)
 
 # The token itself is NEVER committed — export it in the environment that runs the components:
-#   export FORGEJO_TOKEN=...   (mint with: docker exec -u git forgejo \
-#                                 forgejo admin user generate-access-token --scopes all --raw)
+#   export FORGEJO_TOKEN=...   (mint with: docker exec -u git <forgejo-container> \
+#                  forgejo admin user generate-access-token --username <user> --scopes all --raw)

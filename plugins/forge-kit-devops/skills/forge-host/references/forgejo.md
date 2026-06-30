@@ -13,7 +13,9 @@ into a committed file; put yours in the repo's own (committed) `.forge.conf` and
   `state`, `tag_name`, `name`). Closing an issue is `PATCH /repos/{o}/{r}/issues/{n}` with
   `{"state":"closed"}` — same as GitHub.
 - Differences to watch: pagination headers differ; PRs are issue-backed (a PR also appears under
-  `/issues`), so list issues with `type=issues` to exclude PRs; some GitHub fields are absent.
+  `/issues`). Forgejo's `/issues` honours `type=issues` to exclude PRs server-side; **GitHub's
+  `/issues` ignores `type=` and still returns PRs**, so `forge_issue_list` filters them out with
+  `jq 'select(.pull_request|not)'` on the github path. Some GitHub fields are absent on Forgejo.
 
 ## Tokens
 
