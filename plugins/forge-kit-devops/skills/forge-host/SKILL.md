@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible — a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 4 -->
+<!-- forge-host-version: 5 -->
 
 # forge-host — host-aware forge operations
 
@@ -52,15 +52,19 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_create <title> <body>` | open an issue (labels omitted — add with the next op) |
 | `forge_issue_label <n> <name…>` | add labels by name (resolves names→IDs on Forgejo) |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
-| `forge_ci_status <branch>` | `pending\|none\|not_configured`, else the run's conclusion (`success\|failure\|cancelled\|…` — github passes the raw GH conclusion through) |
+| `forge_ci_status <branch>` | `success\|failure\|pending\|none\|not_configured` (Forgejo via the combined commit-status API; github via `gh run list`, also passing raw GH conclusions like `cancelled` through) |
 
 `FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them. Run
 `bash forge-lib.sh detect` for a one-line host/repo/api/ci diagnostic.
 
 **CI status degrades gracefully.** On Forgejo with no runner yet, `forge_ci_status` returns
 `not_configured` (rather than failing), so a caller can fall back to a local gate (e.g. `make
-test`) instead of hard-failing. Implementing the real Forgejo Actions status is phase 2, gated on a
-runner existing — designed in `references/forgejo-ci.md`.
+test`) instead of hard-failing. **The Forgejo branch is implemented** via the combined commit-status
+endpoint (`/commits/{sha}/status`): Forgejo Actions writes a commit status per job, so one call
+yields `success`/`failure`/`pending`, and `total_count: 0` (no statuses — e.g. no runner) →
+`not_configured`. Only confirming that a real green run flips the status still wants a runner
+(`references/forgejo-ci.md`). GitHub's combined status does NOT reflect Actions (those are Checks),
+so the github path stays on `gh run list`.
 
 ## Install (what forge-adapt does)
 
