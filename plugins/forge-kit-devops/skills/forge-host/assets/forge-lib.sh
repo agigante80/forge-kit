@@ -198,9 +198,13 @@ forge_ci_status() {
     github)  gh run list --branch "$1" --limit 1 --json status,conclusion \
                -q '.[0] | if . == null then "none" elif .status != "completed" then "pending" else (.conclusion // "none") end' 2>/dev/null || echo none ;;
     forgejo)
-      local sha cs total state
-      sha=$(git rev-parse "$1" 2>/dev/null || printf '%s' "$1")
-      cs=$(forge_api GET "/repos/$(forge_repo)/commits/$sha/status" 2>/dev/null) || { echo not_configured; return 0; }
+      local repo sha cs total state
+      repo="$(forge_repo)" || { echo not_configured; return 0; }         # unparseable remote -> can't query
+      # --verify so a bad ref prints NOTHING (plain `git rev-parse badref` echoes the arg to stdout
+      # too, which would double it via `|| printf`). Falls back to the literal ref if unresolved.
+      sha=$(git rev-parse --verify "$1" 2>/dev/null || printf '%s' "$1")
+      [ -n "$sha" ] || { echo not_configured; return 0; }                # empty ref arg
+      cs=$(forge_api GET "/repos/$repo/commits/$sha/status" 2>/dev/null) || { echo not_configured; return 0; }
       [ -n "$cs" ] || { echo not_configured; return 0; }                 # empty body / dry-run
       total=$(printf '%s' "$cs" | jq -r '.total_count // 0' 2>/dev/null)
       case "$total" in ''|*[!0-9]*) total=0 ;; esac
