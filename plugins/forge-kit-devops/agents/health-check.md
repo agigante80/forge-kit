@@ -23,7 +23,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 1 -->
+<!-- health-check-version: 2 -->
 
 You are the **Environment Health Check** agent. You verify that everything needed for
 development is correctly installed and configured on this machine.
@@ -132,16 +132,28 @@ FAIL if missing. Fix: `cp <file>.env.example <file>.env` (remind user to fill in
 git remote get-url origin 2>/dev/null
 ```
 
-WARN if empty or different from expected. Expected: `https://github.com/{{GITHUB_REPO}}.git`
-or `git@github.com:{{GITHUB_REPO}}.git`.
+WARN if empty. The expected host depends on the forge: GitHub (`github.com/<owner>/<repo>`) or a
+self-hosted Forgejo host. If `scripts/forge-lib.sh` is present, derive the expected identity with
+`source scripts/forge-lib.sh; forge_host; forge_repo` rather than assuming GitHub.
 
-### 9. GitHub CLI authenticated
+### 9. Forge auth (host-aware)
+
+Detect the host and check the matching credential — do NOT assume `gh`:
 
 ```bash
-gh auth status 2>&1 | head -3
+if [ -f scripts/forge-lib.sh ]; then
+  source scripts/forge-lib.sh
+  case "$(forge_host)" in
+    github)  gh auth status 2>&1 | head -3 ;;
+    forgejo) : "${FORGEJO_TOKEN:?Forgejo token env not set}" && echo "Forgejo token present for $(forge_repo)" ;;
+  esac
+else
+  gh auth status 2>&1 | head -3        # legacy GitHub-only install
+fi
 ```
 
-WARN if not logged in (needed for issue management and ticket-gate).
+WARN if the detected host's credential is missing (GitHub: not logged into `gh`; Forgejo: the token
+env named in `.forge.conf`/`FORGE_TOKEN_ENV` is empty) — it is needed for issue management and ticket-gate.
 
 ### 10. Project-specific checks (from CLAUDE.md)
 
