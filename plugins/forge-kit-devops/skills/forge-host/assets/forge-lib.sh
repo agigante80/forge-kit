@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# forge-lib.sh — host-aware forge operations (GitHub | Forgejo). Source it; governance components
+# forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
 # behaves exactly as before.
 #
 # Design note: both backends use the REST API (GitHub via `gh api`, Forgejo via `curl`), NOT gh's
-# porcelain — because Forgejo's API is the Gitea API, whose JSON shapes (issues, releases, comments)
+# porcelain, because Forgejo's API is the Gitea API, whose JSON shapes (issues, releases, comments)
 # closely match GitHub's REST. Using REST on both sides keeps the jq parsing in callers identical.
 #
-# Host detection — first match wins, so automation is DETERMINISTIC (it never "asks"):
+# Host detection (first match wins, so automation is DETERMINISTIC and never "asks"):
 #   1. $FORGE_HOST env var                      (explicit override, e.g. in CI)
 #   2. a committed .forge.conf at the repo root (see forge.conf.example)
 #   3. the git remote URL                       (github.com -> github; otherwise forgejo IFF a
@@ -29,7 +29,7 @@ _forge_load_conf() {
     case "$line" in ''|\#*) continue ;; esac              # skip blanks + comments
     case "$line" in *=*) ;; *) continue ;; esac           # skip lines without '='
     k="${line%%=*}"; v="${line#*=}"                        # split on FIRST '=' (values may contain '=')
-    k="${k//[[:space:]]/}"                                 # keys never contain spaces — trim fully
+    k="${k//[[:space:]]/}"                                 # keys never contain spaces, so trim fully
     v="${v%%#*}"; v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
     case "$k" in
       FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE)
@@ -38,7 +38,7 @@ _forge_load_conf() {
   done < "$f"
 }
 
-# forge_host — print 'github' or 'forgejo'.
+# forge_host: print 'github' or 'forgejo'.
 forge_host() {
   _forge_load_conf
   if [ -n "${FORGE_HOST:-}" ]; then
@@ -53,7 +53,7 @@ forge_host() {
   esac
 }
 
-# forge_repo — print owner/repo on the active host (config wins; else parse the remote URL).
+# forge_repo: print owner/repo on the active host (config wins; else parse the remote URL).
 forge_repo() {
   _forge_load_conf
   if [ -n "${FORGE_REPO:-}" ]; then printf '%s\n' "$FORGE_REPO"; return 0; fi
@@ -65,25 +65,25 @@ forge_repo() {
     *)       repo="" ;;
   esac
   case "$repo" in
-    */*/*) echo "forge-lib: remote path '$repo' is not a plain owner/repo — set FORGE_REPO in .forge.conf" >&2; return 2 ;;
+    */*/*) echo "forge-lib: remote path '$repo' is not a plain owner/repo; set FORGE_REPO in .forge.conf" >&2; return 2 ;;
     */*)   printf '%s\n' "$repo" ;;
-    *)     echo "forge-lib: cannot parse owner/repo from remote '$url' — set FORGE_REPO in .forge.conf" >&2; return 2 ;;  # 0 or 1 segment
+    *)     echo "forge-lib: cannot parse owner/repo from remote '$url'; set FORGE_REPO in .forge.conf" >&2; return 2 ;;  # 0 or 1 segment
   esac
 }
 
-# forge_api_base — REST base URL for the active host.
+# forge_api_base: REST base URL for the active host.
 forge_api_base() {
   case "$(forge_host)" in
     github)  echo "https://api.github.com" ;;
     forgejo) _forge_load_conf; printf '%s/api/v1\n' "${FORGE_API_URL:?forgejo: FORGE_API_URL must be set in .forge.conf}" ;;
-    *)       echo "forge-lib: cannot resolve API base — host is not github|forgejo" >&2; return 2 ;;
+    *)       echo "forge-lib: cannot resolve API base; host is not github|forgejo" >&2; return 2 ;;
   esac
 }
 
 _forge_token() {
   _forge_load_conf
   local var="${FORGE_TOKEN_ENV:-FORGEJO_TOKEN}"
-  printf '%s' "${!var:?forgejo: token env '$var' is empty — mint one (see references/forgejo.md) and export it}"
+  printf '%s' "${!var:?forgejo: token env '$var' is empty; mint one (see references/forgejo.md) and export it}"
 }
 
 # forge_api <METHOD> <path> [json-body]   path is like  /repos/{owner}/{repo}/issues
@@ -112,7 +112,7 @@ forge_api() {
 # --- Issue operations (REST shapes match across GitHub + Forgejo/Gitea) ---
 
 # forge_issue_view <n>  -> the full issue JSON (number, title, body, state, labels[].name,
-# milestone.title, assignees, … — the raw REST object, near-identical on GitHub and Forgejo)
+# milestone.title, assignees, and so on: the raw REST object, near-identical on GitHub and Forgejo)
 forge_issue_view() { forge_api GET "/repos/$(forge_repo)/issues/$1"; }
 
 # forge_issue_comment <n> <body>
@@ -140,7 +140,7 @@ forge_issue_list() {
 }
 
 # forge_issue_create <title> <body>  -> JSON of the created issue (number, html_url, ...)
-# Labels are intentionally omitted: GitHub's create takes label NAMES, Forgejo's takes label IDs —
+# Labels are intentionally omitted: GitHub's create takes label NAMES, Forgejo's takes label IDs, so
 # add them in a follow-up host-specific step rather than risk a cross-host mismatch here.
 forge_issue_create() {
   local repo payload; repo="$(forge_repo)" || return 2
@@ -148,7 +148,7 @@ forge_issue_create() {
   forge_api POST "/repos/$repo/issues" "$payload"
 }
 
-# forge_issue_label <n> <label> [label...]  — add labels BY NAME on either host. GitHub's API takes
+# forge_issue_label <n> <label> [label...]  (add labels BY NAME on either host). GitHub's API takes
 # names directly; Forgejo's takes label IDs, so the forgejo path resolves names -> IDs via the repo's
 # label list (unknown names are dropped). This is the host-aware way to set the labels that
 # forge_issue_create intentionally omits.
@@ -188,9 +188,9 @@ forge_release_create() {
 # gate) instead of hard-failing.
 #
 # Forgejo: Forgejo Actions writes a COMMIT STATUS per job, so the combined commit-status endpoint
-# (`/commits/{sha}/status`) is the simple, correct "is CI green?" check — better than the
+# (`/commits/{sha}/status`) is the simple, correct "is CI green?" check, better than the
 # version-split /actions/runs|/actions/tasks API. (On GitHub the combined status does NOT reflect
-# Actions — those are Checks — so the github path uses `gh run list`.) We resolve to a SHA because
+# Actions (those are Checks), so the github path uses `gh run list`.) We resolve to a SHA because
 # the combined status has known quirks on branch/tag refs; total_count == 0 (no statuses) means no
 # CI ran -> not_configured, preserving the runner-less fallback.
 forge_ci_status() {

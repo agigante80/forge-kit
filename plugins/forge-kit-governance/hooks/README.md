@@ -1,7 +1,7 @@
 # forge-kit hooks
 
 Canonical, project-agnostic Claude Code hooks. Unlike agents/skills/commands, hooks
-are not yet auto-installed by `forge-adapt` (Phase 4) — copy the script into a project's
+are not yet auto-installed by `forge-adapt` (Phase 4). Copy the script into a project's
 `.claude/hooks/` and wire it in `.claude/settings.json` manually. forge-adapt hook
 installation is a planned enhancement.
 

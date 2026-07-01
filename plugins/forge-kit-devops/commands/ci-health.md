@@ -1,4 +1,4 @@
-<!-- ci-health-version: 2 -->
+<!-- ci-health-version: 3 -->
 
 # CI Health Monitor
 
@@ -46,7 +46,7 @@ If ALL workflows are passing, report "All workflows green" and stop.
 
 **Classify governance workflows separately.** A red **release / version-gate** workflow (e.g.
 `Release Gate`, or any version-bump enforcement from the `release-automation` skill) is an
-*intentional governance signal* — the PR author must bump the version — **not** a CI breakage.
+*intentional governance signal* (the PR author must bump the version), **not** a CI breakage.
 Do not file a P0 bug for it and do not carry it into the fix phases; surface it as "action: bump
 the version per docs/versioning.md" and move on (see Phase 4).
 
@@ -67,7 +67,7 @@ gh issue list --search "fix(ci): <job-name-keyword>" --state open --limit 1
      - Error logs (last 100 lines of failed job)
      - Link to the failing run
      - Affected files (if identifiable from logs)
-     - `<!-- template-version: 3 -->` marker
+     - `<!-- template-version: 4 -->` marker
      - Acceptance criteria: "CI job passes on `<branch>`"
 
 3. **If a ticket already exists**, add a comment with the latest error logs.
@@ -91,10 +91,10 @@ For each gated ticket:
 - Configuration errors
 
 **DO NOT AUTO-IMPLEMENT** (investigate only, leave a comment):
-- E2E test failures — comment: "E2E: investigation complete, manual review required before fix"
-- Security scan findings — comment with findings summary, do not auto-fix
-- Release / version-gate failures — the bump is the PR author's call (patch/minor/major per
-  `docs/versioning.md`). Never auto-bump the version to make the gate pass — that defeats the
+- E2E test failures: comment "E2E: investigation complete, manual review required before fix"
+- Security scan findings: comment with findings summary, do not auto-fix
+- Release / version-gate failures: the bump is the PR author's call (patch/minor/major per
+  `docs/versioning.md`). Never auto-bump the version to make the gate pass; that defeats the
   gate's entire purpose. Comment the required action, or skip it entirely per Phase 1.
 
 After implementing, run the project's lint and test commands (check CLAUDE.md for the
@@ -120,10 +120,10 @@ Report whether the fix was pushed and a new run is in progress.
 
 ## Rules
 
-- **Never hard-code workflow file names** — always discover via `ls .github/workflows/`
-- **Never hard-code branch names** — always detect from git or ask the user
+- **Never hard-code workflow file names:** always discover via `ls .github/workflows/`
+- **Never hard-code branch names:** always detect from git or ask the user
 - **Gate review must pass 10/10** before implementing any fix
-- **One commit per fix** — not one big commit for everything
-- **Only push to the working branch** — never to `main` directly unless that is the working branch
-- **No duplicate tickets** — always search before creating
+- **One commit per fix:** not one big commit for everything
+- **Only push to the working branch:** never to `main` directly unless that is the working branch
+- **No duplicate tickets:** always search before creating
 - **Never use `pnpm.overrides`** to resolve dependency conflicts

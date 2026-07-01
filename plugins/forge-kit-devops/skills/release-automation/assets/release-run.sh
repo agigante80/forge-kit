@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# release-run.sh — the shared side-effecting driver for the auto-release lanes (B and C). It
+# release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). It
 # single-sources the release MECHANICS so a fix lands once, not copy-pasted per lane. `version-lib.sh`
 # (sourced) decides the version<->tag verdict; this applies the lane policy: recursion guard, an
 # optional dependency scope gate (lane B), decide the version (file: bump+commit+push; tag-derived
 # git: gate on unreleased commits, tag-only), then tag + create the release idempotently.
 #
 # Driven entirely by env (the lane YAML sets these):
-#   VERSION_SOURCE VERSION_FILE TAG_GLOB TAG_PREFIX  — passed through to version-lib.sh
-#   BRANCH            — production branch (workflow_run.head_branch)
-#   BUMP_SUBJECT      — reserved commit subject for our own bump (recursion guard AND commit msg)
-#   REQUIRE_DEP_SCOPE — "1" to require a bot-authored, dependency-only change (lane B); else "0"
-#   BOT_LOGINS DEP_PATHS ACTOR — used only when REQUIRE_DEP_SCOPE=1
-#   GH_TOKEN          — for `gh release create`
-#   DRY_RUN           — "1" prints would-be actions instead of pushing/tagging/releasing (testable)
+#   VERSION_SOURCE VERSION_FILE TAG_GLOB TAG_PREFIX  (passed through to version-lib.sh)
+#   BRANCH            (production branch, from workflow_run.head_branch)
+#   BUMP_SUBJECT      (reserved commit subject for our own bump: recursion guard AND commit msg)
+#   REQUIRE_DEP_SCOPE ("1" to require a bot-authored, dependency-only change on lane B; else "0")
+#   BOT_LOGINS DEP_PATHS ACTOR  (used only when REQUIRE_DEP_SCOPE=1)
+#   GH_TOKEN          (for `gh release create`)
+#   DRY_RUN           ("1" prints would-be actions instead of pushing/tagging/releasing; testable)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=version-lib.sh
@@ -27,8 +27,8 @@ TAG_PREFIX="${TAG_PREFIX:-v}"
 # --- Git identity for a clean CI runner (no pre-existing config) ---
 # The COMMIT needs author+committer; the annotated TAG (`git tag -a`) needs the committer identity.
 # Setting all four env vars covers both git calls without mutating .git/config (forge-adapt can
-# override RELEASE_BOT_NAME/EMAIL). This is what stops the tag-derived (VERSION_SOURCE=git) path —
-# which tags WITHOUT a preceding commit — from dying with "empty ident name" on a fresh runner.
+# override RELEASE_BOT_NAME/EMAIL). This is what stops the tag-derived (VERSION_SOURCE=git) path,
+# which tags WITHOUT a preceding commit, from dying with "empty ident name" on a fresh runner.
 : "${RELEASE_BOT_NAME:=github-actions[bot]}"
 : "${RELEASE_BOT_EMAIL:=41898282+github-actions[bot]@users.noreply.github.com}"
 export GIT_AUTHOR_NAME="$RELEASE_BOT_NAME"    GIT_AUTHOR_EMAIL="$RELEASE_BOT_EMAIL"
@@ -36,7 +36,7 @@ export GIT_COMMITTER_NAME="$RELEASE_BOT_NAME" GIT_COMMITTER_EMAIL="$RELEASE_BOT_
 
 # --- Recursion guard: never act on our own bump commit (quoted case = literal match, no regex) ---
 case "$(git log -1 --pretty=%s)" in
-  "$BUMP_SUBJECT"*) echo "::notice::own auto-bump commit — nothing to do."; exit 0 ;;
+  "$BUMP_SUBJECT"*) echo "::notice::own auto-bump commit, nothing to do."; exit 0 ;;
 esac
 
 # --- Optional dependency scope gate (lane B): bot author + dependency-only diff, at least one dep file ---
@@ -65,7 +65,7 @@ if [ "$REQUIRE_DEP_SCOPE" = 1 ]; then
   set +f
   # Require at least one matched dependency file: an empty/no-file-change merge must NOT release.
   if ! { [ "$is_bot" = true ] && [ "$only_deps" = true ] && [ "$dep_hits" -gt 0 ]; }; then
-    echo "::notice::not a bot-authored dependency-only change (bot=$is_bot deps-only=$only_deps hits=$dep_hits) — leaving it to the lane-A gate."
+    echo "::notice::not a bot-authored dependency-only change (bot=$is_bot deps-only=$only_deps hits=$dep_hits); leaving it to the lane-A gate."
     exit 0
   fi
 fi
@@ -75,23 +75,23 @@ version=""
 committed=0
 if [ "$VERSION_SOURCE" = git ]; then
   # Tag-derived: there is no file to bump, so the release IS the next tag. The verdict is always
-  # `equal`, so it carries no signal — gate on whether there are commits since the latest tag,
+  # `equal`, so it carries no signal; gate on whether there are commits since the latest tag,
   # else a CI re-run on an already-tagged HEAD would cut a phantom tag every time.
   cur=$(read_version)
   if [ -z "$cur" ]; then
-    echo "::notice::tag-derived project with no release tag reachable from HEAD — push an initial tag (e.g. ${TAG_PREFIX}0.1.0) to bootstrap."; exit 0
+    echo "::notice::tag-derived project with no release tag reachable from HEAD; push an initial tag (e.g. ${TAG_PREFIX}0.1.0) to bootstrap."; exit 0
   fi
   if [ "$(unreleased_commits)" -eq 0 ]; then
-    echo "::notice::no commits since the latest tag (${TAG_PREFIX}${cur}) — nothing to release."; exit 0
+    echo "::notice::no commits since the latest tag (${TAG_PREFIX}${cur}); nothing to release."; exit 0
   fi
   version=$(next_patch)
 else
   verdict=$(classify_version)
   case "$verdict" in
     behind)
-      echo "::error::version is behind the latest release — refusing to publish a regression."; exit 1 ;;
+      echo "::error::version is behind the latest release; refusing to publish a regression."; exit 1 ;;
     ahead|first-release)
-      version=$(read_version) ;;            # already at / establishing the version — tag as-is
+      version=$(read_version) ;;            # already at / establishing the version, so tag as-is
     equal)
       version=$(next_patch)
       if [ "$DRY_RUN" = 1 ]; then
@@ -103,7 +103,7 @@ else
         git add -A                                   # identity comes from the GIT_*_NAME/EMAIL env set above
         git commit -m "$BUMP_SUBJECT to $version"
         # Re-sync onto the branch tip (it may have advanced since CI validated head_sha) so the push
-        # is a fast-forward — never --force. A concurrent bump fails loud (rebase conflict).
+        # is a fast-forward, never --force. A concurrent bump fails loud (rebase conflict).
         git fetch origin "$BRANCH"
         git rebase FETCH_HEAD
         git push origin "HEAD:$BRANCH"
@@ -119,13 +119,13 @@ if [ "$DRY_RUN" = 1 ]; then
   echo "[dry-run] would tag $tag and create release (committed=$committed)"; exit 0
 fi
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-  echo "::notice::tag $tag already exists — not re-tagging."
+  echo "::notice::tag $tag already exists, not re-tagging."
 else
   git tag -a "$tag" -m "Release $tag"
   git push origin "$tag"
 fi
 if gh release view "$tag" >/dev/null 2>&1; then
-  echo "::notice::release $tag already exists — nothing to publish."
+  echo "::notice::release $tag already exists, nothing to publish."
 else
   gh release create "$tag" --title "$tag" --generate-notes
 fi

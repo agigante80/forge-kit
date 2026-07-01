@@ -25,15 +25,15 @@ while IFS= read -r f; do
   if git cat-file -e "HEAD:$f" 2>/dev/null; then
     head_ver=$(git show "HEAD:$f" 2>/dev/null | ver_of)
     if [ -z "$staged_ver" ]; then
-      echo "  ✗ $f — version marker missing or removed (expected '<name>-version: N')"
+      echo "  ✗ $f: version marker missing or removed (expected '<name>-version: N')"
       violations=$((violations + 1))
     elif [ "$staged_ver" = "$head_ver" ]; then
-      echo "  ✗ $f — changed but still v$staged_ver (bump the <name>-version marker)"
+      echo "  ✗ $f: changed but still v$staged_ver (bump the <name>-version marker)"
       violations=$((violations + 1))
     fi
   else
     if [ -z "$staged_ver" ]; then
-      echo "  ✗ $f — new component without a version marker (add '<name>-version: 1')"
+      echo "  ✗ $f: new component without a version marker (add '<name>-version: 1')"
       violations=$((violations + 1))
     fi
   fi
