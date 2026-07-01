@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. Installs a release gate (block a PR that did not bump the version past the last release) plus, on the same shared version<->tag primitive, optional auto-release lanes (auto-release a dependency-bot update; auto-release every merge on a CD trunk). The enforced/automated sibling of the invoked `release` skill. Generic template - forge-adapt tailors the production branch, version source, and CI provider. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 6 -->
+<!-- release-automation-version: 7 -->
 
 # Release automation
 

@@ -24,6 +24,16 @@ REQUIRE_DEP_SCOPE="${REQUIRE_DEP_SCOPE:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 TAG_PREFIX="${TAG_PREFIX:-v}"
 
+# --- Git identity for a clean CI runner (no pre-existing config) ---
+# The COMMIT needs author+committer; the annotated TAG (`git tag -a`) needs the committer identity.
+# Setting all four env vars covers both git calls without mutating .git/config (forge-adapt can
+# override RELEASE_BOT_NAME/EMAIL). This is what stops the tag-derived (VERSION_SOURCE=git) path —
+# which tags WITHOUT a preceding commit — from dying with "empty ident name" on a fresh runner.
+: "${RELEASE_BOT_NAME:=github-actions[bot]}"
+: "${RELEASE_BOT_EMAIL:=41898282+github-actions[bot]@users.noreply.github.com}"
+export GIT_AUTHOR_NAME="$RELEASE_BOT_NAME"    GIT_AUTHOR_EMAIL="$RELEASE_BOT_EMAIL"
+export GIT_COMMITTER_NAME="$RELEASE_BOT_NAME" GIT_COMMITTER_EMAIL="$RELEASE_BOT_EMAIL"
+
 # --- Recursion guard: never act on our own bump commit (quoted case = literal match, no regex) ---
 case "$(git log -1 --pretty=%s)" in
   "$BUMP_SUBJECT"*) echo "::notice::own auto-bump commit — nothing to do."; exit 0 ;;
@@ -90,9 +100,7 @@ else
         # forge-adapt: for non-file sources replace this write with the project's bump,
         # e.g.  npm version "$version" --no-git-tag-version  (node). File-mode default:
         printf '%s\n' "$version" > "${VERSION_FILE:?VERSION_FILE required for file source}"
-        git config user.name 'github-actions[bot]'
-        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-        git add -A
+        git add -A                                   # identity comes from the GIT_*_NAME/EMAIL env set above
         git commit -m "$BUMP_SUBJECT to $version"
         # Re-sync onto the branch tip (it may have advanced since CI validated head_sha) so the push
         # is a fast-forward — never --force. A concurrent bump fails loud (rebase conflict).
