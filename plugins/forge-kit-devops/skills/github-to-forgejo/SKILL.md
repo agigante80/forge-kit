@@ -10,7 +10,7 @@ description: >
   own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 1 -->
+<!-- github-to-forgejo-version: 2 -->
 
 # github-to-forgejo
 
@@ -69,7 +69,7 @@ below (esp. Phases 3–4) are the ones that actually bit.
 - `/forge-kit-adapt:adapt` → install/refresh `forge-host` + the host-aware components
   (release, ci-health, gate-ticket, ticket-gate, dep-auditor, health-check). Retire any
   project-local forge adapter in favour of `scripts/forge-lib.sh`.
-- Sanity: `bash scripts/forge-lib.sh detect` → `host=forgejo repo=… api=…`.
+- Sanity: `bash scripts/forge-lib.sh detect` → `host=forgejo repo=… api=… ci=not_configured`.
 - **No runner yet?** `forge_ci_status` returns `not_configured` (empty combined status) —
   treat that as "no CI, use local gates (`make test`)" until a runner exists.
 
@@ -108,8 +108,13 @@ overlay:
 2. **`container_name:` collisions** with a deployed stack of the same name on that host →
    override to unique CI names.
 3. **Published ports are on the host, not the job's `localhost`** → join the job to the
-   compose network (`docker network connect <project>_default "$(cat /etc/hostname)"`) and
-   address services by name (`app:8000`, `db:5432`).
+   compose network and address services by name (`app:8000`, `db:5432`):
+   ```sh
+   # `hostname` is the job container's own id by default. CAVEAT: if your runner sets a
+   # custom --hostname, `hostname` is no longer the id — pass the real id instead (get it
+   # from `docker ps` on the host, or `/proc/self/cgroup` on a cgroup-v1 host).
+   docker network connect "<project>_default" "$(hostname)"
+   ```
 4. Give jobs Docker with **`container.docker_host: automount`** (Forgejo docs), not a
    hand-rolled socket mount.
 
