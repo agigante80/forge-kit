@@ -110,9 +110,10 @@ overlay:
 3. **Published ports are on the host, not the job's `localhost`** → join the job to the
    compose network and address services by name (`app:8000`, `db:5432`):
    ```sh
-   # the job container's own id — `hostname` == container id UNLESS the runner set a custom
-   # --hostname; then use: cid=$(grep -oE '[0-9a-f]{64}' /proc/self/cgroup | head -1)
-   docker network connect "<project>_default" "$(cat /proc/self/cgroup | grep -oE '[0-9a-f]{64}' | head -1 || hostname)"
+   # `hostname` is the job container's own id by default. CAVEAT: if your runner sets a
+   # custom --hostname, `hostname` is no longer the id — pass the real id instead (get it
+   # from `docker ps` on the host, or `/proc/self/cgroup` on a cgroup-v1 host).
+   docker network connect "<project>_default" "$(hostname)"
    ```
 4. Give jobs Docker with **`container.docker_host: automount`** (Forgejo docs), not a
    hand-rolled socket mount.
