@@ -40,9 +40,10 @@ below (esp. Phases 3–4) are the ones that actually bit.
     generate-access-token --username <you> --scopes all --raw
   ```
   Otherwise: Web UI → Settings → Applications → Generate Token. Then `export FORGEJO_TOKEN=…`.
-  **Capture the FULL token** — it can contain `-`/`_` (it's `token_urlsafe`); a greedy
-  `[A-Za-z0-9]+` capture truncates it and the server rejects the short header as *malformed*
-  (a 401 that reads like a missing header — a debugging trap).
+  **Capture the FULL token verbatim.** Some Forgejo token types (OAuth2/base64url) contain
+  `-`/`_`/`.`, so a greedy `[A-Za-z0-9]+` capture can truncate them and the server 401s the short
+  token as *malformed* (reads like a missing header — a debugging trap). `--raw` prints the token as
+  one line — copy it whole.
 - Write `.forge.conf` at the repo root (committed — the deterministic signal for forge-host):
   ```
   FORGE_HOST=forgejo
@@ -72,13 +73,21 @@ below (esp. Phases 3–4) are the ones that actually bit.
 - **No runner yet?** `forge_ci_status` returns `not_configured` (empty combined status) —
   treat that as "no CI, use local gates (`make test`)" until a runner exists.
 
-## Phase 3 — Resolve the `.github/workflows/` question  ← the #1 surprise
-Forgejo Actions executes **`.github/workflows/` in addition to `.forgejo/workflows/`**.
-So your GitHub workflows *also run on Forgejo* — and GitHub-specific ones fail there
-(`services:` on `localhost`, GHCR/`gh` steps, a version tag re-firing a publisher). Choose:
-- **Fully off GitHub:** remove `.github/workflows/` — CI lives only in `.forgejo/`.
-- **Keeping GitHub (mirror):** accept both fire, split by trigger, or fence GitHub-only
-  workflows behind conditions. Don't leave duplicate green/red boards.
+## Phase 3 — the `.github/workflows/` question  ← the migration surprise
+Forgejo Actions does **not** run both dirs. It looks up workflows in exactly ONE directory, using
+the **first that exists**: `.forgejo/workflows/` → `.gitea/workflows/` → `.github/workflows/` (a
+fallback, not a merge — verified against Forgejo docs + source). Consequences during migration:
+- **Before you add `.forgejo/workflows/`,** Forgejo falls back to your existing `.github/workflows/`
+  and runs *those* — and GitHub-specific ones fail on Forgejo (`services:` on `localhost`, GHCR/`gh`
+  steps, a version tag re-firing a publisher). That "my GitHub workflows ran and broke on Forgejo"
+  is the surprise — **not** double runs.
+- **The switch:** the moment a `.forgejo/workflows/` directory exists, Forgejo ignores
+  `.github/workflows/` entirely. So **creating `.forgejo/workflows/` IS the mitigation** — your
+  GitHub copies stay in the repo (for GitHub) but go dormant on Forgejo. No fences needed for the
+  single-remote case.
+- **Dual-remote (mirroring to both forges):** Forgejo populates the `github.*` context, so if you
+  share one workflow dir, guard GitHub-only steps on the host (e.g.
+  `contains(github.server_url, 'github.com')`), or keep separate `.forgejo/` + `.github/` copies.
 
 ## Phase 4 — Port CI to `.forgejo/workflows/` (optional)
 Forgejo Actions is GitHub-Actions-compatible, but the runner is usually a **container**
@@ -108,8 +117,8 @@ overlay:
 Registering the runner (Docker socket access, run-as-root, labels) and tuning it for your
 host — slow copy-on-write storage fixes like tmpfs for job temp and Postgres `fsync=off`,
 plus cleaning orphaned `FORGEJO-ACTIONS-*` containers — is **environment-specific**. Follow
-the target host's infra reference (e.g. a `synology-*`/NAS reference). Keep it out of this
-skill so it stays portable.
+the target host's own infra reference (e.g. a NAS/self-hosted-runner runbook). Keep it out of
+this skill so it stays portable.
 
 ## Phase 5 — Verify + cut over
 - Trigger a run; watch `forge_ci_status` / the Actions tab go green.
