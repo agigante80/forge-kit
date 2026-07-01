@@ -1,6 +1,6 @@
-<!-- gate-ticket-version: 2 -->
+<!-- gate-ticket-version: 3 -->
 
-Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo — the ticket-gate
+Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate
 agent detects the host via the `forge-host` adapter).
 
 ## Usage

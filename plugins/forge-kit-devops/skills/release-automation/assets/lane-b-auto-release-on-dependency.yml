@@ -1,4 +1,4 @@
-# Auto-release on dependency update (lane B) — when a dependency-bot update reaches the production
+# Auto-release on dependency update (lane B): when a dependency-bot update reaches the production
 # branch and CI is green, auto-patch the version, tag, and release. The ONE auto-bump lane that is
 # safe by construction: the author is a bot (no human to make the bump call) and the impact is
 # bounded (consume an upstream release -> PATCH). Human feature PRs go through the lane-A gate.

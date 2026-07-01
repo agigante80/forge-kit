@@ -3,7 +3,7 @@ name: find-dead-code
 description: Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable branches that a linter's local-scope rules miss. Wraps the right whole-program tool for the stack (vulture, knip, go deadcode, etc.) with a curated allowlist for the project's dynamic-reference patterns so findings are low-noise and safe to act on. Generic skill - forge-adapt tailors the tool, paths, and false-positive patterns to the project. Use when the user asks to "find dead code", "remove unused code", "what code is unused", "dead-code scan", or "clean up the codebase" before a refactor or release.
 ---
 
-<!-- find-dead-code-version: 1 -->
+<!-- find-dead-code-version: 2 -->
 
 # Find Dead Code
 
@@ -98,7 +98,7 @@ project's actual patterns; the generic set:
 
 Group findings into **High-confidence dead** / **Likely dead (verify dynamic refs)** /
 **Probable false positives** (anything matching a dynamic category above). For each, give
-`file:line — symbol (kind, confidence)` plus a one-line verification note. **Never auto-delete** -
+`file:line` then `symbol (kind, confidence)` plus a one-line verification note. **Never auto-delete** -
 propose removals for confirmation, or file gate-ready tickets for non-trivial cleanups.
 
 ## Scope boundary

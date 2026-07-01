@@ -3,7 +3,7 @@ name: release
 description: Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verify CI is green, tag, and close the tickets the release shipped. Includes a version-check guard (fail if version sources disagree) for CI/pre-commit. Generic skill - forge-adapt tailors the version files, branching model, tag format, and publish pipeline to the project. Use when the user asks to "release", "cut a release", "bump the version", "ship vX.Y.Z", or "tag a release".
 ---
 
-<!-- release-version: 4 -->
+<!-- release-version: 5 -->
 
 # Release
 
@@ -15,7 +15,7 @@ reporting throughout - **never claim "released" until the publish/CI pipeline is
 > develop-to-main), tag format, and publish-pipeline checks to the project.
 >
 > **This skill is the *invoked* ship.** To make its "bumped past the last tag" precondition
-> *unforgettable* — enforced on every PR, not just when someone runs a release — install the
+> *unforgettable* (enforced on every PR, not just when someone runs a release), install the
 > `release-automation` skill (the CI gate + auto-release lanes built on the same version↔tag math).
 
 ## Version sources (single source of truth + mirrors)
@@ -57,7 +57,7 @@ actual-mcp-server's `version-check.js`.
 | `patch` / `minor` / `major` | bump the canonical version, propagate to all mirrors, sync doc markers |
 | `sync` | do NOT bump; only re-sync mirrors + doc markers to the current canonical (fixes drift) |
 
-Choose the level per the project's `docs/versioning.md` — the single semver authority (the
+Choose the level per the project's `docs/versioning.md`, the single semver authority (the
 operator-contract: breaking the deployment → major, opt-in feature → minor, fix/CVE/dep → patch).
 Bumping is a single committed step (`chore(release): bump version to X.Y.Z`) BEFORE the release
 runs. The bump *level* is a human judgement; do not auto-infer it.
@@ -90,7 +90,7 @@ source scripts/forge-lib.sh
 1. **Preconditions (verify, never force):**
    - the version was bumped past the last published tag (else: bump first),
    - the version sources agree (run the version-check guard),
-   - CI is green on the HEAD being released — `forge_ci_status` is `success` (a red/`pending`
+   - CI is green on the HEAD being released: `forge_ci_status` is `success` (a red/`pending`
      pipeline is not releasable; `not_configured` → use the local gate, see above).
    Report exactly which precondition failed and the single next action; do not `--force` past it.
 2. **Compute the release manifest:** the tickets this release ships. Read them from commit
@@ -101,7 +101,7 @@ source scripts/forge-lib.sh
    (`git merge --ff-only` for develop-to-main; tag directly on trunk otherwise). If integration is
    not a clean fast-forward, STOP - the branches diverged and need manual reconciliation.
 4. **Verify green, then claim:** pushing fires a fresh CI run on the new commit/tag. Wait for
-   `forge_ci_status <branch>` to be `success` before reporting the release as shipped — never
+   `forge_ci_status <branch>` to be `success` before reporting the release as shipped. Never
    report "released" on `pending`/`failure`. On `not_configured` (Forgejo, no runner) there is no
    remote run to wait for: rely on the local gate and report the status honestly as
    `not_configured`, not green.

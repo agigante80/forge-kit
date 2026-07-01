@@ -1,18 +1,18 @@
-# Auto-release on merge (lane C) — OPT-IN, continuous-deployment trunks only. Every merge to the
+# Auto-release on merge (lane C): OPT-IN, continuous-deployment trunks only. Every merge to the
 # production branch that passes CI is released: if nobody bumped, auto-patch; if already bumped,
-# release as-is. The blanket auto-bump — use it ONLY where every merge is genuinely a release.
+# release as-is. This is the blanket auto-bump; use it ONLY where every merge is genuinely a release.
 #
 # Lane C SUPERSEDES Lane B: it already releases every merge (dependency merges included), so do
-# NOT install both — co-installing makes both fire on the same CI run, share the concurrency group,
+# NOT install both. Co-installing makes both fire on the same CI run, share the concurrency group,
 # and the second one's bump conflicts with the first. Pick the gate (lane A) for deliberate/batched
-# releases, OR Lane C for CD — not Lane A's auto-counterpart and Lane B together.
+# releases, OR Lane C for CD. Do not run Lane A's auto-counterpart and Lane B together.
 #
 # Supports tag-derived projects (VERSION_SOURCE=git, e.g. setuptools-scm/hatch-vcs): no file to
 # bump, so a release is just the next tag (no commit), gated on there being commits since the last
 # tag. See references/python-tag-derived.md.
 #
 # The release MECHANICS live in scripts/release-run.sh (shared with lane B). Same App-token /
-# recursion-guard / concurrency / idempotency / push-race handling — see references/github-token-gotcha.md.
+# recursion-guard / concurrency / idempotency / push-race handling (see references/github-token-gotcha.md).
 
 name: Auto-release on merge
 
@@ -39,7 +39,7 @@ jobs:
       TAG_GLOB: 'v*'
       TAG_PREFIX: v
       BRANCH: ${{ github.event.workflow_run.head_branch }}
-      # REQUIRE_DEP_SCOPE defaults to 0 — lane C releases EVERY merge, no dependency scope gate.
+      # REQUIRE_DEP_SCOPE defaults to 0, so lane C releases EVERY merge, no dependency scope gate.
     steps:
       - name: Mint a token that CAN trigger downstream workflows
         id: token
