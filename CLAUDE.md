@@ -31,7 +31,7 @@ The kit is organized into plugin groups under `plugins/<group>/`:
 | `forge-kit-review` | code-reviewer, architect-review, backend-architect, code-simplifier, coding-standards-auditor agents; full-review, pr-enhance commands |
 | `forge-kit-security` | security-auditor, backend-security-coder, api-security-tester agents; owasp-api-security skill |
 | `forge-kit-testing` | tdd-orchestrator, test-automator, performance-engineer agents |
-| `forge-kit-devops` | dep-auditor, health-check agents; ci-health command; find-dead-code, release, release-automation, forge-host skills |
+| `forge-kit-devops` | dep-auditor, health-check agents; ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills |
 | `forge-kit-backend` | api-design-principles, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration skills |
 
 Users install via the plugin marketplace (`/plugin marketplace add agigante80/forge-kit`) or by cloning the repo and running `forge-adapt` from within the target project.
