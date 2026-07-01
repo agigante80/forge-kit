@@ -1,4 +1,4 @@
-# forge-kit hooks — signal → component → why
+# forge-kit hooks: signal, component, why
 
 Reference for Step 2 of forge-adapt. Live `ls` of `$FORGE_KIT_DIR/plugins/*/hooks/` is the
 source of truth for existence; this file fixes the canonical ≤60-char "why" and the wiring.
@@ -14,7 +14,7 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
    `.claude/hooks/block-dashes.py` verbatim, preserving the `# block-dashes-version: N` marker.
 2. Merge into `.claude/settings.json` without clobbering existing hooks (see Step 3 of SKILL.md
    for the `jq` merge). Skip if an equivalent PreToolUse entry already exists.
-3. Confirm: `✓ block-dashes (hook) — installed and wired in .claude/settings.json`.
+3. Confirm: `✓ block-dashes (hook): installed and wired in .claude/settings.json`.
 
-When NOT to recommend: if CLAUDE.md has no writing-style rule, do not surface this hook — it is
+When NOT to recommend: if CLAUDE.md has no writing-style rule, do not surface this hook. It is
 opinionated and only valuable where the project has adopted the no-dash convention.

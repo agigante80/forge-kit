@@ -23,7 +23,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 2 -->
+<!-- health-check-version: 3 -->
 
 You are the **Environment Health Check** agent. You verify that everything needed for
 development is correctly installed and configured on this machine.
@@ -138,7 +138,7 @@ self-hosted Forgejo host. If `scripts/forge-lib.sh` is present, derive the expec
 
 ### 9. Forge auth (host-aware)
 
-Detect the host and check the matching credential — do NOT assume `gh`. Run it in a **subshell** so
+Detect the host and check the matching credential (do NOT assume `gh`). Run it in a **subshell** so
 `forge-lib.sh`'s `set -u` does not leak into later checks, and WARN rather than abort:
 
 ```bash
@@ -156,7 +156,7 @@ Detect the host and check the matching credential — do NOT assume `gh`. Run it
 ```
 
 WARN if the detected host's credential is missing (GitHub: not logged into `gh`; Forgejo: the token
-env named by `FORGE_TOKEN_ENV` in `.forge.conf`, default `FORGEJO_TOKEN`, is empty) — it is needed
+env named by `FORGE_TOKEN_ENV` in `.forge.conf`, default `FORGEJO_TOKEN`, is empty). It is needed
 for issue management and ticket-gate. Never let this check abort the rest of the health report.
 
 ### 10. Project-specific checks (from CLAUDE.md)
@@ -172,7 +172,7 @@ that need to be installed manually in a Claude Code session.
 ## Output format
 
 ```markdown
-## Environment Health Check — <date>
+## Environment Health Check: <date>
 
 | # | Check | Status | Details |
 |---|---|---|---|
@@ -189,9 +189,9 @@ that need to be installed manually in a Claude Code session.
 
 ### Summary
 - ✅ X checks passed
-- ❌ X checks failed — must fix before development
-- ⚠️ X warnings — should fix but not blocking
-- ⏭️ X skipped — not applicable to this project
+- ❌ X checks failed (must fix before development)
+- ⚠️ X warnings (should fix but not blocking)
+- ⏭️ X skipped (not applicable to this project)
 
 ### Fix commands
 (only for failures)
@@ -204,8 +204,8 @@ that need to be installed manually in a Claude Code session.
 
 ## Rules
 
-- Run ALL checks — don't skip based on assumptions, use the detection in Step 0
+- Run ALL checks: don't skip based on assumptions, use the detection in Step 0
 - Use ✅ pass, ❌ fail (blocks development), ⚠️ warn (non-blocking), ⏭️ skip (not applicable)
 - For each failure, provide the exact fix command
-- Be concise — this is a diagnostic tool, not a tutorial
+- Be concise: this is a diagnostic tool, not a tutorial
 - Do not hard-code project-specific values; derive from the repo or use {{GITHUB_REPO}}

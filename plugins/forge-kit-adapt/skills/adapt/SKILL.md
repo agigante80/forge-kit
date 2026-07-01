@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 9 -->
+<!-- forge-adapt-version: 10 -->
 
 # forge-adapt
 
@@ -123,7 +123,7 @@ for f in .claude/hooks/*; do
 done
 # Forge host + repo slug (host-aware: GitHub or self-hosted Forgejo).
 REMOTE_URL=$(git remote get-url origin 2>/dev/null)
-# Anchor github.com to the HOST slot (matches forge-lib.sh's forge_host) — a Forgejo URL that merely
+# Anchor github.com to the HOST slot (matches forge-lib.sh's forge_host). A Forgejo URL that merely
 # contains 'github.com' in its path/vanity host must NOT read as github.
 case "$REMOTE_URL" in
   ''|*://github.com/*|*://*@github.com/*|git@github.com:*) FORGE_HOST=github ;;
@@ -144,7 +144,7 @@ find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep
 | Dependency depth | lockfiles, package count | dep-auditor |
 | Tests present | tests/, *_test, *.spec | tdd-orchestrator, test-automator |
 | GitHub Actions | .github/workflows/ | /ci-health command |
-| Forge host: GitHub vs Forgejo | origin remote (github.com vs other) | forge-host adapter — required by ticket-gate/gate-ticket/dep-auditor/ci-health/release on a non-GitHub host |
+| Forge host: GitHub vs Forgejo | origin remote (github.com vs other) | forge-host adapter (required by ticket-gate/gate-ticket/dep-auditor/ci-health/release on a non-GitHub host) |
 | Ships releases (version + tags) | VERSION, package.json/pyproject version, git tags | release skill; release-automation gate |
 | Dependabot / Renovate present | .github/dependabot.yml, renovate.json | release-automation Lane B (auto-release dep updates) |
 | Coding standards state | CLAUDE.md inline / CONTRIBUTING / STYLE_GUIDE | coding-standards-auditor |
@@ -265,7 +265,7 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
    dep-auditor, ci-health, release/release-automation) AND it is not GitHub-only, also install the
    `forge-host` adapter: copy `forge-lib.sh` to `scripts/`, and for a Forgejo or dual-remote repo
    (`$FORGE_HOST=forgejo`) copy `forge.conf.example` → `.forge.conf`. The Forgejo **base URL** and
-   **token-env name** cannot be auto-detected — ASK the user for them (or read an existing
+   **token-env name** cannot be auto-detected, so ASK the user for them (or read an existing
    `.forge.conf`) to fill it in, and remind them to export the token. A GitHub-only repo needs
    neither (the components fall back to `gh`).
 6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
