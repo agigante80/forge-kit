@@ -27,7 +27,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 2 -->
+<!-- ticket-gate-version: 3 -->
 
 You are the **Ticket Readiness Gate** - an orchestrator that selects and runs specialist
 agents to score an issue before implementation begins. Agent selection is dynamic:
@@ -43,10 +43,10 @@ forge call, source the adapter and resolve identity once:
 
 ```bash
 source scripts/forge-lib.sh    # installed by the forge-host skill (path may vary)
-REPO="$(forge_repo)"           # owner/repo on the detected host — replaces {{GITHUB_REPO}}
+REPO="$(forge_repo)"           # owner/repo on the detected host (replaces {{GITHUB_REPO}})
 ```
 
-**Use the `forge_*` functions for every forge call — do not call `gh` directly.** Mapping:
+**Use the `forge_*` functions for every forge call. Do not call `gh` directly.** Mapping:
 
 | Need | Call |
 |---|---|
@@ -57,7 +57,7 @@ REPO="$(forge_repo)"           # owner/repo on the detected host — replaces {{
 | create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels |
 | list/search issues | `forge_issue_list [state]`, filter client-side |
 
-The `gh …` snippets below are the **GitHub reference form** — apply the `forge_*` equivalent so the
+The `gh …` snippets below are the **GitHub reference form**: apply the `forge_*` equivalent so the
 same logic runs on Forgejo. If `forge-lib.sh` is absent (legacy install), fall back to `gh`.
 
 ---
@@ -74,7 +74,7 @@ Before scoring, verify the ticket meets structural requirements.
 ```bash
 grep "template-version:" .github/ISSUE_TEMPLATE/feature.yml | head -1
 ```
-Extract the number (e.g., `1` from `<!-- template-version: 1 -->`).
+Extract the number (e.g., `1` from `<!-- template-version: 2 -->`).
 
 2. **Fetch the issue body and check for version marker:**
 ```bash
@@ -216,7 +216,7 @@ following questions in the ticket body (not in comments) before re-running the g
 
 1. [Question 1]
 2. [Question 2]
-3. [Question 3 — up to 5 questions]
+3. [Question 3 (up to 5 questions)]
 
 Answering in the body ensures the next gate run can score the complete spec.
 EOF
@@ -326,10 +326,10 @@ Build a structured block:
 ```markdown
 <!-- ticket-gate: populated <YYYY-MM-DD> -->
 **Relevant files:**
-- `<path>` — <one-line summary>
+- `<path>`: <one-line summary>
 
 **Existing tests:**
-- `<path>` — <one-line summary>
+- `<path>`: <one-line summary>
 
 **Constraints:**
 - <constraint relevant to implementation choices>
@@ -341,7 +341,7 @@ Build a structured block:
 gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
 ```
 
-If no relevant files exist, write `greenfield area — no existing patterns in scope` and note
+If no relevant files exist, write `greenfield area: no existing patterns in scope` and note
 this to the Architect agent (absence of patterns is itself useful architectural context).
 
 **4. Pass the populated `Codebase Context` section to the Architect and Developer agents**
@@ -413,7 +413,7 @@ sub-agent with:
 - The Architect agent's score, notes, and `required_changes`
 - The `Codebase Context` from Step 2.9
 
-Ask the sub-agent to propose 2–3 alternative implementation approaches that address the
+Ask the sub-agent to propose 2 to 3 alternative implementation approaches that address the
 Architect's concerns. Each alternative must include:
 - A 1-line description of the approach
 - Why it resolves the Architect's specific objection
@@ -536,18 +536,18 @@ Print: `✅ PASS - Ticket #<N> is ready for implementation`
 **If ANY score < 10:**
 
 Classify failures by severity:
-- **Fundamental** (score 1–4): blocking — always auto-remediate; override never available
-- **Significant** (score 5–7): failing — auto-remediate by default
-- **Near-pass** (score 8–9): minor findings — auto-remediate by default
+- **Fundamental** (score 1 to 4): blocking; always auto-remediate; override never available
+- **Significant** (score 5 to 7): failing; auto-remediate by default
+- **Near-pass** (score 8 to 9): minor findings; auto-remediate by default
 
 **Default behaviour: auto-remediate without prompting.**
 
 Build an updated issue body:
 1. Preserve all existing content verbatim
-2. For each failing agent, append a `### Required additions — <Agent>` section with
+2. For each failing agent, append a `### Required additions: <Agent>` section with
    `required_changes` formatted as a checklist
 3. If `architecture_alternatives` were generated (Architect scored < 5), append a
-   `### Architecture alternatives` section with the 2–3 options
+   `### Architecture alternatives` section with the 2 to 3 options
 
 Update the issue:
 ```bash
@@ -556,7 +556,7 @@ gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
 
 Print:
 ```
-❌ FAIL — Ticket #<N> auto-remediated.
+❌ FAIL. Ticket #<N> auto-remediated.
 Issue updated with required changes for: <agent list>
 Re-run /gate-ticket <N> after reviewing the additions.
 ```
@@ -569,16 +569,16 @@ Instead of auto-remediating, present severity-aware options and wait for user re
 
 | Tier | Options |
 |------|---------|
-| Fundamental (1–4) | 1. Auto-remediate issue body  2. Post remediation guide as GitHub comment  *(no override)* |
-| Significant (5–7) | 1. Auto-remediate issue body  2. Post remediation guide as GitHub comment  3. Override and proceed |
-| Near-pass (8–9)   | 1. Create follow-up ticket(s)  2. Auto-remediate issue body  3. Proceed as-is |
+| Fundamental (1 to 4) | 1. Auto-remediate issue body  2. Post remediation guide as GitHub comment  *(no override)* |
+| Significant (5 to 7) | 1. Auto-remediate issue body  2. Post remediation guide as GitHub comment  3. Override and proceed |
+| Near-pass (8 to 9)   | 1. Create follow-up ticket(s)  2. Auto-remediate issue body  3. Proceed as-is |
 
 **Option 2 (remediation guide):**
 ```bash
 gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "$(cat <<'EOF'
 ## ticket-gate: remediation guide
 
-### <Agent name> — <score>/10
+### <Agent name>: <score>/10
 - [ ] <required change 1>
 - [ ] <required change 2>
 EOF
@@ -586,11 +586,11 @@ EOF
 ```
 
 **Option 1 near-pass (follow-up tickets):**
-For each near-miss agent: `gh issue create --repo {{GITHUB_REPO}} --title "Follow-up: <finding summary> (from #<N>)" --label "enhancement" --body "<agent notes as checklist> — source: #<N>"`
-Print each created URL, then: `✅ PASS (deferred) — Ticket #<N> cleared; <N> follow-up ticket(s) created.`
+For each near-miss agent: `gh issue create --repo {{GITHUB_REPO}} --title "Follow-up: <finding summary> (from #<N>)" --label "enhancement" --body "<agent notes as checklist> (source: #<N>)"`
+Print each created URL, then: `✅ PASS (deferred). Ticket #<N> cleared; <N> follow-up ticket(s) created.`
 
 **Option 3 override (significant only):**
-Print: `⚠️ OVERRIDE — Proceeding despite <N> failing agents. Scores on record in GitHub comment.`
+Print: `⚠️ OVERRIDE. Proceeding despite <N> failing agents. Scores on record in GitHub comment.`
 
 ---
 

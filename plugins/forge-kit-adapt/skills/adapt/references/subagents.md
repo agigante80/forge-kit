@@ -1,4 +1,4 @@
-# forge-kit subagents — signal → component → why
+# forge-kit subagents: signal, component, why
 
 Reference for Step 2 of forge-adapt. The live `ls` of `$FORGE_KIT_DIR/plugins/*/agents/` is the
 source of truth for what EXISTS; this file is the source of truth for the canonical ≤60-char

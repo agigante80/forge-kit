@@ -9,7 +9,7 @@ base="${1:-origin/main}"
 # Fail CLOSED if the base ref is missing: otherwise `git diff` errors, the pipeline yields no
 # files, and the gate would silently pass without checking anything.
 if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
-  echo "check-version-bump: base ref '$base' not found — cannot verify version bumps." >&2
+  echo "check-version-bump: base ref '$base' not found; cannot verify version bumps." >&2
   exit 1
 fi
 
@@ -27,12 +27,12 @@ while IFS= read -r f; do
   if git cat-file -e "$base:$f" 2>/dev/null; then
     old_ver=$(git show "$base:$f" 2>/dev/null | ver_of)
     if [ -z "$new_ver" ]; then
-      echo "  ✗ $f — version marker missing or removed"; violations=$((violations + 1))
+      echo "  ✗ $f: version marker missing or removed"; violations=$((violations + 1))
     elif [ "$new_ver" = "$old_ver" ]; then
-      echo "  ✗ $f — changed but still v$new_ver (bump the <name>-version marker)"; violations=$((violations + 1))
+      echo "  ✗ $f: changed but still v$new_ver (bump the <name>-version marker)"; violations=$((violations + 1))
     fi
   elif [ -z "$new_ver" ]; then
-    echo "  ✗ $f — new component without a version marker"; violations=$((violations + 1))
+    echo "  ✗ $f: new component without a version marker"; violations=$((violations + 1))
   fi
 done <<< "$files"
 
