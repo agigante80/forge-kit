@@ -10,7 +10,7 @@ description: >
   own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 3 -->
+<!-- github-to-forgejo-version: 4 -->
 
 # github-to-forgejo
 
@@ -131,6 +131,19 @@ this skill so it stays portable.
   **Forgejo-issued** token (full-token capture rule again: a token is pepper-bound to one
   instance and won't validate on another).
 - Set the default + protected branches on Forgejo to match.
+- **Guard against pushes back to the archived host.** Two layers, git first:
+  1. Remove the legacy remote (`git remote remove github`), or keep it fetch-only by
+     poisoning its push URL (`git remote set-url --push github no-push://archived`), so git
+     itself refuses. GitHub's archive reject is the server-side backstop.
+  2. Optionally install the **`block-legacy-host-push` hook**
+     (`plugins/forge-kit-devops/hooks/block-legacy-host-push.py`) into the project's
+     `.claude/hooks/` and wire it as a PreToolUse/Bash hook in `.claude/settings.json`.
+     It tokenizes each command, resolves the REAL push target (explicit remote, URL, or
+     the branch's default push destination) to a URL host, and denies iff that host is in
+     `FORGE_LEGACY_HOSTS` (defaults to `github.com` when `.forge.conf` exists). Command
+     text like a commit message mentioning "push github" can never false-positive, and a
+     bare `git push` on a branch whose upstream still points at the legacy host IS caught.
+     Optional `FORGE_PUSH_STRICT=1` allows only `FORGE_REMOTE`. Fails open on parse errors.
 
 ## Rules
 - **Portable only**: never inline host-specific runner/storage steps; link a reference.
