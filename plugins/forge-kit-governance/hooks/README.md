@@ -9,6 +9,11 @@ installation is a planned enhancement.
 |---|---|---|---|
 | `block-dashes.py` | PreToolUse | 1 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 
+Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
+`block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy
+host after a forge migration; see `plugins/forge-kit-devops/hooks/` and the
+`github-to-forgejo` skill Phase 5).
+
 ## block-dashes.py
 
 The canonical superset of the four hand-rolled no-dash hooks that drifted across

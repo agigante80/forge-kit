@@ -7,6 +7,7 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 | Signal in the project | Hook | Group | Event | Canonical "why" (≤60) | Wiring matcher |
 |---|---|---|---|---|---|
 | CLAUDE.md states a no-em/en-dash or strict writing rule | `block-dashes.py` | governance | PreToolUse | enforce the no-dash writing rule | `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` |
+| `.forge.conf` present (repo migrated off GitHub to a self-hosted forge) | `block-legacy-host-push.py` | devops | PreToolUse | deny git push to the archived legacy host | `Bash` |
 
 ## Install detail (block-dashes.py)
 
@@ -18,3 +19,18 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 
 When NOT to recommend: if CLAUDE.md has no writing-style rule, do not surface this hook. It is
 opinionated and only valuable where the project has adopted the no-dash convention.
+
+## Install detail (block-legacy-host-push.py)
+
+1. Copy `$FORGE_KIT_DIR/plugins/forge-kit-devops/hooks/block-legacy-host-push.py` →
+   `.claude/hooks/block-legacy-host-push.py` verbatim, preserving the
+   `# block-legacy-host-push-version: N` marker.
+2. Wire with matcher `Bash` ONLY (it reads `tool_input.command`; do not copy the
+   block-dashes five-tool matcher). Same `jq` merge as above.
+3. Confirm the repo is actually migrated: `.forge.conf` exists and the legacy host is
+   archived/read-only. Optionally sanity-run `python3 .claude/hooks/block-legacy-host-push.py
+   --self-test`.
+
+When NOT to recommend: a repo still hosted on GitHub (no `.forge.conf`), or one that
+deliberately dual-pushes during migration (install only at cutover, per the
+`github-to-forgejo` skill Phase 5).

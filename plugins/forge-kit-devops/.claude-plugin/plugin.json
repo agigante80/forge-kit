@@ -1,5 +1,5 @@
 {
   "name": "forge-kit-devops",
-  "description": "dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills",
-  "version": "0.4.0"
+  "description": "dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook",
+  "version": "0.5.0"
 }
