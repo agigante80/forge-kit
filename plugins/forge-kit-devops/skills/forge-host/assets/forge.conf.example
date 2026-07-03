@@ -8,10 +8,12 @@ FORGE_REPO=youruser/your-repo         # owner/name as it exists on the forge
 FORGE_TOKEN_ENV=FORGEJO_TOKEN         # name of the env var holding the access token (default: FORGEJO_TOKEN)
 FORGE_REMOTE=forgejo                  # optional: which git remote name points at the forge (default: origin)
 
-# The token itself is NEVER committed; only its env-var NAME lives here. Supply it via the
-# OS keyring/pass + profile or direnv, Claude Code's .claude/settings.local.json env block,
-# or a CI secret; if the env var is empty, forge-lib.sh falls back to git's credential
-# helper for FORGE_API_URL's host. Minting + all lanes: see references/local-auth.md.
+# The token itself is NEVER committed; only its env-var NAME lives here. Recommended
+# default: the env block of ~/.claude/settings.json (user-global, set once for all
+# projects; put ONLY the token there, never FORGE_HOST/FORGE_API_URL). Alternatives:
+# OS keyring/pass + profile or direnv, per-project .claude/settings.local.json, a CI
+# secret; if the env var is empty, forge-lib.sh falls back to git's credential helper
+# for FORGE_API_URL's host. Minting + all lanes: see references/local-auth.md.
 #   quick start:  export FORGEJO_TOKEN=...   (mint with: docker exec -u git <forgejo-container> \
 #                  forgejo admin user generate-access-token --username <user> \
 #                  --scopes write:issue,write:repository --raw)

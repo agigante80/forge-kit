@@ -94,7 +94,7 @@ _forge_token() {
     proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
     host="${url#*://}"; host="${host%%/*}"; host="${host#*@}"
     cred=$(printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" \
-             | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true git credential fill 2>/dev/null \
+             | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true git credential fill 2>/dev/null \
              | sed -n 's/^password=//p' | head -n1)
     if [ -n "$cred" ]; then printf '%s' "$cred"; return 0; fi
   fi
@@ -117,7 +117,12 @@ forge_api() {
       if [ -n "$body" ]; then printf '%s' "$body" | gh api -X "$method" "${path#/}" --input -
       else gh api -X "$method" "${path#/}"; fi ;;
     forgejo)
-      local base tok; base="$(forge_api_base)"; tok="$(_forge_token)"
+      # || return 2: in conditional callers (if out=$(forge_api ...); forge_ci_status)
+      # set -e does not fire on the assignment, and without the guard an EMPTY
+      # Authorization header would go over the wire and mask the real cause.
+      local base tok
+      base="$(forge_api_base)" || return 2
+      tok="$(_forge_token)"    || return 2
       if [ -n "$body" ]; then
         curl -fsSL -X "$method" -H "Authorization: token $tok" -H 'Content-Type: application/json' -d "$body" "$base$path"
       else

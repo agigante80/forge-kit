@@ -37,7 +37,7 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
 - **Mint a token.** Self-hosted with Docker access (password-free):
   ```sh
   docker exec -u git <forgejo-container> forgejo admin user \
-    generate-access-token --username <you> --scopes all --raw
+    generate-access-token --username <you> --scopes write:issue,write:repository --raw
   ```
   Otherwise: Web UI → Settings → Applications → Generate Token.
   **Store it machine-globally so every project gets it**: the recommended default is the
@@ -49,6 +49,10 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
   Alternatives (keyring/pass + profile or direnv, per-project settings.local.json, the
   git-credential fallback): forge-host `references/local-auth.md`. A plain
   `export FORGEJO_TOKEN=…` works for the current shell only.
+  **Only the TOKEN goes in the global env block.** Never put `FORGE_HOST` or
+  `FORGE_API_URL` there: env wins over `.forge.conf`, so a global `FORGE_HOST=forgejo`
+  would force EVERY repo on the machine (GitHub ones included) down the forgejo path.
+  The URL belongs in each repo's committed `.forge.conf`, nowhere else.
   **Capture the FULL token verbatim.** Some Forgejo token types (OAuth2/base64url) contain
   `-`/`_`/`.`, so a greedy `[A-Za-z0-9]+` capture can truncate them and the server 401s the short
   token as *malformed* (reads like a missing header, a debugging trap). `--raw` prints the token as
@@ -153,6 +157,22 @@ this skill so it stays portable.
      text like a commit message mentioning "push github" can never false-positive, and a
      bare `git push` on a branch whose upstream still points at the legacy host IS caught.
      Optional `FORGE_PUSH_STRICT=1` allows only `FORGE_REMOTE`. Fails open on parse errors.
+
+## Companion forge-kit components (what a migrated project likely needs)
+
+Migration is not just moving the repo; these keep the governance working on the new host.
+The easy path: re-run **`/forge-kit-adapt:adapt`** after Phase 2, it detects the Forgejo
+host and recommends exactly these.
+
+| Component | Kind | Why after a Forgejo migration |
+|---|---|---|
+| `forge-host` | skill | THE prerequisite: the `forge_*` adapter + `.forge.conf` + token lanes (`references/local-auth.md`) |
+| `block-legacy-host-push` | hook | Phase 5 cutover guard: denies `git push` back to the archived host |
+| `release` | skill | host-aware ship: tags/releases/ticket-close via `forge_*`; CI gate degrades to local `make test` until a runner exists |
+| `ticket-gate` / `gate-ticket` | agent/command | issue governance over the Forgejo API instead of `gh` |
+| `dep-auditor`, `health-check` | agents | host-aware auditing; health-check verifies the forge token/env wiring |
+| `ci-health` | command | works, with a Forgejo caveat: job logs are not API-reachable, so it detects and tickets failures but cannot auto-fix from logs |
+| `release-automation` | skill | the CI lanes need the Forgejo port (no `workflow_run`, PAT secret instead of App token): `forge-host references/forgejo-ci.md`; runner required |
 
 ## Rules
 - **Portable only**: never inline host-specific runner/storage steps; link a reference.
