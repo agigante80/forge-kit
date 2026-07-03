@@ -10,7 +10,7 @@ description: >
   own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 4 -->
+<!-- github-to-forgejo-version: 5 -->
 
 # github-to-forgejo
 
@@ -39,7 +39,16 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
   docker exec -u git <forgejo-container> forgejo admin user \
     generate-access-token --username <you> --scopes all --raw
   ```
-  Otherwise: Web UI → Settings → Applications → Generate Token. Then `export FORGEJO_TOKEN=…`.
+  Otherwise: Web UI → Settings → Applications → Generate Token.
+  **Store it machine-globally so every project gets it**: the recommended default is the
+  `env` block of `~/.claude/settings.json` (user-global, never committed), so each further
+  migrated repo needs only its committed `.forge.conf` and auth comes for free:
+  ```json
+  { "env": { "FORGEJO_TOKEN": "<token>" } }
+  ```
+  Alternatives (keyring/pass + profile or direnv, per-project settings.local.json, the
+  git-credential fallback): forge-host `references/local-auth.md`. A plain
+  `export FORGEJO_TOKEN=…` works for the current shell only.
   **Capture the FULL token verbatim.** Some Forgejo token types (OAuth2/base64url) contain
   `-`/`_`/`.`, so a greedy `[A-Za-z0-9]+` capture can truncate them and the server 401s the short
   token as *malformed* (reads like a missing header, a debugging trap). `--raw` prints the token as
