@@ -32,7 +32,7 @@ _forge_load_conf() {
     k="${k//[[:space:]]/}"                                 # keys never contain spaces, so trim fully
     v="${v%%#*}"; v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
     case "$k" in
-      FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE)
+      FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS)
         [ -n "${!k:-}" ] || { printf -v "$k" '%s' "$v"; export "$k"; } ;;  # env (if set) wins; else file
     esac
   done < "$f"
@@ -86,15 +86,21 @@ _forge_token() {
   if [ -n "${!var:-}" ]; then printf '%s' "${!var}"; return 0; fi
   # Fallback: ask git's credential helper for this instance (the mise pattern,
   # see references/local-auth.md). Reads the same encrypted store already used
-  # for git-over-HTTPS; never prompts (GIT_TERMINAL_PROMPT=0, askpass stubbed)
-  # and never writes anything back.
+  # for git-over-HTTPS; never prompts (GIT_TERMINAL_PROMPT=0, askpass stubbed:
+  # an inherited GIT_ASKPASS, e.g. VS Code's, would otherwise be invoked) and
+  # never writes anything back. FORGE_NO_GIT_CREDENTIALS=1 disables the
+  # fallback entirely (strict env-only mode, the pre-v7 behavior).
+  # The stub is an ABSOLUTE path on purpose: a PATH-resolved name could be
+  # hijacked by a planted binary inside this credential-handling flow. If
+  # /bin/true is absent (NixOS-likes), the miss degrades to a clean rc!=0
+  # with no prompt and no hang (verified), never to a prompt.
   local url proto host cred
   url="${FORGE_API_URL:-}"
-  if [ -n "$url" ]; then
+  if [ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then
     proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
     host="${url#*://}"; host="${host%%/*}"; host="${host#*@}"
     cred=$(printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" \
-             | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true git credential fill 2>/dev/null \
+             | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true git credential fill 2>/dev/null \
              | sed -n 's/^password=//p' | head -n1)
     if [ -n "$cred" ]; then printf '%s' "$cred"; return 0; fi
   fi
