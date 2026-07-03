@@ -66,6 +66,12 @@ Both are plaintext on disk (same posture as a gitignored `.envrc`); prefer the k
 lanes above where a shell profile is in play, since shell-inherited vars take precedence
 anyway.
 
+**Warning: only the TOKEN belongs in a global env block.** Do not add `FORGE_HOST` or
+`FORGE_API_URL` next to it: environment beats `.forge.conf` in host detection, so a
+machine-global `FORGE_HOST=forgejo` silently routes EVERY repo (including GitHub ones)
+down the forgejo path and breaks their `gh`-backed operations. The URL is per-repo data
+and lives in each repo's committed `.forge.conf`.
+
 ### CI (Forgejo Actions): repository or org secrets
 
 Map a secret to the env var the components expect, in the workflow:
