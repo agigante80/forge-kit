@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible: a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 6 -->
+<!-- forge-host-version: 7 -->
 
 # forge-host: host-aware forge operations
 
@@ -74,6 +74,24 @@ so the github path stays on `gh run list`.
    it). A GitHub-only repo needs neither.
 3. Components adopt the adapter by replacing direct `gh` calls with `forge_*`; see
    `references/adopting-forge-lib.md` for the per-component swaps.
+
+## Supplying the token locally
+
+`.forge.conf` names the env var (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`); how the token
+gets INTO it depends on the context, detailed in `references/local-auth.md`:
+
+- **Humans:** store the PAT in the OS keyring or `pass`, surface it via shell profile or a
+  gitignored direnv `.envrc` (`export FORGEJO_TOKEN=$(secret-tool lookup ...)`).
+- **Claude Code sessions:** the auto-gitignored `.claude/settings.local.json` `env` block
+  reaches every Bash call and hook the session spawns.
+- **CI:** a repository/org Actions secret mapped to the env var in the workflow.
+- **Fallback (built in):** if the env var is empty, `_forge_token` asks git's credential
+  helper for the instance host (`git credential fill`, non-interactive, read-only) before
+  erroring, so a machine whose `git push` already works over HTTPS needs no extra setup.
+
+Mint the most restrictive token that works (`write:issue, write:repository`, repo-scoped);
+Forgejo PATs never expire, so rotate manually. Don't use `fj`/`tea` config files as the
+canonical store (both are plaintext).
 
 ## Scope (phase 1 vs later)
 
