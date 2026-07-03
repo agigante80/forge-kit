@@ -100,7 +100,9 @@ printf 'protocol=https\nhost=forge.example.com\nusername=<you>\npassword=<token>
 
 Notes: helpers key on protocol+host (port included), not per-repo; `git-credential-store`
 is a plaintext backend, prefer libsecret/osxkeychain; the fallback never prompts and never
-writes, it only reads.
+writes, it only reads. **Opt out** with `FORGE_NO_GIT_CREDENTIALS=1` (env or `.forge.conf`)
+to restore strict env-only behavior: the token must then come explicitly from
+`FORGE_TOKEN_ENV`, and an unset token fails closed instead of being auto-discovered.
 
 ## 4. CLIs (fj, tea): convenient, but not the canonical store
 
