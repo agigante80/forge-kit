@@ -46,17 +46,25 @@ Headless machines: `pass` (GPG-encrypted) instead:
 direnv adds per-project scoping and an allow-gate (`direnv allow`); combine it with the
 keyring lookup rather than pasting the token into `.envrc`.
 
-### Claude Code sessions: settings.local.json env block
+### Claude Code sessions: settings env block (global or per-project)
 
-`.claude/settings.local.json` is auto-gitignored and its `env` block reaches every Bash
-call and hook the session spawns, regardless of how Claude Code was launched:
+Claude Code applies a settings `env` block to every session and every subprocess it spawns
+(Bash calls, hooks), regardless of how it was launched. Two scopes:
 
 ```json
 { "env": { "FORGEJO_TOKEN": "<token>" } }
 ```
 
-Plaintext on disk (same posture as a gitignored `.envrc`); prefer the keyring lanes above
-where a shell profile is in play, since shell-inherited vars take precedence anyway.
+- **`~/.claude/settings.json`** (user-global, lives in your home, never committed): set it
+  ONCE and every project on the machine gets the token. The right default when one machine
+  hosts several repos talking to the same Forgejo instance: a newly migrated project then
+  needs only its committed `.forge.conf` (the URL), and auth comes for free.
+- **`.claude/settings.local.json`** (per-project, auto-gitignored): use instead when a
+  project needs a different (e.g. more narrowly scoped) token than the machine default.
+
+Both are plaintext on disk (same posture as a gitignored `.envrc`); prefer the keyring
+lanes above where a shell profile is in play, since shell-inherited vars take precedence
+anyway.
 
 ### CI (Forgejo Actions): repository or org secrets
 

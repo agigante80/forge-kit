@@ -82,8 +82,10 @@ gets INTO it depends on the context, detailed in `references/local-auth.md`:
 
 - **Humans:** store the PAT in the OS keyring or `pass`, surface it via shell profile or a
   gitignored direnv `.envrc` (`export FORGEJO_TOKEN=$(secret-tool lookup ...)`).
-- **Claude Code sessions:** the auto-gitignored `.claude/settings.local.json` `env` block
-  reaches every Bash call and hook the session spawns.
+- **Claude Code sessions:** a settings `env` block reaches every Bash call and hook the
+  session spawns: `~/.claude/settings.json` (user-global, set once for ALL projects on the
+  machine; the right default for one-instance setups) or the auto-gitignored
+  `.claude/settings.local.json` (per-project override, e.g. a narrower-scoped token).
 - **CI:** a repository/org Actions secret mapped to the env var in the workflow.
 - **Fallback (built in):** if the env var is empty, `_forge_token` asks git's credential
   helper for the instance host (`git credential fill`, non-interactive, read-only) before
