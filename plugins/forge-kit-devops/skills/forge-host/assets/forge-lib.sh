@@ -83,7 +83,24 @@ forge_api_base() {
 _forge_token() {
   _forge_load_conf
   local var="${FORGE_TOKEN_ENV:-FORGEJO_TOKEN}"
-  printf '%s' "${!var:?forgejo: token env '$var' is empty; mint one (see references/forgejo.md) and export it}"
+  if [ -n "${!var:-}" ]; then printf '%s' "${!var}"; return 0; fi
+  # Fallback: ask git's credential helper for this instance (the mise pattern,
+  # see references/local-auth.md). Reads the same encrypted store already used
+  # for git-over-HTTPS; never prompts (GIT_TERMINAL_PROMPT=0, askpass stubbed)
+  # and never writes anything back.
+  local url proto host cred
+  url="${FORGE_API_URL:-}"
+  if [ -n "$url" ]; then
+    proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
+    host="${url#*://}"; host="${host%%/*}"; host="${host#*@}"
+    cred=$(printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" \
+             | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true git credential fill 2>/dev/null \
+             | sed -n 's/^password=//p' | head -n1)
+    if [ -n "$cred" ]; then printf '%s' "$cred"; return 0; fi
+  fi
+  echo "forgejo: token env '$var' is empty and git's credential helper has no entry for '${host:-unset}'." >&2
+  echo "         Mint a scoped token and supply it; see forge-host references/local-auth.md." >&2
+  return 2
 }
 
 # forge_api <METHOD> <path> [json-body]   path is like  /repos/{owner}/{repo}/issues
@@ -100,7 +117,12 @@ forge_api() {
       if [ -n "$body" ]; then printf '%s' "$body" | gh api -X "$method" "${path#/}" --input -
       else gh api -X "$method" "${path#/}"; fi ;;
     forgejo)
-      local base tok; base="$(forge_api_base)"; tok="$(_forge_token)"
+      # || return 2: in conditional callers (if out=$(forge_api ...); forge_ci_status)
+      # set -e does not fire on the assignment, and without the guard an EMPTY
+      # Authorization header would go over the wire and mask the real cause.
+      local base tok
+      base="$(forge_api_base)" || return 2
+      tok="$(_forge_token)"    || return 2
       if [ -n "$body" ]; then
         curl -fsSL -X "$method" -H "Authorization: token $tok" -H 'Content-Type: application/json' -d "$body" "$base$path"
       else
