@@ -1,10 +1,11 @@
 # Forgejo CI / auto-release: what's implemented vs runner-gated
 
 The runner-FREE forge operations (issues, tags, releases via `forge_*`) are done and verified, and
-**`forge_ci_status`'s Forgejo branch is now implemented** (commit-status, below). What remains
-**runner-gated** (needing a live Forgejo Actions runner to build/verify) is: *confirming* a real
-green run flips the status, and the auto-release lane. Use placeholders (`https://forge.example.com`).
-Never commit a private host.
+**`forge_ci_status`'s Forgejo branch is implemented AND live-verified**: against a real
+`forgejo-runner` (v12) on Forgejo 11, a pushed `.forgejo/workflows/` job went `pending` then
+flipped the combined commit status to `success`, and `forge_ci_status` returned `success` for
+both the SHA and the branch ref. The only remaining **runner-gated** item is the auto-release
+lane (below). Use placeholders (`https://forge.example.com`). Never commit a private host.
 
 ## Forgejo Actions in one screen
 
@@ -66,9 +67,12 @@ command and run it on Forgejo. Runner-free; do it any time.
 
 ## Order of operations once a runner is up
 
-1. Stand up a Forgejo Actions runner; confirm a trivial `.forgejo/workflows/ci.yml` runs.
-2. **Verify** the (already-implemented) `forge_ci_status` Forgejo branch against a real run: confirm
-   a passing job flips the combined commit status to `success`.
+1. DONE: runner stood up (`forgejo-runner` v12, native binary + systemd, `docker_host:
+   automount`, labels `docker` + `ubuntu-latest`); a trivial `.forgejo/workflows/ci.yml` ran.
+   Note: Forgejo queues Actions tasks even with no runner, so pre-existing pushes execute the
+   moment a matching runner appears (a repo's CI can go live retroactively).
+2. DONE: `forge_ci_status` live-verified: the passing job flipped the combined commit status
+   `pending` then `success`, and the function returned `success` for both SHA and branch refs.
 3. Mirror the auto-release lane(s) into `.forgejo/workflows/` with the token/notes/trigger
    differences; verify a real dependency merge produces a tag + release.
 4. Then `ci-health`'s Forgejo path (needs run logs), only if the API exposes them.

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible: a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 8 -->
+<!-- forge-host-version: 9 -->
 
 # forge-host: host-aware forge operations
 
@@ -62,9 +62,10 @@ Source it; call `forge_*` instead of `gh` directly:
 test`) instead of hard-failing. **The Forgejo branch is implemented** via the combined commit-status
 endpoint (`/commits/{sha}/status`): Forgejo Actions writes a commit status per job, so one call
 yields `success`/`failure`/`pending`, and `total_count: 0` (no statuses, e.g. no runner) →
-`not_configured`. Only confirming that a real green run flips the status still wants a runner
-(`references/forgejo-ci.md`). GitHub's combined status does NOT reflect Actions (those are Checks),
-so the github path stays on `gh run list`.
+`not_configured`. **Live-verified end to end**: a real runner executed a `.forgejo/workflows/`
+job and the combined status flipped `pending` then `success`, with `forge_ci_status` returning
+`success` for both SHA and branch refs (`references/forgejo-ci.md`). GitHub's combined status
+does NOT reflect Actions (those are Checks), so the github path stays on `gh run list`.
 
 ## Install (what forge-adapt does)
 
