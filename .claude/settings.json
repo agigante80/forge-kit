@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/plugins/forge-kit-governance/hooks/block-dashes.py\""
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/plugins/forge-kit-governance/hooks/block-dashes.py"]
           }
         ]
       }
