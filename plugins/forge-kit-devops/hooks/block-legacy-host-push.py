@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# block-legacy-host-push-version: 1
+# block-legacy-host-push-version: 2
 """
 forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a
 forge migration (e.g. GitHub to self-hosted Forgejo). The friendly in-session
@@ -36,14 +36,26 @@ Config (committed .forge.conf at the repo root; env vars override):
   FORGE_PUSH_STRICT    "1" to deny any push whose target is not FORGE_REMOTE
                        (by name or by resolved push URL).
 
-Wiring (project .claude/settings.json):
+Wiring (project .claude/settings.json). Exec form, and the path MUST be anchored:
+a relative path resolves only when Claude Code's cwd is the project root, and from
+a subdirectory python3 exits 2, which is the PreToolUse deny code, so every Bash
+call would be blocked with a `can't open file` error.
   { "hooks": { "PreToolUse": [ { "matcher": "Bash", "hooks": [
-      { "type": "command",
-        "command": "python3 .claude/hooks/block-legacy-host-push.py" } ] } ] } }
+      { "type": "command", "command": "python3",
+        "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/block-legacy-host-push.py"]
+      } ] } ] } }
+
+Deliberately NOT registered by a plugin hooks.json, unlike block-dashes. The only
+signal a plugin-level hook could gate on is `.forge.conf`, which the
+github-to-forgejo skill writes EARLY in a migration, while this hook belongs at
+cutover. Between those points the skill supports a dual-remote / push-mirror
+window, and an auto-enabled hook would block the legacy pushes that window exists
+to allow. Installing it into the project is the cutover signal.
 
 Self-test: `python3 block-legacy-host-push.py --self-test` builds a sandbox
 repo and runs the full verdict matrix (the reproducible form of the issue
-#22 test matrix). Run it after any change to the parsing core.
+#22 test matrix). Run it after any change to the parsing core. It runs in CI via
+`scripts/test-hooks.py`.
 
 Known limitations (both fail toward safety):
 - Heredoc bodies cannot be parsed shell-accurately, so scanning stops at the
