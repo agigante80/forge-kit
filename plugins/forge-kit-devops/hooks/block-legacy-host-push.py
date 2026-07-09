@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# block-legacy-host-push-version: 2
+# block-legacy-host-push-version: 3
 """
 forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a
 forge migration (e.g. GitHub to self-hosted Forgejo). The friendly in-session
@@ -402,22 +402,37 @@ def self_test():
     d = tempfile.mkdtemp(prefix="blhp-test-")
     g = lambda *a: subprocess.run(["git", "-C", d] + list(a),
                                   capture_output=True, text=True)
-    g("init", "-q", "-b", "main", ".")
-    g("-c", "user.name=t", "-c", "user.email=t@t",
-      "commit", "-q", "--allow-empty", "-m", "base")
-    g("remote", "add", "origin", "https://forge.example.com/o/r.git")
-    g("remote", "add", "github", "https://github.com/o/r.git")
-    g("remote", "add", "github-mirror", "git@github.com:o/r.git")
-    g("remote", "add", "fork", "https://gitlab.example.com/o/r.git")
+    # A silently broken fixture makes every verdict ALLOW (no repo, so no config is
+    # found) and reports that as a hook regression. Name the real failure instead.
+    # `git init -b` needs git >= 2.28, the likeliest way for this to trip.
+    for step in [("init", "-q", "-b", "main", "."),
+                 ("-c", "user.name=t", "-c", "user.email=t@t",
+                  "commit", "-q", "--allow-empty", "-m", "base"),
+                 ("remote", "add", "origin", "https://forge.example.com/o/r.git"),
+                 ("remote", "add", "github", "https://github.com/o/r.git"),
+                 ("remote", "add", "github-mirror", "git@github.com:o/r.git"),
+                 ("remote", "add", "fork", "https://gitlab.example.com/o/r.git")]:
+        r = g(*step)
+        if r.returncode != 0:
+            first = ((r.stderr or "").strip().splitlines() or [""])[0]
+            print("self-test: FIXTURE SETUP FAILED: git %s\n  %s" % (" ".join(step), first))
+            sys.exit(1)
     conf = os.path.join(d, ".forge.conf")
     with open(conf, "w") as f:
         f.write("FORGE_HOST=forgejo\nFORGE_REMOTE=origin\n")
+
+    # Hermetic. main() lets FORGE_* env vars override .forge.conf, which is right at
+    # runtime and fatal in a test: inheriting the caller's shell made this matrix report
+    # failures for anyone who had exported FORGE_LEGACY_HOSTS, FORGE_REMOTE or
+    # FORGE_PUSH_STRICT, which is precisely the people who migrated a repo off GitHub.
+    child_env = {k: v for k, v in os.environ.items() if not k.startswith("FORGE_")}
 
     def verdict(cmd, cwd=d):
         payload = json.dumps({"tool_name": "Bash",
                               "tool_input": {"command": cmd}, "cwd": cwd})
         r = subprocess.run([sys.executable, os.path.abspath(__file__)],
-                           input=payload, capture_output=True, text=True)
+                           input=payload, capture_output=True, text=True,
+                           env=child_env)
         return "DENY" if '"deny"' in r.stdout else "ALLOW"
 
     cases = [
