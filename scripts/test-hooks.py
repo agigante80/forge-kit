@@ -315,32 +315,41 @@ check("blhp missing command allows", verdict(p), ALLOW)
 with tempfile.TemporaryDirectory() as td:
     repo = pathlib.Path(td).resolve()
 
-    def git(*a):
-        """Fail loudly. A silently broken fixture makes every verdict ALLOW (no repo,
-        so no config is found) and reports that as a hook regression."""
-        r = subprocess.run(["git", "-C", str(repo)] + list(a), capture_output=True, text=True)
+    # Report a broken fixture through check() like everything else, rather than raising:
+    # a silently broken fixture makes every verdict ALLOW (no repo, so no config is
+    # found) and reports that as a hook regression, while raising SystemExit would skip
+    # the FAILED summary and drop any failures already collected.
+    fixture_error = None
+    for step in [("init", "-q", "-b", "main", "."),  # -b needs git >= 2.28
+                 ("-c", "user.name=t", "-c", "user.email=t@t",
+                  "commit", "-q", "--allow-empty", "-m", "b"),
+                 ("remote", "add", "origin", "https://forge.example.com/o/r.git"),
+                 ("remote", "add", "github", "https://github.com/o/r.git")]:
+        r = subprocess.run(["git", "-C", str(repo)] + list(step), capture_output=True, text=True)
         if r.returncode != 0:
             first = ((r.stderr or "").strip().splitlines() or [""])[0]
-            raise SystemExit(f"FIXTURE SETUP FAILED: git {' '.join(a)}\n  {first}")
-
-    git("init", "-q", "-b", "main", ".")  # -b needs git >= 2.28
-    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "b")
-    git("remote", "add", "origin", "https://forge.example.com/o/r.git")
-    git("remote", "add", "github", "https://github.com/o/r.git")
+            fixture_error = f"git {' '.join(step)}: {first}"
+            break
     (repo / ".forge.conf").write_text("FORGE_HOST=forgejo\nFORGE_REMOTE=origin\n")
-    check("fixture repo built", (repo / ".git").is_dir(), True)
+    check("fixture repo built", fixture_error, None)
 
     push_legacy = {"tool_input": {"command": "git push github main"}, "cwd": str(repo)}
 
-    p = run_blhp(dict(push_legacy, tool_name="Bash"), cwd=str(repo))
-    check("blhp configured repo denies", verdict(p), DENY, extra="(github.com is legacy)")
+    if fixture_error:
+        # Without a repo every verdict is ALLOW, so the cases below would fail and blame
+        # the hook. The one honest failure above is the whole signal.
+        print("  SKIP  3 case(s) that depend on the fixture")
+    else:
+        p = run_blhp(dict(push_legacy, tool_name="Bash"), cwd=str(repo))
+        check("blhp configured repo denies", verdict(p), DENY, extra="(github.com is legacy)")
 
-    p = run_blhp(dict(push_legacy, tool_name="Write"), cwd=str(repo))
-    check("blhp ignores non-Bash", verdict(p), ALLOW, extra="(same command, would deny on Bash)")
+        p = run_blhp(dict(push_legacy, tool_name="Write"), cwd=str(repo))
+        check("blhp ignores non-Bash", verdict(p), ALLOW,
+              extra="(same command, would deny on Bash)")
 
-    p = run_blhp({"tool_name": "Bash", "tool_input": {"command": "git push origin main"},
-                  "cwd": str(repo)}, cwd=str(repo))
-    check("blhp allows the forge remote", verdict(p), ALLOW)
+        p = run_blhp({"tool_name": "Bash", "tool_input": {"command": "git push origin main"},
+                      "cwd": str(repo)}, cwd=str(repo))
+        check("blhp allows the forge remote", verdict(p), ALLOW)
 
 # Wiring: nothing may teach a relative hook path as a command or arg VALUE (the #27 bug
 # class). Only quoted values count. Prose saying "copy it to `.claude/hooks/x.py`" and a
@@ -352,20 +361,32 @@ with tempfile.TemporaryDirectory() as td:
 # Scans the whole tree, not a fixed list. The two substring checks this replaces missed
 # the args form entirely, and passed only because "${CLAUDE_PROJECT_DIR}" happened to
 # occur exactly once in the file.
-RELATIVE_HOOK_VALUE = re.compile(r'"(?:[^"\n]*\s)?\.claude/hooks/[\w.-]+\.py[^"\n]*"')
+# `(?:\.\.?/)*` also catches the ./ and ../ spellings. Without it, "./.claude/hooks/x.py"
+# slipped through: the './' is neither whitespace nor the start of the value.
+RELATIVE_HOOK_VALUE = re.compile(r'"(?:[^"\n]*\s)?(?:\.\.?/)*\.claude/hooks/[\w.-]+\.py[^"\n]*"')
 SELF = pathlib.Path(__file__).resolve()
 
+# Scan TRACKED files, not the filesystem. globbing walked gitignored temp/ scratch notes,
+# so a maintainer pasting the old wiring into a scratch file failed the suite locally
+# while CI, which checks out a clean tree, stayed green. That local/CI divergence is the
+# same defect this suite exists to prevent.
+tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"],
+                         capture_output=True, text=True)
+if tracked.returncode != 0:
+    check("tree scan can enumerate tracked files", tracked.returncode, 0)
+    paths = []
+else:
+    paths = [ROOT / p for p in tracked.stdout.split("\0") if p]
+
 scanned, offenders = 0, []
-for path in sorted(ROOT.glob("**/*")):
-    if path.is_dir() or ".git/" in str(path) or path.suffix not in {".py", ".md", ".json"}:
-        continue
-    if path == SELF:
-        continue  # this file documents the pattern it forbids
+for path in sorted(paths):
+    if path.suffix not in {".py", ".md", ".json"} or path == SELF or not path.is_file():
+        continue  # SELF documents the pattern it forbids
     scanned += 1
     for m in RELATIVE_HOOK_VALUE.finditer(path.read_text(errors="replace")):
         offenders.append(f"{path.relative_to(ROOT)}: {m.group(0)}")
 
-check("no relative hook wiring anywhere", offenders, [], extra=f"({scanned} files scanned)")
+check("no relative hook wiring anywhere", offenders, [], extra=f"({scanned} tracked files)")
 check("blhp docstring anchors path", "${CLAUDE_PROJECT_DIR}" in BLHP.read_text(), True)
 
 # It must stay project-local: registering it in a plugin hooks.json would activate it
