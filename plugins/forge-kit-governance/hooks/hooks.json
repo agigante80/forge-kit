@@ -6,8 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/block-dashes.py"]
+            "command": "sh",
+            "args": [
+              "-c",
+              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/no-dashes\" ] || exit 0; exec python3 \"$0\"",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/block-dashes.py"
+            ]
           }
         ]
       }

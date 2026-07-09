@@ -13,9 +13,17 @@ This requires installing **this** plugin, which the quick-start flow does not do
 
 `/plugin install forge-kit-adapt@forge-kit` alone installs only the adapt skill. A plugin's
 `hooks.json` is read only when that plugin is enabled, so without the line above nothing here is
-registered and `forge-adapt` will install a project-local copy instead. Note the cost of enabling
-it: a plugin hook is live in every project, and even when dormant it spawns an interpreter on each
-matched tool call, measured at roughly 40 ms per `Write`/`Edit`/`MultiEdit`/`NotebookEdit`/`Bash`.
+registered and `forge-adapt` will install a project-local copy instead.
+
+A plugin hook is live in every project, so `hooks.json` gates in the shell before spawning anything:
+`sh` tests for the sentinel and exits, and only reaches `exec python3` where the project opted in.
+That costs **1.8 ms** per matched tool call in a project that has not opted in, against **44 ms** if
+Python were started first, since the interpreter pays for `site` and the stdlib imports before it
+can read its own gate. The gate inside `block-dashes.py` is kept as defence in depth, for the
+project-local install shape which has no wrapper.
+
+The wrapper needs `sh` on `PATH`. That is a given on macOS and Linux; on Windows it means Git Bash.
+Where `sh` is unavailable, use the project-local install instead.
 
 Because the no-dash rule is opinionated and a plugin hook is live in *every* project, the script
 stays dormant until a project opts in:
