@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# block-dashes-version: 4
+# block-dashes-version: 5
 """
 Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and
 en dash (U+2013) from being written into files or shell commands.
@@ -24,13 +24,15 @@ Two ways this hook reaches a project, and the opt-in rule that separates them:
    library). Copying the script into the project IS the opt-in, so this copy
    always enforces and needs no sentinel.
 
-The two are told apart by where this file lives relative to the project root: a
-copy inside the project is a deliberate install, a copy in the plugin directory
-is not. That keeps pre-existing project installs working unchanged, and it does
-not depend on which environment variables Claude Code happens to export.
+The two are told apart by this file's own path shape: a copy sitting in a
+`.claude/hooks/` directory is a deliberate project install; anything else is not.
+That keeps pre-existing project installs working unchanged, and it holds whatever
+the working directory is and whichever variables Claude Code happens to export.
 
-Wiring is handled for you: the plugin registers itself via hooks/hooks.json, and
-forge-adapt wires a project-local copy. See hooks/README.md for both shapes.
+Wiring is handled for you, but note that hooks/hooks.json is read only when the
+forge-kit-governance PLUGIN is installed, which the quick-start flow does not do
+(it installs forge-kit-adapt alone). Without it, forge-adapt falls back to a
+project-local copy. See hooks/README.md for both shapes.
 
 The correct fix on a hit is to RESTRUCTURE the sentence, never to swap in an
 ASCII hyphen. See the guidance emitted in the block reason.
@@ -58,25 +60,48 @@ def _resolve(path):
         return None
 
 
+def _is_project_install(here: pathlib.Path) -> bool:
+    """True when this script sits in a project's own `.claude/hooks/` directory.
+
+    Keyed on the path SHAPE, so it holds no matter what the working directory is
+    and whether CLAUDE_PROJECT_DIR was exported. That is the whole point. An
+    earlier version inferred "project install" from `here` being under the
+    project root, falling back to the payload's `cwd` when the variable was
+    missing. `cwd` is the session's working directory, not the project root, so
+    starting a session in a subdirectory made the check fail, sent control down
+    the plugin branch, looked for the sentinel in the wrong place, and silently
+    disabled the guard.
+    """
+    parent = here.parent
+    return parent.name == "hooks" and parent.parent.name == ".claude"
+
+
 def enforcement_enabled(payload: dict) -> bool:
     """True when this project has opted in to the no-dash rule.
 
-    A project-local copy (this file lives under the project root) is itself the
-    opt-in and always enforces. The plugin-registered copy lives outside the
-    project and enforces only when `.claude/no-dashes` exists.
+    A copy installed into the project is itself the opt-in and always enforces.
+    The plugin-registered copy is live in every project, so it enforces only
+    where `.claude/no-dashes` exists.
 
-    Fails OPEN (returns False) when the project root cannot be determined, in
-    keeping with the rest of this hook: never block a call we cannot reason about.
+    Fails OPEN when neither can be established, in keeping with the rest of this
+    hook: never block a call we cannot reason about.
     """
-    root = _resolve(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "")
     here = _resolve(__file__)
-    if root is None or here is None:
+    if here is None:
+        return False
+    if _is_project_install(here):
+        return True
+
+    # Not a `.claude/hooks/` copy: either the plugin's own, or this repo running
+    # the hook against itself from `plugins/<group>/hooks/`. Both need the root.
+    root = _resolve(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "")
+    if root is None:
         return False
     try:
         here.relative_to(root)
     except ValueError:
         return (root / SENTINEL).exists()   # plugin copy: opt-in required
-    return True                             # project-local copy: opt-in implied
+    return True                             # inside the project: opt-in implied
 
 
 def collect_texts(tool_name: str, tool_input: dict):
