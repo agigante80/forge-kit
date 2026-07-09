@@ -1,15 +1,30 @@
 # forge-kit hooks
 
-Canonical, project-agnostic Claude Code hooks. `forge-adapt` installs these like any
-other component: it copies the script verbatim into the project's `.claude/hooks/` (hook
-scripts are stack-agnostic, so unlike agents and skills they are never rewritten for the
-stack) and merges the wiring into `.claude/settings.json` without clobbering existing
-hooks. To install one by hand instead, copy the script and add the `PreToolUse` block
-below yourself.
+Canonical, project-agnostic Claude Code hooks.
+
+**Installed as a plugin (the normal path).** `hooks.json` in this directory registers
+`block-dashes` with Claude Code the moment `forge-kit-governance` is enabled, anchored to
+`${CLAUDE_PLUGIN_ROOT}`. No script is copied and no `settings.json` is touched. Because the
+no-dash rule is opinionated and a plugin hook is live in *every* project, the script stays
+dormant until a project opts in:
+
+```bash
+mkdir -p .claude && touch .claude/no-dashes   # opt in
+rm .claude/no-dashes                          # opt out
+```
+
+**Installed from a clone.** With no plugin to register anything, `forge-adapt` copies the script
+into the project's `.claude/hooks/` (hook scripts are stack-agnostic, so unlike agents and skills
+they are never rewritten for the stack) and merges the `PreToolUse` block below into
+`.claude/settings.json`. A copy living under the project root *is* the opt-in, so no sentinel is
+needed. The script tells the two cases apart by its own location, which is why pre-existing
+project installs keep working unchanged.
+
+Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 
 | Hook | Event | Version | Purpose |
 |---|---|---|---|
-| `block-dashes.py` | PreToolUse | 3 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
+| `block-dashes.py` | PreToolUse | 4 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy

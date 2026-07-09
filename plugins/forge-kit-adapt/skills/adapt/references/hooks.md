@@ -11,10 +11,22 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 
 ## Install detail (block-dashes.py)
 
+**Branch on `$FORGE_KIT_SRC` first.**
+
+`plugin`: the hook is already registered by `hooks/hooks.json` and running in every project where
+the plugin is enabled. Do NOT copy the script and do NOT touch `settings.json`; that installs a
+duplicate. A plugin-registered `block-dashes` stays dormant until the project opts in, so the whole
+install is `mkdir -p .claude && touch .claude/no-dashes`. Opt out by deleting that file.
+
+`clone`: no plugin is registering anything, so install into the project.
+
 1. Copy `$FORGE_KIT_DIR/plugins/forge-kit-governance/hooks/block-dashes.py` →
    `.claude/hooks/block-dashes.py` verbatim, preserving the `# block-dashes-version: N` marker.
-2. Merge into `.claude/settings.json` without clobbering existing hooks (see Step 3 of SKILL.md
-   for the `jq` merge). Skip if an equivalent PreToolUse entry already exists.
+   A copy under the project root is itself the opt-in; no sentinel is needed.
+2. Merge into `.claude/settings.json` without clobbering existing hooks (see the Hooks step of
+   SKILL.md for the `jq` merge). Do NOT skip when an entry already exists: the merge deliberately
+   rewrites a legacy relative-path or shell-form entry into exec form in place. Skipping strands
+   the project on broken wiring.
 3. Confirm: `✓ block-dashes (hook): installed and wired in .claude/settings.json`.
 
 When NOT to recommend: if CLAUDE.md has no writing-style rule, do not surface this hook. It is
@@ -26,7 +38,16 @@ opinionated and only valuable where the project has adopted the no-dash conventi
    `.claude/hooks/block-legacy-host-push.py` verbatim, preserving the
    `# block-legacy-host-push-version: N` marker.
 2. Wire with matcher `Bash` ONLY (it reads `tool_input.command`; do not copy the
-   block-dashes five-tool matcher). Same `jq` merge as above.
+   block-dashes five-tool matcher). Same `jq` merge as above, with the same exec form and the
+   same anchored path. Never a relative path:
+
+   ```json
+   { "type": "command", "command": "python3",
+     "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/block-legacy-host-push.py"] }
+   ```
+
+   Unlike `block-dashes`, this hook is NOT registered by `hooks/hooks.json`: it is meaningful only
+   in a repo that has actually migrated off its legacy host, so it stays a project-local install.
 3. Confirm the repo is actually migrated: `.forge.conf` exists and the legacy host is
    archived/read-only. Optionally sanity-run `python3 .claude/hooks/block-legacy-host-push.py
    --self-test`.
