@@ -9,7 +9,7 @@ below yourself.
 
 | Hook | Event | Version | Purpose |
 |---|---|---|---|
-| `block-dashes.py` | PreToolUse | 1 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
+| `block-dashes.py` | PreToolUse | 2 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy
@@ -32,7 +32,7 @@ Wiring (`.claude/settings.json`):
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
         "hooks": [
-          { "type": "command", "command": "python3 .claude/hooks/block-dashes.py" }
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-dashes.py\"" }
         ]
       }
     ]

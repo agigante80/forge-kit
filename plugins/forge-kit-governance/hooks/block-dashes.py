@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# block-dashes-version: 1
+# block-dashes-version: 2
 """
 Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and
 en dash (U+2013) from being written into files or shell commands.
@@ -20,7 +20,7 @@ Wiring (project .claude/settings.json):
           "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
           "hooks": [
             { "type": "command",
-              "command": "python3 .claude/hooks/block-dashes.py" }
+              "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-dashes.py\"" }
           ]
         }
       ]
