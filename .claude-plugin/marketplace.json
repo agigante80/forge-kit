@@ -16,12 +16,12 @@
     {
       "name": "forge-kit-governance",
       "source": "./plugins/forge-kit-governance",
-      "description": "ticket-gate agent and gate-ticket slash command."
+      "description": "ticket-gate agent, gate-ticket slash command, and the block-dashes hook."
     },
     {
       "name": "forge-kit-review",
       "source": "./plugins/forge-kit-review",
-      "description": "Code review agents (code-reviewer, architect-review, backend-architect) and full-review/pr-enhance commands."
+      "description": "Code review agents (code-reviewer, code-simplifier, coding-standards-auditor, architect-review, backend-architect) and full-review/pr-enhance commands."
     },
     {
       "name": "forge-kit-security",
@@ -36,7 +36,7 @@
     {
       "name": "forge-kit-devops",
       "source": "./plugins/forge-kit-devops",
-      "description": "dep-auditor, health-check agents and /ci-health command."
+      "description": "dep-auditor, health-check agents, /ci-health command, the block-legacy-host-push hook, and the find-dead-code, release, release-automation, forge-host, github-to-forgejo skills."
     },
     {
       "name": "forge-kit-backend",
