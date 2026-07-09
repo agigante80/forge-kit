@@ -27,6 +27,11 @@ jobs:
       - name: Structural validation (plugin.json + marketplace + version markers)
         run: bash scripts/validate-plugins.sh
 
+      # Behavioural gate for the one component that HAS a testable contract. Hooks are the
+      # only forge-kit component that can be exercised in isolation: JSON in, decision out.
+      - name: Hook contract tests
+        run: python3 scripts/test-hooks.py
+
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'
         env:

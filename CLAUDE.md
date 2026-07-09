@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
    ```bash
    bash scripts/validate-plugins.sh            # plugin.json + marketplace.json + version markers (whole tree)
+   python3 scripts/test-hooks.py               # behavioural contract tests for the hooks
    git fetch origin main                       # required: the next script fails closed on a missing base ref
    bash scripts/check-version-bump.sh origin/main   # fail if a changed component didn't bump its <name>-version marker
    git config core.hooksPath .githooks         # one-time: enable the local pre-commit version-bump guard
@@ -19,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
    `validate-plugins.sh` requires `jq` and `grep -P` (GNU grep). `check-version-bump.sh` diffs `<base>...HEAD` (CI passes `origin/$BASE_REF`) and **exits 1 if the base ref does not exist locally**, rather than passing vacuously, so fetch first. It reads committed blobs via `git show`, not the worktree: an uncommitted marker bump will not satisfy it. The local `.githooks/pre-commit` covers `--diff-filter=AM` on the staged set; CI additionally catches renames (`AMR`).
 
-2. **Behavioural validation:** there is no way to run an agent/skill/command in isolation here. Install it into a test project via `forge-adapt` and exercise the workflow there.
+2. **Behavioural validation:** agents, skills, and commands cannot be run in isolation here. Install them into a test project via `forge-adapt` and exercise the workflow there. **Hooks are the exception**, and are the only forge-kit component with a mechanically testable contract: JSON payload on stdin, a `permissionDecision` on stdout, always exit 0. `scripts/test-hooks.py` exercises that contract (every matched tool, fail-open on unparseable input, deny-signalled-on-stdout-not-exit-code, and a regression guard for the foreign-cwd wiring bugs). It runs in CI. When you change a hook, extend it: three consecutive PRs shipped hook defects before this existed.
 
 ## Architecture
 
@@ -109,7 +110,11 @@ The root `.claude-plugin/marketplace.json` lists all plugins with their local `s
 
 **This repo runs `block-dashes.py` against itself.** `.claude/settings.json` wires it as a `PreToolUse` hook on `Write|Edit|MultiEdit|NotebookEdit|Bash`, so any tool call whose payload contains an em dash (U+2014) or en dash (U+2013) is denied. This is deliberate dogfooding of a `forge-kit-governance` hook. The correct response to a hit is to **restructure the sentence**, never to substitute a hyphen for the dash.
 
-Wire hooks in **exec form** (`"command": "python3"` plus `"args": ["${CLAUDE_PROJECT_DIR}/..."]`), never as a bare command string. Three failure modes this avoids, all of which end in the same place. A **relative** path resolves only when Claude Code's working directory happens to be the repo root. An **unbraced** `$CLAUDE_PROJECT_DIR` is not the documented placeholder, so Claude Code leaves it alone and it expands to empty unless the variable is exported into the hook's shell. In both cases `python3` cannot open the script and exits 2, and because exit code 2 is precisely the PreToolUse *deny* signal, every matched `Write`/`Edit`/`Bash` call is blocked with a confusing `can't open file` message. The hook does not go quiet, it wedges the session. Exec form sidesteps all of it: with `args` present Claude Code spawns the executable directly with no shell, substituting `${CLAUDE_PROJECT_DIR}` into each argument as a plain string.
+Wire hooks in **exec form** (`"command": "python3"` plus `"args": ["${CLAUDE_PROJECT_DIR}/..."]`), never as a bare command string.
+
+The failure that actually bites is a **relative** path. It resolves only when Claude Code's working directory happens to be the repo root; from a subdirectory `python3` cannot open the script and exits 2, and exit code 2 is precisely the PreToolUse *deny* signal, so every matched `Write`/`Edit`/`Bash` call is blocked with a confusing `can't open file` message. The hook does not go quiet, it wedges the session.
+
+An **unbraced** `$CLAUDE_PROJECT_DIR` in a shell-form command is *not* broken, contrary to what an earlier revision of this file claimed. `${CLAUDE_PROJECT_DIR}` is a placeholder Claude Code substitutes, and separately the same value is exported into every hook process: the [plugins reference](https://code.claude.com/docs/en/plugins-reference) states the path variables are "exported as environment variables to hook processes" and that `${CLAUDE_PROJECT_DIR}` "is the same directory hooks receive in their `CLAUDE_PROJECT_DIR` variable." Shell form runs via `sh -c`, so the shell expands it. Prefer exec form anyway, because it is what the docs recommend and it removes shell quoting from the picture entirely: with `args` present Claude Code spawns the executable directly with no shell, substituting `${CLAUDE_PROJECT_DIR}` into each argument as a plain string.
 
 Two distinct fail-open behaviours, do not conflate them. The script itself denies by printing a `permissionDecision: deny` JSON object on stdout and **always exits 0**, so its `except (json.JSONDecodeError, ValueError): sys.exit(0)` is a real fail-open: unparseable input never blocks a call. A *missing* script never reaches that code, and the interpreter's own exit status is what Claude Code sees.
 
