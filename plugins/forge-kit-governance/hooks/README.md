@@ -2,11 +2,23 @@
 
 Canonical, project-agnostic Claude Code hooks.
 
-**Installed as a plugin (the normal path).** `hooks.json` in this directory registers
-`block-dashes` with Claude Code the moment `forge-kit-governance` is enabled, anchored to
-`${CLAUDE_PLUGIN_ROOT}`. No script is copied and no `settings.json` is touched. Because the
-no-dash rule is opinionated and a plugin hook is live in *every* project, the script stays
-dormant until a project opts in:
+**Installed as a plugin.** `hooks.json` in this directory registers `block-dashes` with Claude
+Code, anchored to `${CLAUDE_PLUGIN_ROOT}`. No script is copied and no `settings.json` is touched.
+
+This requires installing **this** plugin, which the quick-start flow does not do:
+
+```
+/plugin install forge-kit-governance@forge-kit
+```
+
+`/plugin install forge-kit-adapt@forge-kit` alone installs only the adapt skill. A plugin's
+`hooks.json` is read only when that plugin is enabled, so without the line above nothing here is
+registered and `forge-adapt` will install a project-local copy instead. Note the cost of enabling
+it: a plugin hook is live in every project, and even when dormant it spawns an interpreter on each
+matched tool call, measured at roughly 40 ms per `Write`/`Edit`/`MultiEdit`/`NotebookEdit`/`Bash`.
+
+Because the no-dash rule is opinionated and a plugin hook is live in *every* project, the script
+stays dormant until a project opts in:
 
 ```bash
 mkdir -p .claude && touch .claude/no-dashes   # opt in
@@ -24,7 +36,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 
 | Hook | Event | Version | Purpose |
 |---|---|---|---|
-| `block-dashes.py` | PreToolUse | 4 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
+| `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy
