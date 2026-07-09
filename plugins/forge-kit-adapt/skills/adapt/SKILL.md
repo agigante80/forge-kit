@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 14 -->
+<!-- forge-adapt-version: 15 -->
 
 # forge-adapt
 
@@ -55,15 +55,19 @@ REMOTE_SHA=$(echo "$REMOTE_JSON" | jq -r '.sha // empty' 2>/dev/null)
 | `CURRENT_SHA == REMOTE_SHA` | Skip silently (up to date) |
 | `CURRENT_SHA != REMOTE_SHA` | `echo "$REMOTE_JSON" \| jq -r '.content' \| base64 -d > "${CLAUDE_SKILL_DIR}/SKILL.md"`, then read the updated file and continue from its Setup. On success print one line: `forge-adapt: updated to latest - run /reload-plugins to persist.` On write failure print: `forge-adapt: a newer version exists but auto-update failed; run /plugin marketplace update forge-kit && /reload-plugins.` |
 
-**S2. Locate AND refresh the forge-kit library** (try plugin root, then `~/forge-kit`, then clone).
-The skill self-updates in S1, but the component library is a SEPARATE checkout - if it is stale,
-new components (e.g. a newly added hook) are invisible to the catalogue. Always refresh it.
+**S2. Locate AND refresh the forge-kit library** (marketplace checkout, then `~/forge-kit`, then clone),
+and separately determine whether the governance plugin is enabled. The skill self-updates in S1, but
+the component library is a SEPARATE checkout - if it is stale, new components (e.g. a newly added
+hook) are invisible to the catalogue. Always refresh it.
 
 ```bash
 FORGE_KIT_DIR=""; FORGE_KIT_SRC=""
-PLUGIN_INFERRED_ROOT=$(realpath "${CLAUDE_SKILL_DIR}/../../../../" 2>/dev/null)
-if [ -d "${PLUGIN_INFERRED_ROOT}/plugins/forge-kit-governance" ]; then
-  FORGE_KIT_DIR="$PLUGIN_INFERRED_ROOT"; FORGE_KIT_SRC="plugin"
+# The marketplace keeps a full checkout of the repo here. Note this is NOT the plugin cache:
+# `~/.claude/plugins/cache/<marketplace>/<plugin>/<sha>/` holds only the installed plugin's own
+# files, never a `plugins/` tree, so it can never serve as the component library.
+MARKETPLACE_CHECKOUT=~/.claude/plugins/marketplaces/forge-kit
+if [ -d "$MARKETPLACE_CHECKOUT/plugins" ]; then
+  FORGE_KIT_DIR="$MARKETPLACE_CHECKOUT"; FORGE_KIT_SRC="marketplace"
 elif [ -d ~/forge-kit/plugins ]; then
   FORGE_KIT_DIR=~/forge-kit; FORGE_KIT_SRC="clone"
 else
@@ -75,10 +79,18 @@ if [ "$FORGE_KIT_SRC" = "clone" ]; then
   git -C "$FORGE_KIT_DIR" fetch --depth 1 origin --quiet 2>/dev/null \
     && git -C "$FORGE_KIT_DIR" reset --hard origin/HEAD --quiet 2>/dev/null \
     || echo "forge-adapt: could not refresh ~/forge-kit; catalogue may be behind (fix: git -C ~/forge-kit pull)."
-elif [ "$FORGE_KIT_SRC" = "plugin" ]; then
-  echo "forge-adapt: using the marketplace-managed library. If a just-added component is missing, run: /plugin marketplace update forge-kit"
+else
+  echo "forge-adapt: using the marketplace checkout. If a just-added component is missing, run: /plugin marketplace update forge-kit"
 fi
 echo "forge-adapt: library at $(git -C "$FORGE_KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?') ($FORGE_KIT_SRC)"
+
+# SEPARATE QUESTION, do not conflate: where the library lives says NOTHING about which plugin
+# groups the user enabled. A plugin's hooks/hooks.json is live only when THAT plugin is installed.
+GOVERNANCE_PLUGIN_ACTIVE=no
+if [ -d ~/.claude/plugins/cache/forge-kit/forge-kit-governance ] \
+   || grep -q 'forge-kit-governance@forge-kit' ~/.claude/plugins/installed_plugins.json 2>/dev/null; then
+  GOVERNANCE_PLUGIN_ACTIVE=yes
+fi
 ```
 
 If `FORGE_KIT_DIR` is still empty, stop and tell the user to clone it manually
@@ -272,22 +284,40 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 
 **Hooks** (e.g. `block-dashes`):
 
-**First branch on `$FORGE_KIT_SRC` (set during Setup S2). Do not skip this check.**
+**Branch on `$GOVERNANCE_PLUGIN_ACTIVE` (set during Setup S2), NOT on `$FORGE_KIT_SRC`.** Where the
+component library lives says nothing about which plugin groups the user enabled. A plugin's
+`hooks/hooks.json` is live only when that plugin itself is installed. Conflating the two ships a
+sentinel file and a success message while registering no hook at all.
 
-**If `FORGE_KIT_SRC = plugin`** the hook is ALREADY registered and running: each plugin group ships
-`hooks/hooks.json`, which Claude Code activates whenever that plugin is enabled, anchored to
-`${CLAUDE_PLUGIN_ROOT}`. Copying the script and editing `settings.json` would install a *second*
-copy of the same hook. Do neither. The only thing a project needs is to opt in, because a
-plugin-registered `block-dashes` stays dormant everywhere until it sees the sentinel:
+**If `GOVERNANCE_PLUGIN_ACTIVE = yes`** the hook is ALREADY registered and running: the plugin ships
+`hooks/hooks.json`, which Claude Code activates whenever `forge-kit-governance` is enabled, anchored
+to `${CLAUDE_PLUGIN_ROOT}`. Copying the script and editing `settings.json` would install a *second*
+copy that fires alongside it. Do neither. A plugin-registered `block-dashes` stays dormant in every
+project until it sees the sentinel, so opting in is the whole install:
 
 ```bash
 mkdir -p .claude && touch .claude/no-dashes
 ```
 
+Then clean up any copy an older forge-adapt left behind, or the project will run the hook twice
+(two identical block messages per denial, two interpreter startups per tool call):
+
+```bash
+if [ -f .claude/hooks/block-dashes.py ]; then
+  echo "forge-adapt: removing the project-local copy now superseded by the plugin."
+  rm -f .claude/hooks/block-dashes.py
+  tmp=$(mktemp)
+  jq 'if .hooks.PreToolUse then .hooks.PreToolUse |= (map(.hooks |= map(select(((.command? // "") + " " + ((.args? // []) | map(tostring) | join(" "))) | test("block-dashes\\.py") | not))) | map(select(.hooks | length > 0))) else . end' \
+    .claude/settings.json > "$tmp" && mv "$tmp" .claude/settings.json || rm -f "$tmp"
+fi
+```
+
 Confirm: `✓ block-dashes (hook) - already active via the plugin; opted this project in`.
 To opt out later, delete `.claude/no-dashes`. Nothing else to undo.
 
-**If `FORGE_KIT_SRC = clone`** there is no plugin to register anything, so install into the project:
+**If `GOVERNANCE_PLUGIN_ACTIVE = no`** nothing is registering the hook, whatever `$FORGE_KIT_SRC` says.
+Either tell the user they can `/plugin install forge-kit-governance@forge-kit` to get it managed by
+the plugin, or install it into the project as below. Never do both.
 
 1. Copy the script verbatim from `$FORGE_KIT_DIR/plugins/<group>/hooks/<file>` to
    `.claude/hooks/<file>` (`mkdir -p .claude/hooks`). Hook scripts are stack-agnostic - do not

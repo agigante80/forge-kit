@@ -166,6 +166,23 @@ with tempfile.TemporaryDirectory() as td:
             hook=local_hook, project_dir=proj2, cwd=str(proj2))
     check("project copy, clean text", verdict(p), ALLOW)
 
+    # Regression: a project install must enforce regardless of working directory,
+    # and regardless of whether CLAUDE_PROJECT_DIR was exported. The previous gate
+    # fell back to the payload's `cwd`, which is the session's directory and not
+    # the project root, so a session started in a subdirectory silently allowed.
+    sub = proj2 / "src" / "deep"
+    sub.mkdir(parents=True)
+
+    p = run(dash, hook=local_hook, project_dir=None, cwd=str(sub))
+    check("project copy, cwd=subdir", verdict(p), DENY, extra="(no CLAUDE_PROJECT_DIR)")
+
+    payload_with_cwd = dict(dash, cwd=str(sub))
+    p = run(payload_with_cwd, hook=local_hook, project_dir=None, cwd=str(sub))
+    check("project copy, payload cwd=subdir", verdict(p), DENY)
+
+    p = run(dash, hook=local_hook, project_dir=proj2, cwd=str(sub))
+    check("project copy, root set + subdir", verdict(p), DENY)
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} case(s): {', '.join(failures)}")
