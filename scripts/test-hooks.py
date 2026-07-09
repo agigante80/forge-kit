@@ -21,6 +21,7 @@ file would otherwise be rejected by the very hook it tests.
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -260,18 +261,35 @@ print("\n  -- block-legacy-host-push --")
 
 BLHP = ROOT / "plugins/forge-kit-devops/hooks/block-legacy-host-push.py"
 
+# The hook lets FORGE_* env vars override .forge.conf, which is correct at runtime and
+# fatal in a test. Without this scrub the suite passes in clean CI and fails for anyone
+# who exported FORGE_LEGACY_HOSTS, FORGE_REMOTE or FORGE_PUSH_STRICT, i.e. exactly the
+# people who migrated a repo off GitHub. The hook's own --self-test scrubs them too.
+HERMETIC_ENV = {k: v for k, v in os.environ.items() if not k.startswith("FORGE_")}
+
 p = subprocess.run([sys.executable, str(BLHP), "--self-test"],
-                   capture_output=True, text=True, cwd="/")
+                   capture_output=True, text=True, cwd="/", env=HERMETIC_ENV)
 matrix_cases = p.stdout.count("want=")
 check("self-test matrix passes", p.returncode, 0, extra=f"({matrix_cases} verdict cases)")
 if p.returncode != 0:
     print(p.stdout[-800:])
 
+# `--self-test` is a documented entry point a maintainer runs by hand, so it must scrub
+# FORGE_* itself rather than lean on this harness having done so. Inject the vars that
+# used to break it: FORGE_PUSH_STRICT=1 would deny `git push fork main` cases, and
+# FORGE_LEGACY_HOSTS would move github.com off the deny list.
+polluted = dict(HERMETIC_ENV, FORGE_PUSH_STRICT="1",
+                FORGE_LEGACY_HOSTS="gitlab.example.com", FORGE_REMOTE="github")
+p = subprocess.run([sys.executable, str(BLHP), "--self-test"],
+                   capture_output=True, text=True, cwd="/", env=polluted)
+check("self-test is hermetic", p.returncode, 0, extra="(FORGE_* in env must not leak in)")
+
 
 def run_blhp(payload, *, raw=None, cwd="/"):
     stdin = raw if raw is not None else json.dumps(payload)
     return subprocess.run([sys.executable, str(BLHP)],
-                          input=stdin, capture_output=True, text=True, cwd=cwd)
+                          input=stdin, capture_output=True, text=True, cwd=cwd,
+                          env=HERMETIC_ENV)
 
 
 # Fail-open and tool-filter paths. A repo with no .forge.conf allows everything, so
@@ -296,13 +314,21 @@ check("blhp missing command allows", verdict(p), ALLOW)
 # without a real deny to contrast against, "ignores non-Bash" passes vacuously.
 with tempfile.TemporaryDirectory() as td:
     repo = pathlib.Path(td).resolve()
+
     def git(*a):
-        subprocess.run(["git", "-C", str(repo)] + list(a), capture_output=True)
-    git("init", "-q", "-b", "main", ".")
+        """Fail loudly. A silently broken fixture makes every verdict ALLOW (no repo,
+        so no config is found) and reports that as a hook regression."""
+        r = subprocess.run(["git", "-C", str(repo)] + list(a), capture_output=True, text=True)
+        if r.returncode != 0:
+            first = ((r.stderr or "").strip().splitlines() or [""])[0]
+            raise SystemExit(f"FIXTURE SETUP FAILED: git {' '.join(a)}\n  {first}")
+
+    git("init", "-q", "-b", "main", ".")  # -b needs git >= 2.28
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "b")
     git("remote", "add", "origin", "https://forge.example.com/o/r.git")
     git("remote", "add", "github", "https://github.com/o/r.git")
     (repo / ".forge.conf").write_text("FORGE_HOST=forgejo\nFORGE_REMOTE=origin\n")
+    check("fixture repo built", (repo / ".git").is_dir(), True)
 
     push_legacy = {"tool_input": {"command": "git push github main"}, "cwd": str(repo)}
 
@@ -316,15 +342,39 @@ with tempfile.TemporaryDirectory() as td:
                   "cwd": str(repo)}, cwd=str(repo))
     check("blhp allows the forge remote", verdict(p), ALLOW)
 
-# Wiring: the docstring must not teach a relative path (the #27 bug class).
-doc = BLHP.read_text()
-check("blhp docstring anchors path", "${CLAUDE_PROJECT_DIR}" in doc, True)
-check("blhp docstring drops relative", '"command": "python3 .claude/hooks/' not in doc, True)
+# Wiring: nothing may teach a relative hook path as a command or arg VALUE (the #27 bug
+# class). Only quoted values count. Prose saying "copy it to `.claude/hooks/x.py`" and a
+# manual `python3 .claude/hooks/x.py --self-test` are both correct and relative.
+# A value qualifies when `.claude/hooks/` starts it or follows whitespace, so
+# "${CLAUDE_PROJECT_DIR}/.claude/hooks/x.py" is excluded while both
+# "python3 .claude/hooks/x.py" and ".claude/hooks/x.py" are caught.
+#
+# Scans the whole tree, not a fixed list. The two substring checks this replaces missed
+# the args form entirely, and passed only because "${CLAUDE_PROJECT_DIR}" happened to
+# occur exactly once in the file.
+RELATIVE_HOOK_VALUE = re.compile(r'"(?:[^"\n]*\s)?\.claude/hooks/[\w.-]+\.py[^"\n]*"')
+SELF = pathlib.Path(__file__).resolve()
 
-# It must stay project-local: a plugin hooks.json would activate it from `.forge.conf`,
-# which exists before cutover, breaking the migration's dual-remote window.
-check("blhp not plugin-registered",
-      (ROOT / "plugins/forge-kit-devops/hooks/hooks.json").exists(), False)
+scanned, offenders = 0, []
+for path in sorted(ROOT.glob("**/*")):
+    if path.is_dir() or ".git/" in str(path) or path.suffix not in {".py", ".md", ".json"}:
+        continue
+    if path == SELF:
+        continue  # this file documents the pattern it forbids
+    scanned += 1
+    for m in RELATIVE_HOOK_VALUE.finditer(path.read_text(errors="replace")):
+        offenders.append(f"{path.relative_to(ROOT)}: {m.group(0)}")
+
+check("no relative hook wiring anywhere", offenders, [], extra=f"({scanned} files scanned)")
+check("blhp docstring anchors path", "${CLAUDE_PROJECT_DIR}" in BLHP.read_text(), True)
+
+# It must stay project-local: registering it in a plugin hooks.json would activate it
+# from `.forge.conf`, which exists before cutover, breaking the migration's dual-remote
+# window. Assert the HOOK is unreferenced, not that the directory has no hooks.json:
+# a future devops hook may legitimately need one.
+devops_reg = ROOT / "plugins/forge-kit-devops/hooks/hooks.json"
+registered = "block-legacy-host-push" in devops_reg.read_text() if devops_reg.exists() else False
+check("blhp not plugin-registered", registered, False, extra="(cutover is the opt-in)")
 
 print()
 if failures:
