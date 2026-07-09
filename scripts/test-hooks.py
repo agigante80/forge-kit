@@ -252,6 +252,80 @@ with tempfile.TemporaryDirectory() as td:
     p = invoke_registered(proot, None, dash)
     check("registered, no CLAUDE_PROJECT_DIR", verdict(p), ALLOW, extra="(fail open)")
 
+# --- block-legacy-host-push -------------------------------------------------
+# This hook ships its own verdict matrix (`--self-test`), which nothing ever ran.
+# Run it here so CI gates it, then cover the contract paths the matrix omits:
+# malformed input, non-Bash tools, and the exit-code convention.
+print("\n  -- block-legacy-host-push --")
+
+BLHP = ROOT / "plugins/forge-kit-devops/hooks/block-legacy-host-push.py"
+
+p = subprocess.run([sys.executable, str(BLHP), "--self-test"],
+                   capture_output=True, text=True, cwd="/")
+matrix_cases = p.stdout.count("want=")
+check("self-test matrix passes", p.returncode, 0, extra=f"({matrix_cases} verdict cases)")
+if p.returncode != 0:
+    print(p.stdout[-800:])
+
+
+def run_blhp(payload, *, raw=None, cwd="/"):
+    stdin = raw if raw is not None else json.dumps(payload)
+    return subprocess.run([sys.executable, str(BLHP)],
+                          input=stdin, capture_output=True, text=True, cwd=cwd)
+
+
+# Fail-open and tool-filter paths. A repo with no .forge.conf allows everything, so
+# use cwd=/ where no .forge.conf can exist: these assert the hook never blocks.
+for label, kwargs in [
+    ("malformed stdin", dict(raw="{not json")),
+    ("empty stdin", dict(raw="")),
+    ("non-dict payload", dict(raw="[1,2,3]")),
+]:
+    p = run_blhp(None, **kwargs)
+    check(f"blhp {label} allows", verdict(p) if p.returncode == 0 else f"exit{p.returncode}", ALLOW)
+
+p = run_blhp({"tool_name": "Bash", "tool_input": {"command": "git push github main"}})
+check("blhp unconfigured repo allows", verdict(p), ALLOW, extra="(no .forge.conf)")
+check("blhp always exits 0", p.returncode, 0)
+
+p = run_blhp({"tool_name": "Bash", "tool_input": {}})
+check("blhp missing command allows", verdict(p), ALLOW)
+
+# A CONFIGURED repo, so the tool filter is exercised against a payload that would
+# otherwise deny. Passing the same push command under tool_name=Write must allow:
+# without a real deny to contrast against, "ignores non-Bash" passes vacuously.
+with tempfile.TemporaryDirectory() as td:
+    repo = pathlib.Path(td).resolve()
+    def git(*a):
+        subprocess.run(["git", "-C", str(repo)] + list(a), capture_output=True)
+    git("init", "-q", "-b", "main", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "b")
+    git("remote", "add", "origin", "https://forge.example.com/o/r.git")
+    git("remote", "add", "github", "https://github.com/o/r.git")
+    (repo / ".forge.conf").write_text("FORGE_HOST=forgejo\nFORGE_REMOTE=origin\n")
+
+    push_legacy = {"tool_input": {"command": "git push github main"}, "cwd": str(repo)}
+
+    p = run_blhp(dict(push_legacy, tool_name="Bash"), cwd=str(repo))
+    check("blhp configured repo denies", verdict(p), DENY, extra="(github.com is legacy)")
+
+    p = run_blhp(dict(push_legacy, tool_name="Write"), cwd=str(repo))
+    check("blhp ignores non-Bash", verdict(p), ALLOW, extra="(same command, would deny on Bash)")
+
+    p = run_blhp({"tool_name": "Bash", "tool_input": {"command": "git push origin main"},
+                  "cwd": str(repo)}, cwd=str(repo))
+    check("blhp allows the forge remote", verdict(p), ALLOW)
+
+# Wiring: the docstring must not teach a relative path (the #27 bug class).
+doc = BLHP.read_text()
+check("blhp docstring anchors path", "${CLAUDE_PROJECT_DIR}" in doc, True)
+check("blhp docstring drops relative", '"command": "python3 .claude/hooks/' not in doc, True)
+
+# It must stay project-local: a plugin hooks.json would activate it from `.forge.conf`,
+# which exists before cutover, breaking the migration's dual-remote window.
+check("blhp not plugin-registered",
+      (ROOT / "plugins/forge-kit-devops/hooks/hooks.json").exists(), False)
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} case(s): {', '.join(failures)}")
