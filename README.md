@@ -77,11 +77,12 @@ forge-kit ships two layers.
 |---|---|
 | `forge-adapt` skill | Analyses the target project, recommends relevant components, writes project-customised versions, and surfaces contribution candidates back to forge-kit |
 | `ticket-gate` agent | Scores every GitHub issue before implementation (5 core agents + dynamic routing by label). ALL must score 10/10 to pass |
-| 11 specialist agents | code-reviewer, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer, dep-auditor, health-check |
+| 13 specialist agents | code-reviewer, code-simplifier, coding-standards-auditor, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer, dep-auditor, health-check |
 | `/full-review` | Multi-phase code review orchestrator with a mid-run checkpoint |
 | `/pr-enhance` | Pull request description and checklist generation |
 | `/ci-health` | Check all GitHub Actions workflows, create P0 tickets for failures, auto-fix safe failures |
-| 7 skills | forge-adapt, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration |
+| 12 skills | forge-adapt, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration, find-dead-code, release, release-automation, forge-host, github-to-forgejo |
+| 2 hooks | `block-dashes` (deny em/en dashes in tool payloads), `block-legacy-host-push` (deny `git push` to an archived host after a forge migration) |
 
 ## After setup
 
