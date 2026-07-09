@@ -12,11 +12,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
    ```bash
    bash scripts/validate-plugins.sh            # plugin.json + marketplace.json + version markers (whole tree)
+   git fetch origin main                       # required: the next script fails closed on a missing base ref
    bash scripts/check-version-bump.sh origin/main   # fail if a changed component didn't bump its <name>-version marker
    git config core.hooksPath .githooks         # one-time: enable the local pre-commit version-bump guard
    ```
 
-   `validate-plugins.sh` requires `jq`. `check-version-bump.sh` diffs against the given base ref (CI passes `origin/$BASE_REF`).
+   `validate-plugins.sh` requires `jq` and `grep -P` (GNU grep). `check-version-bump.sh` diffs `<base>...HEAD` (CI passes `origin/$BASE_REF`) and **exits 1 if the base ref does not exist locally**, rather than passing vacuously, so fetch first. It reads committed blobs via `git show`, not the worktree: an uncommitted marker bump will not satisfy it. The local `.githooks/pre-commit` covers `--diff-filter=AM` on the staged set; CI additionally catches renames (`AMR`).
 
 2. **Behavioural validation:** there is no way to run an agent/skill/command in isolation here. Install it into a test project via `forge-adapt` and exercise the workflow there.
 
@@ -27,7 +28,7 @@ The kit is organized into plugin groups under `plugins/<group>/`:
 | Plugin group | Contents |
 |---|---|
 | `forge-kit-adapt` | forge-adapt skill (the entry point: install this first) |
-| `forge-kit-governance` | ticket-gate agent, gate-ticket command |
+| `forge-kit-governance` | ticket-gate agent, gate-ticket command, block-dashes hook |
 | `forge-kit-review` | code-reviewer, architect-review, backend-architect, code-simplifier, coding-standards-auditor agents; full-review, pr-enhance commands |
 | `forge-kit-security` | security-auditor, backend-security-coder, api-security-tester agents; owasp-api-security skill |
 | `forge-kit-testing` | tdd-orchestrator, test-automator, performance-engineer agents |
@@ -70,7 +71,7 @@ Note: `dep-auditor` and `health-check` are agent types, not slash commands. Trig
 
 **Skills** (`plugins/<group>/skills/*/SKILL.md`): domain knowledge injected into the main conversation (not isolated). Frontmatter requires only `name` and `description`. Skills can have `assets/` (checklists, templates) and `references/` (supporting docs) subdirectories alongside `SKILL.md`. For example, `api-design-principles` (`forge-kit-backend`) uses `assets/` + `references/`, and `forge-adapt` (`forge-kit-adapt`) uses `references/` (one signal→component→why map per recommendation category). Triggered automatically when relevant or by user invocation. Includes: `forge-adapt`, `api-design-principles`, `owasp-api-security`, `architecture-patterns`, `microservices-patterns`, `cqrs-implementation`, `saga-orchestration`, `find-dead-code` (the source-code counterpart to the `dep-auditor` agent), `release` (semver bump + version-check guard + tag + close shipped tickets), `release-automation` (the *enforced* sibling of `release`: a CI gate that blocks a merge to the production branch unless the version was bumped past the last release, built on a shared version↔tag primitive, plus optional auto-release lanes).
 
-**Issue Templates** (`.github/ISSUE_TEMPLATE/*.yml`): six templates: `feature.yml`, `bug.yml`, `security.yml`, `infrastructure.yml`, `design.yml`, `contribution.yml`. All carry `<!-- template-version: 4 -->` and include mandatory sections: GWT scenarios, unit test specs, E2E test specs, GDPR considerations, security checklist, and required reviews checkbox. The `ticket-gate` agent auto-synthesizes missing v4 sections from earlier-version tickets. See `docs/guides/template-versioning.md` for the versioning scheme and auto-synthesis logic.
+**Issue Templates** (`.github/ISSUE_TEMPLATE/*.yml`): six templates. The five *work* templates (`feature.yml`, `bug.yml`, `security.yml`, `infrastructure.yml`, `design.yml`) carry `template-version: 4` and the mandatory sections: GWT scenarios, unit test specs, E2E test specs, GDPR considerations, security checklist, and required reviews checkbox. `contribution.yml` is the odd one out: it proposes a component *to forge-kit itself* rather than describing project work, so it carries no `template-version` marker and no GWT sections. Don't "fix" it by adding them. The `ticket-gate` agent auto-synthesizes missing v4 sections from earlier-version tickets. See `docs/guides/template-versioning.md` for the versioning scheme and auto-synthesis logic.
 
 ## Plugin Structure
 
@@ -104,6 +105,10 @@ The root `.claude-plugin/marketplace.json` lists all plugins with their local `s
 
 **Version-bump enforcement:** a committed pre-commit hook (`.githooks/pre-commit`) blocks a commit that changes a component's body without bumping its `<name>-version` marker (and flags new components missing a marker). Enable it once per clone with `git config core.hooksPath .githooks`. For a genuinely trivial edit (comment typo, whitespace), bypass with `git commit --no-verify`.
 
+**Marker parsing is positional.** Both enforcement scripts read a component's version with `grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | head -1`. Three consequences: the marker must be lowercase-kebab followed by digits; it must be the *first* `<name>-version: N` string anywhere in the file (a version reference in prose above the real marker silently becomes the parsed version); and `template-version` is skipped only when it starts the match. Most components put the marker within the first ~6 lines. `forge-adapt` (line 15) and `github-to-forgejo` (line 13) sit lower because of long frontmatter, which is fine as long as nothing version-shaped precedes them.
+
+**This repo runs `block-dashes.py` against itself.** `.claude/settings.json` wires it as a `PreToolUse` hook on `Write|Edit|MultiEdit|NotebookEdit|Bash`, so any tool call whose payload contains an em dash (U+2014) or en dash (U+2013) is denied. This is deliberate dogfooding of a `forge-kit-governance` hook. Two things to know: the correct response to a hit is to **restructure the sentence**, not to substitute a hyphen for the dash; and the hook `command` is the repo-root-relative path `python3 plugins/forge-kit-governance/hooks/block-dashes.py`, so it only resolves when Claude Code's working directory is the repo root. The hook fails open, so a parse error never blocks a real call.
+
 **Label → agent routing:** `docs/guides/labels.md` documents the label taxonomy. Labels drive dynamic agent selection inside `ticket-gate`: the `security` label and `critical` label trigger ALL agents. The `api` area label triggers the API Design agent. To add routing for a new label, add a row to the dynamic agent table in `ticket-gate.md` and a corresponding agent definition section.
 
 **Extending ticket-gate's dynamic routing:** The dynamic agent table inside `ticket-gate.md` maps issue labels and body keywords to specialist agents. To add a new project-specific agent to the gate, add a row to that table and a corresponding "Dynamic Agent Definitions" section.
@@ -113,6 +118,10 @@ The root `.claude-plugin/marketplace.json` lists all plugins with their local `s
 **Template versioning:** The `template-version: N` HTML comment in issue templates enables the `ticket-gate` agent to detect outdated templates and auto-synthesize missing sections without requiring manual upgrades.
 
 **`.full-review/` directory** is a runtime artifact created by `/full-review`. It persists state across interruptions so a review can be resumed. It is not part of the scaffold; add it to `.gitignore` in projects that run `/full-review`.
+
+**`temp/`** is a gitignored scratch folder (`temp/*` ignored, `.gitkeep` tracked). Use it for throwaway analysis output. Anything there is untracked by design, so never cite it as a source of truth or assume a later session can see it.
+
+**`.claude/memory/MEMORY.md`** is the tracked, team-visible project memory index (currently just its header comments). Durable decisions and in-flight context belong there, one line per entry pointing at a sibling file.
 
 ## Workflow
 
