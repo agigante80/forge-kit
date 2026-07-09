@@ -11,14 +11,18 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 
 ## Install detail (block-dashes.py)
 
-**Branch on `$FORGE_KIT_SRC` first.**
+**Branch on `$GOVERNANCE_PLUGIN_ACTIVE`, never on `$FORGE_KIT_SRC`.** The library's location says
+nothing about which plugins are enabled, and `hooks/hooks.json` loads only when
+`forge-kit-governance` itself is installed.
 
-`plugin`: the hook is already registered by `hooks/hooks.json` and running in every project where
-the plugin is enabled. Do NOT copy the script and do NOT touch `settings.json`; that installs a
-duplicate. A plugin-registered `block-dashes` stays dormant until the project opts in, so the whole
-install is `mkdir -p .claude && touch .claude/no-dashes`. Opt out by deleting that file.
+`yes`: the hook is already registered and running in every project. Do NOT copy the script and do
+NOT touch `settings.json`; that installs a duplicate that fires alongside it. A plugin-registered
+`block-dashes` stays dormant until the project opts in, so the whole install is
+`mkdir -p .claude && touch .claude/no-dashes`. Remove any project-local copy an older forge-adapt
+left behind (see SKILL.md). Opt out by deleting the sentinel.
 
-`clone`: no plugin is registering anything, so install into the project.
+`no`: nothing is registering the hook. Either suggest `/plugin install forge-kit-governance@forge-kit`,
+or install into the project as below. Never both.
 
 1. Copy `$FORGE_KIT_DIR/plugins/forge-kit-governance/hooks/block-dashes.py` →
    `.claude/hooks/block-dashes.py` verbatim, preserving the `# block-dashes-version: N` marker.
