@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 13 -->
+<!-- forge-adapt-version: 14 -->
 
 # forge-adapt
 
@@ -271,9 +271,28 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
 **Hooks** (e.g. `block-dashes`):
+
+**First branch on `$FORGE_KIT_SRC` (set during Setup S2). Do not skip this check.**
+
+**If `FORGE_KIT_SRC = plugin`** the hook is ALREADY registered and running: each plugin group ships
+`hooks/hooks.json`, which Claude Code activates whenever that plugin is enabled, anchored to
+`${CLAUDE_PLUGIN_ROOT}`. Copying the script and editing `settings.json` would install a *second*
+copy of the same hook. Do neither. The only thing a project needs is to opt in, because a
+plugin-registered `block-dashes` stays dormant everywhere until it sees the sentinel:
+
+```bash
+mkdir -p .claude && touch .claude/no-dashes
+```
+
+Confirm: `✓ block-dashes (hook) - already active via the plugin; opted this project in`.
+To opt out later, delete `.claude/no-dashes`. Nothing else to undo.
+
+**If `FORGE_KIT_SRC = clone`** there is no plugin to register anything, so install into the project:
+
 1. Copy the script verbatim from `$FORGE_KIT_DIR/plugins/<group>/hooks/<file>` to
    `.claude/hooks/<file>` (`mkdir -p .claude/hooks`). Hook scripts are stack-agnostic - do not
-   rewrite them; keep the `# <name>-version: N` marker line.
+   rewrite them; keep the `# <name>-version: N` marker line. A copy inside the project root is
+   itself the opt-in: no sentinel needed, and the script detects this by its own location.
 2. Wire it into `.claude/settings.json`, merging (do not clobber existing hooks). Use the **exec form**
    (`command` + `args`), never a bare command string:
 

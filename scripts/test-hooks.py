@@ -19,9 +19,12 @@ The dash characters are built with chr() rather than written literally: this
 file would otherwise be rejected by the very hook it tests.
 """
 import json
+import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
 
 EM = chr(0x2014)
 EN = chr(0x2013)
@@ -32,14 +35,20 @@ HOOK = ROOT / "plugins/forge-kit-governance/hooks/block-dashes.py"
 DENY, ALLOW = "deny", "allow"
 
 
-def run(payload, *, raw=None, cwd="/"):
-    """Invoke the hook exec-style (no shell) from a foreign cwd, as Claude Code does."""
+def run(payload, *, raw=None, cwd="/", hook=HOOK, project_dir=ROOT):
+    """Invoke the hook exec-style (no shell) from a foreign cwd, as Claude Code does.
+
+    project_dir=None simulates Claude Code not exporting CLAUDE_PROJECT_DIR.
+    """
     stdin = raw if raw is not None else json.dumps(payload)
-    p = subprocess.run(
-        [sys.executable, str(HOOK)],
-        input=stdin, capture_output=True, text=True, cwd=cwd,
+    env = dict(os.environ)
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    if project_dir is not None:
+        env["CLAUDE_PROJECT_DIR"] = str(project_dir)
+    return subprocess.run(
+        [sys.executable, str(hook)],
+        input=stdin, capture_output=True, text=True, cwd=cwd, env=env,
     )
-    return p
 
 
 def verdict(p):
@@ -109,6 +118,53 @@ check("deny reason warns off hyphen", "hyphen" in reason.lower(), True)
 # Regression guard for #27..#29: the hook must work when cwd is not the repo root.
 p = run({"tool_name": "Write", "tool_input": {"content": f"a {EM} b"}}, cwd="/")
 check("works from foreign cwd", verdict(p), DENY)
+
+# A JSON array/scalar is not a hook payload; must fail open rather than crash on .get().
+p = run(None, raw="[1, 2, 3]")
+check("non-dict payload allows", verdict(p) if p.returncode == 0 else f"exit{p.returncode}", ALLOW)
+
+# No project root discoverable at all: fail open.
+p = run({"tool_name": "Write", "tool_input": {"content": f"a {EM} b"}}, project_dir=None)
+check("no project root allows", verdict(p), ALLOW)
+
+# --- Opt-in gate -----------------------------------------------------------
+# The plugin registers this hook in EVERY project. It must enforce only where the
+# project opted in via .claude/no-dashes. A copy installed INTO the project is
+# itself the opt-in and always enforces (back-compat for pre-existing installs).
+print("\n  -- opt-in gate --")
+dash = {"tool_name": "Write", "tool_input": {"content": f"a {EM} b"}}
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+
+    # (a) plugin-style: hook lives OUTSIDE the project root.
+    plugin_dir = td / "plugin" / "hooks"
+    plugin_dir.mkdir(parents=True)
+    plugin_hook = plugin_dir / "block-dashes.py"
+    shutil.copy(HOOK, plugin_hook)
+
+    proj = td / "proj"
+    (proj / ".claude").mkdir(parents=True)
+
+    p = run(dash, hook=plugin_hook, project_dir=proj, cwd=str(proj))
+    check("plugin copy, no sentinel", verdict(p), ALLOW, extra="(opinionated rule stays off)")
+
+    (proj / ".claude" / "no-dashes").touch()
+    p = run(dash, hook=plugin_hook, project_dir=proj, cwd=str(proj))
+    check("plugin copy, sentinel", verdict(p), DENY, extra="(project opted in)")
+
+    # (b) project-local install: hook lives INSIDE the project root, no sentinel.
+    proj2 = td / "proj2"
+    (proj2 / ".claude" / "hooks").mkdir(parents=True)
+    local_hook = proj2 / ".claude" / "hooks" / "block-dashes.py"
+    shutil.copy(HOOK, local_hook)
+
+    p = run(dash, hook=local_hook, project_dir=proj2, cwd=str(proj2))
+    check("project copy, no sentinel", verdict(p), DENY, extra="(install IS the opt-in)")
+
+    p = run({"tool_name": "Write", "tool_input": {"content": "clean"}},
+            hook=local_hook, project_dir=proj2, cwd=str(proj2))
+    check("project copy, clean text", verdict(p), ALLOW)
 
 print()
 if failures:
