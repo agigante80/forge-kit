@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 11 -->
+<!-- forge-adapt-version: 12 -->
 
 # forge-adapt
 
@@ -274,17 +274,37 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 1. Copy the script verbatim from `$FORGE_KIT_DIR/plugins/<group>/hooks/<file>` to
    `.claude/hooks/<file>` (`mkdir -p .claude/hooks`). Hook scripts are stack-agnostic - do not
    rewrite them; keep the `# <name>-version: N` marker line.
-2. Wire it into `.claude/settings.json`, merging (do not clobber existing hooks). For block-dashes:
+2. Wire it into `.claude/settings.json`, merging (do not clobber existing hooks). Always anchor the
+   script path with `$CLAUDE_PROJECT_DIR`: a relative path resolves only when Claude Code's working
+   directory is the project root, and from a subdirectory `python3` cannot open the script and exits
+   2, which is the PreToolUse *deny* code, so every matched call is blocked with a confusing
+   `can't open file` error. The merge below is idempotent and rewrites a legacy relative-path entry
+   in place rather than appending a duplicate:
 
    ```bash
    mkdir -p .claude
+   [ -f .claude/settings.json ] || echo '{}' > .claude/settings.json
    tmp=$(mktemp)
-   jq '.hooks.PreToolUse += [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"python3 .claude/hooks/block-dashes.py"}]}]' \
-     .claude/settings.json 2>/dev/null > "$tmp" \
-     || echo '{"hooks":{"PreToolUse":[{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"python3 .claude/hooks/block-dashes.py"}]}]}}' > "$tmp"
-   mv "$tmp" .claude/settings.json
+   jq '
+     def anchored: "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-dashes.py\"";
+     def is_bd: (.command? // "") | test("block-dashes\\.py");
+     .hooks //= {}
+     | .hooks.PreToolUse //= []
+     | .hooks.PreToolUse |= map(.hooks |= map(if is_bd then .command = anchored else . end))
+     | if [.hooks.PreToolUse[]?.hooks[]? | select(is_bd)] | length > 0
+       then .
+       else .hooks.PreToolUse += [{
+         "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+         "hooks": [{"type": "command", "command": anchored}]
+       }] end
+   ' .claude/settings.json > "$tmp" \
+     && mv "$tmp" .claude/settings.json \
+     || { rm -f "$tmp"; echo "settings.json is not valid JSON; wire block-dashes by hand"; }
    ```
-   If an equivalent entry already exists, skip the merge.
+   The jq program is single-quoted, so `$CLAUDE_PROJECT_DIR` stays literal in the written command
+   and is expanded by the shell when Claude Code runs the hook, not now.
+   Never fall back to overwriting `settings.json` wholesale when `jq` fails: a malformed file is a
+   reason to stop, not to destroy the user's other hooks.
 3. Confirm: `✓ block-dashes (hook) - installed and wired in .claude/settings.json`.
 
 **Finish** with a short summary and next steps:
