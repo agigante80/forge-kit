@@ -183,6 +183,75 @@ with tempfile.TemporaryDirectory() as td:
     p = run(dash, hook=local_hook, project_dir=proj2, cwd=str(sub))
     check("project copy, root set + subdir", verdict(p), DENY)
 
+# --- hooks.json, as Claude Code would run it -------------------------------
+# Parse the SHIPPED plugin registration and execute it, rather than a hand-written
+# approximation. The sh wrapper exists so a project that never opted in does not pay
+# a Python interpreter startup on every matched tool call.
+print("\n  -- plugin registration (hooks.json) --")
+
+HOOKS_JSON = ROOT / "plugins/forge-kit-governance/hooks/hooks.json"
+spec = json.loads(HOOKS_JSON.read_text())
+entry = spec["hooks"]["PreToolUse"][0]
+reg = entry["hooks"][0]
+
+check("matcher covers 5 tools", entry["matcher"], "Write|Edit|MultiEdit|NotebookEdit|Bash")
+check("exec form (args present)", "args" in reg, True)
+check("plugin root is braced", "${CLAUDE_PLUGIN_ROOT}" in " ".join(reg["args"]), True)
+
+
+def invoke_registered(plugin_root, project_dir, payload):
+    """Run hooks.json exactly as configured, substituting the path placeholder."""
+    argv = [reg["command"]] + [
+        a.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root)) for a in reg["args"]
+    ]
+    env = dict(os.environ)
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    if project_dir is not None:
+        env["CLAUDE_PROJECT_DIR"] = str(project_dir)
+    return subprocess.run(
+        argv, input=json.dumps(payload), capture_output=True, text=True, env=env, cwd="/"
+    )
+
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    proot = td / "plugin"
+    (proot / "hooks").mkdir(parents=True)
+    shutil.copy(HOOK, proot / "hooks" / "block-dashes.py")
+    proj = td / "proj"
+    (proj / ".claude").mkdir(parents=True)
+
+    p = invoke_registered(proot, proj, dash)
+    check("registered, no sentinel", verdict(p), ALLOW)
+    check("registered, no sentinel exit", p.returncode, 0)
+
+    # The sh guard must SHORT-CIRCUIT, not merely reach the same verdict via the
+    # script's own gate. Swap in a poison pill that denies unconditionally: if the
+    # interpreter is spawned at all, this denies and the test fails. Without this,
+    # deleting the guard is invisible here (same decision, 24x the cost per call).
+    poison = proot / "hooks" / "block-dashes.py"
+    original = poison.read_bytes()
+    poison.write_text(
+        "import json,sys\n"
+        'print(json.dumps({"hookSpecificOutput":'
+        '{"hookEventName":"PreToolUse","permissionDecision":"deny",'
+        '"permissionDecisionReason":"POISON: interpreter was spawned"}}))\n'
+    )
+    p = invoke_registered(proot, proj, dash)
+    check("no sentinel spawns no python", verdict(p), ALLOW, extra="(guard short-circuits)")
+    poison.write_bytes(original)
+
+    (proj / ".claude" / "no-dashes").touch()
+    p = invoke_registered(proot, proj, dash)
+    check("registered, opted in", verdict(p), DENY)
+    check("stdin reaches the script", "U+2014" in p.stdout, True)
+
+    p = invoke_registered(proot, proj, {"tool_name": "Write", "tool_input": {"content": "a - b"}})
+    check("registered, clean text", verdict(p), ALLOW)
+
+    p = invoke_registered(proot, None, dash)
+    check("registered, no CLAUDE_PROJECT_DIR", verdict(p), ALLOW, extra="(fail open)")
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} case(s): {', '.join(failures)}")
