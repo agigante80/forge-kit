@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 12 -->
+<!-- forge-adapt-version: 13 -->
 
 # forge-adapt
 
@@ -274,35 +274,53 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 1. Copy the script verbatim from `$FORGE_KIT_DIR/plugins/<group>/hooks/<file>` to
    `.claude/hooks/<file>` (`mkdir -p .claude/hooks`). Hook scripts are stack-agnostic - do not
    rewrite them; keep the `# <name>-version: N` marker line.
-2. Wire it into `.claude/settings.json`, merging (do not clobber existing hooks). Always anchor the
-   script path with `$CLAUDE_PROJECT_DIR`: a relative path resolves only when Claude Code's working
-   directory is the project root, and from a subdirectory `python3` cannot open the script and exits
-   2, which is the PreToolUse *deny* code, so every matched call is blocked with a confusing
-   `can't open file` error. The merge below is idempotent and rewrites a legacy relative-path entry
-   in place rather than appending a duplicate:
+2. Wire it into `.claude/settings.json`, merging (do not clobber existing hooks). Use the **exec form**
+   (`command` + `args`), never a bare command string:
+
+   ```json
+   { "type": "command", "command": "python3",
+     "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/block-dashes.py"] }
+   ```
+
+   Why this exact shape, and not a relative path or a `$VAR` inside a command string:
+   - A **relative** path resolves only when Claude Code's working directory is the project root. From
+     a subdirectory `python3` cannot open the script and exits 2, which is the PreToolUse *deny* code,
+     so every matched call is blocked with a confusing `can't open file` error.
+   - `${CLAUDE_PROJECT_DIR}` is a **path placeholder Claude Code substitutes**, not a shell variable.
+     Only the braced form is documented. An **unbraced** `$CLAUDE_PROJECT_DIR` is left untouched by the
+     substitution and expands to empty unless the variable happens to be exported into the hook's
+     shell, giving the path `/.claude/hooks/...`, exit 2, and the same deny-everything failure.
+   - With `args` present the hook runs in exec form: Claude Code spawns the executable directly, with
+     no shell, and substitutes the placeholder into each `args` element as a plain string. No quoting,
+     no expansion, nothing to get wrong. Omitting `args` selects shell form (`sh -c`).
+
+   The merge below is idempotent and rewrites any legacy entry (relative, unbraced, or braced shell
+   form) into exec form in place, rather than appending a duplicate. It preserves the existing
+   `matcher`, so a deliberately narrowed one survives:
 
    ```bash
    mkdir -p .claude
    [ -f .claude/settings.json ] || echo '{}' > .claude/settings.json
    tmp=$(mktemp)
    jq '
-     def anchored: "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-dashes.py\"";
-     def is_bd: (.command? // "") | test("block-dashes\\.py");
+     def script: "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-dashes.py";
+     def is_bd: (((.command? // "") + " " + ((.args? // []) | map(tostring) | join(" "))) | test("block-dashes\\.py"));
+     def entry: {"type": "command", "command": "python3", "args": [script]};
      .hooks //= {}
      | .hooks.PreToolUse //= []
-     | .hooks.PreToolUse |= map(.hooks |= map(if is_bd then .command = anchored else . end))
+     | .hooks.PreToolUse |= map(.hooks |= map(if is_bd then entry else . end))
      | if [.hooks.PreToolUse[]?.hooks[]? | select(is_bd)] | length > 0
        then .
        else .hooks.PreToolUse += [{
          "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
-         "hooks": [{"type": "command", "command": anchored}]
+         "hooks": [entry]
        }] end
    ' .claude/settings.json > "$tmp" \
      && mv "$tmp" .claude/settings.json \
      || { rm -f "$tmp"; echo "settings.json is not valid JSON; wire block-dashes by hand"; }
    ```
-   The jq program is single-quoted, so `$CLAUDE_PROJECT_DIR` stays literal in the written command
-   and is expanded by the shell when Claude Code runs the hook, not now.
+   The jq program is single-quoted, so `${CLAUDE_PROJECT_DIR}` stays literal in the written file and is
+   substituted by Claude Code at hook-run time, not by this shell now.
    Never fall back to overwriting `settings.json` wholesale when `jq` fails: a malformed file is a
    reason to stop, not to destroy the user's other hooks.
 3. Confirm: `✓ block-dashes (hook) - installed and wired in .claude/settings.json`.
