@@ -10,7 +10,7 @@ description: >
   own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 5 -->
+<!-- github-to-forgejo-version: 6 -->
 
 # github-to-forgejo
 
@@ -150,7 +150,12 @@ this skill so it stays portable.
      itself refuses. GitHub's archive reject is the server-side backstop.
   2. Optionally install the **`block-legacy-host-push` hook**
      (`plugins/forge-kit-devops/hooks/block-legacy-host-push.py`) into the project's
-     `.claude/hooks/` and wire it as a PreToolUse/Bash hook in `.claude/settings.json`.
+     `.claude/hooks/` and wire it as a PreToolUse/Bash hook in `.claude/settings.json`,
+     in exec form with the path anchored:
+     `{"type":"command","command":"python3","args":["${CLAUDE_PROJECT_DIR}/.claude/hooks/block-legacy-host-push.py"]}`.
+     Install it HERE, at cutover, and not earlier: `.forge.conf` exists from the start of
+     the migration, but the dual-remote / push-mirror window before cutover depends on
+     legacy pushes still working.
      It tokenizes each command, resolves the REAL push target (explicit remote, URL, or
      the branch's default push destination) to a URL host, and denies iff that host is in
      `FORGE_LEGACY_HOSTS` (defaults to `github.com` when `.forge.conf` exists). Command

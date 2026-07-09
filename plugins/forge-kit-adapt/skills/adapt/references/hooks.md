@@ -50,8 +50,11 @@ opinionated and only valuable where the project has adopted the no-dash conventi
      "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/block-legacy-host-push.py"] }
    ```
 
-   Unlike `block-dashes`, this hook is NOT registered by `hooks/hooks.json`: it is meaningful only
-   in a repo that has actually migrated off its legacy host, so it stays a project-local install.
+   Unlike `block-dashes`, this hook is NOT registered by `hooks/hooks.json`, and must not be. The
+   only signal a plugin-level hook could gate on is `.forge.conf`, which `github-to-forgejo` writes
+   at the START of a migration, while this hook belongs at cutover. Between the two the skill
+   supports a dual-remote / push-mirror window, and an auto-enabled hook would block the very
+   legacy pushes that window exists to allow. Installing it into the project IS the cutover signal.
 3. Confirm the repo is actually migrated: `.forge.conf` exists and the legacy host is
    archived/read-only. Optionally sanity-run `python3 .claude/hooks/block-legacy-host-push.py
    --self-test`.
