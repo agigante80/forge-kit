@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 17 -->
+<!-- forge-adapt-version: 18 -->
 
 # forge-adapt
 
@@ -96,19 +96,19 @@ fi
 If `FORGE_KIT_DIR` is still empty, stop and tell the user to clone it manually
 (`git clone https://github.com/agigante80/forge-kit ~/forge-kit`) and re-run.
 
-**S3. Catalogue forge-kit** (the menu of what can be recommended). For every component capture
-its type, name, `<name>-version` marker, and `description:`. The marker is the catalogue side of
-the Version status table (Step 2); capture it HERE so that table has a real data source. Use the
-SAME whole-file, name-scoped grep as the local capture in Step 1, and NEVER limit the scan to the
-first N lines: the marker often sits below long frontmatter (e.g. line 30 in `ticket-gate.md`,
-line 26 in `health-check.md`), so a head-limited read silently reports "no marker" and defeats
-drift detection.
+**S3. Catalogue forge-kit** (the menu of what can be recommended). For every component capture its
+type, name, and `<name>-version` marker below. The marker is the catalogue side of the Version
+status table (Step 2); capture it HERE so that table has a real data source. Use the SAME whole-file,
+name-scoped grep as the local capture in Step 1, and NEVER limit the scan to the first N lines: the
+marker often sits below long frontmatter (e.g. line 30 in `ticket-gate.md`, line 26 in
+`health-check.md`), so a head-limited read silently reports "no marker" and defeats drift detection.
 
 ```bash
 cat_row() {  # $1 = type label, $2 = file, $3 = match-name
-  v=$(grep -oP -- "${3}-version: \K\d+" "$2" | head -1)          # whole file, name-scoped
-  d=$(grep -m1 '^description:' "$2" | sed 's/description: *//')
-  echo "$1: $3 | v${v:-none} | $d"
+  # Anchor the marker to a comment lead-in so a match-name that is a suffix of a longer marker
+  # (e.g. "adapt" inside "forge-adapt-version") cannot match by substring.
+  v=$(grep -oP -- "(?:<!--\s*|#\s*)\K${3}-version: \d+" "$2" | grep -oP '\d+$' | head -1)
+  echo "$1: $3 | v${v:-none}"
 }
 for dir in "$FORGE_KIT_DIR"/plugins/*/; do
   for f in "$dir"agents/*.md;      do [ -f "$f" ] && cat_row subagent "$f" "$(basename "$f" .md)"; done
@@ -117,6 +117,10 @@ for dir in "$FORGE_KIT_DIR"/plugins/*/; do
   for f in "$dir"hooks/*.py "$dir"hooks/*.sh; do [ -f "$f" ] && { n=$(basename "$f"); cat_row hook "$f" "${n%.*}"; }; done
 done
 ```
+
+Then read each component's frontmatter `description:` for the "why" column - do this by reading the
+file, NOT with a one-line grep, because many components write `description: >` as a multi-line block
+scalar that a single grep captures as an empty ">".
 
 forge-adapt's own row is never consumed (it self-updates in S1 and is never recommended into a
 target project), so ignore it regardless of what its marker reads.
