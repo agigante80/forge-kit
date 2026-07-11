@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 18 -->
+<!-- forge-adapt-version: 19 -->
 
 # forge-adapt
 
@@ -105,9 +105,10 @@ marker often sits below long frontmatter (e.g. line 30 in `ticket-gate.md`, line
 
 ```bash
 cat_row() {  # $1 = type label, $2 = file, $3 = match-name
-  # Anchor the marker to a comment lead-in so a match-name that is a suffix of a longer marker
-  # (e.g. "adapt" inside "forge-adapt-version") cannot match by substring.
-  v=$(grep -oP -- "(?:<!--\s*|#\s*)\K${3}-version: \d+" "$2" | grep -oP '\d+$' | head -1)
+  # ver_of: identical to the local capture in Step 1. The `(?:<!--\s*|#\s*)` lead-in anchors the
+  # marker to its comment so a match-name that is a suffix of a longer marker (e.g. "adapt" inside
+  # "forge-adapt-version") cannot match by substring; `\K` then captures only the digits.
+  v=$(grep -oP -- "(?:<!--\s*|#\s*)${3}-version:\s*\K\d+" "$2" | head -1)
   echo "$1: $3 | v${v:-none}"
 }
 for dir in "$FORGE_KIT_DIR"/plugins/*/; do
@@ -137,7 +138,7 @@ cat CLAUDE.md 2>/dev/null
 for f in .claude/agents/*.md .claude/commands/*.md .claude/skills/*/SKILL.md; do
   [ -f "$f" ] || continue
   case "$f" in */skills/*) n=$(basename "$(dirname "$f")");; *) n=$(basename "$f" .md);; esac
-  v=$(grep -oP -- "${n}-version: \K\d+" "$f" | head -1)   # name-scoped: ignores body template-version refs
+  v=$(grep -oP -- "(?:<!--\s*|#\s*)${n}-version:\s*\K\d+" "$f" | head -1)  # anchored: same ver_of as S3
   d=$(grep -m1 '^description:' "$f" | sed 's/description: *//')
   echo "  $n | v${v:-none} | $d"
 done
@@ -145,7 +146,7 @@ done
 for f in .claude/hooks/*; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
-  v=$(grep -oP -- "${n}-version: \K\d+" "$f" | head -1)
+  v=$(grep -oP -- "(?:<!--\s*|#\s*)${n}-version:\s*\K\d+" "$f" | head -1)  # anchored: same ver_of as S3
   echo "  $n (hook) | v${v:-none}"
 done
 # Forge host + repo slug (host-aware: GitHub or self-hosted Forgejo).
