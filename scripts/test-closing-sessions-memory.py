@@ -62,5 +62,22 @@ class WriteTests(unittest.TestCase):
             self.assertNotIn("first", idx)
 
 
+class RemoveTests(unittest.TestCase):
+    def test_remove_deletes_file_and_index_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "gone", "--title", "Gone",
+                    "--type", "user", "--description", "temp"], body="b")
+            r = run(d, ["remove", "--slug", "gone"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(os.path.exists(
+                os.path.join(d, ".claude", "memory", "gone.md")))
+            self.assertNotIn("(gone.md)", read(d, "MEMORY.md"))
+
+    def test_remove_missing_slug_is_noop(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, ["remove", "--slug", "never-existed"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
