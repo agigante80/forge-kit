@@ -1,5 +1,5 @@
 {
   "name": "forge-kit-governance",
-  "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions skill",
-  "version": "0.2.0"
+  "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions and working-overnight skills, overnight-continue hook",
+  "version": "0.3.0"
 }
