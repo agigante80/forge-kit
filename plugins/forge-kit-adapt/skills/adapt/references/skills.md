@@ -15,9 +15,12 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | Aging / large codebase, pre-refactor or pre-release cleanup | `find-dead-code` | devops | find unused funcs/exports a linter misses | P2 |
 | Ships releases / has a VERSION or package.json version | `release` | devops | semver bump + sync + tag + close shipped tickets | P2 |
 | Merges to main as a release; bump/tag is manual (easily forgotten) | `release-automation` | devops | CI gate: block a merge that did not bump the version | P1 |
+| Long Claude Code sessions; decisions/context lost between them | `closing-sessions` | governance | persist session facts to memory + handoff notes | P2 |
 
 Note: the backend skills are injected knowledge, not actions, so recommend them when the project's
 domain matches, not by default. `find-dead-code` is the source-code counterpart to the `dep-auditor`
 agent (deps); recommend it for cleanup/refactor intent. `release-automation` is the *enforced* CI
 sibling of `release`: recommend both together (the gate makes the bump unforgettable; `release`
-is how a human cuts the release). Lead with at most the top 1-2; "more skills" expands the rest.
+is how a human cuts the release). `closing-sessions` (governance) fits any project worked in long
+Claude Code sessions; recommend it when context loss between sessions is a real risk, not by default.
+Lead with at most the top 1-2; "more skills" expands the rest.
