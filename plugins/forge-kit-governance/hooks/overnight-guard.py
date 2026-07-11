@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 2
+# overnight-guard-version: 3
 """PreToolUse Bash guard for an armed working-overnight run.
 
 While .claude/overnight/active.md is present, deny destructive git and
@@ -73,10 +73,16 @@ def is_bulk_delete(cmd):
     if not m:
         return False
     seg = m.group(0)
-    flags = "".join(re.findall(r"(?:^|\s)-(\w+)", seg))
-    if "r" not in flags or "f" not in flags:
+    # Short flag clusters (-rf, -fR, ...) and the long forms (--force, --recursive).
+    short = "".join(re.findall(r"(?:^|\s)-([a-zA-Z]+)\b", seg))
+    force = "f" in short or bool(re.search(r"(?:^|\s)--force\b", seg))
+    recursive = ("r" in short or "R" in short
+                 or bool(re.search(r"(?:^|\s)--recursive\b", seg)))
+    if not (force and recursive):
         return False
-    return bool(re.search(r"(\s|=)(/|~|\$HOME)", seg)) or ".." in seg
+    # A dangerous target may be preceded by whitespace, "=", or a quote (a quote
+    # before the path must not hide it, mirroring the .env pattern's prefix class).
+    return bool(re.search(r"(^|[\s='\"])(/|~|\$\{?HOME)", seg)) or ".." in seg
 
 
 def match_tier3(cmd):
@@ -92,9 +98,8 @@ PARK = " Do not retry; record it in .claude/overnight/decisions.md and move on."
 
 
 def main():
-    raw = sys.stdin.read()
     try:
-        payload = json.loads(raw)
+        payload = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, ValueError):
         payload = None
     if not isinstance(payload, dict):
