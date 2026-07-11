@@ -73,6 +73,64 @@ class WriteTests(unittest.TestCase):
             self.assertEqual(idx.count("(winbug.md)"), 1)
             self.assertIn(r"- [Winbug](winbug.md) - win path C:\1backup", idx)
 
+    def test_plain_description_stays_unquoted(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "plain", "--title", "Plain",
+                    "--type", "user", "--description", "a short hook"], body="b")
+            content = read(d, "plain.md")
+            self.assertIn("description: a short hook", content)
+            self.assertNotIn('description: "a short hook"', content)
+
+    def test_description_with_colon_is_quoted_in_frontmatter(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "ratio", "--title", "Ratio", "--type",
+                    "project", "--description", "ratio a: b matters"], body="b")
+            content = read(d, "ratio.md")
+            self.assertIn('description: "ratio a: b matters"', content)
+
+    def test_title_with_bracket_is_escaped_in_index(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "weird", "--title", "Weird ] title",
+                    "--type", "user", "--description", "x"], body="b")
+            idx = read(d, "MEMORY.md")
+            self.assertIn(r"- [Weird \] title](weird.md) - x", idx)
+
+    def test_update_entry_with_bracketed_title(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "br", "--title", "Weird ] title",
+                    "--type", "user", "--description", "first"], body="b")
+            run(d, ["write", "--slug", "br", "--title", "Weird ] title",
+                    "--type", "user", "--description", "second"], body="b")
+            idx = read(d, "MEMORY.md")
+            self.assertEqual(idx.count("(br.md)"), 1)
+            self.assertIn(r"- [Weird \] title](br.md) - second", idx)
+
+
+class CrossSlugTests(unittest.TestCase):
+    def test_update_does_not_clobber_line_with_inline_link(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "target", "--title", "Target",
+                    "--type", "project", "--description", "x"], body="b")
+            run(d, ["write", "--slug", "other", "--title", "Other", "--type",
+                    "project", "--description", "similar to [t](target.md)"], body="b")
+            run(d, ["write", "--slug", "target", "--title", "Target",
+                    "--type", "project", "--description", "updated"], body="b")
+            idx = read(d, "MEMORY.md")
+            self.assertIn("- [Other](other.md) - similar to [t](target.md)", idx)
+            self.assertEqual(idx.count("(other.md)"), 1)
+            self.assertIn("- [Target](target.md) - updated", idx)
+
+    def test_remove_does_not_clobber_line_with_inline_link(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "target", "--title", "Target",
+                    "--type", "project", "--description", "x"], body="b")
+            run(d, ["write", "--slug", "other", "--title", "Other", "--type",
+                    "project", "--description", "similar to [t](target.md)"], body="b")
+            run(d, ["remove", "--slug", "target"])
+            idx = read(d, "MEMORY.md")
+            self.assertIn("- [Other](other.md) - similar to [t](target.md)", idx)
+            self.assertNotIn("(target.md) - x", idx)
+
 
 class RemoveTests(unittest.TestCase):
     def test_remove_deletes_file_and_index_line(self):
