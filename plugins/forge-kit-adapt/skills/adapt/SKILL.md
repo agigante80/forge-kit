@@ -12,7 +12,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 16 -->
+<!-- forge-adapt-version: 17 -->
 
 # forge-adapt
 
@@ -96,19 +96,30 @@ fi
 If `FORGE_KIT_DIR` is still empty, stop and tell the user to clone it manually
 (`git clone https://github.com/agigante80/forge-kit ~/forge-kit`) and re-run.
 
-**S3. Catalogue forge-kit** (the menu of what can be recommended). Read every component's
-`name:` and `description:` from frontmatter; treat the four types as the four recommendation
-categories.
+**S3. Catalogue forge-kit** (the menu of what can be recommended). For every component capture
+its type, name, `<name>-version` marker, and `description:`. The marker is the catalogue side of
+the Version status table (Step 2); capture it HERE so that table has a real data source. Use the
+SAME whole-file, name-scoped grep as the local capture in Step 1, and NEVER limit the scan to the
+first N lines: the marker often sits below long frontmatter (e.g. line 30 in `ticket-gate.md`,
+line 26 in `health-check.md`), so a head-limited read silently reports "no marker" and defeats
+drift detection.
 
 ```bash
-for d in "$FORGE_KIT_DIR"/plugins/*/; do
-  ls "$d/agents/"   2>/dev/null | sed 's/^/subagent: /'
-  ls "$d/skills/"   2>/dev/null | sed 's/^/skill: /'
-  ls "$d/commands/" 2>/dev/null | sed 's/^/command: /'
-  ls "$d/hooks/"*.py "$d/hooks/"*.sh 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/^/hook: /'
+cat_row() {  # $1 = type label, $2 = file, $3 = match-name
+  v=$(grep -oP -- "${3}-version: \K\d+" "$2" | head -1)          # whole file, name-scoped
+  d=$(grep -m1 '^description:' "$2" | sed 's/description: *//')
+  echo "$1: $3 | v${v:-none} | $d"
+}
+for dir in "$FORGE_KIT_DIR"/plugins/*/; do
+  for f in "$dir"agents/*.md;      do [ -f "$f" ] && cat_row subagent "$f" "$(basename "$f" .md)"; done
+  for f in "$dir"commands/*.md;    do [ -f "$f" ] && cat_row command  "$f" "$(basename "$f" .md)"; done
+  for f in "$dir"skills/*/SKILL.md; do [ -f "$f" ] && cat_row skill  "$f" "$(basename "$(dirname "$f")")"; done
+  for f in "$dir"hooks/*.py "$dir"hooks/*.sh; do [ -f "$f" ] && { n=$(basename "$f"); cat_row hook "$f" "${n%.*}"; }; done
 done
-# Then read the first ~15 lines of each to capture name + description for the "why" column.
 ```
+
+forge-adapt's own row is never consumed (it self-updates in S1 and is never recommended into a
+target project), so ignore it regardless of what its marker reads.
 
 ### Step 1: Analyze the project
 
@@ -240,9 +251,12 @@ Rules for this step:
   (Component | Why | Priority | Installed?), marking each row `✓` if already in `.claude/` or
   `+ new` if not (so the user sees what they have vs what is available), then repeats the reply prompt.
 - **Version status table = every marked local copy; `behind` only when strictly lower.** Compare each
-  installed component's `<name>-version` marker (captured in Step 1) against the catalogue marker. Show
-  marked components in the Version status table; Status is `behind → refresh <name>` ONLY when the local
-  marker is strictly lower than the catalogue's, else `current`. This is a grep, high-confidence.
+  installed component's `<name>-version` marker (captured in Step 1) against the catalogue marker
+  (captured in Setup S3 - both sides use the same whole-file, name-scoped grep, so a match means the
+  copy is genuinely current). Show marked components in the Version status table; Status is
+  `behind → refresh <name>` ONLY when the local marker is strictly lower than the catalogue's, else
+  `current`. When both sides carry the same number, render `current` - never downgrade a real match to
+  "can't compare". This is a grep, high-confidence.
 - **Unmarked local copy ≠ behind.** A component with NO local marker was almost always adapted before
   versioning existed - it is "unversioned", NOT stale. Do NOT render these as `v0 → v1` Updates (that
   floods the report with false positives - the exact failure this design avoids). Collapse ALL unmarked
