@@ -21,7 +21,7 @@ CI gate, or act outside the project's repo and its worktrees.
 
 Destructive git and secrets/bulk-delete commands are additionally enforced
 mechanically by the overnight-guard hook while a run is armed: it denies them at
-the PreToolUse boundary, so they cannot run even if this prose is not followed.
+the PreToolUse boundary, so a drifting cycle is blocked even if this prose is not followed.
 Merge and protected-branch push are left to the platform's branch protection.
 
 ## Gating filters, never self-approves
