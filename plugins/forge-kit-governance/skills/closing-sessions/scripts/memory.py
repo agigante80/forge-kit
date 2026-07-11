@@ -29,11 +29,45 @@ def memory_path(project_dir, slug):
     return os.path.join(memory_dir(project_dir), slug + ".md")
 
 
+# Characters that force a YAML plain scalar to be quoted when they lead it.
+_YAML_INDICATORS = set("!&*[]{}#|>@`\"'%?,")
+
+# A Markdown link title: from "[" to the first UNescaped "]", allowing "\]"
+# inside so that a title carrying a bracket still matches its own line.
+_LINK_TITLE = r"\[(?:[^\]\\]|\\.)*\]"
+
+
+def _one_line(value):
+    return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
+
+
+def _needs_yaml_quote(value):
+    if value == "":
+        return True
+    if value[0] in _YAML_INDICATORS or value[0] in ":-" or value[0].isspace():
+        return True
+    return ": " in value or value.endswith(":") or " #" in value
+
+
+def _yaml_scalar(value):
+    value = _one_line(value)
+    if _needs_yaml_quote(value):
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return value
+
+
+def _md_link_text(value):
+    return (_one_line(value)
+            .replace("\\", "\\\\")
+            .replace("[", "\\[")
+            .replace("]", "\\]"))
+
+
 def render_memory(slug, mem_type, description, body):
     return (
         "---\n"
         f"name: {slug}\n"
-        f"description: {description}\n"
+        f"description: {_yaml_scalar(description)}\n"
         "metadata:\n"
         f"  type: {mem_type}\n"
         "---\n\n"
@@ -42,7 +76,7 @@ def render_memory(slug, mem_type, description, body):
 
 
 def index_line(title, slug, description):
-    return f"- [{title}]({slug}.md) - {description}\n"
+    return f"- [{_md_link_text(title)}]({slug}.md) - {_one_line(description)}\n"
 
 
 def read_index(project_dir):
@@ -61,7 +95,7 @@ def write_index(project_dir, content):
 
 def line_pattern(slug):
     return re.compile(
-        r"^- \[.*\]\(" + re.escape(slug) + r"\.md\).*$",
+        r"^- " + _LINK_TITLE + r"\(" + re.escape(slug) + r"\.md\).*$",
         re.MULTILINE,
     )
 
@@ -86,7 +120,7 @@ def remove_index_line(project_dir, slug):
     if existing is None:
         return
     pattern = re.compile(
-        r"^- \[.*\]\(" + re.escape(slug) + r"\.md\).*\n?",
+        r"^- " + _LINK_TITLE + r"\(" + re.escape(slug) + r"\.md\).*\n?",
         re.MULTILINE,
     )
     write_index(project_dir, pattern.sub("", existing))
