@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 1
+# overnight-guard-version: 2
 """PreToolUse Bash guard for an armed working-overnight run.
 
 While .claude/overnight/active.md is present, deny destructive git and
@@ -18,6 +18,10 @@ daytime work is never affected.
 
 Not adversary-proof: matching is on the command string and catches a drifting
 model doing the obvious thing, not a deliberate evasion.
+
+Known gap: a bare "git checkout <file>" (discarding one file without "--") is
+not caught, because a regex cannot tell it apart from "git checkout <branch>";
+the modern "git restore <file>" form is caught broadly.
 """
 import json
 import os
@@ -56,7 +60,7 @@ GIT_PATTERNS = [
 ]
 
 SECRET_PATTERNS = [
-    ("secret file access", re.compile(r"(^|[\s=/'\"])\.env(\.[\w.]+)?(\b|['\"]|$)")),
+    ("secret file access", re.compile(r"(^|[\s=/'\"])\.env(?!\.(example|sample|template|dist)\b)(\.[\w.]+)?(\b|['\"]|$)")),
     ("secret file access", re.compile(r"\bid_rsa\b")),
     ("secret file access", re.compile(r"[\w./-]+\.pem\b")),
     ("secret file access", re.compile(r"/secrets?/")),
@@ -64,18 +68,15 @@ SECRET_PATTERNS = [
 ]
 
 
-def is_rm_rf(cmd):
-    m = re.search(r"\brm\b((?:\s+-\S+)+)", cmd)
+def is_bulk_delete(cmd):
+    m = re.search(r"\brm\b[^|;&]*", cmd)
     if not m:
         return False
-    joined = "".join(re.findall(r"-(\w+)", m.group(1)))
-    return "r" in joined and "f" in joined
-
-
-def is_bulk_delete(cmd):
-    if not is_rm_rf(cmd):
+    seg = m.group(0)
+    flags = "".join(re.findall(r"(?:^|\s)-(\w+)", seg))
+    if "r" not in flags or "f" not in flags:
         return False
-    return bool(re.search(r"(\s|=)(/|~|\$HOME)", cmd)) or ".." in cmd
+    return bool(re.search(r"(\s|=)(/|~|\$HOME)", seg)) or ".." in seg
 
 
 def match_tier3(cmd):
