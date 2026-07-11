@@ -61,6 +61,18 @@ class WriteTests(unittest.TestCase):
             self.assertIn("- [My Fact](my-fact.md) - second", idx)
             self.assertNotIn("first", idx)
 
+    def test_write_update_with_backslash_in_description(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "winbug", "--title", "Winbug",
+                    "--type", "project", "--description", "first"], body="b")
+            r = run(d, ["write", "--slug", "winbug", "--title", "Winbug",
+                        "--type", "project",
+                        "--description", r"win path C:\1backup"], body="b2")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            idx = read(d, "MEMORY.md")
+            self.assertEqual(idx.count("(winbug.md)"), 1)
+            self.assertIn(r"- [Winbug](winbug.md) - win path C:\1backup", idx)
+
 
 class RemoveTests(unittest.TestCase):
     def test_remove_deletes_file_and_index_line(self):

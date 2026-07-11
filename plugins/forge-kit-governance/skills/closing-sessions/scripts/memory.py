@@ -74,7 +74,7 @@ def upsert_index_line(project_dir, title, slug, description):
         return
     pattern = line_pattern(slug)
     if pattern.search(existing):
-        write_index(project_dir, pattern.sub(line.rstrip("\n"), existing))
+        write_index(project_dir, pattern.sub(lambda _: line.rstrip("\n"), existing))
         return
     if not existing.endswith("\n"):
         existing += "\n"
