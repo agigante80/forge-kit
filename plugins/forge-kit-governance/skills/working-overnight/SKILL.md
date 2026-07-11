@@ -3,7 +3,7 @@ name: working-overnight
 description: Run governed, unattended overnight work. Pulls from a defined work source (gated tickets, tickets to gate, or investigations like full/security reviews that create tickets), implements safe work as branch-plus-PR without ever merging, defers you-only decisions instead of guessing, and writes a morning report. Use when the user says to work overnight, run unattended, keep going while they are away, or asks to set up autonomous overnight work. Driven by /loop; not a single unbounded session.
 ---
 
-<!-- working-overnight-version: 1 -->
+<!-- working-overnight-version: 2 -->
 
 # Working overnight
 

@@ -19,6 +19,11 @@ Do NOT, unattended, under any manifest: merge to main, `git push --force`, delet
 remote branches or tags, run a deploy or release, read or write secrets, disable a
 CI gate, or act outside the project's repo and its worktrees.
 
+Destructive git and secrets/bulk-delete commands are additionally enforced
+mechanically by the overnight-guard hook while a run is armed: it denies them at
+the PreToolUse boundary, so they cannot run even if this prose is not followed.
+Merge and protected-branch push are left to the platform's branch protection.
+
 ## Gating filters, never self-approves
 
 A ticket this run authored is implemented only if it cleanly passes ticket-gate. A
