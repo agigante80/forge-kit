@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract tests for forge-kit's PreToolUse hooks.
+"""Contract tests for forge-kit's PreToolUse and Stop hooks.
 
 Run: python3 scripts/test-hooks.py     (no dependencies, exits 1 on failure)
 
@@ -396,6 +396,66 @@ check("blhp docstring anchors path", "${CLAUDE_PROJECT_DIR}" in BLHP.read_text()
 devops_reg = ROOT / "plugins/forge-kit-devops/hooks/hooks.json"
 registered = "block-legacy-host-push" in devops_reg.read_text() if devops_reg.exists() else False
 check("blhp not plugin-registered", registered, False, extra="(cutover is the opt-in)")
+
+# --- overnight-continue (Stop hook) ----------------------------------------
+# A Stop hook that keeps one working-overnight cycle from idling to a stop while a
+# run is armed (.claude/overnight/active.md present). It is a safety net, not the
+# loop engine. Contract (verified vs Claude Code 2.1.207): continue = exit 0 +
+# {"decision":"block","reason":...}; allow stop = exit 0 + no stdout. Fails OPEN
+# to allow-stop on any error, a non-dict payload, stop_hook_active, or no manifest.
+print("\n  -- overnight-continue (Stop hook) --")
+
+OVERNIGHT = ROOT / "plugins/forge-kit-governance/hooks/overnight-continue.py"
+
+
+def stop_verdict(p):
+    if p.stdout.strip() == "":
+        return "allow-stop"
+    return "continue" if json.loads(p.stdout).get("decision") == "block" else "allow-stop"
+
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    armed = td / "armed"
+    (armed / ".claude" / "overnight").mkdir(parents=True)
+    (armed / ".claude" / "overnight" / "active.md").write_text("run manifest")
+    disarmed = td / "disarmed"
+    (disarmed / ".claude").mkdir(parents=True)
+
+    active = {"hook_event_name": "Stop", "stop_hook_active": False}
+
+    p = run(active, hook=OVERNIGHT, project_dir=armed, cwd=str(armed))
+    check("armed run continues",
+          stop_verdict(p) if p.returncode == 0 else f"exit{p.returncode}", "continue")
+    check("continue exits 0", p.returncode, 0)
+
+    p = run({"hook_event_name": "Stop", "stop_hook_active": True},
+            hook=OVERNIGHT, project_dir=armed, cwd=str(armed))
+    check("stop_hook_active allows stop", stop_verdict(p), "allow-stop",
+          extra="(do not push the 8-block cap)")
+
+    p = run(active, hook=OVERNIGHT, project_dir=disarmed, cwd=str(disarmed))
+    check("disarmed allows stop", stop_verdict(p), "allow-stop", extra="(dormant)")
+
+    p = run(None, raw="{not json", hook=OVERNIGHT, project_dir=armed, cwd=str(armed))
+    check("overnight malformed allows stop",
+          stop_verdict(p) if p.returncode == 0 else f"exit{p.returncode}", "allow-stop")
+    check("overnight malformed exits 0", p.returncode, 0)
+
+    p = run(None, raw="[1, 2, 3]", hook=OVERNIGHT, project_dir=armed, cwd=str(armed))
+    check("overnight non-dict allows stop",
+          stop_verdict(p) if p.returncode == 0 else f"exit{p.returncode}", "allow-stop")
+
+    # No CLAUDE_PROJECT_DIR: the hook falls back to the payload cwd to find the manifest.
+    p = run(dict(active, cwd=str(armed)), hook=OVERNIGHT, project_dir=None, cwd=str(armed))
+    check("armed via payload cwd", stop_verdict(p), "continue")
+
+# --- overnight-continue registration (hooks.json) --------------------------
+print("\n  -- overnight-continue registration --")
+stop_reg = spec["hooks"]["Stop"][0]["hooks"][0]
+check("Stop hook exec form", "args" in stop_reg, True)
+check("Stop hook plugin root braced", "${CLAUDE_PLUGIN_ROOT}" in " ".join(stop_reg["args"]), True)
+check("Stop hook targets overnight-continue", "overnight-continue.py" in " ".join(stop_reg["args"]), True)
 
 print()
 if failures:
