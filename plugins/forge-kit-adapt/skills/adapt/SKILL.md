@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 31 -->
+<!-- forge-adapt-version: 32 -->
 
 # forge-adapt
 
@@ -356,9 +356,9 @@ Rules for this step:
   components into ONE quiet line: "Unversioned (predate markers - not necessarily behind): <names> -
   `refresh <name>` to deep-compare." Components unversioned on both sides fold into the same line.
 - **Never content-diff every component up front** - it is expensive and mis-reads adaptation as drift.
-- Wait for the reply. Names or "all" -> Step 3. `templates` (or `all` when the Issue-templates line
-  said `none`/`behind`) -> the Step 3 issue-template branch. `refresh`/`refresh <name>` -> refresh
-  mode (below). "none" -> stop (offer contributions/templates modes).
+- Wait for the reply. Names or "all" -> Step 3 (components only; "all" does NOT silently write issue
+  templates to `.github/`). `templates` -> the Step 3 issue-template branch. `refresh`/`refresh
+  <name>` -> refresh mode (below). "none" -> stop (offer contributions/templates modes).
 
 ### Step 3: Install (adapt, then write)
 
@@ -482,8 +482,9 @@ the plugin, or install it into the project as below. Never do both.
    reason to stop, not to destroy the user's other hooks.
 3. Confirm: `✓ block-dashes (hook) - installed and wired in .claude/settings.json`.
 
-**Issue templates** (when the user replies `templates`, or picks `all` and the Issue-templates line
-reported `none`/`behind`): install them inline here - no separate `forge-adapt templates` invocation.
+**Issue templates** (only when the user explicitly replies `templates` - not bundled into `all`,
+since these write to the committed `.github/` tree): install them inline here, no separate
+`forge-adapt templates` invocation.
 Run the **Templates mode** install logic (see Secondary modes -> Templates mode) from within this
 step: use each forge-kit template as the base when missing, or merge when outdated/incomplete
 (preserve existing content verbatim, add only missing sections, bump the `template-version` marker);
