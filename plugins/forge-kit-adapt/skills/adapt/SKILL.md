@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 22 -->
+<!-- forge-adapt-version: 23 -->
 
 # forge-adapt
 
@@ -38,6 +38,23 @@ Focus a single category by naming it: "forge-adapt skills", "forge-adapt hooks",
 
 Three steps the user sees: **Analyze -> Recommend -> Install**. Keep it clean - do not narrate
 the setup. Run Setup quietly, then lead with the recommendation.
+
+**Pre-flight (fail fast): is this project forge-kit itself?** forge-adapt installs components INTO a
+target project's `.claude/`; the forge-kit repo is the source library, not a target. Running it here
+would copy the library into its own `.claude/`, a no-op-shaped mistake. Check the current directory
+BEFORE Setup (it needs nothing from Setup):
+
+```bash
+if [ -f .claude-plugin/marketplace.json ] && [ -d plugins/forge-kit-adapt ]; then
+  echo "forge-adapt: this is the forge-kit source repo, not a target project - it IS the component"
+  echo "  library. Run forge-adapt from the project you want to adapt, not from forge-kit itself."
+fi
+```
+
+If it matches, STOP here: do not run Setup, catalogue, or the rest of the flow. Explain and ask the
+user to re-run from their target project. Only continue if the user explicitly says they intend to
+adapt forge-kit itself. (This structural check matches a fork too, which is correct: a fork is still
+the source, not a target.)
 
 ### Setup (quiet - do not print unless something needs the user)
 
