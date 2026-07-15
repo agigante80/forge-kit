@@ -40,6 +40,9 @@ jobs:
       - name: Template lockstep guard tests
         run: bash scripts/test-template-lockstep.sh
 
+      - name: forge-adapt catalogue script tests
+        run: bash scripts/test-forge-adapt-catalogue.sh
+
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'
         env:
