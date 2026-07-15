@@ -10,7 +10,7 @@ description: >
   own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 6 -->
+<!-- github-to-forgejo-version: 7 -->
 
 # github-to-forgejo
 
@@ -101,6 +101,27 @@ fallback, not a merge, verified against Forgejo docs + source). Consequences dur
 - **Dual-remote (mirroring to both forges):** Forgejo populates the `github.*` context, so if you
   share one workflow dir, guard GitHub-only steps on the host (e.g.
   `contains(github.server_url, 'github.com')`), or keep separate `.forgejo/` + `.github/` copies.
+
+## Phase 3.5: Relocate issue templates (`.github/ISSUE_TEMPLATE` -> `.forgejo/ISSUE_TEMPLATE`)
+Forgejo/Gitea read `.github/ISSUE_TEMPLATE/` as a **fallback**, so templates keep working after a
+migration and relocation is **optional for function**. For a Forgejo-native repo it is cleaner to
+relocate: `.forgejo/ISSUE_TEMPLATE/` takes precedence (Forgejo also accepts `.gitea/ISSUE_TEMPLATE/`).
+The steps that actually bite:
+- `git mv .github/ISSUE_TEMPLATE/* .forgejo/ISSUE_TEMPLATE/`.
+- `config.yml` works as-is (`blank_issues_enabled` + `contact_links`), but repoint any
+  `github.com` URLs inside it to the Forgejo browse URLs.
+- **Repoint every tool that greps the old path.** Host-aware forge-kit components resolve the dir
+  themselves (`ticket-gate` reads the first existing of `.forgejo`/`.gitea`/`.github`
+  ISSUE_TEMPLATE), but any project-local grep on `.github/ISSUE_TEMPLATE/...` in custom agents or
+  scripts must be updated by hand.
+- **Swap `gh issue view/edit/comment` for the `forge_*` adapter** in any governance that reads or
+  writes issues: `gh` fails once GitHub issues are disabled on the archived repo.
+- **Verify from the server:** `forge_api GET "/repos/$REPO/issue_templates"` reports each template's
+  `file_name`, so you can confirm which directory is actually serving (Forgejo indexes templates
+  from the default branch after you push).
+
+Re-running `/forge-kit-adapt:adapt` after Phase 2 already writes templates to `.forgejo/` when it
+detects `FORGE_HOST=forgejo`, so its `templates` mode is the automated path for the `git mv` above.
 
 ## Phase 4: Port CI to `.forgejo/workflows/` (optional)
 Forgejo Actions is GitHub-Actions-compatible, but the runner is usually a **container**
