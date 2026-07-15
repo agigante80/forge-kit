@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 32 -->
+<!-- forge-adapt-version: 33 -->
 
 # forge-adapt
 
@@ -215,10 +215,15 @@ CURRENT_REPO=$(printf '%s' "$REMOTE_URL" | sed -E 's#\.git$##; s#/$##; s#^.*://[
 find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep -vE 'node_modules|\.claude|dist' | head -20
 # Issue-template drift (host-aware) + governance state. Exit-0-safe: a missing dir is a normal finding.
 PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do [ -d "$d" ] && { echo "$d"; break; }; done)
-PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+# Lenient project read: accept forge-kit's canonical hidden marker AND a visible "Template version: N"
+# line (some projects predate the canonical form). Upgrading normalises them; the lockstep guard
+# stays strict (canonical-only).
+PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoiP 'template[ -]version:\s*\*{0,2}\s*\K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+# Is the version carried in the canonical `<!-- template-version: N -->` form (vs a visible line)?
+PRJ_TPL_CANONICAL=no; { [ -n "$PRJ_TPL_DIR" ] && grep -qP '<!--\s*template-version:\s*\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null && PRJ_TPL_CANONICAL=yes; } || true
 FK_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$FORGE_KIT_DIR"/.github/ISSUE_TEMPLATE/*.yml 2>/dev/null | sort -un | tail -1)
 HAS_LOCKSTEP=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
-echo "issue-templates: project=v${PRJ_TPL_VER:-none} dir=${PRJ_TPL_DIR:-none} forge-kit=v${FK_TPL_VER:-none} lockstep-guard=${HAS_LOCKSTEP}"
+echo "issue-templates: project=v${PRJ_TPL_VER:-none} canonical-marker=${PRJ_TPL_CANONICAL} dir=${PRJ_TPL_DIR:-none} forge-kit=v${FK_TPL_VER:-none} lockstep-guard=${HAS_LOCKSTEP}"
 # CI / releases / dep-automation signals. Exit-0-safe: a missing path is a normal finding (do NOT
 # improvise a bare `ls a b` here - it exits 2 when one is absent and reads as "Failed to run").
 echo "ci-workflows:"; ls .github/workflows .forgejo/workflows .gitea/workflows 2>/dev/null || true
@@ -299,11 +304,18 @@ Profile
 `behind → refresh <name>`. Omit the whole section only if no installed component carries a marker.)
 
 ### Issue templates
-One line from the Step-1 probe, so template drift shows in the main flow (not only in
-`forge-adapt templates`):
-- project behind forge-kit: `Issue templates: vN (forge-kit vM) - behind; reply "templates" to upgrade inline.`
-- current: `Issue templates: vM - current.`
-- none found: `Issue templates: none; reply "templates" to install the vM set inline.`
+One line from the Step-1 probe (`PRJ_TPL_VER` vs `FK_TPL_VER`, plus `canonical-marker`), so template
+drift shows in the main flow (not only in `forge-adapt templates`):
+- behind (`PRJ_TPL_VER < FK_TPL_VER`): `Issue templates: vN (forge-kit vM) - behind; reply "templates" to upgrade inline.`
+- current (`PRJ_TPL_VER >= FK_TPL_VER`): `Issue templates: vM - current.`
+- present but no version detected (`dir` set, `PRJ_TPL_VER` none): `Issue templates: present but unversioned; reply "templates" to normalise to the vM set.`
+- none (`dir` none): `Issue templates: none; reply "templates" to install the vM set inline.`
+
+When `canonical-marker=no` but a version WAS detected (the project uses a visible `**Template
+version:** N` line rather than forge-kit's canonical `<!-- template-version: N -->` marker), append
+` (non-canonical marker form; the upgrade normalises it)`. This matters because the lockstep guard
+recognises only the canonical form, so a non-canonical project is effectively unenforced until
+normalised by a `templates` upgrade.
 
 (When the project has versioned templates but no lockstep guard, also emit the Template-governance
 line from the nudge rule. Omit this section only when the project has no templates and none of the
