@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 21 -->
+<!-- forge-adapt-version: 22 -->
 
 # forge-adapt
 
@@ -59,7 +59,9 @@ REMOTE_SHA=$(echo "$REMOTE_JSON" | jq -r '.sha // empty' 2>/dev/null)
 **S2. Locate AND refresh the forge-kit library** (marketplace checkout, then `~/forge-kit`, then clone),
 and separately determine whether the governance plugin is enabled. The skill self-updates in S1, but
 the component library is a SEPARATE checkout - if it is stale, new components (e.g. a newly added
-hook) are invisible to the catalogue. Always refresh it.
+hook) are invisible to the catalogue and file-copy installs fail on missing sources. Always
+refresh it, INCLUDING the marketplace checkout (Claude Code does not auto-pull it between manual
+`/plugin marketplace update` runs).
 
 ```bash
 FORGE_KIT_DIR=""; FORGE_KIT_SRC=""
@@ -75,13 +77,21 @@ else
   git clone https://github.com/agigante80/forge-kit ~/forge-kit --depth 1 --quiet && { FORGE_KIT_DIR=~/forge-kit; FORGE_KIT_SRC="clone"; }
 fi
 
-# Refresh so the catalogue reflects the latest forge-kit (block-dashes, slimmed agents, etc.).
-if [ "$FORGE_KIT_SRC" = "clone" ]; then
+# Refresh the library so the catalogue AND file-copy installs reflect the latest forge-kit.
+# BOTH sources are plain git checkouts of the repo tracking origin/main, so fetch + reset
+# --hard makes either current. The marketplace checkout is NOT auto-pulled by Claude Code
+# between manual `/plugin marketplace update` runs, and it pins no SHA (known_marketplaces.json
+# holds only source + installLocation), so resetting it forward is safe and lands exactly what
+# an update would. Refreshing it here is what stops the library drifting - a stale checkout
+# both mis-catalogues versions AND is missing the scripts/ + docs/ files a governance install
+# copies, which would hard-fail the install.
+if git -C "$FORGE_KIT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "$FORGE_KIT_DIR" fetch --depth 1 origin --quiet 2>/dev/null \
     && git -C "$FORGE_KIT_DIR" reset --hard origin/HEAD --quiet 2>/dev/null \
-    || echo "forge-adapt: could not refresh ~/forge-kit; catalogue may be behind (fix: git -C ~/forge-kit pull)."
+    || { if [ "$FORGE_KIT_SRC" = "marketplace" ]; then fix="/plugin marketplace update forge-kit"; else fix="git -C $FORGE_KIT_DIR pull"; fi; \
+         echo "forge-adapt: could not refresh the $FORGE_KIT_SRC library at $FORGE_KIT_DIR; it may be behind (fix: $fix)."; }
 else
-  echo "forge-adapt: using the marketplace checkout. If a just-added component is missing, run: /plugin marketplace update forge-kit"
+  echo "forge-adapt: library at $FORGE_KIT_DIR is not a git checkout; cannot auto-refresh (catalogue may be behind)."
 fi
 echo "forge-adapt: library at $(git -C "$FORGE_KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?') ($FORGE_KIT_SRC)"
 
@@ -537,9 +547,17 @@ Both are independent - a project can take the guard, the doc, or both.
 
 ```bash
 mkdir -p scripts
-cp "$FORGE_KIT_DIR/scripts/check-template-lockstep.sh" scripts/
-cp "$FORGE_KIT_DIR/scripts/test-template-lockstep.sh"  scripts/
-chmod +x scripts/check-template-lockstep.sh scripts/test-template-lockstep.sh
+src="$FORGE_KIT_DIR/scripts"
+# Defence in depth: if S2's refresh failed (offline) the library can still be stale and these
+# files absent. Never cp a missing source (a raw cp error reads as a bug); stop with the fix.
+if [ ! -f "$src/check-template-lockstep.sh" ] || [ ! -f "$src/test-template-lockstep.sh" ]; then
+  if [ "$FORGE_KIT_SRC" = "marketplace" ]; then fix="/plugin marketplace update forge-kit"; else fix="git -C $FORGE_KIT_DIR pull"; fi
+  echo "forge-adapt: guard scripts missing from the library at $FORGE_KIT_DIR (stale). Refresh and retry: $fix"
+else
+  cp "$src/check-template-lockstep.sh" scripts/
+  cp "$src/test-template-lockstep.sh"  scripts/
+  chmod +x scripts/check-template-lockstep.sh scripts/test-template-lockstep.sh
+fi
 ```
 
 **Run the guard once before wiring CI**, so the user is not blindsided by red CI (and a red guard
@@ -572,7 +590,8 @@ Confirm: `✓ template-lockstep guard installed + wired (<host-workflows-dir>)`.
 
 **Install: canonical ticket-standards doc (adapted; report-first if it already exists).**
 
-- **Absent** (`HAS_DOC=no`): read `$FORGE_KIT_DIR/docs/guides/ticket-standards.md`, adapt it to the
+- **Absent** (`HAS_DOC=no`): read `$FORGE_KIT_DIR/docs/guides/ticket-standards.md` (if that source
+  file is missing, the library is stale - refresh it as in S2 and retry; never fabricate the doc), adapt it to the
   project (reference the project's ACTUAL template set and package names; drop rules for sections the
   project's templates do not carry), and **set its `template-version` marker to `$PRJ_TPL_VER`** - the
   project's own value, NOT forge-kit's - so the lockstep guard locks the doc to the project's
