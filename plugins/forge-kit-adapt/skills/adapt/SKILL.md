@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 30 -->
+<!-- forge-adapt-version: 31 -->
 
 # forge-adapt
 
@@ -301,9 +301,9 @@ Profile
 ### Issue templates
 One line from the Step-1 probe, so template drift shows in the main flow (not only in
 `forge-adapt templates`):
-- project behind forge-kit: `Issue templates: vN (forge-kit vM) - behind; forge-adapt templates to upgrade.`
+- project behind forge-kit: `Issue templates: vN (forge-kit vM) - behind; reply "templates" to upgrade inline.`
 - current: `Issue templates: vM - current.`
-- none found: `Issue templates: none; forge-adapt templates to install the vM set.`
+- none found: `Issue templates: none; reply "templates" to install the vM set inline.`
 
 (When the project has versioned templates but no lockstep guard, also emit the Template-governance
 line from the nudge rule. Omit this section only when the project has no templates and none of the
@@ -319,6 +319,7 @@ Setup signals suggest it wants them.)
 
 Reply:
 - names to install (I adapt each to your stack), "all", or "none"
+- "templates" - install/upgrade the issue-template set inline (adapted to your packages) plus the optional lockstep guard + ticket-standards doc. No separate command needed.
 - "refresh <name>" - deep-compare one installed component and merge genuine improvements
 - "refresh" - full drift report (writes nothing)
 - "more subagents" / "more skills" / "more commands" / "more hooks" - full catalogue for a category, as a table
@@ -355,8 +356,9 @@ Rules for this step:
   components into ONE quiet line: "Unversioned (predate markers - not necessarily behind): <names> -
   `refresh <name>` to deep-compare." Components unversioned on both sides fold into the same line.
 - **Never content-diff every component up front** - it is expensive and mis-reads adaptation as drift.
-- Wait for the reply. Names or "all" -> Step 3. `refresh`/`refresh <name>` -> refresh mode (below).
-  "none" -> stop (offer contributions/templates modes).
+- Wait for the reply. Names or "all" -> Step 3. `templates` (or `all` when the Issue-templates line
+  said `none`/`behind`) -> the Step 3 issue-template branch. `refresh`/`refresh <name>` -> refresh
+  mode (below). "none" -> stop (offer contributions/templates modes).
 
 ### Step 3: Install (adapt, then write)
 
@@ -479,6 +481,18 @@ the plugin, or install it into the project as below. Never do both.
    Never fall back to overwriting `settings.json` wholesale when `jq` fails: a malformed file is a
    reason to stop, not to destroy the user's other hooks.
 3. Confirm: `✓ block-dashes (hook) - installed and wired in .claude/settings.json`.
+
+**Issue templates** (when the user replies `templates`, or picks `all` and the Issue-templates line
+reported `none`/`behind`): install them inline here - no separate `forge-adapt templates` invocation.
+Run the **Templates mode** install logic (see Secondary modes -> Templates mode) from within this
+step: use each forge-kit template as the base when missing, or merge when outdated/incomplete
+(preserve existing content verbatim, add only missing sections, bump the `template-version` marker);
+adapt the `areas`/dropdown OPTIONS to this project's real package structure; write to
+`.github/ISSUE_TEMPLATE/` on GitHub or `.forgejo/issue_template/` when `$FORGE_HOST=forgejo` (Forgejo
+also reads `.gitea/ISSUE_TEMPLATE/`); exclude `contribution.yml`. Then, since the project now has
+versioned templates, offer the repo-level governance (the `check-template-lockstep.sh` guard +
+canonical `ticket-standards.md`) exactly as the Templates mode does. Confirm:
+`✓ issue templates installed at v<N> (<dir>)` and, if taken, `✓ template-lockstep guard + ticket-standards doc`.
 
 **Finish** with a short summary and next steps:
 
