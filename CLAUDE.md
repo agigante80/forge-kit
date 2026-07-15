@@ -12,7 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
    ```bash
    bash scripts/validate-plugins.sh            # plugin.json + marketplace.json + version markers (whole tree)
+   bash scripts/check-template-lockstep.sh     # fail if the work issue-templates drift out of version lockstep
    python3 scripts/test-hooks.py               # behavioural contract tests for the hooks
+   bash scripts/test-template-lockstep.sh      # contract test for the lockstep guard above
    git fetch origin main                       # required: the next script fails closed on a missing base ref
    bash scripts/check-version-bump.sh origin/main   # fail if a changed component didn't bump its <name>-version marker
    git config core.hooksPath .githooks         # one-time: enable the local pre-commit version-bump guard
