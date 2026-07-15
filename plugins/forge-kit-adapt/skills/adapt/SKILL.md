@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 25 -->
+<!-- forge-adapt-version: 26 -->
 
 # forge-adapt
 
@@ -132,12 +132,17 @@ marker often sits below long frontmatter (e.g. line 30 in `ticket-gate.md`, line
 `health-check.md`), so a head-limited read silently reports "no marker" and defeats drift detection.
 
 ```bash
-cat_row() {  # $1 = type label, $2 = file, $3 = match-name
+cat_row() {  # ${1} = type label, ${2} = file, ${3} = match-name
+  # BRACE the positional params. Bare $1/$2/$3 are clobbered by Claude Code's slash-command
+  # argument substitution when forge-adapt is invoked WITH an arg (e.g. `/forge-kit-adapt:adapt
+  # skills`, `... templates`, `... contributions`): the args get spliced into $1/$2/$3 before bash
+  # runs, corrupting this catalogue and silently breaking drift detection. Braced ${N} is left
+  # untouched by that substitution and is identical to $N inside the function.
   # ver_of: identical to the local capture in Step 1. The `(?:<!--\s*|#\s*)` lead-in anchors the
   # marker to its comment so a match-name that is a suffix of a longer marker (e.g. "adapt" inside
   # "forge-adapt-version") cannot match by substring; `\K` then captures only the digits.
-  v=$(grep -oP -- "(?:<!--\s*|#\s*)${3}-version:\s*\K\d+" "$2" | head -1)
-  echo "$1: $3 | v${v:-none}"
+  v=$(grep -oP -- "(?:<!--\s*|#\s*)${3}-version:\s*\K\d+" "${2}" | head -1)
+  echo "${1}: ${3} | v${v:-none}"
 }
 shopt -s nullglob   # a group with no hooks/agents must not iterate a literal glob and leave exit 1
 for dir in "$FORGE_KIT_DIR"/plugins/*/; do
