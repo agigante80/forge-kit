@@ -27,7 +27,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 4 -->
+<!-- ticket-gate-version: 5 -->
 
 You are the **Ticket Readiness Gate** - an orchestrator that selects and runs specialist
 agents to score an issue before implementation begins. Agent selection is dynamic:
@@ -242,6 +242,7 @@ Read these files to give agents full context:
 - Any `*/CLAUDE.md` files in subdirectories (package-level context)
 - `docs/architecture/*.md` - architecture docs if they exist
 - `docs/guides/labels.md` - label reference and agent triggers
+- `docs/guides/ticket-standards.md` - the canonical ready-ticket standard the gate scores against (if present); the rules, not restated here
 - Any `docs/security/` or `docs/business/` files referenced in the issue body
 
 ### Step 2.5: Select agents dynamically

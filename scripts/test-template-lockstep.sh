@@ -22,9 +22,9 @@ mk() {
   fi
 }
 
-# run <desc> <expected-exit> <dir>
+# run <desc> <expected-exit> <dir> [canonical-doc]
 run() {
-  bash "$SCRIPT" "$3" >/dev/null 2>&1
+  bash "$SCRIPT" "$3" ${4:+"$4"} >/dev/null 2>&1
   local rc=$?
   if [ "$rc" -eq "$2" ]; then
     echo "  ok: $1"
@@ -56,6 +56,14 @@ run "a single versioned template has nothing to lock" 0 "$d"
 d="$t/mixdrift"; mkdir -p "$d"
 mk "$d" feature 4; mk "$d" bug 5; mk "$d" contribution -
 run "drift is caught even with an exempt file present" 1 "$d"
+
+d="$t/withdoc"; mkdir -p "$d"
+mk "$d" feature 4; mk "$d" bug 4
+printf 'canonical\n<!-- template-version: 4 -->\n' > "$t/doc-ok.md"
+run "canonical doc at the matching version passes" 0 "$d" "$t/doc-ok.md"
+
+printf 'canonical\n<!-- template-version: 5 -->\n' > "$t/doc-drift.md"
+run "canonical doc at a different version fails" 1 "$d" "$t/doc-drift.md"
 
 rm -rf "$t"
 echo ""
