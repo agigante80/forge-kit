@@ -8,11 +8,12 @@ description: >
   am I missing?"). Secondary modes: "refresh"/"drift" reports which installed components are
   behind forge-kit (version-marker based) and "refresh <name>" deep-compares and updates one
   while preserving project adaptation; "forge-adapt contributions" surfaces project-only
-  components worth contributing back; "forge-adapt templates" audits issue templates.
+  components worth contributing back; "forge-adapt templates" audits issue templates and can
+  install the template lockstep guard + canonical ticket-standards doc.
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 19 -->
+<!-- forge-adapt-version: 20 -->
 
 # forge-adapt
 
@@ -27,7 +28,7 @@ with a one-line reason. Nothing is written until you choose.
 - "what governance is this project missing?" / "suggest forge-kit components"
 - "am I up to date?" / "run upgrade-audit" (backward-compatible)
 - "forge-adapt contributions" - contribution-surfacing mode (secondary)
-- "forge-adapt templates" - issue-template audit mode (secondary)
+- "forge-adapt templates" - issue-template audit + template-governance install (secondary)
 
 Focus a single category by naming it: "forge-adapt skills", "forge-adapt hooks", etc.
 
@@ -177,6 +178,7 @@ find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep
 | Dependabot / Renovate present | .github/dependabot.yml, renovate.json | release-automation Lane B (auto-release dep updates) |
 | Coding standards state | CLAUDE.md inline / CONTRIBUTING / STYLE_GUIDE | coding-standards-auditor |
 | Writing rules in CLAUDE.md | "no em dash", style rules | block-dashes hook |
+| Versioned issue templates | `template-version` markers in the ISSUE_TEMPLATE dir | template lockstep guard + canonical ticket-standards doc (install via `forge-adapt templates`) |
 
 Build a short profile and lead the recommendation with it:
 
@@ -252,6 +254,11 @@ Rules for this step:
 - **ticket-gate is always P0** when missing - list it first under Subagents.
 - **coding-standards-auditor is P0** whenever the profile shows coding standards as anything but
   `proper` (inline in CLAUDE.md, scattered across CONTRIBUTING/STYLE_GUIDE, or missing).
+- **Template governance nudge.** If the project has versioned issue templates (a `template-version`
+  marker in its ISSUE_TEMPLATE dir) but no `scripts/check-template-lockstep.sh`, add ONE line under
+  the tables: "Template governance available: `forge-adapt templates` installs the version lockstep
+  guard + canonical ticket-standards doc." It is repo-level, not a component, so it never appears in
+  the Recommended or Version-status tables.
 - **"more <category>"** prints the full catalogue for that one category as a table
   (Component | Why | Priority | Installed?), marking each row `✓` if already in `.claude/` or
   `+ new` if not (so the user sees what they have vs what is available), then repeats the reply prompt.
@@ -503,6 +510,77 @@ marker). Templates write to `.github/ISSUE_TEMPLATE/` on GitHub, or to `.forgejo
 when `$FORGE_HOST=forgejo` (Forgejo also reads `.gitea/ISSUE_TEMPLATE/`); never `.claude/`.
 `contribution.yml` is forge-kit-specific - exclude it from the audit.
 
+**After the template audit, offer the repo-level template governance** - the lockstep guard and the
+canonical standards doc that keep those templates honest. Offer this ONLY when the project actually
+has versioned issue-templates (at least one template carrying a `template-version` marker); without
+them the guard is meaningless, so skip this block entirely. Detect the current state:
+
+```bash
+# Project template dir (host-aware) + its current template-version, plus what governance exists.
+PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do
+  [ -d "$d" ] && { echo "$d"; break; }; done)
+PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+HAS_GUARD=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
+HAS_DOC=$([ -f docs/guides/ticket-standards.md ] && echo yes || echo no)
+```
+
+If `PRJ_TPL_VER` is empty, skip. Otherwise show a small table and ask which to install:
+
+| Governance | State | What installing does |
+|---|---|---|
+| template lockstep guard | `$HAS_GUARD` | copy `check-template-lockstep.sh` + its test to `scripts/`, wire into CI |
+| canonical ticket-standards doc | `$HAS_DOC` | write `docs/guides/ticket-standards.md` (adapted), repoint gate + CLAUDE.md |
+
+Both are independent - a project can take the guard, the doc, or both.
+
+**Install: lockstep guard (copied verbatim - host-agnostic, like a hook).**
+
+```bash
+mkdir -p scripts
+cp "$FORGE_KIT_DIR/scripts/check-template-lockstep.sh" scripts/
+cp "$FORGE_KIT_DIR/scripts/test-template-lockstep.sh"  scripts/
+chmod +x scripts/check-template-lockstep.sh scripts/test-template-lockstep.sh
+```
+
+Then wire it into CI, host-aware. Prefer a dedicated workflow so you never surgically edit an
+unknown existing job (the user can instead fold the two `run:` lines into an existing job). Write to
+`.github/workflows/` on GitHub or `.forgejo/workflows/` on Forgejo. Skip writing it if a workflow in
+that dir already runs `check-template-lockstep.sh` (grep first):
+
+```yaml
+# <host-workflows-dir>/template-lockstep.yml
+name: Template lockstep
+on: [push, pull_request]
+jobs:
+  lockstep:
+    runs-on: ubuntu-latest    # on Forgejo, use the project's runner label
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check-template-lockstep.sh
+      - run: bash scripts/test-template-lockstep.sh
+```
+
+Confirm: `✓ template-lockstep guard installed + wired (<host-workflows-dir>)`.
+
+**Install: canonical ticket-standards doc (adapted; report-first if it already exists).**
+
+- **Absent** (`HAS_DOC=no`): read `$FORGE_KIT_DIR/docs/guides/ticket-standards.md`, adapt it to the
+  project (reference the project's ACTUAL template set and package names; drop rules for sections the
+  project's templates do not carry), and **set its `template-version` marker to `$PRJ_TPL_VER`** - the
+  project's own value, NOT forge-kit's - so the lockstep guard locks the doc to the project's
+  templates rather than failing on a version mismatch. Write it to `docs/guides/ticket-standards.md`
+  (the path the copied guard reads by default).
+- **Present** (`HAS_DOC=yes`): do NOT clobber it. Apply the `refresh <name>` discipline - classify
+  differences as project-adaptation (keep) vs forge-kit-improvement (offer), show the proposed merge,
+  and write only on `yes`.
+- **Repoint (additive; each only if the target exists and does not already reference the doc):**
+  - project gate: add `docs/guides/ticket-standards.md` to the Step 2 read-list of
+    `.claude/agents/ticket-gate.md` (the canonical rules the gate scores against).
+  - project `CLAUDE.md`: add one line under its issue-template section naming the doc as the single
+    source of truth for the ready-ticket rules.
+
+Confirm: `✓ ticket-standards doc written at v$PRJ_TPL_VER; gate + CLAUDE.md repointed`.
+
 ---
 
 ## Rules
@@ -535,3 +613,7 @@ when `$FORGE_HOST=forgejo` (Forgejo also reads `.gitea/ISSUE_TEMPLATE/`); never 
 - **Contributions are never auto-filed** - always confirm, and always check for an existing issue first.
 - **Single-category focus**: if the invocation names one category ("forge-adapt hooks"), recommend
   and install only that category.
+- **Template governance is repo-level and opt-in.** Offer the lockstep guard + canonical doc only
+  when the project has versioned issue templates. The guard and its test are copied verbatim
+  (host-agnostic); the canonical doc is adapted with its `template-version` marker set to the
+  PROJECT's template version, and an existing project doc is refreshed report-first, never clobbered.
