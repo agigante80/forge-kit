@@ -27,7 +27,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 3 -->
+<!-- ticket-gate-version: 4 -->
 
 You are the **Ticket Readiness Gate** - an orchestrator that selects and runs specialist
 agents to score an issue before implementation begins. Agent selection is dynamic:
@@ -70,11 +70,17 @@ Before scoring, verify the ticket meets structural requirements.
 
 #### 0a. Template version check
 
-1. **Read the current template version:**
+1. **Resolve the template directory (host-aware) and read the current version across ALL
+   work templates.** Reading only `feature.yml` mis-fires for `bug`/`security`/`infrastructure`
+   tickets. Read every template's marker and take the highest; the templates are held in
+   lockstep by `scripts/check-template-lockstep.sh`, so this single value is the current
+   standard for every ticket type:
 ```bash
-grep "template-version:" .github/ISSUE_TEMPLATE/feature.yml | head -1
+TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do
+  [ -d "$d" ] && { echo "$d"; break; }; done)
+CURRENT_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)
 ```
-Extract the number (e.g., `1` from `<!-- template-version: 2 -->`).
+Use `$CURRENT_TPL_VER` everywhere below. Never hardcode a literal target version.
 
 2. **Fetch the issue body and check for version marker:**
 ```bash
@@ -86,8 +92,8 @@ gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json body --jq '.body' | grep -o
 | Result | Action |
 |---|---|
 | **No version marker** | Trigger Step 0c auto-synthesis (treat as v0). |
-| **Version < current** | Trigger Step 0c auto-synthesis. |
-| **Version = current** | Proceed to 0b. |
+| **Version < `$CURRENT_TPL_VER`** | Trigger Step 0c auto-synthesis. |
+| **Version = `$CURRENT_TPL_VER`** | Proceed to 0b. |
 
 #### 0c. Auto-synthesis (runs when version is missing or outdated)
 
@@ -97,17 +103,17 @@ content automatically rather than blocking. Run these steps in order:
 **0c-i. Parse current template structure**
 
 ```bash
-grep -E "id:|label:|description:|placeholder:|value:" .github/ISSUE_TEMPLATE/<type>.yml
+grep -E "id:|label:|description:|placeholder:|value:" "$TPL_DIR/<type>.yml"
 ```
 
-Identify every section `id` from the template file. Determine template type from issue labels
+Identify every section `id` from the template file (`$TPL_DIR` resolved in 0a). Determine template type from issue labels
 (`bug` label -> bug.yml, `enhancement`/`feature` -> feature.yml, `security` -> security.yml,
 `infrastructure` -> infrastructure.yml, `design` -> design.yml).
 
 **0c-ii. Identify gaps in the issue body**
 
 For each template section `id`, classify the corresponding content in the issue body as:
-- **Present and sufficient** - substantive content that satisfies v4 requirements
+- **Present and sufficient** - substantive content that satisfies the current template version's requirements
 - **Present but thin** - heading exists but content is vague or placeholder-only
 - **Missing** - no corresponding heading or content in the body at all
 
@@ -130,7 +136,7 @@ Synthesis rules per section:
 | `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Reference specific route names, model names, and screen names where evident from the issue body. |
 | `unit_tests` | Acceptance criteria + referenced files -> specific test file path, concrete input value, expected output or error code. |
 | `e2e_tests` | UI-visible behaviour -> specific test suite file, setup steps, action, assertion. Mark N/A with justification for API-only tickets. |
-| Thin sections | Preserve existing text verbatim, append what v4 now requires. |
+| Thin sections | Preserve existing text verbatim, append what the current template version now requires. |
 
 The sub-agent must produce a structured document with one heading per synthesised section.
 Synthesised content must be substantive - not placeholder text. If insufficient context exists
@@ -140,7 +146,8 @@ assumption made.
 **0c-iv. Build updated body**
 
 Merge synthesised content into the existing issue body, preserving all prior text verbatim.
-Replace `template-version: N` (or add the marker if missing) with `template-version: 4`.
+Replace `template-version: N` (or add the marker if missing) with
+`template-version: $CURRENT_TPL_VER` (the value read in 0a; never a hardcoded literal).
 
 ```bash
 gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<full updated body>"
@@ -149,9 +156,9 @@ gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<full updated body>"
 **0c-v. Post void and synthesis comment**
 
 ```
-Template auto-upgraded to v4 - content synthesised
+Template auto-upgraded to v<CURRENT_TPL_VER> - content synthesised
 
-Issue was filed against template v<old> (current: v4).
+Issue was filed against template v<old> (current: v<CURRENT_TPL_VER>).
 The following sections were synthesised from the existing issue content:
 
 - Test scenarios (GWT): <N> conditions, <N x 2> scenarios
