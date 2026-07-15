@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 29 -->
+<!-- forge-adapt-version: 30 -->
 
 # forge-adapt
 
@@ -74,13 +74,15 @@ REMOTE_SHA=$(echo "$REMOTE_JSON" | jq -r '.sha // empty' 2>/dev/null)
 | `CURRENT_SHA != REMOTE_SHA` | `echo "$REMOTE_JSON" \| jq -r '.content' \| base64 -d > "${CLAUDE_SKILL_DIR}/SKILL.md"`. On success print one line: `forge-adapt: updated to latest - run /reload-plugins to persist.` On write failure print: `forge-adapt: a newer version exists but auto-update failed; run /plugin marketplace update forge-kit && /reload-plugins.` |
 
 **Then, in EVERY case above (offline, up-to-date, or updated), Read `${CLAUDE_SKILL_DIR}/SKILL.md`
-from disk and run the WHOLE flow from that file's content - not from the copy Claude Code injected as
-this skill's context.** The injected copy is a session-start snapshot; the on-disk cache is
-machine-global and may have been updated since this session started (by an earlier run here, or by a
-run in another session sharing the same cache). Skipping the re-read on the "up to date" path is
-exactly what lets a stale snapshot silently run outdated Setup/catalogue logic (e.g. a pre-`nullglob`
-catalogue that exits non-zero and reads as "Failed to run" even though the on-disk skill is current).
-If the Read fails, fall back to the injected context.
+from disk and use THAT file as the authoritative skill for the rest of this run (Setup S2 through
+Install, plus the Rules) - not the copy Claude Code injected as this skill's context. S1 has already
+run: do NOT re-run S1 from the re-read file, just continue from S2.** The injected copy is a
+session-start snapshot; the on-disk cache is machine-global and may have been updated since this
+session started (by an earlier run here, or by a run in another session sharing the same cache).
+Skipping the re-read on the "up to date" path is exactly what lets a stale snapshot silently run
+outdated Setup/catalogue logic (e.g. a pre-`nullglob` catalogue that exits non-zero and reads as
+"Failed to run" even though the on-disk skill is current). If the Read fails, fall back to the
+injected context.
 
 **S2. Locate AND refresh the forge-kit library** (marketplace checkout, then `~/forge-kit`, then clone),
 and separately determine whether the governance plugin is enabled. The skill self-updates in S1, but
