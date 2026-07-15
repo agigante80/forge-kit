@@ -81,8 +81,8 @@ forge-kit ships two layers.
 | `/full-review` | Multi-phase code review orchestrator with a mid-run checkpoint |
 | `/pr-enhance` | Pull request description and checklist generation |
 | `/ci-health` | Check all GitHub Actions workflows, create P0 tickets for failures, auto-fix safe failures |
-| 12 skills | forge-adapt, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration, find-dead-code, release, release-automation, forge-host, github-to-forgejo |
-| 2 hooks | `block-dashes` (deny em/en dashes in tool payloads), `block-legacy-host-push` (deny `git push` to an archived host after a forge migration) |
+| 14 skills | forge-adapt, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration, find-dead-code, release, release-automation, forge-host, github-to-forgejo, closing-sessions, working-overnight |
+| 4 hooks | `block-dashes` (deny em/en dashes in tool payloads), `block-legacy-host-push` (deny `git push` to an archived host after a forge migration), `overnight-guard` (deny destructive git / secrets / bulk-delete commands during an armed overnight run), `overnight-continue` (keep a working-overnight cycle from idling to a premature stop) |
 
 ## After setup
 
@@ -158,5 +158,6 @@ This skips the analysis and install phases (2 to 5) and jumps directly to Phase 
 
 ## Docs
 
+- `docs/guides/ticket-standards.md`: canonical single-source ready-ticket rules, version-locked to the templates
 - `docs/guides/template-versioning.md`: v4 GWT versioning and auto-synthesis
 - `docs/guides/labels.md`: label taxonomy and agent routing rules
