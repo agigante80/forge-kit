@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 23 -->
+<!-- forge-adapt-version: 24 -->
 
 # forge-adapt
 
@@ -139,12 +139,14 @@ cat_row() {  # $1 = type label, $2 = file, $3 = match-name
   v=$(grep -oP -- "(?:<!--\s*|#\s*)${3}-version:\s*\K\d+" "$2" | head -1)
   echo "$1: $3 | v${v:-none}"
 }
+shopt -s nullglob   # a group with no hooks/agents must not iterate a literal glob and leave exit 1
 for dir in "$FORGE_KIT_DIR"/plugins/*/; do
   for f in "$dir"agents/*.md;      do [ -f "$f" ] && cat_row subagent "$f" "$(basename "$f" .md)"; done
   for f in "$dir"commands/*.md;    do [ -f "$f" ] && cat_row command  "$f" "$(basename "$f" .md)"; done
   for f in "$dir"skills/*/SKILL.md; do [ -f "$f" ] && cat_row skill  "$f" "$(basename "$(dirname "$f")")"; done
   for f in "$dir"hooks/*.py "$dir"hooks/*.sh; do [ -f "$f" ] && { n=$(basename "$f"); cat_row hook "$f" "${n%.*}"; }; done
 done
+true   # the catalogue is read-only: never surface a non-zero exit as "Failed to run"
 ```
 
 Then read each component's frontmatter `description:` for the "why" column - do this by reading the
@@ -157,6 +159,13 @@ target project), so ignore it regardless of what its marker reads.
 ### Step 1: Analyze the project
 
 Detect stack, domain, and what is already installed. Synthesise - do not dump raw output.
+
+**Every probe here is read-only and MUST exit 0.** A missing optional path is a normal finding, not
+a failure. If a probe block ends on a non-zero status it surfaces as an alarming "Failed to run"
+even though the analysis succeeded. Guard accordingly: end a multi-command probe with a trailing
+`true`, and never let an absent path fail the block (a Forgejo-only repo has no `.github/workflows`,
+so `ls .forgejo/workflows .github/workflows` exits 2 - use `ls -d .../\* 2>/dev/null || true`, or
+probe each path separately with `[ -d ... ]`).
 
 ```bash
 cat package.json 2>/dev/null | head -50
@@ -657,6 +666,10 @@ Confirm: `✓ ticket-standards doc written at v$PRJ_TPL_VER; gate + CLAUDE.md re
 - **Contributions are never auto-filed** - always confirm, and always check for an existing issue first.
 - **Single-category focus**: if the invocation names one category ("forge-adapt hooks"), recommend
   and install only that category.
+- **Diagnostic bash exits 0.** Setup and Analyze run read-only probes; a missing optional path (no
+  `.github/workflows` on a Forgejo repo, an empty hook glob, an absent lockfile) is a normal finding,
+  never a failure. A block that exits non-zero surfaces as "Failed to run" and alarms the user. Use
+  `shopt -s nullglob` for catalogue globs and end multi-command probes with a trailing `true`.
 - **Template governance is repo-level and opt-in.** Offer the lockstep guard + canonical doc only
   when the project has versioned issue templates. The guard and its test are copied verbatim
   (host-agnostic); the canonical doc is adapted with its `template-version` marker set to the
