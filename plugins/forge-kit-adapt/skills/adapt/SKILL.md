@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 26 -->
+<!-- forge-adapt-version: 28 -->
 
 # forge-adapt
 
@@ -202,6 +202,12 @@ esac
 CURRENT_REPO=$(printf '%s' "$REMOTE_URL" | sed -E 's#\.git$##; s#/$##; s#^.*://[^/]+/##; s#^[^@]*@[^:/]+[:/]##')
 # Domain/pattern sample:
 find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep -vE 'node_modules|\.claude|dist' | head -20
+# Issue-template drift (host-aware) + governance state. Exit-0-safe: a missing dir is a normal finding.
+PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do [ -d "$d" ] && { echo "$d"; break; }; done)
+PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+FK_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$FORGE_KIT_DIR"/.github/ISSUE_TEMPLATE/*.yml 2>/dev/null | sort -un | tail -1)
+HAS_LOCKSTEP=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
+echo "issue-templates: project=v${PRJ_TPL_VER:-none} dir=${PRJ_TPL_DIR:-none} forge-kit=v${FK_TPL_VER:-none} lockstep-guard=${HAS_LOCKSTEP}"
 ```
 
 **Indicators to capture** (Anthropic-recommender style - drive the picks):
@@ -276,6 +282,17 @@ Profile
 (One table covering every installed component that HAS a marker. Status is `current` or
 `behind → refresh <name>`. Omit the whole section only if no installed component carries a marker.)
 
+### Issue templates
+One line from the Step-1 probe, so template drift shows in the main flow (not only in
+`forge-adapt templates`):
+- project behind forge-kit: `Issue templates: vN (forge-kit vM) - behind; forge-adapt templates to upgrade.`
+- current: `Issue templates: vM - current.`
+- none found: `Issue templates: none; forge-adapt templates to install the vM set.`
+
+(When the project has versioned templates but no lockstep guard, also emit the Template-governance
+line from the nudge rule. Omit this section only when the project has no templates and none of the
+Setup signals suggest it wants them.)
+
 ### Unversioned (predate markers - not necessarily behind)
 | Component | Type | Note |
 |---|---|---|
@@ -295,6 +312,12 @@ Rules for this step:
 - **ticket-gate is always P0** when missing - list it first under Subagents.
 - **coding-standards-auditor is P0** whenever the profile shows coding standards as anything but
   `proper` (inline in CLAUDE.md, scattered across CONTRIBUTING/STYLE_GUIDE, or missing).
+- **Surface issue-template drift in the main flow.** The recommendation reports component drift; it
+  must ALSO report ISSUE-template drift from the Step-1 probe (`PRJ_TPL_VER` vs `FK_TPL_VER`), so a
+  user who never runs `forge-adapt templates` still learns their templates are behind. Emit the
+  `### Issue templates` line: `behind` when `PRJ_TPL_VER < FK_TPL_VER`, `current` when
+  `PRJ_TPL_VER >= FK_TPL_VER` (equal or ahead of forge-kit), `none` when the project has no
+  templates. This is separate from the component Version status table.
 - **Template governance nudge.** If the project has versioned issue templates (a `template-version`
   marker in its ISSUE_TEMPLATE dir) but no `scripts/check-template-lockstep.sh`, add ONE line under
   the tables: "Template governance available: `forge-adapt templates` installs the version lockstep
