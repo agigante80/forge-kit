@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 24 -->
+<!-- forge-adapt-version: 25 -->
 
 # forge-adapt
 
@@ -164,8 +164,8 @@ Detect stack, domain, and what is already installed. Synthesise - do not dump ra
 a failure. If a probe block ends on a non-zero status it surfaces as an alarming "Failed to run"
 even though the analysis succeeded. Guard accordingly: end a multi-command probe with a trailing
 `true`, and never let an absent path fail the block (a Forgejo-only repo has no `.github/workflows`,
-so `ls .forgejo/workflows .github/workflows` exits 2 - use `ls -d .../\* 2>/dev/null || true`, or
-probe each path separately with `[ -d ... ]`).
+so `ls .forgejo/workflows .github/workflows` exits 2 - append `2>/dev/null || true`, or probe each
+path separately with `[ -d ... ]`).
 
 ```bash
 cat package.json 2>/dev/null | head -50
