@@ -66,6 +66,18 @@ printf 'canonical\n<!-- template-version: 5 -->\n' > "$t/doc-drift.md"
 run "canonical doc at a different version fails" 1 "$d" "$t/doc-drift.md"
 
 rm -rf "$t"
+
+# The no-arg path is what CI invokes: it resolves the template dir and the canonical doc
+# itself. Exercise it against the real repo (which is in lockstep) so a regression in
+# resolve_dir or the default-doc wiring cannot ship green.
+if bash "$SCRIPT" >/dev/null 2>&1; then
+  echo "  ok: no-arg run resolves the real repo and passes"
+  pass=$((pass + 1))
+else
+  echo "  FAIL: no-arg run against the real repo (expected exit 0)"
+  fail=$((fail + 1))
+fi
+
 echo ""
 echo "template-lockstep tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

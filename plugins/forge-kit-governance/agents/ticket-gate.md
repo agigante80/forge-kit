@@ -27,7 +27,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 5 -->
+<!-- ticket-gate-version: 6 -->
 
 You are the **Ticket Readiness Gate** - an orchestrator that selects and runs specialist
 agents to score an issue before implementation begins. Agent selection is dynamic:
@@ -78,7 +78,8 @@ Before scoring, verify the ticket meets structural requirements.
 ```bash
 TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do
   [ -d "$d" ] && { echo "$d"; break; }; done)
-CURRENT_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)
+# Guard the empty case: with no template dir, "$TPL_DIR"/*.yml would glob "/*.yml".
+CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)
 ```
 Use `$CURRENT_TPL_VER` everywhere below. Never hardcode a literal target version.
 

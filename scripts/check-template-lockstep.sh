@@ -14,6 +14,13 @@
 #   An explicit ISSUE_TEMPLATE_DIR is honoured as-is (the tests pass an absolute fixture
 #   path); the canonical doc is then only checked when passed explicitly as $2, so unit
 #   tests stay hermetic and never pick up the real repo doc.
+#
+# The canonical doc is OPTIONAL by design: a downstream project can adopt this guard for
+# template lockstep without having adopted the canonical-doc pattern, so an absent doc is a
+# vacuous pass for the doc portion, not a failure.
+#
+# Requires bash 4+ (associative arrays) and GNU grep (grep -P), same as the repo's other
+# marker guards.
 set -uo pipefail
 
 if [ "$#" -eq 0 ]; then
