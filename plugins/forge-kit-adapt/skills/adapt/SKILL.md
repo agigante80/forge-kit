@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 33 -->
+<!-- forge-adapt-version: 34 -->
 
 # forge-adapt
 
@@ -135,35 +135,20 @@ fi
 If `FORGE_KIT_DIR` is still empty, stop and tell the user to clone it manually
 (`git clone https://github.com/agigante80/forge-kit ~/forge-kit`) and re-run.
 
-**S3. Catalogue forge-kit** (the menu of what can be recommended). For every component capture its
-type, name, and `<name>-version` marker below. The marker is the catalogue side of the Version
-status table (Step 2); capture it HERE so that table has a real data source. Use the SAME whole-file,
-name-scoped grep as the local capture in Step 1, and NEVER limit the scan to the first N lines: the
-marker often sits below long frontmatter (e.g. line 30 in `ticket-gate.md`, line 26 in
-`health-check.md`), so a head-limited read silently reports "no marker" and defeats drift detection.
+**S3. Catalogue forge-kit** (the menu of what can be recommended). Run the shipped catalogue script
+VERBATIM - do NOT reimplement it inline. It prints every component's type, name, and
+`<name>-version` marker, and it lives in the just-refreshed library, so it is current:
 
 ```bash
-cat_row() {  # ${1} = type label, ${2} = file, ${3} = match-name
-  # BRACE the positional params. Bare $1/$2/$3 are clobbered by Claude Code's slash-command
-  # argument substitution when forge-adapt is invoked WITH an arg (e.g. `/forge-kit-adapt:adapt
-  # skills`, `... templates`, `... contributions`): the args get spliced into $1/$2/$3 before bash
-  # runs, corrupting this catalogue and silently breaking drift detection. Braced ${N} is left
-  # untouched by that substitution and is identical to $N inside the function.
-  # ver_of: identical to the local capture in Step 1. The `(?:<!--\s*|#\s*)` lead-in anchors the
-  # marker to its comment so a match-name that is a suffix of a longer marker (e.g. "adapt" inside
-  # "forge-adapt-version") cannot match by substring; `\K` then captures only the digits.
-  v=$(grep -oP -- "(?:<!--\s*|#\s*)${3}-version:\s*\K\d+" "${2}" | head -1)
-  echo "${1}: ${3} | v${v:-none}"
-}
-shopt -s nullglob   # a group with no hooks/agents must not iterate a literal glob and leave exit 1
-for dir in "$FORGE_KIT_DIR"/plugins/*/; do
-  for f in "$dir"agents/*.md;      do [ -f "$f" ] && cat_row subagent "$f" "$(basename "$f" .md)"; done
-  for f in "$dir"commands/*.md;    do [ -f "$f" ] && cat_row command  "$f" "$(basename "$f" .md)"; done
-  for f in "$dir"skills/*/SKILL.md; do [ -f "$f" ] && cat_row skill  "$f" "$(basename "$(dirname "$f")")"; done
-  for f in "$dir"hooks/*.py "$dir"hooks/*.sh; do [ -f "$f" ] && { n=$(basename "$f"); cat_row hook "$f" "${n%.*}"; }; done
-done
-true   # the catalogue is read-only: never surface a non-zero exit as "Failed to run"
+bash "$FORGE_KIT_DIR/scripts/forge-adapt-catalogue.sh" "$FORGE_KIT_DIR"
 ```
+
+The script is versioned and tested (`scripts/test-forge-adapt-catalogue.sh`). A hand-rolled
+catalogue has repeatedly regressed - printing `SKILL.md` instead of the skill's directory name, or
+dropping `shopt -s nullglob` and exiting 1 (read as "Failed to run") - so run the script, never
+paraphrase it. It reads the whole file for the marker (never head-limited: markers sit below long
+frontmatter, e.g. line 30 in `ticket-gate.md`). If the script is somehow absent (a stale library S2
+could not refresh), say so and re-run rather than hand-rolling the catalogue.
 
 Then read each component's frontmatter `description:` for the "why" column - do this by reading the
 file, NOT with a one-line grep, because many components write `description: >` as a multi-line block
