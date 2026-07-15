@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 28 -->
+<!-- forge-adapt-version: 29 -->
 
 # forge-adapt
 
@@ -69,9 +69,18 @@ REMOTE_SHA=$(echo "$REMOTE_JSON" | jq -r '.sha // empty' 2>/dev/null)
 
 | Condition | Action |
 |---|---|
-| `REMOTE_SHA` empty | Skip silently (offline / gh not authed) |
-| `CURRENT_SHA == REMOTE_SHA` | Skip silently (up to date) |
-| `CURRENT_SHA != REMOTE_SHA` | `echo "$REMOTE_JSON" \| jq -r '.content' \| base64 -d > "${CLAUDE_SKILL_DIR}/SKILL.md"`, then read the updated file and continue from its Setup. On success print one line: `forge-adapt: updated to latest - run /reload-plugins to persist.` On write failure print: `forge-adapt: a newer version exists but auto-update failed; run /plugin marketplace update forge-kit && /reload-plugins.` |
+| `REMOTE_SHA` empty | Offline / gh not authed: skip the download, no message. |
+| `CURRENT_SHA == REMOTE_SHA` | Up to date: no download, no message. |
+| `CURRENT_SHA != REMOTE_SHA` | `echo "$REMOTE_JSON" \| jq -r '.content' \| base64 -d > "${CLAUDE_SKILL_DIR}/SKILL.md"`. On success print one line: `forge-adapt: updated to latest - run /reload-plugins to persist.` On write failure print: `forge-adapt: a newer version exists but auto-update failed; run /plugin marketplace update forge-kit && /reload-plugins.` |
+
+**Then, in EVERY case above (offline, up-to-date, or updated), Read `${CLAUDE_SKILL_DIR}/SKILL.md`
+from disk and run the WHOLE flow from that file's content - not from the copy Claude Code injected as
+this skill's context.** The injected copy is a session-start snapshot; the on-disk cache is
+machine-global and may have been updated since this session started (by an earlier run here, or by a
+run in another session sharing the same cache). Skipping the re-read on the "up to date" path is
+exactly what lets a stale snapshot silently run outdated Setup/catalogue logic (e.g. a pre-`nullglob`
+catalogue that exits non-zero and reads as "Failed to run" even though the on-disk skill is current).
+If the Read fails, fall back to the injected context.
 
 **S2. Locate AND refresh the forge-kit library** (marketplace checkout, then `~/forge-kit`, then clone),
 and separately determine whether the governance plugin is enabled. The skill self-updates in S1, but
@@ -208,6 +217,11 @@ PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$PRJ
 FK_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$FORGE_KIT_DIR"/.github/ISSUE_TEMPLATE/*.yml 2>/dev/null | sort -un | tail -1)
 HAS_LOCKSTEP=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
 echo "issue-templates: project=v${PRJ_TPL_VER:-none} dir=${PRJ_TPL_DIR:-none} forge-kit=v${FK_TPL_VER:-none} lockstep-guard=${HAS_LOCKSTEP}"
+# CI / releases / dep-automation signals. Exit-0-safe: a missing path is a normal finding (do NOT
+# improvise a bare `ls a b` here - it exits 2 when one is absent and reads as "Failed to run").
+echo "ci-workflows:"; ls .github/workflows .forgejo/workflows .gitea/workflows 2>/dev/null || true
+echo "releases: VERSION=$(cat VERSION 2>/dev/null) tags=$(git tag 2>/dev/null | tail -3 | paste -sd, - || true)"
+echo "dep-automation:"; ls .github/dependabot.yml renovate.json .renovaterc* 2>/dev/null || echo "(none)"
 ```
 
 **Indicators to capture** (Anthropic-recommender style - drive the picks):
