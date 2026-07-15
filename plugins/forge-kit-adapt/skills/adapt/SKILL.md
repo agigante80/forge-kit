@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 20 -->
+<!-- forge-adapt-version: 21 -->
 
 # forge-adapt
 
@@ -542,7 +542,15 @@ cp "$FORGE_KIT_DIR/scripts/test-template-lockstep.sh"  scripts/
 chmod +x scripts/check-template-lockstep.sh scripts/test-template-lockstep.sh
 ```
 
-Then wire it into CI, host-aware. Prefer a dedicated workflow so you never surgically edit an
+**Run the guard once before wiring CI**, so the user is not blindsided by red CI (and a red guard
+test) on drift that pre-dates the install:
+
+```bash
+bash scripts/check-template-lockstep.sh || echo "forge-adapt: templates are NOT in lockstep (above) - CI will fail, and the guard's own test will too, until you align their template-version markers."
+```
+
+If it reports drift, surface it and confirm the user wants to proceed - the guard is doing its job,
+but they may prefer to reconcile the template versions first. Then wire it into CI, host-aware. Prefer a dedicated workflow so you never surgically edit an
 unknown existing job (the user can instead fold the two `run:` lines into an existing job). Write to
 `.github/workflows/` on GitHub or `.forgejo/workflows/` on Forgejo. Skip writing it if a workflow in
 that dir already runs `check-template-lockstep.sh` (grep first):
