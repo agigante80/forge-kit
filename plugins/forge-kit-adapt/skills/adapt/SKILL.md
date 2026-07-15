@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 27 -->
+<!-- forge-adapt-version: 28 -->
 
 # forge-adapt
 
@@ -315,8 +315,9 @@ Rules for this step:
 - **Surface issue-template drift in the main flow.** The recommendation reports component drift; it
   must ALSO report ISSUE-template drift from the Step-1 probe (`PRJ_TPL_VER` vs `FK_TPL_VER`), so a
   user who never runs `forge-adapt templates` still learns their templates are behind. Emit the
-  `### Issue templates` line: `behind` when `PRJ_TPL_VER < FK_TPL_VER`, `current` when equal, `none`
-  when the project has no templates. This is separate from the component Version status table.
+  `### Issue templates` line: `behind` when `PRJ_TPL_VER < FK_TPL_VER`, `current` when
+  `PRJ_TPL_VER >= FK_TPL_VER` (equal or ahead of forge-kit), `none` when the project has no
+  templates. This is separate from the component Version status table.
 - **Template governance nudge.** If the project has versioned issue templates (a `template-version`
   marker in its ISSUE_TEMPLATE dir) but no `scripts/check-template-lockstep.sh`, add ONE line under
   the tables: "Template governance available: `forge-adapt templates` installs the version lockstep
