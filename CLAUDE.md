@@ -16,6 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    python3 scripts/test-hooks.py               # behavioural contract tests for the hooks
    bash scripts/test-template-lockstep.sh      # contract test for the lockstep guard above
    bash scripts/test-forge-adapt-catalogue.sh  # contract test for the forge-adapt catalogue script
+   python3 scripts/test-closing-sessions-memory.py  # contract test for the closing-sessions memory.py helper (NOT yet wired into CI)
    git fetch origin main                       # required: the next script fails closed on a missing base ref
    bash scripts/check-version-bump.sh origin/main   # fail if a changed component didn't bump its <name>-version marker
    git config core.hooksPath .githooks         # one-time: enable the local pre-commit version-bump guard
@@ -23,7 +24,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
    `validate-plugins.sh` requires `jq` and `grep -P` (GNU grep). `check-version-bump.sh` diffs `<base>...HEAD` (CI passes `origin/$BASE_REF`) and **exits 1 if the base ref does not exist locally**, rather than passing vacuously, so fetch first. It reads committed blobs via `git show`, not the worktree: an uncommitted marker bump will not satisfy it. The local `.githooks/pre-commit` covers `--diff-filter=AM` on the staged set; CI additionally catches renames (`AMR`).
 
-2. **Behavioural validation:** agents, skills, and commands cannot be run in isolation here. Install them into a test project via `forge-adapt` and exercise the workflow there. **Hooks are the exception**, and are the only forge-kit component with a mechanically testable contract: JSON payload on stdin, a `permissionDecision` on stdout, always exit 0. `scripts/test-hooks.py` exercises that contract (every matched tool, fail-open on unparseable input, deny-signalled-on-stdout-not-exit-code, and a regression guard for the foreign-cwd wiring bugs). It runs in CI. When you change a hook, extend it: three consecutive PRs shipped hook defects before this existed.
+2. **Behavioural validation:** agents, skills, and commands are prose, cannot be run in isolation here, and must be installed into a test project via `forge-adapt` and exercised there. **The exception is anything the kit ships as an executable**, which has a real contract and therefore a real test. Two exist today, and both are driven as subprocesses against a throwaway directory:
+
+   - **Hooks** (`scripts/test-hooks.py`): JSON payload on stdin, a `permissionDecision` on stdout, always exit 0. The test covers every matched tool, fail-open on unparseable input, deny-signalled-on-stdout-not-exit-code, and a regression guard for the foreign-cwd wiring bugs. It runs in CI. When you change a hook, extend it: three consecutive PRs shipped hook defects before this existed.
+   - **`closing-sessions/scripts/memory.py`** (`scripts/test-closing-sessions-memory.py`, 12 tests): the one skill that ships an executable rather than only prose, so the `forge-kit-governance` plugin has a second testable surface. Its own history is the argument for the test (`anchor index matching and escape memory fields`, `treat index-line replacement as literal, not regex`). **This test is not in `.github/workflows/validate.yml`,** so nothing enforces it on a PR. Run it by hand when you touch `memory.py`, and prefer wiring it into CI over remembering to.
+
+   Skills also ship shell assets that currently have no tests: `release-automation/assets/version-lib.sh` and `release-run.sh`, and `forge-host/assets/forge-lib.sh`. Treat a change to one of those as the same class of risk, since a version or host adapter primitive is exactly where a silent bug is expensive.
 
 ## Architecture
 
