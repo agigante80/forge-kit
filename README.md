@@ -161,3 +161,9 @@ This skips the analysis and install phases (2 to 5) and jumps directly to Phase 
 - `docs/guides/ticket-standards.md`: canonical single-source ready-ticket rules, version-locked to the templates
 - `docs/guides/template-versioning.md`: v4 GWT versioning and auto-synthesis
 - `docs/guides/labels.md`: label taxonomy and agent routing rules
+
+## Sponsor
+
+I build and maintain this in my own time. It is free, it stays free, and it gets maintained either way.
+
+If it saved you some time and you feel like saying thanks, you can do that at [github.com/sponsors/agigante80](https://github.com/sponsors/agigante80). Entirely optional, and nothing about the project changes either way.
