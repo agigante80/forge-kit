@@ -166,20 +166,66 @@ esac
     echo "$1 $2 ${3-}" >> "$REQLOG"
     case "$1 $2" in
       "GET /repos/"*"/labels?"*page=1*) printf '[{"name":"bug","id":1}]' ;;
-      "GET /orgs/"*"/labels?"*page=1*)  printf '[{"name":"org-wide","id":7}]' ;;
+      "GET /orgs/"*"/labels?"*page=1*)  printf '[{"name":"org-wide","id":42}]' ;;
       "GET "*"/labels?"*)               printf '[]' ;;
       "POST "*)                         printf '{}' ;;
     esac
   }
   forge_issue_label 7 org-wide || exit 1
-  grep -q '^POST /repos/o/r/issues/7/labels {"labels":\[7\]}' "$REQLOG" || exit 2
+  grep -q '^POST /repos/o/r/issues/7/labels {"labels":\[42\]}' "$REQLOG" || exit 2
 )
 case $? in
-  0) ok "issue_label resolves an org-level label and POSTs its id";;
+  0) ok "issue_label resolves an org-level label and POSTs its id (id distinct from the issue number)";;
   1) bad "issue_label refused a valid org-level label (repo list treated as the whole universe)";;
   2) bad "issue_label did not POST the org label id";;
   *) bad "issue_label org-label case errored";;
 esac
+
+# --- forge_issue_label: an EMPTY-STRING name must be refused, not slip past the gate ---
+# join(" ") of [""] is "", so a string-emptiness gate reads an empty name as "nothing missing"
+# and would POST [null, ...]: the silent-partial class again, reached by an argv quoting slip.
+(
+  . "$LIB"
+  REQLOG="$T/h.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    echo "$1 $2" >> "$REQLOG"
+    case "$1 $2" in
+      "GET "*"/labels?"*page=1*) printf '[{"name":"bug","id":1}]' ;;
+      "GET "*"/labels?"*)        printf '[]' ;;
+      "POST "*)                  printf '{}' ;;
+    esac
+  }
+  err=$(forge_issue_label 7 "" bug 2>&1 >/dev/null); rc=$?
+  [ "$rc" -ne 0 ]             || exit 1
+  ! grep -q '^POST' "$REQLOG" || exit 2
+)
+case $? in
+  0) ok "issue_label refuses an empty-string name (no null id ever POSTed)";;
+  1) bad "issue_label accepted an empty-string name (refusal gate bypass, POSTs null ids)";;
+  2) bad "issue_label POSTed despite an empty-string name";;
+  *) bad "issue_label empty-name case errored";;
+esac
+
+# --- pagination: an EMPTY 200 body mid-run is an ERROR, not a silent end-of-list ---
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { case "$2" in *page=1*) printf '[{"number":1}]';; *) printf '';; esac; }
+  out=$(forge_issue_list 2>/dev/null); rc=$?
+  [ "$rc" -ne 0 ]
+)
+[ $? -eq 0 ] && ok "paginate treats an empty response body as an error, not completion"              || bad "paginate silently truncated on an empty 200 body (rc 0, partial list)"
+
+# --- pagination: a NON-ARRAY 200 body (error object) is an ERROR, not counted by key ---
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { printf '{"message":"temporarily unavailable"}'; }
+  out=$(forge_issue_list 2>/dev/null); rc=$?
+  [ "$rc" -ne 0 ]
+)
+[ $? -eq 0 ] && ok "paginate treats a non-array body as an error (jq length on an object counts keys)"              || bad "paginate accepted a non-array body (object keys counted as items)"
 
 # --- forge_api_paginate directly under dry-run: prints [] and sends nothing real ---
 (
