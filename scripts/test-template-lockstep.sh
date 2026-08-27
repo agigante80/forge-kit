@@ -73,12 +73,31 @@ lc="$t/lowercase-repo"; mkdir -p "$lc/.forgejo/issue_template"
 git -C "$lc" init -q
 mk "$lc/.forgejo/issue_template" feature 4
 mk "$lc/.forgejo/issue_template" bug 99
-if (cd "$lc" && bash "$SCRIPT" >/dev/null 2>&1); then
-  echo "  FAIL: lowercase .forgejo/issue_template drift not caught (expected exit 1)"
-  fail=$((fail + 1))
-else
+out=$( (cd "$lc" && bash "$SCRIPT" 2>&1) ); rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'DRIFT'; then
   echo "  ok: lowercase .forgejo/issue_template is resolved and drift is caught"
   pass=$((pass + 1))
+else
+  echo "  FAIL: lowercase .forgejo/issue_template drift (expected exit 1 + DRIFT report, got exit $rc)"
+  fail=$((fail + 1))
+fi
+
+# Ordering is HOST-grouped, not case-grouped: a repo migrated GitHub->Forgejo that kept a
+# stale .github/ISSUE_TEMPLATE while its live templates sit in legacy .forgejo/issue_template
+# must have the LIVE Forgejo dir checked, not the stale GitHub one.
+mg="$t/migrated-repo"; mkdir -p "$mg/.github/ISSUE_TEMPLATE" "$mg/.forgejo/issue_template"
+git -C "$mg" init -q
+mk "$mg/.github/ISSUE_TEMPLATE" feature 4
+mk "$mg/.github/ISSUE_TEMPLATE" bug 4
+mk "$mg/.forgejo/issue_template" feature 4
+mk "$mg/.forgejo/issue_template" bug 99
+out=$( (cd "$mg" && bash "$SCRIPT" 2>&1) ); rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'forgejo/issue_template'; then
+  echo "  ok: live legacy Forgejo dir outranks a stale .github dir (host-grouped order)"
+  pass=$((pass + 1))
+else
+  echo "  FAIL: migrated-repo ordering (expected exit 1 checking .forgejo/issue_template, got exit $rc)"
+  fail=$((fail + 1))
 fi
 
 # When BOTH casings exist, uppercase is canonical and wins; a warning names the other dir.
@@ -86,6 +105,13 @@ fi
 # warn (proves the duplicate is surfaced rather than silently first-matched).
 bc="$t/bothcase-repo"; mkdir -p "$bc/.forgejo/ISSUE_TEMPLATE" "$bc/.forgejo/issue_template"
 git -C "$bc" init -q
+if [ "$bc/.forgejo/ISSUE_TEMPLATE" -ef "$bc/.forgejo/issue_template" ]; then
+  # Case-insensitive filesystem (macOS/Windows): the two casings are ONE directory, so the
+  # both-casings scenario cannot be constructed here. The guard itself handles that FS via
+  # the -ef check; skip rather than fail.
+  echo "  ok: both-casings case skipped (case-insensitive filesystem)"
+  pass=$((pass + 1))
+else
 mk "$bc/.forgejo/ISSUE_TEMPLATE" feature 4
 mk "$bc/.forgejo/ISSUE_TEMPLATE" bug 4
 mk "$bc/.forgejo/issue_template" stale 99
@@ -96,6 +122,7 @@ if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'WARNING.*issue_template'; th
 else
   echo "  FAIL: both-casings case (expected exit 0 + WARNING, got exit $rc)"
   fail=$((fail + 1))
+fi
 fi
 
 rm -rf "$t"

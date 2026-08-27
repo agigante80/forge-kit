@@ -14,7 +14,7 @@ verified against the live catalogue (a `grep` for `gh `, `api.github.com`, `{{GI
 | `gate-ticket` (command) | "fetch GitHub issue", post comment | `forge_issue_view` + `forge_issue_comment` |
 | `dep-auditor` (agent) | files `gh` tickets | `forge_issue_*` (create via `forge_api POST /repos/.../issues`) |
 | `health-check` (agent) | checks **`gh` is installed** | check the forge token/CLI for the detected host instead |
-| forge-adapt `templates` mode | writes `.github/ISSUE_TEMPLATE/` | also target `.forgejo/issue_template/` when host=forgejo |
+| forge-adapt `templates` mode | writes `.github/ISSUE_TEMPLATE/` | also target `.forgejo/ISSUE_TEMPLATE/` when host=forgejo |
 | forge-adapt setup | self-update + catalogue via `gh api repos/agigante80/forge-kit` | separate axis: where *forge-kit itself* is hosted, vs the repo being governed |
 
 Not coupled (verified, no `gh`/API calls): **`pr-enhance`** (generates PR text for a human to
