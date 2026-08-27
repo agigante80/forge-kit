@@ -54,6 +54,17 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-version-bump.sh "origin/$BASE_REF"
 
+      - name: Plugin-version guard tests
+        run: bash scripts/test-check-plugin-version-bump.sh
+
+      # Group-level counterpart of the marker check (issue #79): a changed plugin group must
+      # bump its plugin.json semver, the version the marketplace reads for updates.
+      - name: Plugin semver discipline (changed group must bump plugin.json)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/check-plugin-version-bump.sh "origin/$BASE_REF"
+
       # Advisory only: layer in the official validator when the CLI is available. Never
       # fails the build (continue-on-error) - our own validate-plugins.sh is the gate.
       - name: Official validation (claude plugin validate, advisory)
