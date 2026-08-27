@@ -4,6 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
+A root `AGENTS.md` exists as a thin pointer to this file for non-Claude agents (the open
+cross-agent instruction format); keep it a pointer, never duplicate content into it.
+
 **forge-kit** is an AI-assisted project governance scaffold: AI-agnostic at the governance layer (issue templates, labels, GWT scenarios), Claude Code-native at the automation layer (agents, skills, slash commands). It is a template repository, not a buildable application. Its purpose is to be bootstrapped into other projects or used as an upgrade reference via the `forge-adapt` skill. There are no build steps or package managers. The only CI is a governance `Validate` workflow (`.github/workflows/validate.yml`) that checks plugin/marketplace structure and version-marker discipline. There is no application build/test pipeline.
 
 **Validation approach:** There is no application test runner. Two kinds of validation exist:
