@@ -60,7 +60,7 @@ user, organization, package, …`). For CI, scope it down, e.g. `write:issue,wri
 
 ## Issue templates
 
-Forgejo reads `.forgejo/issue_template/` or `.gitea/ISSUE_TEMPLATE/` (and `.github/ISSUE_TEMPLATE/`
+Forgejo reads `.forgejo/ISSUE_TEMPLATE/` in either casing, or `.gitea/ISSUE_TEMPLATE/` (and `.github/ISSUE_TEMPLATE/`
 for compatibility in recent versions). forge-adapt's `templates` mode should target the
 host-appropriate directory.
 
