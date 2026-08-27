@@ -65,6 +65,39 @@ run "canonical doc at the matching version passes" 0 "$d" "$t/doc-ok.md"
 printf 'canonical\n<!-- template-version: 5 -->\n' > "$t/doc-drift.md"
 run "canonical doc at a different version fails" 1 "$d" "$t/doc-drift.md"
 
+# Issue #61: forge-adapt (v<=34) installed Forgejo templates to the LOWERCASE
+# .forgejo/issue_template, which resolve_dir did not accept, so on such repos the guard
+# printed "nothing to check" and exited 0 over drifted templates. Legacy lowercase
+# installs must be resolved. Needs the no-arg (CI) invocation, so fixtures are git repos.
+lc="$t/lowercase-repo"; mkdir -p "$lc/.forgejo/issue_template"
+git -C "$lc" init -q
+mk "$lc/.forgejo/issue_template" feature 4
+mk "$lc/.forgejo/issue_template" bug 99
+if (cd "$lc" && bash "$SCRIPT" >/dev/null 2>&1); then
+  echo "  FAIL: lowercase .forgejo/issue_template drift not caught (expected exit 1)"
+  fail=$((fail + 1))
+else
+  echo "  ok: lowercase .forgejo/issue_template is resolved and drift is caught"
+  pass=$((pass + 1))
+fi
+
+# When BOTH casings exist, uppercase is canonical and wins; a warning names the other dir.
+# Uppercase in lockstep + lowercase drifted must pass (proves uppercase was selected) and
+# warn (proves the duplicate is surfaced rather than silently first-matched).
+bc="$t/bothcase-repo"; mkdir -p "$bc/.forgejo/ISSUE_TEMPLATE" "$bc/.forgejo/issue_template"
+git -C "$bc" init -q
+mk "$bc/.forgejo/ISSUE_TEMPLATE" feature 4
+mk "$bc/.forgejo/ISSUE_TEMPLATE" bug 4
+mk "$bc/.forgejo/issue_template" stale 99
+out=$( (cd "$bc" && bash "$SCRIPT" 2>&1) ); rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'WARNING.*issue_template'; then
+  echo "  ok: with both casings, uppercase wins and the duplicate dir is warned about"
+  pass=$((pass + 1))
+else
+  echo "  FAIL: both-casings case (expected exit 0 + WARNING, got exit $rc)"
+  fail=$((fail + 1))
+fi
+
 rm -rf "$t"
 
 # The no-arg path is what CI invokes: it resolves the template dir and the canonical doc

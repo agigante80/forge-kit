@@ -28,9 +28,24 @@ if [ "$#" -eq 0 ]; then
 fi
 
 resolve_dir() {
-  local d
-  for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do
-    [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
+  # Uppercase is canonical. The lowercase variants are accepted because forge-adapt v34 and
+  # earlier instructed `.forgejo/issue_template` on Forgejo installs (issue #61); those repos
+  # must not be left silently unguarded. When both casings exist, uppercase wins and a WARNING
+  # names the duplicate: a silent first-match would recreate the original bug one level down.
+  # The -ef guard keeps case-insensitive filesystems (macOS) from warning about one directory
+  # reachable under two names.
+  local d lower
+  for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE \
+           .forgejo/issue_template .gitea/issue_template; do
+    [ -d "$d" ] || continue
+    case "$d" in
+      */ISSUE_TEMPLATE)
+        lower="${d%/*}/issue_template"
+        if [ -d "$lower" ] && ! [ "$lower" -ef "$d" ]; then
+          echo "check-template-lockstep: WARNING: both $d and $lower exist; checking $d (merge the two)" >&2
+        fi ;;
+    esac
+    printf '%s\n' "$d"; return 0
   done
   return 1
 }
