@@ -17,7 +17,7 @@ ver_of() { grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | he
 
 # AMR: also catch renamed components (the new path is what git reports).
 files=$(git diff --name-only --diff-filter=AMR "$base"...HEAD \
-  | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$' || true)
+  | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$|^plugins/[^/]+/skills/[^/]+/assets/[^/]+\.sh$' || true)
 [ -z "$files" ] && { echo "no component changes vs $base"; exit 0; }
 
 violations=0

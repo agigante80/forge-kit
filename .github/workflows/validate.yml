@@ -43,6 +43,11 @@ jobs:
       - name: forge-adapt catalogue script tests
         run: bash scripts/test-forge-adapt-catalogue.sh
 
+      # forge-lib.sh is a shipped executable (the forge-host adapter): stubbed-transport
+      # contract tests for pagination and label-resolution semantics (issues #62/#63).
+      - name: forge-lib contract tests
+        run: bash scripts/test-forge-lib.sh
+
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'
         env:

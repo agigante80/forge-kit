@@ -38,6 +38,12 @@ printf '%s\n' "$out" | grep -qP '^hook: block-dashes \| v[0-9]+' \
   && ok "a known hook appears with its marker (block-dashes)" \
   || bad "a known hook appears with its marker"
 
+# Versioned shell assets (issue #64): the catalogue must list them, or drift/refresh has no
+# forge-kit-side version to compare an installed scripts/forge-lib.sh against.
+printf '%s\n' "$out" | grep -qP '^asset: forge-lib \| v[0-9]+' \
+  && ok "a versioned shell asset appears with its marker (forge-lib)" \
+  || bad "a versioned shell asset appears with its marker (forge-lib)"
+
 # Missing/absent library arg is a graceful exit 0 (read-only, no crash).
 bash "$SCRIPT" /nonexistent-forge-kit >/dev/null 2>&1 && ok "missing library dir exits 0" || bad "missing library dir exits 0"
 
