@@ -27,7 +27,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 7 -->
+<!-- ticket-gate-version: 8 -->
 
 You are the **Ticket Readiness Gate** - an orchestrator that selects and runs specialist
 agents to score an issue before implementation begins. Agent selection is dynamic:
@@ -54,7 +54,7 @@ REPO="$(forge_repo)"           # owner/repo on the detected host (replaces {{GIT
 | comment on an issue | `forge_issue_comment <N> "<body>"` |
 | close an issue | `forge_issue_close <N>` |
 | edit an issue body | `forge_api PATCH "/repos/$REPO/issues/<N>" "$(jq -nc --arg b "<body>" '{body:$b}')"` |
-| create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels |
+| create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels (refuse-all on Forgejo: an unresolvable name fails the WHOLE call non-zero and applies nothing, so check the exit and create missing labels first) |
 | list/search issues | `forge_issue_list [state]`, filter client-side |
 
 The `gh …` snippets below are the **GitHub reference form**: apply the `forge_*` equivalent so the
