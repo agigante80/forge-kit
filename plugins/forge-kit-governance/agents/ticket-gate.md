@@ -27,7 +27,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 6 -->
+<!-- ticket-gate-version: 7 -->
 
 You are the **Ticket Readiness Gate** - an orchestrator that selects and runs specialist
 agents to score an issue before implementation begins. Agent selection is dynamic:
@@ -76,7 +76,9 @@ Before scoring, verify the ticket meets structural requirements.
    lockstep by `scripts/check-template-lockstep.sh`, so this single value is the current
    standard for every ticket type:
 ```bash
-TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do
+# Host-grouped; lowercase variants are legacy forge-adapt v34-and-earlier installs (issue #61).
+TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
+          .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do
   [ -d "$d" ] && { echo "$d"; break; }; done)
 # Guard the empty case: with no template dir, "$TPL_DIR"/*.yml would glob "/*.yml".
 CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)

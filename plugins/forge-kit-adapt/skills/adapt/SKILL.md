@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 34 -->
+<!-- forge-adapt-version: 36 -->
 
 # forge-adapt
 
@@ -199,7 +199,10 @@ CURRENT_REPO=$(printf '%s' "$REMOTE_URL" | sed -E 's#\.git$##; s#/$##; s#^.*://[
 # Domain/pattern sample:
 find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep -vE 'node_modules|\.claude|dist' | head -20
 # Issue-template drift (host-aware) + governance state. Exit-0-safe: a missing dir is a normal finding.
-PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do [ -d "$d" ] && { echo "$d"; break; }; done)
+# HOST-grouped like resolve_dir and ticket-gate (a live Forgejo dir, either casing, outranks a stale
+# retained .github one); within a host, uppercase wins. Lowercase = legacy v34-and-earlier installs (issue #61).
+# If BOTH casings of one host exist, report the duplicate in the findings and recommend merging into uppercase.
+PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do [ -d "$d" ] && { echo "$d"; break; }; done)
 # Lenient project read: accept forge-kit's canonical hidden marker AND a visible "Template version: N"
 # line (some projects predate the canonical form). Upgrading normalises them; the lockstep guard
 # stays strict (canonical-only).
@@ -486,8 +489,11 @@ Run the **Templates mode** install logic (see Secondary modes -> Templates mode)
 step: use each forge-kit template as the base when missing, or merge when outdated/incomplete
 (preserve existing content verbatim, add only missing sections, bump the `template-version` marker);
 adapt the `areas`/dropdown OPTIONS to this project's real package structure; write to
-`.github/ISSUE_TEMPLATE/` on GitHub or `.forgejo/issue_template/` when `$FORGE_HOST=forgejo` (Forgejo
-also reads `.gitea/ISSUE_TEMPLATE/`); exclude `contribution.yml`. Then, since the project now has
+`.github/ISSUE_TEMPLATE/` on GitHub or `.forgejo/ISSUE_TEMPLATE/` when `$FORGE_HOST=forgejo` (Forgejo
+also reads `.gitea/ISSUE_TEMPLATE/`); if the project's existing templates sit in a legacy lowercase
+dir (`.forgejo/issue_template/`, written by forge-adapt v34 and earlier), `git mv` that dir to the
+uppercase path FIRST and write there, never leave both casings behind (issue #61); exclude
+`contribution.yml`. Then, since the project now has
 versioned templates, offer the repo-level governance (the `check-template-lockstep.sh` guard +
 canonical `ticket-standards.md`) exactly as the Templates mode does. Confirm:
 `✓ issue templates installed at v<N> (<dir>)` and, if taken, `✓ template-lockstep guard + ticket-standards doc`.
@@ -598,8 +604,10 @@ Show a per-template status table (missing / outdated / incomplete / current), as
 install or upgrade, then for each: use the forge-kit template as base when missing (adapt the
 `areas` dropdown to the project's real package structure), or merge when outdated/incomplete
 (preserve ALL existing content verbatim, add only missing sections, bump the `template-version`
-marker). Templates write to `.github/ISSUE_TEMPLATE/` on GitHub, or to `.forgejo/issue_template/`
-when `$FORGE_HOST=forgejo` (Forgejo also reads `.gitea/ISSUE_TEMPLATE/`); never `.claude/`.
+marker). Templates write to `.github/ISSUE_TEMPLATE/` on GitHub, or to `.forgejo/ISSUE_TEMPLATE/`
+when `$FORGE_HOST=forgejo` (Forgejo also reads `.gitea/ISSUE_TEMPLATE/`); never `.claude/`. A legacy
+lowercase `.forgejo/issue_template/` (forge-adapt v34 and earlier, issue #61) is `git mv`ed to the
+uppercase path before writing, so an upgrade never leaves both casings behind.
 `contribution.yml` is forge-kit-specific - exclude it from the audit.
 
 **After the template audit, offer the repo-level template governance** - the lockstep guard and the
@@ -609,7 +617,10 @@ them the guard is meaningless, so skip this block entirely. Detect the current s
 
 ```bash
 # Project template dir (host-aware) + its current template-version, plus what governance exists.
-PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE; do
+# HOST-grouped (matches resolve_dir and ticket-gate); within a host uppercase wins; lowercase = legacy
+# v34-and-earlier installs (issue #61).
+PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
+              .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do
   [ -d "$d" ] && { echo "$d"; break; }; done)
 PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
 HAS_GUARD=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
