@@ -14,8 +14,11 @@ ver_of() {
   grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | head -1 | grep -oP ': \K\d+'
 }
 
-staged_all=$(git diff --cached --name-only --no-renames --diff-filter=ADM || true)
-printf '%s\n' "$staged_all" | grep -q '^plugins/' || exit 0   # nothing under plugins/: done
+# Early exit via pathspec, deliberately NOT a `printf | grep -q` pipe: grep -q closes the
+# pipe at the first match, printf takes SIGPIPE (141), and under pipefail `|| exit 0` would
+# then fire on a huge staged list even though plugins/ WAS touched (a verified fail-open).
+# The pathspec form also keeps the diff-scope knowledge in one place: the guard script.
+if git diff --cached --quiet -- plugins/; then exit 0; fi   # nothing under plugins/: done
 
 # Marker discipline applies to added/modified component files only (a deletion has no
 # marker to bump; the plugin-semver check below is what a deletion must satisfy).
