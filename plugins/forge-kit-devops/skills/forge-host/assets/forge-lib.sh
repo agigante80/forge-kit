@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 2
+# forge-lib-version: 3
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -138,13 +138,18 @@ forge_api() {
   esac
 }
 
-# forge_api_paginate <path>  GET every page of a Forgejo list endpoint and print ONE
-# concatenated JSON array. Appends its own limit/page query ('?' or '&' as the path needs).
-# Termination is an EMPTY page, deliberately NOT `length < limit`: the server clamps `limit`
-# to its admin-set MAX_RESPONSE_ITEMS (stock default 50), so a clamped page satisfies
+# forge_api_paginate <path>  GET every page of a LIST endpoint and print ONE concatenated
+# JSON array, host-aware: github delegates to `gh api --paginate` (which merges pages into one
+# array without -q); forgejo loops page/limit itself, appending '?' or '&' as the path needs.
+# Forgejo termination is an EMPTY page, deliberately NOT `length < limit`: the server clamps
+# `limit` to its admin-set MAX_RESPONSE_ITEMS (stock default 50), so a clamped page satisfies
 # `< limit` while pages remain, which would silently reproduce the exact single-page
 # truncation this helper exists to fix (issue #62). One extra request per call is the price
-# of being clamp-proof. Forgejo-only: the github branches paginate via `gh api --paginate`.
+# of being clamp-proof. Guards, each an ERROR (return 2), never a silent end-of-list: a
+# non-array body (a JSON error object's `length` counts KEYS, which would read as items and
+# loop forever), an empty or unparseable body mid-run (a `[ '' -gt 0 ]` would break the loop
+# and return rc 0 on a partial list), and a page cap (FORGE_PAGINATE_MAX_PAGES, default 500 =
+# 25k items at stock clamp) so a server that ignores `page` spins the cap, not forever.
 # Pages accumulate in a TEMP FILE, never a jq --argjson argument: a single execve argument is
 # capped at MAX_ARG_STRLEN (~128KiB on Linux), and one real page of template-v4-sized issues
 # measures at that ceiling, so argv accumulation hard-fails on exactly the repos pagination
@@ -156,13 +161,26 @@ forge_api_paginate() {
     forge_api GET "${path}${sep}limit=50&page=1" >/dev/null   # prints the dry-run line
     printf '[]\n'; return 0
   fi
+  if [ "$(forge_host)" = github ]; then
+    gh api --paginate "${path#/}" | jq -c 'if type == "array" then . else [.] end'
+    return $?
+  fi
   tmp="$(mktemp)" || return 2
   while :; do
     chunk="$(forge_api GET "${path}${sep}limit=50&page=${page}")" || { rm -f "$tmp"; return 2; }
-    n="$(printf '%s' "$chunk" | jq 'length')" || { rm -f "$tmp"; return 2; }
+    n="$(printf '%s' "$chunk" | jq 'if type == "array" then length else -1 end' 2>/dev/null)"
+    case "$n" in
+      ''|*[!0-9-]*|-1)
+        echo "forge-lib: paginate: non-array or empty response from ${path} page ${page}" >&2
+        rm -f "$tmp"; return 2 ;;
+    esac
     [ "$n" -gt 0 ] || break
     printf '%s\n' "$chunk" >> "$tmp"
     page=$((page + 1))
+    if [ "$page" -gt "${FORGE_PAGINATE_MAX_PAGES:-500}" ]; then
+      echo "forge-lib: paginate: exceeded ${FORGE_PAGINATE_MAX_PAGES:-500} pages on ${path}; server may be ignoring the page param" >&2
+      rm -f "$tmp"; return 2
+    fi
   done
   jq -sc 'add // []' "$tmp"; rc=$?
   rm -f "$tmp"
@@ -226,24 +244,39 @@ forge_issue_label() {
     forgejo)
       # Labels can be defined on the REPO or on the owning ORG: the issue-labels endpoint accepts
       # ids from either, but /repos/.../labels lists only the repo's own, so refusing against the
-      # repo list alone would wrongly reject valid org labels. Merge both; the /orgs endpoint
-      # 404s for user-owned repos, which is an empty set here, not an error. Label lists go to jq
-      # via --slurpfile (file input), never --argjson (argv-capped; see forge_api_paginate).
-      local all org resolved missing ids nlabels tmp
+      # repo list alone would wrongly reject valid org labels. The org list is fetched ONLY when a
+      # name fails to resolve against the repo list (the common all-repo-labels call costs no org
+      # round-trips); the /orgs endpoint 404s for user-owned repos, which reads as an empty set,
+      # and any other org-fetch failure is flagged in the error rather than silently narrowing
+      # the label universe. Label lists go to jq via --slurpfile (file input), never --argjson
+      # (argv-capped; see forge_api_paginate).
+      local all org org_failed=0 resolved nmissing missing ids nlabels tmp
       all="$(forge_api_paginate "/repos/$repo/labels")" || return 2
-      org="$(forge_api_paginate "/orgs/${repo%%/*}/labels" 2>/dev/null)" || org='[]'
       tmp="$(mktemp)" || return 2
-      printf '%s\n%s\n' "$all" "$org" > "$tmp"
+      _forge_resolve_names() {  # resolves "$@" against the label lists in $tmp -> [{name,id|null}]
+        # ONE name->id resolution pass drives BOTH the refusal check and the POST body, so the
+        # two can never drift apart; a divergence there is exactly the silent-partial class of #63.
+        printf '%s\n' "$@" | jq -R . | jq -sc --slurpfile lists "$tmp" \
+          '($lists | add) as $labels | map(. as $l | {name:$l, id:($labels | map(select(.name==$l) | .id) | first)})'
+      }
+      printf '%s\n' "$all" > "$tmp"
+      resolved="$(_forge_resolve_names "$@")"
+      if [ "$(printf '%s' "$resolved" | jq '[.[] | select(.id == null)] | length')" -gt 0 ]; then
+        org="$(forge_api_paginate "/orgs/${repo%%/*}/labels" 2>/dev/null)" || { org='[]'; org_failed=1; }
+        printf '%s\n%s\n' "$all" "$org" > "$tmp"
+        resolved="$(_forge_resolve_names "$@")"
+      fi
       nlabels="$(jq -s 'add | length' "$tmp")"
-      # ONE name->id resolution pass drives BOTH the refusal check and the POST body, so the two
-      # can never drift apart; a divergence there is exactly the silent-partial class of #63.
-      resolved="$(printf '%s\n' "$@" | jq -R . | jq -sc --slurpfile lists "$tmp" \
-        '($lists | add) as $labels | map(. as $l | {name:$l, id:($labels | map(select(.name==$l) | .id) | first)})')"
       rm -f "$tmp"
-      missing="$(printf '%s' "$resolved" | jq -r '[.[] | select(.id == null) | .name] | join(" ")')"
-      if [ -n "$missing" ]; then
+      # Gate on the COUNT of unresolved entries, not on a joined string: join(" ") of [""] is
+      # empty, so a string-emptiness gate lets an empty-string name slip through and POST null.
+      nmissing="$(printf '%s' "$resolved" | jq '[.[] | select(.id == null)] | length')"
+      if [ "${nmissing:-0}" -gt 0 ]; then
+        missing="$(printf '%s' "$resolved" | jq -r '[.[] | select(.id == null) | .name | @json] | join(" ")')"
         if [ "${nlabels:-0}" -eq 0 ]; then
           echo "forge-lib: cannot label issue #$n: the repository and its org have no labels defined (create them first)" >&2
+        elif [ "$org_failed" -eq 1 ]; then
+          echo "forge-lib: cannot label issue #$n: unresolvable label name(s): $missing (org-level labels could not be listed; if these are org labels, fix org access or define them on the repo)" >&2
         else
           echo "forge-lib: cannot label issue #$n: unresolvable label name(s): $missing" >&2
         fi
