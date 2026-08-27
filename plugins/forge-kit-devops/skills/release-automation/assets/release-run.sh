@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# release-run-version: 1
 # release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). It
 # single-sources the release MECHANICS so a fix lands once, not copy-pasted per lane. `version-lib.sh`
 # (sourced) decides the version<->tag verdict; this applies the lane policy: recursion guard, an

@@ -15,7 +15,7 @@ ver_of() {
 }
 
 files=$(git diff --cached --name-only --diff-filter=AM \
-  | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$' || true)
+  | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$|^plugins/[^/]+/skills/[^/]+/assets/[^/]+\.sh$' || true)
 [ -z "$files" ] && exit 0
 
 violations=0
