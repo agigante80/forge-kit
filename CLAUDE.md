@@ -23,6 +23,8 @@ cross-agent instruction format); keep it a pointer, never duplicate content into
    python3 scripts/test-closing-sessions-memory.py  # contract test for the closing-sessions memory.py helper (NOT yet wired into CI)
    git fetch origin main                       # required: the next script fails closed on a missing base ref
    bash scripts/check-version-bump.sh origin/main   # fail if a changed component didn't bump its <name>-version marker
+   bash scripts/test-check-plugin-version-bump.sh   # contract test for the plugin-semver guard below
+   bash scripts/check-plugin-version-bump.sh origin/main  # fail if a changed plugin GROUP didn't bump its plugin.json semver
    git config core.hooksPath .githooks         # one-time: enable the local pre-commit version-bump guard
    ```
 
@@ -99,7 +101,7 @@ Each plugin group has a `.claude-plugin/plugin.json` with `name`, `description`,
 
 The root `.claude-plugin/marketplace.json` lists all plugins with their local `source` paths. This is the file the plugin marketplace reads to discover installable plugins.
 
-**Two versioning levels (don't conflate them):** the **plugin** version (`version` in `plugin.json`, semver) is the standard unit-of-install version read by the marketplace/tooling, set per plugin group. The **component** version (`<!-- <name>-version: N -->` markers) is forge-kit's finer-grained signal for detecting drift in a single component that `forge-adapt` cherry-picked and rewrote into a project's `.claude/`. Divorced from its plugin, a loose adapted file needs its own marker. The `Validate` CI workflow enforces both: `scripts/validate-plugins.sh` checks structure + semver + marker presence; `scripts/check-version-bump.sh` fails a PR whose component changed without a marker bump (the authoritative, server-side counterpart to the opt-in `.githooks/pre-commit`).
+**Two versioning levels (don't conflate them):** the **plugin** version (`version` in `plugin.json`, semver) is the standard unit-of-install version read by the marketplace/tooling, set per plugin group. The **component** version (`<!-- <name>-version: N -->` markers) is forge-kit's finer-grained signal for detecting drift in a single component that `forge-adapt` cherry-picked and rewrote into a project's `.claude/`. Divorced from its plugin, a loose adapted file needs its own marker. The `Validate` CI workflow enforces both: `scripts/validate-plugins.sh` checks structure + semver + marker presence; `scripts/check-version-bump.sh` fails a PR whose component changed without a marker bump (the authoritative, server-side counterpart to the opt-in `.githooks/pre-commit`); `scripts/check-plugin-version-bump.sh` fails a PR whose plugin GROUP changed without a `plugin.json` semver bump, so the unit-of-install version can no longer rot while markers move (it did exactly that in PRs #74/#75, which is why the guard exists).
 
 ## Key Conventions
 

@@ -16,7 +16,6 @@ ver_of() {
 
 files=$(git diff --cached --name-only --diff-filter=AM \
   | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$|^plugins/[^/]+/skills/[^/]+/assets/[^/]+\.sh$' || true)
-[ -z "$files" ] && exit 0
 
 violations=0
 while IFS= read -r f; do
@@ -39,10 +38,31 @@ while IFS= read -r f; do
   fi
 done <<< "$files"
 
+# Plugin-GROUP semver (issue #79): any staged change under plugins/<group>/ needs that
+# group's plugin.json version strictly increased vs HEAD. Same per-commit semantics as the
+# marker section above, same --no-verify escape; CI's check-plugin-version-bump.sh (range
+# vs origin/main) is the authoritative counterpart.
+groups=$(git diff --cached --name-only --diff-filter=ADMR | grep -oE '^plugins/[^/]+' | sort -u || true)
+while IFS= read -r g; do
+  [ -n "$g" ] || continue
+  pj="$g/.claude-plugin/plugin.json"
+  staged_v=$(git show ":$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)
+  git cat-file -e "HEAD:$pj" 2>/dev/null || continue   # new group: validate-plugins owns structure
+  head_v=$(git show "HEAD:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)
+  [ -n "$head_v" ] || continue
+  if [ -z "$staged_v" ] || [ "$staged_v" = "$head_v" ]; then
+    echo "  ✗ $g: staged changes but plugin.json still v${head_v} (bump the semver)"
+    violations=$((violations + 1))
+  elif [ "$(printf '%s\n%s\n' "$head_v" "$staged_v" | sort -V | tail -1)" != "$staged_v" ]; then
+    echo "  ✗ $g: plugin.json went BACKWARD ($head_v -> $staged_v)"
+    violations=$((violations + 1))
+  fi
+done <<< "$groups"
+
 if [ "$violations" -gt 0 ]; then
   echo ""
-  echo "forge-kit: $violations component change(s) need a version-marker bump."
-  echo "Bump the marker, or for a trivial edit re-run with: git commit --no-verify"
+  echo "forge-kit: $violations change(s) need a version bump (component marker or plugin.json)."
+  echo "Bump it, or for a trivial edit re-run with: git commit --no-verify"
   exit 1
 fi
 exit 0
