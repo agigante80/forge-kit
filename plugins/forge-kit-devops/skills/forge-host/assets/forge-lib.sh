@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 3
+# forge-lib-version: 4
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -162,9 +162,14 @@ forge_api_paginate() {
     printf '[]\n'; return 0
   fi
   if [ "$(forge_host)" = github ]; then
-    gh api --paginate "${path#/}" | jq -c 'if type == "array" then . else [.] end'
+    # gh --paginate emits each page as a SEPARATE JSON doc on modern gh (--slurp exists for
+    # exactly this); older gh merged arrays into one. jq -s tolerates both shapes: slurp all
+    # docs, box any non-array, flatten once.
+    gh api --paginate "${path#/}" | jq -sc 'map(if type == "array" then . else [.] end) | add // []'
     return $?
   fi
+  local cap="${FORGE_PAGINATE_MAX_PAGES:-500}"
+  case "$cap" in ''|*[!0-9]*) cap=500 ;; esac   # a non-numeric override must not void the spin guard
   tmp="$(mktemp)" || return 2
   while :; do
     chunk="$(forge_api GET "${path}${sep}limit=50&page=${page}")" || { rm -f "$tmp"; return 2; }
@@ -177,14 +182,24 @@ forge_api_paginate() {
     [ "$n" -gt 0 ] || break
     printf '%s\n' "$chunk" >> "$tmp"
     page=$((page + 1))
-    if [ "$page" -gt "${FORGE_PAGINATE_MAX_PAGES:-500}" ]; then
-      echo "forge-lib: paginate: exceeded ${FORGE_PAGINATE_MAX_PAGES:-500} pages on ${path}; server may be ignoring the page param" >&2
+    if [ "$page" -gt "$cap" ]; then
+      echo "forge-lib: paginate: exceeded $cap pages on ${path}; server may be ignoring the page param" >&2
       rm -f "$tmp"; return 2
     fi
   done
   jq -sc 'add // []' "$tmp"; rc=$?
   rm -f "$tmp"
   return $rc
+}
+
+# _forge_resolve_names <listfile> <name...>  resolve names against the label lists (JSON arrays,
+# one per line) in <listfile> -> [{name, id|null}]. ONE resolution pass drives BOTH the refusal
+# check and the POST body in forge_issue_label, so the two can never drift apart; a divergence
+# there is exactly the silent-partial class of #63.
+_forge_resolve_names() {
+  local listfile="$1"; shift
+  printf '%s\n' "$@" | jq -R . | jq -sc --slurpfile lists "$listfile" \
+    '($lists | add) as $labels | map(. as $l | {name:$l, id:($labels | map(select(.name==$l) | .id) | first)})'
 }
 
 # --- Issue operations (REST shapes match across GitHub + Forgejo/Gitea) ---
@@ -211,8 +226,9 @@ forge_issue_list() {
     printf '[dry-run] GET %s/repos/%s/issues?state=%s (issues only, all pages)\n' "$(forge_api_base)" "$repo" "$state" >&2; return 0
   fi
   case "$(forge_host)" in
-    # gh merges paginated arrays into ONE array only WITHOUT -q; filter PRs with a single jq pass after.
-    github)  gh api --paginate "repos/$repo/issues?state=$state" | jq 'map(select(.pull_request | not))' ;;
+    # Shared pager on both hosts; its github arm normalises gh's page-doc output to ONE array,
+    # so the PR filter runs over a guaranteed single array.
+    github)  forge_api_paginate "/repos/$repo/issues?state=$state" | jq 'map(select(.pull_request | not))' ;;
     forgejo) forge_api_paginate "/repos/$repo/issues?state=$state&type=issues" ;;
   esac
 }
@@ -253,18 +269,12 @@ forge_issue_label() {
       local all org org_failed=0 resolved nmissing missing ids nlabels tmp
       all="$(forge_api_paginate "/repos/$repo/labels")" || return 2
       tmp="$(mktemp)" || return 2
-      _forge_resolve_names() {  # resolves "$@" against the label lists in $tmp -> [{name,id|null}]
-        # ONE name->id resolution pass drives BOTH the refusal check and the POST body, so the
-        # two can never drift apart; a divergence there is exactly the silent-partial class of #63.
-        printf '%s\n' "$@" | jq -R . | jq -sc --slurpfile lists "$tmp" \
-          '($lists | add) as $labels | map(. as $l | {name:$l, id:($labels | map(select(.name==$l) | .id) | first)})'
-      }
       printf '%s\n' "$all" > "$tmp"
-      resolved="$(_forge_resolve_names "$@")"
+      resolved="$(_forge_resolve_names "$tmp" "$@")"
       if [ "$(printf '%s' "$resolved" | jq '[.[] | select(.id == null)] | length')" -gt 0 ]; then
         org="$(forge_api_paginate "/orgs/${repo%%/*}/labels" 2>/dev/null)" || { org='[]'; org_failed=1; }
         printf '%s\n%s\n' "$all" "$org" > "$tmp"
-        resolved="$(_forge_resolve_names "$@")"
+        resolved="$(_forge_resolve_names "$tmp" "$@")"
       fi
       nlabels="$(jq -s 'add | length' "$tmp")"
       rm -f "$tmp"

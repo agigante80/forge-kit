@@ -227,6 +227,21 @@ esac
 )
 [ $? -eq 0 ] && ok "paginate treats a non-array body as an error (jq length on an object counts keys)"              || bad "paginate accepted a non-array body (object keys counted as items)"
 
+# --- pagination cap survives a NON-NUMERIC override (a junk cap must not mean no cap) ---
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=junk
+  forge_api() { printf '[{"number":1}]'; }   # non-empty forever: only the cap can stop this
+  out=$(timeout 30 bash -c '
+    . "'"$LIB"'"
+    export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=junk
+    forge_api() { printf "[{\"number\":1}]"; }
+    forge_issue_list 2>/dev/null
+  '); rc=$?
+  [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]
+)
+[ $? -eq 0 ] && ok "a non-numeric FORGE_PAGINATE_MAX_PAGES falls back to the default cap (errors, no spin)"              || bad "a non-numeric page cap disabled the spin guard (timed out or exited 0)"
+
 # --- forge_api_paginate directly under dry-run: prints [] and sends nothing real ---
 (
   . "$LIB"
