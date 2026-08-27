@@ -133,6 +133,67 @@ case $? in
   *) bad "issue_label zero-label case errored";;
 esac
 
+# --- forge_issue_list at scale: pages totalling well past the ~128KiB argv limit (F1) ---
+# Accumulating pages via a jq --argjson argument dies at Linux MAX_ARG_STRLEN; one real page of
+# template-v4-sized issues already sits near the ceiling, so pagination must not build argv.
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  PAD="$(head -c 1300 /dev/zero | tr '\0' x)"
+  BIGPAGE="$(jq -nc --arg pad "$PAD" '[range(50)] | map({number:., body:$pad})')"
+  forge_api() {
+    case "$2" in
+      *"/issues?"*page=1*|*"/issues?"*page=2*|*"/issues?"*page=3*) printf '%s' "$BIGPAGE" ;;
+      *) printf '[]' ;;
+    esac
+  }
+  out=$(forge_issue_list) || exit 1
+  [ "$(printf '%s' "$out" | jq 'length')" = 150 ] || exit 2
+)
+case $? in
+  0) ok "issue_list survives pages totalling ~200KB (no argv-limit accumulation)";;
+  1) bad "issue_list hard-failed on large pages (argv MAX_ARG_STRLEN, the E2BIG regression)";;
+  2) bad "issue_list returned the wrong count on large pages";;
+  *) bad "issue_list large-page case errored";;
+esac
+
+# --- forge_issue_label: org-level labels resolve (repo list alone is not the label universe) ---
+(
+  . "$LIB"
+  REQLOG="$T/g.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    echo "$1 $2 ${3-}" >> "$REQLOG"
+    case "$1 $2" in
+      "GET /repos/"*"/labels?"*page=1*) printf '[{"name":"bug","id":1}]' ;;
+      "GET /orgs/"*"/labels?"*page=1*)  printf '[{"name":"org-wide","id":7}]' ;;
+      "GET "*"/labels?"*)               printf '[]' ;;
+      "POST "*)                         printf '{}' ;;
+    esac
+  }
+  forge_issue_label 7 org-wide || exit 1
+  grep -q '^POST /repos/o/r/issues/7/labels {"labels":\[7\]}' "$REQLOG" || exit 2
+)
+case $? in
+  0) ok "issue_label resolves an org-level label and POSTs its id";;
+  1) bad "issue_label refused a valid org-level label (repo list treated as the whole universe)";;
+  2) bad "issue_label did not POST the org label id";;
+  *) bad "issue_label org-label case errored";;
+esac
+
+# --- forge_api_paginate directly under dry-run: prints [] and sends nothing real ---
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
+  forge_api() { printf '[{"number":1}]'; }
+  out=$(forge_api_paginate "/repos/o/r/milestones" 2>/dev/null) || exit 1
+  [ "$out" = "[]" ] || exit 2
+)
+case $? in
+  0) ok "paginate under dry-run prints [] (direct callers like dep-auditor stay side-effect free)";;
+  *) bad "paginate dry-run case (rc=$?)";;
+esac
+
 # --- FORGE_DRY_RUN: nothing is sent by either function ---
 (
   . "$LIB"
