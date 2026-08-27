@@ -14,6 +14,11 @@ ver_of() {
   grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | head -1 | grep -oP ': \K\d+'
 }
 
+staged_all=$(git diff --cached --name-only --no-renames --diff-filter=ADM || true)
+printf '%s\n' "$staged_all" | grep -q '^plugins/' || exit 0   # nothing under plugins/: done
+
+# Marker discipline applies to added/modified component files only (a deletion has no
+# marker to bump; the plugin-semver check below is what a deletion must satisfy).
 files=$(git diff --cached --name-only --diff-filter=AM \
   | grep -E '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$|^plugins/[^/]+/skills/[^/]+/assets/[^/]+\.sh$' || true)
 
@@ -38,26 +43,21 @@ while IFS= read -r f; do
   fi
 done <<< "$files"
 
-# Plugin-GROUP semver (issue #79): any staged change under plugins/<group>/ needs that
-# group's plugin.json version strictly increased vs HEAD. Same per-commit semantics as the
-# marker section above, same --no-verify escape; CI's check-plugin-version-bump.sh (range
-# vs origin/main) is the authoritative counterpart.
-groups=$(git diff --cached --name-only --diff-filter=ADMR | grep -oE '^plugins/[^/]+' | sort -u || true)
-while IFS= read -r g; do
-  [ -n "$g" ] || continue
-  pj="$g/.claude-plugin/plugin.json"
-  staged_v=$(git show ":$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)
-  git cat-file -e "HEAD:$pj" 2>/dev/null || continue   # new group: validate-plugins owns structure
-  head_v=$(git show "HEAD:$pj" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)
-  [ -n "$head_v" ] || continue
-  if [ -z "$staged_v" ] || [ "$staged_v" = "$head_v" ]; then
-    echo "  ✗ $g: staged changes but plugin.json still v${head_v} (bump the semver)"
-    violations=$((violations + 1))
-  elif [ "$(printf '%s\n%s\n' "$head_v" "$staged_v" | sort -V | tail -1)" != "$staged_v" ]; then
-    echo "  ✗ $g: plugin.json went BACKWARD ($head_v -> $staged_v)"
-    violations=$((violations + 1))
+# Plugin-GROUP semver (issue #79): ONE implementation shared with CI, the guard script's
+# --staged mode (the PR #82 review found the previous hand-copied loop diverging from the
+# CI script on day one: jq fail-open, opposite deleted-group handling, a different semver
+# comparator). The script needs jq; a jq-less machine skips LOUDLY, never silently, and CI
+# still enforces the same rule server-side.
+guard="$(git rev-parse --show-toplevel)/scripts/check-plugin-version-bump.sh"
+if [ -f "$guard" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    if ! bash "$guard" --staged; then
+      violations=$((violations + 1))
+    fi
+  else
+    echo "  ! plugin-semver check SKIPPED locally: jq is not installed (CI enforces it)" >&2
   fi
-done <<< "$groups"
+fi
 
 if [ "$violations" -gt 0 ]; then
   echo ""
