@@ -34,5 +34,8 @@ for dir in "$FORGE_KIT_DIR"/plugins/*/; do
   for f in "$dir"commands/*.md;     do cat_row command  "$f" "$(basename "$f" .md)"; done
   for f in "$dir"skills/*/SKILL.md; do cat_row skill    "$f" "$(basename "$(dirname "$f")")"; done
   for f in "$dir"hooks/*.py "$dir"hooks/*.sh; do n=$(basename "$f"); cat_row hook "$f" "${n%.*}"; done
+  # Versioned shell assets (issue #64): copied verbatim into projects (e.g. scripts/forge-lib.sh),
+  # so drift/refresh needs their forge-kit-side version here like any other component's.
+  for f in "$dir"skills/*/assets/*.sh; do n=$(basename "$f"); cat_row asset "$f" "${n%.*}"; done
 done
 exit 0

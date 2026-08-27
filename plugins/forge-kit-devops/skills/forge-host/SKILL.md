@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible: a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 9 -->
+<!-- forge-host-version: 10 -->
 
 # forge-host: host-aware forge operations
 
@@ -69,7 +69,10 @@ does NOT reflect Actions (those are Checks), so the github path stays on `gh run
 
 ## Install (what forge-adapt does)
 
-1. Copy `assets/forge-lib.sh` into the project (e.g. `scripts/forge-lib.sh`), `chmod +x`.
+1. Copy `assets/forge-lib.sh` into the project (e.g. `scripts/forge-lib.sh`), `chmod +x`,
+   preserving its `# forge-lib-version: N` marker verbatim: the marker is what makes the
+   installed copy visible to forge-adapt's `drift`/`refresh` (issue #64). A copy without a
+   marker predates v1 and reports as `unversioned`.
 2. For a **Forgejo** repo (or a dual-remote repo mid-migration), copy `assets/forge.conf.example`
    to `.forge.conf`, fill it in, and commit it. Export the token in the runtime env (never commit
    it). A GitHub-only repo needs neither.

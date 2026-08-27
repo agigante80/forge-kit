@@ -3,7 +3,7 @@
 # Checks (current tree, no git diff needed):
 #   1. each plugin.json is valid JSON with name + description + semver version
 #   2. marketplace.json is valid JSON and every plugin source resolves to a plugin.json
-#   3. every component (agent/command/skill/hook) carries a <name>-version marker
+#   3. every component (agent/command/skill/hook/shell asset) carries a <name>-version marker
 # Exit 1 on any violation. This is the forge-kit analogue of `claude plugin validate`.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
@@ -42,7 +42,8 @@ while IFS= read -r f; do
   [ -f "$f" ] || continue
   [ -n "$(ver_of < "$f")" ] || fail "$f: missing <name>-version marker"
 done < <(find plugins -type f \( -path '*/agents/*.md' -o -path '*/commands/*.md' \
-           -o -path '*/skills/*/SKILL.md' -o -path '*/hooks/*.py' -o -path '*/hooks/*.sh' \))
+           -o -path '*/skills/*/SKILL.md' -o -path '*/hooks/*.py' -o -path '*/hooks/*.sh' \
+           -o -path '*/skills/*/assets/*.sh' \))
 
 if [ "$err" -ne 0 ]; then echo ""; echo "forge-kit: plugin validation FAILED."; exit 1; fi
 echo "forge-kit: plugin validation passed."
