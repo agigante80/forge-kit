@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 36 -->
+<!-- forge-adapt-version: 37 -->
 
 # forge-adapt
 
@@ -179,6 +179,14 @@ for f in .claude/agents/*.md .claude/commands/*.md .claude/skills/*/SKILL.md; do
   v=$(grep -oP -- "(?:<!--\s*|#\s*)${n}-version:\s*\K\d+" "$f" | head -1)  # anchored: same ver_of as S3
   d=$(grep -m1 '^description:' "$f" | sed 's/description: *//')
   echo "  $n | v${v:-none} | $d"
+done
+# Shell assets installed by skills land in scripts/ (forge-host copies forge-lib.sh there;
+# release-automation copies version-lib.sh + release-run.sh). Same marker scheme, same drift rules:
+for f in scripts/forge-lib.sh scripts/version-lib.sh scripts/release-run.sh; do
+  [ -f "$f" ] || continue
+  n=$(basename "$f" .sh)
+  v=$(grep -oP -- "#\s*${n}-version:\s*\K\d+" "$f" | head -1)
+  echo "  $n | v${v:-none} | shell asset (verbatim copy)"
 done
 # Hooks carry markers too (e.g. # block-dashes-version: N) - include them in drift detection:
 for f in .claude/hooks/*; do
@@ -383,7 +391,9 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 4. Replace the repo placeholder: `sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <file>`.
 5. **Forge-host dependency:** if the component does forge operations (ticket-gate, gate-ticket,
    dep-auditor, ci-health, release/release-automation) AND it is not GitHub-only, also install the
-   `forge-host` adapter: copy `forge-lib.sh` to `scripts/`, and for a Forgejo or dual-remote repo
+   `forge-host` adapter: copy `forge-lib.sh` to `scripts/` VERBATIM, preserving its
+   `# forge-lib-version: N` marker (the marker is what makes the installed copy visible to
+   `drift`/`refresh`; a copy without one reports as `unversioned` forever), and for a Forgejo or dual-remote repo
    (`$FORGE_HOST=forgejo`) copy `forge.conf.example` → `.forge.conf`. The Forgejo **base URL** and
    **token-env name** cannot be auto-detected, so ASK the user for them (or read an existing
    `.forge.conf`) to fill it in, and remind them to export the token. A GitHub-only repo needs
@@ -534,6 +544,19 @@ forge-adapt drift report - <project>
 
 Stop after the report. Do not modify anything. Status `behind` requires a local marker strictly
 lower than forge-kit; a copy with no local marker is `unversioned`, never `behind`.
+
+Shell assets (`scripts/forge-lib.sh`, `scripts/version-lib.sh`, `scripts/release-run.sh`) appear
+in the same table, compared against the catalogue's `asset:` rows. A present-but-unmarked copy is
+reported as `unversioned - refresh to deep-compare`, NEVER omitted: every install that predates
+the markers is exactly the copy most likely to be stale, so silence would hide the whole existing
+install base (issue #64).
+
+**Assets are verbatim copies, not adaptations.** For a shell asset, `refresh <name>` compares
+content: identical to the catalogue -> `current`; differing with an absent or older marker and no
+local additions -> offer to REPLACE with the catalogue copy (assets are never merged); differing
+with local additions -> do NOT overwrite and do NOT merge: report the diff and point at
+`forge-adapt contributions`, because a locally modified verbatim asset is out of contract and is
+a contribution candidate, not an adaptation (decided in issue #64).
 
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
 This is the only place a full content diff is justified, and it must NEVER blind-overwrite (that

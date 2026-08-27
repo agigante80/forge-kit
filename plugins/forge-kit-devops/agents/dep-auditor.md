@@ -24,7 +24,7 @@ model: opus
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 3 -->
+<!-- dep-auditor-version: 5 -->
 
 You are the **Dependency Health Auditor**: an agent that checks every workspace package
 for dependency issues using open-source tools and npm registry queries.
@@ -41,10 +41,16 @@ REPO="$(forge_repo)"
 
 Then: create with `forge_issue_create "<title>" "<body>"`; check duplicates with
 `forge_issue_list open` filtered by title client-side; read a milestone with
-`forge_api GET "/repos/$REPO/milestones"`. **Do not call `gh` directly.** The `gh …` snippets below
+`forge_api_paginate "/repos/$REPO/milestones"` (a LIST endpoint: a plain GET returns one server
+page and silently truncates past ~50 milestones, the same class #62 fixed for issues).
+**Do not call `gh` directly.** The `gh …` snippets below
 are the GitHub reference form; the adapter handles Forgejo. `forge_issue_create` omits labels (GitHub
 takes label names, Forgejo takes IDs); set the table's labels right after creating with
-`forge_issue_label <N> <name…>`, which adds by name on either host (resolving names→IDs on Forgejo).
+`forge_issue_label <N> <name…>`, which adds by name on either host (resolving names→IDs against
+repo AND org labels on Forgejo). Its Forgejo contract is REFUSE-ALL: any unresolvable name fails
+the whole call with a non-zero exit and applies nothing, so check the exit status; on failure,
+create the missing label(s) first (or drop them from the set), then retry. It never partially
+labels an issue.
 
 ---
 
@@ -195,7 +201,7 @@ duplicates: `gh issue list --search "<title>" --state open --limit 1`.
 
 Detect the current active milestone:
 ```bash
-gh api repos/{{GITHUB_REPO}}/milestones --jq '.[0].title' 2>/dev/null
+gh api repos/{{GITHUB_REPO}}/milestones --jq '.[0].title' 2>/dev/null   # reference form; use: forge_api_paginate "/repos/$REPO/milestones" | jq -r '.[0].title'
 ```
 
 All tickets use **P0 priority**.
