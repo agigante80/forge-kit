@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# forge-lib-version: 1
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -137,6 +138,30 @@ forge_api() {
   esac
 }
 
+# forge_api_paginate <path>  GET every page of a Forgejo list endpoint and print ONE
+# concatenated JSON array. Appends its own limit/page query ('?' or '&' as the path needs).
+# Termination is an EMPTY page, deliberately NOT `length < limit`: the server clamps `limit`
+# to its admin-set MAX_RESPONSE_ITEMS (stock default 50), so a clamped page satisfies
+# `< limit` while pages remain, which would silently reproduce the exact single-page
+# truncation this helper exists to fix (issue #62). One extra request per call is the price
+# of being clamp-proof. Forgejo-only: the github branches paginate via `gh api --paginate`.
+forge_api_paginate() {
+  local path="$1" sep page=1 out='[]' chunk n
+  case "$path" in *\?*) sep='&' ;; *) sep='?' ;; esac
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_api GET "${path}${sep}limit=50&page=1" >/dev/null   # prints the dry-run line
+    printf '[]\n'; return 0
+  fi
+  while :; do
+    chunk="$(forge_api GET "${path}${sep}limit=50&page=${page}")" || return 2
+    n="$(printf '%s' "$chunk" | jq 'length')" || return 2
+    [ "$n" -gt 0 ] || break
+    out="$(jq -nc --argjson a "$out" --argjson b "$chunk" '$a + $b')" || return 2
+    page=$((page + 1))
+  done
+  printf '%s\n' "$out"
+}
+
 # --- Issue operations (REST shapes match across GitHub + Forgejo/Gitea) ---
 
 # forge_issue_view <n>  -> the full issue JSON (number, title, body, state, labels[].name,
@@ -163,7 +188,7 @@ forge_issue_list() {
   case "$(forge_host)" in
     # gh merges paginated arrays into ONE array only WITHOUT -q; filter PRs with a single jq pass after.
     github)  gh api --paginate "repos/$repo/issues?state=$state" | jq 'map(select(.pull_request | not))' ;;
-    forgejo) forge_api GET "/repos/$repo/issues?state=$state&type=issues" ;;
+    forgejo) forge_api_paginate "/repos/$repo/issues?state=$state&type=issues" ;;
   esac
 }
 
@@ -177,9 +202,13 @@ forge_issue_create() {
 }
 
 # forge_issue_label <n> <label> [label...]  (add labels BY NAME on either host). GitHub's API takes
-# names directly; Forgejo's takes label IDs, so the forgejo path resolves names -> IDs via the repo's
-# label list (unknown names are dropped). This is the host-aware way to set the labels that
-# forge_issue_create intentionally omits.
+# names directly; Forgejo's takes label IDs, so the forgejo path resolves names -> IDs via the
+# repo's label list (all pages). An unresolvable name REFUSES the whole call: non-zero exit,
+# stderr naming the label(s), nothing written. Refuse-all (not apply-partial) is deliberate
+# (issue #63): callers are automation, and a partial apply makes the final state depend on which
+# of several names was mistyped; atomic refusal means fix the input and re-run. A repo with no
+# labels at all gets its own message, since the operator action differs (create labels vs fix a
+# typo). This is the host-aware way to set the labels forge_issue_create intentionally omits.
 forge_issue_label() {
   local n="$1"; shift; [ "$#" -gt 0 ] || return 0
   local repo; repo="$(forge_repo)" || return 2
@@ -188,10 +217,20 @@ forge_issue_label() {
     github)
       forge_api POST "/repos/$repo/issues/$n/labels" "$(printf '%s\n' "$@" | jq -R . | jq -sc '{labels: .}')" >/dev/null ;;
     forgejo)
-      local all ids
-      all="$(forge_api GET "/repos/$repo/labels?limit=100")" || return 2
+      local all missing ids
+      all="$(forge_api_paginate "/repos/$repo/labels")" || return 2
+      missing="$(printf '%s\n' "$@" | jq -R . | jq -sr --argjson all "$all" \
+        '($all | map(.name)) as $names | map(select(. as $l | ($names | index($l)) | not)) | join(" ")')"
+      if [ -n "$missing" ]; then
+        if [ "$(printf '%s' "$all" | jq 'length')" -eq 0 ]; then
+          echo "forge-lib: cannot label issue #$n: the repository has no labels defined (create them first)" >&2
+        else
+          echo "forge-lib: cannot label issue #$n: unresolvable label name(s): $missing" >&2
+        fi
+        return 2
+      fi
       ids="$(printf '%s\n' "$@" | jq -R . | jq -sc --argjson all "$all" \
-        'map(. as $n | ($all[] | select(.name==$n) | .id)) | map(select(. != null))')"
+        'map(. as $l | ($all | map(select(.name==$l) | .id) | first))')"
       forge_api POST "/repos/$repo/issues/$n/labels" "$(jq -nc --argjson l "$ids" '{labels:$l}')" >/dev/null ;;
   esac
 }
