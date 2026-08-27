@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 36 -->
+<!-- forge-adapt-version: 37 -->
 
 # forge-adapt
 
