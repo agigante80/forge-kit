@@ -1,4 +1,4 @@
-<!-- template-version: 4 -->
+<!-- template-version: 5 -->
 
 # Ticket standards (canonical)
 
@@ -34,6 +34,19 @@ At least one positive and one negative scenario per independent condition, writt
 specific route, model, and screen names where the ticket makes them evident. Vague restatements
 of the description do not count.
 
+**Scope:** any ticket with an observable behaviour change. The gate derives this from the
+ticket type and the areas it affects; the author never self-declares it. N/A is permitted only
+where no behaviour delta exists (a pure wireframe, a research spike), and the gate scores that
+N/A claim like any other.
+
+**Quality bar** (each point scorable by the gate):
+
+- exactly ONE `When` per scenario; multiple When/Then pairs mean multiple behaviours, split them
+- declarative, not click-by-click imperative
+- names a real route, model, or screen where the ticket makes one evident
+- the negative scenario asserts a SPECIFIC error code or message, never "it fails"
+- not a restatement of the summary
+
 ### 2. Unit test specs
 
 Concrete cases: a specific test file path, a concrete input value, and the expected output or
@@ -46,6 +59,10 @@ endpoint**, 100% automated coverage of that endpoint is required (happy path, mi
 For any UI-visible behaviour: a specific test suite file, setup steps, the action, and the
 assertion, for both the happy and unhappy paths. **API-only tickets mark this N/A with
 justification** rather than inventing a UI flow.
+
+<!-- adapt-droppable: emulator-clause (forge-adapt removes this paragraph where the project has no emulator or simulator suite) -->
+Where the project runs an emulator or simulator suite, a ticket adding a user journey names the
+emulator scenario it adds or extends, or states why the standing suite already covers it.
 
 ### 4. GDPR considerations
 
@@ -64,6 +81,14 @@ unnecessary.
 
 The reviews the ticket must pass before it is considered done, checked off explicitly. This is
 the ticket author's acknowledgement of the gate, not a substitute for it.
+
+### 7. Documentation currency
+
+The ticket names the documentation it affects, in the project's documentation tree and its root
+README, or states none with a reason. **Scope is deliberately every work ticket**: this is the
+one rule where always-asked is the point. It stays passable because "none, no user-visible
+surface" is a legitimate answer, and the gate scores that claim like any other N/A, judged
+against the ticket's own file list.
 
 ## The N/A rule (load-bearing)
 

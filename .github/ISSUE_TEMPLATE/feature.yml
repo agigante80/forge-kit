@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        <!-- template-version: 4 -->
+        <!-- template-version: 5 -->
         ## Feature Request
         Please fill in all required fields. This template ensures alignment with architecture,
         security, and privacy requirements before implementation begins.
@@ -195,6 +195,18 @@ body:
         - [ ] API returns 500 -> error state with retry button shown
         - [ ] Network offline -> offline banner shown
         - [ ] API returns empty data -> empty state shown
+    validations:
+      required: true
+
+  - type: textarea
+    id: docs_impact
+    attributes:
+      label: Documentation impact
+      description: Which documentation does this change affect, in the docs tree and the root README? "None" needs a reason.
+      value: |
+        - **Docs affected:**
+        - **README impact:**
+        - **Why not, if none:**
     validations:
       required: true
 

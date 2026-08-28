@@ -68,7 +68,7 @@ forge-kit ships two layers.
 
 | Component | What it does |
 |---|---|
-| 6 issue templates | feature, bug, security, infrastructure, design, contribution (v4 with GWT scenarios, unit test specs, E2E test specs, GDPR and security checklists) |
+| 6 issue templates | feature, bug, security, infrastructure, design, contribution (v5 with GWT scenarios, unit test specs, E2E test specs, GDPR and security checklists, documentation impact) |
 | GitHub labels | Standard label taxonomy for issue routing and prioritisation |
 
 ### Automation layer (Claude Code-native)
@@ -99,7 +99,7 @@ file ticket → gate it (10/10 from all specialists) → implement → review
 
 Running ticket readiness gate on #42...
 
-Template auto-upgraded to v4 - content synthesised
+Template auto-upgraded to v5 - content synthesised
 - GWT scenarios: 3 conditions, 6 scenarios
 - Unit tests: 4 specific cases
 - E2E tests: 2 specific cases
@@ -159,7 +159,7 @@ This skips the analysis and install phases (2 to 5) and jumps directly to Phase 
 ## Docs
 
 - `docs/guides/ticket-standards.md`: canonical single-source ready-ticket rules, version-locked to the templates
-- `docs/guides/template-versioning.md`: v4 GWT versioning and auto-synthesis
+- `docs/guides/template-versioning.md`: template versioning and auto-synthesis
 - `docs/guides/labels.md`: label taxonomy and agent routing rules
 
 ## Sponsor

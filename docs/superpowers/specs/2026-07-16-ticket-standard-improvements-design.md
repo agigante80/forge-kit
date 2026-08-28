@@ -1,7 +1,6 @@
 # Ticket standard improvements (design)
 
-**Status: part 1 approved by the user. Part 2 presented, NOT yet approved.**
-Brainstorm was interrupted by a session close before the part 2 approval gate.
+**Status: Part 1 IMPLEMENTED (issue #73, 2026-08-28). Part 2 presented, NOT yet approved.**
 Resume by re-presenting part 2 (below) and asking for approval before any implementation.
 
 Date: 2026-07-16

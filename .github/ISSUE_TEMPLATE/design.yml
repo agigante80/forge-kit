@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        <!-- template-version: 4 -->
+        <!-- template-version: 5 -->
         ## Design / UX Task
         For wireframes, visual assets, UX improvements, and accessibility work.
 
@@ -128,6 +128,18 @@ body:
       options:
         - label: "**ticket-gate** - mandatory before implementation. Runs 5 core agents (Security, Architect, Developer, QA, GDPR) + dynamic agents based on labels. All must score 10/10."
           required: true
+
+  - type: textarea
+    id: docs_impact
+    attributes:
+      label: Documentation impact
+      description: Which documentation does this change affect, in the docs tree and the root README? "None" needs a reason.
+      value: |
+        - **Docs affected:**
+        - **README impact:**
+        - **Why not, if none:**
+    validations:
+      required: true
 
   - type: textarea
     id: codebase_context
