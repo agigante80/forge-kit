@@ -161,7 +161,7 @@ body:
     attributes:
       label: Documentation impact
       description: Which documentation does this change affect, in the docs tree and the root README? "None" needs a reason.
-      value: |
+      placeholder: |
         - **Docs affected:**
         - **README impact:**
         - **Why not, if none:**

@@ -24,7 +24,7 @@ model: opus
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 5 -->
+<!-- dep-auditor-version: 6 -->
 
 You are the **Dependency Health Auditor**: an agent that checks every workspace package
 for dependency issues using open-source tools and npm registry queries.
@@ -223,10 +223,15 @@ All tickets use **P0 priority**.
 - Recommendation: replace / keep with justification / remove
 
 **All ticket bodies must include:**
-- `<!-- template-version: 4 -->` as first line
+- the CURRENT `<!-- template-version: N -->` marker as first line, N read from the project's
+  template dir the same way the gate reads it (never a hardcoded number: a stamped literal
+  goes stale on every template bump and forces a synthesis round-trip on machine-filed tickets)
 - `### Priority\nP0`
 - `## Acceptance criteria` with checkboxes
 - `## GDPR compliance\nN/A`
+- `## Documentation impact` with the three prompts (Docs affected / README impact / Why not,
+  if none); for a pure dependency swap the honest default is "None: dependency metadata only",
+  but a replacement that changes usage or setup names the docs and README sections it touches
 
 ---
 
