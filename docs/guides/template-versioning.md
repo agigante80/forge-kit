@@ -8,14 +8,20 @@ Every issue template in `.github/ISSUE_TEMPLATE/` contains a hidden version mark
 - type: markdown
   attributes:
     value: |
-      <!-- template-version: 4 -->
+      <!-- template-version: 5 -->
 ```
 
 When a user files an issue, this marker appears in the issue body. The `ticket-gate` agent
 reads this marker and compares it to the current template version. If they differ, it
 auto-synthesises the missing content (see Step 0c Auto-synthesis below).
 
-## Current version: 4
+## Current version: 5
+
+v5 added the ticket-standard improvements approved 2026-07-16 (see
+`docs/superpowers/specs/2026-07-16-ticket-standard-improvements-design.md`): a required
+`docs_impact` field on all five work templates (docs affected, README impact, why-not-if-none),
+a GWT quality bar with gate-derived scope (rule 1), and the droppable emulator clause on E2E
+specs (rule 3).
 
 v4 added three key fields to all templates:
 - `scenarios` - Given/When/Then test scenarios (one positive + one negative per condition)
