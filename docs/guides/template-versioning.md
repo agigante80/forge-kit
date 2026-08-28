@@ -59,7 +59,7 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
    - The acceptance criteria
    - Referenced files and route names
 4. **Updates the issue body** via `gh issue edit` with the synthesised content
-5. **Posts a comment** explaining what was synthesised and voiding prior scores
+5. **Posts a comment** explaining what was synthesised and voiding the prior verdict
 6. **Re-runs the full review** against the enriched body (nothing carries forward)
 
 The synthesised content is real and concrete - not placeholder text. The sub-agent reads the

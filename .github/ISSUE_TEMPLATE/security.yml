@@ -130,7 +130,7 @@ body:
     attributes:
       label: Required reviews (mandatory)
       description: |
-        The gate orchestrators auto-select which specialist agents to run based on labels and content.
+        The gate runs its mechanical checks plus one critic, with the security lens joining by label.
         The gate must return PASS before implementation begins.
       options:
         - label: "**ticket-gate** - mandatory before implementation. Mechanical checks + one critic (plus the security lens by label). Must return PASS."

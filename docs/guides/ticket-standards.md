@@ -19,7 +19,8 @@ The requirement text used to be restated in each template, in `CLAUDE.md`, and i
 copies drift: prose says one thing while a template says another, and nobody notices until a
 ticket is gated against a stale rule. Keeping the rules here, referenced (not restated)
 elsewhere, plus the lockstep guard, makes "the standard is the same everywhere" mechanically
-true rather than a matter of discipline.
+true rather than a matter of discipline. (One sanctioned restatement exists: the gate's
+hard-fail bars, governed by the Precedence section below.)
 
 ## Required sections
 
@@ -89,6 +90,15 @@ README, or states none with a reason. **Scope is deliberately every work ticket*
 one rule where always-asked is the point. It stays passable because "none, no user-visible
 surface" is a legitimate answer, and the gate scores that claim like any other N/A, judged
 against the ticket's own file list.
+
+## Precedence
+
+`ticket-gate` restates the hard-fail bars (UI E2E, API endpoint coverage, GDPR judgment) so
+they hold in installs without this doc; that restatement is the one sanctioned exception to
+the single-source rule above. Where this doc IS installed, its text governs on any
+divergence; the gate's copy is a convenience restatement, never a fork. A rule ABSENT from
+an installed (possibly adapted-down) copy is NOT divergence: absence never relaxes a gate
+bar; only explicit text here does.
 
 ## The N/A rule (load-bearing)
 

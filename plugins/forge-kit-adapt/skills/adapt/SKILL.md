@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 47 -->
+<!-- forge-adapt-version: 48 -->
 
 # forge-adapt
 
@@ -238,7 +238,7 @@ echo "dep-automation:"; ls .github/dependabot.yml renovate.json .renovaterc* 2>/
 | Signal | Look in | Points to |
 |---|---|---|
 | Language / framework | package.json, pyproject.toml, imports | which review/backend agents fit |
-| Auth / payments / PII | code + CLAUDE.md | security-auditor, owasp-api-security, GDPR scoring |
+| Auth / payments / PII | code + CLAUDE.md | security-auditor, owasp-api-security, GDPR review in the gate |
 | Public API surface | routes/, controllers, OpenAPI | api-security-tester, api-design-principles |
 | Dependency depth | lockfiles, package count | dep-auditor |
 | Tests present | tests/, *_test, *.spec | tdd-orchestrator, test-automator |
@@ -763,7 +763,7 @@ Confirm: `✓ template-lockstep guard installed + wired (<host-workflows-dir>)`.
   and write only on `yes`.
 - **Repoint (additive; each only if the target exists and does not already reference the doc):**
   - project gate: add `docs/guides/ticket-standards.md` to the Step 2 read-list of
-    `.claude/agents/ticket-gate.md` (the canonical rules the gate scores against).
+    `.claude/agents/ticket-gate.md` (the canonical rules the gate reviews against).
   - project `CLAUDE.md`: add one line under its issue-template section naming the doc as the single
     source of truth for the ready-ticket rules.
 
