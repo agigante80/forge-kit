@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 44 -->
+<!-- forge-adapt-version: 45 -->
 
 # forge-adapt
 
@@ -181,10 +181,11 @@ for f in .claude/agents/*.md .claude/commands/*.md .claude/skills/*/SKILL.md; do
   echo "  $n | v${v:-none} | $d"
 done
 # Superpowers coexistence (issue #72): forge-kit defers to the process layer where present.
-# Presence is a local-filesystem fact; the in-session skills listing (superpowers:* entries)
-# is an equally valid signal when visible.
-SP_PRESENT=$(ls -d ~/.claude/plugins/cache/*/superpowers 2>/dev/null | head -1)
-[ -n "$SP_PRESENT" ] && SP_STATUS=present || SP_STATUS=absent
+# Presence means an INSTALL RECORD (installed_plugins.json names the plugin) or superpowers:*
+# entries visible in this session's skills listing. A cache directory alone is NOT presence:
+# the cache outlives uninstalls and keeps old versions beside the live one.
+SP_STATUS=$(grep -q '"superpowers@' ~/.claude/plugins/installed_plugins.json 2>/dev/null && echo present || echo absent)
+echo "superpowers: $SP_STATUS"   # printed so Step 2 (a fresh shell) reads it from the transcript
 # Shell assets installed by skills land in scripts/ (forge-host copies forge-lib.sh there;
 # release-automation copies version-lib.sh + release-run.sh). Same marker scheme, same drift rules:
 for f in scripts/forge-lib.sh scripts/version-lib.sh scripts/release-run.sh; do
@@ -274,7 +275,7 @@ The live `ls` from Setup S3 is the source of truth for what EXISTS; the referenc
 canonical reason + priority. If a reference row names a component that is not in the live
 catalogue, skip that row.
 
-**Superpowers coexistence (apply BEFORE ranking, only when `SP_STATUS=present`; issue #72,
+**Superpowers coexistence (apply BEFORE ranking, only when Step 1 printed `superpowers: present` or superpowers:* skills are visible in-session; issue #72,
 boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
 
 | forge-kit component | Disposition when superpowers is present |
@@ -286,7 +287,7 @@ boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
 | outer-loop components (ticket-gate, hooks, CI guards, working-overnight, release*, forge-host) | RECOMMEND unchanged; this layer has no superpowers counterpart |
 
 The report's coexistence line states what was suppressed and why, so the user learns the
-boundary rather than wondering where a component went. With `SP_STATUS=absent`, nothing
+boundary rather than wondering where a component went. With `superpowers: absent`, nothing
 above applies and recommendations are unchanged.
 
 ```
