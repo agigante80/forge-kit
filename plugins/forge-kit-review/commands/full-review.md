@@ -1,9 +1,9 @@
 ---
 description: "Orchestrate comprehensive multi-dimensional code review using specialized review agents across architecture, security, performance, testing, and best practices"
-argument-hint: "<target path or description> [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
+argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 1 -->
+<!-- full-review-version: 4 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -17,6 +17,20 @@ You MUST follow these rules exactly. Violating any of them is a failure.
 4. **Halt on failure.** If any step fails (agent error, missing files, access issues), STOP immediately. Present the error and ask the user how to proceed. Do NOT silently continue.
 5. **Use only local agents.** All `subagent_type` references use agents bundled with this plugin or `general-purpose`. No cross-plugin dependencies.
 6. **Never enter plan mode autonomously.** Do NOT use EnterPlanMode. This command IS the plan -- execute it.
+7. **Round awareness wires the iteration contract.** When `--since <ref>` is passed, or the
+   pre-flight selects "verify fixes", this run is round N+1: set `previous_ref` and `round`
+   in `state.json`, narrow the target to `previous_ref...HEAD`, and EVERY dispatched agent
+   prompt in every phase gains: the previously reviewed ref; the prior round's report path
+   `.full-review/round-<N>/05-final-report.md` IF it exists (after a `--since` run on a
+   clean checkout, or a cleaned gitignored `.full-review/`, it does not: then agents get
+   the ref only and trajectory reporting states "no prior report available", never a halt
+   on the missing file); and the instruction to tag each finding `in-prior-fix: yes/no`.
+   **yes means the defective lines were ADDED or MODIFIED by the fix commits
+   (`previous_ref...HEAD`)**; a pre-existing defect merely VISIBLE in the diff's context
+   lines is in-target but `in-prior-fix: no` - the tag measures fix-induced damage, and
+   conflating it with delta membership would fire the trip wire on every in-target finding
+   and make rounds 3 and 4 unreachable. Round 1 has no `previous_ref`; the field is omitted
+   and no finding carries the tag.
 
 ## Pre-flight Checks
 
@@ -37,7 +51,10 @@ Check if `.full-review/state.json` exists:
   2. Start fresh (archives existing session)
   ```
 
-- If it exists and `status` is `"complete"`: Ask whether to archive and start fresh.
+- If it exists and `status` is `"complete"`: Ask whether to (1) verify fixes since that
+  review - round N+1, delta-only: sets `previous_ref` to the ref recorded in the completed
+  state, applies rule 7, and archives the old session files under `.full-review/round-<N>/`;
+  or (2) archive and start fresh (round 1).
 
 ### 2. Initialize state
 
@@ -53,6 +70,9 @@ Create `.full-review/` directory and `state.json`:
     "strict_mode": false,
     "framework": null
   },
+  "round": 1,
+  "previous_ref": null,
+  "reviewed_ref": null,
   "current_step": 1,
   "current_phase": 1,
   "completed_steps": [],
@@ -62,7 +82,12 @@ Create `.full-review/` directory and `state.json`:
 }
 ```
 
-Parse `$ARGUMENTS` for `--security-focus`, `--performance-critical`, `--strict-mode`, and `--framework` flags. Update the flags object accordingly.
+Parse `$ARGUMENTS` for `--security-focus`, `--performance-critical`, `--strict-mode`,
+`--framework`, and `--since <ref>` flags; strip every parsed flag OUT of the free-text
+target. `--since` does not live in the flags object: it sets `previous_ref` to the given
+ref (verify it resolves: `git rev-parse --verify <ref>`; a bad ref is a rule-4 halt, never
+a silent round-1 fallback) and `round` to 2 (or prior `round`+1 when state records one),
+engaging rule 7.
 
 ### 3. Identify review target
 
@@ -564,13 +589,46 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 ## Review Metadata
 
 - Review date: [timestamp]
+- Round: [N] (previous ref: [ref or n/a])
+- Stopping reason: [loop continues: fixes pending / clean round / hard stop / trip wire / round-gate not met]
+- Rounds that found in-prior-fix defects: [count]
 - Phases completed: [list]
 - Flags applied: [list active flags]
 ```
 
-Update `state.json`: set `status` to `"complete"`, `last_updated` to current timestamp.
+Update `state.json`: set `status` to `"complete"`, `last_updated` to the current timestamp,
+and `reviewed_ref` to the commit the review covered (`git rev-parse HEAD`). `reviewed_ref`
+and `round` are what the verify-fixes pre-flight and the `round-<N>/` archive name read;
+without them a later round has no fix set to diff against.
 
 ---
+
+## Iteration contract (the loop's stopping rules)
+
+When this command is re-run to verify fixes from a previous full review, or when its
+findings enter a review-fix-review loop, these rules bound the loop (issue #66; the
+reporting half lives in `code-reviewer.md`):
+
+- **Round 1** reviews the change. Fixes go by this command's own severity ladder: Critical,
+  High, and Medium are fixed now; Low becomes a ticket immediately. **A ticket is a
+  finished outcome for a finding, not a failure to fix it.**
+- **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set,
+  `previous_ref...HEAD` per rule 7). The target must not grow between rounds.
+- **Rounds 3 and 4 each run only if the PREVIOUS round found a Critical or High.**
+  **Hard stop after 4 rounds** regardless, even if round 4 found one.
+- **Trip wire:** if two consecutive rounds each find a defect inside the previous round's
+  fix, STOP immediately, whatever the round number. That is bad-fix injection above the
+  cited base rate, and further iteration removes value rather than adding it. Remaining
+  findings become tickets; continuing past the trip wire is the CALLER's explicit call,
+  never a default.
+- **Every report states the stopping reason**, from one vocabulary: `loop continues: fixes
+  pending` (non-terminal: blocking findings exist and the loop is expected to go on),
+  `clean round`, `hard stop`, `trip wire`, or `round-gate not met`. Terminal reports also
+  state how many rounds found in-prior-fix defects, so the human decides from data.
+- **Each round has no memory of the last.** When a round reverses an earlier decision,
+  write the rationale into the code or the ticket, or the next round re-litigates it.
+
+At adaptation time, the hard-stop round count is a project choice; the trip wire is not.
 
 ## Completion
 
@@ -590,6 +648,7 @@ Comprehensive code review complete for: $ARGUMENTS
 ## Summary
 - Total findings: [count]
 - Critical: [X] | High: [Y] | Medium: [Z] | Low: [W]
+- Round: [N] | Stopping reason: [reason] | In-prior-fix findings this round: [count]
 
 ## Next Steps
 1. Review the full report at .full-review/05-final-report.md

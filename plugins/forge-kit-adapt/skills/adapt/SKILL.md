@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 40 -->
+<!-- forge-adapt-version: 41 -->
 
 # forge-adapt
 
@@ -293,7 +293,7 @@ Profile
 | Component | Type | Local | forge-kit | Status |
 |---|---|---|---|---|
 | ticket-gate | 🤖 subagent | v1 | v2 | behind → refresh ticket-gate |
-| full-review | 🧩 command | v1 | v1 | current |
+| full-review | 🧩 command | v1 | v4 | behind - refresh to update |
 | block-dashes | ⚡ hook | v1 | v1 | current |
 
 (One table covering every installed component that HAS a marker. Status is `current` or
