@@ -153,9 +153,9 @@ body:
       label: Required reviews (mandatory)
       description: |
         The gate orchestrators auto-select which specialist agents to run based on labels and content.
-        All selected agents must score 10/10 before implementation begins.
+        The gate must return PASS before implementation begins.
       options:
-        - label: "**ticket-gate** - mandatory before implementation. Runs 5 core agents (Security, Architect, Developer, QA, GDPR) + dynamic agents based on labels. All must score 10/10."
+        - label: "**ticket-gate** - mandatory before implementation. Mechanical checks + one critic (plus the security lens by label). Must return PASS."
           required: true
 
   - type: textarea
