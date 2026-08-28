@@ -10,7 +10,7 @@ verified against the live catalogue (a `grep` for `gh `, `api.github.com`, `{{GI
 | `ci-health` (command) | `gh run list`, `gh issue` | `forge_ci_status`, `forge_issue_*`. **CI-dependent**: blocked on a Forgejo runner |
 | `release-automation` (lanes) | `actions/create-github-app-token`, `secrets.RELEASE_APP_*`, `gh release`, `GITHUB_TOKEN` | **Hardest.** No Forgejo App-token equivalent; needs a Forgejo Actions backend. **CI-dependent** |
 | `release` (skill) | "pipeline green" check, tag/release/close | `forge_ci_status` + `forge_release_create` + `forge_issue_close` |
-| `ticket-gate` (agent) | `gh issue`, `{{GITHUB_REPO}}`, posts scorecard | `forge_issue_*`; replace `{{GITHUB_REPO}}` with `forge_repo` |
+| `ticket-gate` (agent) | `gh issue`, `{{GITHUB_REPO}}`, posts the review | `forge_issue_*`; replace `{{GITHUB_REPO}}` with `forge_repo` |
 | `gate-ticket` (command) | "fetch GitHub issue", post comment | `forge_issue_view` + `forge_issue_comment` |
 | `dep-auditor` (agent) | files `gh` tickets | `forge_issue_*` (create via `forge_api POST /repos/.../issues`) |
 | `health-check` (agent) | checks **`gh` is installed** | check the forge token/CLI for the detected host instead |

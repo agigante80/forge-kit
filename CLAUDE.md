@@ -70,7 +70,7 @@ color: red           # optional; used in Claude Code UI
 ```
 
 Key agents:
-- `ticket-gate`: orchestrator that runs 5 core scoring agents + dynamic agents selected by issue labels, then posts a scorecard to GitHub. All agents must score 10/10 to pass.
+- `ticket-gate`: deterministic mechanical checks plus ONE critic agent (verdict, pushback, GWT review, pros and cons, researched best practices, suggested approach), with a security lens on `security`/`critical` labels; posts the review to the forge and returns PASS, NEEDS-WORK, or BLOCKED (labels/thin-ticket). The former 5-agent 10/10 scoring committee was retired by issue #70.
 - `dep-auditor`: scans workspace packages for unused deps, unmaintained libraries, and vulnerabilities; caches results in `docs/audit/dep-audit-cache.json` (30-day window); creates GitHub tickets for every finding.
 - `health-check`: verifies the dev environment (runtime, package manager, Docker, TypeScript, env files, GitHub CLI).
 - `coding-standards-auditor`: consolidates coding standards from wherever they live (inline CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md, docs/) into a canonical `docs/coding-standards.md`, then replaces the inline standards with a reference line.
@@ -141,9 +141,9 @@ An **unbraced** `$CLAUDE_PROJECT_DIR` in a shell-form command is *not* broken, c
 
 Two distinct fail-open behaviours, do not conflate them. The script itself denies by printing a `permissionDecision: deny` JSON object on stdout and **always exits 0**, so its `except (json.JSONDecodeError, ValueError): sys.exit(0)` is a real fail-open: unparseable input never blocks a call. A *missing* script never reaches that code, and the interpreter's own exit status is what Claude Code sees.
 
-**Label → agent routing:** `docs/guides/labels.md` documents the label taxonomy. Labels drive dynamic agent selection inside `ticket-gate`: the `security` label and `critical` label trigger ALL agents. The `api` area label triggers the API Design agent. To add routing for a new label, add a row to the dynamic agent table in `ticket-gate.md` and a corresponding agent definition section.
+**Label → lens routing:** `docs/guides/labels.md` documents the label taxonomy. Labels modulate the gate's review set: `security` and `critical` add the security lens (and `critical` puts the critic in maximum scrutiny); `api` adds the API-design checklist to the critic's brief without an extra agent. To add routing for a new label, add a row to the lens table in `ticket-gate.md`, preferring a critic-brief modulation over a new agent.
 
-**Extending ticket-gate's dynamic routing:** The dynamic agent table inside `ticket-gate.md` maps issue labels and body keywords to specialist agents. To add a new project-specific agent to the gate, add a row to that table and a corresponding "Dynamic Agent Definitions" section.
+**Extending ticket-gate's routing:** The lens table inside `ticket-gate.md` maps labels and body keywords to specialist lenses. Add a lens agent only for a genuinely independent domain perspective; otherwise modulate the critic's brief (the `api` row is the pattern).
 
 **ci-health command** (`/ci-health`) discovers all `.github/workflows/*.yml` files, checks the latest run for each, creates P0 tickets for failures, gates each ticket, and auto-implements safe fixes (lint, type, unit, build failures). It does NOT auto-fix E2E or security scan failures.
 
