@@ -7,7 +7,7 @@ entry points that delegate to agents, so recommend the command alongside the age
 | Signal in the project | Command | Group | Canonical "why" (≤60) | Pairs with |
 |---|---|---|---|---|
 | Uses GitHub issues for work intake | `/gate-ticket` | governance | run the readiness gate on an issue | `ticket-gate` |
-| Pre-merge / large change reviews | `/full-review` | review | multi-dimensional code review pass | review agents |
+| Pre-merge / release / periodic audits | `/full-review` | review | multi-lens audit; per-task uses code-reviewer | review agents |
 | Pull-request workflow | `/pr-enhance` | review | generate PR description + checklist | (none) |
 | `.github/workflows/` present | `/ci-health` | devops | scan CI, ticket failures, auto-fix safe | `ticket-gate` |
 
