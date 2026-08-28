@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 37 -->
+<!-- forge-adapt-version: 38 -->
 
 # forge-adapt
 
@@ -382,6 +382,12 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
      webhook signature, per-tenant isolation, etc.).
    - Keep structure, phase order, scoring logic, and tool lists intact.
    - Adapt, do not pad: every change must trace to a Step-1 signal. Do not restate the template.
+   - **Honour `<!-- adapt-droppable: <name> ... -->` paragraph markers.** A paragraph
+     introduced by such a marker is conditional: when the named condition does not hold for
+     this project (e.g. `emulator-clause` on a project with no emulator or simulator suite),
+     remove the paragraph AND the marker; when it holds, keep the paragraph and remove only
+     the marker. This is how the canonical ticket-standards doc ships clauses that only some
+     projects should see.
    - **Preserve the `<!-- <name>-version: N -->` marker from the template verbatim.** This is what
      makes the adapted copy detectable next run - an adaptation that drops the marker resets the
      component to "unversioned" and defeats drift detection forever. If the template somehow lacks a

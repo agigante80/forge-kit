@@ -27,7 +27,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 9 -->
+<!-- ticket-gate-version: 10 -->
 
 You are the **Ticket Readiness Gate** - an orchestrator that selects and runs specialist
 agents to score an issue before implementation begins. Agent selection is dynamic:
@@ -169,6 +169,7 @@ The following sections were synthesised from the existing issue content:
 - Test scenarios (GWT): <N> conditions, <N x 2> scenarios
 - Unit tests: <N> specific cases with file / input / expected output
 - E2E tests: <N> specific cases with suite file / setup / assertion (or N/A - <reason>)
+- Documentation impact: <affected docs / README sections, or N/A - <reason>>
 
 Enriched existing sections: <list or "none">
 
@@ -473,6 +474,9 @@ Score criteria (1-10):
 - **E2E (mandatory for UI features):** If the ticket adds or modifies any UI,
   E2E tests MUST be specified for both happy and unhappy paths. Score 0 if UI
   feature has no E2E tests. API-only changes can mark E2E as N/A with justification.
+- **Emulator clause (rule 3, only where the project runs an emulator or simulator suite):**
+  a ticket adding a user journey names the emulator scenario it adds or extends, or states why
+  the standing suite already covers it. N/A on projects with no such suite (forge-kit itself).
 - **API endpoint coverage (mandatory for API changes):** If the ticket creates or modifies
   ANY API endpoint, 100% automated test coverage is required. Score 0 if missing. Must include:
   - Valid request -> expected response (happy path)
@@ -633,10 +637,13 @@ Print: `⚠️ OVERRIDE. Proceeding despite <N> failing agents. Scores on record
 - **Reconcile claims that look surprising.** If a finding contradicts what you'd expect (a file
   "doesn't exist", a count seems off, a field seems fabricated), run the check that proves it
   before asserting it. Surprising claims are exactly the ones to verify, not the ones to trust.
-- **Domain-not-touched -> auto-score 10 (N/A).** Any agent whose domain the ticket does not
-  touch auto-scores 10 with a one-line N/A justification (e.g., "N/A - no API endpoint", "N/A -
-  no PII handled") rather than penalising the ticket. An unrelated agent must never drag an
-  otherwise-ready ticket below 10/10.
+- **Domain-not-touched -> auto-score 10 (N/A), with two carve-outs.** Any agent whose domain
+  the ticket does not touch auto-scores 10 with a one-line N/A justification (e.g., "N/A - no
+  API endpoint", "N/A - no PII handled") rather than penalising the ticket. An unrelated agent
+  must never drag an otherwise-ready ticket below 10/10. The carve-outs, which are never
+  auto-10: rule 7 (documentation currency) applies to EVERY work ticket, and its "none" claim
+  is judged against the ticket's own file list; and the GWT scope is DERIVED, so a scenarios
+  N/A is legitimate only where no behaviour delta exists and that claim itself is scored.
 - **Minimum passing score: 10/10 from every agent that runs.** No exceptions.
 - **Minimum agent count: 5** (the core set: Security, Architect, Developer, QA, GDPR).
   If no dynamic agents trigger, 5 core agents are sufficient.

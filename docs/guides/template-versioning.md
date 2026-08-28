@@ -50,7 +50,7 @@ One positive + one negative per independent condition. For a ticket fixing 3 bug
 
 ## Step 0c: Auto-synthesis (what happens on version mismatch)
 
-When `ticket-gate` finds a version mismatch (issue filed on v3, current is v4):
+When `ticket-gate` finds a version mismatch (issue filed on an older version than the templates currently carry):
 
 1. **Parses** the current template structure to identify all expected sections
 2. **Classifies** each section in the issue body: present/thin/missing
@@ -67,10 +67,16 @@ full issue body and any linked external URLs to derive specific test cases.
 
 ## Bumping the template version
 
-When you add new fields to templates:
+When you add new fields or rules:
 1. Add the field to all relevant templates
-2. Bump `<!-- template-version: N -->` to `<!-- template-version: N+1 -->` in each template
-3. All existing tickets will auto-upgrade on next gate run (Step 0c triggers)
+2. Bump `<!-- template-version: N -->` to `N+1` in each work template AND in
+   `docs/guides/ticket-standards.md`: the two are version-locked by
+   `scripts/check-template-lockstep.sh`, and CI fails when either lags
+3. Update `ticket-gate.md` in the same commit: the auto-synthesis target-section list, the
+   synthesis table, and the posted-comment section list must know any new section
+4. Ticket PRODUCERS never hardcode the version: `dep-auditor` and `ci-health` stamp the
+   current marker read from the template dir, so they need no per-bump edit
+5. All existing tickets auto-upgrade on next gate run (Step 0c triggers)
 
 No manual ticket updates needed - the auto-synthesis handles it.
 

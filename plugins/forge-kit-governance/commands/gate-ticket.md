@@ -1,4 +1,4 @@
-<!-- gate-ticket-version: 3 -->
+<!-- gate-ticket-version: 4 -->
 
 Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate
 agent detects the host via the `forge-host` adapter).
@@ -14,7 +14,7 @@ Example: `/gate-ticket 44`
 Use the Agent tool with `subagent_type: ticket-gate`, passing the issue number as the prompt.
 
 The ticket-gate agent handles all steps:
-1. Template version check - auto-synthesises missing sections if v < 4 or missing (no BLOCK)
+1. Template version check - auto-synthesises missing sections when the ticket's version is older than the CURRENT template version, read from the project's templates, or missing (no BLOCK; never a hardcoded number)
 2. Fetches the issue from the forge (GitHub or Forgejo)
 3. Reads project context (CLAUDE.md, architecture docs, labels)
 4. Runs 5 core agents + dynamic agents selected by labels and content, sequentially
