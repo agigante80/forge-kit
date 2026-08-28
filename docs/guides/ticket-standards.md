@@ -90,6 +90,12 @@ one rule where always-asked is the point. It stays passable because "none, no us
 surface" is a legitimate answer, and the gate scores that claim like any other N/A, judged
 against the ticket's own file list.
 
+## Precedence
+
+`ticket-gate` restates the hard-fail bars (UI E2E, API endpoint coverage, GDPR judgment) so
+they hold in installs without this doc. Where this doc IS installed, its text governs on any
+divergence; the gate's copy is a convenience restatement, never a fork.
+
 ## The N/A rule (load-bearing)
 
 A coverage or E2E requirement that a docs-only, research, infra-only, or API-only ticket cannot
