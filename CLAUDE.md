@@ -4,6 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
+**The superpowers boundary (issue #69, decided 2026-08-27):** where the obra/superpowers
+plugin is present, superpowers owns the INNER loop (how work happens: brainstorm, plan, TDD,
+per-round review, verify) and forge-kit owns the OUTER loop (what must be true before and
+after: tickets and the gate, hooks and CI guards, versioning, host awareness, overnight
+governance). Deliberately kept and not to be "fixed" by contributions: governed unattended
+work (approval happens at gate time) and mechanical enforcement over prose persuasion, which
+are forge-kit's differentiators. forge-adapt's coexistence mode (#72) applies the boundary at
+install time.
+
 A root `AGENTS.md` exists as a thin pointer to this file for non-Claude agents (the open
 cross-agent instruction format); keep it a pointer, never duplicate content into it.
 
