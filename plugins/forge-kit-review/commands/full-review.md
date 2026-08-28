@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 9 -->
+<!-- full-review-version: 10 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -408,7 +408,11 @@ Task:
     ## Instructions
     Analyze:
     1. **Test coverage**: Which code paths have tests? Which critical paths are untested?
-    2. **Test quality**: Are tests testing behavior or implementation? Assertion quality per code-reviewer's assertions-that-cannot-fail dimension (the five shapes; that dimension is canonical, do not improvise a parallel check)
+    2. **Test quality**: Are tests testing behavior or implementation? For assertion quality,
+       READ the "Assertions that cannot fail" dimension in the installed code-reviewer agent
+       (`.claude/agents/code-reviewer.md`, or this plugin's copy) and apply its five shapes and
+       bounded falsification procedure verbatim; that dimension is canonical, never improvise a
+       parallel check. File these findings under the "Unfailable assertions" category
     3. **Test pyramid adherence**: Unit vs integration vs E2E test ratio
     4. **Edge cases**: Are boundary conditions, error paths, and concurrent scenarios tested?
     5. **Test maintainability**: Test isolation, mock usage, flaky test indicators
@@ -622,6 +626,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - **Security**: [count] findings ([breakdown by severity])
 - **Performance**: [count] findings ([breakdown by severity])
 - **Testing**: [count] findings ([breakdown by severity])
+- **Unfailable assertions**: [count] findings ([breakdown by severity])
 - **Documentation**: [count] findings ([breakdown by severity])
 - **Best Practices**: [count] findings ([breakdown by severity])
 - **CI/CD & DevOps**: [count] findings ([breakdown by severity])
