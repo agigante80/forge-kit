@@ -78,7 +78,7 @@ forge-kit ships two layers.
 | `forge-adapt` skill | Analyses the target project, recommends relevant components, writes project-customised versions, and surfaces contribution candidates back to forge-kit |
 | `ticket-gate` agent | Reviews every issue before implementation: deterministic mechanical checks + one critic agent (verdict, pushback, GWT review, researched best practices), with a security lens on `security`/`critical` labels. Returns PASS, NEEDS-WORK, or BLOCKED |
 | 13 specialist agents | code-reviewer, code-simplifier, coding-standards-auditor, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer, dep-auditor, health-check |
-| `/full-review` | Multi-phase code review orchestrator with a mid-run checkpoint |
+| `/full-review` | Pre-merge/periodic multi-lens audit with a mid-run checkpoint (per-task review is code-reviewer under the iteration contract) |
 | `/pr-enhance` | Pull request description and checklist generation |
 | `/ci-health` | Check all GitHub Actions workflows, create P0 tickets for failures, auto-fix safe failures |
 | 14 skills | forge-adapt, api-design-principles, owasp-api-security, architecture-patterns, microservices-patterns, cqrs-implementation, saga-orchestration, find-dead-code, release, release-automation, forge-host, github-to-forgejo, closing-sessions, working-overnight |

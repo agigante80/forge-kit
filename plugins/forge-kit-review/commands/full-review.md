@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 5 -->
+<!-- full-review-version: 6 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -13,13 +13,16 @@ This is a **pre-merge or periodic multi-lens AUDIT** (architecture, security, pe
 testing, standards): run it before a merge to main, before a release, or on an interval.
 It is NOT the per-task reviewer: multi-agent review earns its cost on independent
 cross-cutting lenses over one change, and loses to a single strong reviewer inside the
-edit-review loop (issue #71, from the #69 boundary decision). For per-task review, dispatch
+edit-review loop (forge-kit #71: consensus across many reviewers of one task underperforms
+the best single reviewer; multi-agent pays only where lenses are independent). For
+per-task review, dispatch
 `code-reviewer` alone and drive the rounds with the Iteration contract below.
 
-**Where the findings go (the handoff):** Critical, High, and Medium findings enter the
-review-fix-review loop as round 1 input, bounded by the Iteration contract; Low findings
-become tickets immediately. **A ticket is a finished outcome for a finding.** No finding
-is ever left with neither a fix round nor a ticket.
+**Where the findings go (the handoff):** the audit run IS round 1 of the Iteration
+contract below (that section is canonical; this paragraph only summarises it). Its
+Critical/High/Medium findings are fixed and verified by a round-2 run (`--since` or the
+verify-fixes pre-flight); Low findings are filed as tickets by the Completion step. No
+finding is ever left with neither a fix round nor a ticket.
 
 ## CRITICAL BEHAVIORAL RULES
 
@@ -109,6 +112,10 @@ Determine what code to review from `$ARGUMENTS`:
 
 - If a file/directory path is given, verify it exists
 - If a description is given (e.g., "recent changes", "authentication module"), identify the relevant files
+- **If the target is task-sized** (a single file, or one task's uncommitted/branch diff),
+  say so and offer the per-task path instead (dispatch `code-reviewer` alone under the
+  Iteration contract) before initializing the 5-phase pipeline; proceed only on explicit
+  confirmation
 - List the files that will be reviewed and confirm with the user
 
 **Output file:** `.full-review/00-scope.md`
@@ -341,8 +348,12 @@ Please review:
 - .full-review/01-quality-architecture.md
 - .full-review/02-security-performance.md
 
-1. Continue -- proceed to Testing & Documentation review
-2. Fix critical issues first -- I'll address findings before continuing
+1. Continue -- proceed to Testing & Documentation review (findings so far join the
+   handoff at Completion; fixes happen AFTER the audit, verified by a round-2 run)
+2. Stop the audit here and start fixing -- findings so far become the loop input; the
+   remaining phases are skipped and Completion runs now (mid-run fixes are never made
+   while phases continue: they desync the reviewed tree from 00-scope.md and escape
+   in-prior-fix tagging)
 3. Pause -- save progress and stop here
 ```
 
@@ -566,7 +577,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Architectural anti-patterns causing technical debt
 - Outdated dependencies with known vulnerabilities
 
-### Medium Priority (P2 -- Plan for Next Sprint)
+### Medium Priority (P2 -- Enters the Fix Loop)
 
 [All Medium findings from all phases]
 
@@ -575,7 +586,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Code refactoring opportunities
 - Test quality improvements
 
-### Low Priority (P3 -- Track in Backlog)
+### Low Priority (P3 -- Ticketed at Completion)
 
 [All Low findings from all phases]
 
@@ -666,7 +677,14 @@ Comprehensive code review complete for: $ARGUMENTS
 
 ## Next Steps
 1. Review the full report at .full-review/05-final-report.md
-2. Address Critical (P0) issues immediately
-3. Plan High (P1) fixes for current sprint
-4. Add Medium (P2) and Low (P3) items to backlog
+2. Fix Critical (P0), High (P1), and Medium (P2) findings; verify with a round-2 run
+   (--since <reviewed_ref> or the verify-fixes pre-flight)
+3. Low (P3) tickets filed: [list of created issue URLs]
 ```
+
+**Ticket filing (part of Completion, not advice):** for each Low finding, create one issue
+via the host-aware adapter where installed (`forge_issue_create "<title>" "<body>"`, then
+`forge_issue_label`), falling back to `gh issue create`; body = the finding verbatim plus
+`(source: full-review round <N>, <date>)`; label `enhancement` unless the finding names a
+better fit. List every created URL in Next Steps. A Low finding with no ticket is a
+Completion failure, per the handoff's no-finding-left rule.
