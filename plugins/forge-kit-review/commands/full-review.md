@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 8 -->
+<!-- full-review-version: 9 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -408,7 +408,7 @@ Task:
     ## Instructions
     Analyze:
     1. **Test coverage**: Which code paths have tests? Which critical paths are untested?
-    2. **Test quality**: Are tests testing behavior or implementation? Assertion quality?
+    2. **Test quality**: Are tests testing behavior or implementation? Assertion quality per code-reviewer's assertions-that-cannot-fail dimension (the five shapes; that dimension is canonical, do not improvise a parallel check)
     3. **Test pyramid adherence**: Unit vs integration vs E2E test ratio
     4. **Edge cases**: Are boundary conditions, error paths, and concurrent scenarios tested?
     5. **Test maintainability**: Test isolation, mock usage, flaky test indicators
