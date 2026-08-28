@@ -13,6 +13,7 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | Scaling reads / event sourcing | `cqrs-implementation` | backend | separate read + write models | P2 |
 | Multi-step distributed transactions | `saga-orchestration` | backend | choreography / orchestration sagas | P2 |
 | Aging / large codebase, pre-refactor or pre-release cleanup | `find-dead-code` | devops | find unused funcs/exports a linter misses | P2 |
+| Test suite + coverage-focused CI | `mutation-sweep` | testing | finds tests that cannot fail; survivor triage | P2 |
 | Ships releases / has a VERSION or package.json version | `release` | devops | semver bump + sync + tag + close shipped tickets | P2 |
 | Merges to main as a release; bump/tag is manual (easily forgotten) | `release-automation` | devops | CI gate: block a merge that did not bump the version | P1 |
 | Long Claude Code sessions; decisions/context lost between them | `closing-sessions` | governance | persist session facts to memory + handoff notes | P2 |
