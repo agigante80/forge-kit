@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 38 -->
+<!-- forge-adapt-version: 39 -->
 
 # forge-adapt
 
@@ -385,9 +385,12 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
    - **Honour `<!-- adapt-droppable: <name> ... -->` paragraph markers.** A paragraph
      introduced by such a marker is conditional: when the named condition does not hold for
      this project (e.g. `emulator-clause` on a project with no emulator or simulator suite),
-     remove the paragraph AND the marker; when it holds, keep the paragraph and remove only
-     the marker. This is how the canonical ticket-standards doc ships clauses that only some
-     projects should see.
+     replace the paragraph and marker with the tombstone `<!-- adapt-dropped: <name> -->`, so
+     the drop stays visibly deliberate; when it holds, keep the paragraph and remove only the
+     marker. `refresh` treats an `adapt-dropped` tombstone as adaptation (keep), never as
+     "behind forge-kit", or every refresh would re-offer a clause the install correctly
+     dropped. This rule applies wherever a marked file is adapted, including the canonical
+     ticket-standards doc installed by the Templates mode below.
    - **Preserve the `<!-- <name>-version: N -->` marker from the template verbatim.** This is what
      makes the adapted copy detectable next run - an adaptation that drops the marker resets the
      component to "unversioned" and defeats drift detection forever. If the template somehow lacks a
@@ -571,7 +574,8 @@ would clobber intentional adaptation). Steps:
 1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy.
 2. **Classify every difference** into two buckets:
    - **Adaptation (keep):** project-specific stack/domain customisation - stack references, added
-     scoring criteria, local agent-type names, injected invariants.
+     scoring criteria, local agent-type names, injected invariants, and `<!-- adapt-dropped: <name> -->`
+     tombstones (a deliberately dropped conditional paragraph; never re-offer the clause).
    - **Behind forge-kit (offer to apply):** structural/behavioural improvements present in the
      catalogue copy but missing locally (new rules, new sections, the version bump).
 3. Print the report - what is adaptation, what is missing, and the proposed merge:
@@ -715,7 +719,9 @@ Confirm: `✓ template-lockstep guard installed + wired (<host-workflows-dir>)`.
 - **Absent** (`HAS_DOC=no`): read `$FORGE_KIT_DIR/docs/guides/ticket-standards.md` (if that source
   file is missing, the library is stale - refresh it as in S2 and retry; never fabricate the doc), adapt it to the
   project (reference the project's ACTUAL template set and package names; drop rules for sections the
-  project's templates do not carry), and **set its `template-version` marker to `$PRJ_TPL_VER`** - the
+  project's templates do not carry; honour `adapt-droppable` paragraph markers per the Step 3 rule,
+  e.g. drop the emulator clause, leaving its `adapt-dropped` tombstone, where the project has no
+  emulator or simulator suite), and **set its `template-version` marker to `$PRJ_TPL_VER`** - the
   project's own value, NOT forge-kit's - so the lockstep guard locks the doc to the project's
   templates rather than failing on a version mismatch. Write it to `docs/guides/ticket-standards.md`
   (the path the copied guard reads by default).

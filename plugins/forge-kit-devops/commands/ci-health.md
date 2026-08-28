@@ -1,4 +1,4 @@
-<!-- ci-health-version: 4 -->
+<!-- ci-health-version: 5 -->
 
 # CI Health Monitor
 
@@ -67,8 +67,11 @@ gh issue list --search "fix(ci): <job-name-keyword>" --state open --limit 1
      - Error logs (last 100 lines of failed job)
      - Link to the failing run
      - Affected files (if identifiable from logs)
-     - the CURRENT `<!-- template-version: N -->` marker, N read from the project's template
-       dir as the gate reads it (never a hardcoded number)
+     - the CURRENT `<!-- template-version: N -->` marker (never a hardcoded number). Resolve it
+       ONCE for the whole run, not per ticket, with the same host-aware read dep-auditor
+       documents (template dir loop + `grep -hoP 'template-version: \K\d+' | sort -un | tail -1`;
+       shared resolver tracked in #77); when it resolves empty (no versioned templates), OMIT
+       the marker line rather than stamping a blank or invented number
      - Acceptance criteria: "CI job passes on `<branch>`"
      - Documentation impact: "None: CI repair, no user-visible surface" unless the fix changes
        documented workflows
