@@ -29,7 +29,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 14 -->
+<!-- ticket-gate-version: 15 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -369,8 +369,13 @@ Run these as literal checks against the issue body and the template. Checks 1, 2
 are phrased so a future script can adopt them verbatim; checks 4 and 6 each split into a
 mechanical half stated here (block counts, One-When, a digit-or-quoted error, section
 presence) and a semantic half (WHICH conditions are independent, whether a "none" reason
-holds) that belongs to the critic. Every mechanical result is a binary pass/fail with the
-evidence line quoted. A mechanical failure is a NEEDS-WORK verdict on its own, but ALWAYS continue
+holds) that belongs to the critic. Outcomes are: **pass**, **fail**, **warn** (check 1
+newer-marker, check 2 missing type label), **N/A** (check scoped out), or **referred**
+(the critic resolves it, e.g. check 4's specific-error heuristic miss). Every outcome
+quotes its evidence line. **Every FAIL becomes a blocking item, classified significant**
+(fundamental only ever comes from the critic), merged into the Required changes list before
+Step 6 runs: a mechanical failure must never be lost to a clean critic. Warn, N/A, and
+referred never block; a referred item blocks only if the critic fails it. A mechanical failure is a NEEDS-WORK verdict on its own, but ALWAYS continue
 to Step 3B so the author gets the full picture in one round.
 
 1. **Template version current** - records Step 0a's outcome. Two edge shapes are NOT
@@ -391,11 +396,15 @@ to Step 3B so the author gets the full picture in one round.
      an error identifier passes mechanically; anything else is REFERRED to the critic's rule-1
      judgment rather than failed outright (the canonical doc governs; this heuristic is
      deliberately narrower than the rule and must not reject doc-compliant messages)
-5. **Test specs concrete** - the unit-test section names at least one file path (rule 2 has
-   NO N/A escape: "add unit tests" or an N/A here is a mechanical fail); the E2E section
-   names a file path OR carries an explicit N/A with a reason, and that N/A is legitimate
-   ONLY for tickets with no UI-visible behaviour - a UI-touching ticket without happy AND
-   unhappy E2E specs is BLOCKING (rule 3), a call Step 3B confirms, never waves through.
+5. **Test specs concrete** - where the ticket touches code, the unit-test section names at
+   least one file path; bare "add unit tests" is a fail. A unit-test N/A is REFERRED to the
+   critic: legitimate only where the gate derives rule 2 out of scope (docs-only, research,
+   infra-only, per the canonical doc's load-bearing N/A rule; a coverage bar such tickets
+   cannot satisfy makes the gate un-passable and trains box-ticking), never auto-accepted
+   on a code-touching ticket. The E2E section names a file path OR carries an explicit N/A
+   with a reason, legitimate ONLY for tickets with no UI-visible behaviour - a UI-touching
+   ticket without happy AND unhappy E2E specs is BLOCKING (rule 3), a call Step 3B
+   confirms, never waves through.
 6. **Documentation impact present** - the `docs_impact` section names docs or states none
    with a reason (the CLAIM's quality is Step 3B's to judge; presence is mechanical).
 
@@ -531,8 +540,9 @@ gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "<review>"
 lens): print `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed
 assumptions restated in one line.
 
-**If blocking is empty but advisory items exist: the verdict is PASS** (advisory never
-blocks). Print the PASS line; optionally create follow-up tickets for advisory clusters
+**If blocking is empty (which requires every mechanical check at pass, warn, N/A, or
+critic-cleared referred: mechanical FAILs are blocking items and land here) and advisory
+items exist: the verdict is PASS** (advisory never blocks). Print the PASS line; optionally create follow-up tickets for advisory clusters
 (`gh issue create ... (source: #<N>)`) and print
 `✅ PASS (deferred). Ticket #<N> cleared; <N> follow-up ticket(s) created.` This path never
 enters auto-remediation and never prints NEEDS-WORK.
