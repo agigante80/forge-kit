@@ -96,7 +96,9 @@ against the ticket's own file list.
 `ticket-gate` restates the hard-fail bars (UI E2E, API endpoint coverage, GDPR judgment) so
 they hold in installs without this doc; that restatement is the one sanctioned exception to
 the single-source rule above. Where this doc IS installed, its text governs on any
-divergence; the gate's copy is a convenience restatement, never a fork.
+divergence; the gate's copy is a convenience restatement, never a fork. A rule ABSENT from
+an installed (possibly adapted-down) copy is NOT divergence: absence never relaxes a gate
+bar; only explicit text here does.
 
 ## The N/A rule (load-bearing)
 

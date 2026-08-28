@@ -29,7 +29,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 17 -->
+<!-- ticket-gate-version: 18 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -423,7 +423,11 @@ the 2026-08-27 backlog reviews this design was validated on):
    grounded in the codebase state, covering the retired committee's surviving concerns.
    Three of them carry the committee's old HARD-FAIL force and are always BLOCKING when
    unmet, stated here in full so they hold even where `docs/guides/ticket-standards.md` is
-   not installed:
+   not installed. Details below that go BEYOND the doc's own lists (encryption-at-rest,
+   cascading deletion, the folded committee criteria) are GATE ADDITIONS outside the
+   Precedence claim: the doc governs where its text and the gate's DISAGREE, and a rule
+   ABSENT from the doc is not disagreement, so the gate's bars apply unless the doc
+   explicitly relaxes them:
    - **UI E2E (rule 3):** a ticket touching any UI needs E2E specs for happy AND unhappy
      paths; an author's N/A on a UI-touching ticket is rejected as blocking, never accepted.
    - **API endpoint coverage (rule 2):** a ticket creating or modifying ANY endpoint needs
@@ -475,9 +479,12 @@ itself a check that cannot fail. It must return JSON alongside the prose:
 }
 ```
 
-The `class` field is the CRITIC's call, made while judging (fundamental = the approach
-itself is rejected, not its details). The orchestrator keys the architecture-alternatives
-generation and the no-override rule on it; it never re-derives severity from prose.
+The `class` field is the JUDGING AGENT's call (critic or lens, each for its own items;
+fundamental = the approach itself is rejected, not its details). The orchestrator keys the
+alternatives generation and the no-override rule on the classes from BOTH sources; it never
+re-derives severity from prose. A lens result missing `class` fields is a malformed lens
+run: re-dispatch the lens once, and if still malformed, treat its blocking items as
+fundamental (fail safe, never guess downward).
 
 ### Lens definitions
 
@@ -576,7 +583,7 @@ enters auto-remediation and never prints NEEDS-WORK.
 
 **If the verdict is NEEDS-WORK (blocking non-empty):**
 
-The blocking items arrive pre-classified by the critic's `class` field:
+The blocking items arrive pre-classified by the judging agents' `class` fields (critic and lens alike):
 - **Fundamental** - the approach itself is wrong (the critic or lens rejected the design,
   not the details). The architecture alternatives were already generated at Step 4 and
   posted with the review; auto-remediation copies them into the issue body.
@@ -664,12 +671,19 @@ Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays
   states exactly what to add or fix.
 - **The review is permanent.** Posted as a forge comment for audit trail.
 - **Re-runs: mechanical checks in full, critique on the delta.** The lens (when it ran)
-  re-runs scoped to its OWN prior blocking items: skipping it leaves its findings verified
-  by nobody with its brief, re-running it in full grows the target. Step 1.5 never
+  re-runs scoped to its OWN prior blocking items PLUS the changed sections that touch its
+  brief (auth, validation, exposure): a clean round-1 lens does not mean round 2's edits
+  are security-clean, and the net-new dedup rule never silences the lens on its own scope.
+  Skipping it leaves its findings verified by nobody with its brief; re-running it in full
+  grows the target. Step 1.5 never
   re-runs after round 1 (a body that only grows cannot become thin); Step 2.7 re-runs only
   when the delta introduces a technology, dependency, or regulation not already researched
-  (auto-remediation's own edits never qualify). Report sections whose content is
-  unchanged are marked "carried forward from round <N-1>" rather than re-produced; the
+  (auto-remediation's own edits never qualify); on re-runs the prior round's research is
+  recovered from the previous review comment's Best practices section and supplied to the
+  critic, so element 5 stays sourced without re-searching. Report sections whose content is
+  unchanged are marked "carried forward from round <N-1>" rather than re-produced, EXCEPT
+  that any factual anchor in a carried section (a file path, route, schema field) that the
+  changed body touches is re-verified in this run before posting, per the first Rule; the
   six-element contract is satisfied by the combination. The mechanical checks
   (Step 3A) ALWAYS re-run completely: they are near-free and the body is guaranteed to have
   changed (auto-remediation writes into it; a fix to one section can break another, e.g. a
@@ -679,13 +693,16 @@ Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays
   carries forward. The critique target must not grow between rounds.
 - **Auto-synthesis voids the verdict.** If the current run triggered Step 0c, the full
   review runs again; nothing carries forward from a pre-synthesis run.
-- **Thin ticket check (Step 1.5) runs before the critic.** If the ticket needs
+- **Thin ticket check (Step 1.5) runs before the critic, in round 1 only** (it never
+  repeats on re-runs; a body that only grows cannot become thin). If the ticket needs
   clarification (3+ material unanswered questions), post questions as a forge comment and
   halt with BLOCKED. The critic does not run until the ticket is sufficiently detailed.
 - **Codebase exploration (Step 2.9) always runs its check**, against the issue body
   already fetched in Step 1 (no extra forge call). A pre-populated `Codebase Context`
-  section reuses cached findings; otherwise the exploration sub-agent runs. Findings are
-  passed to the critic either way.
+  section reuses cached findings, EXCEPT after a round whose verdict carried a fundamental
+  item: an adopted alternative can target different code, so the cache is void and the
+  exploration re-runs (mirroring how auto-synthesis voids the verdict). Otherwise the
+  exploration sub-agent runs. Findings are passed to the critic either way.
 - **Architecture alternatives**: Step 4 is canonical (sub-agent, per-option why, before
   posting); auto-remediation copies them into the issue body.
 - **Default on NEEDS-WORK: auto-remediate.** Update the issue body with the blocking items
