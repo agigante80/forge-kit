@@ -1,9 +1,9 @@
 ---
 name: mutation-sweep
-description: Adopt and adapt mutation testing for this project. Line coverage is blind to the defect class that reaches review (covered lines whose tests cannot fail); a mutation sweep finds tests that stay green under deliberate defects. Use when the user asks to run or set up mutation testing, when a review keeps finding defects on covered lines, when survivors need triage, or alongside coverage work ("mutation test", "mutants", "survivors", "kill rate"). Ships no engine: it teaches adopting mutmut or cosmic-ray with the project facts that make a sweep honest.
+description: Adopt and adapt mutation testing for this project, whatever the stack. Line coverage is blind to the defect class that reaches review (covered lines whose tests cannot fail); a mutation sweep finds tests that stay green under deliberate defects. Use when the user asks to run or set up mutation testing, when a review keeps finding defects on covered lines, when survivors need triage, or alongside coverage work ("mutation test", "mutants", "survivors", "kill rate"). Ships no engine: it teaches selecting the stack's maintained engine by criteria and the project facts that make a sweep honest.
 ---
 
-<!-- mutation-sweep-version: 1 -->
+<!-- mutation-sweep-version: 2 -->
 
 # Mutation sweep
 
@@ -14,19 +14,22 @@ audited session every code-level HIGH sat on an already-covered line, and a nine
 sweep of one module found the two real defects four review rounds had missed.
 
 This skill deliberately overlaps the code-reviewer agent's "Assertions that cannot fail"
-dimension, which is the CANONICAL statement of the five rotten-green shapes: a sweeper
-finds shape 3 (only one side of a rule exercised) mechanically and is blind to shapes 1
-and 5, which live in the assertion text. Run both; neither replaces the other.
+dimension, which is the CANONICAL statement of the five rotten-green shapes AND of the
+division of labour between the sweep and the reviewer. Run both; neither replaces the
+other; consult that dimension rather than any restatement.
 
 ## Tool selection (criteria, not winners)
 
-Adopt a maintained engine; never build one (an engine is exactly the executable this kit's
-own discipline would then demand contract tests for). Choose by criteria:
+Adopt the STACK'S maintained engine; never build one (an engine is exactly the executable
+this kit's own discipline would then demand contract tests for). Choose by criteria, which
+forge-adapt maps onto the project's stack at install time:
 
 - **Incremental runs and test-targeting** (only re-test mutants whose covering tests
-  changed): the difference between a sweep people run and one they abandon. `mutmut`
-  carries both.
-- **Operator breadth and build-tool integration**: `cosmic-ray`'s strengths.
+  changed): the difference between a sweep people run and one they abandon.
+- **Operator breadth and build-tool integration** where the suite is framework-heavy.
+- Ecosystem exemplars the criteria map onto: `mutmut` / `cosmic-ray` (Python), `Stryker`
+  (JS/TS/C#), `PIT` (JVM), `cargo-mutants` (Rust), `go-mutesting`/`gremlins` (Go). The
+  adapted copy of this skill names the ONE that fits this project and drops the rest.
 - Whatever is chosen, pin it as a dev dependency and record the invocation in the project's
   standard commands.
 
@@ -39,8 +42,10 @@ own discipline would then demand contract tests for). Choose by criteria:
    KILLED mutant.
 3. **Kill the process GROUP, and reap.** A suite that spawns the code under test as a
    subprocess leaves grandchildren the suite's death does not touch; a mutant with an
-   infinite loop then leaks burning cores. `start_new_session=True` (or `setsid`) plus a
-   group kill plus `wait()`. Verify once with a deliberate infinite-loop mutant.
+   infinite loop then leaks burning cores. With an adopted engine this means the RUNNER
+   COMMAND you hand it: wrap it so the whole group dies on timeout (`setsid` the runner,
+   or the engine's own process-group/timeout option where it has one). Verify once with a
+   deliberate infinite-loop mutant and confirm nothing survives the timeout.
 4. **Redirect convention**: how this project routes a module under test (env var, path
    injection, symlink). The mutation must reach the EXECUTED copy; when the suite resolves
    a module indirectly, mutating the checkout while the suite runs a cached or redirected
