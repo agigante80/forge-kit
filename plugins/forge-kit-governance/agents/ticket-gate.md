@@ -29,7 +29,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 19 -->
+<!-- ticket-gate-version: 20 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -481,9 +481,12 @@ itself a check that cannot fail. It must return JSON alongside the prose:
 The `class` field is the JUDGING AGENT's call (critic or lens, each for its own items;
 fundamental = the approach itself is rejected, not its details). The orchestrator keys the
 alternatives generation and the no-override rule on the classes from BOTH sources; it never
-re-derives severity from prose. A lens result missing `class` fields is a malformed lens
-run: re-dispatch the lens once, and if still malformed, treat its blocking items as
-fundamental (fail safe, never guess downward).
+re-derives severity from prose. A critic OR lens result missing `class` fields is a malformed
+run: first re-ask CLASSIFICATION ONLY (hand the agent back its own item list and request
+the class values; no re-analysis). If still malformed, the orchestrator WRITES
+`"class": "fundamental"` onto each of those items itself (fail safe, never guess
+downward), so everything keyed on the class field, the Step 4 alternatives and the
+no-override rule included, fires for them like any other fundamental.
 
 ### Lens definitions
 
