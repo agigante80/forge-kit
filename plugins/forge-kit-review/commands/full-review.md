@@ -1,11 +1,25 @@
 ---
-description: "Orchestrate comprehensive multi-dimensional code review using specialized review agents across architecture, security, performance, testing, and best practices"
+description: "Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bounded review loop or become tickets. Not the per-task reviewer."
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 4 -->
+<!-- full-review-version: 5 -->
 
 # Comprehensive Code Review Orchestrator
+
+## When to run this (positioning)
+
+This is a **pre-merge or periodic multi-lens AUDIT** (architecture, security, performance,
+testing, standards): run it before a merge to main, before a release, or on an interval.
+It is NOT the per-task reviewer: multi-agent review earns its cost on independent
+cross-cutting lenses over one change, and loses to a single strong reviewer inside the
+edit-review loop (issue #71, from the #69 boundary decision). For per-task review, dispatch
+`code-reviewer` alone and drive the rounds with the Iteration contract below.
+
+**Where the findings go (the handoff):** Critical, High, and Medium findings enter the
+review-fix-review loop as round 1 input, bounded by the Iteration contract; Low findings
+become tickets immediately. **A ticket is a finished outcome for a finding.** No finding
+is ever left with neither a fix round nor a ticket.
 
 ## CRITICAL BEHAVIORAL RULES
 
