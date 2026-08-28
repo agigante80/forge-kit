@@ -17,8 +17,11 @@ verified against the live catalogue (a `grep` for `gh `, `api.github.com`, `{{GI
 | forge-adapt `templates` mode | writes `.github/ISSUE_TEMPLATE/` | also target `.forgejo/ISSUE_TEMPLATE/` when host=forgejo |
 | forge-adapt setup | self-update + catalogue via `gh api repos/agigante80/forge-kit` | separate axis: where *forge-kit itself* is hosted, vs the repo being governed |
 
-Not coupled (verified, no `gh`/API calls): **`pr-enhance`** (generates PR text for a human to
-paste) and **`full-review`** (writes a `.full-review/` report file). They need no change.
+Not coupled (verified, no `gh`/API calls): **`pr-enhance`** (generates PR text for a human
+to paste). **`full-review`** WAS uncoupled; since v7 its Completion files Low-finding
+tickets via `forge_issue_create`/`forge_issue_label` with a `gh issue create` fallback, so
+a Forgejo project should wire `forge-lib.sh` for it or the fallback files against the
+wrong host.
 
 ## The swap pattern
 
