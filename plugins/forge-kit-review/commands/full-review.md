@@ -3,7 +3,7 @@ description: "Orchestrate comprehensive multi-dimensional code review using spec
 argument-hint: "<target path or description> [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 1 -->
+<!-- full-review-version: 2 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -571,6 +571,30 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 Update `state.json`: set `status` to `"complete"`, `last_updated` to current timestamp.
 
 ---
+
+## Iteration contract (the loop's stopping rules)
+
+When this command is re-run to verify fixes from a previous full review, or when its
+findings enter a review-fix-review loop, these rules bound the loop (issue #66; the
+reporting half lives in `code-reviewer.md`):
+
+- **Round 1** reviews the change. Fixes go by severity: high and medium are fixed now;
+  anything below becomes a ticket immediately. **A ticket is a finished outcome for a
+  finding, not a failure to fix it.**
+- **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set).
+  The target must not grow between rounds.
+- **Round 3 runs only if round 2 found a high.** **Hard stop after 4 rounds** regardless.
+- **Trip wire:** if two consecutive rounds each find a defect inside the previous round's
+  fix, STOP immediately, whatever the round number. That is bad-fix injection above the
+  cited base rate, and further iteration removes value rather than adding it. Remaining
+  findings become tickets; continuing past the trip wire is the CALLER's explicit call,
+  never a default.
+- **Every terminal report states the stopping reason** (clean round, hard stop, or trip
+  wire) and how many rounds found defects in prior fixes, so the human decides from data.
+- **Each round has no memory of the last.** When a round reverses an earlier decision,
+  write the rationale into the code or the ticket, or the next round re-litigates it.
+
+At adaptation time, the hard-stop round count is a project choice; the trip wire is not.
 
 ## Completion
 
