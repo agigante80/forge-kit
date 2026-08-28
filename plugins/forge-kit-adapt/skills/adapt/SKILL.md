@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 46 -->
+<!-- forge-adapt-version: 47 -->
 
 # forge-adapt
 
@@ -276,7 +276,7 @@ The live `ls` from Setup S3 is the source of truth for what EXISTS; the referenc
 canonical reason + priority. If a reference row names a component that is not in the live
 catalogue, skip that row.
 
-**Superpowers coexistence (apply BEFORE ranking. The in-session skills listing is the AUTHORITATIVE signal where visible: superpowers:* entries, or superpowers skills vendored under the project's `.claude/skills/`, mean present even if Step 1 printed absent; the install-record probe is the fallback proxy. Issue #72,
+**Superpowers coexistence (apply BEFORE ranking. The in-session skills listing is AUTHORITATIVE in BOTH directions where visible: superpowers:* entries or vendored superpowers skills under `.claude/skills/` mean present even if Step 1 printed absent, and a session whose listing shows NO superpowers skills means absent even if the install record matched, since records can be project-scoped to another repo, disabled in settings, or stale after an uninstall. The Step-1 probe is only the fallback proxy for sessions with no visible listing. Issue #72,
 boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
 
 | forge-kit component | Disposition when superpowers is present |
@@ -288,7 +288,12 @@ boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
 | outer-loop components (ticket-gate, hooks, CI guards, working-overnight, release*, forge-host) | RECOMMEND unchanged; this layer has no superpowers counterpart |
 
 The profile's `Coexistence:` line (slot in the template above) states what was suppressed
-and why, so the user learns the boundary rather than wondering where a component went. With `superpowers: absent`, nothing
+and why, so the user learns the boundary rather than wondering where a component went.
+The dispositions follow the component everywhere, not only the top picks: a "more
+subagents" catalogue listing shows a suppressed row WITH its coexistence reason rather
+than hiding it, and Step 3 installs a suppressed component only after the user confirms
+past the stated conflict (the row's reason repeated in the confirmation), so no path
+around the top-picks table silently defeats the boundary. With `superpowers: absent`, nothing
 above applies and recommendations are unchanged.
 
 ```
