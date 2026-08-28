@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 45 -->
+<!-- forge-adapt-version: 46 -->
 
 # forge-adapt
 
@@ -255,6 +255,7 @@ Build a short profile and lead the recommendation with it:
 ```
 Profile
   Stack: <language / framework / key libs>
+  Superpowers: <present|absent, from the Step-1 probe or the visible skills listing>
   Domain: <what it does, for whom>
   Security surface: <auth, external APIs, data sensitivity>
   Installed: <component names, or "none">
@@ -275,7 +276,7 @@ The live `ls` from Setup S3 is the source of truth for what EXISTS; the referenc
 canonical reason + priority. If a reference row names a component that is not in the live
 catalogue, skip that row.
 
-**Superpowers coexistence (apply BEFORE ranking, only when Step 1 printed `superpowers: present` or superpowers:* skills are visible in-session; issue #72,
+**Superpowers coexistence (apply BEFORE ranking. The in-session skills listing is the AUTHORITATIVE signal where visible: superpowers:* entries, or superpowers skills vendored under the project's `.claude/skills/`, mean present even if Step 1 printed absent; the install-record probe is the fallback proxy. Issue #72,
 boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
 
 | forge-kit component | Disposition when superpowers is present |
@@ -286,8 +287,8 @@ boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
 | review agents (`code-reviewer` etc.) | RECOMMEND; the adapted text notes the preferred dispatch shape: fresh subagent, precisely crafted context, never session history |
 | outer-loop components (ticket-gate, hooks, CI guards, working-overnight, release*, forge-host) | RECOMMEND unchanged; this layer has no superpowers counterpart |
 
-The report's coexistence line states what was suppressed and why, so the user learns the
-boundary rather than wondering where a component went. With `superpowers: absent`, nothing
+The profile's `Coexistence:` line (slot in the template above) states what was suppressed
+and why, so the user learns the boundary rather than wondering where a component went. With `superpowers: absent`, nothing
 above applies and recommendations are unchanged.
 
 ```
@@ -298,6 +299,7 @@ Profile
   Domain: <...>
   Security surface: <...>
   Superpowers: <present|absent>
+  Coexistence: <suppressed: tdd-orchestrator (superpowers TDD skill owns this), ... | n/a>
   Installed: <... or none>
 
 ### Recommended (top picks for this project)
@@ -413,6 +415,10 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
      "behind forge-kit", or every refresh would re-offer a clause the install correctly
      dropped. This rule applies wherever a marked file is adapted, including the canonical
      ticket-standards doc installed by the Templates mode below.
+   - **Apply the coexistence table's adapted-text notes** (Step 2) when superpowers is
+     present: code-simplifier's loop-accounting caveat, closing-sessions' canon-vs-journal
+     split, the review agents' dispatch-shape note. These are Step-1-signal-traced additions
+     (the signal is superpowers presence), not padding.
    - **Preserve the `<!-- <name>-version: N -->` marker from the template verbatim.** This is what
      makes the adapted copy detectable next run - an adaptation that drops the marker resets the
      component to "unversioned" and defeats drift detection forever. If the template somehow lacks a
