@@ -15,12 +15,15 @@ not in the live catalogue, skip it.
 | Architecture decisions / large diffs | `architect-review` | review | architectural integrity + boundaries | P1 |
 | Backend service / API design work | `backend-architect` | review | backend + API design review | P1 |
 | General code quality | `code-reviewer` | review | THE per-task reviewer, rounds bounded | P1 |
-| Frequent edits, churn | `code-simplifier` | review | simplify recently changed code | P2 |
+| Frequent edits, churn | `code-simplifier` | review | simplify changed code; request-only w/ superpowers | P2 |
 | Deep / many dependencies | `dep-auditor` | devops | unused, unmaintained, vulnerable deps | P1 |
 | New / unfamiliar dev environment | `health-check` | devops | verify runtime, package mgr, env files | P2 |
-| Test-first culture / TDD | `tdd-orchestrator` | testing | orchestrate red-green-refactor flow | P2 |
+| Test-first culture / TDD | `tdd-orchestrator` | testing | red-green-refactor flow; skip if superpowers | P2 |
 | Tests sparse or missing | `test-automator` | testing | generate + maintain test coverage | P1 |
 | Performance-critical paths | `performance-engineer` | testing | find + fix performance bottlenecks | P2 |
 
 Ordering rule: `ticket-gate` first when missing, then any P0, then P1, then P2. Lead the
 Subagents block with at most the top 1-2 unless the user asks for "more subagents".
+
+Coexistence: the two rows above defer to the superpowers plugin where present; the
+disposition table in SKILL.md Step 2 is the single decision point.
