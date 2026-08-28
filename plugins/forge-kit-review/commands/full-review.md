@@ -1,19 +1,47 @@
 ---
-description: "Orchestrate comprehensive multi-dimensional code review using specialized review agents across architecture, security, performance, testing, and best practices"
+description: "Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bounded review loop or become tickets. Not the per-task reviewer."
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 4 -->
+<!-- full-review-version: 8 -->
 
 # Comprehensive Code Review Orchestrator
+
+## When to run this (positioning)
+
+This is a **pre-merge or periodic multi-lens AUDIT** (architecture, security, performance,
+testing, standards): run it before a merge to main, before a release, or on an interval.
+It is NOT the per-task reviewer: multi-agent review earns its cost on independent
+cross-cutting lenses over one change, and loses to a single strong reviewer inside the
+edit-review loop (forge-kit #71: consensus across many reviewers of one task underperforms
+the best single reviewer; multi-agent pays only where lenses are independent). For
+per-task review, dispatch
+`code-reviewer` alone and drive the rounds with the Iteration contract below.
+
+**Where the findings go (the handoff):** the audit run IS round 1 of the Iteration
+contract below (that section is canonical; this paragraph only summarises it). Its
+Critical/High/Medium findings are fixed and verified by a round-2 run (`--since` or the
+verify-fixes pre-flight); Low findings are filed as tickets by the Completion step. No
+finding is ever left with neither a fix round nor a ticket.
+
+**Unattended callers** (working-overnight investigations): EVERY interactive prompt in
+this file resolves without asking. Checkpoints auto-select option 1; a pre-flight
+`in_progress` session resumes; a `complete` session archives and starts a FRESH audit
+(never auto-selecting verify-fixes: an unattended periodic audit means full coverage);
+scope is confirmed by proceeding; the step-0 off-ramp is skipped. Ticket filing honours
+the caller's declared cap (for working-overnight, the manifest's investigation-depth cap,
+declared in `.claude/overnight/active.md` at kickoff); findings beyond it are listed in
+the report as unfiled, which is NOT a Completion failure when such a cap applies.
 
 ## CRITICAL BEHAVIORAL RULES
 
 You MUST follow these rules exactly. Violating any of them is a failure.
 
-1. **Execute phases in order.** Do NOT skip ahead, reorder, or merge phases.
+1. **Execute phases in order.** Do NOT skip ahead, reorder, or merge phases. ONE exception:
+   checkpoint option 2 (early close-out) jumps straight to Phase 5; Phase 5 and rule 4 then
+   treat the skipped phases' missing output files as expected, not as a halt.
 2. **Write output files.** Each phase MUST produce its output file in `.full-review/` before the next phase begins. Read from prior phase files -- do NOT rely on context window memory.
-3. **Stop at checkpoints.** When you reach a `PHASE CHECKPOINT`, you MUST stop and wait for explicit user approval before continuing. Use the AskUserQuestion tool with clear options.
+3. **Stop at checkpoints.** When you reach a `PHASE CHECKPOINT`, you MUST stop and wait for explicit user approval before continuing. Use the AskUserQuestion tool with clear options. Unattended runs are the exception, per the Unattended callers paragraph above: no prompt is ever issued.
 4. **Halt on failure.** If any step fails (agent error, missing files, access issues), STOP immediately. Present the error and ask the user how to proceed. Do NOT silently continue.
 5. **Use only local agents.** All `subagent_type` references use agents bundled with this plugin or `general-purpose`. No cross-plugin dependencies.
 6. **Never enter plan mode autonomously.** Do NOT use EnterPlanMode. This command IS the plan -- execute it.
@@ -55,6 +83,15 @@ Check if `.full-review/state.json` exists:
   review - round N+1, delta-only: sets `previous_ref` to the ref recorded in the completed
   state, applies rule 7, and archives the old session files under `.full-review/round-<N>/`;
   or (2) archive and start fresh (round 1).
+
+### 1.5 Task-sized off-ramp (after the session check, before ANY state is created)
+
+If the target is a SINGLE FILE, or the user says this is one task's in-progress work,
+offer the per-task path first: dispatch `code-reviewer` alone under the Iteration
+contract. A branch or pre-merge diff is NOT task-sized (pre-merge audits are this
+command's headline use). Only on explicit confirmation to proceed does the pipeline
+initialize; an accepted redirect ends here with nothing NEW written (a session found in
+step 1 was already dealt with there), so no phantom `in_progress` state is left behind.
 
 ### 2. Initialize state
 
@@ -327,12 +364,21 @@ Please review:
 - .full-review/01-quality-architecture.md
 - .full-review/02-security-performance.md
 
-1. Continue -- proceed to Testing & Documentation review
-2. Fix critical issues first -- I'll address findings before continuing
+1. Continue -- proceed to Testing & Documentation review (findings so far join the
+   handoff at Completion; fixes happen AFTER the audit, verified by a round-2 run)
+2. Close out early and start fixing -- the remaining REVIEW phases are skipped, but the
+   run jumps directly to Phase 5: the final report is compiled from the phases that ran
+   (skipped phases listed in Review Metadata), `status`/`reviewed_ref`/`round` are written
+   exactly as on a full run, and Completion executes, so the round-2 verify path stays
+   reachable. The round-2 verify covers the FIXES only; the skipped lenses still owe the
+   target a pass, so Completion after an early close-out recommends a fresh full audit
+   once the fixes land. Mid-run fixes are never made while phases continue: they desync
+   the reviewed tree from 00-scope.md and escape in-prior-fix tagging
 3. Pause -- save progress and stop here
 ```
 
-If `--strict-mode` flag is set and there are Critical findings, recommend option 2.
+If `--strict-mode` flag is set and there are Critical findings, recommend option 1:
+strictness means MAXIMUM coverage before fixing begins, never fewer lenses.
 
 Do NOT proceed to Phase 3 until the user approves.
 
@@ -543,7 +589,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Authentication/authorization bypasses
 - Production stability threats
 
-### High Priority (P1 -- Fix Before Next Release)
+### High Priority (P1 -- Enters the Fix Loop)
 
 [All High findings from all phases]
 
@@ -552,7 +598,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Architectural anti-patterns causing technical debt
 - Outdated dependencies with known vulnerabilities
 
-### Medium Priority (P2 -- Plan for Next Sprint)
+### Medium Priority (P2 -- Enters the Fix Loop)
 
 [All Medium findings from all phases]
 
@@ -561,7 +607,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Code refactoring opportunities
 - Test quality improvements
 
-### Low Priority (P3 -- Track in Backlog)
+### Low Priority (P3 -- Ticketed at Completion)
 
 [All Low findings from all phases]
 
@@ -593,6 +639,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Stopping reason: [loop continues: fixes pending / clean round / hard stop / trip wire / round-gate not met]
 - Rounds that found in-prior-fix defects: [count]
 - Phases completed: [list]
+- Phases skipped (early close-out): [list or none]
 - Flags applied: [list active flags]
 ```
 
@@ -638,6 +685,10 @@ Present the final summary:
 Comprehensive code review complete for: $ARGUMENTS
 
 ## Review Output Files
+
+(after an option-2 early close-out, list ONLY the files actually written; never name a
+skipped phase's file as produced)
+
 - Scope: .full-review/00-scope.md
 - Quality & Architecture: .full-review/01-quality-architecture.md
 - Security & Performance: .full-review/02-security-performance.md
@@ -652,7 +703,22 @@ Comprehensive code review complete for: $ARGUMENTS
 
 ## Next Steps
 1. Review the full report at .full-review/05-final-report.md
-2. Address Critical (P0) issues immediately
-3. Plan High (P1) fixes for current sprint
-4. Add Medium (P2) and Low (P3) items to backlog
+2. Fix Critical (P0), High (P1), and Medium (P2) findings; verify with a round-2 run
+   (--since <reviewed_ref> or the verify-fixes pre-flight)
+3. Low (P3) tickets filed: [list of created issue URLs]
 ```
+
+**Ticket filing (part of Completion, not advice):** for each Low finding: FIRST search
+open issues for it (the source marker makes prior filings greppable:
+`forge_issue_list open` or `gh issue list --search`, filter for the finding's summary);
+an already-open ticket satisfies the no-finding-left rule, note its URL instead of
+re-filing, or periodic audits re-file every stable Low forever. Otherwise create one
+issue via the host-aware adapter where installed (`forge_issue_create "<title>" "<body>"`,
+then `forge_issue_label`), falling back to `gh issue create`; body = the finding verbatim
+plus `(source: full-review round <N>, <date>)`; label `enhancement` unless the finding
+names a better fit. **Check `forge_issue_label`'s exit**: on Forgejo its contract is
+REFUSE-ALL (an unresolvable name fails the whole call and applies nothing), so create the
+missing label first or drop it, then retry, exactly as ticket-gate and dep-auditor
+document. List every created-or-found URL in Next Steps. A Low finding with neither is a
+Completion failure, per the handoff's no-finding-left rule, EXCEPT findings listed as
+unfiled under an unattended caller's declared cap (see Unattended callers above).

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible: a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 12 -->
+<!-- forge-host-version: 14 -->
 
 # forge-host: host-aware forge operations
 
@@ -105,7 +105,7 @@ canonical store (both are plaintext).
 This skill is the **foundation**: detection + the marker + the adapter contract, with the
 runner-free operations (issues, comments, releases/tags) implemented for both hosts. Adopting it
 across the GitHub-coupled components (`ci-health`, `release`/`release-automation`, `ticket-gate`,
-`gate-ticket`, `dep-auditor`, `health-check`, forge-adapt's `templates` mode) is the follow-on
+`gate-ticket`, `dep-auditor`, `health-check`, `full-review`'s Completion ticket filing, forge-adapt's `templates` mode) is the follow-on
 work; the CI/Actions backend (and porting `release-automation`'s GitHub-App-token lanes) is gated
 on a Forgejo runner, designed in `references/forgejo-ci.md`. See `references/adopting-forge-lib.md`
 for the per-component swaps. (The invoked `release` skill is already host-aware for its tag/release/
