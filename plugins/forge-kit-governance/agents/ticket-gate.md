@@ -29,7 +29,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 20 -->
+<!-- ticket-gate-version: 21 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -217,6 +217,8 @@ gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json number,title,body,labels,mi
 
 ### Step 1.5: Thin ticket pre-check
 
+Round 1 only (and any re-run whose body SHRANK, or after Step 0c fired): the gate's own
+appended `### Required changes` checklist is never counted as missing detail.
 Before the review, assess whether the ticket contains enough implementation detail to
 review meaningfully. A thin ticket that would fail purely for missing information is better
 halted now with targeted questions than pushed through a full critique.
@@ -288,6 +290,8 @@ over adding an agent; add an agent only for a genuinely independent domain persp
 ### Step 2.7: Complexity assessment and specialist research
 
 After selecting the review set, assess whether the ticket needs research before the critique.
+On a re-run, this step runs ONLY for a technology, dependency, or regulation the delta newly
+introduces; prior research is recovered per the re-run research Rule.
 
 **Complexity signals (any 2+ triggers deep research):**
 - Ticket touches 3+ packages or services
@@ -488,6 +492,15 @@ the class values; no re-analysis). If still malformed, the orchestrator WRITES
 downward), so everything keyed on the class field, the Step 4 alternatives and the
 no-override rule included, fires for them like any other fundamental.
 
+### Step 3C: Dispatch the lenses (only those Step 2.5 selected)
+
+For each selected lens, dispatch its agent with: the issue title + body, the project
+context from Step 2, the research from Step 2.7, the `Codebase Context` from Step 2.9, the
+Step 3A results, the critic's JSON from Step 3B, the result contract (verbatim, per the
+definition below), and its scope for this round (round 1: the whole ticket within its
+brief; re-runs: per the re-run lens-scope Rule). A lens named in the review's Review-set
+line MUST have been dispatched here; never print a lens that did not run.
+
 ### Lens definitions
 
 #### Security lens (label `security` or `critical`)
@@ -501,10 +514,14 @@ is the critic's alone; the lens confines itself to this checklist:
 - Data exposure: does the response leak sensitive fields?
 - OWASP Top 10: injection, XSS, CSRF, broken access control addressed?
 - Rate limiting: is the endpoint rate-limited or does it need to be?
-Returns the same JSON shape as the critic INCLUDING the `class` field on each blocking
-item (fundamental / significant; the lens judges its own items). Merge rule: the review
-carries ONE verdict, the stricter of the two; any blocking item from either source blocks;
-a fundamental from EITHER forbids override and triggers the alternatives per Step 4.
+Returns `{verdict, blocking, advisory}`: the critic's shape minus `sections` (that key is
+the critic's prose contract), with `class` on each blocking item (fundamental /
+significant; the lens judges its own items). Step 3C's dispatch carries this contract
+verbatim, so the callee never depends on a copy that can drift. Merge rule, phrased for N
+sources because projects add lenses: the review carries ONE verdict, the strictest across
+all sources; any blocking item from ANY source blocks; lens advisories join the review's
+advisory list like the critic's; a fundamental from ANY source forbids override and
+triggers the alternatives per Step 4.
 
 ### Step 4: Compile the review
 
