@@ -17,7 +17,7 @@ components; do not reinvent them.
    the ticket and lists what was verified. Never merge.
 
 To gate a ticket, run ticket-gate: a clean pass moves it to the ready queue; a
-non-pass parks it with the gate's scorecard.
+non-pass parks it with the gate's review (verdict + required changes).
 
 For an investigation, run the relevant review (full-review or security-review),
 write findings, and create tickets for actionable items within the

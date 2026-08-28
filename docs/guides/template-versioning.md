@@ -60,7 +60,7 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
    - Referenced files and route names
 4. **Updates the issue body** via `gh issue edit` with the synthesised content
 5. **Posts a comment** explaining what was synthesised and voiding prior scores
-6. **Re-scores all agents** against the enriched body (no prior scores carry forward)
+6. **Re-runs the full review** against the enriched body (nothing carries forward)
 
 The synthesised content is real and concrete - not placeholder text. The sub-agent reads the
 full issue body and any linked external URLs to derive specific test cases.
@@ -86,4 +86,4 @@ Without versioning, a ticket filed on an old template can pass the gate on struc
 grounds but be missing critical test specifications. With versioning + auto-synthesis:
 - No human friction from template upgrades
 - Every ticket has concrete GWT scenarios and test cases before implementation
-- QA agents can score 10/10 because test specs are always present
+- the gate's test-spec checks pass because the specs are always present
