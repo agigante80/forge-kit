@@ -1,9 +1,9 @@
 ---
 description: "Orchestrate comprehensive multi-dimensional code review using specialized review agents across architecture, security, performance, testing, and best practices"
-argument-hint: "<target path or description> [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
+argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 2 -->
+<!-- full-review-version: 3 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -17,6 +17,13 @@ You MUST follow these rules exactly. Violating any of them is a failure.
 4. **Halt on failure.** If any step fails (agent error, missing files, access issues), STOP immediately. Present the error and ask the user how to proceed. Do NOT silently continue.
 5. **Use only local agents.** All `subagent_type` references use agents bundled with this plugin or `general-purpose`. No cross-plugin dependencies.
 6. **Never enter plan mode autonomously.** Do NOT use EnterPlanMode. This command IS the plan -- execute it.
+7. **Round awareness wires the iteration contract.** When `--since <ref>` is passed, or the
+   pre-flight selects "verify fixes", this run is round N+1: set `previous_ref` and `round`
+   in `state.json`, narrow the target to `previous_ref...HEAD`, and EVERY dispatched agent
+   prompt in every phase gains two lines: the previously reviewed ref plus the path to the
+   prior round's `05-final-report.md`, and the instruction to add `in-prior-fix: yes/no` to
+   each finding (yes = the finding sits inside the `previous_ref...HEAD` diff). Round 1 has
+   no `previous_ref`; the field is omitted and no finding carries the tag.
 
 ## Pre-flight Checks
 
@@ -37,7 +44,10 @@ Check if `.full-review/state.json` exists:
   2. Start fresh (archives existing session)
   ```
 
-- If it exists and `status` is `"complete"`: Ask whether to archive and start fresh.
+- If it exists and `status` is `"complete"`: Ask whether to (1) verify fixes since that
+  review - round N+1, delta-only: sets `previous_ref` to the ref recorded in the completed
+  state, applies rule 7, and archives the old session files under `.full-review/round-<N>/`;
+  or (2) archive and start fresh (round 1).
 
 ### 2. Initialize state
 
@@ -564,6 +574,9 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 ## Review Metadata
 
 - Review date: [timestamp]
+- Round: [N] (previous ref: [ref or n/a])
+- Stopping reason: [clean round / hard stop / trip wire / round-gate not met]
+- Rounds that found in-prior-fix defects: [count]
 - Phases completed: [list]
 - Flags applied: [list active flags]
 ```
@@ -578,12 +591,13 @@ When this command is re-run to verify fixes from a previous full review, or when
 findings enter a review-fix-review loop, these rules bound the loop (issue #66; the
 reporting half lives in `code-reviewer.md`):
 
-- **Round 1** reviews the change. Fixes go by severity: high and medium are fixed now;
-  anything below becomes a ticket immediately. **A ticket is a finished outcome for a
-  finding, not a failure to fix it.**
-- **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set).
-  The target must not grow between rounds.
-- **Round 3 runs only if round 2 found a high.** **Hard stop after 4 rounds** regardless.
+- **Round 1** reviews the change. Fixes go by this command's own severity ladder: Critical,
+  High, and Medium are fixed now; Low becomes a ticket immediately. **A ticket is a
+  finished outcome for a finding, not a failure to fix it.**
+- **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set,
+  `previous_ref...HEAD` per rule 7). The target must not grow between rounds.
+- **Rounds 3 and 4 each run only if the PREVIOUS round found a Critical or High.**
+  **Hard stop after 4 rounds** regardless, even if round 4 found one.
 - **Trip wire:** if two consecutive rounds each find a defect inside the previous round's
   fix, STOP immediately, whatever the round number. That is bad-fix injection above the
   cited base rate, and further iteration removes value rather than adding it. Remaining
@@ -614,6 +628,7 @@ Comprehensive code review complete for: $ARGUMENTS
 ## Summary
 - Total findings: [count]
 - Critical: [X] | High: [Y] | Medium: [Z] | Low: [W]
+- Round: [N] | Stopping reason: [reason] | In-prior-fix findings this round: [count]
 
 ## Next Steps
 1. Review the full report at .full-review/05-final-report.md
