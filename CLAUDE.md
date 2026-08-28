@@ -70,7 +70,7 @@ color: red           # optional; used in Claude Code UI
 ```
 
 Key agents:
-- `ticket-gate`: deterministic mechanical checks plus ONE critic agent (verdict, pushback, GWT review, pros and cons, researched best practices, suggested approach), with a security lens on `security`/`critical` labels; posts the review to the forge and returns PASS or NEEDS-WORK. The former 5-agent 10/10 scoring committee was retired by issue #70.
+- `ticket-gate`: deterministic mechanical checks plus ONE critic agent (verdict, pushback, GWT review, pros and cons, researched best practices, suggested approach), with a security lens on `security`/`critical` labels; posts the review to the forge and returns PASS, NEEDS-WORK, or BLOCKED (labels/thin-ticket). The former 5-agent 10/10 scoring committee was retired by issue #70.
 - `dep-auditor`: scans workspace packages for unused deps, unmaintained libraries, and vulnerabilities; caches results in `docs/audit/dep-audit-cache.json` (30-day window); creates GitHub tickets for every finding.
 - `health-check`: verifies the dev environment (runtime, package manager, Docker, TypeScript, env files, GitHub CLI).
 - `coding-standards-auditor`: consolidates coding standards from wherever they live (inline CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md, docs/) into a canonical `docs/coding-standards.md`, then replaces the inline standards with a reference line.
