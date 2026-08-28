@@ -76,7 +76,7 @@ forge-kit ships two layers.
 | Component | What it does |
 |---|---|
 | `forge-adapt` skill | Analyses the target project, recommends relevant components, writes project-customised versions, and surfaces contribution candidates back to forge-kit |
-| `ticket-gate` agent | Reviews every issue before implementation: deterministic mechanical checks + one critic agent (verdict, pushback, GWT review, researched best practices), with a security lens on `security`/`critical` labels. Returns PASS or NEEDS-WORK |
+| `ticket-gate` agent | Reviews every issue before implementation: deterministic mechanical checks + one critic agent (verdict, pushback, GWT review, researched best practices), with a security lens on `security`/`critical` labels. Returns PASS, NEEDS-WORK, or BLOCKED |
 | 13 specialist agents | code-reviewer, code-simplifier, coding-standards-auditor, security-auditor, architect-review, backend-architect, backend-security-coder, api-security-tester, tdd-orchestrator, test-automator, performance-engineer, dep-auditor, health-check |
 | `/full-review` | Multi-phase code review orchestrator with a mid-run checkpoint |
 | `/pr-enhance` | Pull request description and checklist generation |

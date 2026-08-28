@@ -68,7 +68,7 @@
 
 - name: critical
   color: "b60205"
-  description: Highest urgency - triggers all agents in ticket-gate
+  description: Highest urgency - adds the security lens and maximum scrutiny in ticket-gate
 
 - name: contribution
   color: "7057ff"
