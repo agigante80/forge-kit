@@ -1,4 +1,4 @@
-<!-- ci-health-version: 5 -->
+<!-- ci-health-version: 6 -->
 
 # CI Health Monitor
 
@@ -80,7 +80,7 @@ gh issue list --search "fix(ci): <job-name-keyword>" --state open --limit 1
 
 ### Phase 3: Gate each new ticket
 
-Run the ticket-gate agent on each newly created ticket. Fix and re-run until 10/10.
+Run the ticket-gate agent on each newly created ticket. Fix and re-run until it returns PASS.
 
 Use parallel agents if multiple tickets were created.
 
@@ -128,7 +128,7 @@ Report whether the fix was pushed and a new run is in progress.
 
 - **Never hard-code workflow file names:** always discover via `ls .github/workflows/`
 - **Never hard-code branch names:** always detect from git or ask the user
-- **Gate review must pass 10/10** before implementing any fix
+- **The gate must return PASS** before implementing any fix
 - **One commit per fix:** not one big commit for everything
 - **Only push to the working branch:** never to `main` directly unless that is the working branch
 - **No duplicate tickets:** always search before creating
