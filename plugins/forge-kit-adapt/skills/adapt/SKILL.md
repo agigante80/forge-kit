@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 39 -->
+<!-- forge-adapt-version: 40 -->
 
 # forge-adapt
 
@@ -587,7 +587,7 @@ would clobber intentional adaptation). Steps:
    |---|---|---|
    | references comprehensive-review:* agent variants | adaptation | keep |
    | "no post-then-retract" verification rule | forge-kit improvement | add |
-   | domain-not-touched auto-score 10 rule | forge-kit improvement | add |
+   | BLOCKED verdict contract (labels/thin-ticket) | forge-kit improvement | add |
 
    Apply this merge? (yes / no)
    ```
