@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        <!-- template-version: 4 -->
+        <!-- template-version: 5 -->
         ## Bug Report
         Please provide enough detail to reproduce and assess the impact.
 
@@ -180,6 +180,18 @@ body:
         ### E2E test (if UI-visible bug)
         - [ ] **Happy path:** E2E test verifying the fix works end-to-end
         - [ ] **Unhappy path:** Error state still handled correctly after fix
+    validations:
+      required: true
+
+  - type: textarea
+    id: docs_impact
+    attributes:
+      label: Documentation impact
+      description: Which documentation does this change affect, in the docs tree and the root README? "None" needs a reason.
+      placeholder: |
+        - **Docs affected:**
+        - **README impact:**
+        - **Why not, if none:**
     validations:
       required: true
 

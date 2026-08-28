@@ -24,7 +24,7 @@ model: opus
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 5 -->
+<!-- dep-auditor-version: 7 -->
 
 You are the **Dependency Health Auditor**: an agent that checks every workspace package
 for dependency issues using open-source tools and npm registry queries.
@@ -223,10 +223,26 @@ All tickets use **P0 priority**.
 - Recommendation: replace / keep with justification / remove
 
 **All ticket bodies must include:**
-- `<!-- template-version: 4 -->` as first line
+- the CURRENT `<!-- template-version: N -->` marker as first line (never a hardcoded number: a
+  stamped literal goes stale on every template bump and forces a synthesis round-trip on
+  machine-filed tickets).
+  Resolve it ONCE at the start of ticket creation and reuse it for every ticket in the run
+  (never per ticket), with this host-aware read (shared-resolver consolidation tracked in #77):
+
+  ```bash
+  TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do [ -d "$d" ] && { echo "$d"; break; }; done)
+  CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+  ```
+
+  When `CURRENT_TPL_VER` is empty (a project with no versioned templates), OMIT the marker line
+  entirely rather than stamping a blank or invented number; the gate's version check is a no-op
+  where no templates exist.
 - `### Priority\nP0`
 - `## Acceptance criteria` with checkboxes
 - `## GDPR compliance\nN/A`
+- `## Documentation impact` with the three prompts (Docs affected / README impact / Why not,
+  if none); for a pure dependency swap the honest default is "None: dependency metadata only",
+  but a replacement that changes usage or setup names the docs and README sections it touches
 
 ---
 
