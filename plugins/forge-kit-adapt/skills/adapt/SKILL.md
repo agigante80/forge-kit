@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 43 -->
+<!-- forge-adapt-version: 44 -->
 
 # forge-adapt
 
@@ -180,6 +180,11 @@ for f in .claude/agents/*.md .claude/commands/*.md .claude/skills/*/SKILL.md; do
   d=$(grep -m1 '^description:' "$f" | sed 's/description: *//')
   echo "  $n | v${v:-none} | $d"
 done
+# Superpowers coexistence (issue #72): forge-kit defers to the process layer where present.
+# Presence is a local-filesystem fact; the in-session skills listing (superpowers:* entries)
+# is an equally valid signal when visible.
+SP_PRESENT=$(ls -d ~/.claude/plugins/cache/*/superpowers 2>/dev/null | head -1)
+[ -n "$SP_PRESENT" ] && SP_STATUS=present || SP_STATUS=absent
 # Shell assets installed by skills land in scripts/ (forge-host copies forge-lib.sh there;
 # release-automation copies version-lib.sh + release-run.sh). Same marker scheme, same drift rules:
 for f in scripts/forge-lib.sh scripts/version-lib.sh scripts/release-run.sh; do
@@ -269,6 +274,21 @@ The live `ls` from Setup S3 is the source of truth for what EXISTS; the referenc
 canonical reason + priority. If a reference row names a component that is not in the live
 catalogue, skip that row.
 
+**Superpowers coexistence (apply BEFORE ranking, only when `SP_STATUS=present`; issue #72,
+boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
+
+| forge-kit component | Disposition when superpowers is present |
+|---|---|
+| `tdd-orchestrator` | DO NOT recommend. Reason: "superpowers TDD skill owns this" |
+| `code-simplifier` | DO NOT recommend by default; install only on explicit request, and the adapted text carries the caveat that its proactive post-change edits sit outside the review loop's bad-fix accounting |
+| `closing-sessions` | RECOMMEND; the adapted text states the split: project memory (`.claude/memory/`, handoffs) is the shareable canon, the private journal is the personal layer |
+| review agents (`code-reviewer` etc.) | RECOMMEND; the adapted text notes the preferred dispatch shape: fresh subagent, precisely crafted context, never session history |
+| outer-loop components (ticket-gate, hooks, CI guards, working-overnight, release*, forge-host) | RECOMMEND unchanged; this layer has no superpowers counterpart |
+
+The report's coexistence line states what was suppressed and why, so the user learns the
+boundary rather than wondering where a component went. With `SP_STATUS=absent`, nothing
+above applies and recommendations are unchanged.
+
 ```
 ## forge-adapt - <project> (<stack>)
 
@@ -276,6 +296,7 @@ Profile
   Stack: <...>
   Domain: <...>
   Security surface: <...>
+  Superpowers: <present|absent>
   Installed: <... or none>
 
 ### Recommended (top picks for this project)
