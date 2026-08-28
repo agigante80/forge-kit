@@ -14,7 +14,7 @@ not in the live catalogue, skip it.
 | Backend handles untrusted input | `backend-security-coder` | security | secure-coding pass for backend handlers | P1 |
 | Architecture decisions / large diffs | `architect-review` | review | architectural integrity + boundaries | P1 |
 | Backend service / API design work | `backend-architect` | review | backend + API design review | P1 |
-| General code quality | `code-reviewer` | review | THE per-task reviewer (rounds bounded by the iteration contract) | P1 |
+| General code quality | `code-reviewer` | review | THE per-task reviewer, rounds bounded | P1 |
 | Frequent edits, churn | `code-simplifier` | review | simplify recently changed code | P2 |
 | Deep / many dependencies | `dep-auditor` | devops | unused, unmaintained, vulnerable deps | P1 |
 | New / unfamiliar dev environment | `health-check` | devops | verify runtime, package mgr, env files | P2 |

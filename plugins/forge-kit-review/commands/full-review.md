@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 6 -->
+<!-- full-review-version: 7 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -23,6 +23,11 @@ contract below (that section is canonical; this paragraph only summarises it). I
 Critical/High/Medium findings are fixed and verified by a round-2 run (`--since` or the
 verify-fixes pre-flight); Low findings are filed as tickets by the Completion step. No
 finding is ever left with neither a fix round nor a ticket.
+
+**Unattended callers** (working-overnight investigations): checkpoints auto-select
+option 1 (no human is present to answer), and ticket filing honours the caller's declared
+ticket cap; findings beyond the cap are listed in the report as unfiled, which is NOT a
+Completion failure when a cap was declared at kickoff.
 
 ## CRITICAL BEHAVIORAL RULES
 
@@ -52,6 +57,15 @@ You MUST follow these rules exactly. Violating any of them is a failure.
 ## Pre-flight Checks
 
 Before starting, perform these checks:
+
+### 0. Task-sized off-ramp (before ANY state is created)
+
+If the target is a SINGLE FILE, or the user says this is one task's in-progress work,
+offer the per-task path first: dispatch `code-reviewer` alone under the Iteration
+contract. A branch or pre-merge diff is NOT task-sized (pre-merge audits are this
+command's headline use). Only on explicit confirmation to proceed does the pipeline
+initialize; an accepted redirect ends here with nothing written, so no phantom
+`in_progress` session is left for the next run's pre-flight to find.
 
 ### 1. Check for existing session
 
@@ -112,10 +126,6 @@ Determine what code to review from `$ARGUMENTS`:
 
 - If a file/directory path is given, verify it exists
 - If a description is given (e.g., "recent changes", "authentication module"), identify the relevant files
-- **If the target is task-sized** (a single file, or one task's uncommitted/branch diff),
-  say so and offer the per-task path instead (dispatch `code-reviewer` alone under the
-  Iteration contract) before initializing the 5-phase pipeline; proceed only on explicit
-  confirmation
 - List the files that will be reviewed and confirm with the user
 
 **Output file:** `.full-review/00-scope.md`
@@ -350,14 +360,17 @@ Please review:
 
 1. Continue -- proceed to Testing & Documentation review (findings so far join the
    handoff at Completion; fixes happen AFTER the audit, verified by a round-2 run)
-2. Stop the audit here and start fixing -- findings so far become the loop input; the
-   remaining phases are skipped and Completion runs now (mid-run fixes are never made
-   while phases continue: they desync the reviewed tree from 00-scope.md and escape
-   in-prior-fix tagging)
+2. Close out early and start fixing -- the remaining REVIEW phases are skipped, but the
+   run jumps directly to Phase 5: the final report is compiled from the phases that ran
+   (skipped phases listed in Review Metadata), `status`/`reviewed_ref`/`round` are written
+   exactly as on a full run, and Completion executes, so the round-2 verify path stays
+   reachable. Mid-run fixes are never made while phases continue: they desync the
+   reviewed tree from 00-scope.md and escape in-prior-fix tagging
 3. Pause -- save progress and stop here
 ```
 
-If `--strict-mode` flag is set and there are Critical findings, recommend option 2.
+If `--strict-mode` flag is set and there are Critical findings, recommend option 1:
+strictness means MAXIMUM coverage before fixing begins, never fewer lenses.
 
 Do NOT proceed to Phase 3 until the user approves.
 
@@ -568,7 +581,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Authentication/authorization bypasses
 - Production stability threats
 
-### High Priority (P1 -- Fix Before Next Release)
+### High Priority (P1 -- Enters the Fix Loop)
 
 [All High findings from all phases]
 
@@ -682,9 +695,16 @@ Comprehensive code review complete for: $ARGUMENTS
 3. Low (P3) tickets filed: [list of created issue URLs]
 ```
 
-**Ticket filing (part of Completion, not advice):** for each Low finding, create one issue
-via the host-aware adapter where installed (`forge_issue_create "<title>" "<body>"`, then
-`forge_issue_label`), falling back to `gh issue create`; body = the finding verbatim plus
-`(source: full-review round <N>, <date>)`; label `enhancement` unless the finding names a
-better fit. List every created URL in Next Steps. A Low finding with no ticket is a
+**Ticket filing (part of Completion, not advice):** for each Low finding: FIRST search
+open issues for it (the source marker makes prior filings greppable:
+`forge_issue_list open` or `gh issue list --search`, filter for the finding's summary);
+an already-open ticket satisfies the no-finding-left rule, note its URL instead of
+re-filing, or periodic audits re-file every stable Low forever. Otherwise create one
+issue via the host-aware adapter where installed (`forge_issue_create "<title>" "<body>"`,
+then `forge_issue_label`), falling back to `gh issue create`; body = the finding verbatim
+plus `(source: full-review round <N>, <date>)`; label `enhancement` unless the finding
+names a better fit. **Check `forge_issue_label`'s exit**: on Forgejo its contract is
+REFUSE-ALL (an unresolvable name fails the whole call and applies nothing), so create the
+missing label first or drop it, then retry, exactly as ticket-gate and dep-auditor
+document. List every created-or-found URL in Next Steps. A Low finding with neither is a
 Completion failure, per the handoff's no-finding-left rule.

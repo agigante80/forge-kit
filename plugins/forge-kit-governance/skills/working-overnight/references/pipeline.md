@@ -19,6 +19,8 @@ components; do not reinvent them.
 To gate a ticket, run ticket-gate: a clean pass moves it to the ready queue; a
 non-pass parks it with the gate's review (verdict + required changes).
 
-For an investigation, run the relevant review (full-review or security-review),
-write findings, and create tickets for actionable items within the
-investigation-depth cap, then let a later cycle gate and implement them.
+For an investigation, run the relevant review (full-review or security-review) in its
+unattended mode (checkpoints auto-continue; ticket filing honours the manifest's ticket
+cap, with over-cap findings listed unfiled in the report), write findings, and create
+tickets for actionable items within the investigation-depth cap, then let a later cycle
+gate and implement them.
