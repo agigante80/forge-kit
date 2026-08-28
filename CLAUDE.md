@@ -81,7 +81,7 @@ Note: the 5-phase `full-review` orchestrator is a **command** (`/full-review`), 
 
 **Commands** (`plugins/<group>/commands/*.md`): thin slash-command wrappers that delegate to agents. The command name comes from the filename (`full-review.md` → `/full-review`), so YAML frontmatter is optional and inconsistent across the kit: `gate-ticket`, `pr-enhance`, and `ci-health` have no frontmatter at all (markdown body only); `full-review` uses `description` + `argument-hint`. Don't assume a `name:` field exists. Users invoke these directly:
 - `/gate-ticket <N>`: run the ticket readiness gate on GitHub issue N.
-- `/full-review [path] [--security-focus] [--performance-critical] [--strict-mode] [--framework name]`: 5-phase code review.
+- `/full-review [path] [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework name]`: 5-phase code review; `--since` runs a delta-only verify-fixes round under the iteration contract.
 - `/pr-enhance`: pull request enhancement (description, scope review, checklist generation).
 - `/ci-health`: check all GitHub Actions workflows, create P0 tickets for failures, auto-fix safe failures.
 
@@ -149,7 +149,7 @@ Two distinct fail-open behaviours, do not conflate them. The script itself denie
 
 **Template versioning:** The `template-version: N` HTML comment in issue templates enables the `ticket-gate` agent to detect outdated templates and auto-synthesize missing sections without requiring manual upgrades.
 
-**`.full-review/` directory** is a runtime artifact created by `/full-review`. It persists state across interruptions so a review can be resumed. It is not part of the scaffold; add it to `.gitignore` in projects that run `/full-review`.
+**`.full-review/` directory** is a runtime artifact created by `/full-review`. It persists state across interruptions so a review can be resumed, and its `round-<N>/` archives are the loop's only cross-round memory (prior reports feed trajectory and trip-wire computation), so deleting it ends the loop's history, not just a session. It is not part of the scaffold; add it to `.gitignore` in projects that run `/full-review`.
 
 **`temp/`** is a gitignored scratch folder (`temp/*` ignored, `.gitkeep` tracked). Use it for throwaway analysis output. Anything there is untracked by design, so never cite it as a source of truth or assume a later session can see it.
 
