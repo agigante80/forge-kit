@@ -86,4 +86,4 @@ Without versioning, a ticket filed on an old template can pass the gate on struc
 grounds but be missing critical test specifications. With versioning + auto-synthesis:
 - No human friction from template upgrades
 - Every ticket has concrete GWT scenarios and test cases before implementation
-- QA agents can score 10/10 because test specs are always present
+- the gate's test-spec checks pass because the specs are always present

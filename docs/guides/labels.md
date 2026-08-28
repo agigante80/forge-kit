@@ -1,6 +1,6 @@
 # Label Taxonomy
 
-GitHub labels serve dual purpose: issue organization AND dynamic agent routing in ticket-gate.
+GitHub labels serve dual purpose: issue organization AND lens routing in ticket-gate (which lenses join the critic, and how its brief is modulated).
 
 ## Label categories
 
@@ -9,16 +9,16 @@ GitHub labels serve dual purpose: issue organization AND dynamic agent routing i
 |---|---|---|
 | `bug` | Something isn't working | Yes |
 | `enhancement` / `feature` | New feature or request | Yes |
-| `security` | Security vulnerability or hardening | Yes - triggers all agents |
+| `security` | Security vulnerability or hardening | Yes - adds the security lens |
 | `infrastructure` | DevOps, CI/CD, deployment | Yes |
 | `design` | Wireframes, UX, accessibility | Yes |
 | `documentation` | Docs updates | Yes |
 | `testing` | Tests, QA, coverage | Yes |
 
-### Area labels (trigger dynamic agents)
+### Area labels (modulate the gate's review set)
 | Label | Description | Triggers |
 |---|---|---|
-| `api` | API routes or contracts | API Design agent in ticket-gate |
+| `api` | API routes or contracts | API-design checklist added to the critic's brief |
 | `web` | Web frontend | - |
 | `mobile` | Mobile app | - |
 | `backend` | Backend services | - |
@@ -35,7 +35,7 @@ GitHub labels serve dual purpose: issue organization AND dynamic agent routing i
 ### Special labels
 | Label | Effect |
 |---|---|
-| `critical` | Triggers ALL agents in ticket-gate (maximum scrutiny) |
+| `critical` | Adds the security lens and puts the critic in maximum scrutiny |
 
 ## Installing labels
 
@@ -63,4 +63,4 @@ Add entries to `.github/labels.yml` for your domain:
   description: My project-specific area
 ```
 
-Then add the label as a trigger in `ticket-gate.md` if it should route to a specific agent.
+Then add the label as a trigger in `ticket-gate.md`'s lens table if it should route to a lens or modulate the critic's brief.
