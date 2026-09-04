@@ -39,6 +39,8 @@ cross-agent instruction format); keep it a pointer, never duplicate content into
 
    `validate-plugins.sh` requires `jq` and `grep -P` (GNU grep). `check-version-bump.sh` diffs `<base>...HEAD` (CI passes `origin/$BASE_REF`) and **exits 1 if the base ref does not exist locally**, rather than passing vacuously, so fetch first. It reads committed blobs via `git show`, not the worktree: an uncommitted marker bump will not satisfy it. The local `.githooks/pre-commit` covers markers with `--diff-filter=AM` on the staged set (CI additionally catches renames, `AMR`) and runs the plugin-semver rule via `check-plugin-version-bump.sh --staged` (`ADM`, `--no-renames` so a cross-group rename charges the source group too). The semver half needs `jq`: a jq-less machine skips it with a loud warning and CI still enforces it. Both range guards run at PR time only; a direct push to main bypasses them, so the local hook is the only gate on that path.
 
+   No test script takes a filter argument, so one script is the smallest unit you can run; there is no per-case selector to reach for. The only finer entry point is `python3 plugins/forge-kit-devops/hooks/block-legacy-host-push.py --self-test`, that hook's own verdict matrix, which `test-hooks.py` also drives.
+
 2. **Behavioural validation:** agents, skills, and commands are prose, cannot be run in isolation here, and must be installed into a test project via `forge-adapt` and exercised there. **The exception is anything the kit ships as an executable**, which has a real contract and therefore a real test. Four exist today, each exercised as a subprocess (throwaway directories, this repo itself, or a stubbed transport, per bullet):
 
    - **Hooks** (`scripts/test-hooks.py`): JSON payload on stdin, a `permissionDecision` on stdout, always exit 0. The test covers every matched tool, fail-open on unparseable input, deny-signalled-on-stdout-not-exit-code, and a regression guard for the foreign-cwd wiring bugs. It runs in CI. When you change a hook, extend it: three consecutive PRs shipped hook defects before this existed.
@@ -136,7 +138,7 @@ The root `.claude-plugin/marketplace.json` lists all plugins with their local `s
 
 **This repo runs `block-dashes.py` against itself.** `.claude/settings.json` wires it as a `PreToolUse` hook on `Write|Edit|MultiEdit|NotebookEdit|Bash`, so any tool call whose payload contains an em dash (U+2014) or en dash (U+2013) is denied. This is deliberate dogfooding of a `forge-kit-governance` hook. The correct response to a hit is to **restructure the sentence**, never to substitute a hyphen for the dash.
 
-**Hooks reach a project two ways, and the script tells them apart by its own path shape.** A plugin group ships `hooks/hooks.json`, which Claude Code activates whenever **that plugin** is enabled, anchored to `${CLAUDE_PLUGIN_ROOT}`. That copy is live in *every* project, so an opinionated hook like `block-dashes` stays dormant until the project opts in by creating `.claude/no-dashes`. The other way is a project-local install (`.claude/hooks/<name>.py` plus a `settings.json` entry), which `forge-adapt` does whenever the governance plugin is not enabled; that copy is itself the opt-in and needs no sentinel. `enforcement_enabled()` distinguishes them by whether the script sits in a `.claude/hooks/` directory, a check that holds regardless of the working directory or which environment variables were exported. An earlier version keyed on "is the script under the project root," falling back to the payload's `cwd`, which is the *session's* directory rather than the project root, so a session started in a subdirectory silently disabled the guard. One deliberate exception to the plugin path: `block-legacy-host-push.py` (`forge-kit-devops`) ships with **no** `hooks.json`. It must never be live in every project, so it is installed project-locally only, by the `github-to-forgejo` skill's cutover phase. Don't "fix" the missing wrapper.
+**Hooks reach a project two ways, and the script tells them apart by its own path shape.** A plugin group ships `hooks/hooks.json`, which Claude Code activates whenever **that plugin** is enabled, anchored to `${CLAUDE_PLUGIN_ROOT}`. That copy is live in *every* project, so an opinionated hook like `block-dashes` stays dormant until the project opts in by creating `.claude/no-dashes`. The other way is a project-local install (`.claude/hooks/<name>.py` plus a `settings.json` entry), which `forge-adapt` does whenever the governance plugin is not enabled; that copy is itself the opt-in and needs no sentinel. `enforcement_enabled()` distinguishes them by whether the script sits in a `.claude/hooks/` directory, a check that holds regardless of the working directory or which environment variables were exported. An earlier version keyed on "is the script under the project root," falling back to the payload's `cwd`, which is the *session's* directory rather than the project root, so a session started in a subdirectory silently disabled the guard. One deliberate exception to the plugin path: `block-legacy-host-push.py` (`forge-kit-devops`) ships with **no** `hooks.json`. It must never be live in every project, so it is installed project-locally only, by the `github-to-forgejo` skill's cutover phase. Don't "fix" the missing wrapper. `plugins/forge-kit-governance/hooks/README.md` carries the long form of this install model (sentinel, shell gate, measured costs); read it before changing how a hook reaches a project.
 
 Two facts that are easy to conflate and must not be. **Where the component library lives** (`~/.claude/plugins/marketplaces/forge-kit`, or a `~/forge-kit` clone) says nothing about **which plugin groups are enabled**. The plugin *cache* (`~/.claude/plugins/cache/<marketplace>/<plugin>/<sha>/`) contains only an installed plugin's own files and never a `plugins/` tree, so it can never serve as the library. `forge-kit-governance` must be installed explicitly (`/plugin install forge-kit-governance@forge-kit`) for its `hooks.json` to load; the quick-start installs `forge-kit-adapt` alone. Prefer plugin registration where it applies, because it owns no user config and so has no wiring to drift, duplicate, or clobber, and that copy-and-mutate path was the origin of every hook bug in this repo's history.
 
@@ -160,6 +162,8 @@ Two distinct fail-open behaviours, do not conflate them. The script itself denie
 
 **`.full-review/` directory** is a runtime artifact created by `/full-review`. It persists state across interruptions so a review can be resumed, and its `round-<N>/` archives are the loop's only cross-round memory (prior reports feed trajectory and trip-wire computation), so deleting it ends the loop's history, not just a session. It is not part of the scaffold; add it to `.gitignore` in projects that run `/full-review`.
 
+**`.claude/overnight/`** is the `working-overnight` runtime store (manifest, queue, decisions, report), gitignored here for the same reason `.full-review/` is: it is per-run state, not scaffold.
+
 **`temp/`** is a gitignored scratch folder (`temp/*` ignored, `.gitkeep` tracked). Use it for throwaway analysis output. Anything there is untracked by design, so never cite it as a source of truth or assume a later session can see it.
 
 **`.claude/memory/MEMORY.md`** is the tracked, team-visible project memory index. Durable decisions and in-flight context belong there, one line per entry pointing at a sibling file. **`.claude/handoffs/`** holds dated session-resume notes written by the `closing-sessions` skill; both stores are what that skill targets when a session wraps up.
@@ -168,12 +172,23 @@ Two distinct fail-open behaviours, do not conflate them. The script itself denie
 
 ## Workflow
 
-After every set of file changes, always commit and push to GitHub:
+Changes land through a branch and a PR, never a direct push to main. Both range guards
+(`check-version-bump.sh`, `check-plugin-version-bump.sh`) run only on `pull_request`, so a direct
+push to main is gated by nothing except the local pre-commit hook.
+
+1. Branch as `feat/<issue-number>-<slug>` or `fix/<slug>`.
+2. Commit with a conventional-commit subject (`feat(...)`, `fix(review)`, `docs(...)`, `chore(...)`),
+   bumping the `<name>-version` marker of every component the commit touches, plus the `plugin.json`
+   semver of every plugin group it touches.
+3. Run the structural and contract checks above.
+4. Push the branch and open a PR into main.
 
 ```bash
+git checkout -b feat/<N>-<slug>
 git add <changed files>
-git commit -m "<concise message>"
-git push
+git commit -m "feat(<scope>): <concise message>"
+git push -u origin HEAD
+gh pr create --fill
 ```
 
 Do this at the end of every task without waiting to be asked.
