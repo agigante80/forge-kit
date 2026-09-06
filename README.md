@@ -82,48 +82,48 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 
 **40 components across 7 plugin groups:** 14 agents, 4 commands, 15 skills, 4 hooks, 3 shell assets.
 
-| Plugin group | Type | Component | Version | What it does |
-|---|---|---|---|---|
-| `forge-kit-adapt` | skill | `adapt` | v48 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
-| `forge-kit-backend` | skill | `api-design-principles` | v1 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
-| `forge-kit-backend` | skill | `architecture-patterns` | v1 | Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven… |
-| `forge-kit-backend` | skill | `cqrs-implementation` | v1 | Implement Command Query Responsibility Segregation for scalable architectures. |
-| `forge-kit-backend` | skill | `microservices-patterns` | v1 | Design microservices architectures with service boundaries, event-driven communication, and resilience patterns. |
-| `forge-kit-backend` | skill | `saga-orchestration` | v1 | Implement saga patterns for distributed transactions and cross-aggregate workflows. |
-| `forge-kit-devops` | agent | `dep-auditor` | v7 | Dependency health auditor - scans all workspace packages for unused dependencies, redundant transitive duplicates, unma… |
-| `forge-kit-devops` | agent | `health-check` | v3 | Environment health check - verifies that the development environment is correctly set up on this machine. |
-| `forge-kit-devops` | command | `ci-health` | v6 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
-| `forge-kit-devops` | skill | `find-dead-code` | v2 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
-| `forge-kit-devops` | skill | `forge-host` | v14 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. |
-| `forge-kit-devops` | skill | `github-to-forgejo` | v7 | Migrate a repository from GitHub to a self-hosted Forgejo instance: push the repo, adopt the forge-host adapter, resolv… |
-| `forge-kit-devops` | skill | `release` | v5 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
-| `forge-kit-devops` | skill | `release-automation` | v8 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
-| `forge-kit-devops` | hook | `block-legacy-host-push` | v3 | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
-| `forge-kit-devops` | shell asset | `forge-lib` | v4 | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
-| `forge-kit-devops` | shell asset | `release-run` | v1 | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
-| `forge-kit-devops` | shell asset | `version-lib` | v1 | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v21 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
-| `forge-kit-governance` | command | `gate-ticket` | v6 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate agent detects the… |
-| `forge-kit-governance` | skill | `closing-sessions` | v2 | Persist what mattered from the current conversation before the session ends or context is lost. |
-| `forge-kit-governance` | skill | `working-overnight` | v6 | Run governed, unattended overnight work. |
-| `forge-kit-governance` | hook | `block-dashes` | v5 | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
-| `forge-kit-governance` | hook | `overnight-continue` | v1 | Stop hook for the working-overnight run. |
-| `forge-kit-governance` | hook | `overnight-guard` | v3 | PreToolUse Bash guard for an armed working-overnight run. |
-| `forge-kit-review` | agent | `architect-review` | v1 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
-| `forge-kit-review` | agent | `backend-architect` | v1 | Expert backend architect specializing in scalable API design, microservices architecture, and distributed systems. |
-| `forge-kit-review` | agent | `code-reviewer` | v11 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
-| `forge-kit-review` | agent | `code-simplifier` | v2 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
-| `forge-kit-review` | agent | `coding-standards-auditor` | v2 | Detects, consolidates, and writes coding standards for the project. |
-| `forge-kit-review` | command | `full-review` | v10 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
-| `forge-kit-review` | command | `pr-enhance` | v1 | You are a PR optimization expert specializing in creating high-quality pull requests that facilitate efficient code rev… |
-| `forge-kit-security` | agent | `api-security-tester` | v1 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
-| `forge-kit-security` | agent | `backend-security-coder` | v1 | Expert in secure backend coding practices specializing in input validation, authentication, and API security. |
-| `forge-kit-security` | agent | `security-auditor` | v3 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
-| `forge-kit-security` | skill | `owasp-api-security` | v1 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
-| `forge-kit-testing` | agent | `performance-engineer` | v1 | Profile and optimize application performance including response times, memory usage, query efficiency, and scalability. |
-| `forge-kit-testing` | agent | `tdd-orchestrator` | v1 | Master TDD orchestrator specializing in red-green-refactor discipline, multi-agent workflow coordination, and comprehen… |
-| `forge-kit-testing` | agent | `test-automator` | v3 | Create comprehensive test suites including unit, integration, and E2E tests. |
-| `forge-kit-testing` | skill | `mutation-sweep` | v2 | Adopt and adapt mutation testing for this project, whatever the stack. |
+| Plugin group | Type | Component | Version | Words | What it does |
+|---|---|---|---|---:|---|
+| `forge-kit-adapt` | skill | `adapt` | v48 | 7357 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-backend` | skill | `api-design-principles` | v1 | 1470 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
+| `forge-kit-backend` | skill | `architecture-patterns` | v1 | 1330 | Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven… |
+| `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |
+| `forge-kit-backend` | skill | `microservices-patterns` | v1 | 1337 | Design microservices architectures with service boundaries, event-driven communication, and resilience patterns. |
+| `forge-kit-backend` | skill | `saga-orchestration` | v1 | 1216 | Implement saga patterns for distributed transactions and cross-aggregate workflows. |
+| `forge-kit-devops` | agent | `dep-auditor` | v7 | 1344 | Dependency health auditor - scans all workspace packages for unused dependencies, redundant transitive duplicates, unma… |
+| `forge-kit-devops` | agent | `health-check` | v3 | 1029 | Environment health check - verifies that the development environment is correctly set up on this machine. |
+| `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
+| `forge-kit-devops` | skill | `find-dead-code` | v2 | 1155 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
+| `forge-kit-devops` | skill | `forge-host` | v14 | 1146 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. |
+| `forge-kit-devops` | skill | `github-to-forgejo` | v7 | 1769 | Migrate a repository from GitHub to a self-hosted Forgejo instance: push the repo, adopt the forge-host adapter, resolv… |
+| `forge-kit-devops` | skill | `release` | v5 | 1137 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
+| `forge-kit-devops` | skill | `release-automation` | v8 | 1606 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
+| `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
+| `forge-kit-devops` | shell asset | `forge-lib` | v4 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
+| `forge-kit-devops` | shell asset | `release-run` | v1 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
+| `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
+| `forge-kit-governance` | agent | `ticket-gate` | v21 | 5794 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
+| `forge-kit-governance` | command | `gate-ticket` | v6 | 197 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate agent detects the… |
+| `forge-kit-governance` | skill | `closing-sessions` | v2 | 671 | Persist what mattered from the current conversation before the session ends or context is lost. |
+| `forge-kit-governance` | skill | `working-overnight` | v6 | 619 | Run governed, unattended overnight work. |
+| `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
+| `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |
+| `forge-kit-governance` | hook | `overnight-guard` | v3 |  | PreToolUse Bash guard for an armed working-overnight run. |
+| `forge-kit-review` | agent | `architect-review` | v1 | 1047 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
+| `forge-kit-review` | agent | `backend-architect` | v1 | 2232 | Expert backend architect specializing in scalable API design, microservices architecture, and distributed systems. |
+| `forge-kit-review` | agent | `code-reviewer` | v11 | 1588 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
+| `forge-kit-review` | agent | `code-simplifier` | v2 | 426 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
+| `forge-kit-review` | agent | `coding-standards-auditor` | v2 | 1315 | Detects, consolidates, and writes coding standards for the project. |
+| `forge-kit-review` | command | `full-review` | v10 | 3998 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
+| `forge-kit-review` | command | `pr-enhance` | v1 | 2015 | You are a PR optimization expert specializing in creating high-quality pull requests that facilitate efficient code rev… |
+| `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
+| `forge-kit-security` | agent | `backend-security-coder` | v1 | 1148 | Expert in secure backend coding practices specializing in input validation, authentication, and API security. |
+| `forge-kit-security` | agent | `security-auditor` | v3 | 1305 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
+| `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
+| `forge-kit-testing` | agent | `performance-engineer` | v1 | 313 | Profile and optimize application performance including response times, memory usage, query efficiency, and scalability. |
+| `forge-kit-testing` | agent | `tdd-orchestrator` | v1 | 1261 | Master TDD orchestrator specializing in red-green-refactor discipline, multi-agent workflow coordination, and comprehen… |
+| `forge-kit-testing` | agent | `test-automator` | v3 | 368 | Create comprehensive test suites including unit, integration, and E2E tests. |
+| `forge-kit-testing` | skill | `mutation-sweep` | v2 | 778 | Adopt and adapt mutation testing for this project, whatever the stack. |
 <!-- component-index:end -->
 
 ## When to run what

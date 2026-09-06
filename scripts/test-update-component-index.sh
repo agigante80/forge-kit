@@ -80,6 +80,17 @@ grep -q '1.2.3' "$FIX/CLAUDE.md" && ok "plugin.json semver rendered in the group
 grep -q 'Do not hand-edit' "$FIX/README.md" && ok "generated regions carry a do-not-edit notice" \
   || bad "generated regions carry a do-not-edit notice"
 
+# --- 3b. word counts (issue #97): present for prose types, blank for code -----------------------
+grep -qE '\| Words \|' "$FIX/README.md" && ok "the index has a Words column" \
+  || bad "the index has a Words column"
+# alpha-agent's body is short; the count must be a real number, not blank or zero.
+awk -F'|' '/alpha-agent/ {gsub(/ /,"",$6); if ($6 ~ /^[0-9]+$/ && $6+0 > 0) found=1} END {exit !found}' \
+  "$FIX/README.md" && ok "a prose component carries a numeric word count" \
+  || bad "a prose component carries a numeric word count"
+awk -F'|' '/beta-hook/ {gsub(/ /,"",$6); if ($6 == "") found=1} END {exit !found}' \
+  "$FIX/README.md" && ok "a hook's word count cell is blank (code is not word-counted)" \
+  || bad "a hook's word count cell is blank"
+
 # --- 4. idempotent: a second run changes nothing -----------------------------------------------
 before=$(cat "$FIX/README.md" "$FIX/CLAUDE.md")
 python3 "$GEN" --root "$FIX" >/dev/null 2>&1

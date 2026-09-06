@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Contract test for check-component-size.sh (issue #97).
+#
+# Two halves. The threshold behaviour runs against a throwaway fixture tree, so a real component
+# landing in this repo can never make the suite pass or fail for the wrong reason. The policy
+# agreement half runs against THIS repo, because its whole purpose is that CLAUDE.md's stated
+# numbers and the script's enforced numbers cannot drift apart.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
+CHECK="$HERE/check-component-size.sh"
+
+pass=0
+fail=0
+ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
+bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
+
+FIX=$(mktemp -d)
+trap 'rm -rf "$FIX"' EXIT
+mkdir -p "$FIX/scripts" "$FIX/plugins/fix-g/agents" "$FIX/plugins/fix-g/commands" \
+         "$FIX/plugins/fix-g/skills/small-skill" "$FIX/plugins/fix-g/hooks"
+cp "$HERE/forge-adapt-catalogue.sh" "$FIX/scripts/"
+
+# words <n> <file> <marker-name>: a file of n words carrying a valid version marker.
+words() {
+  { echo "<!-- $3-version: 1 -->"; yes lorem | head -n "$1" | tr '\n' ' '; echo; } > "$2"
+}
+
+# An agent comfortably inside the 2000-word budget.
+words 100 "$FIX/plugins/fix-g/agents/tiny-agent.md" tiny-agent
+# A hook, which must be skipped entirely (a word count on code is meaningless).
+printf '#!/usr/bin/env python3\n# huge-hook-version: 1\n%s\n' "$(yes x | head -5000 | tr '\n' ' ')" \
+  > "$FIX/plugins/fix-g/hooks/huge-hook.py"
+words 100 "$FIX/plugins/fix-g/skills/small-skill/SKILL.md" small-skill
+
+run() { bash "$CHECK" --root "$FIX" 2>&1; }
+
+# --- 1. everything inside budget: clean pass ---------------------------------------------------
+out=$(run); rc=$?
+[ "$rc" -eq 0 ] && ok "all-within-budget exits 0" || bad "all-within-budget exits 0 (rc=$rc)"
+printf '%s' "$out" | grep -qE '^(warn|FAIL)' && bad "no warnings when all within budget" \
+  || ok "no warnings when all within budget"
+printf '%s' "$out" | grep -q 'huge-hook' && bad "hooks are skipped (not word-counted)" \
+  || ok "hooks are skipped (not word-counted)"
+
+# --- 2. over budget but under ceiling: WARN, still exit 0 --------------------------------------
+words 2400 "$FIX/plugins/fix-g/agents/tiny-agent.md" tiny-agent
+out=$(run); rc=$?
+[ "$rc" -eq 0 ] && ok "over budget under ceiling still exits 0" \
+  || bad "over budget under ceiling still exits 0 (rc=$rc)"
+printf '%s' "$out" | grep -q '^warn .*tiny-agent' && ok "over budget produces a warning" \
+  || bad "over budget produces a warning"
+
+# --- 3. over the hard ceiling: FAIL ------------------------------------------------------------
+words 3200 "$FIX/plugins/fix-g/agents/tiny-agent.md" tiny-agent
+out=$(run); rc=$?
+[ "$rc" -ne 0 ] && ok "over the hard ceiling exits non-zero" \
+  || bad "over the hard ceiling exits non-zero (rc=$rc)"
+printf '%s' "$out" | grep -q '^FAIL .*tiny-agent' && ok "over the ceiling reports FAIL" \
+  || bad "over the ceiling reports FAIL"
+words 100 "$FIX/plugins/fix-g/agents/tiny-agent.md" tiny-agent
+
+# --- 4. skills get the higher budget -----------------------------------------------------------
+words 2400 "$FIX/plugins/fix-g/skills/small-skill/SKILL.md" small-skill
+out=$(run)
+printf '%s' "$out" | grep -q 'small-skill' \
+  && bad "a skill at 2400 words is inside the 2500 skill budget" \
+  || ok "a skill at 2400 words is inside the 2500 skill budget"
+words 100 "$FIX/plugins/fix-g/skills/small-skill/SKILL.md" small-skill
+
+# --- 5. the exemption RATCHET: an exempt component may not grow --------------------------------
+# full-review's baseline is 3998. Above it must fail even though it is exempt from the budget.
+words 4200 "$FIX/plugins/fix-g/commands/full-review.md" full-review
+out=$(run); rc=$?
+[ "$rc" -ne 0 ] && ok "an exempt component above its baseline fails" \
+  || bad "an exempt component above its baseline fails (rc=$rc)"
+printf '%s' "$out" | grep -q 'MAY NOT GROW' && ok "the ratchet failure explains itself" \
+  || bad "the ratchet failure explains itself"
+
+# --- 6. an exempt component below its baseline passes, and says so -----------------------------
+words 3000 "$FIX/plugins/fix-g/commands/full-review.md" full-review
+out=$(run); rc=$?
+[ "$rc" -eq 0 ] && ok "an exempt component below its baseline exits 0" \
+  || bad "an exempt component below its baseline exits 0 (rc=$rc)"
+printf '%s' "$out" | grep -q 'below its 3998 baseline' \
+  && ok "a shrunk exempt component is reported so the baseline can be lowered" \
+  || bad "a shrunk exempt component is reported"
+# ...and it is NOT warned about despite being over the 2000-word command budget.
+printf '%s' "$out" | grep -q '^warn .*full-review' \
+  && bad "an exempt component is not also warned against the budget" \
+  || ok "an exempt component is not also warned against the budget"
+
+# --- 7. no components at all is an error, not a vacuous pass -----------------------------------
+EMPTY=$(mktemp -d)
+mkdir -p "$EMPTY/scripts" "$EMPTY/plugins"
+cp "$HERE/forge-adapt-catalogue.sh" "$EMPTY/scripts/"
+bash "$CHECK" --root "$EMPTY" >/dev/null 2>&1
+[ $? -ne 0 ] && ok "an empty tree is an error, not a vacuous pass" \
+  || bad "an empty tree is an error, not a vacuous pass"
+rm -rf "$EMPTY"
+
+# --- 8. POLICY AGREEMENT: CLAUDE.md's table must match the script's enforced numbers ------------
+# The whole point of the budget is mechanical enforcement, so the documented numbers may not drift
+# from the applied ones.
+for pair in "subagent:agent" "command:command" "skill:skill"; do
+  ctype=${pair%%:*}; label=${pair##*:}
+  # Scoped to budget_for's body: budget_for and baseline_for share a case shape, so an
+  # unscoped sed reads one function's arms as the other's.
+  script_budget=$(awk '/^budget_for\(\) \{/,/^\}/' "$CHECK" \
+                    | sed -n "s/^    $ctype)\s*echo \([0-9]\+\) ;;/\1/p" | head -1)
+  doc_line=$(grep -E "^\| $label \| [0-9]+ \| [0-9]+ \|" "$ROOT/CLAUDE.md" | head -1)
+  doc_budget=$(printf '%s' "$doc_line" | awk -F'|' '{gsub(/ /,"",$3); print $3}')
+  doc_ceiling=$(printf '%s' "$doc_line" | awk -F'|' '{gsub(/ /,"",$4); print $4}')
+  if [ -z "$doc_budget" ]; then
+    bad "CLAUDE.md documents a budget row for '$label'"
+    continue
+  fi
+  [ "$script_budget" = "$doc_budget" ] \
+    && ok "CLAUDE.md and the script agree on the $label budget ($doc_budget)" \
+    || bad "CLAUDE.md says $label budget $doc_budget, script says $script_budget"
+  [ "$doc_ceiling" = "$(( doc_budget * 3 / 2 ))" ] \
+    && ok "the documented $label ceiling is 1.5x its budget" \
+    || bad "the documented $label ceiling is 1.5x its budget (got $doc_ceiling)"
+done
+
+# Every exempt baseline in the script must be named in CLAUDE.md with the same number.
+while read -r name base; do
+  grep -q "\`$name\` ($base)" "$ROOT/CLAUDE.md" \
+    && ok "CLAUDE.md records the $name ratchet baseline ($base)" \
+    || bad "CLAUDE.md records the $name ratchet baseline ($base)"
+done < <(awk '/^baseline_for\(\) \{/,/^\}/' "$CHECK" \
+           | sed -n 's/^    \([a-z-]\+\))\s*echo \([0-9]\+\) ;;/\1 \2/p')
+
+# --- 9. the index word counts must equal what the budget counts --------------------------------
+# Two different counters (python str.split, wc -w) would silently disagree about whether a
+# component is over budget.
+idx=$(grep -oP '^\| `forge-kit-governance` \| agent \| `ticket-gate` \| v\d+ \| \K\d+' "$ROOT/README.md")
+wcw=$(wc -w < "$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md" | tr -d ' ')
+[ -n "$idx" ] && [ "$idx" = "$wcw" ] \
+  && ok "the index word count equals wc -w ($wcw)" \
+  || bad "the index word count equals wc -w (index=$idx wc=$wcw)"
+
+echo ""
+echo "component-size tests: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]

@@ -186,6 +186,22 @@ def describe(path):
     return desc.replace("|", "\\|")
 
 
+# Word counts make size a reviewable fact on every PR (issue #97): a budget whose numbers are
+# invisible is prose nobody enforces. Prose components only. A count for a .py hook or a .sh asset
+# would be a number with no meaning, and scripts/check-component-size.sh skips those types too.
+_SIZED_TYPES = ("subagent", "command", "skill")
+
+
+def word_count(row):
+    if row["type"] not in _SIZED_TYPES:
+        return ""
+    try:
+        with open(row["path"], encoding="utf-8") as fh:
+            return str(len(fh.read().split()))
+    except OSError:
+        return ""
+
+
 def render_component_index(rows):
     """The full inventory, for README.md."""
     counts = {}
@@ -201,12 +217,13 @@ def render_component_index(rows):
         "",
         "**%d components across %d plugin groups:** %s." % (len(rows), groups, summary),
         "",
-        "| Plugin group | Type | Component | Version | What it does |",
-        "|---|---|---|---|---|",
+        "| Plugin group | Type | Component | Version | Words | What it does |",
+        "|---|---|---|---|---:|---|",
     ]
     for r in rows:
-        out.append("| `%s` | %s | `%s` | v%s | %s |" % (
-            r["group"], TYPE_LABEL[r["type"]], r["name"], r["version"], describe(r["path"]),
+        out.append("| `%s` | %s | `%s` | v%s | %s | %s |" % (
+            r["group"], TYPE_LABEL[r["type"]], r["name"], r["version"],
+            word_count(r), describe(r["path"]),
         ))
     return "\n".join(out)
 

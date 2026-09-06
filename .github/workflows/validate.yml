@@ -83,6 +83,14 @@ jobs:
       - name: Component index freshness (generated regions must match the tree)
         run: python3 scripts/update-component-index.py --check
 
+      - name: Component size guard tests
+        run: bash scripts/test-component-size.sh
+
+      # Issue #97: warns above the per-type word budget, fails above the hard ceiling, and holds
+      # the three already-oversized components to a ratchet so they can shrink but never grow.
+      - name: Component size budget
+        run: bash scripts/check-component-size.sh
+
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'
         env:

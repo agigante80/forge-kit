@@ -19,6 +19,14 @@ tracks the repository, so users are already served from the default branch.
 - A hand-written "when to run what" sequencing table in the README, deliberately not generated.
 - `--tsv` mode on `forge-adapt-catalogue.sh`, adding the file path for machine consumers. The
   default output is unchanged and byte-stable, because forge-adapt reads it.
+- **A component size budget** with visible word counts (#97). `scripts/check-component-size.sh`
+  warns above a per-type word budget (agent and command 2000, skill 2500), fails above a hard
+  ceiling of 1.5x, and holds the three already-oversized components (`adapt`, `ticket-gate`,
+  `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
+  column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
+  enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- A splitting convention for components that outgrow the budget, naming the main file as canonical
+  so a split cannot restate a rule in two places.
 
 ## v0.1.0 (2026-09-06)
 
