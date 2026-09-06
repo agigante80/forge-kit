@@ -25,6 +25,12 @@ tracks the repository, so users are already served from the default branch.
   `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- **The enforced path set now agrees across all four consumers** (#112). `validate-plugins.sh`
+  used `find -path`, where `*` crosses `/`, so it matched component paths at ANY depth while
+  the other three matched one level. A nested reference file would have been required to carry
+  a version marker that the catalogue could never see. It now shares the same ERE as
+  `check-version-bump.sh` and `.githooks/pre-commit`, and `scripts/test-component-paths.sh`
+  fails if the four ever disagree again. Latent before this: no component had a subdirectory.
 - **The local hooks are split by stage** (#98 item 3). `.githooks/pre-commit` keeps the staged
   checks; the new `.githooks/pre-push` runs the range guards against the remote's default
   branch, the same question CI asks on a PR. It is the only local gate on a direct push to

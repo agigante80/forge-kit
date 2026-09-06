@@ -37,13 +37,22 @@ else
 fi
 
 # 3. component version markers (ignores body template-version references)
+#
+# THE ENFORCED PATH SET. Exactly ONE directory level deep: `plugins/<group>/agents/x.md` is a
+# component, `plugins/<group>/agents/references/x.md` is not. This string is byte-identical to the
+# pattern in scripts/check-version-bump.sh and .githooks/pre-commit, and scripts/test-component-paths.sh
+# fails if the three drift apart or if the catalogue's glob stops agreeing with them.
+#
+# It used to be a set of `find -path '*/agents/*.md'` globs (issue #112). In `find -path`, unlike a
+# shell glob, `*` CROSSES `/`, so those matched at any depth: a nested reference file would have been
+# required to carry a version marker that the catalogue could never see and nothing would ever
+# compare. Using the same ERE the other two guards use removes the dialect difference entirely.
+COMPONENT_RE='^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$|^plugins/[^/]+/hooks/[^/]+\.(py|sh)$|^plugins/[^/]+/skills/[^/]+/assets/[^/]+\.sh$'
 ver_of() { grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | head -1; }
 while IFS= read -r f; do
   [ -f "$f" ] || continue
   [ -n "$(ver_of < "$f")" ] || fail "$f: missing <name>-version marker"
-done < <(find plugins -type f \( -path '*/agents/*.md' -o -path '*/commands/*.md' \
-           -o -path '*/skills/*/SKILL.md' -o -path '*/hooks/*.py' -o -path '*/hooks/*.sh' \
-           -o -path '*/skills/*/assets/*.sh' \))
+done < <(find plugins -type f -regextype posix-extended -regex "$COMPONENT_RE")
 
 if [ "$err" -ne 0 ]; then echo ""; echo "forge-kit: plugin validation FAILED."; exit 1; fi
 echo "forge-kit: plugin validation passed."

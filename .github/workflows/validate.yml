@@ -94,6 +94,11 @@ jobs:
       # Issue #98 item 3: the local hooks are split by stage, and the pre-push half runs the same
       # range guards CI runs here. It is the only local gate on a direct push to main, which
       # neither range guard below covers (both are pull_request-only).
+      # Issue #112: four consumers decide what counts as a component and cannot share one
+      # implementation (a glob is not a regex). This is what keeps them agreeing.
+      - name: Component path set agreement
+        run: bash scripts/test-component-paths.sh
+
       - name: Pre-push hook tests
         run: bash scripts/test-pre-push-hook.sh
 
