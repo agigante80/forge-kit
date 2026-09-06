@@ -51,7 +51,8 @@ FORGE_DRY_RUN=1 bash sync-labels.sh # print what it would WRITE; it still READS 
                                     # it needs credentials and reports against real state
 ```
 
-It is host-aware (GitHub and Forgejo), idempotent, and **never deletes**: a label on the host that
+It is host-aware (GitHub and Forgejo), idempotent, refuses a malformed declaration rather than
+syncing part of it, and **never deletes**: a label on the host that
 this file does not declare is reported and left alone.
 
 Do NOT create these by hand. This taxonomy was declared and never imported for months (issue #104):

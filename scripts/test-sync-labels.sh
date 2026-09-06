@@ -254,6 +254,113 @@ exit_case "a leading-dot name like .github is not refused" \
 exit_case "a bare .. is still refused" \
   '- name: ..\n  color: "ffffff"\n  description: X\n' 3 0
 
+# --- 8g. the three silent acceptances from issue #122 ------------------------------------------
+# Each of these was accepted with exit 0 and a plausible-looking write. The script's own principle
+# is that a recognised line with a malformed VALUE must refuse like an unrecognised line SHAPE.
+exit_case "an unterminated double-quoted value refuses" \
+  '- name: bug\n  color: "d73a4a"\n  description: "unterminated\n' 3 0
+exit_case "an unterminated single-quoted value refuses" \
+  "- name: bug\n  color: 'd73a4a'\n  description: 'unterminated\n" 3 0
+exit_case "a duplicate declared name refuses before any write" \
+  '- name: bug\n  color: "d73a4a"\n  description: X\n- name: bug\n  color: "ffffff"\n  description: Y\n' 3 0
+# ...and the boundary: a correctly terminated quote containing an ESCAPED quote still works.
+clean_case "an escaped quote is not mistaken for an unterminated value" \
+  '- name: bug\n  color: "d73a4a"\n  description: "the \\"x\\" label"\n' \
+  '{"name":"bug","color":"d73a4a","description":"the \"x\" label"}'
+
+out=$(cd "$T" && bash ./sync-labels.sh --labels "" 2>&1); rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'empty value' \
+  && ok "an empty --labels value is a usage error, not silent auto-discovery" \
+  || bad "empty --labels value exits 2 (rc=$rc: $out)"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" bash ./sync-labels.sh --labels "$T/labels.yml" --repo "" 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ok "an empty --repo value is a usage error" || bad "empty --repo value exits 2 (rc=$rc)"
+
+# --- 8h. one jq pass, not one per label field (issue #121) --------------------------------------
+# host_field used to spawn jq 3 or 4 times per declared label. The lookup must be built once, and
+# behaviour must be identical: absent yields empty, a null description yields the empty string.
+mkdir -p "$T/bin"
+printf '#!/bin/sh\necho x >> "$JQLOG"\nexec %s "$@"\n' "$(command -v jq)" > "$T/bin/jq"; chmod +x "$T/bin/jq"
+python3 -c "
+import json
+labels=[{'id':i,'name':'l%02d'%i,'color':'aabbcc','description':'d%d'%i} for i in range(20)]
+open('$T/host.json','w').write(json.dumps(labels))
+open('$T/labels.many.yml','w').write(''.join('- name: l%02d\n  color: \"aabbcc\"\n  description: d%d\n\n'%(i,i) for i in range(20)))"
+: > "$T/jq.log"; REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && PATH="$T/bin:$PATH" JQLOG="$T/jq.log" HOST_LABELS="$T/host.json" REQLOG="$REQLOG" \
+      bash ./sync-labels.sh --labels "$T/labels.many.yml" --check 2>&1); rc=$?
+n=$(wc -l < "$T/jq.log" | tr -d ' ')
+[ "$rc" -eq 0 ] && ok "20 in-sync labels report clean" || bad "20 in-sync labels report clean (rc=$rc: $out)"
+[ "$n" -le 5 ] && ok "jq runs a FIXED number of times, not per label ($n for 20 labels)" \
+  || bad "jq is not per-label (ran $n times for 20 labels)"
+# A null description on the host must still compare equal to an empty declared description.
+host_json '[{"id":1,"name":"bare","color":"aabbcc","description":null}]'
+printf -- '- name: bare\n  color: "aabbcc"\n  description:\n' > "$T/labels.null.yml"
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" bash ./sync-labels.sh --labels "$T/labels.null.yml" --check 2>&1); rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$REQLOG" ] \
+  && ok "a null host description equals an empty declared one (no phantom drift)" \
+  || bad "null description handling (rc=$rc: $out)"
+
+# --- 8i. round-1 findings on the #121/#122 change ----------------------------------------------
+# H1: bash 4 is a real new floor (the pre-#121 version ran on the bash 3.2 macOS ships). Unguarded,
+# `declare -A` fails, the script continues without -e, and it exits 1, which this script defines as
+# "check found drift" - so automation re-runs forever against a tooling fault. The guard must exit 2.
+sed 's/${BASH_VERSINFO\[0\]:-0}/${FAKE_BASH_MAJOR:-9}/' "$SRC" > "$T/sl-fakever.sh"
+printf -- '- name: bug\n  color: "ffffff"\n  description: X\n' > "$T/labels.one.yml"
+host_json '[]'
+out=$(cd "$T" && FAKE_BASH_MAJOR=3 HOST_LABELS="$T/host.json" REQLOG="$T/req.log" \
+      bash ./sl-fakever.sh --labels "$T/labels.one.yml" --check 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ok "bash < 4 is an ENVIRONMENT error (2), never the drift code (1)" \
+  || bad "bash < 4 exits 2 (rc=$rc: $out)"
+printf '%s' "$out" | grep -q 'requires bash 4' && ok "...and says which version it found" \
+  || bad "the bash-version message names the requirement"
+
+# H2: `join` emits one LINE per label but `read` consumes one line, so a newline in a host
+# description split the record: the id was lost and real drift was reported as IN SYNC. A declared
+# description is single-line by construction, so a multi-line host one is drift by definition.
+host_json '[{"id":7,"name":"bug","color":"ffffff","description":"one\ntwo"}]'
+printf -- '- name: bug\n  color: "ffffff"\n  description: one\n' > "$T/labels.nl.yml"
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" bash ./sync-labels.sh --labels "$T/labels.nl.yml" --check 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "a multi-line host description is reported as drift, not as in-sync" \
+  || bad "multi-line host description is drift (rc=$rc: $out)"
+REQLOG="$T/req.log"; : > "$REQLOG"
+(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" bash ./sync-labels.sh --labels "$T/labels.nl.yml" >/dev/null 2>&1)
+grep -q '^PATCH /repos/o/r/labels/' "$REQLOG" \
+  && ok "...and sync repairs it, so the run converges" || bad "multi-line drift is repaired"
+
+# The case that makes the multi-line FLAG load-bearing rather than decorative: newlines are
+# flattened to spaces for storage, so a host description of "one\ntwo" flattens to "one two" and
+# would compare EQUAL to a declared "one two". The host still differs from the declaration, so
+# without the flag this reports in-sync forever. Found because a mutant removing the flag survived
+# the test above, which the gsub alone already satisfied.
+host_json '[{"id":7,"name":"bug","color":"ffffff","description":"one\ntwo"}]'
+printf -- '- name: bug\n  color: "ffffff"\n  description: one two\n' > "$T/labels.nl2.yml"
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" bash ./sync-labels.sh --labels "$T/labels.nl2.yml" --check 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "a host description whose FLATTENED form matches is still drift" \
+  || bad "flattened-equal multi-line description is drift (rc=$rc: $out)"
+
+# The drift line must NAME the newline: without it the user sees four identical strings and is
+# told a label drifted, in exactly the case the flag exists for.
+printf '%s' "$out" | grep -q 'contains a newline' \
+  && ok "an ML-forced drift line explains itself" || bad "ML drift line names the newline (got: $out)"
+
+# H3: the duplicate pattern is *US US*, which an empty name always matches, so every empty name
+# was reported as a duplicate and the empty-name branch was unreachable.
+exit_case "an empty name is diagnosed as empty, not as a duplicate" \
+  '- name:\n  color: "ffffff"\n  description: X\n' 3 0
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" \
+      bash ./sync-labels.sh --labels "$T/labels.x.yml" 2>&1)
+printf '%s' "$out" | grep -q 'empty name' && ok "...with the empty-name message" \
+  || bad "empty name message (got: $out)"
+
+# H6: the unterminated sentinel is checked across ALL THREE fields, not just description.
+exit_case "an unterminated quote in the NAME refuses" \
+  '- name: "bug\n  color: "ffffff"\n  description: X\n' 3 0
+exit_case "an unterminated quote in the COLOR refuses" \
+  '- name: bug\n  color: "ffffff\n  description: X\n' 3 0
+
 # --- 8e. the four exit codes are DISTINGUISHABLE ------------------------------------------------
 # Every assertion above used -ne 0, so all four codes were interchangeable to the suite and three
 # separate exit-code mutations survived.

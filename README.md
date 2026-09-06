@@ -84,7 +84,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v49 | 7357 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | skill | `adapt` | v51 | 7342 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-backend` | skill | `api-design-principles` | v1 | 1470 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
 | `forge-kit-backend` | skill | `architecture-patterns` | v1 | 1330 | Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven… |
 | `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |
@@ -101,7 +101,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
 | `forge-kit-devops` | shell asset | `forge-lib` | v4 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
 | `forge-kit-devops` | shell asset | `release-run` | v1 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
-| `forge-kit-devops` | shell asset | `sync-labels` | v4 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
+| `forge-kit-devops` | shell asset | `sync-labels` | v8 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
 | `forge-kit-governance` | agent | `ticket-gate` | v30 | 5680 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
 | `forge-kit-governance` | command | `gate-ticket` | v6 | 197 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate agent detects the… |

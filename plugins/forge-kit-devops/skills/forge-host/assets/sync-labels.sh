@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-labels-version: 4
+# sync-labels-version: 8
 # sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not.
 #
 # WHY THIS EXISTS (issue #104). forge-kit shipped a label taxonomy, documented that labels drive
@@ -21,7 +21,7 @@
 # Exit codes are distinguishable, because this runs from automation:
 #   0  in sync (or synced successfully)
 #   1  --check found drift (the repo needs syncing; nothing is wrong with the tooling)
-#   2  usage or environment error (bad flag, no labels file, no jq, unresolvable repo)
+#   2  usage or environment error (bad flag, no labels file, no jq, bash < 4, unresolvable repo)
 #   3  the declaration is malformed; NOTHING was written
 #   4  a write failed part-way; the host may be partially synced
 #
@@ -38,7 +38,12 @@ else echo "sync-labels: forge-lib.sh not found next to this script" >&2; exit 2;
 MODE=sync
 LABELS_FILE=""
 REPO_OVERRIDE=""
-need_arg() { [ $# -ge 2 ] || { echo "sync-labels: $1 needs a value" >&2; exit 2; }; }
+need_arg() {
+  [ $# -ge 2 ] || { echo "sync-labels: $1 needs a value" >&2; exit 2; }
+  # An EMPTY value satisfied the count and was then ignored, so a caller passing an unset
+  # variable got silent auto-discovery instead of an error (issue #122).
+  [ -n "$2" ] || { echo "sync-labels: $1 was given an empty value" >&2; exit 2; }
+}
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)  MODE=check; shift ;;
@@ -58,6 +63,13 @@ fi
   echo "sync-labels: no labels file found (looked for .github/labels.yml)" >&2; exit 2; }
 
 command -v jq >/dev/null 2>&1 || { echo "sync-labels: jq is required" >&2; exit 2; }
+# bash 4+ for the associative-array lookup. This IS a new floor (the pre-#121 version ran on the
+# bash 3.2 macOS still ships), so it is checked, not assumed: unguarded, `declare -A` fails, the
+# script continues because there is no -e, and it exits 1, which this script defines as "check
+# found drift". Automation would then re-run it forever against a tooling fault.
+[ "${BASH_VERSINFO[0]:-0}" -ge 4 ] || {
+  echo "sync-labels: requires bash 4+ (associative arrays); found ${BASH_VERSION:-unknown}" >&2
+  exit 2; }
 
 REPO="${REPO_OVERRIDE:-$(forge_repo)}"
 [ -n "$REPO" ] || { echo "sync-labels: could not resolve the repo" >&2; exit 2; }
@@ -79,8 +91,9 @@ declared=$(awk -v US="$US" '
   # SQ/DQ are built from character codes so this program contains no literal quote of either kind:
   # it is embedded in a single-quoted shell string, and nested quoting is where the first attempt
   # at this function went wrong.
-  BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
-  function clean(v,   i, n, ch, out, raw) {
+  BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92)
+          UNTERM = sprintf("%c", 1) "UNTERMINATED" }
+  function clean(v,   i, n, ch, out, raw, closed) {
     sub(/\r$/, "", v)
     raw = v
     gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
@@ -91,25 +104,29 @@ declared=$(awk -v US="$US" '
       # YAML escapes a literal quote inside a double-quoted scalar as \" , so index() would cut at
       # the ESCAPE and destroy the rest of the value. Skip an escaped quote the way the single-quote
       # branch skips a doubled one.
-      v = substr(v, 2); out = ""; n = length(v)
+      # An UNTERMINATED quote returns UNTERMINATED: the caller refuses the file. Accepting it
+      # silently was the last case on the wrong side of "an unrecognised line shape is a hard
+      # error, a recognised line with a malformed value is not" (issue #122).
+      v = substr(v, 2); out = ""; n = length(v); closed = 0
       for (i = 1; i <= n; i++) {
         ch = substr(v, i, 1)
         if (ch == BS && substr(v, i + 1, 1) == DQ) { out = out DQ; i++; continue }
-        if (ch == DQ) break
+        if (ch == DQ) { closed = 1; break }
         out = out ch
       }
-      return out
+      return closed ? out : UNTERM
     }
     if (substr(v, 1, 1) == SQ) {
       # YAML doubles a single quote to escape it, so the closing quote is the first SQ NOT
       # followed by another. A plain index() would truncate "isn(SQ)(SQ)t" at the escape.
-      v = substr(v, 2); out = ""; n = length(v)
+      v = substr(v, 2); out = ""; n = length(v); closed = 0
       for (i = 1; i <= n; i++) {
         ch = substr(v, i, 1)
-        if (ch == SQ) { if (substr(v, i + 1, 1) == SQ) { out = out SQ; i++ } else break }
-        else out = out ch
+        if (ch == SQ) {
+          if (substr(v, i + 1, 1) == SQ) { out = out SQ; i++ } else { closed = 1; break }
+        } else out = out ch
       }
-      return out
+      return closed ? out : UNTERM
     }
     sub(/[[:space:]]+#.*$/, "", raw)
     v = raw; gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
@@ -135,12 +152,24 @@ declared=$(awk -v US="$US" '
 # Validation is a separate pass on purpose: a bad entry halfway down the file must not be
 # discovered after the entries above it have already been created on the host.
 errs=0
+seen_names=""
 while IFS="$US" read -r name color desc; do
+  case "$name$color$desc" in
+    *$'\x01'UNTERMINATED*)
+      echo "sync-labels: an entry has an unterminated quoted value" >&2; errs=$((errs + 1)); continue ;;
+  esac
+  # Empty-name FIRST: the duplicate pattern below is *US US*, which an empty name always matches
+  # against a subject that starts with US, so checking duplicates first reported every empty name
+  # as a duplicate and left this branch unreachable.
   if [ -z "$name" ]; then
     # Covers a bare `- name:` with no other fields too: skipping empty records here is what let
     # M1's own case through the first time.
     echo "sync-labels: an entry has an empty name" >&2; errs=$((errs + 1)); continue
   fi
+  case "$US$seen_names$US" in
+    *"$US$name$US"*) echo "sync-labels: '$name' is declared more than once" >&2; errs=$((errs + 1)); continue ;;
+  esac
+  seen_names="$seen_names$US$name"
   case "$name" in
     .|..) echo "sync-labels: '$name' is a dot path segment; refused because it can escape the URL path" >&2
                errs=$((errs + 1)) ;;
@@ -166,9 +195,29 @@ FORGE_DRY_RUN="$_dry"
 printf '%s' "$existing" | jq -e 'type == "array"' >/dev/null 2>&1 || {
   echo "sync-labels: unexpected label-list response for $REPO" >&2; exit 2; }
 
-host_field() {  # host_field <name> <field>  -> the value, or empty when the label is absent
-  printf '%s' "$existing" | jq -r --arg n "$1" --arg f "$2" \
-    'map(select(.name == $n)) | if length == 0 then "" else (.[0][$f] // "" | tostring) end'
+# ONE jq pass into a lookup, not one process per field per label (issue #121). host_field used to
+# spawn jq three or four times per declared label: ~60 processes for this repo's 20, and 300 for a
+# project with 100, on every --check. Behaviour is unchanged: an absent label yields empty, a null
+# description yields the empty string, values compare as strings.
+# Requires bash 4 for the associative array; the guard for that is at the top of the file.
+declare -A _H_COLOR _H_DESC _H_ID _H_SEEN _H_ML
+while IFS="$US" read -r _n _c _d _i _ml; do
+  [ -n "$_n" ] || continue
+  _H_SEEN["$_n"]=1; _H_COLOR["$_n"]="$_c"; _H_DESC["$_n"]="$_d"; _H_ID["$_n"]="$_i"
+  _H_ML["$_n"]="$_ml"
+done < <(printf '%s' "$existing" | jq -r --arg us "$US" \
+  '.[] | [(.name // "" | gsub("\n"; " ")), (.color // ""),
+          (.description // "" | gsub("\n"; " ")), (.id // "" | tostring),
+          (if ((.name // "") + (.description // "") | test("\n")) then "ML" else "" end)]
+        | join($us)')
+
+host_has()   { [ -n "${_H_SEEN[$1]:-}" ]; }
+host_field() {  # host_field <name> <color|description|id> -> value, empty when absent
+  case "$2" in
+    color)       printf '%s' "${_H_COLOR[$1]:-}" ;;
+    description) printf '%s' "${_H_DESC[$1]:-}" ;;
+    id)          printf '%s' "${_H_ID[$1]:-}" ;;
+  esac
 }
 norm_color() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^#//'; }
 
@@ -177,7 +226,7 @@ report=""
 
 while IFS="$US" read -r name color desc; do
   [ -n "$name" ] || continue
-  if [ -z "$(host_field "$name" name)" ]; then
+  if ! host_has "$name"; then
     missing=$((missing + 1)); report="${report}  missing  $name"$'\n'
     if [ "$MODE" = sync ]; then
       if [ "$_dry" = 1 ]; then
@@ -196,9 +245,15 @@ while IFS="$US" read -r name color desc; do
   cur_desc=$(host_field "$name" description)
   # Colour comparison ignores case and a leading '#': hosts normalise differently and that is not
   # drift anyone means. Descriptions are compared EXACTLY, case included.
-  if [ "$(norm_color "$cur_color")" != "$(norm_color "$color")" ] || [ "$cur_desc" != "$desc" ]; then
+  # A multi-line host description is ALWAYS drift: a declared description is single-line by
+  # construction, so the two cannot be equal, and the stored copy has had its newlines flattened
+  # for display and so must not be compared.
+  if [ -n "${_H_ML[$name]:-}" ] \
+     || [ "$(norm_color "$cur_color")" != "$(norm_color "$color")" ] || [ "$cur_desc" != "$desc" ]; then
     drifted=$((drifted + 1))
-    report="${report}  drifted  $name (color '$cur_color' vs '$color'; description '$cur_desc' vs '$desc')"$'\n'
+    why=""
+    [ -z "${_H_ML[$name]:-}" ] || why="; the host value contains a newline, shown flattened"
+    report="${report}  drifted  $name (color '$cur_color' vs '$color'; description '$cur_desc' vs '$desc'$why)"$'\n'
     if [ "$MODE" = sync ]; then
       if [ "$_dry" = 1 ]; then
         echo "[dry-run] update label '$name' on $REPO" >&2

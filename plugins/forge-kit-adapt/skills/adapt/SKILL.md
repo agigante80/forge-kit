@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 49 -->
+<!-- forge-adapt-version: 51 -->
 
 # forge-adapt
 
@@ -545,9 +545,8 @@ adapt the `areas`/dropdown OPTIONS to this project's real package structure; wri
 also reads `.gitea/ISSUE_TEMPLATE/`); if the project's existing templates sit in a legacy lowercase
 dir (`.forgejo/issue_template/`, written by forge-adapt v34 and earlier), `git mv` that dir to the
 uppercase path FIRST and write there, never leave both casings behind (issue #61); exclude
-`contribution.yml`. Then, since the project now has
-versioned templates, offer the repo-level governance (the `check-template-lockstep.sh` guard +
-canonical `ticket-standards.md`) exactly as the Templates mode does. Confirm:
+`contribution.yml`. Then offer the repo-level governance
+per the rule below. Confirm:
 `✓ issue templates installed at v<N> (<dir>)` and, if taken, `✓ template-lockstep guard + ticket-standards doc`.
 
 **Finish** with a short summary and next steps:
