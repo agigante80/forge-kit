@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# forge-kit pre-push: run the RANGE guards here, where the range exists.
+#
+# WHY A SECOND STAGE (issue #98, item 3). `.githooks/pre-commit` checks the STAGED set, which is
+# the right scope for fast feedback but the wrong scope for the real rule: "did this branch bump
+# what it changed, compared to main". That question only has an answer once you know what you are
+# pushing. Running it at commit time either asks a narrower question or pays for a range diff on
+# every commit.
+#
+# It is also the only local gate on one path. Both range guards run in CI on `pull_request` ONLY,
+# so a direct push to main is otherwise checked by nothing.
+#
+# Option (a) from the ticket: a committed hook, no framework. Adopting `pre-commit` (the tool)
+# would give a one-command two-stage install and would be the first package-manager dependency in
+# a repo that deliberately has none. The stage split was worth stealing; the framework was not.
+#
+# Enabled by the same one-time step as pre-commit:  git config core.hooksPath .githooks
+# Bypass for a genuinely trivial push:              git push --no-verify
+set -uo pipefail
+
+remote="${1:-origin}"
+ROOT="$(git rev-parse --show-toplevel)"
+ZERO='0000000000000000000000000000000000000000'
+
+# The guards resolve paths against HEAD (`git show "HEAD:$f"`), so they are only meaningful for
+# the ref that IS the current checkout. Pushing some other branch gets a loud skip rather than a
+# confident wrong answer.
+head_sha="$(git rev-parse HEAD 2>/dev/null || echo none)"
+relevant=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
+  [ "$local_sha" = "$ZERO" ] && continue          # branch deletion: nothing to audit
+  if [ "$local_sha" = "$head_sha" ]; then
+    relevant=1
+  else
+    echo "  ! pre-push: skipping ${local_ref:-?} (not the checked-out HEAD; the range guards read HEAD)" >&2
+  fi
+done
+[ "$relevant" -eq 1 ] || exit 0
+
+# Compare against the remote's default branch, which is what CI passes at PR time
+# (origin/$BASE_REF). Pushing the default branch itself makes this the server's current tip, so
+# the audited range is exactly the commits being added, which is the path CI never sees.
+base="$(git symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null || true)"
+[ -n "$base" ] || base="$remote/main"
+
+if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+  # Loud skip, never silent, and never a blocked push: the same posture the pre-commit hook takes
+  # for a missing jq. CI still enforces both guards server-side at PR time.
+  echo "  ! pre-push: base ref '$base' not found locally; range checks SKIPPED (CI still enforces)." >&2
+  echo "  !           run 'git fetch $remote' to enable them locally." >&2
+  exit 0
+fi
+
+violations=0
+for guard in check-version-bump.sh check-plugin-version-bump.sh; do
+  script="$ROOT/scripts/$guard"
+  [ -f "$script" ] || continue
+  if [ "$guard" = "check-plugin-version-bump.sh" ] && ! command -v jq >/dev/null 2>&1; then
+    echo "  ! pre-push: plugin-semver check SKIPPED: jq is not installed (CI enforces it)." >&2
+    continue
+  fi
+  bash "$script" "$base" || violations=$((violations + 1))
+done
+
+if [ "$violations" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: $violations range check(s) failed against $base."
+  echo "This is what CI will run on the PR. Fix it, or push anyway with: git push --no-verify"
+  exit 1
+fi
+exit 0

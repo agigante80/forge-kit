@@ -91,6 +91,12 @@ jobs:
       - name: Component size budget
         run: bash scripts/check-component-size.sh
 
+      # Issue #98 item 3: the local hooks are split by stage, and the pre-push half runs the same
+      # range guards CI runs here. It is the only local gate on a direct push to main, which
+      # neither range guard below covers (both are pull_request-only).
+      - name: Pre-push hook tests
+        run: bash scripts/test-pre-push-hook.sh
+
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'
         env:

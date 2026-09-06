@@ -25,6 +25,14 @@ tracks the repository, so users are already served from the default branch.
   `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- **The local hooks are split by stage** (#98 item 3). `.githooks/pre-commit` keeps the staged
+  checks; the new `.githooks/pre-push` runs the range guards against the remote's default
+  branch, the same question CI asks on a PR. It is the only local gate on a direct push to
+  main, which both range guards miss by being `pull_request`-only. Skips are loud and never
+  block a push. Same one-time enablement: `git config core.hooksPath .githooks`.
+- **`ticket-gate.md` rules now live at the step they govern** (#109, partial). Rules went from
+  17 bullets to 6 cross-cutting ones; 5794 to 5726 words, with the ratchet baseline lowered to
+  match. The `references/` split that ticket proposed is blocked by #112.
 - A splitting convention for components that outgrow the budget, naming the main file as canonical
   so a split cannot restate a rule in two places.
 
