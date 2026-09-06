@@ -29,7 +29,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 21 -->
+<!-- ticket-gate-version: 22 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -192,6 +192,9 @@ Review the synthesised content and re-run /gate-ticket <N> if corrections are ne
 The review runs against the enriched body. Version check is now satisfied. Do NOT return
 BLOCKED at this step. Continue the gate normally.
 
+**Auto-synthesis voids the verdict.** If this run triggered 0c, the full review runs again and
+nothing carries forward from a pre-synthesis run.
+
 #### 0b. Label validation
 
 1. **Fetch labels:**
@@ -217,8 +220,11 @@ gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json number,title,body,labels,mi
 
 ### Step 1.5: Thin ticket pre-check
 
-Round 1 only (and any re-run whose body SHRANK, or after Step 0c fired): the gate's own
-appended `### Required changes` checklist is never counted as missing detail.
+Runs BEFORE the critic, in round 1 only (and any re-run whose body SHRANK, or after Step 0c
+fired); it never repeats on an ordinary re-run, because a body that only grows cannot become
+thin. The gate's own appended `### Required changes` checklist is never counted as missing
+detail. The critic does not run until the ticket is sufficiently detailed.
+
 Before the review, assess whether the ticket contains enough implementation detail to
 review meaningfully. A thin ticket that would fail purely for missing information is better
 halted now with targeted questions than pushed through a full critique.
@@ -281,6 +287,9 @@ Product prioritisation is the maintainer's call, not a gate's; committee rows ge
 findings to justify their seat, and heterogeneous agent teams underperform their best
 single member.
 
+**Never a committee.** The review set is one critic plus label-triggered lenses. More reviewers
+of the same ticket produce findings to justify their seats, not more defects found (issue #70).
+
 **Log the selection:** record which lenses run and why.
 
 **Adding project-specific lenses:** add a row to the table above with its trigger, and a
@@ -290,8 +299,10 @@ over adding an agent; add an agent only for a genuinely independent domain persp
 ### Step 2.7: Complexity assessment and specialist research
 
 After selecting the review set, assess whether the ticket needs research before the critique.
-On a re-run, this step runs ONLY for a technology, dependency, or regulation the delta newly
-introduces; prior research is recovered per the re-run research Rule.
+**On a re-run**, this step runs ONLY for a technology, dependency, or regulation the delta newly
+introduces (auto-remediation's own edits never qualify). The prior round's research is recovered
+from the previous review comment's Best practices section and supplied to the critic, so element
+5 stays sourced without re-searching.
 
 **Complexity signals (any 2+ triggers deep research):**
 - Ticket touches 3+ packages or services
@@ -322,8 +333,9 @@ introduces; prior research is recovered per the re-run research Rule.
 
 ### Step 2.9: Codebase exploration
 
-Map existing code patterns relevant to this ticket. Findings are passed to the critic to
-ground the review in the actual codebase state.
+Map existing code patterns relevant to this ticket. This step ALWAYS runs its check, per the
+rules below; findings reach the critic either way, grounding the review in the actual codebase
+state.
 
 **1. Check if `codebase_context` is already populated**, in the issue body ALREADY FETCHED
 in Step 1 (never a fresh forge call):
@@ -498,8 +510,14 @@ For each selected lens, dispatch its agent with: the issue title + body, the pro
 context from Step 2, the research from Step 2.7, the `Codebase Context` from Step 2.9, the
 Step 3A results, the critic's JSON from Step 3B, the result contract (verbatim, per the
 definition below), and its scope for this round (round 1: the whole ticket within its
-brief; re-runs: per the re-run lens-scope Rule). A lens named in the review's Review-set
+brief; re-runs: see the lens-scope rule below). A lens named in the review's Review-set
 line MUST have been dispatched here; never print a lens that did not run.
+
+**Lens scope on a re-run.** The lens (when it ran) re-runs scoped to its OWN prior blocking items
+PLUS the changed sections that touch its brief (auth, validation, exposure): a clean round-1 lens
+does not mean round 2's edits are security-clean, and the net-new dedup rule never silences the
+lens on its own scope. Skipping it leaves its findings verified by nobody with its brief;
+re-running it in full grows the target.
 
 ### Lens definitions
 
@@ -531,6 +549,12 @@ why it resolves the specific objection; include them in the review under the tem
 `### Architecture alternatives` slot. This is the CANONICAL alternatives instruction;
 every other mention points here. The posted comment must be complete, since editing a
 posted review is the post-then-retract failure the Rules forbid.
+
+**On a re-run, carried-forward sections.** Report sections whose content is unchanged are marked
+"carried forward from round <N-1>" rather than re-produced, EXCEPT that any factual anchor in a
+carried section (a file path, route, schema field) that the changed body touches is re-verified
+in this run before posting, per the first Rule; the six-element contract is satisfied by the
+combination.
 
 Build a markdown review (never a numeric scorecard):
 
@@ -581,6 +605,8 @@ Build a markdown review (never a numeric scorecard):
 ```
 
 ### Step 5: Post to GitHub
+
+**The review is permanent**, posted as a forge comment for the audit trail.
 
 ```bash
 gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "<review>"
@@ -655,12 +681,18 @@ EOF
 )"
 ```
 
-**Option 3 override (significant only):**
+**Option 3 override (significant only).** Override is never available for a fundamental item:
+those reject the approach itself, so proceeding would build something the gate rejected.
+
 Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays on record in the forge comment.`
 
 ---
 
 ## Rules
+
+**Cross-cutting policy only.** A rule that governs exactly one step lives AT that step,
+where it is read; this section is for rules that span steps or the whole run. Adding a
+single-step rule here is what put the re-run rules 400 lines from the steps they govern (#109).
 
 - **Verify before you post the review (no post-then-retract).** Every factual claim the
   critic or a lens makes - a file path, a route verb, a schema field, an error code, a line
@@ -682,27 +714,8 @@ Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays
   never waved through.
 - **PASS requires: every mechanical check passing AND zero blocking items** from the critic
   and any lens that ran. Advisory items never block.
-- **The review set is one critic plus label-triggered lenses.** Never a committee: more
-  reviewers of the same ticket produce findings to justify their seats, not more defects
-  found (issue #70).
 - **Feedback must be specific.** "Needs improvement" is not acceptable. Every blocking item
   states exactly what to add or fix.
-- **The review is permanent.** Posted as a forge comment for audit trail.
-- **Re-runs: lens scope.** The lens (when it ran) re-runs scoped to its OWN prior
-  blocking items PLUS the changed sections that touch its brief (auth, validation,
-  exposure): a clean round-1 lens does not mean round 2's edits are security-clean, and
-  the net-new dedup rule never silences the lens on its own scope. Skipping it leaves its
-  findings verified by nobody with its brief; re-running it in full grows the target.
-- **Re-runs: research.** Step 2.7 re-runs only when the delta introduces a technology,
-  dependency, or regulation not already researched (auto-remediation's own edits never
-  qualify); the prior round's research is recovered from the previous review comment's
-  Best practices section and supplied to the critic, so element 5 stays sourced without
-  re-searching.
-- **Re-runs: carried-forward sections.** Report sections whose content is unchanged are
-  marked "carried forward from round <N-1>" rather than re-produced, EXCEPT that any
-  factual anchor in a carried section (a file path, route, schema field) that the changed
-  body touches is re-verified in this run before posting, per the first Rule; the
-  six-element contract is satisfied by the combination.
 - **Re-runs: mechanical checks in full, critique on the delta.** The mechanical checks
   (Step 3A) ALWAYS re-run completely: they are near-free and the body is guaranteed to have
   changed (auto-remediation writes into it; a fix to one section can break another, e.g. a
@@ -710,18 +723,3 @@ Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays
   the previously blocking items plus the sections that changed (read the prior review
   comment to recover them; a fresh run has no memory). State what was re-checked and what
   carries forward. The critique target must not grow between rounds.
-- **Auto-synthesis voids the verdict.** If the current run triggered Step 0c, the full
-  review runs again; nothing carries forward from a pre-synthesis run.
-- **Thin ticket check (Step 1.5) runs before the critic, in round 1 only** (it never
-  repeats on re-runs; a body that only grows cannot become thin). If the ticket needs
-  clarification (3+ material unanswered questions), post questions as a forge comment and
-  halt with BLOCKED. The critic does not run until the ticket is sufficiently detailed.
-- **Codebase exploration (Step 2.9) always runs its check**, per the step's own rules
-  (Step-1 body, cache void after a fundamental round). Findings reach the critic either way.
-- **Architecture alternatives**: Step 4 is canonical (sub-agent, per-option why, before
-  posting); auto-remediation copies them into the issue body.
-- **Default on NEEDS-WORK: auto-remediate.** Update the issue body with the blocking items
-  and print the result. No user prompt unless CLAUDE.md sets
-  `ticket-gate: remediation = prompt`.
-- **Override is never available for fundamental items.** These represent blocking issues
-  that must be resolved before implementation begins.
