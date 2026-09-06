@@ -69,6 +69,13 @@ a component. `check-template-lockstep.sh` keeps the templates and the canonical
 `docs/guides/ticket-standards.md` on one shared value so they cannot drift apart. The marker
 parsers skip it explicitly.
 
+Nor is `doc-rules-version: N`, the second marker on that same doc (issue #94). It records the
+revision of the RULES TEXT, where `template-version` records which FORM the doc describes. They
+are separate because they have different consumers moving at different rates: bumping
+`template-version` makes `ticket-gate` re-synthesise every open ticket, so tying a prose
+clarification to it made the cheap change expensive. The lockstep guard ignores the rules marker
+by matching `template-version:` literally. See `docs/guides/template-versioning.md`.
+
 ## Cutting a release
 
 1. Confirm main is green and every intended PR is merged.

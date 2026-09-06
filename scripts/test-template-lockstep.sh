@@ -125,6 +125,43 @@ else
 fi
 fi
 
+# --- doc-rules-version is NOT locked (issue #94) --------------------------------------------
+# ticket-standards.md carries two markers. `template-version` says which FORM it describes and IS
+# locked to the templates; `doc-rules-version` says which revision its RULES TEXT is at and must be
+# free to move on its own, or a prose clarification costs an auto-synthesis round trip over every
+# open ticket, which is the coupling #94 removed.
+mkdoc() {   # mkdoc <path> <template-version> <doc-rules-version|-> [reversed]
+  { if [ "${4:-}" = reversed ]; then
+      [ "$3" = "-" ] || printf '<!-- doc-rules-version: %s -->\n' "$3"
+      printf '<!-- template-version: %s -->\n' "$2"
+    else
+      printf '<!-- template-version: %s -->\n' "$2"
+      [ "$3" = "-" ] || printf '<!-- doc-rules-version: %s -->\n' "$3"
+    fi
+    printf '\n# Ticket standards\n'; } > "$1"
+}
+
+d="$t/two-markers"; mkdir -p "$d"
+mk "$d" feature 5; mk "$d" bug 5
+mkdoc "$t/doc-a.md" 5 1
+run "a doc carrying both markers, in lockstep, passes" 0 "$d" "$t/doc-a.md"
+
+mkdoc "$t/doc-b.md" 5 9
+run "doc-rules-version may differ from template-version without drift" 0 "$d" "$t/doc-b.md"
+
+# ORDER-REVERSED on purpose. With template-version written first, a loose `[a-z-]*-version`
+# pattern still finds it, so the assertion would pass for the wrong reason and could not detect
+# the very mutation it exists to catch (verified: that mutant survived until this fixture existed).
+# Putting doc-rules-version first makes the guard's LITERAL pattern the only reason it passes.
+mkdoc "$t/doc-c.md" 5 9 reversed
+run "the guard reads template-version by name, not by position" 0 "$d" "$t/doc-c.md"
+
+mkdoc "$t/doc-c2.md" 4 5 reversed
+run "...and still catches drift when the markers are reversed" 1 "$d" "$t/doc-c2.md"
+
+mkdoc "$t/doc-d.md" 4 1
+run "template-version drift is still caught when both markers are present" 1 "$d" "$t/doc-d.md"
+
 rm -rf "$t"
 
 # The no-arg path is what CI invokes: it resolves the template dir and the canonical doc

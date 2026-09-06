@@ -1,13 +1,21 @@
 <!-- template-version: 5 -->
+<!-- doc-rules-version: 1 -->
 
 # Ticket standards (canonical)
 
 This is the **single source of truth** for what a *ready* work ticket must contain. The five
 work issue-templates (`feature`, `bug`, `security`, `infrastructure`, `design`) carry the form
 fields that collect this content; this document holds the **rules and the rationale**. The
-`ticket-gate` agent enforces the rules, and `scripts/check-template-lockstep.sh` keeps the
-templates and this doc on one shared `template-version`, so the standard cannot silently drift
-apart from the forms that implement it.
+`ticket-gate` agent enforces the rules.
+
+**This doc carries two markers, and they answer different questions (issue #94).**
+`template-version` says *which form this doc describes*: it is version-locked to the five work
+templates by `scripts/check-template-lockstep.sh`, so the standard cannot silently drift apart
+from the forms that implement it, and bumping it is what makes `ticket-gate` re-synthesise every
+open ticket. `doc-rules-version` says *which revision the rules text below is at*. A change to
+the rules that does not change the form fields bumps **only** `doc-rules-version`, costs nothing
+downstream, and triggers no synthesis. See `docs/guides/template-versioning.md` for the full
+rule and why the two were separated.
 
 Read this alongside `docs/guides/template-versioning.md`, which describes the version marker and
 the gate's auto-synthesis of missing sections. The two are complementary: this doc says *what a
