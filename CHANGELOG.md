@@ -25,6 +25,11 @@ tracks the repository, so users are already served from the default branch.
   `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- **`ticket-gate.md` deduplicated where it genuinely repeated** (#109, partial): 5715 to 5680
+  words. The `references/` split it also proposes stays blocked and now has its prerequisite
+  ticketed as #124. The canonical doc's restatement list gained six entries and STOPPED claiming to be
+  complete: three review rounds each found it incomplete, so it now says so and points at a
+  guard ticket instead of certifying.
 - **The label taxonomy has an applier and a checker** (#104). `forge-host/assets/sync-labels.sh`
   syncs `.github/labels.yml` to the host or reports drift with `--check`. Host-aware, idempotent,
   and it never deletes an undeclared label. It was declarative with no applier for months: 18

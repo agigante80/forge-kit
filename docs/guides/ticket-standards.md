@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 4 -->
+<!-- doc-rules-version: 8 -->
 
 # Ticket standards (canonical)
 
@@ -129,14 +129,33 @@ domain, per the N/A rule below.
 ## Precedence
 
 `ticket-gate` restates parts of this doc so they hold in installs without it. Those restatements
-are sanctioned exceptions to the single-source rule above, and **this is the complete set**; a
-restatement not listed here is a fork and a bug:
+are sanctioned exceptions to the single-source rule above. **This list is hand-maintained, and it
+is not a certification.** Three consecutive review rounds each found it incomplete, so read it as
+the best known set: a restatement not listed here is still a fork and a bug, but absence from this
+list is NOT evidence that no restatement exists. Deriving it mechanically is tracked in #125; until then,
+grep the gate for the rule you are editing rather than trusting this list to be exhaustive.
 
 1. The three hard-fail bars: UI E2E (rule 3), API endpoint coverage (rule 2), and the
    personal-data judgment (rule 4).
 2. The security lens checklist, which restates rule 5 point for point.
-3. Rule 1's GWT quality bar, which appears twice: in the Step 0c synthesis table and in Step 3A
+3. Rule 1's GWT quality bar, which appears twice: in the Step 0c-iii synthesis table and in Step 3A
    check 4.
+4. Rule 2's integration and regression coverage, and rule 8's implementation concreteness (build
+   and test commands, dependency justification, N+1 and scalability), which the critic's brief
+   carries as blocking-capable concerns. These joined this doc in #117 (issue #94); before that
+   they existed only in the gate, so the list did not need them.
+5. Rule 3's emulator clause, which the critic's brief restates near-verbatim. Item 1 covers rule
+   3's UI E2E hard-fail bar, which is a different clause of the same rule.
+6. The Step 0c-iii synthesis table, whose rows restate the SHAPE required by rules 2, 3, 4 and 7,
+   because the synthesis sub-agent has to be told what to write. Item 3 covers rule 1's appearance
+   in that same table; these are the other four.
+7. Step 3A check 5, which restates rule 2's concrete-spec bar as a mechanical check, down to
+   rejecting a bare "add unit tests", and also restates the N/A rule's own rationale.
+8. Rule 7 in three further places: Step 3A check 6 (the bar), the critic's brief ("documentation
+   currency (rule 7) judged against the ticket's own file list"), and the Rules section (its
+   every-work-ticket scope).
+9. Rule 1's SCOPE clause at Step 3B ("an N/A claim is legitimate only where no behaviour delta
+   exists"). Item 3 covers rule 1's quality bar, which is a different clause.
 
 Editing rule 5 or rule 1 therefore means editing the gate in the same change. The list used to
 claim the hard-fail bars were the *only* exception, which was false, so a maintainer editing rule 5

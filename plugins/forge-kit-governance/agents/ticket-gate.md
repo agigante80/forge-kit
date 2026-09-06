@@ -29,7 +29,7 @@ color: red
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 27 -->
+<!-- ticket-gate-version: 30 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -99,8 +99,7 @@ gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json body --jq '.body' | grep -o
 
 | Result | Action |
 |---|---|
-| **No version marker** | Trigger Step 0c auto-synthesis (treat as v0). |
-| **Version < `$CURRENT_TPL_VER`** | Trigger Step 0c auto-synthesis. |
+| **No marker (treat as v0), or < `$CURRENT_TPL_VER`** | Trigger Step 0c auto-synthesis. |
 | **Version = `$CURRENT_TPL_VER`** | Proceed to 0b. |
 
 #### 0c. Auto-synthesis (runs when version is missing or outdated)
@@ -126,11 +125,10 @@ For each template section `id`, classify the corresponding content in the issue 
 - **Missing** - no corresponding heading or content in the body at all
 
 Target sections for synthesis (always check these):
-- `scenarios` (GWT: Given/When/Then scenarios)
-- `unit_tests` (specific file/input/expected-output test cases)
-- `e2e_tests` (specific test suite/setup/assertion cases)
-- `docs_impact` (documentation currency: affected docs incl. the root README, or "none" with a reason)
-- `personal_data` (rule 4's seven facts; pre-v6 headings contain GDPR, any case)
+- `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact`, `personal_data`
+  (what each derives from is the 0c-iii rules table below, stated once; `personal_data` is rule
+  4's seven facts, and on a pre-v6 ticket lives under a heading containing GDPR, matched
+  case-insensitively)
 
 **0c-iii. Synthesise real content**
 
@@ -380,11 +378,12 @@ additional context alongside the issue body and project files.
 
 ### Step 3A: Mechanical checks (deterministic, no agent)
 
-Run these as literal checks against the issue body and the template. Checks 1, 2, 3, and 5
-are phrased so a future script can adopt them verbatim; checks 4 and 6 each split into a
-mechanical half stated here (block counts, One-When, a digit-or-quoted error, section
-presence) and a semantic half (WHICH conditions are independent, whether a "none" reason
-holds) that belongs to the critic. Outcomes are: **pass**, **fail**, **warn** (check 1
+Run these as literal checks against the issue body and the template. Checks 1, 2 and 3
+are phrased so a future script can adopt them verbatim; checks 4, 5 and 6 each split into a
+mechanical half stated here (block counts, One-When, a digit-or-quoted error, a named
+test file path, section presence) and a semantic half (WHICH conditions are independent, whether an
+N/A is legitimate under the derived-scope rule, whether a "none" reason holds) that
+belongs to the critic. Outcomes are: **pass**, **fail**, **warn** (check 1
 newer-marker, check 2 missing type label), **N/A** (check scoped out), or **referred**
 (the critic resolves it, e.g. check 4's specific-error heuristic miss). Every outcome
 quotes its evidence line. **Every FAIL becomes a blocking item, classified significant**
@@ -399,9 +398,8 @@ to Step 3B so the author gets the full picture in one round.
    fork ahead of this project's templates) records a warning recommending a template update
    and proceeds; an empty `$CURRENT_TPL_VER` (no versioned templates in the project) records
    N/A. Only missing-or-older markers fail, and 0c auto-synthesis is their repair path.
-2. **Labels valid** - records Step 0b's outcome exactly: an AREA label is required (0b
-   blocks without one); a missing TYPE label is a recorded WARNING, never a fail (0b's
-   contract is warn-only there). This check never demands a label no step requires.
+2. **Labels valid** - records Step 0b's outcome exactly (area required, type warn-only).
+   This check never demands a label no step requires.
 3. **Required sections present** - every section the current template carries has a
    corresponding heading with non-empty content in the body.
 4. **GWT structure** (rule 1 quality bar, the checkable half):
@@ -620,12 +618,11 @@ enters auto-remediation and never prints NEEDS-WORK.
 
 **If the verdict is NEEDS-WORK (blocking non-empty):**
 
-The blocking items arrive pre-classified by the judging agents' `class` fields (critic and lens alike):
-- **Fundamental** - the approach itself is wrong (the critic or lens rejected the design,
-  not the details). The architecture alternatives were already generated at Step 4 and
-  posted with the review; auto-remediation copies them into the issue body.
-- **Significant** - the approach stands but blocking gaps exist (missing sections, failed
-  mechanical checks, unmet quality bars).
+The blocking items arrive pre-classified by the judging agents' `class` fields (critic and lens
+alike). **Fundamental** is defined in Step 3B, where the classification rule lives; here that means the
+architecture alternatives were already generated at Step 4 and posted with the review, and
+auto-remediation copies them into the issue body. **Significant**: the approach stands but
+blocking gaps exist.
 
 **Default behaviour: auto-remediate without prompting.**
 
