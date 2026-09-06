@@ -1,5 +1,5 @@
 <!-- template-version: 5 -->
-<!-- doc-rules-version: 1 -->
+<!-- doc-rules-version: 2 -->
 
 # Ticket standards (canonical)
 
@@ -60,8 +60,11 @@ N/A claim like any other.
 
 Concrete cases: a specific test file path, a concrete input value, and the expected output or
 error code. "Add unit tests" is not a spec. **When a ticket creates or modifies an API
-endpoint**, 100% automated coverage of that endpoint is required (happy path, missing-field
-400s, auth 401/403, rate-limit enforcement, IDOR).
+endpoint**, 100% automated coverage of that endpoint is required, enumerated case by case:
+happy path; missing-field 400 with a specific code; **no-token 401; invalid-token 401;
+wrong-user 403**; rate-limit enforcement; IDOR (user A cannot reach user B's resources). A
+single generic auth test does not satisfy this: the three auth cases are distinct.
+Where the change touches shared code, integration and regression coverage is named too.
 
 ### 3. E2E test specs
 
@@ -76,8 +79,9 @@ emulator scenario it adds or extends, or states why the standing suite already c
 ### 4. GDPR considerations
 
 Identify every personal-data field the ticket touches (name, email, phone, GPS, IP). State
-storage location, erasure (Article 17), portability (Article 20), data minimisation and
-retention (Article 25), the legal basis, and any cross-border transfer. A ticket that touches no
+storage location **and encryption at rest**, erasure (Article 17) **including cascading
+deletion of dependent records**, portability (Article 20), data minimisation and retention
+(Article 25), the legal basis, and any cross-border transfer. A ticket that touches no
 PII marks this N/A with that reason.
 
 ### 5. Security checklist
@@ -99,14 +103,50 @@ one rule where always-asked is the point. It stays passable because "none, no us
 surface" is a legitimate answer, and the gate scores that claim like any other N/A, judged
 against the ticket's own file list.
 
+### 8. Implementation and dependency concreteness
+
+Judged against whichever fields the template provides (`implementation`, `dependencies`, `files`),
+not a new form field: the templates already collect this content, so this rule adds no section and
+no `template-version` bump.
+
+- File paths and implementation steps are concrete, and match `docs/coding-standards.md` where the
+  project has one.
+- Build and test commands the ticket relies on are specified, so an implementer does not guess them.
+- Every new dependency is justified against the standard library and the dependencies already
+  present.
+- Known scalability risks the approach introduces are named, N+1 query patterns first.
+
+A ticket whose template carries none of these fields (for example `infrastructure`) records N/A by
+domain, per the N/A rule below.
+
 ## Precedence
 
-`ticket-gate` restates the hard-fail bars (UI E2E, API endpoint coverage, GDPR judgment) so
-they hold in installs without this doc; that restatement is the one sanctioned exception to
-the single-source rule above. Where this doc IS installed, its text governs on any
-divergence; the gate's copy is a convenience restatement, never a fork. A rule ABSENT from
-an installed (possibly adapted-down) copy is NOT divergence: absence never relaxes a gate
-bar; only explicit text here does.
+`ticket-gate` restates parts of this doc so they hold in installs without it. Those restatements
+are sanctioned exceptions to the single-source rule above, and **this is the complete set**; a
+restatement not listed here is a fork and a bug:
+
+1. The three hard-fail bars: UI E2E (rule 3), API endpoint coverage (rule 2), and the GDPR
+   judgment (rule 4).
+2. The security lens checklist, which restates rule 5 point for point.
+3. Rule 1's GWT quality bar, which appears twice: in the Step 0c synthesis table and in Step 3A
+   check 4.
+
+Editing rule 5 or rule 1 therefore means editing the gate in the same change. The list used to
+claim the hard-fail bars were the *only* exception, which was false, so a maintainer editing rule 5
+got no signal in the exact place this doc certified as drift-free.
+
+Where this doc IS installed, its text governs, and three cases are distinguished:
+
+- **Conflict.** The gate's copy and this doc state different things: **this doc wins.** The gate's
+  copy is a convenience restatement, never a fork.
+- **Absence.** A rule is missing from an installed (possibly adapted-down) copy of this doc: that
+  is NOT divergence. Absence never relaxes a gate bar; only explicit text here does.
+- **A stricter restatement.** The gate says the same thing at finer granularity than this doc (its
+  three enumerated auth cases against a doc that once said only "auth 401/403"). This is neither
+  conflict nor absence, and the extra strictness is **ADVISORY, never blocking**. The gate reports
+  it as a gap in this doc, naming the rule, so the fix is to tighten the doc and make the bar
+  legitimately blocking. A stricter gate copy must never out-rule the canonical doc silently, or
+  the single-source claim is fiction.
 
 ## The N/A rule (load-bearing)
 

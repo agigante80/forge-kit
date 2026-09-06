@@ -25,6 +25,13 @@ tracks the repository, so users are already served from the default branch.
   `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- **The six gate-only bars moved into the canonical doc, and Precedence gained a third rule**
+  (#94, question 1). `ticket-standards.md` rule 2 now enumerates the three auth cases, rule 4
+  names encryption at rest and cascading deletion, and a new rule 8 covers implementation and
+  dependency concreteness against fields the templates already collect (so no `template-version`
+  bump). Precedence now enumerates the REAL restatement set (it wrongly claimed the hard-fail
+  bars were the only one) and distinguishes a stricter gate restatement, which is advisory and
+  reported as a doc gap rather than blocking, so a gate copy cannot silently out-rule the doc.
 - **`ticket-standards.md` carries two version markers instead of one overloaded integer** (#94,
   question 2). `template-version` says which FORM the doc describes and stays locked to the five
   work templates; the new `doc-rules-version` says which revision the RULES TEXT is at and moves
