@@ -1,0 +1,355 @@
+#!/usr/bin/env bash
+# Contract test for forge-host/assets/sync-labels.sh (issue #104).
+#
+# Driven with a STUBBED forge-lib.sh placed next to a copy of the script, so the script sources the
+# stub instead of the real transport. Nothing here touches a network or a real forge. This is the
+# same shape as test-forge-lib.sh's stubbed `forge_api`, one level out: there the library was under
+# test, here the library IS the seam.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
+SRC="$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/sync-labels.sh"
+
+pass=0
+fail=0
+ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
+bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
+
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+cp "$SRC" "$T/sync-labels.sh"
+
+cat > "$T/forge-lib.sh" <<'STUB'
+forge_repo() { printf 'o/r'; }
+forge_host() { printf '%s' "${STUB_HOST:-github}"; }
+forge_api_paginate() {
+  # Mirrors the REAL forge-lib: it short-circuits to [] under dry run. The old stub ignored the
+  # flag, which is exactly why H2 (a dry run reporting every label missing) was invisible to the
+  # 22 tests. A stub that is kinder than the library it stands in for tests nothing.
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[dry-run] paginate\n' >&2; printf '[]'; return 0; fi
+  cat "$HOST_LABELS"
+}
+forge_api() { printf '%s %s %s\n' "$1" "$2" "${3:-}" >> "$REQLOG"; printf '{}'; }
+STUB
+
+# declared <file> <<'Y' ... Y   writes a labels.yml fixture
+host_json() { printf '%s' "$1" > "$T/host.json"; }
+
+run() {  # run [args...] -> $out, $rc, and $REQLOG holds every write attempted
+  REQLOG="$T/req.log"; : > "$REQLOG"
+  out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" \
+        bash ./sync-labels.sh --labels "$T/labels.yml" "$@" 2>&1); rc=$?
+}
+
+cat > "$T/labels.yml" <<'Y'
+- name: bug
+  color: "d73a4a"
+  description: Something isn't working
+
+- name: security
+  color: "e4e669"
+  description: Security vulnerability or hardening
+Y
+
+# --- 1. host matches the declaration ----------------------------------------------------------
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"}]'
+run --check
+[ "$rc" -eq 0 ] && ok "--check passes when the host matches" || bad "--check passes when host matches (rc=$rc: $out)"
+[ ! -s "$REQLOG" ] && ok "--check writes nothing" || bad "--check writes nothing (log: $(cat "$REQLOG"))"
+
+# --- 2. a declared label the host lacks -------------------------------------------------------
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'
+run --check
+[ "$rc" -ne 0 ] && ok "--check fails when a declared label is absent" || bad "--check fails on absent (rc=$rc)"
+printf '%s' "$out" | grep -q 'missing  security' && ok "--check names the absent label" || bad "--check names the absent label"
+# The load-bearing one: --check must write NOTHING even when a write is exactly what sync would do
+# here. The original suite only asserted this against an already-matching host, where neither mode
+# writes, so it passed for the wrong reason and a mutant removing both write guards survived.
+[ ! -s "$REQLOG" ] && ok "--check writes nothing WHEN A WRITE IS DUE (absent label)" \
+  || bad "--check writes nothing when a write is due (log: $(cat "$REQLOG"))"
+
+# --- 3. sync creates it, with the declared colour and description ------------------------------
+run
+[ "$rc" -eq 0 ] && ok "sync exits 0 after creating" || bad "sync exits 0 (rc=$rc: $out)"
+grep -q '^POST /repos/o/r/labels ' "$REQLOG" && ok "sync POSTs the missing label" || bad "sync POSTs the missing label"
+grep -q '"name":"security"' "$REQLOG" && grep -q '"color":"e4e669"' "$REQLOG" \
+  && ok "the created label carries its declared colour" || bad "created label carries its colour"
+grep -q '"description":"Security vulnerability or hardening"' "$REQLOG" \
+  && ok "the created label carries its declared description" \
+  || bad "created label carries its description (log: $(cat "$REQLOG"))"
+
+# --- 4. drift in the description --------------------------------------------------------------
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"WRONG"}]'
+run --check
+[ "$rc" -ne 0 ] && ok "--check fails on a drifted description" || bad "--check fails on drifted description"
+printf '%s' "$out" | grep -q 'drifted  security' && ok "--check names the drifted label" || bad "--check names the drifted label"
+[ ! -s "$REQLOG" ] && ok "--check writes nothing when a label has DRIFTED" \
+  || bad "--check writes nothing on drift (log: $(cat "$REQLOG"))"
+
+# Description comparison is exact, case included: a case change IS drift, unlike colour.
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"SECURITY VULNERABILITY OR HARDENING"}]'
+run --check
+[ "$rc" -ne 0 ] && ok "a case-only description change is drift" || bad "a case-only description change is drift"
+
+# --- 5. drift in the colour -------------------------------------------------------------------
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"000000","description":"Security vulnerability or hardening"}]'
+run --check
+[ "$rc" -ne 0 ] && ok "--check fails on a drifted colour" || bad "--check fails on drifted colour"
+
+# --- 6. colour CASE is not drift --------------------------------------------------------------
+host_json '[{"id":1,"name":"bug","color":"D73A4A","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"#E4E669","description":"Security vulnerability or hardening"}]'
+run --check
+[ "$rc" -eq 0 ] && ok "colour case and a leading # are not drift" || bad "colour case is not drift (rc=$rc: $out)"
+
+# --- 7. an undeclared label is reported and NEVER deleted -------------------------------------
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"},
+            {"id":9,"name":"wontfix","color":"ffffff","description":"stock default"}]'
+run
+printf '%s' "$out" | grep -q 'extra    wontfix' && ok "an undeclared label is reported" || bad "an undeclared label is reported"
+grep -qi 'DELETE' "$REQLOG" && bad "sync never DELETEs" || ok "sync never DELETEs"
+[ "$rc" -eq 0 ] && ok "an undeclared label is not itself a failure" || bad "an undeclared label is not a failure (rc=$rc)"
+
+# The extra report matches whole lines: `bug` declared must not suppress `bugfix` on the host.
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"},
+            {"id":3,"name":"bugfix","color":"ffffff","description":"x"}]'
+run
+printf '%s' "$out" | grep -q 'extra    bugfix' \
+  && ok "a host label that merely CONTAINS a declared name is still reported extra" \
+  || bad "substring host label reported extra (out: $out)"
+
+# --- 8. update addresses the label by NAME on github, by ID on forgejo -------------------------
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":42,"name":"security","color":"e4e669","description":"WRONG"}]'
+run
+grep -q '^PATCH /repos/o/r/labels/security ' "$REQLOG" \
+  && ok "github updates a label by name" || bad "github updates by name (log: $(cat "$REQLOG"))"
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" STUB_HOST=forgejo \
+      bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
+grep -q '^PATCH /repos/o/r/labels/42 ' "$REQLOG" \
+  && ok "forgejo updates a label by id" || bad "forgejo updates by id (log: $(cat "$REQLOG"))"
+
+# --- 9. dry run sends nothing -----------------------------------------------------------------
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
+      bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
+[ ! -s "$REQLOG" ] && ok "FORGE_DRY_RUN=1 sends nothing" || bad "dry run sends nothing (log: $(cat "$REQLOG"))"
+printf '%s' "$out" | grep -q "\[dry-run\] create label 'security'" \
+  && ok "dry run says what it would create" || bad "dry run says what it would create"
+
+# --- 8b. value cleaning: a file a maintainer could plausibly commit ----------------------------
+# Each of these is valid YAML that the first version wrote to the host verbatim, creating phantom
+# labels ("bug " with a trailing space) or never converging (a re-PATCH on every run).
+clean_case() {  # clean_case <desc> <printf-format-for-labels.yml> <expected-json-fragment>
+  printf -- "$2" > "$T/labels.clean.yml"
+  host_json '[]'
+  REQLOG="$T/req.log"; : > "$REQLOG"
+  (cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" \
+     bash ./sync-labels.sh --labels "$T/labels.clean.yml" >/dev/null 2>&1)
+  grep -qF "$3" "$REQLOG" && ok "$1" || bad "$1 (log: $(cat "$REQLOG"))"
+}
+clean_case "trailing whitespace is trimmed, not made part of the name" \
+  '- name: bug \n  color: "d73a4a" \n  description: Something \n' \
+  '{"name":"bug","color":"d73a4a","description":"Something"}'
+clean_case "a CRLF file does not produce carriage returns in the values" \
+  '- name: bug\r\n  color: "d73a4a"\r\n  description: Something\r\n' \
+  '{"name":"bug","color":"d73a4a","description":"Something"}'
+clean_case "a trailing # comment is stripped from a quoted value" \
+  '- name: bug\n  color: "d73a4a"  # red\n  description: Something # note\n' \
+  '{"name":"bug","color":"d73a4a","description":"Something"}'
+clean_case "a # INSIDE quotes is data, not a comment" \
+  '- name: bug\n  color: "d73a4a"\n  description: "tag #1 issues"\n' \
+  '{"name":"bug","color":"d73a4a","description":"tag #1 issues"}'
+clean_case "single-quoted YAML is unquoted and '"''"' is unescaped" \
+  "- name: bug\n  color: 'd73a4a'\n  description: 'Something isn''t working'\n" \
+  '{"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}'
+
+# A colour that is not 6 hex digits refuses the whole run: that single check catches every
+# mangling shape above if the cleaning ever regresses.
+printf -- '- name: bug\n  color: "not-a-colour"\n  description: X\n' > "$T/labels.clean.yml"
+host_json '[]'; REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" \
+      bash ./sync-labels.sh --labels "$T/labels.clean.yml" 2>&1); rc=$?
+[ "$rc" -eq 3 ] && [ ! -s "$REQLOG" ] \
+  && ok "a non-hex colour refuses with exit 3 and writes nothing" \
+  || bad "non-hex colour refuses (rc=$rc, log: $(cat "$REQLOG"))"
+
+# --- 8c. idempotency (AC2): a second run against the resulting state writes nothing -------------
+cat > "$T/labels.idem.yml" <<'Y'
+- name: bug
+  color: "d73a4a"
+  description: Something
+Y
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something"}]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" bash ./sync-labels.sh --labels "$T/labels.idem.yml" >/dev/null 2>&1)
+(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" bash ./sync-labels.sh --labels "$T/labels.idem.yml" >/dev/null 2>&1)
+[ ! -s "$REQLOG" ] && ok "sync is idempotent: an in-sync host is written to twice, never" \
+  || bad "sync is idempotent (log: $(cat "$REQLOG"))"
+
+# --- 8d. the separator and the refusals, which had NO test at all -------------------------------
+# Round 2 found that 9 of 17 mutations survived the suite, including US=$'"'"'\\x1f'"'"' -> US=$'"'"'\\t'"'"',
+# which reverts H1 and re-commits its original silent wrong write. The gap was that no fixture had
+# an EMPTY field, which is the only condition under which the separator choice is observable
+# (tab is IFS whitespace, so `read` collapses runs of it and never yields an empty field).
+# This description is 6 hex characters on purpose: under the TAB separator it lands in the colour
+# field and passes hex validation, so the run would succeed with a wrong write.
+exit_case() {  # exit_case <desc> <printf-fmt> <expected-rc> [expected-writes]
+  printf -- "$2" > "$T/labels.x.yml"
+  host_json '[]'; REQLOG="$T/req.log"; : > "$REQLOG"
+  out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" \
+        bash ./sync-labels.sh --labels "$T/labels.x.yml" 2>&1); rc=$?
+  # `grep -c` PRINTS 0 and EXITS 1 on no match, so `|| echo 0` appended a second zero.
+  w=$(wc -l < "$REQLOG" | tr -d " ")
+  if [ "$rc" = "$3" ] && [ "$w" = "${4:-0}" ]; then ok "$1"
+  else bad "$1 (rc=$rc want $3; writes=$w want ${4:-0}; $out)"; fi
+}
+exit_case "an entry with no color: refuses; its description is NOT read as the colour" \
+  '- name: bug\n  description: deface\n' 3 0
+exit_case "a bare '- name:' with no other fields refuses" \
+  '- name: bug\n  color: "d73a4a"\n  description: X\n- name:\n' 3 0
+exit_case "an empty name WITH other fields refuses" \
+  '- name:\n  color: "ffffff"\n  description: ghost\n' 3 0
+exit_case "a dot-only label name refuses (cannot escape a URL path segment)" \
+  '- name: ..\n  color: "ffffff"\n  description: X\n' 3 0
+exit_case "a #-prefixed colour is accepted, as GitHub shows it in its own UI" \
+  '- name: bug\n  color: "#d73a4a"\n  description: X\n' 0 1
+
+# A quoted value ends at its CLOSING quote, not its last one.
+clean_case "a comment containing quotes does not extend the value" \
+  '- name: bug\n  color: "d73a4a"\n  description: "needs triage" # see "triage" doc\n' \
+  '{"name":"bug","color":"d73a4a","description":"needs triage"}'
+
+# --- 8f. round-3 regressions in clean() --------------------------------------------------------
+# A6: \" is YAML's escape for a literal quote inside a double-quoted scalar. index() cut at the
+# ESCAPE, so `the \"critical\" label` was written as `the \` : a silent wrong write with a green
+# suite, and a regression against the version before it.
+clean_case "a backslash-escaped quote does not truncate the value" \
+  '- name: bug\n  color: "d73a4a"\n  description: "the \\"critical\\" label"\n' \
+  '{"name":"bug","color":"d73a4a","description":"the \"critical\" label"}'
+
+# A8: `color: #d73a4a` is a COMMENT in YAML, so the value is null. Trimming before the comment
+# strip removed the space the comment rule needs, and the leading-# strip then made it look valid.
+# Any real YAML parser reads null here, so accepting it would make two tools disagree on one file.
+exit_case "an unquoted # value is a YAML comment, not a colour" \
+  '- name: bug\n  color: #d73a4a\n  description: X\n' 3 0
+# ...while the QUOTED form stays accepted, which is what A1 was actually about.
+exit_case "a QUOTED #-colour is still accepted" \
+  '- name: bug\n  color: "#d73a4a"\n  description: X\n' 0 1
+
+# A7: the guard globbed `...*`, which means "starts with three dots", not "dot-only". It refused
+# `...and more` with a message calling it dot-only, and validation is all-or-nothing, so ONE such
+# name failed the entire file. Only `.` and `..` resolve as path segments.
+exit_case "a name merely STARTING with dots is not refused" \
+  '- name: ...and more\n  color: "ffffff"\n  description: X\n' 0 1
+exit_case "a leading-dot name like .github is not refused" \
+  '- name: .github\n  color: "ffffff"\n  description: X\n' 0 1
+exit_case "a bare .. is still refused" \
+  '- name: ..\n  color: "ffffff"\n  description: X\n' 3 0
+
+# --- 8e. the four exit codes are DISTINGUISHABLE ------------------------------------------------
+# Every assertion above used -ne 0, so all four codes were interchangeable to the suite and three
+# separate exit-code mutations survived.
+host_json '[]'
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" bash ./sync-labels.sh --labels "$T/labels.yml" --check 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "exit 1 means --check found drift" || bad "exit 1 for check drift (got $rc)"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" bash ./sync-labels.sh --bogus 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ok "exit 2 means a usage error" || bad "exit 2 for usage (got $rc)"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" bash ./sync-labels.sh --labels 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ok "exit 2 when a flag is missing its value" || bad "exit 2 for missing flag value (got $rc)"
+printf -- 'garbage line\n' > "$T/labels.bad.yml"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" bash ./sync-labels.sh --labels "$T/labels.bad.yml" 2>&1); rc=$?
+[ "$rc" -eq 3 ] && ok "exit 3 means a malformed declaration, nothing written" || bad "exit 3 for malformed (got $rc)"
+cat > "$T/forge-lib.fail.sh" <<'FSTUB'
+forge_repo() { printf 'o/r'; }
+forge_host() { printf 'github'; }
+forge_api_paginate() { cat "$HOST_LABELS"; }
+forge_api() { printf '%s %s %s\n' "$1" "$2" "${3:-}" >> "$REQLOG"; return 22; }
+FSTUB
+cp "$T/forge-lib.sh" "$T/forge-lib.ok.sh"; cp "$T/forge-lib.fail.sh" "$T/forge-lib.sh"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
+[ "$rc" -eq 4 ] && ok "exit 4 means a write failed part-way" || bad "exit 4 for write failure (got $rc)"
+cp "$T/forge-lib.ok.sh" "$T/forge-lib.sh"
+
+# --- 9b. a dry run must read the REAL host state (round-1 finding H2) ---------------------------
+# forge-lib's paginate returns [] under dry run, so a script that does not clear the flag around
+# the READ believes the host is empty and previews creating every label on a fully-synced repo.
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"}]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
+      bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
+printf '%s' "$out" | grep -q 'dry-run\] create' \
+  && bad "a dry run on a SYNCED host previews no creates" \
+  || ok "a dry run on a SYNCED host previews no creates"
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
+      bash ./sync-labels.sh --labels "$T/labels.yml" --check 2>&1); rc=$?
+[ "$rc" -eq 0 ] && ok "--check under dry run is not a false alarm" \
+  || bad "--check under dry run is not a false alarm (rc=$rc: $out)"
+
+# The dry-run guard on the UPDATE branch had no test: only the CREATE branch was covered, so a
+# mutant that let a drifted label be PATCHed under FORGE_DRY_RUN survived the whole suite.
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"WRONG"}]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
+      bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1)
+[ ! -s "$REQLOG" ] && ok "a dry run does not PATCH a DRIFTED label either" \
+  || bad "dry run does not PATCH a drifted label (log: $(cat "$REQLOG"))"
+printf '%s' "$out" | grep -q "\[dry-run\] update label 'security'" \
+  && ok "...and says which label it would update" || bad "dry run names the update it would make"
+
+# --- 9c. the github PATCH path percent-encodes the name (round-1 finding M2) --------------------
+# A raw `help wanted` puts a space in the URL; a raw `a#b` opens a fragment and silently PATCHes
+# label `a` with another label's colour and description.
+cat > "$T/labels.enc.yml" <<'Y'
+- name: help wanted
+  color: "ffffff"
+  description: D
+- name: a#b
+  color: "ffffff"
+  description: D
+Y
+host_json '[{"id":1,"name":"help wanted","color":"000000","description":"old"},
+            {"id":2,"name":"a#b","color":"000000","description":"old"}]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" \
+      bash ./sync-labels.sh --labels "$T/labels.enc.yml" 2>&1)
+grep -q '^PATCH /repos/o/r/labels/help%20wanted ' "$REQLOG" \
+  && ok "a multi-word label name is percent-encoded in the PATCH path" \
+  || bad "multi-word name percent-encoded (log: $(cat "$REQLOG"))"
+grep -q '^PATCH /repos/o/r/labels/a%23b ' "$REQLOG" \
+  && ok "a '#' in a label name cannot open a URL fragment" \
+  || bad "'#' in a name is encoded (log: $(cat "$REQLOG"))"
+
+# --- 10. a malformed declaration REFUSES rather than syncing a partial set ---------------------
+cp "$T/labels.yml" "$T/labels.good.yml"
+printf -- '- name: ok\n  color: "ffffff"\n  description: fine\nthis line is not valid\n' > "$T/labels.yml"
+run
+[ "$rc" -ne 0 ] && ok "a malformed labels file refuses" || bad "a malformed labels file refuses (rc=$rc)"
+[ ! -s "$REQLOG" ] && ok "...and writes nothing (no partial sync)" || bad "malformed file writes nothing"
+printf '%s' "$out" | grep -q 'unparsable line 4' && ok "...naming the offending line" || bad "names the offending line"
+cp "$T/labels.good.yml" "$T/labels.yml"
+
+# --- 11. the real repo's own labels.yml parses ------------------------------------------------
+n=$(awk '/^-[[:space:]]+name:/ {c++} END {print c+0}' "$ROOT/.github/labels.yml")
+host_json '[]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
+      bash ./sync-labels.sh --labels "$ROOT/.github/labels.yml" 2>&1); rc=$?
+got=$(printf '%s' "$out" | grep -c '\[dry-run\] create label')
+[ "$rc" -eq 0 ] && [ "$got" -eq "$n" ] \
+  && ok "forge-kit's own labels.yml parses to all $n labels" \
+  || bad "forge-kit's own labels.yml parses ($got of $n, rc=$rc)"
+
+echo ""
+echo "sync-labels tests: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]

@@ -40,20 +40,24 @@ GitHub labels serve dual purpose: issue organization AND lens routing in ticket-
 
 ## Installing labels
 
-After installing forge-kit, create all labels using `gh label create` or import them directly from `.github/labels.yml`.
+After installing forge-kit, sync the taxonomy from `.github/labels.yml` with the shipped script:
 
-To recreate labels in a new repo manually:
 ```bash
-while IFS= read -r line; do
-  name=$(echo "$line" | grep "^- name:" | sed 's/- name: //')
-  # ... parse and create
-done < .github/labels.yml
+# Run it from wherever it was installed; it sources forge-lib.sh from its OWN directory,
+# so keep the two together (forge-adapt copies both).
+bash sync-labels.sh                 # create every declared label, update any that drifted
+bash sync-labels.sh --check         # change nothing; exit 1 listing what is missing or drifted
+FORGE_DRY_RUN=1 bash sync-labels.sh # print what it would WRITE; it still READS the host, so
+                                    # it needs credentials and reports against real state
 ```
 
-Or use the `gh-label` CLI tool:
-```bash
-npx github-label-sync --access-token $(gh auth token) --labels .github/labels.yml owner/repo
-```
+It is host-aware (GitHub and Forgejo), idempotent, and **never deletes**: a label on the host that
+this file does not declare is reported and left alone.
+
+Do NOT create these by hand. This taxonomy was declared and never imported for months (issue #104):
+18 labels declared, 4 present, and three of the missing ones (`security`, `critical`, `api`) are
+executable inputs to the gate's lens routing, so the kit's most distinctive mechanism was
+unexercisable in the repo that ships it. A manual instruction is what allowed that.
 
 ## Adding project-specific labels
 

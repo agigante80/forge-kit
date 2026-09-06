@@ -99,6 +99,11 @@ jobs:
       # Issue #76: the last two shipped shell assets with no tests. version-lib.sh is the
       # version<->tag primitive every release lane acts on, so a silent bug there ships a wrong
       # release; release-run.sh is driven with DRY_RUN=1, so no forge and no push is touched.
+      # Issue #104: the label taxonomy was declarative with no applier and no checker, so this
+      # repo declared 18 labels and held 4. Stubbed transport; touches no forge.
+      - name: sync-labels contract tests
+        run: bash scripts/test-sync-labels.sh
+
       - name: version-lib contract tests
         run: bash scripts/test-version-lib.sh
 

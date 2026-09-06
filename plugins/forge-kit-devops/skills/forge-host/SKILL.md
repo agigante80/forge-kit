@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible: a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 14 -->
+<!-- forge-host-version: 15 -->
 
 # forge-host: host-aware forge operations
 
@@ -77,7 +77,14 @@ does NOT reflect Actions (those are Checks), so the github path stays on `gh run
 2. For a **Forgejo** repo (or a dual-remote repo mid-migration), copy `assets/forge.conf.example`
    to `.forge.conf`, fill it in, and commit it. Export the token in the runtime env (never commit
    it). A GitHub-only repo needs neither.
-3. Components adopt the adapter by replacing direct `gh` calls with `forge_*`; see
+3. Copy `assets/sync-labels.sh` alongside it, preserving its `# sync-labels-version: N` marker,
+   and run it once so the project's `.github/labels.yml` is actually ON the host. Labels are a
+   `forge_*` concern (issue #63) and this reads the same config: `sync-labels.sh` creates the
+   missing labels and updates drifted ones, `--check` reports without writing, and neither ever
+   deletes an undeclared label. Do not tell the user to run `gh label create` by hand: a
+   declarative taxonomy nobody applies is exactly how forge-kit itself ended up with 18 labels
+   declared and 4 present (issue #104).
+4. Components adopt the adapter by replacing direct `gh` calls with `forge_*`; see
    `references/adopting-forge-lib.md` for the per-component swaps.
 
 ## Supplying the token locally

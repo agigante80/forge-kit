@@ -25,6 +25,11 @@ tracks the repository, so users are already served from the default branch.
   `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- **The label taxonomy has an applier and a checker** (#104). `forge-host/assets/sync-labels.sh`
+  syncs `.github/labels.yml` to the host or reports drift with `--check`. Host-aware, idempotent,
+  and it never deletes an undeclared label. It was declarative with no applier for months: 18
+  labels declared, 4 present, including `security`, `critical` and `api`, which are executable
+  inputs to the gate's lens routing.
 - **No jurisdiction is named in any forge-kit default** (#101). Rule 4 becomes "Personal data
   handling" with seven regime-agnostic facts, and the regime ships as an opt-in
   `privacy-regime` skill (forge-kit-security) dispatched by the new `privacy` label. Templates
