@@ -1,5 +1,5 @@
 {
   "name": "forge-kit-security",
-  "description": "Security agents and OWASP checklist skill",
-  "version": "0.2.2"
+  "description": "Security agents (security-auditor, backend-security-coder, api-security-tester), the OWASP API security checklist skill, and the opt-in privacy-regime skill",
+  "version": "0.3.0"
 }

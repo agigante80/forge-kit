@@ -19,6 +19,7 @@ GitHub labels serve dual purpose: issue organization AND lens routing in ticket-
 | Label | Description | Triggers |
 |---|---|---|
 | `api` | API routes or contracts | API-design checklist added to the critic's brief |
+| `privacy` | Touches personal data | The project's installed `privacy-regime` skill is added to the critic's brief. Without that skill the label does nothing: rule 4's seven regime-agnostic facts are always the bar |
 | `web` | Web frontend | - |
 | `mobile` | Mobile app | - |
 | `backend` | Backend services | - |

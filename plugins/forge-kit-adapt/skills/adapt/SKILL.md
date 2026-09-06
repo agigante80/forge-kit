@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 48 -->
+<!-- forge-adapt-version: 49 -->
 
 # forge-adapt
 
@@ -238,7 +238,7 @@ echo "dep-automation:"; ls .github/dependabot.yml renovate.json .renovaterc* 2>/
 | Signal | Look in | Points to |
 |---|---|---|
 | Language / framework | package.json, pyproject.toml, imports | which review/backend agents fit |
-| Auth / payments / PII | code + CLAUDE.md | security-auditor, owasp-api-security, GDPR review in the gate |
+| Auth / payments / PII | code + CLAUDE.md | security-auditor, owasp-api-security; OFFER `privacy-regime` (never install silently) |
 | Public API surface | routes/, controllers, OpenAPI | api-security-tester, api-design-principles |
 | Dependency depth | lockfiles, package count | dep-auditor |
 | Tests present | tests/, *_test, *.spec | tdd-orchestrator, test-automator |

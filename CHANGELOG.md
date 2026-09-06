@@ -25,6 +25,12 @@ tracks the repository, so users are already served from the default branch.
   `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- **No jurisdiction is named in any forge-kit default** (#101). Rule 4 becomes "Personal data
+  handling" with seven regime-agnostic facts, and the regime ships as an opt-in
+  `privacy-regime` skill (forge-kit-security) dispatched by the new `privacy` label. Templates
+  bump v5 to v6: the field `id` moves `gdpr` to `personal_data`, and Step 0c gained a rule to
+  recover it from a pre-v6 ticket's old heading. `forge-adapt` offers the skill on a
+  personal-data signal and never installs it silently.
 - **The six gate-only bars moved into the canonical doc, and Precedence gained a third rule**
   (#94, question 1). `ticket-standards.md` rule 2 now enumerates the three auth cases, rule 4
   names encryption at rest and cascading deletion, and a new rule 8 covers implementation and

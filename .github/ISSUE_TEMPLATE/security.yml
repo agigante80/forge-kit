@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        <!-- template-version: 5 -->
+        <!-- template-version: 6 -->
         ## Security Issue
         For responsible disclosure of active vulnerabilities, consider reporting privately first.
 
@@ -49,13 +49,18 @@ body:
       required: true
 
   - type: textarea
-    id: gdpr
+    id: personal_data
     attributes:
-      label: GDPR implications
-      description: Does this vulnerability affect personal data handling?
+      label: Personal data handling
+      description: Does this vulnerability affect personal data? If so, state all seven facts; otherwise mark N/A with the reason.
       value: |
-        - **PII at risk:**
-        - **Articles affected (17/20/25):**
+        - **Personal-data fields affected:**
+        - **Storage location and encryption at rest:**
+        - **Erasure, including cascading deletion:**
+        - **Portability (export on request):**
+        - **Minimisation and retention:**
+        - **Legal basis:**
+        - **Cross-border transfer:**
     validations:
       required: true
 

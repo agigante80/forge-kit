@@ -30,6 +30,10 @@
   color: "bfd4f2"
   description: API routes or contracts
 
+- name: privacy
+  color: "d4c5f9"
+  description: Touches personal data; adds the project's privacy-regime lens to the gate
+
 - name: web
   color: "e0d3f5"
   description: Web frontend

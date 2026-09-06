@@ -7,6 +7,7 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | Signal in the project | Skill | Group | Canonical "why" (≤60) | Priority |
 |---|---|---|---|---|
 | Public API with auth / payments | `owasp-api-security` | security | OWASP API Top 10 test patterns | P1 |
+| Stores personal data (users table, auth provider, privacy policy) | `privacy-regime` | security | names YOUR regime; gate defaults name none | P1 |
 | Designing / refactoring REST or GraphQL APIs | `api-design-principles` | backend | resource design, versioning, contracts | P1 |
 | Architecting / refactoring a backend | `architecture-patterns` | backend | Clean / Hexagonal / DDD patterns | P2 |
 | Microservices / distributed system | `microservices-patterns` | backend | boundaries, comms, resilience | P2 |
@@ -25,3 +26,9 @@ sibling of `release`: recommend both together (the gate makes the bump unforgett
 is how a human cuts the release). `closing-sessions` (governance) fits any project worked in long
 Claude Code sessions; recommend it when context loss between sessions is a real risk, not by default.
 Lead with at most the top 1-2; "more skills" expands the rest.
+
+**`privacy-regime` is OFFERED, never auto-installed.** It ships blank by design: it needs the
+project's own jurisdiction, and forge-kit names none anywhere in its defaults (issue #101).
+Installing it silently would put an unfilled template in the project and a `privacy` label
+route pointing at nothing. Recommend it, say it needs their regime filled in, and let them
+choose. Rule 4's seven regime-agnostic facts already bind without it.

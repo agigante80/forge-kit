@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        <!-- template-version: 5 -->
+        <!-- template-version: 6 -->
         ## Feature Request
         Please fill in all required fields. This template ensures alignment with architecture,
         security, and privacy requirements before implementation begins.
@@ -78,15 +78,18 @@ body:
       required: true
 
   - type: textarea
-    id: gdpr
+    id: personal_data
     attributes:
-      label: GDPR compliance
-      description: How does this feature handle personal data?
+      label: Personal data handling
+      description: How does this change handle personal data? Name your privacy regime if you have one; the defaults below are regime-agnostic.
       value: |
-        - **PII fields affected:**
-        - **Article 17 (erasure):**
-        - **Article 20 (portability):**
-        - **Article 25 (by design):**
+        - **Personal-data fields affected:**
+        - **Storage location and encryption at rest:**
+        - **Erasure, including cascading deletion:**
+        - **Portability (export on request):**
+        - **Minimisation and retention:**
+        - **Legal basis:**
+        - **Cross-border transfer:**
     validations:
       required: true
 

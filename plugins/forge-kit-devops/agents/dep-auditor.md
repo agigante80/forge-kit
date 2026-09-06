@@ -24,7 +24,7 @@ model: opus
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 7 -->
+<!-- dep-auditor-version: 8 -->
 
 You are the **Dependency Health Auditor**: an agent that checks every workspace package
 for dependency issues using open-source tools and npm registry queries.
@@ -239,7 +239,7 @@ All tickets use **P0 priority**.
   where no templates exist.
 - `### Priority\nP0`
 - `## Acceptance criteria` with checkboxes
-- `## GDPR compliance\nN/A`
+- `## Personal data handling\nN/A`
 - `## Documentation impact` with the three prompts (Docs affected / README impact / Why not,
   if none); for a pure dependency swap the honest default is "None: dependency metadata only",
   but a replacement that changes usage or setup names the docs and README sections it touches

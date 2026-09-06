@@ -1,5 +1,5 @@
-<!-- template-version: 5 -->
-<!-- doc-rules-version: 2 -->
+<!-- template-version: 6 -->
+<!-- doc-rules-version: 4 -->
 
 # Ticket standards (canonical)
 
@@ -76,13 +76,20 @@ justification** rather than inventing a UI flow.
 Where the project runs an emulator or simulator suite, a ticket adding a user journey names the
 emulator scenario it adds or extends, or states why the standing suite already covers it.
 
-### 4. GDPR considerations
+### 4. Personal data handling
 
-Identify every personal-data field the ticket touches (name, email, phone, GPS, IP). State
-storage location **and encryption at rest**, erasure (Article 17) **including cascading
-deletion of dependent records**, portability (Article 20), data minimisation and retention
-(Article 25), the legal basis, and any cross-border transfer. A ticket that touches no
-PII marks this N/A with that reason.
+State seven facts, numbered here because the templates, the gate and the `privacy-regime` skill
+all count them the same way: (1) every personal-data field the ticket touches (name, email, phone,
+GPS, IP); (2) storage location and encryption at rest; (3) erasure, including cascading deletion of
+dependent records; (4) portability; (5) minimisation and retention; (6) the legal basis; (7) any
+cross-border transfer. A ticket that touches no personal data marks this N/A with that reason.
+
+**This rule names no jurisdiction on purpose.** Those seven facts exist under GDPR, UK GDPR, CCPA
+and CPRA, LGPD, PIPEDA and APPI, under different names, different thresholds and different article
+numbers. Naming one regime in the default is not merely over-inclusive; for most projects it is the
+*wrong* regime, and a gate citing the wrong statute is worse than a gate citing none, because it
+looks authoritative. A project that IS under a specific regime installs the privacy-regime lens,
+which names its own regime and adds that depth (issue #101).
 
 ### 5. Security checklist
 
@@ -125,8 +132,8 @@ domain, per the N/A rule below.
 are sanctioned exceptions to the single-source rule above, and **this is the complete set**; a
 restatement not listed here is a fork and a bug:
 
-1. The three hard-fail bars: UI E2E (rule 3), API endpoint coverage (rule 2), and the GDPR
-   judgment (rule 4).
+1. The three hard-fail bars: UI E2E (rule 3), API endpoint coverage (rule 2), and the
+   personal-data judgment (rule 4).
 2. The security lens checklist, which restates rule 5 point for point.
 3. Rule 1's GWT quality bar, which appears twice: in the Step 0c synthesis table and in Step 3A
    check 4.
