@@ -74,6 +74,15 @@ jobs:
       - name: forge-lib contract tests
         run: bash scripts/test-forge-lib.sh
 
+      - name: Component index tests
+        run: bash scripts/test-update-component-index.sh
+
+      # Issue #96: the inventory in README.md and CLAUDE.md is generated from the plugins/ tree.
+      # Hand-maintaining it drifted four times in one week, caught only by review agents. This
+      # turns that defect class into a build failure.
+      - name: Component index freshness (generated regions must match the tree)
+        run: python3 scripts/update-component-index.py --check
+
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'
         env:

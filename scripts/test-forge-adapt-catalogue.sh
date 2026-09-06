@@ -57,6 +57,45 @@ else
   ok "no row prints vnone (every catalogued file carries a marker by construction)"
 fi
 
+# --tsv mode (issue #96): a second consumer (update-component-index.py) needs the file PATH, which
+# the default rows do not carry. It is a mode on THIS script rather than a second walk elsewhere,
+# so "what counts as a component" keeps exactly one definition.
+tsv=$(bash "$SCRIPT" --tsv "$ROOT"); trc=$?
+
+[ "$trc" -eq 0 ] && ok "--tsv exits 0" || bad "--tsv exits 0 (got rc=$trc)"
+
+if printf '%s\n' "$tsv" | grep -q '^=== '; then
+  bad "--tsv emits no === group === headers"
+else
+  ok "--tsv emits no === group === headers"
+fi
+
+# Every row: exactly 5 tab-separated fields, and the last one is a file that exists.
+tsv_rows=$(printf '%s\n' "$tsv" | grep -c .)
+tsv_ok=$(printf '%s\n' "$tsv" | awk -F'\t' 'NF==5' | wc -l)
+[ "$tsv_rows" -gt 0 ] && [ "$tsv_rows" -eq "$tsv_ok" ] \
+  && ok "--tsv rows all have 5 fields ($tsv_rows rows)" \
+  || bad "--tsv rows all have 5 fields ($tsv_ok of $tsv_rows)"
+
+missing=$(printf '%s\n' "$tsv" | awk -F'\t' 'NF==5 {print $5}' | while read -r f; do [ -f "$f" ] || echo "$f"; done)
+[ -z "$missing" ] && ok "--tsv path field points at a real file" \
+  || bad "--tsv path field points at a real file (missing: $(printf '%s' "$missing" | head -1))"
+
+# The version field is bare digits here (no "v" prefix), and never "none" for the same
+# reason the default mode never prints vnone.
+if printf '%s\n' "$tsv" | awk -F'\t' 'NF==5 && $4 !~ /^[0-9]+$/' | grep -q .; then
+  bad "--tsv version field is bare digits"
+else
+  ok "--tsv version field is bare digits"
+fi
+
+# Both modes must describe the SAME component set, or the two consumers disagree about what
+# forge-kit contains, which is the drift #96 exists to remove.
+text_n=$(printf '%s\n' "$out" | grep -c '^[a-z]*: ')
+[ "$text_n" -eq "$tsv_rows" ] \
+  && ok "--tsv and default mode agree on component count ($text_n)" \
+  || bad "--tsv and default mode agree on count (text=$text_n tsv=$tsv_rows)"
+
 # Missing/absent library arg is a graceful exit 0 (read-only, no crash).
 bash "$SCRIPT" /nonexistent-forge-kit >/dev/null 2>&1 && ok "missing library dir exits 0" || bad "missing library dir exits 0"
 

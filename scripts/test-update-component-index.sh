@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Contract test for update-component-index.py (issue #96), run against a throwaway fixture tree
+# rather than this repo, so a real component landing here can never make the suite pass or fail
+# for the wrong reason.
+#
+# The contract: the generated regions are a function of the plugins/ tree, --check exits non-zero
+# when they are not, and the error tells you which file and how to fix it.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+GEN="$HERE/update-component-index.py"
+
+pass=0
+fail=0
+ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
+bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
+
+FIX=$(mktemp -d)
+trap 'rm -rf "$FIX"' EXIT
+
+# --- fixture forge-kit tree -------------------------------------------------------------------
+mkdir -p "$FIX/scripts" "$FIX/plugins/fix-alpha/agents" "$FIX/plugins/fix-alpha/.claude-plugin" \
+         "$FIX/plugins/fix-beta/hooks" "$FIX/plugins/fix-beta/.claude-plugin"
+cp "$HERE/forge-adapt-catalogue.sh" "$FIX/scripts/"
+
+cat > "$FIX/plugins/fix-alpha/.claude-plugin/plugin.json" <<'J'
+{ "name": "fix-alpha", "version": "1.2.3", "description": "fixture" }
+J
+cat > "$FIX/plugins/fix-beta/.claude-plugin/plugin.json" <<'J'
+{ "name": "fix-beta", "version": "0.4.0", "description": "fixture" }
+J
+
+cat > "$FIX/plugins/fix-alpha/agents/alpha-agent.md" <<'M'
+---
+name: alpha-agent
+description: Does the alpha thing for tests. Second sentence must be dropped.
+---
+
+<!-- alpha-agent-version: 7 -->
+body
+M
+
+cat > "$FIX/plugins/fix-beta/hooks/beta-hook.py" <<'M'
+#!/usr/bin/env python3
+# beta-hook-version: 2
+"""Beta hook docstring. Trailing sentence dropped."""
+M
+
+mk_docs() {
+  printf 'intro\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n\noutro\n' \
+    > "$FIX/README.md"
+  printf 'intro\n\n<!-- plugin-groups:start -->\n<!-- plugin-groups:end -->\n\noutro\n' \
+    > "$FIX/CLAUDE.md"
+}
+mk_docs
+
+# --- 1. a stale (empty) region must FAIL --check, before anything is generated ------------------
+python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
+[ $? -ne 0 ] && ok "--check fails on an ungenerated region" || bad "--check fails on an ungenerated region"
+
+# --- 2. generate, then --check must pass -------------------------------------------------------
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
+[ $? -eq 0 ] && ok "--check passes right after generating" || bad "--check passes right after generating"
+
+# --- 3. content actually rendered --------------------------------------------------------------
+grep -q 'alpha-agent' "$FIX/README.md" && ok "component name rendered" || bad "component name rendered"
+grep -q 'v7' "$FIX/README.md" && ok "component marker version rendered" || bad "component marker version rendered"
+grep -q 'Does the alpha thing for tests.' "$FIX/README.md" \
+  && ok "frontmatter description rendered" || bad "frontmatter description rendered"
+grep -q 'Second sentence must be dropped' "$FIX/README.md" \
+  && bad "only the first sentence is kept" || ok "only the first sentence is kept"
+grep -q 'Beta hook docstring.' "$FIX/README.md" \
+  && ok "python docstring used when there is no frontmatter" \
+  || bad "python docstring used when there is no frontmatter"
+grep -q 'beta-hook-version' "$FIX/README.md" \
+  && bad "the version marker is never used as a description" \
+  || ok "the version marker is never used as a description"
+grep -q '1.2.3' "$FIX/CLAUDE.md" && ok "plugin.json semver rendered in the group table" \
+  || bad "plugin.json semver rendered in the group table"
+grep -q 'Do not hand-edit' "$FIX/README.md" && ok "generated regions carry a do-not-edit notice" \
+  || bad "generated regions carry a do-not-edit notice"
+
+# --- 4. idempotent: a second run changes nothing -----------------------------------------------
+before=$(cat "$FIX/README.md" "$FIX/CLAUDE.md")
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+after=$(cat "$FIX/README.md" "$FIX/CLAUDE.md")
+[ "$before" = "$after" ] && ok "generation is idempotent" || bad "generation is idempotent"
+
+# --- 5. a hand-edit inside the region must be caught -------------------------------------------
+sed -i 's/alpha-agent/alpha-AGENT-hand-edited/' "$FIX/README.md"
+python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
+[ $? -ne 0 ] && ok "--check catches a hand-edited region" || bad "--check catches a hand-edited region"
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+
+# --- 6. a NEW component makes the region stale, and regenerating picks it up --------------------
+mkdir -p "$FIX/plugins/fix-beta/skills/gamma-skill"
+cat > "$FIX/plugins/fix-beta/skills/gamma-skill/SKILL.md" <<'M'
+---
+name: gamma-skill
+description: A newly added fixture skill.
+---
+
+<!-- gamma-skill-version: 1 -->
+M
+python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
+[ $? -ne 0 ] && ok "a new component makes --check fail" || bad "a new component makes --check fail"
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+grep -q 'gamma-skill' "$FIX/README.md" \
+  && ok "regenerating picks up the new component" || bad "regenerating picks up the new component"
+python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
+[ $? -eq 0 ] && ok "--check green again after regenerating" || bad "--check green again after regenerating"
+
+# --- 7. a missing marker pair is a clear error, not a silent no-op ------------------------------
+printf 'no markers here\n' > "$FIX/README.md"
+err=$(python3 "$GEN" --root "$FIX" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "a missing marker region exits non-zero" || bad "a missing marker region exits non-zero"
+printf '%s' "$err" | grep -q 'component-index' \
+  && ok "the missing-marker error names the region" || bad "the missing-marker error names the region"
+
+echo ""
+echo "update-component-index tests: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]

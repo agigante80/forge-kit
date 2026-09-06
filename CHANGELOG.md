@@ -7,6 +7,19 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
+## Unreleased
+
+### Added
+
+- **The component inventory is generated from the tree** and CI fails on a stale region (#96).
+  `README.md` and `CLAUDE.md` carry marker-delimited regions filled by
+  `scripts/update-component-index.py` from `forge-adapt-catalogue.sh --tsv`. It was already stale
+  when this landed: the README claimed 14 skills and omitted `mutation-sweep`. Do not hand-edit
+  inside the markers.
+- A hand-written "when to run what" sequencing table in the README, deliberately not generated.
+- `--tsv` mode on `forge-adapt-catalogue.sh`, adding the file path for machine consumers. The
+  default output is unchanged and byte-stable, because forge-adapt reads it.
+
 ## v0.1.0 (2026-09-06)
 
 First tagged release. 270 commits since 2026-04-23, previously untagged.

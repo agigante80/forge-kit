@@ -6,11 +6,18 @@
 # skill's directory name, dropping `shopt -s nullglob` and exiting 1, etc.). Read-only; always
 # exits 0 so a component group with no hooks/agents never reads as "Failed to run".
 #
-# Usage: forge-adapt-catalogue.sh <FORGE_KIT_DIR>
-#   Prints "=== <group> ===" headers and "<type>: <name> | v<N>" rows.
+# Usage: forge-adapt-catalogue.sh [--tsv] <FORGE_KIT_DIR>
+#   Default: prints "=== <group> ===" headers and "<type>: <name> | v<N>" rows. This is the form
+#   the forge-adapt skill reads, so its shape is a contract; do not change it.
+#   --tsv: prints "<group>\t<type>\t<name>\t<version>\t<path>", no headers, for machine
+#   consumers that need the file path too (scripts/update-component-index.py). Added rather than
+#   letting a second consumer re-implement the walk, which is the drift this repo keeps paying for.
 #   The NAME is the component name (agent/command/hook basename, skill DIRECTORY name), never the
 #   filename - every skill file is SKILL.md, so echoing the filename would collapse them all.
 set -uo pipefail
+
+MODE=text
+if [ "${1:-}" = "--tsv" ]; then MODE=tsv; shift; fi
 
 FORGE_KIT_DIR="${1:-}"
 if [ -z "$FORGE_KIT_DIR" ] || [ ! -d "$FORGE_KIT_DIR/plugins" ]; then
@@ -49,12 +56,17 @@ cat_row() {  # $1 = type label, $2 = file, $3 = NAME (never basename "$2")
   v=$(grep -oP -- "(?:<!--\s*|#\s*)${3}-version:\s*\K\d+" "$2" | head -1)
   [ -n "$v" ] || v=$(grep -oP -- '[a-z0-9-]+-version:\s*\d+' "$2" \
                        | grep -v '^template-version' | head -1 | grep -oP '\d+$')
-  echo "$1: $3 | v${v:-none}"
+  if [ "$MODE" = tsv ]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' "$GROUP" "$1" "$3" "${v:-none}" "$2"
+  else
+    echo "$1: $3 | v${v:-none}"
+  fi
 }
 
 shopt -s nullglob   # empty globs must not iterate a literal path and leave a non-zero exit
 for dir in "$FORGE_KIT_DIR"/plugins/*/; do
-  echo "=== $(basename "$dir") ==="
+  GROUP=$(basename "$dir")
+  [ "$MODE" = tsv ] || echo "=== $GROUP ==="
   for f in "$dir"agents/*.md;       do cat_row subagent "$f" "$(basename "$f" .md)"; done
   for f in "$dir"commands/*.md;     do cat_row command  "$f" "$(basename "$f" .md)"; done
   for f in "$dir"skills/*/SKILL.md; do cat_row skill    "$f" "$(basename "$(dirname "$f")")"; done
