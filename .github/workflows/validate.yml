@@ -16,11 +16,37 @@ on:
 permissions:
   contents: read
 
+# Concurrency is deliberately ASYMMETRIC between the two triggers, and collapsing it to one
+# shared group would silently lose audits.
+#
+# Pull requests share a per-ref group and cancel in progress: only the head commit's verdict
+# matters, so superseded runs are waste.
+#
+# Pushes to main get a per-RUN group, which is a group of one, so nothing is ever cancelled.
+# A shared group cannot be used here even with cancel-in-progress false, because GitHub cancels
+# a PENDING run in a shared group regardless of that flag. A fast series of pushes would then
+# drop the intermediate one, and on main each push is a distinct range that the version-bump
+# and semver guards audit. Losing it means an unaudited range. Grouping per SHA rather than
+# per run is not sufficient either: force-push-to-restore reuses a SHA and collides.
+# Kept on ONE line on purpose: a YAML folded scalar (>-) whose continuation lines are indented
+# deeper than the first preserves their newlines, which would embed raw newlines in the group name.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # The checks are seconds of work; the only slow step is the advisory npm install. A cap well
+    # above normal turns a hung runner into a fast failure instead of a six-hour default wait.
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      # Pinned to a full commit SHA, not a mutable tag: a tag can be repointed, which is the
+      # supply-chain risk GitHub's hardening guide names first, and forge-kit ships components
+      # that teach exactly this. The trailing comment carries the human-readable version, and
+      # .github/dependabot.yml keeps the pin fresh, because a rotted pin is a security claim
+      # that quietly stopped being true.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 

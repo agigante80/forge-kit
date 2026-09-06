@@ -1,0 +1,21 @@
+# Keeps the SHA-pinned actions in .github/workflows/ fresh.
+#
+# This file is not optional given those pins. Pinning to a commit SHA trades a supply-chain risk
+# for a staleness one: the pin stops tracking security fixes the moment it is written, and an
+# unattended pin is a hardening claim that quietly stopped being true. Dependabot rewrites the SHA
+# and its trailing version comment together, so the pair cannot drift apart.
+#
+# Only the github-actions ecosystem is listed because forge-kit has no package manager and ships
+# no dependency manifest: there is deliberately nothing else here to update.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - infrastructure
+    open-pull-requests-limit: 5
