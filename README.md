@@ -158,6 +158,8 @@ This skips the analysis and install phases (2 to 5) and jumps directly to Phase 
 - `docs/guides/ticket-standards.md`: canonical single-source ready-ticket rules, version-locked to the templates
 - `docs/guides/template-versioning.md`: template versioning and auto-synthesis
 - `docs/guides/labels.md`: label taxonomy and agent routing rules
+- `docs/guides/versioning.md`: the three version levels (release tag, plugin semver, component marker) and which guard enforces each
+- `CHANGELOG.md`: umbrella release history for the marketplace as a whole
 
 ## Sponsor
 
