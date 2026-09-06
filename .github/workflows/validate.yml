@@ -96,6 +96,20 @@ jobs:
       # neither range guard below covers (both are pull_request-only).
       # Issue #112: four consumers decide what counts as a component and cannot share one
       # implementation (a glob is not a regex). This is what keeps them agreeing.
+      # Issue #76: the last two shipped shell assets with no tests. version-lib.sh is the
+      # version<->tag primitive every release lane acts on, so a silent bug there ships a wrong
+      # release; release-run.sh is driven with DRY_RUN=1, so no forge and no push is touched.
+      - name: version-lib contract tests
+        run: bash scripts/test-version-lib.sh
+
+      - name: release-run lane-policy tests
+        run: bash scripts/test-release-run.sh
+
+      # The closing-sessions memory helper: a shipped executable whose test existed but was never
+      # wired in, so nothing enforced it on a PR.
+      - name: closing-sessions memory helper tests
+        run: python3 scripts/test-closing-sessions-memory.py
+
       - name: Component path set agreement
         run: bash scripts/test-component-paths.sh
 

@@ -25,6 +25,11 @@ tracks the repository, so users are already served from the default branch.
   `full-review`) to a **ratchet**: they may shrink freely and may not grow. Word counts are a
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
+- **Every shipped executable now has a contract test, and all of them run in CI** (#76). The last
+  two gaps were `version-lib.sh` (19 tests: the four verdicts, fail-closed paths, and the
+  prerelease and sibling-branch traps its own comments call out) and `release-run.sh` (19 tests
+  of the lane policy, driven with `DRY_RUN=1` so no forge is touched). `test-closing-sessions-memory.py`
+  was also wired in; it existed but nothing ran it on a PR.
 - **The enforced path set now agrees across all four consumers** (#112). `validate-plugins.sh`
   used `find -path`, where `*` crosses `/`, so it matched component paths at ANY depth while
   the other three matched one level. A nested reference file would have been required to carry
