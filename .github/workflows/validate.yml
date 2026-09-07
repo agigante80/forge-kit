@@ -71,6 +71,15 @@ jobs:
       - name: Restatement guard tests
         run: bash scripts/test-check-restatements.sh
 
+      # A producer that emits ticket bodies must resolve the template version at runtime. Two of
+      # them hardcoded it and shipped green, because the lockstep guard's scope is the template
+      # dir, not the producers (issue #84).
+      - name: Producer-stamp guard tests
+        run: bash scripts/test-producer-stamps.sh
+
+      - name: No hardcoded template-version stamps
+        run: bash scripts/check-producer-stamps.sh
+
       - name: Precedence list matches the gate
         run: bash scripts/check-restatements.sh
 
