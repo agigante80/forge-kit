@@ -69,6 +69,13 @@ jobs:
       - name: forge-adapt catalogue script tests
         run: bash scripts/test-forge-adapt-catalogue.sh
 
+      # The agents/ directory is a FLAT namespace the Claude Code loader owns, so an agent carries
+      # reference material through a companion SKILL named in its `skills:` frontmatter (issue #124).
+      # forge-adapt has to install those skills and rewrite the plugin scope, and a skill it misses
+      # is skipped SILENTLY at runtime, so the parsing is a tested script rather than prose.
+      - name: forge-adapt agent-skills script tests
+        run: bash scripts/test-forge-adapt-agent-skills.sh
+
       # forge-lib.sh is a shipped executable (the forge-host adapter): stubbed-transport
       # contract tests for pagination and label-resolution semantics (issues #62/#63).
       - name: forge-lib contract tests

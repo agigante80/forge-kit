@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 51 -->
+<!-- forge-adapt-version: 54 -->
 
 # forge-adapt
 
@@ -431,15 +431,23 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
 3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`;
    command -> `.claude/commands/<name>.md`.
 4. Replace the repo placeholder: `sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <file>`.
-5. **Forge-host dependency:** if the component does forge operations (ticket-gate, gate-ticket,
-   dep-auditor, ci-health, release/release-automation) AND it is not GitHub-only, also install the
-   `forge-host` adapter: copy `forge-lib.sh` to `scripts/` VERBATIM, preserving its
-   `# forge-lib-version: N` marker (the marker is what makes the installed copy visible to
-   `drift`/`refresh`; a copy without one reports as `unversioned` forever), and for a Forgejo or dual-remote repo
-   (`$FORGE_HOST=forgejo`) copy `forge.conf.example` → `.forge.conf`. The Forgejo **base URL** and
-   **token-env name** cannot be auto-detected, so ASK the user for them (or read an existing
-   `.forge.conf`) to fill it in, and remind them to export the token. A GitHub-only repo needs
-   neither (the components fall back to `gh`).
+5. **Dependencies the component needs installed alongside it.** Both preserve their markers, per
+   the rule above.
+   - **Forge-host** (ticket-gate, gate-ticket, dep-auditor, ci-health, release/release-automation),
+     unless the repo is GitHub-only, in which case they fall back to `gh`: copy `forge-lib.sh` to
+     `scripts/` VERBATIM, and for a Forgejo or dual-remote repo (`$FORGE_HOST=forgejo`) copy
+     `forge.conf.example` -> `.forge.conf`. Its base URL and token-env name cannot be auto-detected,
+     so ASK for them (or read an existing `.forge.conf`), and remind the user to export the token.
+   - **Companion skills (agents only):** an agent carries reference material in a SKILL named in its
+     `skills:` frontmatter, never its own `references/` (#124). Install each skill named, then
+     rewrite the installed agent LAST, while the plugin-scoped names are still readable. **A missed
+     skill fails SILENTLY**, so never parse the frontmatter yourself; on exit 2 STOP and
+     report it:
+
+     ```bash
+     "$FORGE_KIT_DIR"/scripts/forge-adapt-agent-skills.sh --names "$FORGE_KIT_DIR/plugins/<group>/agents/<name>.md"
+     "$FORGE_KIT_DIR"/scripts/forge-adapt-agent-skills.sh --rewrite .claude/agents/<name>.md
+     ```
 6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
 **Hooks** (e.g. `block-dashes`):
@@ -537,16 +545,10 @@ the plugin, or install it into the project as below. Never do both.
 **Issue templates** (only when the user explicitly replies `templates` - not bundled into `all`,
 since these write to the committed `.github/` tree): install them inline here, no separate
 `forge-adapt templates` invocation.
-Run the **Templates mode** install logic (see Secondary modes -> Templates mode) from within this
-step: use each forge-kit template as the base when missing, or merge when outdated/incomplete
-(preserve existing content verbatim, add only missing sections, bump the `template-version` marker);
-adapt the `areas`/dropdown OPTIONS to this project's real package structure; write to
-`.github/ISSUE_TEMPLATE/` on GitHub or `.forgejo/ISSUE_TEMPLATE/` when `$FORGE_HOST=forgejo` (Forgejo
-also reads `.gitea/ISSUE_TEMPLATE/`); if the project's existing templates sit in a legacy lowercase
-dir (`.forgejo/issue_template/`, written by forge-adapt v34 and earlier), `git mv` that dir to the
-uppercase path FIRST and write there, never leave both casings behind (issue #61); exclude
-`contribution.yml`. Then offer the repo-level governance
-per the rule below. Confirm:
+Run the **Templates mode** install logic from within this step (Secondary modes -> Templates mode,
+which is canonical for the merge rules, the write paths, the legacy-casing `git mv` and the
+`contribution.yml` exclusion; it is not restated here, because the two copies drifted). Then offer
+the repo-level governance per the rule below. Confirm:
 `✓ issue templates installed at v<N> (<dir>)` and, if taken, `✓ template-lockstep guard + ticket-standards doc`.
 
 **Finish** with a short summary and next steps:
