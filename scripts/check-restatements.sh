@@ -35,7 +35,8 @@ else
     echo "check-restatements: not a git checkout and no explicit paths given" >&2; exit 2; }
   DOC="$ROOT/docs/guides/ticket-standards.md"
   GATE_FILES=("$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md"
-              "$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference/SKILL.md")
+              "$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference/SKILL.md"
+              "$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/check-ticket-mechanics.sh")
 fi
 
 [ -r "$DOC" ] || { echo "check-restatements: cannot read '$DOC'" >&2; exit 2; }

@@ -8,7 +8,7 @@ description: |
   nothing, and the only rules it carries are the ones a lens itself obeys.
 ---
 
-<!-- ticket-gate-reference-version: 7 -->
+<!-- ticket-gate-reference-version: 8 -->
 
 # ticket-gate reference
 
@@ -147,6 +147,13 @@ Answering in the body ensures the next gate run can review the complete spec.
 - [ ] <required change 1>
 - [ ] <required change 2>
 ```
+
+## Installing `check-ticket-mechanics.sh`
+
+This skill ships Step 3A's mechanical checks as `assets/check-ticket-mechanics.sh`. Copy it to
+`scripts/` VERBATIM at install time, the way `forge-host` copies `forge-lib.sh`. It IS Step 3A,
+not an optimisation: without it the gate takes its "record every check as referred" fallback and
+performs NO mechanical checks, which reads as a working gate.
 
 ## forge_* call mapping
 

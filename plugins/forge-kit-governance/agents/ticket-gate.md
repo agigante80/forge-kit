@@ -31,7 +31,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 40 -->
+<!-- ticket-gate-version: 44 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -348,49 +348,33 @@ project files.
 
 ### Step 3A: Mechanical checks (deterministic, no agent)
 
-Run these as literal checks against the issue body and the template. Checks 1, 2 and 3
-are phrased so a future script can adopt them verbatim; checks 4, 5 and 6 each split into a
-mechanical half stated here (block counts, One-When, a digit-or-quoted error, a named
-test file path, section presence) and a semantic half (WHICH conditions are independent, whether an
-N/A is legitimate under the derived-scope rule, whether a "none" reason holds) that
-belongs to the critic. Outcomes are: **pass**, **fail**, **warn** (check 1
-newer-marker, check 2 missing type label), **N/A** (check scoped out), or **referred**
-(the critic resolves it, e.g. check 4's specific-error heuristic miss). Every outcome
-quotes its evidence line. **Every FAIL becomes a blocking item, classified significant**
-(fundamental only ever comes from the critic or the lens, never from mechanics), merged
-into the blocking list before
-Step 6 runs: a mechanical failure must never be lost to a clean critic. Warn, N/A, and
-referred never block; a referred item blocks only if the critic fails it. A mechanical failure is a NEEDS-WORK verdict on its own, but ALWAYS continue
-to Step 3B so the author gets the full picture in one round.
+Run the script the `ticket-gate-reference` skill ships; do NOT re-implement its checks in prose,
+which cannot be tested (#149).
 
-1. **Template version current** - records Step 0a's outcome. Two edge shapes are NOT
-   failures, or a re-run could never converge: a marker NEWER than `$CURRENT_TPL_VER` (a
-   fork ahead of this project's templates) records a warning recommending a template update
-   and proceeds; an empty `$CURRENT_TPL_VER` (no versioned templates in the project) records
-   N/A. Only missing-or-older markers fail, and 0c auto-synthesis is their repair path.
-2. **Labels valid** - records Step 0b's outcome exactly (area required, type warn-only).
-   This check never demands a label no step requires.
-3. **Required sections present** - every section the current template carries has a
-   corresponding heading with non-empty content in the body.
-4. **GWT structure** (rule 1 quality bar, the checkable half):
-   - at least one positive AND one negative `Given/When/Then` block exist (whether they cover
-     every independent condition is the critic's judgment, not this check's)
-   - exactly ONE `When` line per scenario block
-   - the negative scenario's `Then` is specific: a digit-bearing status, a quoted message, or
-     an error identifier passes mechanically; anything else is REFERRED to the critic's rule-1
-     judgment rather than failed outright (the canonical doc governs; this heuristic is
-     deliberately narrower than the rule and must not reject doc-compliant messages)
-5. **Test specs concrete** - where the ticket touches code, the unit-test section names at
-   least one file path; bare "add unit tests" is a fail. A unit-test N/A is REFERRED to the
-   critic: legitimate only where the gate derives rule 2 out of scope (docs-only, research,
-   infra-only, per the canonical doc's load-bearing N/A rule; a coverage bar such tickets
-   cannot satisfy makes the gate un-passable and trains box-ticking), never auto-accepted
-   on a code-touching ticket. The E2E section names a file path OR carries an explicit N/A
-   with a reason, legitimate ONLY for tickets with no UI-visible behaviour - a UI-touching
-   ticket without happy AND unhappy E2E specs is BLOCKING (rule 3), a call Step 3B
-   confirms, never waves through.
-6. **Documentation impact present** - the `docs_impact` section names docs or states none
-   with a reason (the CLAIM's quality is Step 3B's to judge; presence is mechanical).
+```bash
+MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
+# $CLAUDE_PLUGIN_ROOT reaches HOOK processes, not an agent's Bash, so search for the plugin copy:
+[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh 2>/dev/null | head -1)
+"$MECH" --body <body-file> --template <the type's template file> \
+  --tpl-version <marker from the body> --current-tpl-version <0a's value> --labels <0b's labels>
+```
+
+One row per check, `<check>\t<outcome>\t<evidence>`; a non-zero exit means every check is
+`referred` and the review says so.
+
+Outcomes are **pass**, **fail**, **warn**, **na** (check 1 only) or **referred**
+(the script could not rule). Neither is a defect in the ticket. **Every FAIL is a blocking
+item, classified significant** (fundamental only ever comes from the critic or the lens, never from
+mechanics), merged into the blocking list before Step 6: a mechanical failure must never be lost
+to a clean critic. Warn, N/A, and referred never block; a referred item blocks only if the
+critic fails it. A mechanical failure is NEEDS-WORK on its own, but ALWAYS continue to
+Step 3B so the author gets the full picture in one round.
+
+**A `referred` row is a question the script deliberately cannot answer, and Step 3B answers it.**
+Its heuristics are narrower than the canonical doc on purpose, so a referred row is never by itself
+evidence of a defect in the ticket. The semantic halves it refers are: WHICH conditions are
+independent, whether an N/A is legitimate under the derived-scope rule, whether a UI-touching
+ticket may claim no E2E specs, and whether a "none" reason holds.
 
 ### Step 3B: The critic (one agent)
 

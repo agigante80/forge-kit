@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 56 -->
+<!-- forge-adapt-version: 59 -->
 
 # forge-adapt
 
@@ -184,10 +184,9 @@ done
 # the cache outlives uninstalls and keeps old versions beside the live one.
 SP_STATUS=$(grep -q '"superpowers@' ~/.claude/plugins/installed_plugins.json 2>/dev/null && echo present || echo absent)
 echo "superpowers: $SP_STATUS"   # printed so Step 2 (a fresh shell) reads it from the transcript
-# Shell assets installed by skills land in scripts/ (forge-host copies forge-lib.sh there;
-# release-automation copies version-lib.sh + release-run.sh). Same marker scheme, same drift rules:
-for f in scripts/forge-lib.sh scripts/version-lib.sh scripts/release-run.sh; do
-  [ -f "$f" ] || continue
+# Shell assets in scripts/, same rules:
+for f in scripts/*.sh; do          # every asset, not a list
+  grep -qE '^# [a-z0-9-]+-version: [0-9]+' "$f" 2>/dev/null || continue
   n=$(basename "$f" .sh)
   v=$(grep -oP -- "#\s*${n}-version:\s*\K\d+" "$f" | head -1)
   echo "  $n | v${v:-none} | shell asset (verbatim copy)"
@@ -426,8 +425,8 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
      makes the adapted copy detectable next run - an adaptation that drops the marker resets the
      component to "unversioned" and defeats drift detection forever. If the template somehow lacks a
      marker, add one matching the catalogue version.
-3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`;
-   command -> `.claude/commands/<name>.md`.
+3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`, plus
+   its `assets/*.sh` VERBATIM to `scripts/` (uninstalled, it degrades silently); command -> `.claude/commands/<name>.md`.
 4. Replace the repo placeholder: `sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <file>`.
 5. **Dependencies the component needs installed alongside it.** Both preserve their markers, per
    the rule above.
@@ -586,7 +585,8 @@ forge-adapt drift report - <project>
 Stop after the report. Do not modify anything. Status `behind` requires a local marker strictly
 lower than forge-kit; a copy with no local marker is `unversioned`, never `behind`.
 
-Shell assets (`scripts/forge-lib.sh`, `scripts/version-lib.sh`, `scripts/release-run.sh`) appear
+Shell assets (`scripts/forge-lib.sh`, `scripts/version-lib.sh`, `scripts/release-run.sh`,
+`scripts/check-ticket-mechanics.sh`) appear
 in the same table, compared against the catalogue's `asset:` rows. A present-but-unmarked copy is
 reported as `unversioned - refresh to deep-compare`, NEVER omitted: every install that predates
 the markers is exactly the copy most likely to be stale, so silence would hide the whole existing

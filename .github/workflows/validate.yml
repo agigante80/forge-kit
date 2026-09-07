@@ -106,6 +106,12 @@ jobs:
       - name: forge-lib contract tests
         run: bash scripts/test-forge-lib.sh
 
+      # check-ticket-mechanics.sh is a shipped executable: ticket-gate Step 3A, which was prose
+      # until #149. Its refer paths are the point of the suite, since a naive implementation
+      # fails outright where the script must defer to the critic.
+      - name: ticket-gate mechanical-checks contract tests
+        run: bash scripts/test-check-ticket-mechanics.sh
+
       - name: Component index tests
         run: bash scripts/test-update-component-index.sh
 

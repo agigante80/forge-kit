@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 12 -->
+<!-- doc-rules-version: 16 -->
 
 # Ticket standards (canonical)
 
@@ -163,11 +163,12 @@ can still fork silently, so do not create more of them.
 2. The security lens checklist, which restates rule 5 point for point. It lives in the
    `ticket-gate-reference` skill since #109, not in the agent file.
    <!-- anchor: "OWASP Top 10: injection, XSS, CSRF" -->
-3. Rule 1's GWT quality bar, which appears twice: in the Step 0c-iii synthesis table and in Step 3A
-   check 4.
+3. Rule 1's GWT quality bar, which appears three times: in the Step 0c-iii synthesis table, and
+   twice in `check-ticket-mechanics.sh`, which took Step 3A's checks over from prose in #149.
    <!-- anchor: "Apply the rule-1 quality bar" -->
-   <!-- anchor: "(rule 1 quality bar, the checkable half)" -->
-   <!-- anchor: "REFERRED to the critic's rule-1" -->
+   <!-- anchor: "check 4: GWT structure (rule 1, the checkable half)" -->
+   <!-- anchor: "narrower than rule 1's quality" -->
+   <!-- anchor: "the critic must judge rule 1 unaided" -->
 4. Rule 2's integration and regression coverage, and rule 8's implementation concreteness (build
    and test commands, dependency justification, N+1 and scalability), which the critic's brief
    carries as blocking-capable concerns. These joined this doc in #117 (issue #94); before that
@@ -181,25 +182,32 @@ can still fork silently, so do not create more of them.
    because the synthesis sub-agent has to be told what to write. Item 3 covers rule 1's appearance
    in that same table; these are the other four.
    <!-- anchor: "| Section | Derived from |" -->
-7. Step 3A check 5, which restates rule 2's concrete-spec bar as a mechanical check, down to
-   rejecting a bare "add unit tests", and also restates the N/A rule's own rationale.
-   <!-- anchor: "legitimate only where the gate derives rule 2 out of scope" -->
-8. Rule 7 in three further places: Step 3A check 6 (the bar), the critic's brief, and the Rules
-   section (its every-work-ticket scope).
-   <!-- anchor: "**Documentation impact present**" -->
+7. The unit-test check in `check-ticket-mechanics.sh`, which restates rule 2's concrete-spec bar
+   as a mechanical check, down to rejecting a bare "add unit tests", and restates the N/A rule's
+   own rationale. It was Step 3A prose until #149.
+   <!-- anchor: "legitimate only where rule 2 is out of scope" -->
+   <!-- anchor: "the critic must judge rule 2 unaided" -->
+8. Rule 7 in four further places: twice in `check-ticket-mechanics.sh` (check 6's bar and the
+   reason it refers rather than passes), the critic's brief, and the Rules section (its
+   every-work-ticket scope).
+   <!-- anchor: "HOLDS is rule 7, judged by the critic" -->
+   <!-- anchor: "rule 7 applies to every work ticket:" -->
    <!-- anchor: "documentation currency (rule 7) judged against the ticket's own file list" -->
    <!-- anchor: "documentation currency (rule 7) applies to every work ticket" -->
 9. Rule 1's SCOPE clause at Step 3B. Item 3 covers rule 1's quality bar, which is a different
    clause.
    <!-- anchor: "an N/A claim is legitimate only where no behaviour delta exists" -->
-10. Rule 3's UI E2E hard-fail bar AGAIN, restated as Step 3A's mechanical check. Item 1 covers the
+10. Rule 3's UI E2E hard-fail bar AGAIN, twice in `check-ticket-mechanics.sh`. Item 1 covers the
    same bar in the critic's brief; this is the mechanical half, and no review round ever named it.
-   The guard found it on its first run.
-   <!-- anchor: "E2E specs is BLOCKING (rule 3)" -->
+   The guard found it on its first run, and #149 moved it from prose into the script.
+   <!-- anchor: "UI at all (rule 3), is Step 3B's call" -->
+   <!-- anchor: "rule 3 says a UI-touching ticket cannot claim it" -->
+   <!-- anchor: "the critic must judge rule 3 unaided" -->
 
 <!-- restatement-allow: Step 2.5 :: rule 4 :: routing row for the optional
      privacy-regime skill; it states no bar of its own and only notes that rule 4 still binds when
      the skill is absent -->
+
 
 Editing rule 5 or rule 1 therefore means editing the gate in the same change. The list used to
 claim the hard-fail bars were the *only* exception, which was false, so a maintainer editing rule 5
