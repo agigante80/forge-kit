@@ -48,6 +48,13 @@ tracks the repository, so users are already served from the default branch.
   bump). Precedence now enumerates the REAL restatement set (it wrongly claimed the hard-fail
   bars were the only one) and distinguishes a stricter gate restatement, which is advisory and
   reported as a doc gap rather than blocking, so a gate copy cannot silently out-rule the doc.
+- **forge-lib hardening** (#78). The config is parsed once per repo root instead of about four
+  times per paginated page; `forge_api` reports the HTTP status as an exit code (44 for 404, 22
+  otherwise) instead of `curl -f` flattening everything into 22 with no body, so
+  `forge_issue_label` no longer reports an ordinary org-404 as an access failure; and temp files
+  live in one per-process directory cleaned by an EXIT trap that is installed only when the
+  caller has none. The asset's header now carries a CONTRACT CHANGES list, so a `refresh` diff
+  says whether a caller has to change.
 - **sync-labels hardening** (#121, #122). It now refuses an unterminated quoted
   value, a duplicate declared name and an empty flag value rather than accepting each silently;
   it builds the host lookup in ONE jq pass instead of three or four per label (62 processes to 3

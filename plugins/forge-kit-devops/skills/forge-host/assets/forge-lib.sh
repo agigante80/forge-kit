@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 4
+# forge-lib-version: 8
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -17,13 +17,74 @@
 #
 # Requires: git, jq. GitHub backend uses `gh` (its existing auth); Forgejo backend uses `curl` + a
 # token. Set FORGE_DRY_RUN=1 to print would-be API requests instead of sending them.
+# CONTRACT CHANGES (read this before `forge-adapt refresh forge-lib` lands a new copy).
+# `refresh` is report-first for assets, so a human sees the diff; this list is what makes that
+# diff mean something, because a byte diff does not say whether a CALLER has to change.
+#   v4  forge_issue_label REFUSES ATOMICALLY on any unresolvable name (it used to apply what it
+#       could and exit 0). A caller that ignored the exit code now silently applies NO labels
+#       where it previously applied some. Check every call site (issue #63).
+#   v5  forge_api reports the HTTP status through its EXIT CODE on the forgejo path: 44 for 404,
+#       22 for other non-2xx, and curl's own code for a transport failure. A caller that treated
+#       any non-zero as fatal now sees 44 for the ordinary "no such org" case. NOTE a 3xx that
+#       survives -L now returns 22 where `curl -f` returned 0, because -f only failed on >= 400
+#       (issue #78).
+#   v6  the config is parsed ONCE per process per working directory instead of on every call. A
+#       caller that edited .forge.conf mid-run and expected the next call to see it must now cd
+#       out and back, or unset _FORGE_CONF_PWD (issue #78.1).
+#   v7  file-derived FORGE_* values are no longer EXPORTED, so they do not reach a child process.
+#       This is what makes a child running in a different repo read its OWN .forge.conf. A caller
+#       that relied on sourcing forge-lib and then having a child inherit the repo identity must
+#       now export the value itself, which is the documented env-wins path anyway (issue #78).
+# Add a line here whenever a change alters what a caller must do, not merely what the library
+# does internally.
+
 set -uo pipefail
+
+# Never inherit these: an inherited _FORGE_TMPDIR would be trusted, written to with a predictable
+# name and never cleaned; an inherited memo guard would suppress the first config load.
+unset _FORGE_TMPDIR _FORGE_CONF_PWD _FORGE_FROM_FILE
 
 _forge_root() { git rev-parse --show-toplevel 2>/dev/null || pwd; }
 
 # Load .forge.conf (KEY=value lines) if present. Env vars already set WIN over the file.
+# Memoized per process and per working directory (issue #78.1). Every page of a paginated call used
+# to re-run this about four times, via forge_host, forge_api_base and _forge_token, each costing a
+# `git rev-parse` plus a fork per config line.
+#
+# File-derived values are set as PLAIN shell variables and deliberately NOT exported, so they never
+# reach a child process; a child sourcing this library in another repo reads that repo's own file.
+# Exporting them was a long-standing bug, not one this branch introduced: measured on the pre-#78
+# baseline and on this branch, any forge_* call made OUTSIDE a command substitution leaked the repo
+# identity to every later child, identically on both. What #78.1 changed is the REACH, because
+# loading in forge_api_paginate's own shell (which is what makes the memo pay) turned the common
+# paginated path into one of those direct calls.
+#
+# Values set FROM THE FILE are also tracked and cleared when the working directory changes, so a
+# process that moves between repos re-reads correctly in-shell.
+#
+# KNOWN LIMIT (issue #131): the tracking is by KEY, not by value, so a caller that exports a
+# FORGE_* value AFTER a load which set that same key from the file will have its export cleared on
+# the next chdir. Env-wins holds everywhere else. Detecting this needs the variable's export
+# attribute, and the portable ways to read it cost a fork per key.
 _forge_load_conf() {
-  local f line k v; f="$(_forge_root)/.forge.conf"
+  # The guard keys on $PWD, a shell builtin that costs nothing, NOT on the resolved root: resolving
+  # the root runs `git rev-parse`, and doing that BEFORE the guard is why the first version of this
+  # memo saved nothing measurable (25 git calls per 6-page paginate, before and after, measured).
+  # $PWD is a sound proxy: the root cannot change without the working directory changing.
+  local f line k v root
+  [ "${_FORGE_CONF_PWD-}" != "${PWD-}" ] || return 0
+  root="$(_forge_root)"
+  # Reachable, and removed once as "dead": in a DELETED working directory both `git rev-parse` and
+  # the `pwd` fallback fail, root is empty, and "$root/.forge.conf" collapses to /.forge.conf, whose
+  # FORGE_API_URL and FORGE_TOKEN_ENV this library would then adopt.
+  [ -n "$root" ] || return 0
+  # Clear anything a PREVIOUS directory's file set, or env-wins would make the new file a no-op.
+  # Loading in the caller's shell (which is what makes the memo pay) means these values persist,
+  # so a process moving between repos would otherwise keep the first repo's identity.
+  for k in ${_FORGE_FROM_FILE-}; do unset "$k"; done
+  _FORGE_FROM_FILE=""
+  _FORGE_CONF_PWD="${PWD-}"
+  f="$root/.forge.conf"
   [ -f "$f" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"                                  # tolerate CRLF line endings
@@ -34,7 +95,8 @@ _forge_load_conf() {
     v="${v%%#*}"; v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
     case "$k" in
       FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS)
-        [ -n "${!k:-}" ] || { printf -v "$k" '%s' "$v"; export "$k"; } ;;  # env (if set) wins; else file
+        [ -n "${!k:-}" ] || { printf -v "$k" '%s' "$v"     # NOT exported: see the header note
+                              _FORGE_FROM_FILE="${_FORGE_FROM_FILE-} $k"; } ;;  # env wins; else file
     esac
   done < "$f"
 }
@@ -112,6 +174,10 @@ _forge_token() {
 
 # forge_api <METHOD> <path> [json-body]   path is like  /repos/{owner}/{repo}/issues
 # Prints the raw JSON response. FORGE_DRY_RUN=1 -> print the resolved request and return.
+# On the forgejo path the HTTP status reaches the caller as an EXIT CODE (issue #78.2): 0 for 2xx,
+# 44 for 404, 22 for any other non-2xx, and curl's own code for a transport failure. Not a
+# variable: callers read the body with $(...), which runs this in a subshell where an assignment
+# would be discarded.
 forge_api() {
   local method="$1" path="$2" body="${3-}"
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
@@ -130,11 +196,26 @@ forge_api() {
       local base tok
       base="$(forge_api_base)" || return 2
       tok="$(_forge_token)"    || return 2
+      # NOT `curl -f` (issue #78.2): -f collapses every HTTP >= 400 into exit 22 with no body and
+      # no status, so a caller cannot tell 404 (an org with no labels: fine) from 401 or 500 (a
+      # real failure). The status is appended on its own line and split off here.
+      local out rc
       if [ -n "$body" ]; then
-        curl -fsSL -X "$method" -H "Authorization: token $tok" -H 'Content-Type: application/json' -d "$body" "$base$path"
+        out="$(curl -sSL -w '\n%{http_code}' -X "$method" -H "Authorization: token $tok" -H 'Content-Type: application/json' -d "$body" "$base$path")"; rc=$?
       else
-        curl -fsSL -X "$method" -H "Authorization: token $tok" "$base$path"
-      fi ;;
+        out="$(curl -sSL -w '\n%{http_code}' -X "$method" -H "Authorization: token $tok" "$base$path")"; rc=$?
+      fi
+      [ "$rc" -eq 0 ] || return "$rc"          # transport failure: curl's own code, no status
+      local status="${out##*$'\n'}"
+      printf '%s' "${out%$'\n'*}"
+      # The status is reported through the EXIT CODE, not a variable. Every caller reads the body
+      # with $(...), which runs this function in a SUBSHELL, so any variable set here is discarded
+      # before the caller can read it. An exit code is the one channel that survives.
+      case "$status" in
+        2*)  return 0 ;;
+        404) return 44 ;;
+        *)   echo "forge-lib: HTTP $status from $method $path" >&2; return 22 ;;
+      esac ;;
   esac
 }
 
@@ -155,6 +236,9 @@ forge_api() {
 # measures at that ceiling, so argv accumulation hard-fails on exactly the repos pagination
 # exists for. File/stdin input has no such limit (and avoids re-parsing prior pages each loop).
 forge_api_paginate() {
+  _forge_load_conf || true   # ONCE, in this shell: the per-page $(forge_api ...) subshells and
+                             # their own $(forge_host) / $(_forge_token) subshells inherit the
+                             # memo from here. Loading it deeper would be discarded each time.
   local path="$1" sep page=1 chunk n tmp rc
   case "$path" in *\?*) sep='&' ;; *) sep='?' ;; esac
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
@@ -170,27 +254,68 @@ forge_api_paginate() {
   fi
   local cap="${FORGE_PAGINATE_MAX_PAGES:-500}"
   case "$cap" in ''|*[!0-9]*) cap=500 ;; esac   # a non-numeric override must not void the spin guard
-  tmp="$(mktemp)" || return 2
+  _forge_tmp_init || return 2
+  # mktemp, NOT "paginate.$$": $$ is the PARENT pid inside every subshell, so two concurrent
+  # paginations in one process shared a path and each returned the union of both streams, exit 0.
+  tmp="$(mktemp "$_FORGE_TMPDIR/paginate.XXXXXX")" || return 2
   while :; do
-    chunk="$(forge_api GET "${path}${sep}limit=50&page=${page}")" || { rm -f "$tmp"; return 2; }
+    chunk="$(forge_api GET "${path}${sep}limit=50&page=${page}")" || { rc=$?; _forge_tmp_done "$tmp"; return "$rc"; }
     n="$(printf '%s' "$chunk" | jq 'if type == "array" then length else -1 end' 2>/dev/null)"
     case "$n" in
       ''|*[!0-9-]*|-1)
         echo "forge-lib: paginate: non-array or empty response from ${path} page ${page}" >&2
-        rm -f "$tmp"; return 2 ;;
+        _forge_tmp_done "$tmp"; return 2 ;;
     esac
     [ "$n" -gt 0 ] || break
     printf '%s\n' "$chunk" >> "$tmp"
     page=$((page + 1))
     if [ "$page" -gt "$cap" ]; then
       echo "forge-lib: paginate: exceeded $cap pages on ${path}; server may be ignoring the page param" >&2
-      rm -f "$tmp"; return 2
+      _forge_tmp_done "$tmp"; return 2
     fi
   done
   jq -sc 'add // []' "$tmp"; rc=$?
-  rm -f "$tmp"
+  _forge_tmp_done "$tmp"
   return $rc
 }
+
+# _forge_tmp_init  create the per-process temp DIR once and install ONE cleanup.
+# Issue #78.3: the previous `mktemp` files were removed on every return path but not on a signal,
+# so a Ctrl-C mid-pagination left one behind per call. A single directory means one cleanup point.
+#
+# It sets a variable rather than PRINTING a path, because a caller would have to use $( ) to read
+# a printed one, and a command substitution runs in a SUBSHELL: the assignment and the trap would
+# both be discarded, so every call would create a new directory and none would ever be cleaned.
+#
+# The EXIT trap is installed ONLY when the caller has none. A sourced library that overwrites its
+# caller's trap is a worse bug than a leaked file. Where the caller does have one, the normal
+# return paths still remove the file and the SIGNAL case is the caller's to handle; that cannot be
+# fixed from inside a library, so it is stated rather than hidden.
+_forge_tmp_init() {
+  # Check the DIRECTORY, not just the variable: a subshell that finished a paginate may have
+  # rmdir'd it, and its `unset` cannot escape the subshell, so the parent can hold a stale path.
+  if [ -n "${_FORGE_TMPDIR-}" ] && [ -d "$_FORGE_TMPDIR" ]; then return 0; fi
+  _FORGE_TMPDIR="$(mktemp -d)" || return 2
+  # Install ONLY when the caller has no EXIT trap. Re-installing the caller's command is worse than
+  # standing aside: a subshell that inherits the trap string would then run the CALLER's cleanup at
+  # SUBSHELL exit, tearing down the caller's state mid-run. Measured, painfully: appending to the
+  # trap made this repo's own suite delete its scratch dir in the middle of a test.
+  [ -n "$(trap -p EXIT)" ] || trap 'rm -rf "${_FORGE_TMPDIR-}"' EXIT
+  return 0
+}
+
+# _forge_tmp_done <file>  drop a temp file and, when it was the last one, the directory too.
+# This is what stops the leak on the NORMAL path when the caller already had an EXIT trap and the
+# signal trap above was therefore not installed: without it the files went but the directory stayed,
+# and this repo's own suite left 18 behind per run. rmdir only succeeds when empty, so a concurrent
+# pagination still holding a file is unaffected.
+_forge_tmp_done() {
+  rm -f "$1"
+  [ -n "${_FORGE_TMPDIR-}" ] || return 0
+  rmdir "$_FORGE_TMPDIR" 2>/dev/null && unset _FORGE_TMPDIR
+  return 0
+}
+
 
 # _forge_resolve_names <listfile> <name...>  resolve names against the label lists (JSON arrays,
 # one per line) in <listfile> -> [{name, id|null}]. ONE resolution pass drives BOTH the refusal
@@ -268,16 +393,23 @@ forge_issue_label() {
       # (argv-capped; see forge_api_paginate).
       local all org org_failed=0 resolved nmissing missing ids nlabels tmp
       all="$(forge_api_paginate "/repos/$repo/labels")" || return 2
-      tmp="$(mktemp)" || return 2
+      _forge_tmp_init || return 2
+      tmp="$(mktemp "$_FORGE_TMPDIR/labels.XXXXXX")" || return 2
       printf '%s\n' "$all" > "$tmp"
       resolved="$(_forge_resolve_names "$tmp" "$@")"
       if [ "$(printf '%s' "$resolved" | jq '[.[] | select(.id == null)] | length')" -gt 0 ]; then
-        org="$(forge_api_paginate "/orgs/${repo%%/*}/labels" 2>/dev/null)" || { org='[]'; org_failed=1; }
+        # With the status available (#78.2), a 404 is the ordinary "this owner is a user, or the
+        # org declares no labels" case and is NOT a failure worth flagging; anything else is.
+        # 44 is a 404 (this owner is a user, or the org declares no labels): ordinary, not a
+        # failure worth flagging. Anything else narrows the label universe for a reason the
+        # operator needs to know about.
+        org="$(forge_api_paginate "/orgs/${repo%%/*}/labels" 2>/dev/null)" || {
+          [ "$?" -eq 44 ] || org_failed=1; org='[]'; }
         printf '%s\n%s\n' "$all" "$org" > "$tmp"
         resolved="$(_forge_resolve_names "$tmp" "$@")"
       fi
       nlabels="$(jq -s 'add | length' "$tmp")"
-      rm -f "$tmp"
+      _forge_tmp_done "$tmp"
       # Gate on the COUNT of unresolved entries, not on a joined string: join(" ") of [""] is
       # empty, so a string-emptiness gate lets an empty-string name slip through and POST null.
       nmissing="$(printf '%s' "$resolved" | jq '[.[] | select(.id == null)] | length')"
