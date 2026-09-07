@@ -66,6 +66,14 @@ jobs:
       - name: Template lockstep guard tests
         run: bash scripts/test-template-lockstep.sh
 
+      # The Precedence list in ticket-standards.md used to certify its own completeness, and was
+      # wrong three review rounds running (issue #125). It is now anchored and verified.
+      - name: Restatement guard tests
+        run: bash scripts/test-check-restatements.sh
+
+      - name: Precedence list matches the gate
+        run: bash scripts/check-restatements.sh
+
       - name: forge-adapt catalogue script tests
         run: bash scripts/test-forge-adapt-catalogue.sh
 
