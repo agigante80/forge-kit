@@ -2,13 +2,13 @@
 name: ticket-gate-reference
 description: |
   Reference material the ticket-gate agent reads once per run: the review output template it
-  composes, the specialist lens definitions with their result contract, the two comment templates
+  composes, the specialist lens definitions with their result contract, the comment templates
   it posts, and the `forge_*` call mapping every forge operation looks up. Preloaded into
   ticket-gate through that agent's `skills:` frontmatter. Not a standalone workflow: it decides
   nothing, and the only rules it carries are the ones a lens itself obeys.
 ---
 
-<!-- ticket-gate-reference-version: 5 -->
+<!-- ticket-gate-reference-version: 7 -->
 
 # ticket-gate reference
 
@@ -106,6 +106,22 @@ These are PAYLOADS only. WHEN each is posted, and what blocks or proceeds after 
 `ticket-gate.md`. Post them through the call mapping below, under the rule and the legacy fallback
 `ticket-gate.md` states: they left that file in #130, so the inline "GitHub reference form" caveat
 no longer reaches them.
+
+**Synthesis void (Step 0c-v, template auto-upgraded).**
+
+```markdown
+Template auto-upgraded to v<CURRENT_TPL_VER> - content synthesised
+
+Issue was filed against template v<old> (current: v<CURRENT_TPL_VER>).
+The following sections were synthesised from the existing issue content:
+
+- <section id>: <what was synthesised for it, or N/A - <reason>>
+
+Enriched existing sections: <list or "none">
+
+Any previous gate verdict is void. Re-reviewing now against the enriched body.
+Review the synthesised content and re-run /gate-ticket <N> if corrections are needed.
+```
 
 **Clarification (Step 1.5, thin ticket).**
 

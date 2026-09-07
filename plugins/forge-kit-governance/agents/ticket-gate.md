@@ -31,7 +31,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 37 -->
+<!-- ticket-gate-version: 40 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -54,7 +54,8 @@ REPO="$(forge_repo)"           # owner/repo on the detected host (replaces {{GIT
 ```
 
 **Use the `forge_*` functions for every forge call. Do not call `gh` directly.** The call for each
-need, and the templates Steps 1.5, 3C, 4 and 6 read, live in the `ticket-gate-reference` skill.
+need, and the templates Steps 0c, 1.5, 3C, 4 and 6 read, live in the `ticket-gate-reference`
+skill.
 
 The `gh …` snippets below are the **GitHub reference form**: apply the `forge_*` equivalent so the
 same logic runs on Forgejo. If `forge-lib.sh` is absent (legacy install), fall back to `gh`.
@@ -157,9 +158,9 @@ assumption made.
 
 **0c-iv. Build updated body**
 
-Merge synthesised content into the existing issue body, preserving all prior text verbatim.
-Replace `template-version: N` (or add the marker if missing) with
-`template-version: $CURRENT_TPL_VER` (the value read in 0a; never a hardcoded literal).
+Merge synthesised content into the existing issue body, preserving all prior AUTHOR text
+verbatim, and clear the gate's regions (Step 6's lifecycle). Replace `template-version: N` (or
+add the marker if missing) with `template-version: $CURRENT_TPL_VER` (the value read in 0a; never a hardcoded literal).
 
 ```bash
 gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<full updated body>"
@@ -167,19 +168,7 @@ gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<full updated body>"
 
 **0c-v. Post void and synthesis comment**
 
-```
-Template auto-upgraded to v<CURRENT_TPL_VER> - content synthesised
-
-Issue was filed against template v<old> (current: v<CURRENT_TPL_VER>).
-The following sections were synthesised from the existing issue content:
-
-- <section id>: <what was synthesised for it, or N/A - <reason>>
-
-Enriched existing sections: <list or "none">
-
-Any previous gate verdict is void. Re-reviewing now against the enriched body.
-Review the synthesised content and re-run /gate-ticket <N> if corrections are needed.
-```
+Post the SYNTHESIS VOID template from the reference skill.
 
 **0c-vi. Proceed to 0b**
 
@@ -214,9 +203,9 @@ gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json number,title,body,labels,mi
 
 ### Step 1.5: Thin ticket pre-check
 
-Runs BEFORE the critic, in round 1 only (and any re-run whose body SHRANK, or after Step 0c
-fired); it never repeats on an ordinary re-run, because a body that only grows cannot become
-thin. Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket
+Runs BEFORE the critic, in round 1 only (or after 0c fired); it never repeats on an ordinary
+re-run. A shrunk body would also justify it, but nothing persists a prior body to compare
+against, so that trigger is #147 rather than an unexecutable rule here. Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket
 that would fail purely for missing information is better halted now with targeted questions than
 pushed through a full critique.
 
@@ -315,12 +304,11 @@ state.
 
 **1. Check if `codebase_context` is already populated**, in the issue body ALREADY FETCHED
 in Step 1 (never a fresh forge call):
-- If the section has non-placeholder content AND the `gate-verdict` block carried no
-  fundamental item: skip re-exploration. Log: `codebase context: using cached findings from
-  previous gate run`.
-- After a fundamental round the cache is VOID (an adopted alternative can target different
-  code): run the exploration sub-agent regardless of cached content.
-- If empty or placeholder-only: run the exploration sub-agent below.
+- Skip re-exploration ONLY if the section has non-placeholder content AND a `gate-verdict`
+  block is PRESENT carrying no fundamental item. Log: `codebase context: using cached findings
+  from previous gate run`.
+- Otherwise run the exploration sub-agent below. After a fundamental round the cache is VOID,
+  since an adopted alternative can target different code.
 
 **2. Launch a `general-purpose` sub-agent** with:
 - The ticket title and key domain nouns extracted from the title, labels, and body
@@ -331,11 +319,12 @@ Ask the sub-agent to use Glob and Grep to locate and summarise:
 - Any conflicting patterns or constraints that affect the proposed approach
 - Related existing tests that the ticket's implementation should build on
 
-**3. Write the findings to the issue** (replacing the Codebase Context placeholder):
+**3. Write the findings** as the `gate-context` region, inside the Codebase Context section,
+under Step 6's lifecycle:
 
-Build a structured block:
 ```markdown
-<!-- ticket-gate: populated <YYYY-MM-DD> -->
+<!-- gate-context:start -->
+### Codebase context (gate, <YYYY-MM-DD>)
 **Relevant files:**
 - `<path>`: <one-line summary>
 
@@ -344,19 +333,18 @@ Build a structured block:
 
 **Constraints:**
 - <constraint relevant to implementation choices>
+<!-- gate-context:end -->
 ```
 
 ```bash
-# Build the updated body with findings injected into the Codebase Context section
-# then update via:
 gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
 ```
 
 If no relevant files exist, write `greenfield area: no existing patterns in scope` and note
 this to the critic (absence of patterns is itself useful architectural context).
 
-**4. Pass the populated `Codebase Context` section to the critic** in Step 3B as
-additional context alongside the issue body and project files.
+**4. Pass the populated section to the critic** in Step 3B, alongside the issue body and
+project files.
 
 ### Step 3A: Mechanical checks (deterministic, no agent)
 
@@ -370,7 +358,7 @@ newer-marker, check 2 missing type label), **N/A** (check scoped out), or **refe
 (the critic resolves it, e.g. check 4's specific-error heuristic miss). Every outcome
 quotes its evidence line. **Every FAIL becomes a blocking item, classified significant**
 (fundamental only ever comes from the critic or the lens, never from mechanics), merged
-into the Required changes list before
+into the blocking list before
 Step 6 runs: a mechanical failure must never be lost to a clean critic. Warn, N/A, and
 referred never block; a referred item blocks only if the critic fails it. A mechanical failure is a NEEDS-WORK verdict on its own, but ALWAYS continue
 to Step 3B so the author gets the full picture in one round.
@@ -509,12 +497,6 @@ why it resolves the specific objection; include them in the review under the tem
 every other mention points here. The posted comment must be complete, since editing a
 posted review is the post-then-retract failure the Rules forbid.
 
-**On a re-run, carried-forward sections.** Report sections whose content is unchanged are marked
-"carried forward from round <N-1>" rather than re-produced, EXCEPT that any factual anchor in a
-carried section (a file path, route, schema field) that the changed body touches is re-verified
-in this run before posting, per the first Rule; the six-element contract is satisfied by the
-combination.
-
 **Merge rule, phrased for N sources because projects add lenses.** The review carries ONE
 verdict, the strictest across all sources; any blocking item from ANY source blocks; lens
 advisories join the review's advisory list like the critic's; a fundamental from ANY source
@@ -537,10 +519,8 @@ gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "<review>"
 
 ### Step 6: Return result and auto-remediate
 
-**The `gate-verdict` block is written on EVERY path below, PASS included.** A cleared ticket still
-carrying the last round's NEEDS-WORK is the stale state it prevents, and it is the run's only
-durable output: `forge_*` has no read-comments primitive, and humans triage bodies. Insert at the
-top when absent, replace between delimiters when present, touch nothing outside them:
+**The `gate-verdict` block is written on EVERY path below, PASS included**: it is the run's only
+durable output, `forge_*` has no read-comments primitive, and humans triage bodies.
 
 ```markdown
 <!-- gate-verdict:start -->
@@ -557,11 +537,28 @@ gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
 
 `<ROUND>` is 1 when the Step 1 body carries no block, else that block's round plus 1: the round
 number every re-run rule reads (`<N>` stays the issue number). Computed fields only, so nothing
-drifts; BLOCKED never appears, those paths returning earlier. **Three steps write the body**:
-0c-iv before the Step 1 fetch, Step 2.9 item 3 after it, and this one. The block lands here
-because this step rebuilds from the Step 1 cache, clobbering earlier writes; that same rebuild
-drops Step 2.9's, which is #145. Its regions are disjoint: `gate-verdict`,
-`### Required changes (gate)`, `decision` for #129.
+drifts; BLOCKED never appears, those paths returning earlier.
+
+**Every region the gate writes obeys one lifecycle**; per-region answers are how this drifted.
+The regions are `gate-verdict`, `gate-required-changes` and `gate-alternatives`, written here,
+plus `gate-context` written by Step 2.9. Each is wrapped in `<!-- <name>:start -->` and
+`<!-- <name>:end -->`, carries the heading `Gate verdict` / `Required changes (gate)` /
+`Architecture alternatives` / `Codebase context (gate)`, and is disjoint from the others. Writes
+into AUTHOR sections (0c-iv, item 2 below) sit outside this: #147.
+
+1. **Insert or replace, never append.** A second copy is a second answer, and the stale one is
+   indistinguishable from the live one. An absent region is inserted at the top, unless the
+   step that owns it names a location. A body gated before this rule has those sections
+   un-delimited, or marked `<!-- ticket-gate: populated ... -->`: wrap the first, delete later
+   duplicates.
+2. **Re-read the body first.** 0c-iv writes before the Step 1 fetch and Step 2.9 after it, so
+   that cache is stale here; rebuilding from it silently dropped 2.9's write every round.
+3. **Every region is rewritten from THIS round's result, or removed.** An empty blocking list
+   removes `gate-required-changes`; no fundamental item this round removes `gate-alternatives`;
+   0c-iv removes all of them, since it voids the verdict. A region this round deliberately
+   REUSES (only `gate-context`, via Step 2.9's cache skip) is left untouched. Keyed on the
+   result, not the verdict: a NEEDS-WORK round that cleared its fundamental would otherwise
+   leave the alternatives standing.
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.
@@ -573,21 +570,17 @@ auto-remediation and never prints NEEDS-WORK.
 **If the verdict is NEEDS-WORK (blocking non-empty):**
 
 The blocking items arrive pre-classified by the judging agents' `class` fields (critic and lens
-alike), per Step 3B. A **fundamental** item's architecture alternatives were generated
-at Step 4 and posted with the review; auto-remediation copies them into the body. **Significant**:
-the approach stands but blocking gaps exist.
+alike), per Step 3B. A **fundamental** item's architecture alternatives were generated at Step 4.
+**Significant**: the approach stands but blocking gaps exist.
 
 **Default behaviour: auto-remediate without prompting.**
 
-Build an updated issue body:
-1. Preserve all existing content verbatim
-2. Append a `### Required changes (gate)` section with the blocking items as a checklist
-3. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, insert them
+Under the lifecycle above, in the single edit above:
+1. Replace `gate-required-changes` with the blocking items as a checklist
+2. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, insert them
    into the corresponding sections (marked as gate-written, for the author to review)
-4. If architecture alternatives were generated, append an `### Architecture alternatives`
-   section with the 2 to 3 options
-
-Apply it together with the verdict block, in the single edit above.
+3. If architecture alternatives were generated, replace `gate-alternatives` with the
+   2 to 3 options
 
 Print:
 ```
