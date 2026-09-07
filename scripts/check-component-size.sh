@@ -53,8 +53,8 @@ budget_for() {
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7318 ;;
-    ticket-gate) echo 5680 ;;
+    adapt)       echo 7316 ;;
+    ticket-gate) echo 5519 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

@@ -13,13 +13,11 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 54 -->
+<!-- forge-adapt-version: 56 -->
 
 # forge-adapt
 
-Analyse this project, recommend the forge-kit components that fit it, and install the ones
-you pick - each rewritten for your stack instead of copy-pasted. The dialogue mirrors a
-recommender: a short project profile, then the best one or two components per category, each
+forge-adapt is a recommender dialogue: a short project profile, then the best one or two components per category, each
 with a one-line reason. Nothing is written until you choose.
 
 ## When to use
@@ -627,7 +625,8 @@ would clobber intentional adaptation). Steps:
    ```
 4. On `yes`: produce a MERGED file - preserve all adaptation verbatim, splice in only the missing
    forge-kit improvements, bump the local `<name>-version` marker to the catalogue value. Write it,
-   re-apply `{{GITHUB_REPO}}` if needed, confirm `✓ <name> refreshed v<old> → v<new> (adaptation preserved)`.
+   re-apply `{{GITHUB_REPO}}` if needed. **For an agent, also run Install step 5's companion-skill
+   step**: a refresh can splice IN a `skills:` line, and skipping it fails silently. Confirm `✓ <name> refreshed v<old> → v<new> (adaptation preserved)`.
    On `no`: write nothing.
 
 If the marker already matches the catalogue, say so and offer a content diff anyway (the project
