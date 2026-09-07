@@ -31,7 +31,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 44 -->
+<!-- ticket-gate-version: 46 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -159,12 +159,10 @@ assumption made.
 **0c-iv. Build updated body**
 
 Merge synthesised content into the existing issue body, preserving all prior AUTHOR text
-verbatim, and clear the gate's regions (Step 6's lifecycle). Replace `template-version: N` (or
-add the marker if missing) with `template-version: $CURRENT_TPL_VER` (the value read in 0a; never a hardcoded literal).
+verbatim, and clear the gate's regions (Step 6's lifecycle). Replace or add
+`template-version: $CURRENT_TPL_VER` (0a's value; never a hardcoded literal).
 
-```bash
-gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<full updated body>"
-```
+Write it with Step 6's `gh issue edit`, minus the verdict block.
 
 **0c-v. Post void and synthesis comment**
 
@@ -336,9 +334,7 @@ under Step 6's lifecycle:
 <!-- gate-context:end -->
 ```
 
-```bash
-gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
-```
+Write it with Step 6's `gh issue edit`, minus the verdict block.
 
 If no relevant files exist, write `greenfield area: no existing patterns in scope` and note
 this to the critic (absence of patterns is itself useful architectural context).
@@ -528,7 +524,7 @@ The regions are `gate-verdict`, `gate-required-changes` and `gate-alternatives`,
 plus `gate-context` written by Step 2.9. Each is wrapped in `<!-- <name>:start -->` and
 `<!-- <name>:end -->`, carries the heading `Gate verdict` / `Required changes (gate)` /
 `Architecture alternatives` / `Codebase context (gate)`, and is disjoint from the others. Writes
-into AUTHOR sections (0c-iv, item 2 below) sit outside this: #147.
+into AUTHOR sections are OUTSIDE the three clauses below; WRITE ONCE, after them, governs.
 
 1. **Insert or replace, never append.** A second copy is a second answer, and the stale one is
    indistinguishable from the live one. An absent region is inserted at the top, unless the
@@ -543,6 +539,10 @@ into AUTHOR sections (0c-iv, item 2 below) sit outside this: #147.
    REUSES (only `gate-context`, via Step 2.9's cache skip) is left untouched. Keyed on the
    result, not the verdict: a NEEDS-WORK round that cleared its fundamental would otherwise
    leave the alternatives standing.
+**WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only a section that is empty,
+placeholder, or synthesised by THIS run's 0c; never text the author may have written, since a
+later round cannot tell an edit of gate prose from its own. 0c-iii's thin append is the deliberate
+exception, and is how a pre-v6 section reaches v6.
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.
@@ -561,8 +561,8 @@ alike), per Step 3B. A **fundamental** item's architecture alternatives were gen
 
 Under the lifecycle above, in the single edit above:
 1. Replace `gate-required-changes` with the blocking items as a checklist
-2. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, insert them
-   into the corresponding sections (marked as gate-written, for the author to review)
+2. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, insert them into
+   the corresponding section per WRITE ONCE above, marked as gate-written
 3. If architecture alternatives were generated, replace `gate-alternatives` with the
    2 to 3 options
 

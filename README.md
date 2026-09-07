@@ -103,7 +103,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-devops` | shell asset | `release-run` | v1 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v8 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v44 | 5211 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
+| `forge-kit-governance` | agent | `ticket-gate` | v46 | 5265 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
 | `forge-kit-governance` | command | `gate-ticket` | v6 | 197 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate agent detects the… |
 | `forge-kit-governance` | skill | `closing-sessions` | v2 | 671 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `ticket-gate-reference` | v8 | 1096 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |

@@ -49,12 +49,19 @@ budget_for() {
 
 # EXEMPTIONS ARE A RATCHET, NOT A PASS. Each records the component's size when the budget landed.
 # An exempt component may shrink freely and may not grow by a single word. Retrofitting these is
-# deliberately out of scope here (#109 covers ticket-gate); the ratchet stops the debt growing
+# deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
+#
+# RAISED ONCE, ON 2026-09-07, BY MAINTAINER DECISION. ticket-gate went 5209 to 5265 for #147, a
+# correctness fix that could not be paid for: a seven-shingle scan of the file found no remaining
+# duplication after seven consecutive fixes had each paid their own way, and the alternative was
+# compressing prose that is already dense, which this budget exists to discourage rather than
+# cause. Recorded here because the history is the evidence for #150: every other edit to these
+# numbers has been a reduction, and an agent must NEVER raise one on its own initiative. Ask.
 baseline_for() {
   case "$1" in
     adapt)       echo 7316 ;;
-    ticket-gate) echo 5211 ;;
+    ticket-gate) echo 5265 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac
