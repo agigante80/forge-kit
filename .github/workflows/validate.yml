@@ -77,6 +77,14 @@ jobs:
       - name: Producer-stamp guard tests
         run: bash scripts/test-producer-stamps.sh
 
+      # Six sites carry the template-dir resolution order and must agree. They diverged once
+      # already, case-grouped against host-grouped, before PR #74 merged (issue #77).
+      - name: Template-dir order guard tests
+        run: bash scripts/test-template-dir-order.sh
+
+      - name: Template-dir resolution order agrees everywhere
+        run: bash scripts/check-template-dir-order.sh
+
       - name: No hardcoded template-version stamps
         run: bash scripts/check-producer-stamps.sh
 
