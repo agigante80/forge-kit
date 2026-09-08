@@ -14,6 +14,57 @@ ver_of() {
   grep -oP '[a-z0-9-]+-version: \d+' | grep -v '^template-version' | head -1 | grep -oP ': \K\d+'
 }
 
+# ---------------------------------------------------------------------------------------------
+# LEAK GUARD, and it runs FIRST, before every early exit below.
+#
+# It used to sit at the bottom, after the `plugins/` pathspec exit, so a commit touching only docs
+# or memory was never scanned. That is exactly backwards: prose is where a pasted home path or a
+# private folder name lands, and the commit that introduced this hook wiring was itself committed
+# unscanned. Found by review, not by the guard.
+#
+# EXIT 1 AND EXIT 2 ARE DIFFERENT THINGS and must not share a message. 1 means it found something;
+# 2 means it could not run, which is a config or environment error. Both block, because a guard
+# that cannot run must never report clean, but telling someone to edit an allow-file they have
+# just broken sends them the wrong way.
+lg="$(git rev-parse --show-toplevel)/plugins/forge-kit-security/skills/leak-guard/assets"
+# A project that has not written an allow-file yet must still be scanned. Passing a path that does
+# not exist makes the scanner refuse the run, and this hook would read that refusal as a leak.
+allow_args=()
+[ -f "$(git rev-parse --show-toplevel)/.leak-guard-allow" ] \
+  && allow_args=(--allow-file "$(git rev-parse --show-toplevel)/.leak-guard-allow")
+
+leaks=0
+leak_errors=0
+scan() {                      # scan <script> [args...]
+  local script="$1"; shift
+  [ -x "$script" ] || return 0
+  bash "$script" "$@"
+  case "$?" in
+    0) ;;
+    1) leaks=$((leaks + 1)) ;;
+    *) leak_errors=$((leak_errors + 1)) ;;
+  esac
+}
+scan "$lg/check-public-leaks.sh" --staged ${allow_args+"${allow_args[@]}"}
+# Local only, and never in CI: it needs the list of private names, which cannot be published and
+# must not go in a CI secret either. It exits 0 with an explanation on a machine that has no list.
+scan "$lg/check-private-leaks.sh" --staged
+
+if [ "$leak_errors" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: the leak guard could not RUN (see above). That is a config or environment"
+  echo "error, not a finding. Fix what it reported; --no-verify would only hide the fact that"
+  echo "nothing was checked."
+  exit 1
+fi
+if [ "$leaks" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: staged content carries something from this machine (see above)."
+  echo "A private-name hit prints a redacted name; re-run that scanner with --show-names."
+  echo "Fix it, or for a genuine false positive add an entry to .leak-guard-allow (public half)."
+  exit 1
+fi
+
 # Early exit via pathspec, deliberately NOT a `printf | grep -q` pipe: grep -q closes the
 # pipe at the first match, printf takes SIGPIPE (141), and under pipefail `|| exit 0` would
 # then fire on a huge staged list even though plugins/ WAS touched (a verified fail-open).
@@ -60,31 +111,6 @@ if [ -f "$guard" ]; then
   else
     echo "  ! plugin-semver check SKIPPED locally: jq is not installed (CI enforces it)" >&2
   fi
-fi
-
-# Leak guard (issue #99), STAGED scan: the cheap half of the pair, asking "am I about to write
-# down something from my own machine". The full-tree question is the pre-push hook's, because it
-# is the one that matters when a history rewrite is needed.
-#
-# The private half is here and NOT in CI, and that is permanent rather than a gap: it needs the
-# list of private names, and a list of the names you are hiding cannot live in the repository it
-# protects, nor in a CI secret. It exits 0 with an explanation on a machine that has no list.
-leaks=0
-lg="$(git rev-parse --show-toplevel)/plugins/forge-kit-security/skills/leak-guard/assets"
-# A project that has not written an allow-file yet must still be scanned. Passing a path that does
-# not exist makes the scanner refuse the run, and the hook would read that refusal as a leak.
-allow_args=()
-[ -f "$(git rev-parse --show-toplevel)/.leak-guard-allow" ] \
-  && allow_args=(--allow-file "$(git rev-parse --show-toplevel)/.leak-guard-allow")
-[ -x "$lg/check-public-leaks.sh" ] && { bash "$lg/check-public-leaks.sh" --staged ${allow_args+"${allow_args[@]}"} || leaks=$((leaks + 1)); }
-[ -x "$lg/check-private-leaks.sh" ] && { bash "$lg/check-private-leaks.sh" --staged || leaks=$((leaks + 1)); }
-
-if [ "$leaks" -gt 0 ]; then
-  echo ""
-  echo "forge-kit: staged content carries something from this machine (see above)."
-  echo "A private-name hit prints a redacted name; re-run with --show-names to see it in full."
-  echo "Fix it, or for a false positive add an entry to .leak-guard-allow (public half only)."
-  exit 1
 fi
 
 if [ "$violations" -gt 0 ]; then

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 3
+# check-public-leaks-version: 4
 #
-# The PUBLIC half of the leak guard (forge-kit issue #99, split as #155): the developer's machine
-# leaking into a repository that is about to be made public. It catches by SHAPE and by ALLOWLIST,
-# so it needs no list of private names and can therefore run in CI, in the open, for every
-# contributor.
+# The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
+#
+# Stops the developer's own machine leaking into a repository that is about to be made public
+# (forge-kit issue #99, split as #155). It catches by SHAPE and by ALLOWLIST, so it needs no list
+# of private names and can therefore run in CI, in the open, for every contributor. The first line
+# above is deliberately one whole sentence: the component index renders it verbatim.
 #
 # HONEST STATEMENT OF REACH. This would not have caught the leak that prompted the ticket. That was
 # a set of real sibling-project folder names sitting in prose as demo data, and a folder name in
@@ -13,6 +15,13 @@
 # scrub. NOTHING PUBLIC CATCHES A BARE PROJECT NAME: that needs the list, the list cannot live in
 # the repository it protects, and so it lives outside it and is checked by the private half. A
 # guard that overstates its reach is worse than a narrow one that admits it.
+#
+# AND BOTH PATH RULES JUDGE THE FIRST SEGMENT ONLY. Rule A asks who "/home/<name>/" belongs to and
+# rule B asks whether "~/<root>" may be shown; NEITHER looks below that. So a private directory name
+# under an allowed root ("~/work/<client>/repo", "/home/user/clients/<client>/build.log") is
+# invisible here, and the segments above the project are exactly what the ticket called the worse
+# half of the leak. Catching those needs the name, which is the private half's job. This was found
+# by review AFTER the paragraph above shipped, which is the argument for the paragraph.
 #
 #   check-public-leaks.sh [--staged | --range <base> | --all] [--allow-file <path>] [paths...]
 #
@@ -109,7 +118,20 @@ if [ -n "$ALLOW_FILE" ]; then
       # A root is written the way it appears in prose, "~/name", so the config reads like the
       # thing it permits.
       root)   ALLOW_ROOTS+=("${val#\~/}") ;;
-      prefix) ALLOW_PREFIXES+=("${val%/}") ;;
+      # Rule A matches "/home/<seg>" or "/Users/<seg>" and nothing deeper, so a prefix with more
+      # than one segment, or one under any other root, can never equal a match. It would parse
+      # cleanly and silently do nothing, which is the config bug every other key here refuses.
+      prefix)
+        pfx="${val%/}"
+        case "$pfx" in
+          /home/*|/Users/*) : ;;
+          *) die "$ALLOW_FILE:$lineno: prefix must start /home/ or /Users/ (rule A matches no other root): $pfx" ;;
+        esac
+        rest="${pfx#/*/}"
+        case "$rest" in
+          */*|'') die "$ALLOW_FILE:$lineno: prefix must name exactly one segment, because rule A matches one segment and nothing deeper: $pfx" ;;
+        esac
+        ALLOW_PREFIXES+=("$pfx") ;;
       email)  ALLOW_EMAILS+=("$val") ;;
       skip)   SKIP_PATHS+=("$val") ;;
       # REFUSE rather than skip the entry. A silently ignored line in a security config is a guard
@@ -183,6 +205,7 @@ skip_by_name() {
 RE_HOME='(/home|/Users)/[^/[:space:]"`]+/?'
 RE_ROOT='~/[^/[:space:]"`]+/?'
 RE_MAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+RE_ANY="$RE_HOME|$RE_ROOT|$RE_MAIL"
 
 # Trailing sentence punctuation belongs to the prose, not to the name. Only the tail is stripped,
 # so "~/.claude" keeps the dot that is part of the directory name. The angle bracket is deliberately
@@ -205,9 +228,6 @@ strip_tail() {
 violations=0
 report() { printf '%s:%s: %s: %s\n' "$1" "$2" "$3" "$4"; violations=$((violations + 1)); }
 
-# scan_rule <displaypath> <scanfile> <rule-name> <regex>  -> emits matches as "lineno<TAB>match"
-matches_of() { grep -onE "$2" "$1" 2>/dev/null; }
-
 for f in "${FILES[@]}"; do
   skip_by_name "$f" && continue
 
@@ -223,60 +243,62 @@ for f in "${FILES[@]}"; do
   # is a temp blob, so comparing it here would never match and the scanner would report its own
   # source. Every project that vendors this asset and wires the commit hook hits that on the
   # commit that installs it, which is how it was found.
-  [ "$(abspath "$f")" = "$SELF" ] && continue
+  # Gated on the basename first: abspath forks three times, and paying that on every file in the
+  # tree costs more than the scan itself. Only a file that could BE the script is resolved.
+  case "${f##*/}" in
+    "${SELF##*/}") [ "$(abspath "$f")" = "$SELF" ] && continue ;;
+  esac
 
   # Binary detection reads the file, never a shell variable, so null bytes are neither dropped nor
   # warned about. -I makes grep treat a binary file as non-matching, so an empty result means
   # "binary or empty", and both are nothing to scan.
   grep -Iq . "$scanfile" 2>/dev/null || continue
 
+  # ONE grep per file, not one per rule. The rules are distinguished by the SHAPE of the match,
+  # which they already are: only rule A's starts with a slash and only rule B's with a tilde. Three
+  # passes cost three process spawns per file, and process spawn is the whole cost here.
   while IFS= read -r g; do
     [ -n "$g" ] || continue
     n="${g%%:*}"; m="${g#*:}"
-    raw="${m%/}"; seg="${raw##*/}"
-    # Checked against BOTH forms: "..." is entirely punctuation, so stripping the trailing dots
-    # would leave nothing to compare and the guard would reject its own documented placeholder.
-    in_list "$seg" "${PLACEHOLDER_USERS[@]}" && continue
-    in_list "$(strip_tail "$seg")" "${PLACEHOLDER_USERS[@]}" && continue
-    allowed=0
-    for p in ${ALLOW_PREFIXES+"${ALLOW_PREFIXES[@]}"}; do
-      case "${m%/}" in "$p"|"$p"/*) allowed=1; break ;; esac
-    done
-    [ "$allowed" = 1 ] && continue
-    report "$f" "$n" home-path "$m"
-  done < <(matches_of "$scanfile" "$RE_HOME")
-
-  while IFS= read -r g; do
-    [ -n "$g" ] || continue
-    n="${g%%:*}"; m="${g#*:}"
-    root="$(strip_tail "${m%/}")"; root="${root#\~/}"
-    in_list "$root" "${ALLOW_ROOTS[@]}" && continue
-    report "$f" "$n" home-root "$m"
-  done < <(matches_of "$scanfile" "$RE_ROOT")
-
-  while IFS= read -r g; do
-    [ -n "$g" ] || continue
-    n="${g%%:*}"; m="${g#*:}"
-    addr="$(strip_tail "$m")"
-    local_part="${addr%%@*}"; domain="${addr#*@}"
-    # An address that cannot reach a mailbox is not a leak. noreply is the convention; the rest
-    # are the TLDs reserved by RFC 2606 and RFC 6761 precisely so documentation can use them.
-    set_lower "$local_part"
-    case "$LOWER" in
-      noreply*|no-reply*|donotreply*) continue ;;
-      # "git@host" is the SSH clone user, not a mailbox. It is in the clone URL of essentially
-      # every repository, so leaving it to each project's allow-file would make the first run of
-      # this guard noise rather than signal.
-      git) continue ;;
+    case "$m" in
+      /*)
+        raw="${m%/}"; seg="${raw##*/}"
+        # Checked against BOTH forms: "..." is entirely punctuation, so stripping the trailing dots
+        # would leave nothing to compare and the guard would reject its own documented placeholder.
+        in_list "$seg" "${PLACEHOLDER_USERS[@]}" && continue
+        in_list "$(strip_tail "$seg")" "${PLACEHOLDER_USERS[@]}" && continue
+        allowed=0
+        for p in ${ALLOW_PREFIXES+"${ALLOW_PREFIXES[@]}"}; do
+          case "$raw" in "$p"|"$p"/*) allowed=1; break ;; esac
+        done
+        [ "$allowed" = 1 ] && continue
+        report "$f" "$n" home-path "$m" ;;
+      '~'/*)
+        root="$(strip_tail "${m%/}")"; root="${root#\~/}"
+        in_list "$root" "${ALLOW_ROOTS[@]}" && continue
+        report "$f" "$n" home-root "$m" ;;
+      *)
+        addr="$(strip_tail "$m")"
+        local_part="${addr%%@*}"; domain="${addr#*@}"
+        # An address that cannot reach a mailbox is not a leak. noreply is the convention; the rest
+        # are the TLDs reserved by RFC 2606 and RFC 6761 precisely so documentation can use them.
+        set_lower "$local_part"
+        case "$LOWER" in
+          noreply*|no-reply*|donotreply*) continue ;;
+          # "git@host" is the SSH clone user, not a mailbox. It is in the clone URL of essentially
+          # every repository, so leaving it to each project's allow-file would make the first run of
+          # this guard noise rather than signal.
+          git) continue ;;
+        esac
+        set_lower "$domain"
+        case "$LOWER" in
+          *.example|*.invalid|*.test|*.localhost|*.local) continue ;;
+          example.com|example.org|example.net|*.example.com|*.example.org|*.example.net) continue ;;
+        esac
+        in_list "$addr" ${ALLOW_EMAILS+"${ALLOW_EMAILS[@]}"} && continue
+        report "$f" "$n" email "$addr" ;;
     esac
-    set_lower "$domain"
-    case "$LOWER" in
-      *.example|*.invalid|*.test|*.localhost|*.local) continue ;;
-      example.com|example.org|example.net|*.example.com|*.example.org|*.example.net) continue ;;
-    esac
-    in_list "$addr" ${ALLOW_EMAILS+"${ALLOW_EMAILS[@]}"} && continue
-    report "$f" "$n" email "$addr"
-  done < <(matches_of "$scanfile" "$RE_MAIL")
+  done < <(grep -onE "$RE_ANY" "$scanfile" 2>/dev/null)
 done
 
 [ "$violations" -eq 0 ] || exit 1

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 4
+# check-private-leaks-version: 5
 #
-# The PRIVATE half of the leak guard (forge-kit issue #99, split as #156): private project and
-# folder NAMES reaching a repository that is about to be made public. Its companion,
-# check-public-leaks.sh, catches path shapes and addresses without needing to know anything; this
-# one cannot, because deciding that "acme-migration" is private requires knowing that it is.
+# The private half of the leak guard: project and folder NAMES that must not become public.
+#
+# Its companion, check-public-leaks.sh, catches path shapes and addresses without needing to know
+# anything about you; this one cannot, because deciding that a name is private requires knowing
+# that it is (forge-kit issue #99, split as #156). The first line above is deliberately one whole
+# sentence: the component index renders it verbatim.
 #
 #   check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [--show-names] [paths...]
 #
@@ -225,6 +227,10 @@ redact() {
   printf '%s' "$out"
 }
 
+# The names as a grep pattern file, written once. -F is literal, so nothing in a name is a regex.
+PATFILE="$TMPD/names"
+printf '%s\n' "${NAMES[@]}" > "$PATFILE"
+
 violations=0
 for f in "${FILES[@]}"; do
   skip_by_name "$f" && continue
@@ -238,19 +244,25 @@ for f in "${FILES[@]}"; do
   # is a temp blob, so comparing it here would never match and the scanner would report its own
   # source. Every project that vendors this asset and wires the commit hook hits that on the
   # commit that installs it, which is how it was found.
-  [ "$(abspath "$f")" = "$SELF" ] && continue
+  # Gated on the basename first: abspath forks three times, and paying that on every file in the
+  # tree costs more than the scan itself. Only a file that could BE the script is resolved.
+  case "${f##*/}" in
+    "${SELF##*/}") [ "$(abspath "$f")" = "$SELF" ] && continue ;;
+  esac
   # Read by grep, never through a command substitution: null bytes would be dropped and warned
   # about once per occurrence, so a full scan would print a wall of noise and read fonts as text.
   grep -Iq . "$scanfile" 2>/dev/null || continue
 
-  for n in "${NAMES[@]}"; do
-    while IFS= read -r g; do
-      [ -n "$g" ] || continue
-      if [ "$SHOW_NAMES" = 1 ]; then shown="$n"; else shown="$(redact "$n")"; fi
-      printf '%s:%s: private-name: %s\n' "$f" "${g%%:*}" "$shown"
-      violations=$((violations + 1))
-    done < <(grep -niF -- "$n" "$scanfile" 2>/dev/null)
-  done
+  # ONE grep per file, matching every name at once from a pattern file, rather than one grep per
+  # (file x name). At ten names and five thousand files the old shape was fifty thousand process
+  # spawns on every push, in a component shipped into other people's repositories.
+  while IFS= read -r g; do
+    [ -n "$g" ] || continue
+    hit="${g#*:}"
+    if [ "$SHOW_NAMES" = 1 ]; then shown="$hit"; else shown="$(redact "$hit")"; fi
+    printf '%s:%s: private-name: %s\n' "$f" "${g%%:*}" "$shown"
+    violations=$((violations + 1))
+  done < <(grep -noiF -f "$PATFILE" -- "$scanfile" 2>/dev/null)
 done
 
 [ "$violations" -eq 0 ] || exit 1

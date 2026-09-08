@@ -25,6 +25,7 @@ passed=0; failed=0
 ok()  { printf '  ok: %s\n' "$1"; passed=$((passed+1)); }
 bad() { printf '  FAIL: %s\n' "$1"; failed=$((failed+1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
+contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
 
@@ -98,6 +99,14 @@ expect "an allowed prefix survives"   no  "$(trips 'runs under /home/runner/work
 expect "an allowed address survives"  no  "$(trips 'author a.gigante@gmail.com' --allow-file "$WORK/allow")"
 expect "allowing one root does not allow another" yes \
   "$(trips 'cloned into ~/other-thing/x' --allow-file "$WORK/allow")"
+
+# Rule A's match is exactly one segment, so a prefix deeper than that can never equal it. Left
+# unchecked, `prefix /home/runner/work/myrepo` parses cleanly and silently does nothing, which is
+# the shape of config bug this component refuses rather than absorbs everywhere else.
+printf 'prefix /home/runner/work/myrepo\n' > "$WORK/deep-allow"
+"$SCRIPT" --allow-file "$WORK/deep-allow" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+expect "a prefix deeper than one segment refuses the run" 2 "$?"
+contains "one segment" "$(cat "$WORK/err.txt")" "and explains that rule A judges one segment"
 
 printf 'x\n' > "$WORK/sample.txt"
 "$SCRIPT" --allow-file "$WORK/nope" "$WORK/sample.txt" >/dev/null 2>&1
@@ -189,6 +198,11 @@ grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SCRIPT" \
 grep -qi 'would not have caught' "$SCRIPT" \
   && ok "states its own limit of reach in the source" \
   || bad "states its own limit of reach in the source"
+# The reach statement was incomplete, and a review found the gap: both rules judge the FIRST path
+# segment only, so a private directory NAME below an allowed root is invisible to the public half.
+grep -qi 'first segment' "$SCRIPT" \
+  && ok "and discloses that only the first path segment is judged" \
+  || bad "and discloses that only the first path segment is judged"
 
 
 echo "== the scanner skips itself in EVERY mode, not just when read from disk =="

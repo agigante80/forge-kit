@@ -117,7 +117,12 @@ printf 'acme-migration\n\000\000bin\n' > "$WORK/blob.dat"
 "$SCRIPT" --list "$WORK/list" "$WORK/blob.dat" >/dev/null 2>"$WORK/err.txt"
 expect "a null-byte file is treated as binary and skipped" 0 "$?"
 expect "and it produces no stderr warnings" "" "$(cat "$WORK/err.txt")"
-"$SCRIPT" --list "$WORK/list" "$SCRIPT" >/dev/null 2>&1
+# The list must hold a token the script ACTUALLY contains, or this passes with the self-skip
+# deleted. "private-name" is the rule label the script prints, so it is in its own source.
+printf 'acme-migration\nprivate-name\n' > "$WORK/selfhit-list"
+grep -qF 'private-name' "$SCRIPT" && ok "the self-skip case uses a token the script contains" \
+  || bad "the self-skip case uses a token the script contains"
+"$SCRIPT" --list "$WORK/selfhit-list" "$SCRIPT" >/dev/null 2>&1
 expect "the scanner never reports itself" 0 "$?"
 # ...including in --staged, where the file being read is a temp blob rather than the script.
 SELFREPO="$WORK/selfrepo"; mkdir -p "$SELFREPO/scripts"

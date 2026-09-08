@@ -8,10 +8,15 @@ name: Validate
 # never reports on PRs that miss the paths, leaving them blocked forever. The job is fast,
 # so running it unconditionally is the cost of being a reliable required status check.
 
+# `develop` is listed because work now lands there and merges to main without a PR (2026-09-08).
+# Without it the develop branch got NO CI at all, not merely no range guards: `pull_request` never
+# fires and `push` only matched main, so every check ran for the first time AFTER the merge. The
+# range guards below are still `pull_request`-only and so still run nowhere; #158 covers that
+# separately, because it needs a base-ref decision rather than a branch name.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -177,6 +182,12 @@ jobs:
 
       - name: Pre-push hook tests
         run: bash scripts/test-pre-push-hook.sh
+
+      # The pre-commit hook had no contract test until the leak guard was wired into it BELOW its
+      # `plugins/` early exit, so a docs-only commit was never scanned and the wiring commit went
+      # in unscanned itself. The ordering is the contract this pins down.
+      - name: Pre-commit hook tests
+        run: bash scripts/test-pre-commit-hook.sh
 
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'

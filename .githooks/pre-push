@@ -38,6 +38,61 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 done
 [ "$relevant" -eq 1 ] || exit 0
 
+# ---------------------------------------------------------------------------------------------
+# LEAK GUARD, before the base-ref exit, because it depends on none of it.
+#
+# It DOES sit after the "is this HEAD" test above, and that is deliberate rather than an oversight
+# of the same kind: a full-tree scan reads the checked-out worktree, so running it while pushing
+# some OTHER branch would report confidently on content that is not being pushed. Scanning the
+# wrong tree is worse than not scanning.
+#
+# It used to sit further down, after the "is this HEAD" test and after the missing-base-ref exit.
+# Neither is a precondition for a FULL-TREE scan, so on a clone that had not fetched origin/main
+# both scanners were silently skipped, and the private half runs nowhere else at all. Found by
+# review, not by the guard.
+#
+# The FULL-TREE scan is the right question here, not the range. A range scan asks "did this push
+# add a leak", which is the wrong question the moment a history rewrite is needed: what matters
+# then is whether the tree is clean, not whether this push made it worse.
+#
+# Its counter is its own. Sharing the range guards' counter reported a leak as "1 range check(s)
+# failed ... this is what CI will run on the PR" and offered --no-verify, which is wrong three
+# times over and recommends the worst possible response to a leak.
+lg="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets"
+allow_args=()
+[ -f "$ROOT/.leak-guard-allow" ] && allow_args=(--allow-file "$ROOT/.leak-guard-allow")
+
+leaks=0
+leak_errors=0
+scan() {
+  local script="$1"; shift
+  [ -x "$script" ] || return 0
+  bash "$script" "$@"
+  case "$?" in
+    0) ;;
+    1) leaks=$((leaks + 1)) ;;
+    *) leak_errors=$((leak_errors + 1)) ;;
+  esac
+}
+scan "$lg/check-public-leaks.sh" --all ${allow_args+"${allow_args[@]}"}
+# Local only, never in CI: it needs the list of private names, which cannot be published.
+scan "$lg/check-private-leaks.sh" --all
+
+if [ "$leak_errors" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: the leak guard could not RUN (see above). A config or environment error, not"
+  echo "a finding. Nothing was checked; fix what it reported."
+  exit 1
+fi
+if [ "$leaks" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: the tree carries something from this machine (see above)."
+  echo "This is NOT one of the CI checks; nothing server-side will catch it for you."
+  echo "A private-name hit prints a redacted name; re-run that scanner with --show-names."
+  echo "Pushing past this with --no-verify publishes it. A push is not undone by a later commit."
+  exit 1
+fi
+
 # Compare against the remote's default branch, which is what CI passes at PR time
 # (origin/$BASE_REF). Pushing the default branch itself makes this the server's current tip, so
 # the audited range is exactly the commits being added, which is the path CI never sees.
@@ -53,25 +108,6 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
 fi
 
 violations=0
-
-# The leak guard runs the FULL-TREE scan here, not the range. A range scan answers "did this push
-# add a leak", which is the wrong question the moment a history rewrite is needed: what matters
-# then is whether the tree is clean, not whether this particular push made it worse.
-lg="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets"
-if [ -x "$lg/check-public-leaks.sh" ]; then
-  # A project with no allow-file yet is still scanned: passing a path that does not exist makes
-  # the scanner refuse the run, and that refusal would read here as a finding.
-  allow_args=()
-  [ -f "$ROOT/.leak-guard-allow" ] && allow_args=(--allow-file "$ROOT/.leak-guard-allow")
-  bash "$lg/check-public-leaks.sh" --all ${allow_args+"${allow_args[@]}"} \
-    || violations=$((violations + 1))
-fi
-# Local only, and never in CI: it needs the list of private names, which cannot be published and
-# must not go in a CI secret either. A machine with no list is told so and not blocked.
-if [ -x "$lg/check-private-leaks.sh" ]; then
-  bash "$lg/check-private-leaks.sh" --all || violations=$((violations + 1))
-fi
-
 for guard in check-version-bump.sh check-plugin-version-bump.sh; do
   script="$ROOT/scripts/$guard"
   [ -f "$script" ] || continue

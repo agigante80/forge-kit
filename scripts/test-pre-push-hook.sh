@@ -97,7 +97,42 @@ printf '%s' "$out" | grep -q 'range checks SKIPPED' \
 printf '%s' "$out" | grep -q 'git fetch origin' \
   && ok "the skip message says how to fix it" || bad "the skip message says how to fix it"
 
+# --- the leak guard runs even when the range guards cannot -----------------------------------
+# It used to sit BELOW the missing-base-ref exit, so a clone that had not fetched origin/main
+# skipped both scanners silently, and the private half runs nowhere else at all.
+echo "== leak guard placement =="
+LG=plugins/forge-kit-security/skills/leak-guard/assets
+mkdir -p "$LG"
+cp "$ROOT/$LG/check-public-leaks.sh" "$ROOT/$LG/check-private-leaks.sh" "$LG/"
+# Composed rather than written literally, so this file needs no `skip` entry in the repo's own
+# allow-file. An exemption is a hole in the guard; the fixture only needs the string to exist.
+printf 'the log said %s/alice/secret/build.log\n' /home > docs-leak.md
+git add -A >/dev/null; git commit --quiet -m "a leak, no marker bump needed"
+# Base ref still deleted from the case above, so the range guards cannot run at all.
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -ne 0 ] && ok "a leak blocks the push even with no base ref" \
+  || bad "a leak blocks the push even with no base ref (rc=$rc)"
+printf '%s' "$out" | grep -q 'home-path' \
+  && ok "and the finding itself is shown" || bad "and the finding itself is shown"
+printf '%s' "$out" | grep -qi 'NOT one of the CI checks' \
+  && ok "the message does not claim CI will catch it" \
+  || bad "the message does not claim CI will catch it"
+printf '%s' "$out" | grep -q 'range check(s) failed' \
+  && bad "a leak is not reported as a range-check failure" \
+  || ok "a leak is not reported as a range-check failure"
+
+# Exit 2 (could not run) must not be reported as a finding.
+printf 'nonsense line\n' > .leak-guard-allow
+git add -A >/dev/null; git commit --quiet -m "broken allow-file"
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -ne 0 ] && ok "a scanner that cannot run still blocks" || bad "a scanner that cannot run still blocks"
+printf '%s' "$out" | grep -qi 'could not RUN' \
+  && ok "and says it could not run, not that it found something" \
+  || bad "and says it could not run, not that it found something"
+rm -f .leak-guard-allow docs-leak.md; git add -A >/dev/null; git commit --quiet -m cleanup
+
 cd "$ROOT"
+
 echo ""
 echo "pre-push hook tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
