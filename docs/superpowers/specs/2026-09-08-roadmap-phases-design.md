@@ -54,7 +54,7 @@ Why this phase exists, what it unlocks, why it sits here in the order. Prose, fo
 
 | state | plan required | milestone | tickets may be assigned | meaning |
 |---|---|---|---|---|
-| `planned` | no | open | **no** | declared and ordered, not started |
+| `planned` | no | open | **yes** | declared and ordered, not started: a bucket |
 | `open` | **yes** | open | yes | in progress |
 | `done` | yes | closed | yes (all closed) | finished, closed in both places |
 | `backlog` | no | open | yes | the permanent holding phase; never closes |
@@ -62,6 +62,17 @@ Why this phase exists, what it unlocks, why it sits here in the order. Prose, fo
 **`planned` to `open` is the mechanical form of "the plan is written at the beginning of the
 phase".** The transition is the moment a plan becomes required, so the rule is a state change a
 script can refuse rather than a habit someone has to remember.
+
+**A `planned` phase is a BUCKET, and that is its main job.** Small things you know you will want
+but do not want to think about now get filed against it as they occur to you. When the phase opens,
+its plan is written from two inputs: the roadmap prose saying why the phase exists, and whatever has
+accumulated in the bucket since. The bucket is not a side effect of deferring the plan; it is the
+evidence the plan is written from.
+
+This is the one place the first draft of this design was wrong. It proposed refusing tickets on a
+`planned` phase, reasoning from "do not create tickets for the whole roadmap at once". That rule is
+about not enumerating work you have not thought about yet, not about refusing a thought you have
+already had.
 
 **`backlog` is an ordinary phase, not the absence of one.** That is what makes "every ticket has a
 phase" true without forcing a premature decision: a ticket whose home is not yet known goes to
@@ -81,11 +92,42 @@ Written when a phase moves to `open`, reviewed while it is open. Required sectio
 
 - **Goal.** One sentence. What this phase is for.
 - **Done looks like.** The observable state that ends the phase.
-- **Fails if.** What would make this phase a failure rather than an unfinished success. Required,
-  and checked for, because a plan that only says what finishing looks like cannot tell you to stop.
+- **Fails if.** Required, and checked for, because a plan that only says what finishing looks like
+  cannot tell you to stop. Written as a PREMORTEM rather than a risk list: "it is the end of this
+  phase and it failed badly; what happened?" Klein's result is that imagining an event has already
+  happened, rather than that it might, raises the number of correctly identified causes by about
+  30 percent, and the mechanism is that it licenses people to voice doubts they are otherwise
+  reluctant to raise during planning. The skill states the prompt in that form.
 - **Expected work.** The tickets this phase anticipates needing. Not binding: the close review
   compares this against what was actually created, and the difference is the interesting part.
 - **Out of scope.** With the phase each deferral goes to, or `backlog`.
+
+## Prior art
+
+This method is not new, and naming what it already is makes the design arguable rather than
+personal. Three established practices line up almost exactly, and one supplied a correction.
+
+- **Rolling wave planning** (PMI's term for the operating model, progressive elaboration being the
+  underlying principle) is precisely the method: detailed planning is limited to the work about to
+  begin, and later work is planned progressively as uncertainty falls. The usual shape is detailed
+  tasks for the near window, milestone-level planning beyond it, and phase-level goals for the
+  rest. That is what the `open` / `planned` / `backlog` split encodes.
+- **Now / Next / Later** (Janna Bastow, ProdPad) is the same idea as a roadmap format, and supplies
+  the rule this design most needed to state out loud: **only "Now" carries commitment. "Next" and
+  "Later" are direction and priority, not a promise.** So a `planned` phase's prose is a reason,
+  never a contract, and dropping dates from everything outside the current phase is the point
+  rather than an omission.
+- **The premortem** (Gary Klein, HBR 2007) is what the "Fails if" section should be, and gives it a
+  better prompt than the one first drafted. See the plan format above.
+- **The permanent backlog milestone as a triage inbox** is an existing GitHub practice, not an
+  invention here: a `Backlog` milestone kept open forever so that every new issue lands somewhere
+  and its state is explicit rather than absent.
+
+**Where this differs from all of them:** each of the above is a practice that asks people to
+remember it. This design's contribution is that four of its rules are refusals a script performs,
+which is forge-kit's whole premise. The existing GitHub Actions in this space
+(`triage-action` and friends) enforce labels or auto-assign milestones; none of them check a
+roadmap document against the host, because none of them assume one exists.
 
 ## Components
 
@@ -100,8 +142,8 @@ plain GET silently truncates (the class #62 fixed for issues, already noted in `
 
 ### `check-phases.sh` (`forge-kit-governance`, shipped asset)
 
-The guard. Exit 0 clean, 1 violation, 2 could not run, matching the leak scanners. One line per
-violation naming the rule.
+The guard, four rules. Exit 0 clean, 1 violation, 2 could not run, matching the leak scanners.
+One line per violation naming the rule.
 
 1. **Every open ticket has a milestone.** The rule that makes the untriaged set one query.
 2. **Every `open` OR `done` phase has a plan file that exists and contains a "Fails if" section.**
@@ -109,12 +151,10 @@ violation naming the rule.
    otherwise never have passed through the state where a plan is required.
 3. **`roadmap.md` state and milestone state agree**, and **at most one phase is `open`**.
    `planned`/`open`/`backlog` map to an open milestone, `done` to a closed one.
-4. **A phase marked `done` has no open tickets in its milestone.**
-5. **No open tickets assigned to a `planned` phase.** The mechanical form of "tickets are not
-   created for the whole roadmap at once". Precise rather than a judgment call, because `planned`
-   is a declared state and not an inference.
+4. **A phase marked `done` has no open tickets in its milestone.** This is also the circuit
+   breaker, below: closing a phase forces every unfinished ticket to be moved somewhere explicit.
 
-Rule 2 is file-only. Rules 1, 3, 4 and 5 need the host. With no token available the host rules
+Rule 2 is file-only. Rules 1, 3 and 4 need the host. With no token available the host rules
 report **SKIPPED loudly and never silently pass**, the posture `.githooks/pre-push` already takes
 for a missing base ref: a check that cannot run must never report clean.
 
@@ -155,6 +195,33 @@ Deliberate. The judgment work here (reassess, split, reorder, decide what a gap 
 conversation with the maintainer, not an isolated verdict, so it belongs in the main session with
 the skill injected. A second orchestrator agent would also be a second component of `ticket-gate`'s
 size, and #150 records that the kit cannot currently afford the first one.
+
+## What happens when a phase does not finish
+
+The first draft had no answer, which is a real hole: the common case in a drifting project is not a
+phase that completes but a phase that stalls.
+
+**The default is to re-shape, never to extend.** Shape Up calls this the circuit breaker: a project
+that does not ship in its cycle is cancelled by default rather than given more time, so the team
+cannot spend multiples of the original appetite on something that needed rethinking first. The
+reasoning transfers exactly, and the mechanism is already in rule 4: a phase cannot be marked `done`
+while it holds open tickets, so closing one forces every unfinished item to be moved somewhere
+explicit, which is either the next phase, a new phase, or `backlog`.
+
+So a phase has three closing outcomes, and `roadmap.md` records which:
+
+- **done**, the work landed;
+- **re-shaped**, some landed and the rest moved, with the phase closed anyway and the remainder
+  named;
+- **abandoned**, the phase was a wrong turn, its tickets closed or moved, and the roadmap says why.
+
+The third is the one people skip, and it is the one worth writing down: a phase deleted without a
+record looks, six months later, like a phase that was never considered.
+
+**Deliberately NOT adopted: an appetite.** Shape Up bounds a cycle by the time you are willing to
+spend, which is what makes its circuit breaker fire on a schedule. This design has no dates by
+choice, so the breaker fires on judgment at the close review instead. Adding an appetite later is
+a small change; adding it now would import a time box nobody asked for.
 
 ## Bootstrap
 
@@ -198,6 +265,6 @@ hook it had just been wired into refusing its own commit.
 
 ## Open questions
 
-None blocking. The fifth rule was proposed by the implementer and accepted by default rather than
-by explicit choice; it is the one item most likely to want removing after a real cycle, and removing
-it is deleting one check and its tests.
+None blocking. The one item most likely to want revisiting after a real cycle is whether a phase
+should carry an appetite, which would turn the circuit breaker from a judgment at the close review
+into something that fires on its own.
