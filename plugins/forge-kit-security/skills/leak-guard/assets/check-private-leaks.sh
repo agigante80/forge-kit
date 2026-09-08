@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 2
+# check-private-leaks-version: 4
 #
 # The PRIVATE half of the leak guard (forge-kit issue #99, split as #156): private project and
 # folder NAMES reaching a repository that is about to be made public. Its companion,
@@ -35,7 +35,26 @@
 
 set -uo pipefail
 
-SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+# --- portability ------------------------------------------------------------
+# macOS still ships bash 3.2 and a BSD readlink with no -f, and this component is installed into
+# other people's repositories. A guard that dies on a contributor's laptop is a guard they remove.
+# The lowercase helper assigns to a variable rather than returning a string, so the fast path on
+# bash 4 costs no fork at all; the slow path pays one, on the platform that has no alternative.
+if [ "${BASH_VERSINFO[0]:-0}" -ge 4 ]; then
+  set_lower() { LOWER="${1?}"; LOWER="${LOWER,,}"; }
+else
+  set_lower() { LOWER="$(printf '%s' "${1?}" | tr '[:upper:]' '[:lower:]')"; }
+fi
+# POSIX stand-in for `readlink -f`, which is enough here: every path this resolves exists, so the
+# only job is to make two spellings of the same file compare equal.
+abspath() {
+  local d b
+  d="$(dirname -- "$1")"; b="$(basename -- "$1")"
+  d="$(cd -- "$d" 2>/dev/null && pwd -P)" || { printf '%s' "$1"; return; }
+  printf '%s/%s' "$d" "$b"
+}
+
+SELF="$(abspath "${BASH_SOURCE[0]}")"
 MIN_NAME_LEN=3
 
 MODE=all
@@ -146,7 +165,9 @@ while IFS= read -r raw || [ -n "$raw" ]; do
     die "$LIST:$lineno: '$n' is too short (under $MIN_NAME_LEN characters). It would match almost
   every file, and a guard that fires on everything is one you switch off. Use the full name."
   fi
-  if [ -n "$OWNER" ] && [ "${n,,}" = "${OWNER,,}" ]; then
+  set_lower "$n";     n_lc="$LOWER"
+  set_lower "$OWNER"; owner_lc="$LOWER"
+  if [ -n "$OWNER" ] && [ "$n_lc" = "$owner_lc" ]; then
     warn "$LIST:$lineno: dropping '$n': it is the OWNING ACCOUNT of this repository, so it appears"
     warn "  in the clone URL and would refuse every commit touching the README. Public identity and"
     warn "  private identity are different sets."
@@ -185,7 +206,8 @@ BLOB="$TMPD/blob"
 
 skip_by_name() {
   local base="${1##*/}"
-  case "${base,,}" in
+  set_lower "$base"
+  case "$LOWER" in
     *.png|*.jpg|*.jpeg|*.gif|*.bmp|*.ico|*.webp|*.svgz|*.pdf|*.zip|*.gz|*.bz2|*.xz|*.tar \
     |*.woff|*.woff2|*.ttf|*.otf|*.eot|*.mp3|*.mp4|*.mov|*.wav|*.class|*.jar|*.so|*.dylib \
     |*.dll|*.exe|*.pyc|*.o|*.a|*.wasm) return 0 ;;
@@ -212,7 +234,11 @@ for f in "${FILES[@]}"; do
     *)      scanfile="$f" ;;
   esac
   [ -f "$scanfile" ] || continue
-  [ "$(readlink -f "$scanfile" 2>/dev/null || echo "$scanfile")" = "$SELF" ] && continue
+  # Compared against the NAMED path, never the file being read. In --staged and --range that file
+  # is a temp blob, so comparing it here would never match and the scanner would report its own
+  # source. Every project that vendors this asset and wires the commit hook hits that on the
+  # commit that installs it, which is how it was found.
+  [ "$(abspath "$f")" = "$SELF" ] && continue
   # Read by grep, never through a command substitution: null bytes would be dropped and warned
   # about once per occurrence, so a full scan would print a wall of noise and read fonts as text.
   grep -Iq . "$scanfile" 2>/dev/null || continue

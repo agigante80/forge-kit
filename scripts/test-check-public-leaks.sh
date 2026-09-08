@@ -190,6 +190,48 @@ grep -qi 'would not have caught' "$SCRIPT" \
   && ok "states its own limit of reach in the source" \
   || bad "states its own limit of reach in the source"
 
+
+echo "== the scanner skips itself in EVERY mode, not just when read from disk =="
+# Found by the pre-commit hook, on this component's own commit. In --staged and --range the file
+# being read is a temp blob, so comparing the SCANNED path to the script's own path never matches
+# and the guard reports its own source as a leak. Every project that vendors the asset into its
+# tree and wires the commit hook hits this on the commit that installs it.
+SELFREPO="$WORK/selfrepo"; mkdir -p "$SELFREPO/scripts"
+( cd "$SELFREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t
+  printf 'x\n' > seed.md && git add seed.md && git commit -qm seed ) >/dev/null 2>&1
+cp "$SCRIPT" "$SELFREPO/scripts/check-public-leaks.sh"
+cp "$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh" \
+   "$SELFREPO/scripts/check-private-leaks.sh"
+( cd "$SELFREPO" && git add scripts && ./scripts/check-public-leaks.sh --staged ) >/dev/null 2>&1
+expect "--staged does not report the public scanner's own source" 0 "$?"
+( cd "$SELFREPO" && git commit -qm add >/dev/null 2>&1
+  ./scripts/check-public-leaks.sh --range HEAD~1 ) >/dev/null 2>&1
+expect "--range does not report it either" 0 "$?"
+( cd "$SELFREPO" && ./scripts/check-public-leaks.sh --all ) >/dev/null 2>&1
+expect "--all does not report it either" 0 "$?"
+
+echo "== portability, because this ships into other people's repositories =="
+# Both leak scanners were the first files in this tree to reach for bash-4-only expansions and GNU
+# readlink. macOS still ships bash 3.2 and BSD readlink, which has no -f, and a shipped component
+# that dies on a contributor's laptop gets removed rather than reported. Enforced mechanically
+# because the failure is invisible on the machine that wrote it.
+# Comments are stripped first, so the constructs may still be NAMED in the prose that explains why
+# they are avoided. The bash-4 expansion is allowed exactly once, inside the version-gated helper:
+# banning it outright would force the slow path onto every platform, and allowing it freely is the
+# bug. One occurrence plus a BASH_VERSINFO gate is the shape that means "fast path, guarded".
+code() { grep -v '^[[:space:]]*#' "$1"; }
+for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh"; do
+  a="$(basename "$asset")"
+  n="$(code "$asset" | grep -c ',,}')"
+  expect "$a uses the bash-4 lowercase expansion exactly once" 1 "$n"
+  grep -q 'BASH_VERSINFO' "$asset" \
+    && ok "$a gates it on the bash version" || bad "$a gates it on the bash version"
+  code "$asset" | grep -q 'readlink -f' \
+    && bad "$a avoids GNU-only readlink -f" || ok "$a avoids GNU-only readlink -f"
+  grep -q 'pwd -P' "$asset" \
+    && ok "$a canonicalises with a POSIX fallback" || bad "$a canonicalises with a POSIX fallback"
+done
+
 echo ""
 echo "passed: $passed  failed: $failed"
 [ "$failed" -eq 0 ]

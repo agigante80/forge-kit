@@ -119,6 +119,15 @@ expect "a null-byte file is treated as binary and skipped" 0 "$?"
 expect "and it produces no stderr warnings" "" "$(cat "$WORK/err.txt")"
 "$SCRIPT" --list "$WORK/list" "$SCRIPT" >/dev/null 2>&1
 expect "the scanner never reports itself" 0 "$?"
+# ...including in --staged, where the file being read is a temp blob rather than the script.
+SELFREPO="$WORK/selfrepo"; mkdir -p "$SELFREPO/scripts"
+( cd "$SELFREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t
+  printf 'x\n' > seed.md && git add seed.md && git commit -qm seed ) >/dev/null 2>&1
+cp "$SCRIPT" "$SELFREPO/scripts/check-private-leaks.sh"
+printf 'acme-migration\nnorthstar\nprivate-name\n' > "$WORK/selflist"
+( cd "$SELFREPO" && git add scripts \
+  && ./scripts/check-private-leaks.sh --list "$WORK/selflist" --staged ) >/dev/null 2>&1
+expect "--staged does not report the scanner's own source" 0 "$?"
 
 echo "== git modes =="
 # A SECOND repo, whose tracked content is clean. The owner repo above deliberately holds a tracked

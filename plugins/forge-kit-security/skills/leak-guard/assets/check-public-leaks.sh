@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 1
+# check-public-leaks-version: 3
 #
 # The PUBLIC half of the leak guard (forge-kit issue #99, split as #155): the developer's machine
 # leaking into a repository that is about to be made public. It catches by SHAPE and by ALLOWLIST,
@@ -37,7 +37,26 @@
 
 set -uo pipefail
 
-SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+# --- portability ------------------------------------------------------------
+# macOS still ships bash 3.2 and a BSD readlink with no -f, and this component is installed into
+# other people's repositories. A guard that dies on a contributor's laptop is a guard they remove.
+# The lowercase helper assigns to a variable rather than returning a string, so the fast path on
+# bash 4 costs no fork at all; the slow path pays one, on the platform that has no alternative.
+if [ "${BASH_VERSINFO[0]:-0}" -ge 4 ]; then
+  set_lower() { LOWER="${1?}"; LOWER="${LOWER,,}"; }
+else
+  set_lower() { LOWER="$(printf '%s' "${1?}" | tr '[:upper:]' '[:lower:]')"; }
+fi
+# POSIX stand-in for `readlink -f`, which is enough here: every path this resolves exists, so the
+# only job is to make two spellings of the same file compare equal.
+abspath() {
+  local d b
+  d="$(dirname -- "$1")"; b="$(basename -- "$1")"
+  d="$(cd -- "$d" 2>/dev/null && pwd -P)" || { printf '%s' "$1"; return; }
+  printf '%s/%s' "$d" "$b"
+}
+
+SELF="$(abspath "${BASH_SOURCE[0]}")"
 
 MODE=all
 BASE=""
@@ -139,7 +158,8 @@ skip_by_name() {
   # Suffixes match anywhere in the path; the named lockfiles must match the BASENAME, or a path
   # like "vendor/package-lock.json" slips through while "package-lock.json" at the root is caught.
   local base="${1##*/}"
-  case "${base,,}" in
+  set_lower "$base"
+  case "$LOWER" in
     *.png|*.jpg|*.jpeg|*.gif|*.bmp|*.ico|*.webp|*.svgz|*.pdf|*.zip|*.gz|*.bz2|*.xz|*.tar \
     |*.woff|*.woff2|*.ttf|*.otf|*.eot|*.mp3|*.mp4|*.mov|*.wav|*.class|*.jar|*.so|*.dylib \
     |*.dll|*.exe|*.pyc|*.o|*.a|*.wasm) return 0 ;;
@@ -199,7 +219,11 @@ for f in "${FILES[@]}"; do
   [ -f "$scanfile" ] || continue
 
   # Never report the guard's own source: it has to contain the patterns to apply them.
-  [ "$(readlink -f "$scanfile" 2>/dev/null || echo "$scanfile")" = "$SELF" ] && continue
+  # Compared against the NAMED path, never the file being read. In --staged and --range that file
+  # is a temp blob, so comparing it here would never match and the scanner would report its own
+  # source. Every project that vendors this asset and wires the commit hook hits that on the
+  # commit that installs it, which is how it was found.
+  [ "$(abspath "$f")" = "$SELF" ] && continue
 
   # Binary detection reads the file, never a shell variable, so null bytes are neither dropped nor
   # warned about. -I makes grep treat a binary file as non-matching, so an empty result means
@@ -237,14 +261,16 @@ for f in "${FILES[@]}"; do
     local_part="${addr%%@*}"; domain="${addr#*@}"
     # An address that cannot reach a mailbox is not a leak. noreply is the convention; the rest
     # are the TLDs reserved by RFC 2606 and RFC 6761 precisely so documentation can use them.
-    case "${local_part,,}" in
+    set_lower "$local_part"
+    case "$LOWER" in
       noreply*|no-reply*|donotreply*) continue ;;
       # "git@host" is the SSH clone user, not a mailbox. It is in the clone URL of essentially
       # every repository, so leaving it to each project's allow-file would make the first run of
       # this guard noise rather than signal.
       git) continue ;;
     esac
-    case "${domain,,}" in
+    set_lower "$domain"
+    case "$LOWER" in
       *.example|*.invalid|*.test|*.localhost|*.local) continue ;;
       example.com|example.org|example.net|*.example.com|*.example.org|*.example.net) continue ;;
     esac
