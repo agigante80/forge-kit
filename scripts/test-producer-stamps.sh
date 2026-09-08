@@ -157,6 +157,62 @@ bash "$SCRIPT" >/dev/null 2>&1
 [ $? -eq 0 ] && ok "this repo's own plugins/ tree is free of hardcoded stamps" \
   || bad "repo plugins/ tree is clean"
 
+# --- inside a git checkout, only TRACKED files are in scope (#140) ------------------------------
+# The failure that bites is local: a merge leftover like dep-auditor.md.orig, still carrying a
+# pre-#83 stamp, hard-fails on a developer's machine over a file CI will never see and git will
+# never carry. The message names a real path, so there is no signal that it is irrelevant.
+#
+# The sibling range guards already read committed state (`git show`) precisely so the local answer
+# matches CI's. This brings the scan into line with them.
+R="$T/repo"
+mkdir -p "$R/plugins/g/agents"
+( cd "$R" && git init -q . && git config user.email t@t.invalid && git config user.name t ) >/dev/null 2>&1
+mk "$R/plugins/g/agents/ok.md" <<'M'
+Resolve the version at runtime; never write `template-version: N` as a literal.
+M
+( cd "$R" && git add -A && git commit -q -m base ) >/dev/null 2>&1
+
+# The untracked leftover.
+mk "$R/plugins/g/agents/a.md.orig" <<'M'
+<!-- template-version: 4 -->
+M
+bash "$SCRIPT" "$R/plugins" >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "an UNTRACKED file carrying a stamp does not fail the guard" \
+                || bad "an untracked file carrying a stamp still fails the guard"
+
+# The same content, tracked, must still fail: this is about WHICH files are in scope, not about
+# excusing any of them. The no-allowlist rule is untouched.
+( cd "$R" && git add -f plugins/g/agents/a.md.orig && git commit -q -m tracked ) >/dev/null 2>&1
+out=$(bash "$SCRIPT" "$R/plugins" 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "and the identical content TRACKED still fails" \
+                || bad "a tracked stamp stopped failing (rc=$rc)"
+printf '%s' "$out" | grep -q 'a.md.orig' \
+  && ok "and the report still names the file" || bad "and the report still names the file"
+
+# EXACTLY ONE tracked file. grep omits the filename prefix when handed a single file operand, so
+# without -H the report names a line number and no path. Every other case here has several files
+# and grep adds the prefix anyway, which is why dropping -H survived mutation until this case.
+S="$T/single"
+mkdir -p "$S/plugins/g/agents"
+( cd "$S" && git init -q . && git config user.email t@t.invalid && git config user.name t ) >/dev/null 2>&1
+mk "$S/plugins/g/agents/only.md" <<'M'
+<!-- template-version: 4 -->
+M
+( cd "$S" && git add -A && git commit -q -m one ) >/dev/null 2>&1
+out=$(bash "$SCRIPT" "$S/plugins" 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "a lone tracked file carrying a stamp fails" || bad "a lone tracked file fails (rc=$rc)"
+printf '%s' "$out" | grep -q 'only\.md' \
+  && ok "and the report names it even though grep had one file" \
+  || bad "the report lost the filename with a single file operand"
+
+# A tracked file deleted from the worktree is still listed by git ls-files; grepping it would be a
+# read error reported as a scan failure.
+( cd "$R" && rm plugins/g/agents/a.md.orig ) >/dev/null 2>&1
+bash "$SCRIPT" "$R/plugins" >/dev/null 2>&1
+[ "$?" -ne 2 ] && ok "a tracked file missing from the worktree is not a scan error" \
+               || bad "a tracked file missing from the worktree reported a scan error"
+( cd "$R" && git checkout -- . ) >/dev/null 2>&1
+
 echo ""
 echo "producer-stamp tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

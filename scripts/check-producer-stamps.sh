@@ -38,7 +38,29 @@ fi
 # exactly that vacuous pass by a different door: with TMPDIR unusable, mktemp failed, the redirect
 # failed, grep never ran, and status 1 read as "clean" while a violation sat in the tree. Letting
 # stderr through needs no temp file, and CI shows it either way.
-hits="$(grep -rnE 'template-version:[[:space:]]*[0-9]' "$ROOT")"; grc=$?
+# WHICH files, from guard-lib.sh: the tracked set inside a checkout, the original recursive grep
+# outside one (#140). This is about scope, not amnesty: the no-allowlist rule below is untouched,
+# and the same content tracked still fails.
+#
+# The fallback is deliberately the ORIGINAL call. It fails closed on an unreadable subtree, which a
+# `find`-based listing does not, and reopening that vacuous pass is precisely what the paragraph
+# above warns against.
+. "$(dirname "$0")/guard-lib.sh"
+PAT='template-version:[[:space:]]*[0-9]'
+if guard_in_checkout "$ROOT"; then
+  files=()
+  while IFS= read -r -d '' f; do files+=("$f"); done < <(guard_tracked_files "$ROOT")
+  if [ "${#files[@]}" -eq 0 ]; then
+    hits=""; grc=1
+  else
+    # -H because grep omits the filename when handed exactly one file, and every message below
+    # names the path. One invocation rather than xargs, which collapses grep's "no match" (1) into
+    # its own 123 and would destroy the three statuses this file depends on.
+    hits="$(grep -nHE "$PAT" -- "${files[@]}")"; grc=$?
+  fi
+else
+  hits="$(grep -rnE "$PAT" "$ROOT")"; grc=$?
+fi
 
 # A scan error is reported AFTER any hits, never instead of them: grep exits 2 on a read error even
 # when it matched elsewhere, so discarding what it found would hide a real violation behind an

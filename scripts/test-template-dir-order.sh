@@ -229,6 +229,54 @@ out=$(bash "$SCRIPT" 2>&1); rc=$?
 case "$out" in "check-template-dir-order: 6 sites,"*) ok "and it finds exactly the six copies" ;;
                *) bad "finds exactly six sites (got: $out)" ;; esac
 
+# --- inside a git checkout, only TRACKED files are in scope (#142) ------------------------------
+# Latent when filed, and the hand-maintained exclude list is why: it had to be extended every time
+# a new gitignored runtime store appeared, and a copy of a diff written into .superpowers/sdd/ by
+# /full-review had already made this guard report three bogus orders on content git never carries.
+# The list is now DELETED rather than extended, which is the acceptance criterion.
+R="$T/repo"
+mkdir -p "$R"
+( cd "$R" && git init -q . && git config user.email t@t.invalid && git config user.name t ) >/dev/null 2>&1
+mk "$R/a.sh" <<M
+TPL_DIR=\$(for d in $CANON; do :; done)
+M
+mk "$R/b.sh" <<M
+resolve order: $CANON
+M
+( cd "$R" && git add -A && git commit -q -m base ) >/dev/null 2>&1
+bash "$SCRIPT" "$R" >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "two tracked sites that agree pass inside a checkout" \
+                || bad "two tracked sites that agree pass inside a checkout"
+
+# A gitignored runtime store carrying a REORDERED copy: exactly the shape that produced bogus
+# failures, on content CI will never see.
+# A directory that is NOT on the guard's hand-maintained exclude list, so this case is red against
+# the current implementation rather than passing because someone already added the name.
+mk "$R/.gitignore" <<'M'
+vendor/
+M
+mk "$R/vendor/diff.md" <<'M'
+TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE .forgejo/issue_template .gitea/issue_template; do :; done)
+M
+( cd "$R" && git add .gitignore && git commit -q -m ignore ) >/dev/null 2>&1
+bash "$SCRIPT" "$R" >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "a gitignored copy with a DIFFERENT order does not fail the guard" \
+                || bad "a gitignored copy still makes the local verdict differ from CI's"
+
+# The same content tracked must still fail. Scope, not amnesty.
+( cd "$R" && git add -f vendor/diff.md && git commit -q -m tracked ) >/dev/null 2>&1
+bash "$SCRIPT" "$R" >/dev/null 2>&1
+[ "$?" -eq 1 ] && ok "and the identical content TRACKED still fails" \
+                || bad "a tracked divergent order stopped failing"
+( cd "$R" && git rm -q --cached vendor/diff.md && git commit -q -m untrack ) >/dev/null 2>&1
+
+# The exclude list is deleted, not extended: the guard must no longer name those directories.
+# Keyed on the CONSTRUCT, not on the directory names: those still appear in the comment explaining
+# why the list was deleted, and a test that forbade the explanation would be forbidding the reason.
+grep -q 'dirnames\[:\]' "$SCRIPT" \
+  && bad "the hand-maintained exclude list is gone, not extended" \
+  || ok "the hand-maintained exclude list is gone, not extended"
+
 echo ""
 echo "template-dir-order tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -29,10 +29,32 @@ if [ "$#" -ge 1 ]; then ROOT="$1"; else
 fi
 [ -d "$ROOT" ] || { echo "check-template-dir-order: '$ROOT' is not a directory" >&2; exit 2; }
 
-python3 - "$ROOT" <<'PY'
+# WHICH files, from guard-lib.sh: the tracked set inside a checkout, a plain walk outside one
+# (#142). The hand-maintained exclude list is DELETED rather than extended: it had to grow every
+# time a new gitignored runtime store appeared, and a copy of a diff written into .superpowers/sdd/
+# by /full-review had already made this guard report three bogus orders on content git never
+# carries. Inside a checkout the tracked set excludes all of them by construction.
+#
+# The list arrives on a SEPARATE fd through process substitution, not on stdin, because stdin is
+# already carrying the Python program.
+. "$(dirname "$0")/guard-lib.sh"
+# Held open with `exec` rather than inlined into the argument list: a process substitution's fd
+# lives only as long as the command it belongs to, so writing it into an array assignment leaves
+# python opening a /dev/fd entry that has already gone.
+FLARG=()
+if guard_in_checkout "$ROOT"; then
+  exec 3< <(guard_tracked_files "$ROOT")
+  FLARG=(--filelist /dev/fd/3)
+fi
+
+python3 - "$ROOT" ${FLARG+"${FLARG[@]}"} <<'PY'
 import os, re, sys
 
 root = sys.argv[1]
+# A NUL-separated file list on a separate fd when the caller established a checkout; otherwise a
+# walk. Two mechanisms for one intent, which is why guard-lib.sh shares the DECISION rather than
+# the listing: a Python walk cannot be a bash grep, the same shape as the component path set (#112).
+FILELIST = sys.argv[3] if len(sys.argv) > 3 and sys.argv[2] == '--filelist' else None
 TOKEN = re.compile(r'\.(?:forgejo|gitea|github)/(?:ISSUE_TEMPLATE|issue_template)\b')
 # A run of ALL FIVE directories is an ordering; anything shorter is prose. Four was tried and was
 # wrong in both directions: a sentence enumerating the directories comma-separated with "and"
@@ -52,18 +74,20 @@ MIN = 5
 CANON = ('.forgejo/ISSUE_TEMPLATE', '.forgejo/issue_template',
          '.gitea/ISSUE_TEMPLATE', '.gitea/issue_template', '.github/ISSUE_TEMPLATE')
 
+def candidate_paths():
+    if FILELIST:
+        with open(FILELIST, 'rb') as fh:
+            for raw in fh.read().split(b'\0'):
+                if raw:
+                    yield raw.decode('utf-8', 'replace')
+        return
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            yield os.path.join(dirpath, fn)
+
 sites = []
-for dirpath, dirnames, filenames in os.walk(root):
-    # The gitignored runtime stores CLAUDE.md documents. A copy of a diff written into
-    # .superpowers/sdd/ by /full-review made this guard fail with three bogus orders, on content
-    # git never carries. Replacing this hand-maintained list with the tracked file set is #142,
-    # filed to be done together with #140 rather than as a third copy of the same rule.
-    dirnames[:] = [d for d in dirnames
-                   if d not in ('.git', 'node_modules', 'temp', '.full-review',
-                                '.superpowers', '.venv', '.private-journal')
-                   and not (d == 'overnight' and os.path.basename(dirpath) == '.claude')]
-    for fn in sorted(filenames):
-        path = os.path.join(dirpath, fn)
+if True:
+    for path in sorted(candidate_paths()):
         rel_ = os.path.relpath(path, root)
         # This guard holds the DEFINITION, not a copy of it. Counting it as a site made `sites`
         # impossible to empty, so deleting every real copy reported "1 sites, all carrying the
