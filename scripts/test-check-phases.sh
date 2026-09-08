@@ -23,6 +23,7 @@ contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/docs/plans"
 cp "$SRC" "$T/check-phases.sh"
+cp "$(dirname "$SRC")/roadmap-lib.sh" "$T/roadmap-lib.sh" 2>/dev/null || true
 
 goodplan() { printf '# %s\n\n## Goal\nx\n\n## Done looks like\nx\n\n## Fails if\nx\n' "$1"; }
 out=""; rc=0
@@ -307,6 +308,17 @@ out=$(cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" \
       FORGE_LIB="$T/elsewhere/forge-lib.sh" bash ./check-phases.sh 2>&1); rc=$?
 expect "FORGE_LIB points it at a library that is not adjacent" 0 "$rc"
 mv "$T/elsewhere/forge-lib.sh" "$T/forge-lib.sh"
+
+echo "== the shared parser library =="
+# parse_roadmap is ONE definition of a file format with two consumers, not two similar behaviours.
+# If the two ever parsed differently the guard would pass a file the sync then mis-applies, so
+# divergence is a defect by definition rather than a possibility. That is what separates this from
+# the wrong-abstraction risk the Rule of Three warns about (#162).
+mv "$T/roadmap-lib.sh" "$T/roadmap-lib.hidden"
+run --offline
+expect "a missing roadmap-lib.sh refuses the run rather than degrading" 2 "$rc"
+contains "roadmap-lib.sh" "$out" "and names what is missing"
+mv "$T/roadmap-lib.hidden" "$T/roadmap-lib.sh"
 
 echo "== usage =="
 run --nonsense

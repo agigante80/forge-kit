@@ -137,7 +137,9 @@ rm -f .leak-guard-allow docs-leak.md; git add -A >/dev/null; git commit --quiet 
 echo "== roadmap phase guard =="
 RG=plugins/forge-kit-roadmap/skills/roadmap-phases/assets
 mkdir -p "$RG" docs/plans
-cp "$ROOT/$RG/check-phases.sh" "$RG/"
+# Both assets: the format lives in roadmap-lib.sh (#162), so installing the guard alone is a
+# refusal rather than a degraded run. That refusal is itself covered in test-check-phases.sh.
+cp "$ROOT/$RG/check-phases.sh" "$ROOT/$RG/roadmap-lib.sh" "$RG/"
 cat > docs/roadmap.md <<'MD'
 ## Phase: A
 state: open

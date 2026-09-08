@@ -23,6 +23,7 @@ absent()   { if printf '%s' "$2" | grep -qiF -- "$1"; then bad "$3"; else ok "$3
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/docs/plans"
 cp "$SRC" "$T/sync-phases.sh"
+cp "$ASSETS/roadmap-lib.sh" "$T/roadmap-lib.sh" 2>/dev/null || true
 
 cat > "$T/forge-lib.sh" <<'STUB'
 forge_repo() { printf 'o/r'; }
@@ -152,17 +153,18 @@ grep -q "sed -n '[0-9]*,[0-9]*p'" "$T/sync-phases.sh" \
   && bad "--help does not print a hardcoded line range" \
   || ok "--help does not print a hardcoded line range"
 
-echo "== the parser is byte-identical to check-phases.sh's =="
-# Two copies of one function is the drift this repo keeps finding. They are copied rather than
-# sourced because each asset must run standalone once forge-adapt installs it into a project's
-# scripts/. This test is what keeps them equal, the same answer given for the component path set
-# (#112) and the template-dir order (#77).
-extract() { awk '/^parse_roadmap\(\) \{/,/^\}/' "$1"; }
-if [ "$(extract "$SRC")" = "$(extract "$ASSETS/check-phases.sh")" ] && [ -n "$(extract "$SRC")" ]; then
-  ok "the two parse_roadmap copies agree"
-else
-  bad "the two parse_roadmap copies agree"
-fi
+echo "== the shared parser library (#162) =="
+# There is nothing left to compare: parse_roadmap is defined once and sourced. The byte-identity
+# test this replaces was a mitigation, not a justification, and it could never have caught the
+# interesting failure, which is two copies that are identical and both wrong.
+defs=$(grep -lc '^parse_roadmap() {' "$ASSETS"/*.sh 2>/dev/null | wc -l | tr -d ' ')
+expect "parse_roadmap is defined in exactly one asset" 1 "$defs"
+
+mv "$T/roadmap-lib.sh" "$T/roadmap-lib.hidden"
+run
+expect "a missing roadmap-lib.sh refuses the run rather than degrading" 2 "$rc"
+contains "roadmap-lib.sh" "$out" "and names what is missing"
+mv "$T/roadmap-lib.hidden" "$T/roadmap-lib.sh"
 
 echo "== portability =="
 code() { grep -v '^[[:space:]]*#' "$1"; }

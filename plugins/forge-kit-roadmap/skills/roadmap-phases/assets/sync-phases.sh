@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-phases-version: 2
+# sync-phases-version: 3
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
@@ -28,44 +28,21 @@
 
 set -uo pipefail
 
-# --- portability ------------------------------------------------------------
-# macOS still ships bash 3.2 and a BSD readlink with no -f, and this is installed into other
-# people's repositories. A guard that dies on a contributor's laptop is a guard they remove.
-if [ "${BASH_VERSINFO[0]:-0}" -ge 4 ]; then
-  set_lower() { LOWER="${1?}"; LOWER="${LOWER,,}"; }
+# The roadmap format lives in roadmap-lib.sh, defined once (#162). Anchored to this script's own
+# location, never the working directory: both assets land in the same directory in the source tree
+# and in a forge-adapt install, so adjacency holds in both shapes.
+_HERE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$_HERE_LIB/roadmap-lib.sh" ]; then
+  # shellcheck source=roadmap-lib.sh
+  . "$_HERE_LIB/roadmap-lib.sh"
 else
-  set_lower() { LOWER="$(printf '%s' "${1?}" | tr '[:upper:]' '[:lower:]')"; }
+  echo "sync-phases: roadmap-lib.sh not found next to this script. It defines the roadmap format," >&2
+  echo "  so nothing can be synced without it. Install it alongside this asset." >&2
+  exit 2
 fi
-abspath() {
-  local d b
-  d="$(dirname -- "$1")"; b="$(basename -- "$1")"
-  d="$(cd -- "$d" 2>/dev/null && pwd -P)" || { printf '%s' "$1"; return; }
-  printf '%s/%s' "$d" "$b"
-}
+
 SELF="$(abspath "${BASH_SOURCE[0]}")"
 
-parse_roadmap() {
-  awk '
-    /^## Phase:/ {
-      if (seen) emit()
-      name = $0; sub(/^## Phase: */, "", name); sub(/[ \t]+$/, "", name)
-      seen = 1; state = ""; plan = ""; next
-    }
-    /^state:/ { state = value(); next }
-    /^plan:/  { plan  = value(); next }
-    END { if (seen) emit() }
-    function value(   v) {
-      v = $0; sub(/^[a-z]+:[ \t]*/, "", v); sub(/[ \t]+$/, "", v); return v
-    }
-    function emit() {
-      if (state == "") { printf("MALFORMED\t%s\tno state line\n", name); return }
-      if (state != "planned" && state != "open" && state != "done" && state != "backlog") {
-        printf("MALFORMED\t%s\tunknown state \"%s\"\n", name, state); return
-      }
-      printf("%s\t%s\t%s\n", name, state, plan)
-    }
-  ' "$1"
-}
 
 die() { printf 'sync-phases: %s\n' "$1" >&2; exit 2; }
 
