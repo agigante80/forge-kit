@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 8
+# forge-lib-version: 9
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -432,6 +432,55 @@ forge_issue_label() {
 # --- Release / tag operations ---
 
 # forge_tag_exists <tag>  -> exit 0 if the tag exists on the forge
+# --- milestones -------------------------------------------------------------------------------
+# A HOST capability, not a planning concept: dep-auditor already reads them, and a project using any
+# planning method at all still wants them. They live here rather than in the optional
+# forge-kit-roadmap group so that group's dependency runs ONE WAY ONLY, and so declining it costs
+# the host adapter nothing.
+forge_milestone_list() {
+  local repo; repo="$(forge_repo)" || return 2
+  # PAGINATED. /milestones is a LIST endpoint, so a plain GET returns one server page and silently
+  # truncates past it, the class #62 fixed for issues. Narrowed to the three fields callers use, so
+  # a host adding a field cannot change what a caller sees.
+  forge_api_paginate "/repos/$repo/milestones?state=all" \
+    | jq -c '[.[] | {id, title, state}]' || return 2
+}
+
+forge_milestone_create() {
+  local title="$1" desc="${2-}" repo
+  repo="$(forge_repo)" || return 2
+  forge_api POST "/repos/$repo/milestones" \
+    "$(jq -nc --arg t "$title" --arg d "$desc" '{title:$t, description:$d}')" >/dev/null
+}
+
+_forge_milestone_id() {
+  local id
+  id="$(forge_milestone_list | jq -r --arg t "$1" '.[] | select(.title == $t) | .id' | head -1)"
+  [ -n "$id" ] || return 1
+  printf '%s' "$id"
+}
+
+forge_milestone_close() {
+  local title="$1" repo id
+  repo="$(forge_repo)" || return 2
+  # FAILS on an unknown title rather than no-opping. A close that quietly did nothing would let a
+  # roadmap say `done` while the milestone stayed open, which is the exact drift a caller asks this
+  # to prevent.
+  id="$(_forge_milestone_id "$title")" || {
+    echo "forge-lib: no milestone titled '$title' on $repo" >&2; return 2; }
+  forge_api PATCH "/repos/$repo/milestones/$id" '{"state":"closed"}' >/dev/null
+}
+
+# Open issues with their milestone TITLE (or null). Excludes pull requests, for the same reason
+# forge_issue_list does: the Gitea issues endpoint returns both, and a caller asking about tickets
+# does not mean PRs.
+forge_issue_milestone_list() {
+  local repo; repo="$(forge_repo)" || return 2
+  forge_api_paginate "/repos/$repo/issues?state=open" \
+    | jq -c '[.[] | select(has("pull_request") | not)
+                  | {number, milestone: (.milestone.title // null)}]' || return 2
+}
+
 forge_tag_exists() { forge_api GET "/repos/$(forge_repo)/tags/$1" >/dev/null 2>&1; }
 
 # forge_release_create <tag> [title] [notes]   (both hosts accept tag_name/name/body)

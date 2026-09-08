@@ -540,6 +540,88 @@ line2'
 [ $? -eq 0 ] && ok "a child process in another repo reads its own config, not the parent's (round-3 H1)" \
   || bad "file-derived config leaks into a child process (round-3 H1)"
 
+# --- milestones: a HOST capability, used by the optional forge-kit-roadmap group -------------
+# Paginated, because /milestones is a LIST endpoint: a plain GET returns one server page and
+# silently truncates, the class #62 fixed for issues. Terminating on an EMPTY page and not on a
+# short one matters here for the same reason: the server clamps `limit`.
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    case "$2" in
+      *"/milestones?"*page=1*) printf '[{"id":1,"title":"Phase A","state":"open","extra":"x"},{"id":2,"title":"Phase B","state":"closed"}]' ;;
+      *"/milestones?"*page=2*) printf '[{"id":3,"title":"Phase C","state":"open"}]' ;;
+      *) printf '[]' ;;
+    esac
+  }
+  out=$(forge_milestone_list) || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 3 ] || exit 1
+  [ "$(printf '%s' "$out" | jq -r '.[0].title')" = "Phase A" ] || exit 2
+  [ "$(printf '%s' "$out" | jq -r '.[0] | has("extra")')" = false ] || exit 3
+)
+case $? in
+  0) ok "milestone_list pages, and narrows to id/title/state";;
+  1) bad "milestone_list truncated instead of paginating";;
+  2) bad "milestone_list did not return titles";;
+  3) bad "milestone_list leaked fields beyond id/title/state";;
+  *) bad "milestone_list errored";;
+esac
+
+# Closing by TITLE, because the roadmap names phases and only the host knows ids.
+(
+  . "$LIB"
+  REQLOG="$T/ms.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    echo "$1 $2" >> "$REQLOG"
+    case "$2" in *"/milestones?"*page=1*) printf '[{"id":7,"title":"Phase A","state":"open"}]' ;;
+                 *) printf '[]' ;; esac
+  }
+  forge_milestone_close "Phase A" || exit 1
+  grep -q 'PATCH /repos/o/r/milestones/7' "$REQLOG" || exit 2
+)
+case $? in
+  0) ok "milestone_close resolves the title to an id and PATCHes it";;
+  1) bad "milestone_close failed on a title that exists";;
+  *) bad "milestone_close did not PATCH the resolved id";;
+esac
+
+# A close that quietly did nothing would let a roadmap say `done` while the milestone stayed open,
+# which is exactly the drift the roadmap group's rule 3 exists to catch.
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { printf '[]'; }
+  forge_milestone_close "No Such Phase" 2>/dev/null
+  [ "$?" -eq 2 ]
+)
+[ $? -eq 0 ] && ok "closing an unknown title FAILS rather than silently doing nothing" \
+             || bad "closing an unknown title silently succeeded"
+
+# Issues carry the milestone TITLE, and pull requests must not appear: the roadmap rule is about
+# tickets. Forgejo's issues endpoint returns PRs too, which is why forge_issue_list filters them.
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    case "$2" in
+      *"/issues?"*page=1*) printf '[{"number":7,"milestone":{"title":"Phase A"}},{"number":8,"milestone":null},{"number":9,"pull_request":{},"milestone":null}]' ;;
+      *) printf '[]' ;;
+    esac
+  }
+  out=$(forge_issue_milestone_list) || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 2 ] || exit 1
+  [ "$(printf '%s' "$out" | jq -r '.[0].milestone')" = "Phase A" ] || exit 2
+  [ "$(printf '%s' "$out" | jq -r '.[1].milestone')" = "null" ] || exit 3
+)
+case $? in
+  0) ok "issue_milestone_list flattens the title, keeps null, and excludes PRs";;
+  1) bad "issue_milestone_list included a pull request";;
+  2) bad "issue_milestone_list did not flatten milestone.title";;
+  3) bad "issue_milestone_list did not report an unassigned issue as null";;
+  *) bad "issue_milestone_list errored";;
+esac
+
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
