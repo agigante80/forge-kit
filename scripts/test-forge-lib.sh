@@ -567,6 +567,36 @@ case $? in
   *) bad "milestone_list errored";;
 esac
 
+# GitHub's milestone endpoints take the per-repo NUMBER; `.id` is a global id and 404s on PATCH.
+# Forgejo's take `.id`. That difference is exactly what this adapter exists to hide, and it was
+# found by a live close failing with 404 rather than by review.
+(
+  . "$LIB"
+  export FORGE_HOST=github FORGE_REPO=o/r
+  forge_api() {
+    case "$2" in *"/milestones?"*page=1*) printf '[{"id":123456,"number":4,"title":"P","state":"open"}]' ;;
+                 *) printf '[]' ;; esac
+  }
+  forge_api_paginate() { forge_api GET "/milestones?page=1"; }
+  out=$(forge_milestone_list) || exit 9
+  [ "$(printf '%s' "$out" | jq -r '.[0].id')" = 4 ]
+)
+[ $? -eq 0 ] && ok "milestone_list uses GitHub's per-repo number as the id" \
+             || bad "milestone_list used GitHub's global id, which 404s on PATCH"
+
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    case "$2" in *"/milestones?"*page=1*) printf '[{"id":9,"title":"P","state":"open"}]' ;;
+                 *) printf '[]' ;; esac
+  }
+  out=$(forge_milestone_list) || exit 9
+  [ "$(printf '%s' "$out" | jq -r '.[0].id')" = 9 ]
+)
+[ $? -eq 0 ] && ok "and Forgejo's own id, which has no number field" \
+             || bad "milestone_list broke Forgejo's id"
+
 # Closing by TITLE, because the roadmap names phases and only the host knows ids.
 (
   . "$LIB"

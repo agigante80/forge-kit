@@ -10,14 +10,20 @@ promise, and it is a bucket: file tickets against it as they occur to you, and i
 from the roadmap prose plus whatever has accumulated by the time it opens.
 
 ## Phase: Roadmap phases
-state: open
+state: done
 plan: docs/plans/roadmap-phases.md
+
+Closed 2026-09-08, outcome **done**. Nothing moved or abandoned. The close review found one piece
+of skipped work (#161, the group's undeclared dependency on `forge-lib.sh`) and one thing worth
+recording: three defects were found by running the guards rather than reading them, including the
+isolation guard failing on its own first run against this tree.
 
 The kit governs tickets, releases and hosts, and has no shape larger than a ticket. This phase adds
 one, as an optional plugin group so that a project using any other method loses nothing.
 
 ## Phase: Guards that do not guard
-state: planned
+state: open
+plan: docs/plans/guards-that-do-not-guard.md
 
 Every ticket in this phase shares one cause: a guard that is imprecise, or absent, or checking
 something other than what it claims. #158 is the live one, and it was created BY changing the

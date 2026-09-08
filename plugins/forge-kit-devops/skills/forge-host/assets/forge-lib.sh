@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 10
+# forge-lib-version: 11
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -443,8 +443,16 @@ forge_milestone_list() {
   # PAGINATED. /milestones is a LIST endpoint, so a plain GET returns one server page and silently
   # truncates past it, the class #62 fixed for issues. Narrowed to the three fields callers use, so
   # a host adding a field cannot change what a caller sees.
+  #
+  # THE `id` IS HOST-DEPENDENT, and getting it wrong is a 404 rather than a wrong answer. GitHub's
+  # milestone endpoints address a milestone by its per-repo NUMBER; the `id` it also returns is a
+  # global identifier that 404s on PATCH. Gitea and Forgejo have no `number` and address by `id`.
+  # Normalised here so every caller sees one field, which is the whole reason this adapter exists.
+  # Found by a live close failing, not by review.
+  local gh=false
+  [ "$(forge_host)" = github ] && gh=true
   forge_api_paginate "/repos/$repo/milestones?state=all" \
-    | jq -c '[.[] | {id, title, state}]' || return 2
+    | jq -c --argjson gh "$gh" '[.[] | {id: (if $gh then .number else .id end), title, state}]' || return 2
 }
 
 forge_milestone_create() {
