@@ -163,6 +163,13 @@ jobs:
       - name: Leak-guard contract tests
         run: bash scripts/test-check-public-leaks.sh
 
+      # The IDENTITY half is contract-tested here but never RUN here. It needs the list of private
+      # names, and a list of the names you are hiding cannot live in the repository it protects,
+      # nor in a CI secret, which is the same disclosure with more readers. The suite builds a
+      # throwaway list in a temp directory, so no real name is needed to test it.
+      - name: Leak-guard identity-half contract tests
+        run: bash scripts/test-check-private-leaks.sh
+
       - name: No private paths, roots or addresses in the tracked tree
         run: |
           bash plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh \

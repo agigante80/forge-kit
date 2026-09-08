@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 1 -->
+<!-- leak-guard-version: 2 -->
 
 # Leak guard
 
@@ -65,13 +65,14 @@ purpose: everything in it is something the project decided it may show.
 
 ## The private half
 
-> **Not shipped yet, tracked by issue #156.** The design is stated here because the public half is
-> only intelligible as one of two halves, and because a reader has to know which class of leak is
-> still uncovered. Everything below describes the intended asset, not one you can run today.
+```
+check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [--show-names] [paths...]
+```
 
-```
-check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [paths...]
-```
+**It reports a redacted name by default**, two leading characters and the length, and `--show-names`
+prints it in full. The class of leak this component exists to stop is pasted output, and this hook's
+own output is exactly that kind of text: printing the matched name in full makes pasting the failure
+into a public issue the next leak. The file and line are enough to act on.
 
 The list defaults to `~/.claude/forge-kit/private-names.txt`, one name per line. **It exits 0 with
 a loud explanation when the list is absent**, rather than failing closed on a machine that never

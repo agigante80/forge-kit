@@ -3,10 +3,14 @@
 # Four keys, and an unknown one refuses the whole run rather than being skipped: a silently
 # ignored line in a security config is a guard reporting a coverage it does not have.
 #
-#   root <~/name>   a home root this project's documents are allowed to show
+#   root ~/<root>   a home root this project's documents are allowed to show
 #   prefix <path>   an absolute path prefix that is public by construction
 #   email <addr>    an address that is deliberately published
 #   skip <path>     a file excluded from the scan
+#
+# This file is scanned like any other, and it passes by construction: every entry allows the very
+# string it is written with. Only the comments have to be written in the placeholder forms, which
+# is why the line above says "~/<root>" rather than showing a name.
 #
 # This file is tracked and public on purpose. Everything in it is a thing the project has decided
 # it may show, so publishing it discloses nothing. That is exactly why the IDENTITY half of the

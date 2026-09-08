@@ -62,6 +62,31 @@ if [ -f "$guard" ]; then
   fi
 fi
 
+# Leak guard (issue #99), STAGED scan: the cheap half of the pair, asking "am I about to write
+# down something from my own machine". The full-tree question is the pre-push hook's, because it
+# is the one that matters when a history rewrite is needed.
+#
+# The private half is here and NOT in CI, and that is permanent rather than a gap: it needs the
+# list of private names, and a list of the names you are hiding cannot live in the repository it
+# protects, nor in a CI secret. It exits 0 with an explanation on a machine that has no list.
+leaks=0
+lg="$(git rev-parse --show-toplevel)/plugins/forge-kit-security/skills/leak-guard/assets"
+# A project that has not written an allow-file yet must still be scanned. Passing a path that does
+# not exist makes the scanner refuse the run, and the hook would read that refusal as a leak.
+allow_args=()
+[ -f "$(git rev-parse --show-toplevel)/.leak-guard-allow" ] \
+  && allow_args=(--allow-file "$(git rev-parse --show-toplevel)/.leak-guard-allow")
+[ -x "$lg/check-public-leaks.sh" ] && { bash "$lg/check-public-leaks.sh" --staged ${allow_args+"${allow_args[@]}"} || leaks=$((leaks + 1)); }
+[ -x "$lg/check-private-leaks.sh" ] && { bash "$lg/check-private-leaks.sh" --staged || leaks=$((leaks + 1)); }
+
+if [ "$leaks" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: staged content carries something from this machine (see above)."
+  echo "A private-name hit prints a redacted name; re-run with --show-names to see it in full."
+  echo "Fix it, or for a false positive add an entry to .leak-guard-allow (public half only)."
+  exit 1
+fi
+
 if [ "$violations" -gt 0 ]; then
   echo ""
   echo "forge-kit: $violations change(s) need a version bump (component marker or plugin.json)."

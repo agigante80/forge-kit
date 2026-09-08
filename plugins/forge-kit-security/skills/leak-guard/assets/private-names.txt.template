@@ -1,0 +1,24 @@
+# private-names.txt -- the identity half of forge-kit's leak guard.
+#
+# Copy this to ~/.claude/forge-kit/private-names.txt and add the names you do not want reaching a
+# public repository: sibling project names, client names, an employer, a filing scheme, the folder
+# your projects live in. One per line. Blank lines and lines starting with # are ignored.
+#
+# THIS FILE MUST NEVER BE COMMITTED, and the directory holding it must be gitignored. Its entire
+# security property is that it was never published: a committed list of the names you are hiding
+# tells a reader exactly what to search the history for, which converts a guard into an index.
+# That is also why this half never runs in CI, and why the list must not go in a CI secret.
+#
+# DO NOT ADD THE OWNING ACCOUNT NAME of a repository you work in. It is in that repository's own
+# clone URL, so it would fire on the README, the workflows and the install instructions. Public
+# identity and private identity are different sets. The scanner drops such an entry with a warning
+# rather than obeying it, but it can only do that for the repository it is run in.
+#
+# Names shorter than three characters are refused: they match nearly every file, and a guard that
+# fires on everything is one you switch off within a day.
+#
+# Matching is case insensitive and matches anywhere in a line, so "acme" also catches
+# "acme-migration" and "/srv/ACME/build.log". Prefer the shortest name that is still distinctive.
+
+# acme-migration
+# northstar

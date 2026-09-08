@@ -57,9 +57,19 @@ violations=0
 # The leak guard runs the FULL-TREE scan here, not the range. A range scan answers "did this push
 # add a leak", which is the wrong question the moment a history rewrite is needed: what matters
 # then is whether the tree is clean, not whether this particular push made it worse.
-leak="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh"
-if [ -x "$leak" ]; then
-  bash "$leak" --all --allow-file "$ROOT/.leak-guard-allow" || violations=$((violations + 1))
+lg="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets"
+if [ -x "$lg/check-public-leaks.sh" ]; then
+  # A project with no allow-file yet is still scanned: passing a path that does not exist makes
+  # the scanner refuse the run, and that refusal would read here as a finding.
+  allow_args=()
+  [ -f "$ROOT/.leak-guard-allow" ] && allow_args=(--allow-file "$ROOT/.leak-guard-allow")
+  bash "$lg/check-public-leaks.sh" --all ${allow_args+"${allow_args[@]}"} \
+    || violations=$((violations + 1))
+fi
+# Local only, and never in CI: it needs the list of private names, which cannot be published and
+# must not go in a CI secret either. A machine with no list is told so and not blocked.
+if [ -x "$lg/check-private-leaks.sh" ]; then
+  bash "$lg/check-private-leaks.sh" --all || violations=$((violations + 1))
 fi
 
 for guard in check-version-bump.sh check-plugin-version-bump.sh; do
