@@ -277,6 +277,26 @@ grep -q 'dirnames\[:\]' "$SCRIPT" \
   && bad "the hand-maintained exclude list is gone, not extended" \
   || ok "the hand-maintained exclude list is gone, not extended"
 
+# --- the reported LINE for the second copy in a merged run (#143) -------------------------------
+# Two copies separated only by punctuation are ONE regex match, and the line number was computed
+# once per match and reused for every site extracted from it. The verdict and the file were right;
+# only the line was wrong, which costs the reader time in exactly the moment the guard is trying to
+# save it.
+L="$T/lines"
+mk "$L/a.md" <<M
+first line of filler
+second line of filler
+$CANON,
+.forgejo/ISSUE_TEMPLATE .gitea/ISSUE_TEMPLATE .github/ISSUE_TEMPLATE .forgejo/issue_template .gitea/issue_template
+M
+out=$(bash "$SCRIPT" "$L" 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "a divergent second copy still fails" || bad "a divergent second copy still fails (rc=$rc)"
+printf '%s' "$out" | grep -q 'a\.md:4' \
+  && ok "and is reported at ITS line, not the first copy's" \
+  || bad "the second copy is reported at the wrong line (want a.md:4, got: $(printf '%s' "$out" | grep -o 'a\.md:[0-9]*' | tr '\n' ' '))"
+printf '%s' "$out" | grep -q 'a\.md:3' \
+  && ok "and the canonical copy keeps its own line" || bad "the canonical copy lost its line"
+
 echo ""
 echo "template-dir-order tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -111,8 +111,14 @@ if True:
         # quotes, so a copy laid out as a markdown table is seen rather than silently skipped.
         for m in re.finditer(
                 r'(?:%s)(?:[\s,`/\\#()|;:"\'-]*(?:%s))+' % (TOKEN.pattern, TOKEN.pattern), text):
-            seq = TOKEN.findall(m.group(0))
-            ln = text[:m.start()].count('\n') + 1
+            # Positions, not just strings (#143). Two copies separated only by punctuation are ONE
+            # match, so a line computed once per MATCH and reused for every site inside it reports
+            # the second copy at the first copy's line. The verdict was right and the line was not,
+            # which costs the reader time in the moment the guard is trying to save it.
+            toks = [(t.group(0), m.start() + t.start()) for t in TOKEN.finditer(m.group(0))]
+            seq = [t[0] for t in toks]
+            def line_of(k, _text=text, _toks=toks):
+                return _text[:_toks[k][1]].count('\n') + 1
             # Punctuation-only separation merges neighbours into one run, so the run has to be
             # taken apart. Two earlier attempts each broke something: splitting at the canon's
             # first entry unconditionally made a host-reordered copy fragment into sub-threshold
@@ -125,12 +131,12 @@ if True:
             i = 0
             while i < len(seq):
                 if tuple(seq[i:i + len(CANON)]) == CANON:
-                    sites.append((rel_, ln, CANON)); i += len(CANON); continue
+                    sites.append((rel_, line_of(i), CANON)); i += len(CANON); continue
                 rest = seq[i:]
                 nxt = next((j for j in range(1, len(rest))
                             if tuple(rest[j:j + len(CANON)]) == CANON), len(rest))
                 if nxt >= MIN:
-                    sites.append((rel_, ln, tuple(rest[:nxt])))
+                    sites.append((rel_, line_of(i), tuple(rest[:nxt])))
                 i += nxt
 
 if not sites:
