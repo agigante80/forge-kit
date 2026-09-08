@@ -19,6 +19,11 @@
       "description": "ticket-gate agent, gate-ticket slash command, and the block-dashes hook."
     },
     {
+      "name": "forge-kit-roadmap",
+      "source": "./plugins/forge-kit-roadmap",
+      "description": "Rolling wave planning: a roadmap of phases, each planned when it starts, every ticket in exactly one phase. Optional; nothing else depends on it."
+    },
+    {
       "name": "forge-kit-review",
       "source": "./plugins/forge-kit-review",
       "description": "Code review agents (code-reviewer, code-simplifier, coding-standards-auditor, architect-review, backend-architect) and full-review/pr-enhance commands."
