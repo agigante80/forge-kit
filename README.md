@@ -125,8 +125,8 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-security` | skill | `leak-guard` | v3 | 1366 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v1 | 783 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
-| `forge-kit-security` | shell asset | `check-private-leaks` | v5 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
-| `forge-kit-security` | shell asset | `check-public-leaks` | v4 |  | The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses. |
+| `forge-kit-security` | shell asset | `check-private-leaks` | v6 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
+| `forge-kit-security` | shell asset | `check-public-leaks` | v5 |  | The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses. |
 | `forge-kit-testing` | agent | `performance-engineer` | v1 | 313 | Profile and optimize application performance including response times, memory usage, query efficiency, and scalability. |
 | `forge-kit-testing` | agent | `tdd-orchestrator` | v1 | 1261 | Master TDD orchestrator specializing in red-green-refactor discipline, multi-agent workflow coordination, and comprehen… |
 | `forge-kit-testing` | agent | `test-automator` | v3 | 368 | Create comprehensive test suites including unit, integration, and E2E tests. |

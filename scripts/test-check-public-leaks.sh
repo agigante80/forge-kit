@@ -96,6 +96,12 @@ skip docs/leaky.md
 ALLOW
 expect "an allowed root survives"     no  "$(trips 'cloned into ~/forge-kit/scripts' --allow-file "$WORK/allow")"
 expect "an allowed prefix survives"   no  "$(trips 'runs under /home/runner/work/x' --allow-file "$WORK/allow")"
+# The placeholder check strips trailing punctuation and the prefix check did not, so an allowed
+# prefix at the end of a sentence, or inside brackets, reported a leak anyway.
+expect "an allowed prefix survives a trailing period" no \
+  "$(trips 'it lands in /home/runner.' --allow-file "$WORK/allow")"
+expect "an allowed prefix survives being bracketed"   no \
+  "$(trips 'it lands in (/home/runner), then builds' --allow-file "$WORK/allow")"
 expect "an allowed address survives"  no  "$(trips 'author a.gigante@gmail.com' --allow-file "$WORK/allow")"
 expect "allowing one root does not allow another" yes \
   "$(trips 'cloned into ~/other-thing/x' --allow-file "$WORK/allow")"
@@ -223,6 +229,20 @@ expect "--staged does not report the public scanner's own source" 0 "$?"
 expect "--range does not report it either" 0 "$?"
 ( cd "$SELFREPO" && ./scripts/check-public-leaks.sh --all ) >/dev/null 2>&1
 expect "--all does not report it either" 0 "$?"
+
+echo "== --help does not go stale when the header is edited =="
+# It printed a hardcoded line range, so growing the header by seven lines truncated the output
+# mid-sentence and dropped the usage synopsis entirely. A help text that silently rots is worse
+# than none, because it reads as current.
+for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh"; do
+  a="$(basename "$asset")"
+  h="$("$asset" --help 2>&1)"
+  contains "$a [--staged" "$h" "$a --help shows its usage synopsis"
+  contains "Exit 0 clean" "$h" "$a --help shows its exit-code contract"
+  grep -q "sed -n '[0-9]*,[0-9]*p'" "$asset" \
+    && bad "$a --help does not print a hardcoded line range" \
+    || ok "$a --help does not print a hardcoded line range"
+done
 
 echo "== portability, because this ships into other people's repositories =="
 # Both leak scanners were the first files in this tree to reach for bash-4-only expansions and GNU

@@ -84,6 +84,21 @@ printf '%s' "$out" | grep -qi 'carries something from this machine' \
   || ok "and does NOT call a config error a leak"
 git rm -q --cached .leak-guard-allow >/dev/null; rm -f .leak-guard-allow
 
+echo "== a scanner without the exec bit is not silently skipped =="
+# Introduced by the round-1 fix itself: scan() gated on [ -x ], but invokes via `bash`, so the exec
+# bit is not needed to RUN it and its absence silently disabled the whole guard. Fails OPEN, which
+# is the one direction a security guard must never fail. A tarball, a `cp` without -p, a
+# checkout on a filesystem with no exec bit: all produce this.
+leaky > NOTES.md; git add NOTES.md
+chmod -x "$LG/check-public-leaks.sh" "$LG/check-private-leaks.sh"
+out="$(run_hook)"; rc=$?
+[ "$rc" -ne 0 ] && ok "a leak still blocks when the scanners are not executable" \
+  || bad "a leak still blocks when the scanners are not executable (rc=$rc)"
+printf '%s' "$out" | grep -q 'home-path' \
+  && ok "and it is still the scanner reporting it" || bad "and it is still the scanner reporting it"
+chmod +x "$LG/check-public-leaks.sh" "$LG/check-private-leaks.sh"
+git checkout -- . 2>/dev/null; printf 'clean\n' > NOTES.md; git add NOTES.md
+
 echo "== the version machinery still works underneath it =="
 printf '<!-- a-version: 1 -->\nchanged body, marker not bumped\n' > plugins/g/agents/a.md
 git add plugins/g/agents/a.md

@@ -4,7 +4,9 @@
 # ignored line in a security config is a guard reporting a coverage it does not have.
 #
 #   root ~/<root>   a home root this project's documents are allowed to show
-#   prefix <path>   an absolute path prefix that is public by construction
+#   prefix <path>   an absolute path under /home or /Users naming EXACTLY ONE segment, as in
+#                   /home/<user>. Rule A matches one segment and nothing deeper, so a longer
+#                   prefix could never match; it is refused rather than silently ignored.
 #   email <addr>    an address that is deliberately published
 #   skip <path>     a file excluded from the scan
 #

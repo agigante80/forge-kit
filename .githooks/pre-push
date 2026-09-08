@@ -66,7 +66,12 @@ leaks=0
 leak_errors=0
 scan() {
   local script="$1"; shift
-  [ -x "$script" ] || return 0
+  # PRESENCE, not the exec bit: this invokes via `bash`, so the bit is not needed to run the
+  # scanner, and gating on it meant a copy without it disabled the guard SILENTLY. That fails
+  # open, the one direction a security guard must never fail. A tarball, a `cp` without -p or a
+  # filesystem with no exec bit all produce it. An absent file is different and is not an error:
+  # it means the project has not adopted the guard.
+  [ -f "$script" ] || return 0
   bash "$script" "$@"
   case "$?" in
     0) ;;
@@ -101,8 +106,15 @@ base="$(git symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null
 
 if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   # Loud skip, never silent, and never a blocked push: the same posture the pre-commit hook takes
-  # for a missing jq. CI still enforces both guards server-side at PR time.
-  echo "  ! pre-push: base ref '$base' not found locally; range checks SKIPPED (CI still enforces)." >&2
+  # for a missing jq.
+  #
+  # It used to add "CI still enforces", which stopped being true on 2026-09-08: both range guards
+  # are `pull_request`-only and work now lands on develop with no pull requests, so NOTHING
+  # server-side checks them. Saying otherwise is the same wrong-message defect this hook's leak
+  # half was fixed for. #158 restores the server-side half.
+  echo "  ! pre-push: base ref '$base' not found locally; range checks SKIPPED." >&2
+  echo "  !           NOTHING else checks them: both range guards are pull_request-only and this" >&2
+  echo "  !           repo no longer uses pull requests (see #158)." >&2
   echo "  !           run 'git fetch $remote' to enable them locally." >&2
   exit 0
 fi
@@ -121,7 +133,9 @@ done
 if [ "$violations" -gt 0 ]; then
   echo ""
   echo "forge-kit: $violations range check(s) failed against $base."
-  echo "This is what CI will run on the PR. Fix it, or push anyway with: git push --no-verify"
+  echo "This is the LAST check on these: both range guards are pull_request-only and this repo"
+  echo "no longer uses pull requests, so nothing server-side repeats it (see #158)."
+  echo "Fix it, or push anyway with: git push --no-verify"
   exit 1
 fi
 exit 0

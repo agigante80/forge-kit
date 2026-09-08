@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 5
+# check-private-leaks-version: 6
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -77,7 +77,10 @@ while [ $# -gt 0 ]; do
     --list)        shift; [ $# -gt 0 ] || die "--list needs a path"; LIST="$1" ;;
     --show-names)  SHOW_NAMES=1 ;;
     --init)        DO_INIT=1 ;;
-    --help|-h)     sed -n '3,32p' "$SELF"; exit 0 ;;
+    # Prints the whole comment header, rather than a hardcoded line range. The range was the bug:
+    # growing the header by seven lines truncated --help mid-sentence and dropped the synopsis, and
+    # help text that rots silently is worse than none because it still reads as current.
+    --help|-h)    awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$SELF"; exit 0 ;;
     --)            shift; while [ $# -gt 0 ]; do PATHS+=("$1"); shift; done; break ;;
     -*)            die "unknown flag: $1" ;;
     *)             PATHS+=("$1") ;;

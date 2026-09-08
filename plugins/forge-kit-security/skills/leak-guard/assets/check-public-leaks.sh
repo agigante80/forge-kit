@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 4
+# check-public-leaks-version: 5
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -80,7 +80,10 @@ while [ $# -gt 0 ]; do
     --staged)     MODE=staged ;;
     --range)      MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
     --allow-file) shift; [ $# -gt 0 ] || die "--allow-file needs a path"; ALLOW_FILE="$1" ;;
-    --help|-h)    sed -n '3,20p' "$SELF"; exit 0 ;;
+    # Prints the whole comment header, rather than a hardcoded line range. The range was the bug:
+    # growing the header by seven lines truncated --help mid-sentence and dropped the synopsis, and
+    # help text that rots silently is worse than none because it still reads as current.
+    --help|-h)    awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$SELF"; exit 0 ;;
     --)           shift; while [ $# -gt 0 ]; do PATHS+=("$1"); shift; done; break ;;
     -*)           die "unknown flag: $1" ;;
     *)            PATHS+=("$1") ;;
@@ -267,9 +270,13 @@ for f in "${FILES[@]}"; do
         # would leave nothing to compare and the guard would reject its own documented placeholder.
         in_list "$seg" "${PLACEHOLDER_USERS[@]}" && continue
         in_list "$(strip_tail "$seg")" "${PLACEHOLDER_USERS[@]}" && continue
+        # Punctuation is stripped here for the same reason as the placeholder check above, and
+        # its absence was a real false positive: with `prefix /home/runner`, an allowed path at
+        # the end of a sentence or inside brackets still reported a leak.
         allowed=0
+        rawt="$(strip_tail "$raw")"
         for p in ${ALLOW_PREFIXES+"${ALLOW_PREFIXES[@]}"}; do
-          case "$raw" in "$p"|"$p"/*) allowed=1; break ;; esac
+          case "$rawt" in "$p"|"$p"/*) allowed=1; break ;; esac
         done
         [ "$allowed" = 1 ] && continue
         report "$f" "$n" home-path "$m" ;;
