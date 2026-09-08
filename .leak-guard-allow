@@ -1,0 +1,31 @@
+# forge-kit's allow-file for check-public-leaks.sh (issue #155).
+#
+# Four keys, and an unknown one refuses the whole run rather than being skipped: a silently
+# ignored line in a security config is a guard reporting a coverage it does not have.
+#
+#   root <~/name>   a home root this project's documents are allowed to show
+#   prefix <path>   an absolute path prefix that is public by construction
+#   email <addr>    an address that is deliberately published
+#   skip <path>     a file excluded from the scan
+#
+# This file is tracked and public on purpose. Everything in it is a thing the project has decided
+# it may show, so publishing it discloses nothing. That is exactly why the IDENTITY half of the
+# guard cannot work this way, and lives outside the repository instead.
+
+# forge-kit documents itself as being cloned to a fixed location, so this is its canonical
+# example root in the sense rule B asks for.
+root ~/forge-kit
+
+# An example of a path OUTSIDE the project, used by the overnight-guard fixtures to show what the
+# hook refuses. It names no real directory.
+root ~/data
+
+# The author field in marketplace.json, which is published by design. Allowed as an address rather
+# than by skipping the file, so the rest of marketplace.json stays scanned.
+email a.gigante@gmail.com
+
+# The scanner's contract test, which is the one place a real-shaped home path and a real-shaped
+# address must appear as literals: the samples are what prove the patterns can fire. The scanner
+# skips its own source without being asked; its test is skipped HERE, so the exemption is visible
+# in config rather than hidden in the code.
+skip scripts/test-check-public-leaks.sh

@@ -53,6 +53,15 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
 fi
 
 violations=0
+
+# The leak guard runs the FULL-TREE scan here, not the range. A range scan answers "did this push
+# add a leak", which is the wrong question the moment a history rewrite is needed: what matters
+# then is whether the tree is clean, not whether this particular push made it worse.
+leak="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh"
+if [ -x "$leak" ]; then
+  bash "$leak" --all --allow-file "$ROOT/.leak-guard-allow" || violations=$((violations + 1))
+fi
+
 for guard in check-version-bump.sh check-plugin-version-bump.sh; do
   script="$ROOT/scripts/$guard"
   [ -f "$script" ] || continue

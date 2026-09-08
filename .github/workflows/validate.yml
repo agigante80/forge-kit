@@ -156,6 +156,18 @@ jobs:
       - name: Component path set agreement
         run: bash scripts/test-component-paths.sh
 
+      # Issue #99, split as #155: forge-kit installs governance into repositories that are usually
+      # about to be made public, and shipped nothing that stopped the developer's own machine
+      # arriving with them. The scanner runs on forge-kit's own tree for the same reason
+      # block-dashes does: a guard the kit does not run on itself is a recommendation.
+      - name: Leak-guard contract tests
+        run: bash scripts/test-check-public-leaks.sh
+
+      - name: No private paths, roots or addresses in the tracked tree
+        run: |
+          bash plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh \
+            --all --allow-file .leak-guard-allow
+
       - name: Pre-push hook tests
         run: bash scripts/test-pre-push-hook.sh
 
