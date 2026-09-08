@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 2 -->
+<!-- leak-guard-version: 3 -->
 
 # Leak guard
 
@@ -74,18 +74,29 @@ prints it in full. The class of leak this component exists to stop is pasted out
 own output is exactly that kind of text: printing the matched name in full makes pasting the failure
 into a public issue the next leak. The file and line are enough to act on.
 
-The list defaults to `~/.claude/forge-kit/private-names.txt`, one name per line. **It exits 0 with
-a loud explanation when the list is absent**, rather than failing closed on a machine that never
-had one: a guard that blocks every fresh clone gets uninstalled, and an uninstalled guard protects
-nothing.
+The list defaults to `~/.claude/forge-kit/private-names.txt`, one name per line. `--init` writes a
+starter list there, commented with the rules below; it refuses to overwrite one that exists. The
+template lives inside the script rather than beside it as a second file, because forge-adapt
+installs a skill's `assets/*.sh` and nothing else, so a separate template would never arrive.
 
-Two rules learned the hard way, both carried as comments in the shipped template:
+**It exits 0 with a loud explanation when the list is absent**, rather than failing closed on a
+machine that never had one: a guard that blocks every fresh clone gets uninstalled, and an
+uninstalled guard protects nothing.
+
+**It REFUSES to run against a list the repository tracks.** That is the precondition the original
+design wanted an installer step for, checked where it can actually be verified: the default path
+is under the home directory and no project repo can track it, so this only fires when someone has
+pointed `--list` at a file inside the tree. A tracked list is an active disclosure rather than a
+missing check, so it refuses rather than warns, and says which command fixes it.
+
+Two rules learned the hard way, both written into the list `--init` creates:
 
 - **The account name that owns the repository must not go in the list.** It appears in the
   repository's own clone URL, so a denylist containing it refuses every commit that touches the
   README. Public identity and private identity are different sets.
-- **The list stays untracked.** Its entire security property is that it was never published, and
-  the directory holding it must be gitignored before the guard is worth anything.
+- **The list stays untracked.** Its entire security property is that it was never published. The
+  default location is outside every project repository precisely so this cannot be got wrong by
+  forgetting a `.gitignore` entry.
 
 ## Where it runs
 

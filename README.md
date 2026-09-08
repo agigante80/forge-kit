@@ -84,7 +84,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v59 | 7316 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | skill | `adapt` | v60 | 7312 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-backend` | skill | `api-design-principles` | v1 | 1470 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
 | `forge-kit-backend` | skill | `architecture-patterns` | v1 | 1330 | Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven… |
 | `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |
@@ -122,10 +122,10 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `backend-security-coder` | v1 | 1148 | Expert in secure backend coding practices specializing in input validation, authentication, and API security. |
 | `forge-kit-security` | agent | `security-auditor` | v4 | 1309 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
-| `forge-kit-security` | skill | `leak-guard` | v2 | 1230 | Stop the developer's own machine leaking into a repository that is about to be made public. |
+| `forge-kit-security` | skill | `leak-guard` | v3 | 1366 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v1 | 783 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
-| `forge-kit-security` | shell asset | `check-private-leaks` | v1 |  | The PRIVATE half of the leak guard (forge-kit issue #99, split as #156): private project and |
+| `forge-kit-security` | shell asset | `check-private-leaks` | v2 |  | The PRIVATE half of the leak guard (forge-kit issue #99, split as #156): private project and |
 | `forge-kit-security` | shell asset | `check-public-leaks` | v1 |  | The PUBLIC half of the leak guard (forge-kit issue #99, split as #155): the developer's machine |
 | `forge-kit-testing` | agent | `performance-engineer` | v1 | 313 | Profile and optimize application performance including response times, memory usage, query efficiency, and scalability. |
 | `forge-kit-testing` | agent | `tdd-orchestrator` | v1 | 1261 | Master TDD orchestrator specializing in red-green-refactor discipline, multi-agent workflow coordination, and comprehen… |

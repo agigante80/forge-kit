@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 59 -->
+<!-- forge-adapt-version: 60 -->
 
 # forge-adapt
 
@@ -585,9 +585,7 @@ forge-adapt drift report - <project>
 Stop after the report. Do not modify anything. Status `behind` requires a local marker strictly
 lower than forge-kit; a copy with no local marker is `unversioned`, never `behind`.
 
-Shell assets (`scripts/forge-lib.sh`, `scripts/version-lib.sh`, `scripts/release-run.sh`,
-`scripts/check-ticket-mechanics.sh`) appear
-in the same table, compared against the catalogue's `asset:` rows. A present-but-unmarked copy is
+Shell assets appear in the same table, compared against the catalogue's `asset:` rows. A present-but-unmarked copy is
 reported as `unversioned - refresh to deep-compare`, NEVER omitted: every install that predates
 the markers is exactly the copy most likely to be stale, so silence would hide the whole existing
 install base (issue #64).

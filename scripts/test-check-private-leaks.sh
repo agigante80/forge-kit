@@ -17,7 +17,6 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh"
-TEMPLATE="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/private-names.txt.template"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -91,6 +90,22 @@ printf 'the acme-migration repo\n' > "$REPO/other.md"
 ( cd "$REPO" && "$SCRIPT" --list "$WORK/owner-list" other.md ) >/dev/null 2>&1
 expect "the rest of the list still works" 1 "$?"
 
+echo "== a list INSIDE the repository is the disclosure it exists to prevent =="
+# The precondition #99 wanted forge-adapt to enforce, enforced where it can actually be checked.
+# The default list path is under the home directory and can never be tracked by a project repo, so
+# a project .gitignore entry would guard nothing. Pointing --list at a path in the repo can.
+TRACKED="$WORK/repo/names.txt"
+printf 'acme-migration\n' > "$TRACKED"
+( cd "$WORK/repo" && git add names.txt ) >/dev/null 2>&1
+printf 'the acme-migration repo\n' > "$WORK/repo/hit.md"
+( cd "$WORK/repo" && "$SCRIPT" --list names.txt hit.md ) >/dev/null 2>"$WORK/err.txt"
+expect "a TRACKED list refuses the run" 2 "$?"
+contains "tracked" "$(cat "$WORK/err.txt")" "and says the list is tracked"
+contains "git rm --cached" "$(cat "$WORK/err.txt")" "and says exactly how to fix it"
+( cd "$WORK/repo" && git rm -q --cached names.txt ) >/dev/null 2>&1
+( cd "$WORK/repo" && "$SCRIPT" --list names.txt hit.md ) >/dev/null 2>&1
+expect "an untracked list in the same directory is fine" 1 "$?"
+
 echo "== what is not scanned =="
 printf 'acme-migration\n' > "$WORK/skipme.png"
 "$SCRIPT" --list "$WORK/list" "$WORK/skipme.png" >/dev/null 2>&1
@@ -135,14 +150,21 @@ echo "== the shipped asset is a component =="
 grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SCRIPT" \
   && ok "carries a version marker" || bad "carries a version marker"
 
-echo "== the list template carries both hard-won rules =="
-[ -f "$TEMPLATE" ] && ok "a list template ships" || bad "a list template ships"
-if [ -f "$TEMPLATE" ]; then
-  grep -qi 'owning account\|account name that owns' "$TEMPLATE" \
-    && ok "it warns off the owning account name" || bad "it warns off the owning account name"
-  grep -qi 'untracked\|never be committed\|not tracked' "$TEMPLATE" \
-    && ok "it says the list stays untracked" || bad "it says the list stays untracked"
-fi
+echo "== --init writes the list template, and never over an existing list =="
+# The template lives INSIDE the script rather than beside it as a .txt. forge-adapt installs a
+# skill's `assets/*.sh` and nothing else, so a separate template file would never reach a project,
+# and the user would be told to copy a file that was not installed. One asset, one marker, and no
+# second copy of the same text to drift.
+TEMPLATE="$WORK/new-list.txt"
+"$SCRIPT" --init --list "$TEMPLATE" >/dev/null 2>&1
+expect "--init exits 0" 0 "$?"
+[ -f "$TEMPLATE" ] && ok "and writes the file" || bad "and writes the file"
+contains "owning account" "$(cat "$TEMPLATE" 2>/dev/null)" "it warns off the owning account name"
+contains "untracked" "$(cat "$TEMPLATE" 2>/dev/null)" "it says the list stays untracked"
+printf 'mine\n' > "$TEMPLATE"
+"$SCRIPT" --init --list "$TEMPLATE" >/dev/null 2>&1
+expect "--init refuses to overwrite an existing list" 2 "$?"
+expect "and leaves it untouched" "mine" "$(cat "$TEMPLATE")"
 
 echo ""
 echo "passed: $passed  failed: $failed"

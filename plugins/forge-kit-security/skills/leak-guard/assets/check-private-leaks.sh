@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 1
+# check-private-leaks-version: 2
 #
 # The PRIVATE half of the leak guard (forge-kit issue #99, split as #156): private project and
 # folder NAMES reaching a repository that is about to be made public. Its companion,
@@ -42,6 +42,7 @@ MODE=all
 BASE=""
 LIST="${HOME}/.claude/forge-kit/private-names.txt"
 SHOW_NAMES=0
+DO_INIT=0
 PATHS=()
 
 die()  { printf 'check-private-leaks: %s\n' "$1" >&2; exit 2; }
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
     --range)       MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
     --list)        shift; [ $# -gt 0 ] || die "--list needs a path"; LIST="$1" ;;
     --show-names)  SHOW_NAMES=1 ;;
+    --init)        DO_INIT=1 ;;
     --help|-h)     sed -n '3,32p' "$SELF"; exit 0 ;;
     --)            shift; while [ $# -gt 0 ]; do PATHS+=("$1"); shift; done; break ;;
     -*)            die "unknown flag: $1" ;;
@@ -62,12 +64,63 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# --- --init: write a starter list ------------------------------------------
+# The template is HERE rather than in a .txt beside this script, because forge-adapt installs a
+# skill's `assets/*.sh` and nothing else: a separate template file would never reach the project,
+# and the guidance would point at a file that was not installed. One asset, one marker, and no
+# second copy of this text to drift out of step with the rules the script actually enforces.
+if [ "$DO_INIT" = 1 ]; then
+  [ -e "$LIST" ] && die "refusing to overwrite the existing list at $LIST"
+  mkdir -p "$(dirname "$LIST")" || die "could not create $(dirname "$LIST")"
+  cat > "$LIST" <<'TEMPLATE'
+# private-names.txt -- the identity half of forge-kit's leak guard.
+#
+# Add the names you do not want reaching a public repository: sibling project names, client
+# names, an employer, a filing scheme, the folder your projects live in. One per line. Blank
+# lines and lines starting with # are ignored.
+#
+# THIS FILE MUST STAY UNTRACKED. Its entire security property is that it was never published: a
+# committed list of the names you are hiding tells a reader exactly what to search the history
+# for, which converts a guard into an index. That is also why this half never runs in CI, and why
+# the list must not go in a CI secret. The scanner REFUSES to run against a tracked list.
+#
+# DO NOT ADD THE OWNING ACCOUNT NAME of a repository you work in. It is in that repository's own
+# clone URL, so it would fire on the README, the workflows and the install instructions. Public
+# identity and private identity are different sets. The scanner drops such an entry with a
+# warning rather than obeying it, but it can only do that for the repository it is run in.
+#
+# Names shorter than three characters are refused: they match nearly every file, and a guard that
+# fires on everything is one you switch off within a day.
+#
+# Matching is case insensitive and matches anywhere in a line, so a short distinctive name also
+# catches the longer names built from it. Prefer the shortest name that is still distinctive.
+TEMPLATE
+  printf 'check-private-leaks: wrote %s. Add your names to it.\n' "$LIST" >&2
+  exit 0
+fi
+
 # --- the list ---------------------------------------------------------------
 if [ ! -f "$LIST" ]; then
   warn "no private-name list at $LIST, so NAMES ARE NOT BEING CHECKED."
   warn "  this is not an error: the list is deliberately outside the repository, and a machine"
-  warn "  that never had one must not be blocked. Copy private-names.txt.template there to enable it."
+  warn "  that never had one must not be blocked. Run this with --init to write a starter list."
   exit 0
+fi
+
+# A TRACKED list is the exact disclosure this component exists to prevent: a committed file
+# enumerating the names you are hiding points a reader straight at them. REFUSE rather than warn.
+# A warning here would be advice about an active leak, and the fix is one command.
+#
+# The default path is under the home directory, so this can only fire when someone has pointed
+# --list at a file inside the repository. That is the precondition the original design wanted a
+# forge-adapt step to enforce; checked here, it is enforced everywhere the guard runs rather than
+# only where the installer ran.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+   && git ls-files --error-unmatch -- "$LIST" >/dev/null 2>&1; then
+  die "the private-name list at $LIST is TRACKED by this repository.
+  That publishes the names you are hiding, which is worse than not checking at all.
+  Fix it:  git rm --cached '$LIST'  then add it to .gitignore, or move it to
+  ~/.claude/forge-kit/private-names.txt, which no project repository can track."
 fi
 
 # The account that owns this repository is public by definition: it is in the clone URL. A list
