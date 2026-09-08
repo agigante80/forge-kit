@@ -49,6 +49,23 @@ Research done for #150 found that the companion-skill split never reduced what t
 reads, so the metric may be measuring the wrong quantity. That is an input to the decision, not a
 substitute for it.
 
+## Phase: Install scope, user level by default
+state: planned
+
+The kit installs into a project by copying, and CLAUDE.md already says the opposite is better:
+plugin registration "owns no user config and so has no wiring to drift, duplicate, or clobber, and
+that copy-and-mutate path was the origin of every hook bug in this repo's history." The preference
+is stated and not followed, because nothing makes it followable.
+
+The blocker turns out to be small. A component pinned to one project is one with a value baked in at
+INSTALL time; one that resolves at RUNTIME is already correct everywhere. The kit has exactly one
+install-time placeholder, `{{GITHUB_REPO}}`, with six live uses across two files, and `forge_repo`
+already replaces it at runtime elsewhere in those same files.
+
+This phase is a bucket while the current one runs. Its plan gets written from this prose plus
+whatever has accumulated by the time it opens, and the honest question it will have to answer is
+whether forge-adapt's adaptation is doing as much work as its description claims.
+
 ## Phase: Backlog
 state: backlog
 
