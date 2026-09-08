@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 16 -->
+<!-- doc-rules-version: 17 -->
 
 # Ticket standards (canonical)
 
@@ -145,11 +145,16 @@ elsewhere in the same section inherited the licence and passed.
 Detection keys on the literal token `rule N` (or `rules N and M`), validated against the rule
 numbers this doc defines. A restatement that paraphrases a rule without naming it is invisible, and
 two listed entries are in that shape today: the security lens checklist, whose file contains no
-rule token at all, and rule 8's implementation concreteness in the critic's brief. Coverage is also
-per ITEM rather than per anchor, so a new bar for one rule an item names can sit beside an anchor
-for another rule it names and pass (issue #138). So this list is complete with respect to
-everything the guard can see, which is a narrower claim than the one this section used to make and
-get wrong three review rounds running.
+rule token at all, and rule 8's implementation concreteness in the critic's brief. So this list is
+complete with respect to everything the guard can see, which is a narrower claim than the one this
+section used to make and get wrong three review rounds running.
+
+Coverage used to be per ITEM rather than per anchor, so a new bar for one rule an item names could
+sit beside an anchor for another rule it names and pass. **#138 closed that**: an item naming more
+than one rule must scope each anchor (`:: rules N`), and an unscoped one is refused rather than
+silently generous. An anchor must also be on ONE line, because matching only its first line was a
+prefix match wearing an exact match's clothes, and an item that cites no rule number at all is
+refused, because it covers nothing while looking like it covers something.
 
 **Therefore: a restatement added to the gate MUST name its rule.** Writing `(rule 7)` beside the
 bar is what makes the next one detectable. A paraphrase citing no rule number is the one shape that
@@ -157,9 +162,9 @@ can still fork silently, so do not create more of them.
 
 1. The three hard-fail bars: UI E2E (rule 3), API endpoint coverage (rule 2), and the
    personal-data judgment (rule 4), in the critic's brief.
-   <!-- anchor: "**UI E2E (rule 3):**" -->
-   <!-- anchor: "**API endpoint coverage (rule 2):**" -->
-   <!-- anchor: "**Personal-data judgment (rule 4):**" -->
+   <!-- anchor: "**UI E2E (rule 3):**" :: rules 3 -->
+   <!-- anchor: "**API endpoint coverage (rule 2):**" :: rules 2 -->
+   <!-- anchor: "**Personal-data judgment (rule 4):**" :: rules 4 -->
 2. The security lens checklist, which restates rule 5 point for point. It lives in the
    `ticket-gate-reference` skill since #109, not in the agent file.
    <!-- anchor: "OWASP Top 10: injection, XSS, CSRF" -->
@@ -173,15 +178,15 @@ can still fork silently, so do not create more of them.
    and test commands, dependency justification, N+1 and scalability), which the critic's brief
    carries as blocking-capable concerns. These joined this doc in #117 (issue #94); before that
    they existed only in the gate, so the list did not need them.
-   <!-- anchor: "test-case quality and edge cases, including integration and regression coverage" -->
-   <!-- anchor: "file paths and implementation concreteness" -->
+   <!-- anchor: "test-case quality and edge cases, including integration and regression coverage" :: rules 2 -->
+   <!-- anchor: "file paths and implementation concreteness" :: rules 8 -->
 5. Rule 3's emulator clause, which the critic's brief restates near-verbatim. Item 1 covers rule
    3's UI E2E hard-fail bar, which is a different clause of the same rule.
    <!-- anchor: "rule 3's emulator clause" -->
 6. The Step 0c-iii synthesis table, whose rows restate the SHAPE required by rules 2, 3, 4 and 7,
    because the synthesis sub-agent has to be told what to write. Item 3 covers rule 1's appearance
    in that same table; these are the other four.
-   <!-- anchor: "| Section | Derived from |" -->
+   <!-- anchor: "| Section | Derived from |" :: rules 2, 3, 4 and 7 -->
 7. The unit-test check in `check-ticket-mechanics.sh`, which restates rule 2's concrete-spec bar
    as a mechanical check, down to rejecting a bare "add unit tests", and restates the N/A rule's
    own rationale. It was Step 3A prose until #149.

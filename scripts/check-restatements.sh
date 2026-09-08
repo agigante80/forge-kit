@@ -75,7 +75,14 @@ if not items:
     print("check-restatements: the Precedence section lists no numbered items", file=sys.stderr)
     sys.exit(2)
 
-ANCHOR = re.compile(r'<!--\s*anchor:\s*"(.*?)"\s*-->', re.S)
+# An anchor may scope itself: `<!-- anchor: "..." :: rules 3 -->`. Without a scope it covers every
+# rule its item names, which is the historical behaviour and is right for a single-rule item.
+#
+# WHY THE SCOPE EXISTS (#138.1). Coverage became per LOCATION in round 2 of PR #137, closing the
+# per-section hole. It did not close the per-item one: every anchor of an item granted coverage for
+# every rule that item's prose mentioned, so a brand-new bar for another of those rules, one line
+# after the anchor, inherited the licence. The same class as the round-2 finding at five-line scale.
+ANCHOR = re.compile(r'<!--\s*anchor:\s*"(.*?)"\s*(?:::\s*rules?\s*([\d,\s and]*?)\s*)?-->', re.S)
 # The rule numbers this doc DEFINES, read from its own "### N. Title" headings, so the guard can
 # never be argued into tracking a number that is not a rule.
 VALID_RULES = set(re.findall(r'^### (\d+)\. ', doc, re.M))
@@ -86,6 +93,14 @@ if not VALID_RULES:
 RULEREF = re.compile(r'\brule[-\s](\d+)', re.I)
 # "rules 2, 3, 4 and 7" is one mention of four rules; matching only the first granted rule 1 alone.
 RULES_PLURAL = re.compile(r'\brules\s+((?:\d+(?:\s*(?:,|and)\s*)?)+)', re.I)
+
+# A plural reference wrapped across a line break (#138.2). Direction 2 evaluates per LINE while
+# direction 1 evaluates per item, so "restating rules" ending one line and "5 and 6" starting the
+# next matched neither pattern. Both gate files wrap at about 95 columns, so ordinary editing
+# reaches it. Only a line whose TAIL is an unfinished plural is joined with its successor, which
+# keeps the join narrow: an ordinary line followed by one that happens to start with a digit is
+# untouched.
+TRAILING_PLURAL = re.compile(r'\brules\b[\d,\s]*(?:\band\b)?\s*$', re.I)
 
 def undefined_rules_in(text):
     """Singular `rule N` citations naming a rule the doc does not define.
@@ -134,9 +149,9 @@ def anchor_sites(needle):
 
     Line-level rather than section-level: an anchor names one bar, and coverage has to be that
     precise or a bar added later in the same section inherits the anchor's licence."""
-    hits, first = [], needle.split('\n')[0]
+    hits = []
     for i, (sec, line) in enumerate(sections):
-        if first and first in line:
+        if needle and needle in line:
             hits.append((sec.split(' :: ')[0], i))
     return hits
 
@@ -174,19 +189,56 @@ for n, item in enumerate(items, 1):
     if not anchors:
         errors.append(f"Precedence item {n} declares no anchor, so nothing can verify it")
         continue
-    for a in anchors:
+    # An item that names no rule number covers nothing, and was accepted anyway (#138.4). The
+    # "a restatement must cite its rule number" discipline was enforced on the GATE side only, so
+    # the two sides disagreed about a rule the doc itself states.
+    #
+    # Keyed on naming NO number at all, not on naming no VALID one: an item citing a retired rule
+    # is a different fault, and it must still reach the staleness check below rather than being
+    # replaced by this message. For the same reason this does not `continue`.
+    if not re.search(r'\brules?[-\s]\d+', item, re.I):
+        errors.append(f"Precedence item {n} names no rule number, so it covers nothing. "
+                      f"Cite the rule it restates, or scope its anchors with ':: rules N'.")
+
+    # AN ITEM NAMING MORE THAN ONE RULE MUST SCOPE ITS ANCHORS (#138.1). Making the scope merely
+    # AVAILABLE would not close the hole the ticket describes, because the items that leak are
+    # exactly the ones nobody would bother to scope. Requiring it where ambiguity is possible
+    # closes it by construction, and a single-rule item stays as simple as it was.
+    if len(rules) > 1 and any(not sc for _, sc in anchors):
+        errors.append(f"Precedence item {n} names rules {', '.join(sorted(rules, key=int))} but has "
+                      f"an unscoped anchor. With more than one rule an anchor must say which it "
+                      f"covers (':: rules N'), or a new bar for ANY of them inherits its licence.")
+        continue
+
+    for a, scope in anchors:
+        # A multi-line anchor used to be truncated to its first line, which silently turned an
+        # exact match into a PREFIX match that could resolve somewhere unintended (#138.3). The
+        # header promises no fuzzy matching at all, so this refuses rather than quietly narrowing.
+        if '\n' in a:
+            errors.append(f"Precedence item {n} has a multi-line anchor; an anchor must be on one "
+                          f"line, because matching only its first line is a prefix match: \"{a[:60]}...\"")
+            continue
+        scoped = {r for r in re.findall(r'\d+', scope or '') if r in VALID_RULES}
+        if scope and not scoped:
+            errors.append(f"Precedence item {n} scopes an anchor to rules the doc does not define: "
+                          f"'{scope}'")
+            continue
         sites = anchor_sites(a)
         if not sites:
             errors.append(f"Precedence item {n} is STALE: anchor no longer appears in the gate: \"{a}\"")
         else:
-            for r in rules:
+            for r in (scoped or rules):
                 covered.setdefault(r, []).extend(sites)
 
 # Direction 2, found-but-unlisted: every rule reference must sit in a covered section.
 seen = set()
 for idx, (sec, line) in enumerate(sections):
     fname = sec.split(' :: ')[0]
-    for r in rules_in(line):
+    probe = line
+    if TRAILING_PLURAL.search(line.rstrip('\n')) and idx + 1 < len(sections) \
+       and sections[idx + 1][0] == sec:
+        probe = line.rstrip('\n') + ' ' + sections[idx + 1][1]
+    for r in rules_in(probe):
         if (idx, r) in seen: continue
         seen.add((idx, r))
         head = sec.split(' :: ', 1)[1] if ' :: ' in sec else sec

@@ -165,10 +165,12 @@ cat > "$T/gate-plural.md" <<'G'
 | Section | Derived from | restating rule 2 and rule 7 shape
 G
 cat > "$T/items-plural.md" <<'I'
-1. The synthesis table restates the shape required by rules 2 and 7. <!-- anchor: "| Section | Derived from |" -->
+1. The synthesis table restates the shape required by rules 2 and 7. <!-- anchor: "| Section | Derived from |" :: rules 2 and 7 -->
 I
 mkfix "$T/j" "$T/items-plural.md" "$T/gate-plural.md"
 bash "$SCRIPT" "$T/j/docs/guides/ticket-standards.md" "$T/j/gate/ticket-gate.md" >/dev/null 2>&1
+# The anchor is SCOPED because the item names two rules (#138.1). That also exercises the scope
+# parser's own plural handling, which has to read "rules 2 and 7" the same way the prose does.
 [ $? -eq 0 ] && ok "a plural 'rules 2 and 7' grants coverage for both" || bad "plural rule lists parse"
 
 # --- round 1: a lone path argument must not silently check the repo instead ----------------------
@@ -342,6 +344,105 @@ bash "$SCRIPT" "$T/a/docs/guides/ticket-standards.md" "$T/nope.md" >/dev/null 2>
 out=$(bash "$SCRIPT" 2>&1); rc=$?
 [ "$rc" -eq 0 ] && ok "the repo's own Precedence list is complete and current" \
   || bad "repo Precedence list (rc=$rc): $out"
+
+# --- #138.1: an anchor covers only the rules IT names, not every rule its item names ------------
+# Coverage became per LOCATION in round 2, closing the per-section hole but not the per-item one:
+# every anchor of an item granted coverage for every rule the item's prose mentioned. Item 1 names
+# rules 3 AND 4, so a brand-new rule-4 bar one line after the rule-3 anchor inherits the licence.
+cat > "$T/gate-scoped.md" <<'G'
+### Step 3B: The critic
+- **UI E2E (rule 3):** a ticket touching any UI needs E2E specs
+- **Brand new consent bar (rule 4):** invented after the anchor was written
+G
+cat > "$T/items-scoped.md" <<'I'
+1. Rule 3's UI E2E bar, and rule 4's personal-data judgment. <!-- anchor: "**UI E2E (rule 3):**" -->
+I
+mkfix "$T/s1" "$T/items-scoped.md" "$T/gate-scoped.md"
+out=$(bash "$SCRIPT" "$T/s1/docs/guides/ticket-standards.md" "$T/s1/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "a new bar for another rule the item names is NOT covered by that item's anchor" \
+                || bad "an anchor still grants coverage for every rule its item names"
+
+# ...and an anchor may scope itself, so a legitimate multi-rule item still passes.
+cat > "$T/items-scoped-ok.md" <<'I'
+1. Rule 3's UI E2E bar, and rule 4's personal-data judgment. <!-- anchor: "**UI E2E (rule 3):**" :: rules 3 --> <!-- anchor: "**Brand new consent bar (rule 4):**" :: rules 4 -->
+I
+mkfix "$T/s2" "$T/items-scoped-ok.md" "$T/gate-scoped.md"
+out=$(bash "$SCRIPT" "$T/s2/docs/guides/ticket-standards.md" "$T/s2/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -eq 0 ] && ok "per-anchor rule scoping lets a legitimate multi-rule item pass" \
+                || bad "per-anchor scoping rejects a legitimate item (rc=$rc: $out)"
+
+# ...and the scope must actually be OBEYED, not merely parsed. The case above passes even when the
+# scope is ignored, because both anchors sit near both bars; this one does not. A sneaky rule-4 bar
+# sits beside the rule-3 anchor, while the real rule-4 anchor is in another section, so ignoring the
+# scope grants the sneaky bar coverage it has not got. Found by mutation, not by review.
+cat > "$T/gate-obeyed.md" <<'G'
+### Step 3B: The critic
+- **UI E2E (rule 3):** a ticket touching any UI needs E2E specs
+- **Sneaky new consent bar (rule 4):** invented beside the rule 3 anchor
+
+filler so the two sections are further apart than the coverage window
+
+### Step 9: Elsewhere entirely
+- **Personal-data judgment (rule 4):** the real one
+G
+cat > "$T/items-obeyed.md" <<'I'
+1. Rule 3's UI E2E bar, and rule 4's personal-data judgment. <!-- anchor: "**UI E2E (rule 3):**" :: rules 3 --> <!-- anchor: "**Personal-data judgment (rule 4):**" :: rules 4 -->
+I
+mkfix "$T/s3" "$T/items-obeyed.md" "$T/gate-obeyed.md"
+out=$(bash "$SCRIPT" "$T/s3/docs/guides/ticket-standards.md" "$T/s3/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "a scope is obeyed: a bar beside another rule's anchor is not covered" \
+                || bad "the scope is parsed but ignored; the sneaky bar inherited coverage"
+
+# --- #138.2: a plural reference wrapped across a line break -------------------------------------
+# Direction 2 evaluates per LINE while direction 1 evaluates per item, so "restating rules" ending
+# one line and "5 and 6" starting the next matched neither pattern. Both gate files wrap at about
+# 95 columns, so ordinary editing reaches this.
+cat > "$T/gate-wrapped.md" <<'G'
+### Step 9: Something new
+This section is restating rules
+5 and 6, which no anchor covers.
+G
+cat > "$T/items-wrapped.md" <<'I'
+1. Rule 1's quality bar. <!-- anchor: "This section is restating" -->
+I
+mkfix "$T/w" "$T/items-wrapped.md" "$T/gate-wrapped.md"
+out=$(bash "$SCRIPT" "$T/w/docs/guides/ticket-standards.md" "$T/w/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "a plural rule reference wrapped across a line break is still seen" \
+                || bad "a wrapped plural reference is invisible to direction 2"
+
+# --- #138.3: a multi-line anchor degrades to a prefix match -------------------------------------
+# anchor_sites took needle.split('\n')[0], so a wrapped anchor silently became a PREFIX match and
+# could resolve somewhere unintended. That contradicts the header's "no fuzzy matching at all", so
+# it is refused rather than quietly narrowed.
+cat > "$T/gate-one.md" <<'G'
+### Step 3B: The critic
+- **UI E2E (rule 3):** a ticket touching any UI needs E2E specs
+G
+{ printf '1. Rule 3'"'"'s bar. <!-- anchor: "**UI E2E (rule 3):** a ticket\n'
+  printf '   touching any UI needs" -->\n'; } > "$T/items-ml.md"
+mkfix "$T/m" "$T/items-ml.md" "$T/gate-one.md"
+out=$(bash "$SCRIPT" "$T/m/docs/guides/ticket-standards.md" "$T/m/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "a multi-line anchor is refused rather than prefix-matched" \
+                || bad "a multi-line anchor still degrades to a prefix match"
+printf '%s' "$out" | grep -qi 'one line' \
+  && ok "and says why" || bad "and says why (got: $out)"
+
+# --- #138.4: an item naming no rule number covers nothing and passed ----------------------------
+# An unanchored item is an error; an item whose prose names no rule was accepted while covering
+# nothing. The "must name its rule" discipline was enforced on the gate side only.
+cat > "$T/gate-norule.md" <<'G'
+### Step 3B: The critic
+- **Consent bar:** something with no rule citation at all
+G
+cat > "$T/items-norule.md" <<'I'
+1. Something about the gate, with no number. <!-- anchor: "**Consent bar:**" -->
+I
+mkfix "$T/n" "$T/items-norule.md" "$T/gate-norule.md"
+out=$(bash "$SCRIPT" "$T/n/docs/guides/ticket-standards.md" "$T/n/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "an item that names no rule number is refused" \
+                || bad "an item naming no rule still passes while covering nothing"
+printf '%s' "$out" | grep -qi 'no rule' \
+  && ok "and says what is wrong" || bad "and says what is wrong (got: $out)"
 
 echo ""
 echo "check-restatements tests: $pass passed, $fail failed"
