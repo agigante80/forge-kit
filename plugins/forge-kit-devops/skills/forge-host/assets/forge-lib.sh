@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 9
+# forge-lib-version: 10
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -434,9 +434,10 @@ forge_issue_label() {
 # forge_tag_exists <tag>  -> exit 0 if the tag exists on the forge
 # --- milestones -------------------------------------------------------------------------------
 # A HOST capability, not a planning concept: dep-auditor already reads them, and a project using any
-# planning method at all still wants them. They live here rather than in the optional
-# forge-kit-roadmap group so that group's dependency runs ONE WAY ONLY, and so declining it costs
-# the host adapter nothing.
+# planning method at all still wants them. They live here rather than in the optional planning group
+# that consumes them, so that group's dependency runs ONE WAY ONLY and declining it costs the host
+# adapter nothing. (Naming that group here would itself be the coupling
+# scripts/check-group-isolation.sh refuses, which is how this comment was first written and caught.)
 forge_milestone_list() {
   local repo; repo="$(forge_repo)" || return 2
   # PAGINATED. /milestones is a LIST endpoint, so a plain GET returns one server page and silently

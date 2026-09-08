@@ -189,6 +189,22 @@ jobs:
       - name: Pre-commit hook tests
         run: bash scripts/test-pre-commit-hook.sh
 
+      # forge-kit-roadmap is an OPTIONAL group holding one opinionated planning method (rolling
+      # wave). These four keep it working AND keep it optional: the last one fails the build if
+      # anything outside the group references it, because a boundary that is only stated survives
+      # until the first convenient reference.
+      - name: Roadmap phase guard tests
+        run: bash scripts/test-check-phases.sh
+
+      - name: Roadmap sync tests
+        run: bash scripts/test-sync-phases.sh
+
+      - name: Group isolation tests
+        run: bash scripts/test-check-group-isolation.sh
+
+      - name: forge-kit-roadmap is not referenced from outside itself
+        run: bash scripts/check-group-isolation.sh
+
       - name: Version-bump discipline (changed component must bump its marker)
         if: github.event_name == 'pull_request'
         env:
