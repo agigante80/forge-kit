@@ -158,6 +158,137 @@ MD
 run --offline
 contains "were NOT checked" "$out" "--offline states that the host rules did not run"
 
+echo "== the host rules, against a stubbed transport =="
+# The stub sits beside the copied script, so the script sources it instead of the real forge-lib.
+# Nothing here touches a network or a real forge.
+cat > "$T/forge-lib.sh" <<'STUB'
+forge_repo() { printf 'o/r'; }
+forge_host() { printf 'github'; }
+forge_milestone_list()       { cat "$STUB_MILESTONES"; }
+forge_issue_milestone_list() { cat "$STUB_ISSUES"; }
+STUB
+hostrun() {
+  out=$(cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" \
+        bash ./check-phases.sh "$@" 2>&1); rc=$?
+}
+
+goodplan A > "$T/docs/plans/a.md"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+printf '[{"number":7,"milestone":"A"}]' > "$T/iss.json"
+hostrun
+expect "a consistent roadmap and host pass" 0 "$rc"
+
+echo "-- rule 1: every open ticket has a phase --"
+printf '[{"number":7,"milestone":"A"},{"number":9,"milestone":null}]' > "$T/iss.json"
+hostrun
+expect "a ticket with no phase fails" 1 "$rc"
+contains "rule 1" "$out" "and names the rule"
+contains "#9" "$out" "and names the ticket"
+contains "backlog" "$out" "and points at backlog as the decision to decide later"
+
+echo "-- rule 3: states agree, and one phase is open --"
+printf '[{"number":7,"milestone":"A"}]' > "$T/iss.json"
+printf '[{"id":1,"title":"A","state":"closed"}]' > "$T/ms.json"
+hostrun
+expect "an open phase whose milestone is closed fails" 1 "$rc"
+contains "rule 3" "$out" "and names the rule"
+
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+printf '[]' > "$T/iss.json"
+hostrun
+expect "a done phase whose milestone is open fails" 1 "$rc"
+
+goodplan B > "$T/docs/plans/b.md"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+
+## Phase: B
+state: open
+plan: docs/plans/b.md
+MD
+printf '[{"id":1,"title":"A","state":"open"},{"id":2,"title":"B","state":"open"}]' > "$T/ms.json"
+hostrun
+expect "two open phases fail" 1 "$rc"
+contains "at most one" "$out" "and says why"
+
+# The near-miss: backlog is open forever and must not count toward the one-open-phase rule.
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+
+## Phase: Backlog
+state: backlog
+MD
+printf '[{"id":1,"title":"A","state":"open"},{"id":2,"title":"Backlog","state":"open"}]' > "$T/ms.json"
+hostrun
+expect "backlog alongside one open phase is fine" 0 "$rc"
+
+echo "-- rule 4: a done phase holds no open tickets --"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"closed"}]' > "$T/ms.json"
+printf '[{"number":7,"milestone":"A"}]' > "$T/iss.json"
+hostrun
+expect "a done phase holding an open ticket fails" 1 "$rc"
+contains "rule 4" "$out" "and names the rule"
+contains "re-shape, never extend" "$out" "and says to move the ticket rather than extend the phase"
+
+printf '[]' > "$T/iss.json"
+hostrun
+expect "a done phase with nothing open passes" 0 "$rc"
+
+echo "-- a phase with no milestone yet --"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+printf '[]' > "$T/ms.json"
+printf '[]' > "$T/iss.json"
+hostrun
+expect "a phase with no milestone fails" 1 "$rc"
+contains "sync-phases" "$out" "and points at the script that fixes it"
+
+echo "-- a check that cannot run must never report clean --"
+cp "$T/forge-lib.sh" "$T/forge-lib.good.sh"
+cat > "$T/forge-lib.sh" <<'STUB'
+forge_repo() { return 2; }
+forge_host() { printf 'github'; }
+forge_milestone_list()       { return 2; }
+forge_issue_milestone_list() { return 2; }
+STUB
+hostrun
+expect "an unreachable host exits 2, not 0" 2 "$rc"
+contains "SKIPPED" "$out" "and says the host rules were skipped"
+contains "NOT passed" "$out" "and says they were not passed"
+cp "$T/forge-lib.good.sh" "$T/forge-lib.sh"
+
+rm -f "$T/forge-lib.sh" "$T/forge-lib.good.sh"
+hostrun
+expect "a missing forge-lib.sh exits 2 rather than reporting clean" 2 "$rc"
+cat > "$T/forge-lib.sh" <<'STUB'
+forge_repo() { printf 'o/r'; }
+forge_host() { printf 'github'; }
+forge_milestone_list()       { cat "$STUB_MILESTONES"; }
+forge_issue_milestone_list() { cat "$STUB_ISSUES"; }
+STUB
+
 echo "== usage =="
 run --nonsense
 expect "an unknown flag refuses the run" 2 "$rc"

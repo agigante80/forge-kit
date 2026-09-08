@@ -1,5 +1,5 @@
 {
   "name": "forge-kit-roadmap",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Rolling wave planning: docs/roadmap.md owns the phases, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional and self-contained; nothing else in forge-kit depends on it."
 }
