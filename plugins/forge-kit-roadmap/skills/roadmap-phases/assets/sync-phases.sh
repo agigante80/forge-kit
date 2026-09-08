@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-phases-version: 1
+# sync-phases-version: 2
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
@@ -92,12 +92,30 @@ if [ -z "$ROADMAP" ]; then
 fi
 
 HERE="$(cd "$(dirname "$SELF")" && pwd)"
-if [ -f "$HERE/forge-lib.sh" ]; then
-  # shellcheck source=forge-lib.sh
-  . "$HERE/forge-lib.sh"
-else
-  die "forge-lib.sh not found next to this script; install the forge-host skill's asset beside it"
-fi
+# Resolving forge-lib.sh: BESIDE, then by SEARCH, never by $CLAUDE_PLUGIN_ROOT.
+#
+# In a forge-adapt install both assets land in scripts/ and adjacency works. In the forge-kit source
+# tree they belong to DIFFERENT skills and can never be adjacent, so adjacency alone works in one
+# shape and degrades in the other. A degraded run here does not error, it just stops checking, which
+# is the silent failure .claude/memory/shipped-asset-path-resolution.md was written about.
+find_forge_lib() {
+  [ -n "${FORGE_LIB:-}" ] && [ -f "$FORGE_LIB" ] && { printf '%s' "$FORGE_LIB"; return 0; }
+  [ -f "$HERE/forge-lib.sh" ] && { printf '%s' "$HERE/forge-lib.sh"; return 0; }
+  local root p
+  root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$root" ]; then
+    for p in "$root"/scripts/forge-lib.sh \
+             "$root"/plugins/*/skills/forge-host/assets/forge-lib.sh; do
+      [ -f "$p" ] && { printf '%s' "$p"; return 0; }
+    done
+  fi
+  p="$(find "$HOME/.claude/plugins" -name forge-lib.sh 2>/dev/null | head -1)"
+  [ -n "$p" ] && { printf '%s' "$p"; return 0; }
+  return 1
+}
+LIB="$(find_forge_lib)" || die "forge-lib.sh not found; install the forge-host skill's asset, or set FORGE_LIB"
+# shellcheck source=forge-lib.sh
+. "$LIB"
 
 PHASES="$(parse_roadmap "$ROADMAP")"
 if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then

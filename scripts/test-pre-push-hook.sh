@@ -131,6 +131,40 @@ printf '%s' "$out" | grep -qi 'could not RUN' \
   || bad "and says it could not run, not that it found something"
 rm -f .leak-guard-allow docs-leak.md; git add -A >/dev/null; git commit --quiet -m cleanup
 
+# --- the roadmap guard's OFFLINE half ----------------------------------------------------------
+# --offline on purpose: a push must never depend on the host being reachable, and rule 2 (an open
+# phase has a plan carrying a Fails if section) needs only the files.
+echo "== roadmap phase guard =="
+RG=plugins/forge-kit-roadmap/skills/roadmap-phases/assets
+mkdir -p "$RG" docs/plans
+cp "$ROOT/$RG/check-phases.sh" "$RG/"
+cat > docs/roadmap.md <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+printf '# A\n\n## Goal\nx\n\n## Fails if\nx\n' > docs/plans/a.md
+git add -A >/dev/null; git commit --quiet -m "a roadmap with a complete plan"
+out=$(run_hook roadmapok); rc=$?
+[ "$rc" -eq 0 ] && ok "a phase with a complete plan does not block the push" \
+  || bad "a phase with a complete plan does not block the push (rc=$rc)"
+
+printf '# A\n\n## Goal\nx\n' > docs/plans/a.md
+git add -A >/dev/null; git commit --quiet -m "plan loses its premortem"
+out=$(run_hook roadmapbad); rc=$?
+[ "$rc" -ne 0 ] && ok "a plan with no Fails if section blocks the push" \
+  || bad "a plan with no Fails if section blocks the push (rc=$rc)"
+printf '%s' "$out" | grep -q 'rule 2' \
+  && ok "and the rule is named" || bad "and the rule is named"
+# Round 2 of the leak guard's review found exactly this class: a check sharing another check's
+# counter reports its finding in the other's words, and the words say what to do about it.
+printf '%s' "$out" | grep -qi 'from this machine' \
+  && bad "a roadmap failure is not reported as a leak" \
+  || ok "a roadmap failure is not reported as a leak"
+printf '%s' "$out" | grep -qi 'roadmap' \
+  && ok "and is reported in its own words" || bad "and is reported in its own words"
+rm -rf docs plugins/forge-kit-roadmap; git add -A >/dev/null; git commit --quiet -m cleanup
+
 cd "$ROOT"
 
 echo ""

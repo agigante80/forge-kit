@@ -289,6 +289,25 @@ forge_milestone_list()       { cat "$STUB_MILESTONES"; }
 forge_issue_milestone_list() { cat "$STUB_ISSUES"; }
 STUB
 
+echo "== forge-lib.sh resolves by SEARCH, not only by adjacency =="
+# The two assets belong to DIFFERENT skills, so in the source tree they can never sit beside each
+# other, and in a forge-adapt install they both land in scripts/ and can. Resolving only by
+# adjacency works in one shape and silently degrades in the other, which is the failure
+# .claude/memory/shipped-asset-path-resolution.md exists to warn about.
+mkdir -p "$T/elsewhere"
+mv "$T/forge-lib.sh" "$T/elsewhere/forge-lib.sh"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+printf '[{"number":7,"milestone":"A"}]' > "$T/iss.json"
+out=$(cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" \
+      FORGE_LIB="$T/elsewhere/forge-lib.sh" bash ./check-phases.sh 2>&1); rc=$?
+expect "FORGE_LIB points it at a library that is not adjacent" 0 "$rc"
+mv "$T/elsewhere/forge-lib.sh" "$T/forge-lib.sh"
+
 echo "== usage =="
 run --nonsense
 expect "an unknown flag refuses the run" 2 "$rc"

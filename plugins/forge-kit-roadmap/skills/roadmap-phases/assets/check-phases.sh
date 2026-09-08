@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-phases-version: 1
+# check-phases-version: 2
 #
 # The roadmap-phases guard: four rules that make rolling wave planning mechanical.
 #
@@ -147,15 +147,35 @@ fi
 
 # --- the host rules ---------------------------------------------------------
 HERE="$(cd "$(dirname "$SELF")" && pwd)"
-if [ -f "$HERE/forge-lib.sh" ]; then
-  # shellcheck source=forge-lib.sh
-  . "$HERE/forge-lib.sh"
-else
-  echo "check-phases: forge-lib.sh not found next to this script, so rules 1, 3 and 4 were SKIPPED." >&2
-  echo "  They were NOT checked and NOT passed. Install the forge-host skill's asset beside this one," >&2
+# Resolving forge-lib.sh: BESIDE, then by SEARCH, never by $CLAUDE_PLUGIN_ROOT.
+#
+# In a forge-adapt install both assets land in scripts/ and adjacency works. In the forge-kit source
+# tree they belong to DIFFERENT skills and can never be adjacent, so adjacency alone works in one
+# shape and degrades in the other. A degraded run here does not error, it just stops checking, which
+# is the silent failure .claude/memory/shipped-asset-path-resolution.md was written about.
+find_forge_lib() {
+  [ -n "${FORGE_LIB:-}" ] && [ -f "$FORGE_LIB" ] && { printf '%s' "$FORGE_LIB"; return 0; }
+  [ -f "$HERE/forge-lib.sh" ] && { printf '%s' "$HERE/forge-lib.sh"; return 0; }
+  local root p
+  root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$root" ]; then
+    for p in "$root"/scripts/forge-lib.sh \
+             "$root"/plugins/*/skills/forge-host/assets/forge-lib.sh; do
+      [ -f "$p" ] && { printf '%s' "$p"; return 0; }
+    done
+  fi
+  p="$(find "$HOME/.claude/plugins" -name forge-lib.sh 2>/dev/null | head -1)"
+  [ -n "$p" ] && { printf '%s' "$p"; return 0; }
+  return 1
+}
+LIB="$(find_forge_lib)" || {
+  echo "check-phases: forge-lib.sh not found, so rules 1, 3 and 4 were SKIPPED." >&2
+  echo "  They were NOT checked and NOT passed. Install the forge-host skill's asset, set FORGE_LIB," >&2
   echo "  or pass --offline to check rule 2 alone deliberately." >&2
   exit 2
-fi
+}
+# shellcheck source=forge-lib.sh
+. "$LIB"
 
 MS="$(forge_milestone_list 2>/dev/null)" || MS=""
 ISS="$(forge_issue_milestone_list 2>/dev/null)" || ISS=""

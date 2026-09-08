@@ -83,6 +83,31 @@ scan "$lg/check-public-leaks.sh" --all ${allow_args+"${allow_args[@]}"}
 # Local only, never in CI: it needs the list of private names, which cannot be published.
 scan "$lg/check-private-leaks.sh" --all
 
+# The roadmap guard, OFFLINE half only. A push must never depend on the host being reachable, and
+# rule 2 (an open phase has a plan carrying a Fails if section) needs only the files. The host rules
+# run from CI and from /phase, where failing to reach the forge is worth stopping for.
+#
+# Opt-in by the presence of docs/roadmap.md: with none, the script exits 0 saying so, and a project
+# that declines the optional planning group is unaffected. It shares the leak guard's counter and
+# message on purpose: both are "this tree carries something it should not", and both are checks
+# nothing server-side repeats.
+# Its OWN counter and message. Sharing the leak guard's reported a roadmap finding in the leak
+# guard's words, which is the wrong-message defect round 2 of that guard's review was about, made
+# once already and not again.
+phase_problems=0
+cp_="$ROOT/plugins/forge-kit-roadmap/skills/roadmap-phases/assets/check-phases.sh"
+if [ -f "$cp_" ]; then
+  bash "$cp_" --offline || phase_problems=$((phase_problems + 1))
+fi
+
+if [ "$phase_problems" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: the roadmap does not satisfy check-phases.sh (see above)."
+  echo "Only the file-only rule runs here; the host rules run in CI and from /phase."
+  echo "Fix the roadmap or the phase plan, or push anyway with: git push --no-verify"
+  exit 1
+fi
+
 if [ "$leak_errors" -gt 0 ]; then
   echo ""
   echo "forge-kit: the leak guard could not RUN (see above). A config or environment error, not"
