@@ -5,6 +5,10 @@ owns **which phase each ticket is in**, as the milestone. Different facts, so ne
 other. `plugins/forge-kit-roadmap/skills/roadmap-phases/SKILL.md` is canonical for the rules, and
 `check-phases.sh` enforces four of them.
 
+**Tickets closed before this file existed (everything up to #157) carry no phase, by decision on
+2026-09-08.** Backfilling them would invent a plan that was never made. Rule 1 governs open tickets,
+so the guard is right to ignore them, and reopening one would correctly require a phase.
+
 Only the `open` phase carries commitment. A `planned` phase's prose below is a reason, never a
 promise, and it is a bucket: file tickets against it as they occur to you, and its plan gets written
 from the roadmap prose plus whatever has accumulated by the time it opens.

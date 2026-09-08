@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 1 -->
+<!-- roadmap-phases-version: 2 -->
 
 # Roadmap phases
 
@@ -114,6 +114,21 @@ Three closing outcomes, and the roadmap records which:
 
 **Abandoned is the one people skip, and the one worth writing down.** A phase deleted without a
 record looks, six months later, like a phase nobody considered.
+
+## Adopting this in a project that already has tickets
+
+**Rule 1 is about OPEN tickets, and closed tickets from before the roadmap existed are not
+backfilled.** Assigning them retroactively would invent a plan that never existed: a phase is a
+decision about what to do next, and a decision cannot be made about work that is already finished.
+The roadmap is forward-looking, and a history rewritten to look planned is less honest than one
+that admits where the planning started.
+
+Two consequences worth knowing rather than discovering. Reopening such a ticket immediately trips
+rule 1, which is correct: it is open again, so it needs a phase again. And "every ticket has a
+phase" is true of the set the rule actually governs, so say it that way rather than claiming more.
+
+Adoption is therefore cheap: write the roadmap, assign the OPEN tickets, and start. There is no
+migration.
 
 ## Splitting, reordering and deleting
 

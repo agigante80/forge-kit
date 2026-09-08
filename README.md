@@ -120,7 +120,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-review` | command | `full-review` | v10 | 3998 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
 | `forge-kit-review` | command | `pr-enhance` | v1 | 2015 | You are a PR optimization expert specializing in creating high-quality pull requests that facilitate efficient code rev… |
 | `forge-kit-roadmap` | command | `phase` | v1 | 792 | Work the roadmap. |
-| `forge-kit-roadmap` | skill | `roadmap-phases` | v1 | 1306 | Rolling wave planning made mechanical. |
+| `forge-kit-roadmap` | skill | `roadmap-phases` | v2 | 1456 | Rolling wave planning made mechanical. |
 | `forge-kit-roadmap` | shell asset | `check-phases` | v3 |  | The roadmap-phases guard: four rules that make rolling wave planning mechanical. |
 | `forge-kit-roadmap` | shell asset | `roadmap-lib` | v1 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v3 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
