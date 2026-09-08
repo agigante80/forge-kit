@@ -129,9 +129,51 @@ which is forge-kit's whole premise. The existing GitHub Actions in this space
 (`triage-action` and friends) enforce labels or auto-assign milestones; none of them check a
 roadmap document against the host, because none of them assume one exists.
 
+## A separate plugin group, so it can be declined
+
+**Rolling wave planning is one opinionated method. The rest of forge-kit is methodology-agnostic**:
+`ticket-gate` governs a ticket, `release-automation` governs a version, `forge-host` governs a
+host, and none of them care how work is grouped. Shipping phases inside `forge-kit-governance`
+would force a project-management methodology on everyone who wanted a ticket gate.
+
+So this is its own group, **`forge-kit-roadmap`**, installed or declined on its own:
+
+```
+/plugin install forge-kit-roadmap@forge-kit
+```
+
+**The dependency runs one way only.** The group needs `forge-lib.sh` from `forge-kit-devops` to
+talk to milestones, which is the same shape `ticket-gate` already has and which `forge-adapt`
+already installs as a declared dependency. Nothing in `devops`, `governance`, `review`, `security`,
+`testing` or `backend` learns what a phase is.
+
+**In particular, `ticket-gate` never learns about phases.** "Has a phase assigned" looks like a
+ticket-readiness property and must not become one, because that single line would couple the gate
+to this methodology and make the group non-optional in practice while remaining optional on paper.
+If that ever looks worth doing, it is a separate decision with its own ticket.
+
+The milestone primitives are the one thing that does NOT go in this group. Milestones are a host
+capability, not a planning concept; `dep-auditor` already reads them, and a project using some
+other method still wants them. They belong in the host adapter.
+
+## Isolation is enforced, not asserted
+
+A boundary that is only stated survives until the first convenient reference. `scripts/check-group-isolation.sh`
+fails the build if any component outside `plugins/forge-kit-roadmap/` mentions this group's
+identifiers: `forge-kit-roadmap`, `roadmap-phases`, `check-phases.sh`, `sync-phases.sh`.
+
+It keys on those identifiers rather than on the English word "roadmap", which appears innocently in
+prose all over the kit. The reverse direction is allowed and expected: the roadmap group referring
+to `forge-lib.sh` is the declared dependency, not a violation.
+
+**One exemption, and it requires a reason**, the shape `check-restatements.sh` already uses.
+`forge-kit-adapt` is the installer and by definition knows every component exists, so its dependency
+list names these like any other. That is a catalogue entry, not a dependency, and the guard says so
+in the entry rather than leaving a silent hole.
+
 ## Components
 
-Five pieces, in two plugin groups.
+Five components across two plugin groups, plus one repo guard.
 
 ### `forge_milestone_*` in `forge-lib.sh` (`forge-kit-devops`)
 
@@ -140,7 +182,7 @@ and `forge_issue_set_milestone`. None exist today. Host-aware like the rest of t
 paginated through `forge_api_paginate`, because the milestones endpoint is a LIST endpoint and a
 plain GET silently truncates (the class #62 fixed for issues, already noted in `dep-auditor.md`).
 
-### `check-phases.sh` (`forge-kit-governance`, shipped asset)
+### `check-phases.sh` (`forge-kit-roadmap`, shipped asset)
 
 The guard, four rules. Exit 0 clean, 1 violation, 2 could not run, matching the leak scanners.
 One line per violation naming the rule.
@@ -158,7 +200,7 @@ Rule 2 is file-only. Rules 1, 3 and 4 need the host. With no token available the
 report **SKIPPED loudly and never silently pass**, the posture `.githooks/pre-push` already takes
 for a missing base ref: a check that cannot run must never report clean.
 
-### `sync-phases.sh` (`forge-kit-governance`, shipped asset)
+### `sync-phases.sh` (`forge-kit-roadmap`, shipped asset)
 
 Makes the host's milestones match `roadmap.md`: creates what is missing, renames what changed,
 closes what is `done`. `--check` reports disagreement and writes nothing.
@@ -172,13 +214,13 @@ A malformed roadmap phase block **refuses the whole run** rather than skipping t
 matching `sync-labels.sh`, because a silent partial sync is exactly the drift the guard exists to
 end.
 
-### `roadmap-phases` skill (`forge-kit-governance`)
+### `roadmap-phases` skill (`forge-kit-roadmap`)
 
 The workflow: the states and what each means, the roadmap and plan templates, the close review, and
 what to do when a phase needs splitting, reordering or deleting. It is the canonical statement of
 every rule the guards enforce, and the guards' messages point at it.
 
-### `/phase` command (`forge-kit-governance`)
+### `/phase` command (`forge-kit-roadmap`)
 
 One command with verbs, not four commands, to keep the marker, budget and index cost down.
 
@@ -246,7 +288,8 @@ Contract tests, in CI, matching how every other shipped executable here is teste
 
 ## Dogfooding
 
-forge-kit adopts it: a real `docs/roadmap.md`, real milestones, and all open tickets assigned. The
+forge-kit adopts it, which also means forge-kit is the first project to install the new group: a
+real `docs/roadmap.md`, real milestones, and all open tickets assigned. The
 phase breakdown is proposed for the maintainer to correct, since the ordering is a judgment about
 the project rather than about the design.
 
@@ -256,12 +299,17 @@ hook it had just been wired into refusing its own commit.
 
 ## Consequences and costs
 
-- Two plugin groups change, so both take a semver bump.
-- Five new components plus two contract suites, taking the kit from 21 CI suites to 23.
+- **A new plugin group**, the kit's eighth, with its own `plugin.json` and a `marketplace.json`
+  entry. `forge-kit-devops` also changes (the milestone primitives) and takes a semver bump.
+- Five new components plus three contract suites (`check-phases`, `sync-phases`, group isolation),
+  taking the kit from 21 CI suites to 24.
 - `forge-adapt` must install the assets and the skill together; a shipped `assets/*.sh` is already
   handled, but the guard is useless without the skill that explains its refusals.
-- A downstream project with no roadmap must not be broken by this. The guard is opt-in by the
-  presence of `roadmap.md`: no roadmap means nothing to check, and it exits 0 saying so.
+- **A project that declines the group loses nothing.** No other component references it, and the
+  isolation guard is what keeps that true.
+- A project that installs it but has no roadmap yet must not be broken either. `check-phases.sh` is
+  opt-in by the presence of `roadmap.md`: no roadmap means nothing to check, and it exits 0 saying
+  so, the same posture `check-private-leaks.sh` takes for a missing name list.
 
 ## Open questions
 
