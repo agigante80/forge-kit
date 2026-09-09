@@ -127,7 +127,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `backend-security-coder` | v1 | 1148 | Expert in secure backend coding practices specializing in input validation, authentication, and API security. |
 | `forge-kit-security` | agent | `security-auditor` | v4 | 1309 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
-| `forge-kit-security` | skill | `leak-guard` | v3 | 1366 | Stop the developer's own machine leaking into a repository that is about to be made public. |
+| `forge-kit-security` | skill | `leak-guard` | v4 | 1531 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v1 | 783 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
 | `forge-kit-security` | shell asset | `check-private-leaks` | v6 |  | The private half of the leak guard: project and folder NAMES that must not become public. |

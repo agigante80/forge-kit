@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 3 -->
+<!-- leak-guard-version: 4 -->
 
 # Leak guard
 
@@ -114,6 +114,19 @@ path and no `@`. Rules A and C catch the pasted-traceback class, which is the on
 B catches the `~/` class, which is the one that survived a full history scrub in the case that
 prompted it. **Nothing public catches a bare project name.** That needs the list, and the list
 cannot be public.
+
+**And both path rules judge the FIRST segment only.** Rule A asks who `/home/<name>/` belongs to and
+rule B asks whether `~/<root>` may be shown; neither looks below that. So a private directory name
+under an allowed root, `~/work/<client>/repo` or `/home/user/clients/<client>/build.log`, is
+invisible to the public half, and the segments above the project are exactly what the original
+finding called the worse half of the leak.
+
+**Decided 2026-09-09: this stays as it is** (issue #159). With a private-name list the case IS
+caught, by name, so the gap is real only for someone who never wrote one, who is also the least
+protected in general. The alternative was to allowlist every path segment rather than the root, and
+a project would then have to allowlist every directory name appearing in any documented path: the
+guard would fire constantly until somebody deleted it, which is the failure mode the near-miss cases
+exist to prevent. A narrower guard that survives beats a thorough one that gets removed.
 
 A guard that overstates its reach is worse than a narrow one that admits it, because the
 overstatement is what stops anyone looking.

@@ -52,6 +52,15 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# RE-DERIVED 2026-09-09 UNDER A CHANGED METRIC, NOT RAISED: ticket-gate 5259 to 6355 (#150). The
+# file did not grow by one word. The measure changed to include what the agent PRELOADS, which is
+# its own 5259 plus ticket-gate-reference's 1096, and 6355 is what has been loading all along. The
+# old number was not a smaller file, it was a smaller question.
+#
+# This distinction is the whole point: a raise lets a file grow, and an agent must never do one on
+# its own initiative. A re-derivation measures the same thing honestly, and the maintainer
+# authorised this one after the preload behaviour was verified against the installed binary.
+#
 # LOWERED 2026-09-09: adapt 7311 to 7300 (#167). The drift status rules became
 # forge-adapt-drift-status.sh, so the new `registered` state had somewhere to live. Same lever as
 # #166 and #149, and the third time this week that converting a rule to a tested script was the
@@ -81,13 +90,14 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7300 ;;
-    ticket-gate) echo 5259 ;;
+    ticket-gate) echo 6355 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac
 }
 
 CATALOGUE="$ROOT/scripts/forge-adapt-catalogue.sh"
+RESOLVER="$ROOT/scripts/forge-adapt-agent-skills.sh"
 if [ ! -f "$CATALOGUE" ]; then
   echo "check-component-size: no catalogue script at $CATALOGUE" >&2
   exit 2
@@ -103,13 +113,59 @@ while IFS=$'\t' read -r group ctype name version path; do
   [ "$budget" -gt 0 ] || continue          # skip hooks and shell assets
   [ -f "$path" ] || continue
   words=$(wc -w < "$path" | tr -d ' ')
+
+  # AN AGENT IS CHARGED FOR WHAT IT PRELOADS (#150). Verified against the installed Claude Code
+  # (2.1.263): the subagent spawn path renders every skill named in `skills:` frontmatter and pushes
+  # it into the agent's message list before the run starts. So a companion skill is not somewhere
+  # else, it is in the same context.
+  #
+  # Measuring one file made #109's split look like a reduction when it moved 308 words from one
+  # preloaded file into another. The number was smaller and nothing had been reduced. This is the
+  # metric change the maintainer authorised rather than a baseline raise: the baselines below are
+  # re-derived under the new measure, which is a different thing from letting a file grow.
+  #
+  # It reuses forge-adapt-agent-skills.sh rather than parsing frontmatter here, because that parser
+  # is tested and a fourth copy of it is what #162 was about. A resolver failure is LOUD: an agent
+  # whose companions cannot be resolved is reported rather than measured as if it declared none.
+  companions=""
+  if [ "$ctype" = subagent ]; then
+    # A MISSING RESOLVER IS AN ERROR, not a quiet skip. Skipping would measure every agent on its
+    # own file again and report the tree clean, which is the vacuous pass this metric change exists
+    # to remove.
+    [ -f "$RESOLVER" ] || {
+      echo "check-component-size: $RESOLVER is missing, so what an agent preloads cannot be" >&2
+      echo "  resolved and no agent can be measured. Refusing rather than reporting clean." >&2
+      exit 2
+    }
+  fi
+  if [ "$ctype" = subagent ]; then
+    if decl=$(bash "$RESOLVER" "$path" 2>/dev/null); then
+      for ref in $decl; do
+        cname="${ref##*:}"
+        cfile="$(find "$ROOT" -path "*/skills/$cname/SKILL.md" -type f 2>/dev/null | head -1)"
+        if [ -n "$cfile" ]; then
+          words=$(( words + $(wc -w < "$cfile" | tr -d ' ') ))
+          companions="${companions:+$companions, }$cname"
+        else
+          echo "FAIL  $ctype $name: declares companion skill '$ref', which is not installed."
+          echo "      It cannot be measured, and at runtime it fails SILENTLY (#124)."
+          fails=$((fails + 1))
+        fi
+      done
+    else
+      echo "FAIL  $ctype $name: its 'skills:' frontmatter could not be parsed, so what it preloads"
+      echo "      is unknown and its size cannot be judged."
+      fails=$((fails + 1))
+      continue
+    fi
+  fi
   checked=$((checked + 1))
   ceiling=$(( budget * 3 / 2 ))
   baseline=$(baseline_for "$name")
 
   if [ "$baseline" -gt 0 ]; then
     if [ "$words" -gt "$baseline" ]; then
-      echo "FAIL  $ctype $name: $words words, above its $baseline-word ratchet baseline."
+      echo "FAIL  $ctype $name: $words words${companions:+ (with preloaded companion: $companions)}, above its $baseline-word ratchet baseline."
       echo "      This component is exempt from the ${budget}-word budget but MAY NOT GROW."
       echo "      Reduce it, or split per the convention in CLAUDE.md."
       fails=$((fails + 1))
@@ -121,10 +177,10 @@ while IFS=$'\t' read -r group ctype name version path; do
   fi
 
   if [ "$words" -gt "$ceiling" ]; then
-    echo "FAIL  $ctype $name: $words words, over the hard ceiling of $ceiling (budget $budget)."
+    echo "FAIL  $ctype $name: $words words${companions:+ (with preloaded companion: $companions)}, over the hard ceiling of $ceiling (budget $budget)."
     fails=$((fails + 1))
   elif [ "$words" -gt "$budget" ]; then
-    [ "$QUIET" -eq 1 ] || echo "warn  $ctype $name: $words words, over the $budget-word budget (ceiling $ceiling)."
+    [ "$QUIET" -eq 1 ] || echo "warn  $ctype $name: $words words${companions:+ (with preloaded companion: $companions)}, over the $budget-word budget (ceiling $ceiling)."
     warns=$((warns + 1))
   fi
 done < <(bash "$CATALOGUE" --tsv "$ROOT")

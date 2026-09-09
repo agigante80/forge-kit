@@ -19,7 +19,7 @@ FIX=$(mktemp -d)
 trap 'rm -rf "$FIX"' EXIT
 mkdir -p "$FIX/scripts" "$FIX/plugins/fix-g/agents" "$FIX/plugins/fix-g/commands" \
          "$FIX/plugins/fix-g/skills/small-skill" "$FIX/plugins/fix-g/hooks"
-cp "$HERE/forge-adapt-catalogue.sh" "$FIX/scripts/"
+cp "$HERE/forge-adapt-catalogue.sh" "$HERE/forge-adapt-agent-skills.sh" "$FIX/scripts/"
 
 # words <n> <file> <marker-name>: a file of n words carrying a valid version marker.
 words() {
@@ -139,6 +139,68 @@ wcw=$(wc -w < "$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md" | tr -d
 [ -n "$idx" ] && [ "$idx" = "$wcw" ] \
   && ok "the index word count equals wc -w ($wcw)" \
   || bad "the index word count equals wc -w (index=$idx wc=$wcw)"
+
+# --- #150: an agent is charged for what it PRELOADS, not just its own file --------------------
+# Verified against the installed Claude Code binary (2.1.263): the subagent spawn path renders every
+# skill named in `skills:` and pushes it into the agent's message list. So #109's split moved 308
+# words from one preloaded file into another and reduced nothing real, while the guard reported a
+# win. The metric measured one file; what loads is the file PLUS its companions.
+mkdir -p "$FIX/plugins/fix-g/skills/companion"
+words 400 "$FIX/plugins/fix-g/skills/companion/SKILL.md" companion
+cat > "$FIX/plugins/fix-g/agents/with-companion.md" <<'A'
+---
+name: with-companion
+skills:
+  - fix-g:companion
+---
+<!-- with-companion-version: 1 -->
+A
+# 1800 of its own words is UNDER the 2000 budget, so the old metric said nothing. With a 400-word
+# companion it preloads 2200, which is over. That gap is exactly what the old metric could not see,
+# and the first version of this fixture used 1500+300, whose total is also under budget: it would
+# have passed against the fix as readily as against the bug.
+python3 - "$FIX/plugins/fix-g/agents/with-companion.md" <<'PY2'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+open(p, "w").write(s + ("word " * 1800) + "\n")
+PY2
+out=$(bash "$CHECK" --root "$FIX" 2>&1); rc=$?
+printf '%s' "$out" | grep -q 'with-companion' \
+  && ok "an agent's declared companion skill counts toward its size" \
+  || bad "an agent is still measured on its own file alone (#150)"
+printf '%s' "$out" | grep -qi 'companion\|preload' \
+  && ok "and the report says the companion is why" \
+  || bad "and the report says the companion is why"
+
+# The companion is still measured on its own too: it is an ordinary component with its own budget.
+printf '%s' "$out" | grep -q 'skill companion' \
+  && ok "the companion skill is still reported in its own right" \
+  || ok "the companion skill is under its own budget, so nothing to report"
+
+# An agent declaring a companion that is not installed must FAIL, not be measured as if it declared
+# none. At runtime that shape fails SILENTLY (#124), so the guard is the only thing that can notice.
+cat > "$FIX/plugins/fix-g/agents/ghost-companion.md" <<'A'
+---
+name: ghost-companion
+skills:
+  - fix-g:not-installed
+---
+<!-- ghost-companion-version: 1 -->
+A
+out=$(bash "$CHECK" --root "$FIX" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "an agent declaring an uninstalled companion fails" \
+                || bad "an unresolvable companion was ignored"
+printf '%s' "$out" | grep -q 'not-installed' \
+  && ok "and names the skill it could not find" || bad "and names the skill it could not find"
+rm -f "$FIX/plugins/fix-g/agents/ghost-companion.md"
+
+# A missing resolver must refuse, not measure every agent on its own file and report clean.
+mv "$FIX/scripts/forge-adapt-agent-skills.sh" "$FIX/scripts/resolver.hidden"
+bash "$CHECK" --root "$FIX" >/dev/null 2>&1
+[ "$?" -eq 2 ] && ok "a missing companion resolver refuses rather than reporting clean" \
+               || bad "a missing resolver silently reverted to the old one-file measure"
+mv "$FIX/scripts/resolver.hidden" "$FIX/scripts/forge-adapt-agent-skills.sh"
 
 echo ""
 echo "component-size tests: $pass passed, $fail failed"
