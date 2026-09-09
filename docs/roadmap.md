@@ -49,7 +49,8 @@ They belong together because the fix for one is the argument for the fix for the
 a guard suite whose members disagree about what they check is worse than a smaller honest one.
 
 ## Phase: The ticket-gate size decision
-state: planned
+state: open
+plan: docs/plans/ticket-gate-size.md
 
 `ticket-gate.md` is 5265 words against a 3000 ceiling and the compression lever is exhausted. This
 phase is blocked on a maintainer decision rather than on implementation, which is exactly what a
@@ -75,8 +76,18 @@ a lie, and a review round then found the scope guard and the placeholder guard c
 other inside one CI job, which is that failure arriving by a route the plan did not name.
 
 ## Phase: Known gaps in shipped assets
-state: open
+state: done
 plan: docs/plans/known-gaps.md
+
+Closed 2026-09-09, outcome **done**. All six closed: #161, #167, #131, #134, #159 and #168, the
+last of which did not exist when the phase opened. It was found by ARMING the overnight run against
+this repo's own workflow, which the guard then made impossible; the phase's own subject is a shipped
+asset whose behaviour is broader than it claims, and that is a textbook instance found by use rather
+than by review.
+
+#159 closed as working-as-intended by maintainer decision, with the limit documented beside the
+reach statement it qualifies. The plan's premortem warned against closing a gap by narrowing the
+claim quietly; this one is narrowed loudly.
 
 Tickets filed at a review trip wire against components that already shipped. Each was reported as
 LOW or latent, fixed nowhere, and recorded so the next reader would not rediscover it. They belong
