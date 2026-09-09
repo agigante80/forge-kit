@@ -52,6 +52,11 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-09-09: adapt 7311 to 7300 (#167). The drift status rules became
+# forge-adapt-drift-status.sh, so the new `registered` state had somewhere to live. Same lever as
+# #166 and #149, and the third time this week that converting a rule to a tested script was the
+# only way to add one without asking for a baseline.
+#
 # LOWERED 2026-09-09: adapt 7312 to 7311 (#166). The scope rule was measured as prose first: +118
 # words, tightened to about +40, with no duplication left to pay with (the one repeated shingle is
 # two shell snippets in different execution contexts, the #112 shape). Converting it to a tested
@@ -75,7 +80,7 @@ budget_for() {
 # numbers has been a reduction, and an agent must NEVER raise one on its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7311 ;;
+    adapt)       echo 7300 ;;
     ticket-gate) echo 5259 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;

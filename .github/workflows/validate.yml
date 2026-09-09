@@ -226,6 +226,10 @@ jobs:
       - name: forge-adapt install-plan tests
         run: bash scripts/test-forge-adapt-install-plan.sh
 
+      # Issue #167: a registered component reported as missing would invite the copy #166 removed.
+      - name: forge-adapt drift-status tests
+        run: bash scripts/test-forge-adapt-drift-status.sh
+
       # Issue #158: these two were `pull_request`-only, and since work stopped arriving as pull
       # requests they ran on NO path at all. They now run on both, and the base is resolved by a
       # TESTED script rather than a YAML expression, because `github.event.before` is the
