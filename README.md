@@ -84,7 +84,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v62 | 7300 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | skill | `adapt` | v63 | 7314 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-backend` | skill | `api-design-principles` | v1 | 1470 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
 | `forge-kit-backend` | skill | `architecture-patterns` | v1 | 1330 | Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven… |
 | `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |

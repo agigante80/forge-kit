@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 62 -->
+<!-- forge-adapt-version: 63 -->
 
 # forge-adapt
 
@@ -589,10 +589,12 @@ forge-adapt drift report - <project>
 Stop after the report; change nothing. For each row run
 `"$FORGE_KIT_DIR"/scripts/forge-adapt-drift-status.sh` and print the word it returns.
 
-Shell assets appear in the same table, compared against the catalogue's `asset:` rows. A present-but-unmarked copy is
-reported as `unversioned - refresh to deep-compare`, NEVER omitted: every install that predates
-the markers is exactly the copy most likely to be stale, so silence would hide the whole existing
-install base (issue #64).
+**Then one line ABOVE the table, from `forge-adapt-marketplace-status.sh`** (#172). It is not a
+component row and must never be rendered as one.
+
+Shell assets appear in the same table, compared against the catalogue's `asset:` rows. Every
+installed component gets a row, including an unmarked one: the status script decides the word, and
+omitting a row would hide the pre-marker install base it exists to surface (#64).
 
 **Assets are verbatim copies, not adaptations.** For a shell asset, `refresh <name>` compares
 content: identical to the catalogue -> `current`; differing with an absent or older marker and no

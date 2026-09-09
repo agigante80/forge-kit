@@ -72,6 +72,15 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# RAISED 2026-09-10, THE SECOND RAISE EVER, BY MAINTAINER DECISION: adapt 7300 to 7314 (#172).
+# The drift report needed one line naming the marketplace staleness check, and there was nothing
+# left to pay with: #157, #166 and #167 each searched this file for duplication and each funded
+# itself out of what it found. The change is not unpaid, it is underpaid. It already carries 30
+# words of payment (a #64 restatement that #167 had moved into forge-adapt-drift-status.sh) and
+# its own new prose was compressed from 47 words to 24 before the raise was asked for. The #149
+# lever was used first and is why the rule itself lives in forge-adapt-marketplace-status.sh
+# rather than here. An agent must NEVER raise a baseline on its own initiative. Ask.
+#
 # LOWERED 2026-09-09: ticket-gate 5782 to 5778 (#103). The round table replaced six scattered
 # re-run policies and two void triggers, and paid for itself: the table is bigger than any one of
 # them, and removing a DUPLICATE pointer to it covered the difference. Nothing was compressed to
@@ -110,15 +119,16 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
-# RAISED ONCE, ON 2026-09-07, BY MAINTAINER DECISION. ticket-gate went 5209 to 5265 for #147, a
+# RAISED 2026-09-07, THE FIRST OF THE TWO, BY MAINTAINER DECISION. ticket-gate went 5209 to 5265 for #147, a
 # correctness fix that could not be paid for: a seven-shingle scan of the file found no remaining
 # duplication after seven consecutive fixes had each paid their own way, and the alternative was
 # compressing prose that is already dense, which this budget exists to discourage rather than
-# cause. Recorded here because the history is the evidence for #150: every other edit to these
-# numbers has been a reduction, and an agent must NEVER raise one on its own initiative. Ask.
+# cause. Recorded here because the history is the evidence for #150: apart from the two raises
+# above, every edit to these numbers has been a reduction, and an agent must NEVER raise one on
+# its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7300 ;;
+    adapt)       echo 7314 ;;
     ticket-gate) echo 5778 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
