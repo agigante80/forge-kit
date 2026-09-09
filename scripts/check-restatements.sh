@@ -42,7 +42,11 @@ else
               # anchor. Without this line, moving prose into references/ would be a way to launder a
               # rule out of this guard's sight, which is the same hazard CLAUDE.md already records
               # for prose moved into a script.
-              "$ROOT"/plugins/forge-kit-governance/skills/ticket-gate-reference/references/*.md)
+              "$ROOT"/plugins/forge-kit-governance/skills/ticket-gate-reference/references/*.md
+              # decision-brief (#129) runs the gate rather than citing it, and carries no copy of
+              # its bars. That is a promise, and this is what keeps it one: a `rule N` reference
+              # appearing here is an unlisted restatement and fails, the same as one in the gate.
+              "$ROOT/plugins/forge-kit-governance/skills/decision-brief/SKILL.md")
 fi
 
 [ -r "$DOC" ] || { echo "check-restatements: cannot read '$DOC'" >&2; exit 2; }

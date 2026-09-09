@@ -698,6 +698,57 @@ esac
 [ $? -eq 0 ] && ok "a stale _FORGE_TMPDIR is re-created without going through the page cap" \
              || bad "the -d check is not independently exercised (#131.2)"
 
+# --- #129: forge_issue_edit replaces an issue BODY on either host ------------------------------
+# The decision-brief skill rewrites the body rather than commenting, because a reader triaging a
+# batch of tickets reads bodies and not comments. Both hosts PATCH the issue, so there is no host
+# branch to get wrong; what there IS to get wrong is sending the body as anything but a JSON
+# string, which is why the assertion reads the payload back through jq rather than grepping it.
+(
+  . "$LIB"
+  REQLOG="$T/edit.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$REQLOG"; printf '{}'; }
+  body='line one
+line "two" with $quotes and a `backtick`'
+  forge_issue_edit 44 "$body" || exit 9
+  read -r m path <<< "$(cut -f1,2 "$REQLOG")"
+  [ "$m" = PATCH ] || exit 1
+  [ "$path" = /repos/o/r/issues/44 ] || exit 2
+  sent=$(cut -f3 "$REQLOG" | jq -r .body)
+  [ "$sent" = "$body" ] || exit 3
+)
+case $? in
+  0) ok "issue_edit PATCHes the issue and sends the body as a JSON string, newlines and quotes intact";;
+  1) bad "issue_edit did not use PATCH";;
+  2) bad "issue_edit addressed the wrong path";;
+  3) bad "issue_edit mangled the body (multiline or quoting lost)";;
+  *) bad "issue_edit errored or does not exist";;
+esac
+
+# A rewrite is destructive: the old body is gone. Dry run must send nothing at all.
+(
+  . "$LIB"
+  REQLOG="$T/edit2.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+  forge_api() { echo "$1 $2" >> "$REQLOG"; printf '{}'; }
+  forge_issue_edit 44 "new body" 2>/dev/null || exit 1
+  [ ! -s "$REQLOG" ]
+)
+[ $? -eq 0 ] && ok "and FORGE_DRY_RUN sends nothing, because a body rewrite cannot be undone" \
+             || bad "issue_edit sent a request under FORGE_DRY_RUN"
+
+# Refusing an empty body is the difference between a bug and an erased ticket.
+(
+  . "$LIB"
+  REQLOG="$T/edit3.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { echo "$1 $2" >> "$REQLOG"; printf '{}'; }
+  forge_issue_edit 44 "" 2>/dev/null && exit 1
+  [ ! -s "$REQLOG" ]
+)
+[ $? -eq 0 ] && ok "an empty body is refused and nothing is sent (a rewrite would erase the ticket)" \
+             || bad "issue_edit accepted an empty body"
+
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

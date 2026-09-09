@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 12
+# forge-lib-version: 13
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -357,6 +357,20 @@ forge_issue_comment() {
 
 # forge_issue_close <n>
 forge_issue_close() { forge_api PATCH "/repos/$(forge_repo)/issues/$1" '{"state":"closed"}' >/dev/null; }
+
+# forge_issue_edit <n> <body>   REPLACES the issue body on either host (#129).
+# Both hosts PATCH the issue itself, so there is no host branch here. It is the one write in this
+# library that DESTROYS what was there, and the host's edit history is the only copy, so it refuses
+# an empty body rather than erasing a ticket on a caller's unset variable.
+forge_issue_edit() {
+  [ -n "${2:-}" ] || { echo "forge_issue_edit: refusing to replace issue #${1:-?} with an empty body" >&2; return 2; }
+  local payload; payload="$(jq -nc --arg b "$2" '{body:$b}')"
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    printf '[dry-run] replace body of issue %s on %s (%s bytes)\n' "$1" "$(forge_repo)" "${#2}" >&2
+    return 0
+  fi
+  forge_api PATCH "/repos/$(forge_repo)/issues/$1" "$payload" >/dev/null
+}
 
 # forge_issue_list [state]  (default open) -> JSON array of issues, PRs excluded, ALL pages.
 # GitHub's /issues includes PRs and is paginated, so the github path filters PRs and paginates;
