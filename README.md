@@ -108,7 +108,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-governance` | skill | `closing-sessions` | v2 | 671 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `decision-brief` | v1 | 1205 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
 | `forge-kit-governance` | skill | `ticket-gate-reference` | v10 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
-| `forge-kit-governance` | skill | `working-overnight` | v7 | 664 | Run governed, unattended overnight work. |
+| `forge-kit-governance` | skill | `working-overnight` | v8 | 664 | Run governed, unattended overnight work. |
 | `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
 | `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |
 | `forge-kit-governance` | hook | `overnight-guard` | v4 |  | PreToolUse Bash guard for an armed working-overnight run. |

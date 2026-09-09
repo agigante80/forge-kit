@@ -38,12 +38,11 @@ cannot grow. A loop that re-runs the whole target every cycle is the unbounded-t
 the contract exists to stop, and it is expensive in exactly the hours nobody is watching.
 
 **Do not expect `.full-review/state.json` to be there.** It is gitignored and lives at the root of
-the checkout that ran the review, and every implementation item gets its OWN worktree, so the
-next cycle usually starts where no state exists. Read it when the review ran in this same
-checkout; otherwise the ref must come from somewhere that survives, so **record the reviewed ref
-on the queue item** in `.claude/overnight/queue.md` when a review completes, and read it back from
-there. Without that, this rule silently never fires and every round is round 1 again, which is the
-failure it was written to prevent.
+the checkout that ran the review, and every implementation item gets its OWN worktree, so the next
+cycle usually starts where no state exists. Read it when the review ran in this same checkout;
+otherwise read the ref the queue item carries, which cycle step 7 is what puts there. Without that
+step this rule silently never fires and every round is round 1 again, which is the failure it was
+written to prevent.
 
 If neither store has a ref, this IS round 1 and `--since` is omitted. Never invent one: a `--since`
 pointing at the wrong commit reviews the wrong delta and reports clean.
