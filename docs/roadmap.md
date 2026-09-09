@@ -126,6 +126,21 @@ This phase is a bucket while the current one runs. Its plan gets written from th
 whatever has accumulated by the time it opens, and the honest question it will have to answer is
 whether forge-adapt's adaptation is doing as much work as its description claims.
 
+## Phase: What the loop hands back to the human
+state: open
+plan: docs/plans/handing-back-to-the-human.md
+
+The kit runs work unattended and stops on rules of its own. Two moments in that are still
+hand-waved: WHEN the loop stops without a human to ask, and WHAT it hands over when it does.
+
+#88 is the first. The iteration contract says continuing past the trip wire is the caller's explicit
+call and never a default, and an overnight loop has no caller present, so the only honest reading is
+that it defers. #129 is the second: four tickets in one session each ended as a hand-written
+decision brief, which is the artifact a deferral should produce.
+
+They belong together because they are two halves of one handover, and either alone leaves it
+half-built.
+
 ## Phase: Backlog
 state: backlog
 

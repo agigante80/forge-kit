@@ -3,7 +3,7 @@ name: working-overnight
 description: Run governed, unattended overnight work. Pulls from a defined work source (gated tickets, tickets to gate, or investigations like full/security reviews that create tickets), implements safe work as branch-plus-PR without ever merging, defers you-only decisions instead of guessing, and writes a morning report. Use when the user says to work overnight, run unattended, keep going while they are away, or asks to set up autonomous overnight work. Driven by /loop; not a single unbounded session.
 ---
 
-<!-- working-overnight-version: 6 -->
+<!-- working-overnight-version: 7 -->
 
 # Working overnight
 
@@ -52,7 +52,8 @@ Do this with the user present. Never start autonomous work until they confirm.
    Wind-down.
 3. Classify the item by tier (`references/safety.md`). A Tier-3 action is never
    performed: park it as needs-human and pick another item.
-4. Resolve any question. Try web search, the code, and the project rules first.
+4. Resolve any question. A review that stopped on the trip wire is one of these, always:
+   see `references/pipeline.md`. Try web search, the code, and the project rules first.
    Only a genuine you-only decision blocks: if it is low-stakes and reversible,
    record the assumption for the report and continue; otherwise append it to
    `.claude/overnight/decisions.md` (item, options, your recommendation) and pick
@@ -60,7 +61,9 @@ Do this with the user present. Never start autonomous work until they confirm.
 5. Do the work through `references/pipeline.md`.
 6. Implementation lands in a per-item git worktree as a branch and a PR, never
    merged. Investigations write findings and create/gate tickets.
-7. Update `.claude/overnight/queue.md` (done, parked, or newly created items).
+7. Update `.claude/overnight/queue.md` (done, parked, or newly created items). A review that
+   completed records its reviewed ref on the item: `.full-review/` is per-worktree and
+   gitignored, so the queue is the only store the next cycle can read it from.
 8. Backstop: if context or the budget is near its limit, go to Wind-down now rather
    than starting another item.
 
