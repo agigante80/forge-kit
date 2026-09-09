@@ -290,6 +290,76 @@ case "$err" in
   *) bad "a missing agent file reports why (got '$err')" ;;
 esac
 
+# --- #134.1: a SYMLINKED agent must not be replaced by a regular file ---------------------------
+# The atomic rewrite writes beside the target and `mv`s it into place, which is what makes it atomic
+# and mode-preserving. On a symlink that replaces the LINK with a regular file, so the real file
+# keeps its plugin-scoped names and the companion skill then fails silently: exactly the outcome
+# this script exists to prevent.
+mkdir -p "$T/real" "$T/link"
+cat > "$T/real/a.md" <<'M'
+---
+name: a
+skills:
+  - forge-kit-governance:ticket-gate-reference
+---
+body
+M
+ln -sf "$T/real/a.md" "$T/link/a.md"
+bash "$SCRIPT" --rewrite "$T/link/a.md" >/dev/null 2>&1
+[ -L "$T/link/a.md" ] && ok "the symlink is still a symlink after a rewrite" \
+                      || bad "the rewrite replaced the symlink with a regular file"
+# `grep -qv` is true whenever ANY line lacks the string, which is always. The assertion has to be
+# that the plugin scope is absent from the WHOLE file.
+if grep -q 'ticket-gate-reference' "$T/real/a.md" && ! grep -q 'forge-kit-governance:' "$T/real/a.md"
+then ok "and the REAL file was rewritten to the bare name"
+else bad "the real file kept its plugin scope"; fi
+
+# --- #134.2: a trailing comment survives in BOTH shapes ----------------------------------------
+# Sharing norm() between reader and rewriter fixed three rounds of drift, and made the rewriter
+# inherit comment-stripping. The flow branch kept the comment because it preserves everything after
+# the closing bracket; the block branch dropped it. Preserve in both.
+cat > "$T/c-block.md" <<'M'
+---
+name: a
+skills:
+  - forge-kit-governance:ticket-gate-reference  # the lens pack
+---
+body
+M
+bash "$SCRIPT" --rewrite "$T/c-block.md" >/dev/null 2>&1
+grep -q '# the lens pack' "$T/c-block.md" \
+  && ok "a block-list item keeps its trailing comment" || bad "the block rewrite dropped the comment"
+grep -q '^  - ticket-gate-reference' "$T/c-block.md" \
+  && ok "and is still rewritten to the bare name" || bad "the block item was not rewritten"
+
+cat > "$T/c-flow.md" <<'M'
+---
+name: a
+skills: [forge-kit-governance:ticket-gate-reference]  # the pack
+---
+body
+M
+bash "$SCRIPT" --rewrite "$T/c-flow.md" >/dev/null 2>&1
+grep -q '# the pack' "$T/c-flow.md" \
+  && ok "a flow list keeps its trailing comment, as it already did" || bad "the flow rewrite dropped the comment"
+
+# --- #134.3: a MAPPING list item is refused, not corrupted -------------------------------------
+# `- name: x` was classified `block` and rewritten to `-  x`, turning a mapping into a scalar. The
+# input is already invalid, but the contract this script advertises is REFUSE anything outside the
+# two supported shapes, and corrupting invalid input is still corrupting.
+cat > "$T/m.md" <<'M'
+---
+name: a
+skills:
+  - name: gate-lenses
+---
+body
+M
+before=$(cat "$T/m.md")
+bash "$SCRIPT" --rewrite "$T/m.md" >/dev/null 2>&1
+[ "$?" -eq 2 ] && ok "a mapping list item is refused with exit 2" || bad "a mapping list item was not refused"
+[ "$before" = "$(cat "$T/m.md")" ] && ok "and the file is left untouched" || bad "the file was corrupted"
+
 echo ""
 echo "forge-adapt-agent-skills tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -75,11 +75,29 @@ extract() {
 # A BARE `skills:` with no items is YAML null and is deliberately NOT refused: null and absent both
 # mean "no companion skills", so there is no ambiguity to report.
 classify() {
-  extract "$1" | awk '
-    /^skills:[[:space:]]*(#.*)?$/      { print "block"; seen = 1; exit }
-    /^skills:[[:space:]]*\[.*\]/       { print "flow";  seen = 1; exit }
-    /^skills:/                         { print "bad";   seen = 1; exit }
-    END { if (!seen) print "none" }
+  # ONE verdict, decided in END. An earlier version printed from each branch and relied on `exit`,
+  # but awk runs END after `exit`, so a refusal printed "bad" and then "block" as well.
+  extract "$1" | awk "$NORM"'
+    verdict == "" && /^skills:[[:space:]]*\[.*\]/  { verdict = "flow"; exit }
+    verdict == "" && /^skills:[[:space:]]*(#.*)?$/ { verdict = "block"; inlist = 1; next }
+    verdict == "" && /^skills:/                    { verdict = "bad"; exit }
+    # A MAPPING item is refused rather than rewritten (#134.3). `- name: x` was classified block and
+    # became `-  x`, turning a mapping into a scalar. The input is already invalid, and this script
+    # advertises refusing anything outside the two supported shapes; corrupting invalid input is
+    # still corrupting.
+    #
+    # Told apart by the SPACE after the colon, which is what YAML requires of a mapping. A
+    # plugin-scoped name is `plugin:skill` with no space, so it is unaffected. The comment is
+    # stripped first, or a "#: " inside one would read as a mapping.
+    inlist && /^[[:space:]]*-[[:space:]]*/ {
+      item = $0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", item)
+      item = norm(item)
+      if (item ~ /^[^:]+:[[:space:]]/) { verdict = "bad"; exit }
+      next
+    }
+    inlist && /^[^[:space:]]/ { inlist = 0 }
+    END { print (verdict == "" ? "none" : verdict) }
   '
 }
 
@@ -121,6 +139,25 @@ case "$mode" in
   print) extract "$f" | parse ;;
   names) extract "$f" | parse | bare ;;
   rewrite)
+    # RESOLVE A SYMLINK FIRST (#134.1). The atomic write-beside-and-mv is what makes this
+    # mode-preserving and interrupt-safe, and on a symlink it replaces the LINK with a regular file,
+    # leaving the real file still carrying its plugin-scoped names. The companion skill then fails
+    # SILENTLY, which is the exact outcome this script exists to prevent.
+    #
+    # `readlink` without -f, resolved by hand: -f is GNU, and this runs on whatever the user has.
+    # The hop limit turns a symlink cycle into an error instead of a hang.
+    hops=0
+    while [ -L "$f" ]; do
+      hops=$((hops + 1))
+      [ "$hops" -le 10 ] || { echo "forge-adapt-agent-skills: symlink loop at '$f'" >&2; exit 2; }
+      target="$(readlink "$f")" || { echo "forge-adapt-agent-skills: cannot read link '$f'" >&2; exit 2; }
+      case "$target" in
+        /*) f="$target" ;;
+        *)  f="$(cd "$(dirname "$f")" 2>/dev/null && pwd -P)/$target" ;;
+      esac
+    done
+    [ -f "$f" ] || { echo "forge-adapt-agent-skills: '$f' is not a regular file" >&2; exit 2; }
+
     # BESIDE the target, deliberately not in TMPDIR: `mv` is only atomic within one filesystem, and
     # on the usual tmpfs-plus-disk layout a /tmp temp file degrades the rename into a
     # copy-then-unlink, which is the half-written-on-interrupt case this is here to prevent.
@@ -159,8 +196,14 @@ case "$mode" in
         item = $0
         sub(/^[[:space:]]*-[[:space:]]*/, "", item)
         prefix = substr($0, 1, length($0) - length(item))   # preserve the exact indentation
+        # Capture the trailing comment BEFORE norm() strips it (#134.2). Sharing norm() between the
+        # reader and the rewriter is what ended three rounds of drift, and it made the rewriter
+        # inherit comment-stripping; the flow branch kept its comment only because it preserves
+        # everything after the closing bracket. Preserved in both now.
+        comment = ""
+        if (match(item, /[[:space:]]+#.*$/)) comment = substr(item, RSTART, RLENGTH)
         item = norm(item); sub(/.*:/, "", item)
-        print prefix item cr; next
+        print prefix item comment cr; next
       }
       infm && inlist && /^[^[:space:]]/ { inlist = 0 }
       { print $0 cr }
