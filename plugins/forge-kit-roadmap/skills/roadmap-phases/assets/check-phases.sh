@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-phases-version: 3
+# check-phases-version: 4
 #
 # The roadmap-phases guard: four rules that make rolling wave planning mechanical.
 #
@@ -137,8 +137,10 @@ find_forge_lib() {
 }
 LIB="$(find_forge_lib)" || {
   echo "check-phases: forge-lib.sh not found, so rules 1, 3 and 4 were SKIPPED." >&2
-  echo "  They were NOT checked and NOT passed. Install the forge-host skill's asset, set FORGE_LIB," >&2
-  echo "  or pass --offline to check rule 2 alone deliberately." >&2
+  echo "  They were NOT checked and NOT passed." >&2
+  echo "  This group DEPENDS on forge-kit-devops, which ships forge-lib.sh (#161). Install it:" >&2
+  echo "      /plugin install forge-kit-devops@forge-kit" >&2
+  echo "  or point FORGE_LIB at a copy, or pass --offline to check the file-only rule deliberately." >&2
   exit 2
 }
 # shellcheck source=forge-lib.sh

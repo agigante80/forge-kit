@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 2 -->
+<!-- roadmap-phases-version: 3 -->
 
 # Roadmap phases
 
@@ -149,6 +149,19 @@ here ever deletes one.
 
 Rule 2 needs only the files. Rules 1, 3 and 4 need the host, and when it cannot be reached they are
 reported as SKIPPED and the run exits non-zero: **a check that cannot run must never report clean.**
+
+## What this group depends on
+
+**`forge-kit-devops`**, for `forge-lib.sh`, which both assets source to talk to milestones. The
+dependency runs one way only: nothing in devops knows what a phase is. Install it alongside:
+
+```
+/plugin install forge-kit-devops@forge-kit
+```
+
+Without it, rule 2 still runs (it needs only the files) and the three host rules report SKIPPED and
+exit non-zero, naming that command. They never report clean, because a check that cannot run must
+not look like one that passed.
 
 ## Applying the roadmap to the host
 

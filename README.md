@@ -120,10 +120,10 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-review` | command | `full-review` | v10 | 3998 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
 | `forge-kit-review` | command | `pr-enhance` | v1 | 2015 | You are a PR optimization expert specializing in creating high-quality pull requests that facilitate efficient code rev… |
 | `forge-kit-roadmap` | command | `phase` | v1 | 792 | Work the roadmap. |
-| `forge-kit-roadmap` | skill | `roadmap-phases` | v2 | 1456 | Rolling wave planning made mechanical. |
-| `forge-kit-roadmap` | shell asset | `check-phases` | v3 |  | The roadmap-phases guard: four rules that make rolling wave planning mechanical. |
+| `forge-kit-roadmap` | skill | `roadmap-phases` | v3 | 1536 | Rolling wave planning made mechanical. |
+| `forge-kit-roadmap` | shell asset | `check-phases` | v4 |  | The roadmap-phases guard: four rules that make rolling wave planning mechanical. |
 | `forge-kit-roadmap` | shell asset | `roadmap-lib` | v1 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
-| `forge-kit-roadmap` | shell asset | `sync-phases` | v3 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
+| `forge-kit-roadmap` | shell asset | `sync-phases` | v4 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
 | `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `backend-security-coder` | v1 | 1148 | Expert in secure backend coding practices specializing in input validation, authentication, and API security. |
 | `forge-kit-security` | agent | `security-auditor` | v4 | 1309 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |

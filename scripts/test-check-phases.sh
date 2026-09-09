@@ -281,8 +281,18 @@ contains "NOT passed" "$out" "and says they were not passed"
 cp "$T/forge-lib.good.sh" "$T/forge-lib.sh"
 
 rm -f "$T/forge-lib.sh" "$T/forge-lib.good.sh"
-hostrun
+# HOME is redirected so the resolver's last resort, ~/.claude/plugins, finds nothing either. Without
+# this the fixture picked up the REAL forge-lib from the plugin cache and took a different error
+# path, so the assertions below passed against the wrong message.
+mkdir -p "$T/nohome"
+out=$(cd "$T" && HOME="$T/nohome" STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" \
+      bash ./check-phases.sh 2>&1); rc=$?
 expect "a missing forge-lib.sh exits 2 rather than reporting clean" 2 "$rc"
+# #161: a clean install of this group ALONE has no forge-lib anywhere, and three of the four rules
+# then cannot run. The failure is loud, which is right, but it must name exactly what else to
+# install rather than describing it.
+contains "forge-kit-devops" "$out" "and names the plugin group that provides it"
+contains "/plugin install" "$out" "as a command that can be run"
 cat > "$T/forge-lib.sh" <<'STUB'
 forge_repo() { printf 'o/r'; }
 forge_host() { printf 'github'; }

@@ -164,7 +164,18 @@ mv "$T/roadmap-lib.sh" "$T/roadmap-lib.hidden"
 run
 expect "a missing roadmap-lib.sh refuses the run rather than degrading" 2 "$rc"
 contains "roadmap-lib.sh" "$out" "and names what is missing"
+
 mv "$T/roadmap-lib.hidden" "$T/roadmap-lib.sh"
+
+# #161: the same for the cross-group dependency. HOME is redirected so the resolver's last resort,
+# ~/.claude/plugins, finds nothing either.
+mv "$T/forge-lib.sh" "$T/forge-lib.hidden"
+mkdir -p "$T/nohome"
+out=$(cd "$T" && HOME="$T/nohome" STUB_MILESTONES="$T/ms.json" REQLOG="$REQLOG" \
+      bash ./sync-phases.sh 2>&1); rc=$?
+expect "a missing forge-lib.sh refuses the run" 2 "$rc"
+contains "forge-kit-devops" "$out" "and names the plugin group that provides it"
+mv "$T/forge-lib.hidden" "$T/forge-lib.sh"
 
 echo "== portability =="
 code() { grep -v '^[[:space:]]*#' "$1"; }

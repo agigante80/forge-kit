@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-phases-version: 3
+# sync-phases-version: 4
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
@@ -90,7 +90,13 @@ find_forge_lib() {
   [ -n "$p" ] && { printf '%s' "$p"; return 0; }
   return 1
 }
-LIB="$(find_forge_lib)" || die "forge-lib.sh not found; install the forge-host skill's asset, or set FORGE_LIB"
+if ! LIB="$(find_forge_lib)"; then
+  echo "sync-phases: forge-lib.sh not found, so nothing can be synced." >&2
+  echo "  This group DEPENDS on forge-kit-devops, which ships forge-lib.sh (#161). Install it:" >&2
+  echo "      /plugin install forge-kit-devops@forge-kit" >&2
+  echo "  or point FORGE_LIB at a copy, or pass --offline to check the file-only rule deliberately." >&2
+  exit 2
+fi
 # shellcheck source=forge-lib.sh
 . "$LIB"
 
