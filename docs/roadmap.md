@@ -163,7 +163,8 @@ They belong together because they are two halves of one handover, and either alo
 half-built.
 
 ## Phase: What Claude Code now ships itself
-state: planned
+state: open
+plan: docs/plans/what-claude-code-ships.md
 
 A bucket, opened 2026-09-09 after probing the installed CLI (2.1.265) rather than reading its docs.
 Several things this kit built by hand now exist first-party: a `dependencies` array in

@@ -226,6 +226,12 @@ jobs:
       - name: Lens-contract lockstep tests
         run: bash scripts/test-check-lens-contract.sh
 
+      # Issue #172: a registered component's freshness belongs to the marketplace checkout, which
+      # nothing here could see. The guard itself is not run against CI's own machine (there is no
+      # marketplace there); only its contract is held down.
+      - name: Marketplace-status tests
+        run: bash scripts/test-forge-adapt-marketplace-status.sh
+
       - name: The lens result contract agrees across its two plugin groups
         run: bash scripts/check-lens-contract.sh
 
