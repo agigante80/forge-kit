@@ -7,7 +7,17 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
-## Unreleased
+## v0.3.0 (2026-09-10)
+
+The release where the kit measured itself against the tooling Claude Code now ships, and mostly
+kept its own. Three comparisons came back the same shape: the first-party check validates less
+than its help text suggests, so `plugin validate` accepts a dependency that then installs
+silently, `plugin details` does not charge an agent for what it preloads, and `plugin tag`
+validates an agreement this repo's manifests cannot even express. Nothing was replaced; three were
+kept with the reason recorded where the next reader meets it, and two became real work.
+
+The other half is the handover. The overnight loop now defers on the trip wire instead of deciding
+for the absent human, and `decision-brief` is the artifact that deferral produces.
 
 ### Added
 
