@@ -21,9 +21,16 @@ mkdir -p "$FIX/scripts" "$FIX/plugins/fix-g/agents" "$FIX/plugins/fix-g/commands
          "$FIX/plugins/fix-g/skills/small-skill" "$FIX/plugins/fix-g/hooks"
 cp "$HERE/forge-adapt-catalogue.sh" "$HERE/forge-adapt-agent-skills.sh" "$FIX/scripts/"
 
-# words <n> <file> <marker-name>: a file of n words carrying a valid version marker.
+# words <n> <file> <marker-name>: a file of n words carrying a valid version marker, and a
+# frontmatter description, because since #174 an agent or skill without one FAILS. A fixture that
+# failed for that reason would make every threshold case below unreadable.
 words() {
-  { echo "<!-- $3-version: 1 -->"; yes lorem | head -n "$1" | tr '\n' ' '; echo; } > "$2"
+  { echo "---"
+    echo "name: $3"
+    echo "description: Use when exercising the size guard against a fixture component."
+    echo "---"
+    echo "<!-- $3-version: 1 -->"
+    yes lorem | head -n "$1" | tr '\n' ' '; echo; } > "$2"
 }
 
 # An agent comfortably inside the 2000-word budget.
@@ -150,6 +157,7 @@ words 400 "$FIX/plugins/fix-g/skills/companion/SKILL.md" companion
 cat > "$FIX/plugins/fix-g/agents/with-companion.md" <<'A'
 ---
 name: with-companion
+description: Use when exercising the preload measurement against a fixture agent.
 skills:
   - fix-g:companion
 ---
@@ -183,6 +191,7 @@ printf '%s' "$out" | grep -q 'skill companion' \
 cat > "$FIX/plugins/fix-g/agents/ghost-companion.md" <<'A'
 ---
 name: ghost-companion
+description: Use when exercising an agent whose declared companion is missing.
 skills:
   - fix-g:not-installed
 ---
@@ -201,6 +210,7 @@ rm -f "$FIX/plugins/fix-g/agents/ghost-companion.md"
 cat > "$FIX/plugins/fix-g/agents/dispatcher.md" <<'A'
 ---
 name: dispatcher
+description: Use when exercising the orchestrator row against a fixture agent that dispatches.
 tools: ["Agent", "Bash"]
 ---
 <!-- dispatcher-version: 1 -->
@@ -225,6 +235,97 @@ bash "$CHECK" --root "$FIX" >/dev/null 2>&1
 [ "$?" -eq 2 ] && ok "a missing companion resolver refuses rather than reporting clean" \
                || bad "a missing resolver silently reverted to the old one-file measure"
 mv "$FIX/scripts/resolver.hidden" "$FIX/scripts/forge-adapt-agent-skills.sh"
+
+# --- #174: the ALWAYS-ON cost, which is the description and not the body ----------------------
+# The budget measured the body for its whole life. The description is what every session pays for
+# a component it never invokes, and it was invisible. These cases pin the parser, because a parser
+# that misses continuation lines reports a long description as short, and a guard that under-reports
+# the thing it was added to reveal is worse than no guard.
+DFIX="$FIX/plugins/fix-g/skills/desc-skill/SKILL.md"
+mkdir -p "$(dirname "$DFIX")"
+desc_len() { bash "$CHECK" --root "$FIX" --descriptions 2>&1 | awk '$3 == "desc-skill" { print $1 }'; }
+
+cat > "$DFIX" <<'D'
+---
+name: desc-skill
+description: Use when the description sits on one line.
+---
+<!-- desc-skill-version: 1 -->
+body words here
+D
+got=$(desc_len); want=$(printf '%s' "Use when the description sits on one line." | wc -c | tr -d ' ')
+[ "$got" = "$want" ] && ok "a single-line description is measured exactly ($want)"   || bad "a single-line description is measured exactly (want $want, got $got)"
+
+cat > "$DFIX" <<'D'
+---
+name: desc-skill
+description: >
+  Use when the description runs across several indented lines,
+  because a parser that stops at the first line would report this
+  as a fraction of what every session actually pays for it.
+---
+<!-- desc-skill-version: 1 -->
+body words here
+D
+got=$(desc_len)
+[ "$got" -gt 150 ] && ok "a three-line block description counts every line ($got chars)"   || bad "a three-line block description counts every line (got $got)"
+
+cat > "$DFIX" <<'D'
+---
+name: desc-skill
+description: |
+  Use when a block scalar has a blank line in it.
+
+  That blank line is exactly where ticket-gate's real description sits, and a parser
+  that stopped there would report the largest always-on cost in this tree as one of
+  the smaller ones.
+---
+<!-- desc-skill-version: 1 -->
+body words here
+D
+got=$(desc_len)
+[ "$got" -gt 200 ] && ok "a blank line inside a block scalar does not end the description ($got chars)"   || bad "a blank line inside a block scalar does not end the description (got $got)"
+
+cat > "$DFIX" <<'D'
+---
+name: desc-skill
+---
+<!-- desc-skill-version: 1 -->
+description: this one is in the BODY, where it is an example rather than metadata
+D
+out=$(bash "$CHECK" --root "$FIX" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "a skill with no frontmatter description FAILS rather than reporting zero"   || bad "a skill with no frontmatter description FAILS rather than reporting zero (rc=$rc)"
+printf '%s' "$out" | grep -q 'desc-skill' && ok "and names the component" || bad "and names the component"
+[ "$(desc_len)" = "0" ]   && ok "a description: line in the BODY is not counted (frontmatter only, as in check-component-scope.sh)"   || bad "a description: line in the BODY is not counted"
+
+cat > "$DFIX" <<'D'
+---
+name: desc-skill
+description:
+---
+<!-- desc-skill-version: 1 -->
+body words here
+D
+bash "$CHECK" --root "$FIX" >/dev/null 2>&1
+[ "$?" -ne 0 ] && ok "an empty description FAILS, for the same reason as a missing one"   || bad "an empty description FAILS, for the same reason as a missing one"
+
+# A COMMAND is exempt from the floor: three of this kit's commands carry no frontmatter at all by
+# convention, and a slash command is found by its filename rather than by a description.
+rm -f "$DFIX"; rmdir "$(dirname "$DFIX")"
+cat > "$FIX/plugins/fix-g/commands/bare.md" <<'D'
+<!-- bare-version: 1 -->
+A command with no frontmatter, which is how three real ones in this kit are written.
+D
+bash "$CHECK" --root "$FIX" >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "a command with no frontmatter does not fail the floor"   || bad "a command with no frontmatter does not fail the floor"
+rm -f "$FIX/plugins/fix-g/commands/bare.md"
+
+# The tree total must be reported, or the cost stays invisible, which is the whole ticket. Capture
+# first and grep after: `set -o pipefail` is on, so a piped run would report the CHECK's status.
+tot=$(bash "$CHECK" --root "$FIX" 2>&1)
+printf '%s' "$tot" | grep -q 'always-on:' \
+  && ok "the run reports the tree's total always-on cost" \
+  || bad "the run reports the tree's total always-on cost"
 
 # --- #170: the recorded cross-check must stay dated, or it is an undated claim -----------------
 # The outcome of #170 was to KEEP the word count and record `claude plugin details` as a note. A

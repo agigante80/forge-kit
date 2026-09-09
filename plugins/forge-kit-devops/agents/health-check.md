@@ -1,10 +1,8 @@
 ---
 name: health-check
 description: |
-  Environment health check - verifies that the development environment is correctly
-  set up on this machine. Auto-detects runtime, package manager, and optional
-  services (Docker, database). Outputs a status table with pass/fail/warn per check
-  and exact fix commands for any failures.
+  Environment health check - is the development environment correctly set up on this machine,
+  and what exactly is missing.
 
   Invoke when:
   - First time working on this repo on a new machine
@@ -17,13 +15,12 @@ description: |
   user: "health check"
   assistant: "Running environment health check..."
   </example>
-
 model: sonnet
 color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 4 -->
+<!-- health-check-version: 5 -->
 
 You are the **Environment Health Check** agent. You verify that everything needed for
 development is correctly installed and configured on this machine.

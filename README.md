@@ -90,20 +90,20 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |
 | `forge-kit-backend` | skill | `microservices-patterns` | v1 | 1337 | Design microservices architectures with service boundaries, event-driven communication, and resilience patterns. |
 | `forge-kit-backend` | skill | `saga-orchestration` | v1 | 1216 | Implement saga patterns for distributed transactions and cross-aggregate workflows. |
-| `forge-kit-devops` | agent | `dep-auditor` | v9 | 1341 | Dependency health auditor - scans all workspace packages for unused dependencies, redundant transitive duplicates, unma… |
-| `forge-kit-devops` | agent | `health-check` | v4 | 1029 | Environment health check - verifies that the development environment is correctly set up on this machine. |
+| `forge-kit-devops` | agent | `dep-auditor` | v10 | 1321 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
+| `forge-kit-devops` | agent | `health-check` | v5 | 1008 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
 | `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
-| `forge-kit-devops` | skill | `find-dead-code` | v2 | 1155 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
-| `forge-kit-devops` | skill | `forge-host` | v19 | 1333 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. |
-| `forge-kit-devops` | skill | `github-to-forgejo` | v7 | 1769 | Migrate a repository from GitHub to a self-hosted Forgejo instance: push the repo, adopt the forge-host adapter, resolv… |
+| `forge-kit-devops` | skill | `find-dead-code` | v3 | 1123 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
+| `forge-kit-devops` | skill | `forge-host` | v20 | 1297 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
+| `forge-kit-devops` | skill | `github-to-forgejo` | v8 | 1740 | Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the forge-host adapter, CI ported to .for… |
 | `forge-kit-devops` | skill | `release` | v5 | 1137 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
-| `forge-kit-devops` | skill | `release-automation` | v8 | 1606 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
+| `forge-kit-devops` | skill | `release-automation` | v9 | 1555 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
 | `forge-kit-devops` | shell asset | `forge-lib` | v13 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
 | `forge-kit-devops` | shell asset | `release-run` | v1 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v9 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v49 | 5264 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
+| `forge-kit-governance` | agent | `ticket-gate` | v50 | 5195 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v6 | 197 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate agent detects the… |
 | `forge-kit-governance` | skill | `closing-sessions` | v2 | 671 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `decision-brief` | v1 | 1205 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
@@ -117,7 +117,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-review` | agent | `backend-architect` | v1 | 2232 | Expert backend architect specializing in scalable API design, microservices architecture, and distributed systems. |
 | `forge-kit-review` | agent | `code-reviewer` | v11 | 1588 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v2 | 426 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
-| `forge-kit-review` | agent | `coding-standards-auditor` | v2 | 1315 | Detects, consolidates, and writes coding standards for the project. |
+| `forge-kit-review` | agent | `coding-standards-auditor` | v3 | 1285 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
 | `forge-kit-review` | command | `full-review` | v10 | 3998 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
 | `forge-kit-review` | command | `pr-enhance` | v1 | 2015 | You are a PR optimization expert specializing in creating high-quality pull requests that facilitate efficient code rev… |
 | `forge-kit-roadmap` | command | `phase` | v1 | 792 | Work the roadmap. |
@@ -130,13 +130,13 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-security` | agent | `security-auditor` | v5 | 1313 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
 | `forge-kit-security` | skill | `leak-guard` | v4 | 1531 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
-| `forge-kit-security` | skill | `privacy-regime` | v1 | 783 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
+| `forge-kit-security` | skill | `privacy-regime` | v2 | 764 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
 | `forge-kit-security` | shell asset | `check-private-leaks` | v6 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
 | `forge-kit-security` | shell asset | `check-public-leaks` | v5 |  | The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses. |
 | `forge-kit-testing` | agent | `performance-engineer` | v1 | 313 | Profile and optimize application performance including response times, memory usage, query efficiency, and scalability. |
 | `forge-kit-testing` | agent | `tdd-orchestrator` | v1 | 1261 | Master TDD orchestrator specializing in red-green-refactor discipline, multi-agent workflow coordination, and comprehen… |
 | `forge-kit-testing` | agent | `test-automator` | v3 | 368 | Create comprehensive test suites including unit, integration, and E2E tests. |
-| `forge-kit-testing` | skill | `mutation-sweep` | v2 | 778 | Adopt and adapt mutation testing for this project, whatever the stack. |
+| `forge-kit-testing` | skill | `mutation-sweep` | v3 | 757 | Adopt and adapt mutation testing for this project, whatever the stack. |
 <!-- component-index:end -->
 
 ## When to run what

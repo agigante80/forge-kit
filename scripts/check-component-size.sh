@@ -15,6 +15,37 @@
 # until it is dense but unclear.
 #
 # ---------------------------------------------------------------------------------------------
+# THE ALWAYS-ON COST, MEASURED AND RECORDED (#174).
+#
+# MEASURED 2026-09-10, CLI 2.1.267, 39 prose components in this tree: 14,711 characters of
+# description before the review below, roughly 3,677 tokens paid in every session with all eight
+# groups enabled. `claude plugin details` put forge-kit-governance's always-on cost at ~771 tokens
+# for six components, which is the same order and is how the character count was sanity checked.
+#
+# THE REVIEW, and what it changed. Eleven descriptions were over 500 characters. Ten were
+# shortened and one was kept:
+#
+#   ticket-gate 1073 -> 568   adapt 819 -> KEPT   dep-auditor 712 -> 564
+#   release-automation 710 -> 384   find-dead-code 627 -> 409   forge-host 614 -> 380
+#   mutation-sweep 596 -> 468   coding-standards-auditor 568 -> 341   health-check 557 -> 397
+#   privacy-regime 522 -> 395   github-to-forgejo 514 -> 285
+#
+# Tree total 14,711 -> 12,339 characters, about 590 tokens per session. NOTHING WAS COMPRESSED.
+# Every cut was a sentence describing HOW the component works, which its body already said; the
+# bodies were checked one by one before the cuts were made. All 48 quoted trigger phrases survive,
+# verified mechanically before and after, because a description is a discovery mechanism first and
+# a cost second, and a component nobody finds costs its description and delivers nothing.
+#
+# `adapt` WAS KEPT AT 819 deliberately: almost all of it is trigger material (the secondary mode
+# names a user actually types, "refresh", "drift", "contributions", "templates", "upgrade-audit"),
+# and the one mechanism clause it carries is what distinguishes it from a copy-paste installer.
+# Shortening it would have traded discovery for tokens, which is the trade this ticket forbids.
+#
+# WHY NO THRESHOLD. A description that is too short stops the component being found, and that
+# failure is worse and quieter than a few hundred tokens, so a number to hit would push authors
+# the wrong way. The floor is enforced instead: an agent or skill with no description, or an empty
+# one, fails. Re-measure and update the numbers above when the tree has moved enough to matter.
+# ---------------------------------------------------------------------------------------------
 # CROSS-CHECK AGAINST `claude plugin details`, AND WHY IT IS NOT THE METRIC (#170).
 #
 # The CLI reports a projected token cost per component in two columns, always-on and on-invoke,
@@ -57,17 +88,33 @@
 # that gap is question 1, not a rounding difference. Re-measure when the divergence is worth
 # knowing again, and update the date and the version above when you do.
 # ---------------------------------------------------------------------------------------------
-# Usage: check-component-size.sh [--root DIR] [--quiet]
+# Usage: check-component-size.sh [--root DIR] [--quiet] [--descriptions]
 #   exit 0  every component within budget, or only warnings
-#   exit 1  something exceeded the hard ceiling, or an exempt component grew past its baseline
+#   exit 1  something exceeded the hard ceiling, an exempt component grew past its baseline, or an
+#           agent or skill has no description
+#   --descriptions  also print every component's description length, largest first
+#
+# TWO COSTS, AND THIS GUARD MEASURES BOTH (#174). The word count above is the ON-INVOKE cost: the
+# body, loaded when a component actually fires. The ALWAYS-ON cost is the description, loaded in
+# every session where the group is enabled so the model can decide whether the component is
+# relevant. The budget governed only the first for its whole life and was silent about the one you
+# pay for installing a component and never using it.
+#
+# THE ALWAYS-ON HALF IS REPORTED, NOT BUDGETED, and that is deliberate. A description that is too
+# short stops the component being found, and an uninvoked component costs its description and
+# delivers nothing, so discovery beats economy here and a number to hit would push authors the
+# wrong way. What IS enforced is the floor: an agent or skill with no description at all, or an
+# empty one, FAILS, because that component can never be selected.
 set -uo pipefail
 
 ROOT="."
 QUIET=0
+DESCTABLE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) ROOT="$2"; shift 2 ;;
     --quiet) QUIET=1; shift ;;
+    --descriptions) DESCTABLE=1; shift ;;
     *) echo "check-component-size: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -100,6 +147,38 @@ is_orchestrator() {
        END { exit found ? 0 : 1 }' "$1"
 }
 
+# --- the ALWAYS-ON cost: a component's description (#174) --------------------------------------
+#
+# THE FAILURE THIS PARSER EXISTS TO AVOID. A reader that stops at the first blank line reports
+# ticket-gate's 1,073-character block-scalar description as 497, so the guard would call the
+# largest always-on cost in the tree one of the smaller ones. Block scalars (`|`, `>`), quoted
+# inline scalars and plain indented continuations all have to work.
+#
+# FRONTMATTER ONLY, matching check-component-scope.sh's rule: a `description:` in the BODY is an
+# example, and counting it would let a component inflate or deflate its own measured cost from its
+# own documentation.
+desc_of() {
+  awk '
+    NR == 1 { if ($0 != "---") exit; infm = 1; next }
+    infm && !collecting && /^---[[:space:]]*$/ { exit }
+    infm && !collecting && /^description:[[:space:]]*/ {
+      val = $0; sub(/^description:[[:space:]]*/, "", val)
+      if (val ~ /^[|>][-+]?[[:space:]]*$/) { collecting = 1; next }
+      gsub(/^["'"'"']|["'"'"']$/, "", val)
+      out = val; collecting = 1; next
+    }
+    collecting {
+      if ($0 ~ /^[[:space:]]*$/) { next }
+      if ($0 ~ /^[[:space:]]+[^[:space:]]/) {
+        line = $0; sub(/^[[:space:]]+/, "", line)
+        out = (out == "" ? line : out " " line); next
+      }
+      exit
+    }
+    END { gsub(/[[:space:]]+$/, "", out); printf "%s", out }
+  ' "$1"
+}
+
 budget_for() {
   case "$1" in
     orchestrator) echo 4000 ;;
@@ -123,6 +202,12 @@ budget_for() {
 # its own new prose was compressed from 47 words to 24 before the raise was asked for. The #149
 # lever was used first and is why the rule itself lives in forge-adapt-marketplace-status.sh
 # rather than here. An agent must NEVER raise a baseline on its own initiative. Ask.
+#
+# LOWERED 2026-09-10: ticket-gate 5778 to 5709 (#174). Its description was 1,073 characters, the
+# largest always-on cost in the tree, and about a third of it enumerated the agent's own workflow
+# and repeated it again inside the <example> commentary. Both are in the body already. Every
+# trigger phrase survives, which is the only thing that could have made this a loss: a description
+# is a discovery mechanism first and a cost second.
 #
 # LOWERED 2026-09-09: ticket-gate 5782 to 5778 (#103). The round table replaced six scattered
 # re-run policies and two void triggers, and paid for itself: the table is bigger than any one of
@@ -172,7 +257,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7314 ;;
-    ticket-gate) echo 5778 ;;
+    ticket-gate) echo 5709 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac
@@ -188,6 +273,8 @@ fi
 fails=0
 warns=0
 checked=0
+desc_total=0
+desc_rows=""
 
 while IFS=$'\t' read -r group ctype name version path; do
   [ -n "${name:-}" ] || continue
@@ -197,6 +284,19 @@ while IFS=$'\t' read -r group ctype name version path; do
   [ "$budget" -gt 0 ] || continue          # skip hooks and shell assets
   [ -f "$path" ] || continue
   words=$(wc -w < "$path" | tr -d ' ')
+
+  # THE ALWAYS-ON COST. A COMMAND is exempt from the floor rather than forgiven: three of this
+  # kit's commands carry no frontmatter at all, by convention (the name comes from the filename),
+  # and a slash command is found by that name rather than by a description. An agent or a skill is
+  # selected by its description and by nothing else, so for those an empty one is a defect.
+  dlen=$(desc_of "$path" | wc -c | tr -d ' ')
+  desc_total=$((desc_total + dlen))
+  desc_rows="${desc_rows}${dlen}\t${ctype}\t${name}\n"
+  if [ "$ctype" != command ] && [ "$dlen" -eq 0 ]; then
+    echo "FAIL  $ctype $name: no description in its frontmatter, so nothing can ever select it."
+    echo "      An empty always-on cost is not a saving: the component is invisible."
+    fails=$((fails + 1))
+  fi
 
   # AN AGENT IS CHARGED FOR WHAT IT PRELOADS (#150). Verified against the installed Claude Code
   # (2.1.263): the subagent spawn path renders every skill named in `skills:` frontmatter and pushes
@@ -274,6 +374,15 @@ if [ "$checked" -eq 0 ]; then
   exit 2
 fi
 
+if [ "$DESCTABLE" -eq 1 ]; then
+  echo ""
+  echo "Description length (the always-on cost, characters), largest first:"
+  printf '%b' "$desc_rows" | sort -rn | awk 'NF { printf "  %6s  %-10s %s\n", $1, $2, $3 }'
+fi
+
 echo ""
 echo "check-component-size: $checked components, $warns over budget, $fails failing."
+echo "  always-on: $desc_total characters of description across $checked components (roughly $((desc_total / 4)) tokens"
+echo "  in a session with every group enabled). Reported, not budgeted: see the header for why, and"
+echo "  pass --descriptions for the per-component table."
 [ "$fails" -eq 0 ]

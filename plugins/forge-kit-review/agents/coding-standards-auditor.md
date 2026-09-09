@@ -1,12 +1,8 @@
 ---
 name: coding-standards-auditor
 description: >
-  Detects, consolidates, and writes coding standards for the project.
-  Finds standards wherever they live (CLAUDE.md inline, CONTRIBUTING.md,
-  STYLE_GUIDE.md, docs/, etc.), scores each category against a per-language
-  reference checklist, writes a complete docs/coding-standards.md, removes
-  inline standards from CLAUDE.md, and adds a canonical reference line.
-  Fully automated, with no manual paste required.
+  Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md,
+  STYLE_GUIDE.md or docs/ into one canonical docs/coding-standards.md, and fills the gaps.
   Invoke when: "audit my coding standards", "set up coding standards",
   "fix my coding standards", "are my coding standards complete",
   "I don't have coding standards".
@@ -14,7 +10,7 @@ model: opus
 tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob"]
 ---
 
-<!-- coding-standards-auditor-version: 2 -->
+<!-- coding-standards-auditor-version: 3 -->
 
 You are a coding standards specialist. Your job is to detect all existing
 standards in the project, consolidate them into a single canonical file at

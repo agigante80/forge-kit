@@ -1,9 +1,9 @@
 ---
 name: mutation-sweep
-description: Adopt and adapt mutation testing for this project, whatever the stack. Line coverage is blind to the defect class that reaches review (covered lines whose tests cannot fail); a mutation sweep finds tests that stay green under deliberate defects. Use when the user asks to run or set up mutation testing, when a review keeps finding defects on covered lines, when survivors need triage, or alongside coverage work ("mutation test", "mutants", "survivors", "kill rate"). Ships no engine: it teaches selecting the stack's maintained engine by criteria and the project facts that make a sweep honest.
+description: Adopt and adapt mutation testing for this project, whatever the stack. Line coverage is blind to the defect class that reaches review (covered lines whose tests cannot fail); a mutation sweep finds tests that stay green under deliberate defects. Use when the user asks to run or set up mutation testing, when a review keeps finding defects on covered lines, when survivors need triage, or alongside coverage work ("mutation test", "mutants", "survivors", "kill rate").
 ---
 
-<!-- mutation-sweep-version: 2 -->
+<!-- mutation-sweep-version: 3 -->
 
 # Mutation sweep
 

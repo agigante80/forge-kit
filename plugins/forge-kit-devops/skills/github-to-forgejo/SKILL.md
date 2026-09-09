@@ -1,16 +1,12 @@
 ---
 name: github-to-forgejo
 description: >
-  Migrate a repository from GitHub to a self-hosted Forgejo instance: push the repo,
-  adopt the forge-host adapter, resolve the .github/workflows dual-execution surprise,
-  port CI to .forgejo/workflows with Forgejo-specific rules (services-by-name,
-  docker-out-of-docker compose, gate expensive jobs), register a runner, and optionally
-  push-mirror back to GitHub. Generic and portable; host-specific runner/storage tuning
-  is delegated to a project infra reference. Use when moving one or more repos to your
-  own Forgejo.
+  Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the
+  forge-host adapter, CI ported to .forgejo/workflows, a runner, and an optional
+  push-mirror back to GitHub. Use when moving one or more repos to your own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 7 -->
+<!-- github-to-forgejo-version: 8 -->
 
 # github-to-forgejo
 

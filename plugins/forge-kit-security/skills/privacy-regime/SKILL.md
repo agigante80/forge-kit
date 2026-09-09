@@ -1,9 +1,9 @@
 ---
 name: privacy-regime
-description: Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions instead of a default jurisdiction's. Opt-in and adapted per project - forge-adapt offers it when it detects personal-data handling, and never installs it silently. Use when setting up governance for a project that stores personal data, when the gate's personal-data questions do not match your jurisdiction, or when asked about GDPR, UK GDPR, CCPA, CPRA, LGPD, PIPEDA, APPI or any other privacy regime.
+description: Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions instead of a default jurisdiction's. Use when setting up governance for a project that stores personal data, when the gate's personal-data questions do not match your jurisdiction, or when asked about GDPR, UK GDPR, CCPA, CPRA, LGPD, PIPEDA, APPI or any other privacy regime.
 ---
 
-<!-- privacy-regime-version: 1 -->
+<!-- privacy-regime-version: 2 -->
 
 # Privacy regime (opt-in, per project)
 
