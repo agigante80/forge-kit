@@ -72,6 +72,11 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-09-09: ticket-gate 5782 to 5778 (#103). The round table replaced six scattered
+# re-run policies and two void triggers, and paid for itself: the table is bigger than any one of
+# them, and removing a DUPLICATE pointer to it covered the difference. Nothing was compressed to
+# make this fit, which the budget's own rationale warns against.
+#
 # LOWERED 2026-09-09: ticket-gate 6355 to 5782 (#150). The companion skill's read-once artifacts
 # moved into references/, which are NOT preloaded, so this is a real reduction in what every run
 # loads rather than a relocation. 582 words, and no capability was given up for them.
@@ -114,7 +119,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7300 ;;
-    ticket-gate) echo 5782 ;;
+    ticket-gate) echo 5778 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

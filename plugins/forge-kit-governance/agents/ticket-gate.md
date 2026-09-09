@@ -31,7 +31,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 48 -->
+<!-- ticket-gate-version: 49 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -174,8 +174,7 @@ Post the SYNTHESIS VOID template from `references/comment-templates.md`.
 The review runs against the enriched body. Version check is now satisfied. Do NOT return
 BLOCKED at this step. Continue the gate normally.
 
-**Auto-synthesis voids the verdict.** If this run triggered 0c, the full review runs again and
-nothing carries forward from a pre-synthesis run.
+**Auto-synthesis voids the verdict** (round table): nothing carries forward from a pre-synthesis run.
 
 #### 0b. Label validation
 
@@ -202,8 +201,7 @@ gh issue view <NUMBER> --repo "$REPO" --json number,title,body,labels,milestone
 
 ### Step 1.5: Thin ticket pre-check
 
-Runs BEFORE the critic, in round 1 only (or after 0c fired); it never repeats on an ordinary
-re-run. A shrunk body would also justify it, but nothing persists a prior body to compare
+Runs BEFORE the critic; see the round table. A shrunk body would also justify it, but nothing persists a prior body to compare
 against, so that trigger is #147 rather than an unexecutable rule here. Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket
 that would fail purely for missing information is better halted now with targeted questions than
 pushed through a full critique.
@@ -263,9 +261,8 @@ over adding an agent; add an agent only for a genuinely independent domain persp
 ### Step 2.7: Complexity assessment and specialist research
 
 After selecting the review set, assess whether the ticket needs research before the critique.
-**On a re-run**, this step runs ONLY for a technology, dependency, or regulation the delta newly
-introduces (auto-remediation's own edits never qualify). Prior research is NOT recoverable: it
-lived in the comment nothing reads back, and the verdict block carries computed fields only. So
+**On a re-run** see the round table. Prior research is NOT recoverable: it lived in the comment
+nothing reads back, and the verdict block carries computed fields only. So
 element 5 is re-derived by the critic rather than re-sourced.
 
 **Complexity signals (any 2+ triggers deep research):**
@@ -452,14 +449,8 @@ no-override rule included, fires for them like any other fundamental.
 For each selected lens, dispatch its agent with: the review packet (Step 3B), the critic's
 JSON from Step 3B, the result contract (verbatim, from `references/lens-definitions.md`), and its scope
 for this round (round 1: the whole ticket within its
-brief; re-runs: see the lens-scope rule below). A lens named in the review's Review-set
+brief; re-runs: see the round table). A lens named in the review's Review-set
 line MUST have been dispatched here; never print a lens that did not run.
-
-**Lens scope on a re-run.** The lens (when it ran) re-runs scoped to its OWN prior blocking items
-PLUS the changed sections that touch its brief (auth, validation, exposure): a clean round-1 lens
-does not mean round 2's edits are security-clean, and the net-new rule in its brief never silences the
-lens on its own scope. Skipping it leaves its findings verified by nobody with its brief;
-re-running it in full grows the target.
 
 ### Lens definitions
 
@@ -624,10 +615,19 @@ single-step rule here is what put the re-run rules 400 lines from the steps they
   Advisory items never block.
 - **Feedback must be specific.** "Needs improvement" is not acceptable. Every blocking item
   states exactly what to add or fix.
-- **Re-runs: mechanical checks in full, critique on the delta.** The mechanical checks
-  (Step 3A) ALWAYS re-run completely: they are near-free and the body is guaranteed to have
-  changed (auto-remediation writes into it; a fix to one section can break another, e.g. a
-  scenario rewrite merging two behaviours into one block). The CRITIC's scope narrows to
-  the previously blocking items plus the sections that changed (recovered from the
-  `gate-verdict` block, which is why it carries them; a fresh run has no memory). State what
-  was re-checked and what carries forward. The critique target must not grow between rounds.
+- **Round behaviour lives in ONE table; a new step or lens needs a row.** Scattered, a new step
+  had no defined round-2 behaviour and nothing asked for one.
+
+  | Step | Re-run scope |
+  |---|---|
+  | 0c synthesis | same trigger as round 1, and it VOIDS the verdict: the review runs again |
+  | 1.5 thin check | skipped |
+  | 2.7 research | only a technology, dependency or regulation the delta newly introduces; the gate's own edits never qualify |
+  | 2.9 codebase context | reuses its cached region per Step 2.9's own skip test; a fundamental round VOIDS it |
+  | 3A mechanical | ALWAYS full: near-free, and the body always changed |
+  | 3B critic | prior blocking items plus changed sections, from the `gate-verdict` block; a fresh run has no memory |
+  | 3C lenses | one that already ran: its own prior blocking items plus changed sections touching its brief. One triggering for the FIRST time in round 2 runs FULL |
+
+
+  Delta scope on a first run reviews nothing and reports clean, which is why the last row is not
+  delta. The target must not grow between rounds; state what was re-checked and what carries forward.

@@ -2,6 +2,13 @@
      it; a file under references/ is NOT, and is read on demand. This material is read at one
      point in a run, so preloading it charged every run for it. -->
 
+<!-- lens-contract-version: 1 -->
+
+<!-- The version above is the RESULT CONTRACT a lens returns and the gate merges. It lives in two
+     plugin groups, which are versioned and installed independently, so they can drift with no
+     signal: scripts/check-lens-contract.sh fails the build when the two sides disagree. Bump both
+     together, and bump both plugin semvers, when the shape a lens returns changes. -->
+
 ## Lens definitions
 
 Step 3C dispatches these.
@@ -9,7 +16,10 @@ Step 3C dispatches these.
 ### Security lens (label `security` or `critical`)
 Use agent type: `security-auditor`. Runs AFTER the critic and receives the critic's JSON:
 it reports only NET-NEW findings and explicit disagreements, never restatements of items
-the critic already raised (the retired committee's sequential-execution dedup, kept). The
+the critic already raised (the retired committee's sequential-execution dedup, kept). NET-NEW
+is measured against the CRITIC, not against the lens's own earlier round: on a re-run it still
+re-reviews its own prior blocking items and the changed sections touching its brief, because a
+clean round-1 lens does not make round 2's edits security-clean. The
 personal-data judgment is the critic's alone; the lens confines itself to this checklist:
 - Authentication: is auth required specified? Any public endpoints justified?
 - Authorization: can users access only their own data? Role checks present?

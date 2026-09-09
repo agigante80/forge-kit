@@ -221,6 +221,14 @@ jobs:
       - name: Every component's declared scope matches the tree
         run: bash scripts/check-component-scope.sh
 
+      # Issue #103: the lens result contract lives in two independently versioned plugin groups, so
+      # it can drift with no signal. A missing marker is skew, not agreement.
+      - name: Lens-contract lockstep tests
+        run: bash scripts/test-check-lens-contract.sh
+
+      - name: The lens result contract agrees across its two plugin groups
+        run: bash scripts/check-lens-contract.sh
+
       # Issue #166: whether a component is registered or copied is a rule that decides what lands in
       # every project, so it is a tested script rather than prose in adapt/SKILL.md.
       - name: forge-adapt install-plan tests
