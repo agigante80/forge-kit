@@ -213,6 +213,14 @@ jobs:
       - name: No install-time placeholders in a component's commands
         run: bash scripts/check-live-placeholders.sh
 
+      # Issue #164: a component says where it belongs, and the tree must agree. `project` is the
+      # exception and carries its reason, because copying into every project is the cost it buys.
+      - name: Component-scope guard tests
+        run: bash scripts/test-check-component-scope.sh
+
+      - name: Every component's declared scope matches the tree
+        run: bash scripts/check-component-scope.sh
+
       # Issue #158: these two were `pull_request`-only, and since work stopped arriving as pull
       # requests they ran on NO path at all. They now run on both, and the base is resolved by a
       # TESTED script rather than a YAML expression, because `github.event.before` is the
