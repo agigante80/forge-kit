@@ -19,9 +19,11 @@
 # whose whole purpose is to name the placeholder. Word-anchored, because an unanchored match
 # exempted any line containing "used", "based", "parsed" or "closed" (review round 1).
 #
-# A `scope: project` component is skipped entirely: it is DECLARED as needing a per-project rewrite,
-# and check-component-scope.sh offers exactly that as the remedy. Rejecting it here would make the
-# two guards contradict each other inside one CI job.
+# NO SCOPE EXEMPTS A COMPONENT. Round 1 of review added one for `scope: project`, reasoning that a
+# component declared as needing a per-project rewrite could carry a placeholder. Round 2 found the
+# hole under it: since #163 there IS no substitution machinery, and forge-adapt-install-plan.sh
+# emits `copy` without substituting anything, so the exemption produced a component installed with a
+# live, unsubstituted placeholder. The remedy was wrong, not the rule.
 #
 # Scanned over the marker-enforced path set, one directory deep, because that is what a component
 # IS in this repo (see the enforced path set in CLAUDE.md). Nested reference files are not
@@ -45,10 +47,6 @@ status=0
 seen=0
 while IFS= read -r f; do
   seen=$((seen + 1))
-  # A `scope: project` component is DECLARED as needing a per-project rewrite, and
-  # check-component-scope.sh offers exactly that as the remedy for a placeholder. Rejecting it here
-  # would make the two guards contradict each other inside one CI job (review round 1).
-  [ "$(component_scope "$f")" = project ] && continue
   awk -v F="${f#"$ROOT"/}" '
     /^[[:space:]]*```/ { fenced = !fenced; next }
     fenced && /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/ {
@@ -89,7 +87,7 @@ elif [ "$status" -eq 2 ]; then
   echo ""
   echo "check-live-placeholders: a file could not be classified (see above). Nothing was checked in it."
 else
-  n=$(find "$ROOT" -regextype posix-extended -regex "$COMPONENT_RE" -type f 2>/dev/null | wc -l | tr -d ' ')
-  echo "check-live-placeholders: $n component(s), no install-time placeholders in commands."
+  # $seen, not a fresh count: a recount would claim a clean result for files the scan skipped.
+  echo "check-live-placeholders: $seen component(s), no install-time placeholders in commands."
 fi
 exit "$status"

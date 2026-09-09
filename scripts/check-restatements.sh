@@ -208,8 +208,12 @@ for n, item in enumerate(items, 1):
         errors.append(f"Precedence item {n} names rules {', '.join(sorted(rules, key=int))} but has "
                       f"an unscoped anchor. With more than one rule an anchor must say which it "
                       f"covers (':: rules N'), or a new bar for ANY of them inherits its licence.")
-        # NOT `continue`: the anchors below must still be checked for staleness, which is the exact
-        # cascade the sibling check above documents avoiding (review round 1).
+        # NOT `continue`, so the anchors below are still checked for STALENESS, which is the cascade
+        # the sibling check above documents avoiding. But they grant NOTHING: letting them through
+        # restored the #138.1 blanket licence, one cascade traded for another (review round 2).
+        grant = False
+    else:
+        grant = True
 
     for a, scope in anchors:
         # A multi-line anchor used to be truncated to its first line, which silently turned an
@@ -231,7 +235,9 @@ for n, item in enumerate(items, 1):
         sites = anchor_sites(a)
         if not sites:
             errors.append(f"Precedence item {n} is STALE: anchor no longer appears in the gate: \"{a}\"")
-        else:
+        elif grant or scoped:
+            # A SCOPED anchor is unambiguous and still grants, even in an item whose other anchors
+            # are unscoped: the error above is about the unscoped ones.
             for r in (scoped or rules):
                 covered.setdefault(r, []).extend(sites)
 
@@ -252,10 +258,9 @@ for idx, (sec, line) in enumerate(sections):
        and not re.match(r'^\s*\d+\.\s', sections[idx + 1][1]):
         joined = rules_in(line.rstrip('\n') + ' ' + sections[idx + 1][1])
         for r in joined - here:
-            seen.add((idx + 1, r))
             tail_rules.setdefault(idx + 1, set()).add(r)
     for r in here | tail_rules.get(idx, set()):
-        if (idx, r) in seen and r not in tail_rules.get(idx, set()): continue
+        if (idx, r) in seen: continue
         seen.add((idx, r))
         head = sec.split(' :: ', 1)[1] if ' :: ' in sec else sec
         # An entry may name the heading ("Step 2.5") or the file-qualified form
@@ -265,7 +270,14 @@ for idx, (sec, line) in enumerate(sections):
         if any(rr == r and (head.startswith(ss) or sec.startswith(ss))
                and not any(b[0] == ss and b[1] == rr for b in allow_broad) for ss, rr in allow):
             continue
-        near = [1 for f, li in covered.get(r, []) if f == fname and abs(li - idx) <= WINDOW]
+        # A wrapped reference is written across TWO lines, so an anchor near either satisfies it.
+        # Measuring only from the tail was the mirror of the bug it fixed: an anchor above the head
+        # line, previously covered, started failing (review round 2).
+        anchor_lines = [idx]
+        if r in tail_rules.get(idx, set()):
+            anchor_lines.append(idx - 1)
+        near = [1 for f, li in covered.get(r, [])
+                if f == fname and any(abs(li - a) <= WINDOW for a in anchor_lines)]
         if not near:
             errors.append(f"UNLISTED restatement: rule {r} is referenced in [{sec}] "
                           f"but no Precedence item anchors rule {r} within {WINDOW} lines of it")

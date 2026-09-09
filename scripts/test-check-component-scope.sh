@@ -122,8 +122,9 @@ run
 expect "a user-scoped component with a live placeholder is refused" 1 "$rc"
 contains "placeholder" "$out" "and says what contradicts the claim"
 
-# ...and the same content is legitimate under a declared project scope, which is the point of
-# having the field at all.
+# ...and NO scope makes it legitimate. Round 1 of review allowed it under scope: project; round 2
+# found there is no substitution machinery behind that remedy since #163, so it would have installed
+# a component with a live placeholder in it.
 mk "$T/plugins/g/agents/a.md" <<'M'
 ---
 name: a
@@ -136,7 +137,8 @@ gh issue view 1 --repo {{GITHUB_REPO}}
 ```
 M
 run
-expect "the same content under a declared project scope is allowed" 0 "$rc"
+expect "a declared project scope does NOT license a placeholder" 1 "$rc"
+contains "does NOT help" "$out" "and says why the obvious remedy is wrong"
 
 echo "== only frontmatter counts =="
 # A `scope:` written in the body is prose, not a declaration. Reading it would let a component be

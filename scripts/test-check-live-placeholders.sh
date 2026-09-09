@@ -139,7 +139,7 @@ gh issue view 1 --repo {{GITHUB_REPO}}
 ```
 M
 run
-expect "a declared project scope is honoured here too" 0 "$rc"
+expect "no scope exempts a placeholder, because nothing substitutes one any more" 1 "$rc"
 
 echo "== review round 1: finding nothing must not read as success =="
 mkdir -p "$T/empty/plugins"

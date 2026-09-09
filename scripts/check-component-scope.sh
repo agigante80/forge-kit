@@ -46,14 +46,10 @@ while IFS= read -r f; do
   rel="${f#"$ROOT"/}"
   seen=$((seen + 1))
 
-  # FRONTMATTER ONLY. A `scope:` written in the body is prose, and reading it would let a component
-  # be scoped by an example inside its own documentation.
-  fm="$(awk 'NR==1 && $0 != "---" { exit } NR>1 { if ($0 == "---") exit; print }' "$f")"
-  scope="$(printf '%s\n' "$fm" | sed -n 's/^scope:[[:space:]]*//p' | head -1)"
-  reason="$(printf '%s\n' "$fm" | sed -n 's/^scope-reason:[[:space:]]*//p' | head -1)"
-  scope="${scope%"${scope##*[![:space:]]}"}"
-  reason="${reason%"${reason##*[![:space:]]}"}"
-  [ -n "$scope" ] || scope=user
+  # FRONTMATTER ONLY, and from the SHARED reader: three scripts asked this question and each had its
+  # own copy, which is what #162 was about (review round 2 found the comment claiming otherwise).
+  scope="$(component_scope "$f")"
+  reason="$(component_frontmatter_field "$f" scope-reason)"
 
   case "$scope" in
     user)    n_user=$((n_user + 1)) ;;
@@ -69,9 +65,12 @@ while IFS= read -r f; do
     errors=$((errors + 1)); continue
   fi
 
-  if [ "$scope" = user ]; then
-    # The one contradiction a script can see: a value baked in at install time cannot be correct in
-    # every project. Positional, like check-live-placeholders.sh: a fenced line is a command.
+  if true; then
+    # Checked for EVERY scope, not only user. Round 1 restricted it to user-scoped components,
+    # reasoning that scope: project licensed a placeholder; round 2 found nothing substitutes one
+    # since #163, so that licence installed a broken component (review round 2).
+    #
+    # Positional, like check-live-placeholders.sh: a fenced line is a command.
     hit="$(awk '
       /^[[:space:]]*```/ { fenced = !fenced; next }
       fenced && /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/ && $0 !~ /(^|[^A-Za-z0-9_])sed[[:space:]]/ {
@@ -79,7 +78,9 @@ while IFS= read -r f; do
         printf("%d: %s", NR, substr($0, RSTART, RLENGTH)); exit }' "$f")"
     if [ -n "$hit" ]; then
       echo "$rel:$hit: a user-scoped component carries an install-time placeholder, so it cannot be" >&2
-      echo "    correct in every project. Resolve it at runtime, or declare scope: project with a reason." >&2
+      echo "    correct in every project. Resolve it at runtime (forge_repo derives owner/repo from" >&2
+      echo "    the git remote). Declaring scope: project does NOT help: since #163 nothing" >&2
+      echo "    substitutes a placeholder at install time, so the component would install broken." >&2
       errors=$((errors + 1))
     fi
   fi

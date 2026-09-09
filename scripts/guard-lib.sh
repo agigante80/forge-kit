@@ -60,21 +60,25 @@ guard_tracked_files() {
 # FRONTMATTER ONLY. A `scope:` in the body is an example, and reading it would let a component be
 # scoped by its own documentation. Shared because three guards now ask the same question, and a
 # third copy of one rule is what #162 was about.
+# THE CLOSING `---` IS REQUIRED. Without it a file that opens with `---` and never closes treats its
+# whole body as frontmatter, so a documented `scope: project` example would exempt the file from the
+# placeholder guard, which is exactly what this function claims to prevent (review round 2).
+# component_frontmatter_field <file> <name> -> the field's value, or empty.
+component_frontmatter_field() {
+  local fm v
+  fm="$(awk 'NR==1 && $0 != "---" { exit }
+             NR>1 { if ($0 == "---") { closed = 1; exit } print }
+             END { if (!closed) exit 1 }' "$1")" || fm=""
+  v="$(printf '%s\n' "$fm" | sed -n "s/^$2:[[:space:]]*//p" | head -1)"
+  printf '%s' "${v%"${v##*[![:space:]]}"}"
+}
+
 component_scope() {
   local fm scope
-  fm="$(awk 'NR==1 && $0 != "---" { exit } NR>1 { if ($0 == "---") exit; print }' "$1")"
+  fm="$(awk 'NR==1 && $0 != "---" { exit }
+             NR>1 { if ($0 == "---") { closed = 1; exit } print }
+             END { if (!closed) exit 1 }' "$1")" || fm=""
   scope="$(printf '%s\n' "$fm" | sed -n 's/^scope:[[:space:]]*//p' | head -1)"
   scope="${scope%"${scope##*[![:space:]]}"}"
   printf '%s' "${scope:-user}"
-}
-
-# guard_is_substitution <line> -> 0 when the line is the sed that REPLACES a placeholder.
-#
-# Word-anchored. An unanchored `/sed/` matched "used", "based", "parsed" and "closed", so a comment
-# on the same line as a placeholder exempted the command carrying it. Found by review, round 1.
-guard_is_substitution() {
-  case "$1" in
-    sed\ *|*[!A-Za-z0-9_]sed\ *) return 0 ;;
-  esac
-  return 1
 }

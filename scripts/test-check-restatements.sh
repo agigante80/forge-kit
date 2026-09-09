@@ -498,6 +498,45 @@ out=$(bash "$SCRIPT" "$T/r4/docs/guides/ticket-standards.md" "$T/r4/gate/ticket-
 [ "$rc" -ne 0 ] && ok "a scope naming one undefined rule is refused, not silently narrowed" \
                 || bad "an undefined rule in a scope is dropped silently"
 
+# --- review round 2: two regressions in round 1's own fixes ------------------------------------
+# R6: dropping `continue` let the unscoped anchor grant coverage for EVERY rule the item names,
+# which is the #138.1 blanket licence coming back. The item must still be reported STALE where its
+# anchor is dead, and grant NOTHING.
+cat > "$T/gate-blanket.md" <<'G'
+### Step 3B: The critic
+- **UI E2E (rule 3):** a ticket touching any UI needs E2E specs
+- **Brand new consent bar (rule 4):** invented after the anchor was written
+G
+cat > "$T/items-blanket.md" <<'I'
+1. Rule 3's UI E2E bar, and rule 4's personal-data judgment. <!-- anchor: "**UI E2E (rule 3):**" -->
+I
+mkfix "$T/x1" "$T/items-blanket.md" "$T/gate-blanket.md"
+out=$(bash "$SCRIPT" "$T/x1/docs/guides/ticket-standards.md" "$T/x1/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "an unscoped multi-rule item still fails" || bad "an unscoped multi-rule item still fails"
+printf '%s' "$out" | grep -q 'unscoped anchor' \
+  && ok "and says the anchor is unscoped" || bad "and says the anchor is unscoped"
+printf '%s' "$out" | grep -q 'UNLISTED restatement: rule 4' \
+  && ok "and its anchor grants NOTHING, so the rule 4 bar is still unlisted" \
+  || bad "the unscoped anchor granted coverage anyway (the #138.1 blanket licence is back)"
+
+# R1: the wrapped-plural fix measured coverage only from the TAIL line, so an anchor above the HEAD
+# line, previously covered, started failing. Either line must satisfy the window.
+cat > "$T/gate-above.md" <<'G'
+### Step 9: Something
+- **the rule 5 bar** anchored above
+and here we are restating rules
+5 and 6 in wrapped form.
+- **the rule 6 bar** anchored below
+G
+cat > "$T/items-above.md" <<'I'
+1. Rule 5's bar. <!-- anchor: "**the rule 5 bar**" :: rules 5 -->
+2. Rule 6's bar. <!-- anchor: "**the rule 6 bar**" :: rules 6 -->
+I
+mkfix "$T/x2" "$T/items-above.md" "$T/gate-above.md"
+out=$(bash "$SCRIPT" "$T/x2/docs/guides/ticket-standards.md" "$T/x2/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -eq 0 ] && ok "an anchor above the HEAD line still covers a wrapped reference" \
+                || bad "the wrapped fix broke coverage from above ($out)"
+
 echo ""
 echo "check-restatements tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
