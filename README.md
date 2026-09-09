@@ -110,7 +110,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-governance` | skill | `working-overnight` | v6 | 619 | Run governed, unattended overnight work. |
 | `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
 | `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |
-| `forge-kit-governance` | hook | `overnight-guard` | v3 |  | PreToolUse Bash guard for an armed working-overnight run. |
+| `forge-kit-governance` | hook | `overnight-guard` | v4 |  | PreToolUse Bash guard for an armed working-overnight run. |
 | `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v4 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
 | `forge-kit-review` | agent | `architect-review` | v1 | 1047 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
 | `forge-kit-review` | agent | `backend-architect` | v1 | 2232 | Expert backend architect specializing in scalable API design, microservices architecture, and distributed systems. |

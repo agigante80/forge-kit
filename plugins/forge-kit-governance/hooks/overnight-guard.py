@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 3
+# overnight-guard-version: 4
 """PreToolUse Bash guard for an armed working-overnight run.
 
 While .claude/overnight/active.md is present, deny destructive git and
@@ -48,14 +48,27 @@ def deny(reason):
     return 0
 
 
+# THE CLASS EXCLUDES A NEWLINE, and that is load-bearing (#168). It used to be `[^|;&]*`, which
+# matches a newline like any other character, so the pattern ran from a `git checkout` on one line
+# to a `-f` on any later line of the same payload. In a real armed run that denied, in order:
+# switching branches, writing a ticket ABOUT the command, and a script naming it in a test string.
+#
+# A guard that blocks the project's own documented workflow, and blocks documenting itself, is one
+# people turn off, and an uninstalled guard protects nothing. Bounding to a single line keeps every
+# real denial (a discard is written on the line that runs it) and removes the false ones.
+#
+# IT IS NOT A FULL FIX FOR PROSE, and the test pins that rather than wishing it away: a heredoc BODY
+# line that is itself a destructive command still denies, because no regex over a shell payload can
+# tell a line that RUNS from a line that is DATA. Writing a document that quotes such a command, in
+# the same tool call, is therefore still refused. Write the file with a different tool.
 GIT_PATTERNS = [
-    ("git reset --hard", re.compile(r"\bgit\s+reset\b[^|;&]*--hard\b")),
-    ("git branch -D", re.compile(r"\bgit\s+branch\b[^|;&]*(-D\b|--delete\b[^|;&]*--force\b|--force\b[^|;&]*--delete\b)")),
-    ("git push --delete / :ref", re.compile(r"\bgit\s+push\b[^|;&]*(--delete\b|\s:\S)")),
-    ("git tag -d", re.compile(r"\bgit\s+tag\b[^|;&]*(-d\b|--delete\b)")),
-    ("git clean -f", re.compile(r"\bgit\s+clean\b[^|;&]*-\w*f")),
-    ("git checkout discards working tree", re.compile(r"\bgit\s+checkout\b[^|;&]*(\s--\s|\s\.(\s|$)|-f\b|--force\b)")),
-    ("git restore discards working tree", re.compile(r"\bgit\s+restore\b(?![^|;&]*--staged)")),
+    ("git reset --hard", re.compile(r"\bgit\s+reset\b[^|;&\n]*--hard\b")),
+    ("git branch -D", re.compile(r"\bgit\s+branch\b[^|;&\n]*(-D\b|--delete\b[^|;&\n]*--force\b|--force\b[^|;&\n]*--delete\b)")),
+    ("git push --delete / :ref", re.compile(r"\bgit\s+push\b[^|;&\n]*(--delete\b|\s:\S)")),
+    ("git tag -d", re.compile(r"\bgit\s+tag\b[^|;&\n]*(-d\b|--delete\b)")),
+    ("git clean -f", re.compile(r"\bgit\s+clean\b[^|;&\n]*-\w*f")),
+    ("git checkout discards working tree", re.compile(r"\bgit\s+checkout\b[^|;&\n]*(\s--\s|\s\.(\s|$)|-f\b|--force\b)")),
+    ("git restore discards working tree", re.compile(r"\bgit\s+restore\b(?![^|;&\n]*--staged)")),
     ("git stash drop/clear", re.compile(r"\bgit\s+stash\s+(drop|clear)\b")),
 ]
 
@@ -69,7 +82,7 @@ SECRET_PATTERNS = [
 
 
 def is_bulk_delete(cmd):
-    m = re.search(r"\brm\b[^|;&]*", cmd)
+    m = re.search(r"\brm\b[^|;&\n]*", cmd)
     if not m:
         return False
     seg = m.group(0)
