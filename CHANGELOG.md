@@ -11,6 +11,31 @@ tracks the repository, so users are already served from the default branch.
 
 ### Added
 
+- **Cross-group dependencies are declared in `plugin.json`, not only in prose** (#169). Installing
+  `forge-kit-roadmap` alone now brings `forge-kit-devops` with it, probed on CLI 2.1.267. The
+  declaration lives in two places on purpose: the manifest for the marketplace path, the prose for
+  the bare clone, where nothing resolves anything. `validate-plugins.sh` checks what the CLI does
+  not, because an UNRESOLVABLE dependency passes `claude plugin validate` and then installs
+  silently, with no dependency line and no error.
+- **Every `plugin.json` carries an `author`** (#173), so the advisory `claude plugin validate` step
+  reports zero warnings instead of eight nobody read. A handle and its profile URL, no email
+  address: the handle is already public in every clone URL, and an address cannot be recalled from
+  a public history. `validate-plugins.sh` requires the field, in the CLI's own shape (an object
+  with a non-empty name), so a new group cannot be born without it.
+- **`scripts/check-reference-depth.sh`**: a skill's `references/` file must be named by its own
+  `SKILL.md` (#175). The rule is Anthropic's and its reason is mechanical: an agent meeting a
+  reference inside ANOTHER reference may preview it rather than read it whole, so it acts on half a
+  file and nothing reports that it did. Three files in this tree were already unreachable, one of
+  them the exact nested shape the guidance describes.
+- **`scripts/test-validate-plugins.sh`**: the kit's oldest structural guard finally has a contract
+  test, created because two tickets needed to add rules to it in the same week.
+- **The size guard measures the ALWAYS-ON cost** (#174), the description every session pays for a
+  component it never invokes. Reported and not budgeted, because a description that is too short
+  stops the component being found; what is enforced is the floor, an agent or skill with no
+  description at all. The tree went 14,711 to 12,339 characters of description with all 48 quoted
+  trigger phrases intact, by deleting sentences that described how a component works and that its
+  own body already said.
+
 - **`decision-brief`, a skill for the ticket that is stalled on a human rather than on work**
   (#129). It re-gates the ticket against the CURRENT standard rather than citing a stored verdict,
   checks the ticket's claims against the tree before presenting anything, classifies what is
@@ -24,6 +49,16 @@ tracks the repository, so users are already served from the default branch.
   `FORGE_DRY_RUN`, because it is the one call there that destroys what was already written.
 
 ### Changed
+
+- **`claude plugin details`'s token cost is a dated cross-check, not the metric** (#170). Probed:
+  it does NOT charge an agent for the companion skills it preloads (a companion grown to 5,000
+  words moved the agent's figure by nothing), which is the quantity #150 spent a phase
+  establishing. It also rounds to two significant figures. The comparison is recorded with its
+  date and CLI version, and a test fails if it loses either.
+- **No per-plugin git tags, and `claude plugin tag` stays out of the release lane** (#171). Probing
+  it disproved the ticket's own premise: the agreement it validates fires only when a marketplace
+  entry carries a version, and forge-kit's deliberately do not, so the check is vacuous here and is
+  a different invariant from `check-plugin-version-bump.sh` rather than a duplicate of it.
 
 - **The overnight loop honours the iteration contract it was already calling** (#88). It chains
   rounds with `--since` instead of re-reviewing the whole target every cycle, and it DEFERS on the

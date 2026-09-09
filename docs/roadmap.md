@@ -163,8 +163,33 @@ They belong together because they are two halves of one handover, and either alo
 half-built.
 
 ## Phase: What Claude Code now ships itself
-state: open
+state: done
 plan: docs/plans/what-claude-code-ships.md
+
+Closed 2026-09-10, outcome **done**. All seven tickets landed, in the plan's order for the five it
+was written for and then #174 and #175, which arrived after it was written. Nothing was moved or
+abandoned.
+
+The phase's premise was that our hand-rolled machinery might now be duplication with a guard on
+top. The probes said otherwise three times, and each time the SHAPE of the answer was the same:
+the first-party thing checks less than its help text suggests. `plugin validate` accepts an
+unresolvable dependency and the installer then adds it silently. `plugin details` does not charge
+an agent for what it preloads, which is the quantity #150 spent a phase establishing. `plugin tag`
+validates an agreement that cannot fail here, because it fires only on a marketplace entry version
+this repo deliberately does not keep. So nothing was replaced, three of ours were kept with the
+reason written where the next reader meets it, and two of the seven turned into real work.
+
+The premortem's first clause is the one that fired, and it fired in reverse. It warned against
+adopting a finding because it exists rather than because it is better; what actually happened is
+that every comparison came back in our favour, which is the same trap seen from the other side. The
+guard against it was the same either way: run the probe, record its output, and let the answer be
+whatever it is. #171 is the clearest case, since its own opening sentence turned out to be wrong.
+
+Two things to carry forward. `scripts/test-validate-plugins.sh` now exists, so the kit's oldest
+structural guard can grow rules that something proves fire. And the size budget finally measures
+BOTH costs: the always-on half was invisible for the budget's whole life, and paying it down took
+no compression at all, only deleting description sentences that each component's body already
+carried.
 
 A bucket, opened 2026-09-09 after probing the installed CLI (2.1.265) rather than reading its docs.
 Several things this kit built by hand now exist first-party: a `dependencies` array in
@@ -175,8 +200,6 @@ component.
 The question each ticket here answers is the same one: is our hand-rolled version still earning its
 place, or is it now duplication with a guard on top? Neither answer is assumed. Some of ours is
 stricter (a build failure, not a tag-time check) and some of it is simply older.
-
-Its plan gets written when it opens, from this prose plus whatever has accumulated by then.
 
 ## Phase: Backlog
 state: backlog
