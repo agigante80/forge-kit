@@ -48,6 +48,43 @@ PR by `check-plugin-version-bump.sh` and locally by the pre-commit hook. The gua
 this exact rot happened in PRs #74 and #75, where component markers moved and the unit-of-install
 version did not.
 
+### Why there is no per-plugin tag, and why `claude plugin tag` is not in the release lane (#171)
+
+The CLI ships `claude plugin tag [path]`, which creates a `{name}--v{version}` git tag and
+validates "that plugin.json and any enclosing marketplace entry agree". Probed on 2.1.267 against
+this repository:
+
+```
+$ claude plugin tag plugins/forge-kit-governance --dry-run
+Marketplace entry: plugins[1] in <repo>/.claude-plugin/marketplace.json
+Tag:     forge-kit-governance--v0.12.1
+✔ Dry run, would create tag forge-kit-governance--v0.12.1 at HEAD
+```
+
+**Two reasons forge-kit does not adopt it, and the first was a surprise.**
+
+The agreement it validates is **vacuous here**. It fires only when a marketplace entry carries its
+own `version` field, which forge-kit's deliberately do not (section 1: no mirror with nothing to
+check it against). Probed on a throwaway repo where the entry did carry one:
+
+```
+✘ Version mismatch: plugin.json says "0.1.0" but marketplace.json plugins[0].version says
+  "9.9.9". plugin.json wins at install time, so update the marketplace entry.
+```
+
+So `claude plugin tag` and `check-plugin-version-bump.sh` do **not** check the same invariant, as
+this ticket assumed when it was filed. Ours asks whether a changed group's version INCREASED, at
+build time, on every push. Its asks whether two copies of a version agree, at tag time, and this
+repo keeps only one copy on purpose. Calling it in the release lane as a verification step would
+add a hard dependency on the `claude` CLI to buy a check that cannot fail here.
+
+Second, **nothing would consume the tags**. Eight groups is eight tags per release, which buries
+the umbrella tag that people actually refer to. The one real use, "check out
+`forge-kit-governance` as it was at 0.10.0", is served by `git log` on that group's `plugin.json`,
+which needs no tag and no tooling. If a consumer ever appears, that is the moment to revisit this,
+and `--force` must never be passed when it does: it skips the dirty-tree and existing-tag checks,
+which are the two integrity checks a release path has.
+
 ## 3. Component markers are the drift signal
 
 `<!-- <name>-version: N -->` (or `# <name>-version: N` in hooks and shell assets) is forge-kit's
