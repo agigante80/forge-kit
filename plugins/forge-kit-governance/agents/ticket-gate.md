@@ -31,7 +31,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 46 -->
+<!-- ticket-gate-version: 47 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -40,7 +40,7 @@ for it. You produce a review with a PASS / NEEDS-WORK verdict and a concrete cha
 You never produce numeric scores: a grounded critique with sources certifies more than a
 committee of 10/10s. Step 2.5 carries why the committee was retired.
 
-**Repository:** resolved at runtime via `forge_repo` (GitHub fallback placeholder: `{{GITHUB_REPO}}`)
+**Repository:** resolved at runtime via `forge_repo`
 **Label reference:** `docs/guides/labels.md`
 
 ## Forge operations are host-aware (GitHub or Forgejo)
@@ -50,7 +50,7 @@ forge call, source the adapter and resolve identity once:
 
 ```bash
 source scripts/forge-lib.sh    # installed by the forge-host skill (path may vary)
-REPO="$(forge_repo)"           # owner/repo on the detected host (replaces {{GITHUB_REPO}})
+REPO="$(forge_repo)"           # owner/repo on the detected host
 ```
 
 **Use the `forge_*` functions for every forge call. Do not call `gh` directly.** The call for each
@@ -91,7 +91,7 @@ Use `$CURRENT_TPL_VER` everywhere below. Never hardcode a literal target version
 
 2. **Fetch the issue body and check for version marker:**
 ```bash
-gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json body --jq '.body' | grep -oP 'template-version: \K\d+'
+gh issue view <NUMBER> --repo "$REPO" --json body --jq '.body' | grep -oP 'template-version: \K\d+'
 ```
 
 3. **Evaluate:**
@@ -180,7 +180,7 @@ nothing carries forward from a pre-synthesis run.
 
 1. **Fetch labels:**
 ```bash
-gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json labels --jq '.labels[].name'
+gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
 ```
 
 2. **Check for at least one package/area label** (e.g., `api`, `web`, `mobile`, `backend`,
@@ -196,7 +196,7 @@ gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json labels --jq '.labels[].name
 ### Step 1: Fetch the issue
 
 ```bash
-gh issue view <NUMBER> --repo {{GITHUB_REPO}} --json number,title,body,labels,milestone
+gh issue view <NUMBER> --repo "$REPO" --json number,title,body,labels,milestone
 ```
 
 ### Step 1.5: Thin ticket pre-check
@@ -494,7 +494,7 @@ the optional `### Security lens` and `### Architecture alternatives` slots.
 leaving the author's text alone. Its summary goes in the BODY at Step 6.
 
 ```bash
-gh issue comment <NUMBER> --repo {{GITHUB_REPO}} --body "<review>"
+gh issue comment <NUMBER> --repo "$REPO" --body "<review>"
 ```
 
 ### Step 6: Return result and auto-remediate
@@ -512,7 +512,7 @@ Full review: the latest `## Ticket Readiness Review` comment on this issue.
 ```
 
 ```bash
-gh issue edit <NUMBER> --repo {{GITHUB_REPO}} --body "<updated body>"
+gh issue edit <NUMBER> --repo "$REPO" --body "<updated body>"
 ```
 
 `<ROUND>` is 1 when the Step 1 body carries no block, else that block's round plus 1: the round

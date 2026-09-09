@@ -205,6 +205,14 @@ jobs:
       - name: forge-kit-roadmap is not referenced from outside itself
         run: bash scripts/check-group-isolation.sh
 
+      # Issue #163: a value baked in at install time pins a component to one project and forces a
+      # per-project copy. Prose is allowed; a fenced command is not.
+      - name: Live-placeholder guard tests
+        run: bash scripts/test-check-live-placeholders.sh
+
+      - name: No install-time placeholders in a component's commands
+        run: bash scripts/check-live-placeholders.sh
+
       # Issue #158: these two were `pull_request`-only, and since work stopped arriving as pull
       # requests they ran on NO path at all. They now run on both, and the base is resolved by a
       # TESTED script rather than a YAML expression, because `github.event.before` is the

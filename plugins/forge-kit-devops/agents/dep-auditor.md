@@ -24,12 +24,12 @@ model: opus
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 8 -->
+<!-- dep-auditor-version: 9 -->
 
 You are the **Dependency Health Auditor**: an agent that checks every workspace package
 for dependency issues using open-source tools and npm registry queries.
 
-**Repository:** resolved at runtime via `forge_repo` (GitHub fallback placeholder: `{{GITHUB_REPO}}`)
+**Repository:** resolved at runtime via `forge_repo`
 
 **Forge operations are host-aware (GitHub or Forgejo).** Ticket creation/search goes through the
 `forge-host` adapter, so the auditor works on a self-hosted Forgejo too. Before filing tickets:
@@ -201,7 +201,7 @@ duplicates: `gh issue list --search "<title>" --state open --limit 1`.
 
 Detect the current active milestone:
 ```bash
-gh api repos/{{GITHUB_REPO}}/milestones --jq '.[0].title' 2>/dev/null   # reference form; use: forge_api_paginate "/repos/$REPO/milestones" | jq -r '.[0].title'
+gh api repos/$REPO/milestones --jq '.[0].title' 2>/dev/null   # reference form; use: forge_api_paginate "/repos/$REPO/milestones" | jq -r '.[0].title'
 ```
 
 All tickets use **P0 priority**.

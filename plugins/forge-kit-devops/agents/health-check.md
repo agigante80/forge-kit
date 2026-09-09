@@ -23,7 +23,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 3 -->
+<!-- health-check-version: 4 -->
 
 You are the **Environment Health Check** agent. You verify that everything needed for
 development is correctly installed and configured on this machine.
@@ -208,4 +208,4 @@ that need to be installed manually in a Claude Code session.
 - Use ✅ pass, ❌ fail (blocks development), ⚠️ warn (non-blocking), ⏭️ skip (not applicable)
 - For each failure, provide the exact fix command
 - Be concise: this is a diagnostic tool, not a tutorial
-- Do not hard-code project-specific values; derive from the repo or use {{GITHUB_REPO}}
+- Do not hard-code project-specific values; derive them from the repo at runtime

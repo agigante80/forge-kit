@@ -52,6 +52,11 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-09-09: ticket-gate 5265 to 5259 (#163). Five `--repo {{GITHUB_REPO}}` uses became
+# `--repo "$REPO"`, which is word-neutral, and two prose claims about a placeholder fallback were
+# deleted because after the change there is no fallback to describe. A reduction, so the baseline
+# follows it down.
+#
 # LOWERED 2026-09-08: adapt 7316 to 7312 (#157). Its drift table enumerated four shell assets by
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
@@ -65,7 +70,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7312 ;;
-    ticket-gate) echo 5265 ;;
+    ticket-gate) echo 5259 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

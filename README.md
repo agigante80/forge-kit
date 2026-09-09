@@ -90,8 +90,8 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |
 | `forge-kit-backend` | skill | `microservices-patterns` | v1 | 1337 | Design microservices architectures with service boundaries, event-driven communication, and resilience patterns. |
 | `forge-kit-backend` | skill | `saga-orchestration` | v1 | 1216 | Implement saga patterns for distributed transactions and cross-aggregate workflows. |
-| `forge-kit-devops` | agent | `dep-auditor` | v8 | 1345 | Dependency health auditor - scans all workspace packages for unused dependencies, redundant transitive duplicates, unma… |
-| `forge-kit-devops` | agent | `health-check` | v3 | 1029 | Environment health check - verifies that the development environment is correctly set up on this machine. |
+| `forge-kit-devops` | agent | `dep-auditor` | v9 | 1341 | Dependency health auditor - scans all workspace packages for unused dependencies, redundant transitive duplicates, unma… |
+| `forge-kit-devops` | agent | `health-check` | v4 | 1029 | Environment health check - verifies that the development environment is correctly set up on this machine. |
 | `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
 | `forge-kit-devops` | skill | `find-dead-code` | v2 | 1155 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
 | `forge-kit-devops` | skill | `forge-host` | v18 | 1319 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. |
@@ -103,7 +103,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-devops` | shell asset | `release-run` | v1 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v9 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v46 | 5265 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
+| `forge-kit-governance` | agent | `ticket-gate` | v47 | 5259 | Ticket readiness gate - deterministic mechanical checks plus ONE critical-review pass (verdict, per-section pushback, G… |
 | `forge-kit-governance` | command | `gate-ticket` | v6 | 197 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate agent detects the… |
 | `forge-kit-governance` | skill | `closing-sessions` | v2 | 671 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `ticket-gate-reference` | v8 | 1096 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
