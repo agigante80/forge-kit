@@ -36,7 +36,13 @@ else
   DOC="$ROOT/docs/guides/ticket-standards.md"
   GATE_FILES=("$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md"
               "$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference/SKILL.md"
-              "$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/check-ticket-mechanics.sh")
+              "$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/check-ticket-mechanics.sh"
+              # references/ too (#150). #150 moved the lens briefs and the templates one hop out of
+              # SKILL.md so they stop being preloaded, and that immediately orphaned a Precedence
+              # anchor. Without this line, moving prose into references/ would be a way to launder a
+              # rule out of this guard's sight, which is the same hazard CLAUDE.md already records
+              # for prose moved into a script.
+              "$ROOT"/plugins/forge-kit-governance/skills/ticket-gate-reference/references/*.md)
 fi
 
 [ -r "$DOC" ] || { echo "check-restatements: cannot read '$DOC'" >&2; exit 2; }

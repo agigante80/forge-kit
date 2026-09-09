@@ -195,6 +195,30 @@ printf '%s' "$out" | grep -q 'not-installed' \
   && ok "and names the skill it could not find" || bad "and names the skill it could not find"
 rm -f "$FIX/plugins/fix-g/agents/ghost-companion.md"
 
+# An agent that DISPATCHES (its tools declare Agent) is governed by the orchestrator row, not the
+# 2000-word agent budget (#150). Membership is mechanical, so a non-dispatching agent of the same
+# size must still warn.
+cat > "$FIX/plugins/fix-g/agents/dispatcher.md" <<'A'
+---
+name: dispatcher
+tools: ["Agent", "Bash"]
+---
+<!-- dispatcher-version: 1 -->
+A
+python3 - "$FIX/plugins/fix-g/agents/dispatcher.md" <<'PY2'
+import sys
+p = sys.argv[1]; s = open(p).read()
+open(p, "w").write(s + ("word " * 2500) + "\n")
+PY2
+out=$(bash "$CHECK" --root "$FIX" 2>&1)
+printf '%s' "$out" | grep -q 'orchestrator dispatcher' \
+  && bad "2500 words is under the orchestrator budget, so it should say nothing" \
+  || ok "a dispatching agent at 2500 words is under the orchestrator budget"
+printf '%s' "$out" | grep -q 'subagent dispatcher' \
+  && bad "a dispatching agent is not judged against the plain agent budget" \
+  || ok "a dispatching agent is not judged against the plain agent budget"
+rm -f "$FIX/plugins/fix-g/agents/dispatcher.md"
+
 # A missing resolver must refuse, not measure every agent on its own file and report clean.
 mv "$FIX/scripts/forge-adapt-agent-skills.sh" "$FIX/scripts/resolver.hidden"
 bash "$CHECK" --root "$FIX" >/dev/null 2>&1

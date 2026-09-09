@@ -31,7 +31,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 47 -->
+<!-- ticket-gate-version: 48 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -53,9 +53,10 @@ source scripts/forge-lib.sh    # installed by the forge-host skill (path may var
 REPO="$(forge_repo)"           # owner/repo on the detected host
 ```
 
-**Use the `forge_*` functions for every forge call. Do not call `gh` directly.** The call for each
-need, and the templates Steps 0c, 1.5, 3C, 4 and 6 read, live in the `ticket-gate-reference`
-skill.
+**Use the `forge_*` functions for every forge call. Do not call `gh` directly.** The call mapping
+and the templates Steps 0c, 1.5, 3C, 4 and 6 use are FILES under the `ticket-gate-reference` skill's
+`references/`, listed in its index. READ the one you need at the step that needs it; if it cannot be
+found, say so and stop rather than working from memory.
 
 The `gh …` snippets below are the **GitHub reference form**: apply the `forge_*` equivalent so the
 same logic runs on Forgejo. If `forge-lib.sh` is absent (legacy install), fall back to `gh`.
@@ -166,7 +167,7 @@ Write it with Step 6's `gh issue edit`, minus the verdict block.
 
 **0c-v. Post void and synthesis comment**
 
-Post the SYNTHESIS VOID template from the reference skill.
+Post the SYNTHESIS VOID template from `references/comment-templates.md`.
 
 **0c-vi. Proceed to 0b**
 
@@ -216,7 +217,7 @@ Launch a `general-purpose` sub-agent with the issue title and full body. Ask it 
 **Threshold:** If the sub-agent identifies 3+ unanswered questions that would materially
 change the review (not cosmetic style or wording questions), halt with BLOCKED:
 
-Post the CLARIFICATION template from the reference skill as a comment.
+Post the CLARIFICATION template from `references/comment-templates.md` as a comment.
 
 Print: `BLOCKED - #<N> needs clarification before review. Questions posted as a comment.`
 **Do NOT proceed to Step 2.** Return immediately.
@@ -255,7 +256,7 @@ justify their seat, and heterogeneous agent teams underperform their best single
 **Log the selection:** record which lenses run and why.
 
 **Adding project-specific lenses:** add a row to the table above with its trigger, and a
-lens definition section in the `ticket-gate-reference` skill alongside the Security lens
+`references/lens-definitions.md` alongside the Security lens
 (definitions go there because an agent cannot carry reference files of its own, #124). Prefer modulating the critic's brief
 over adding an agent; add an agent only for a genuinely independent domain perspective.
 
@@ -449,7 +450,7 @@ no-override rule included, fires for them like any other fundamental.
 ### Step 3C: Dispatch the lenses (only those Step 2.5 selected)
 
 For each selected lens, dispatch its agent with: the review packet (Step 3B), the critic's
-JSON from Step 3B, the result contract (verbatim, per its definition in the reference skill), and its scope
+JSON from Step 3B, the result contract (verbatim, from `references/lens-definitions.md`), and its scope
 for this round (round 1: the whole ticket within its
 brief; re-runs: see the lens-scope rule below). A lens named in the review's Review-set
 line MUST have been dispatched here; never print a lens that did not run.
@@ -462,8 +463,8 @@ re-running it in full grows the target.
 
 ### Lens definitions
 
-The per-lens briefs and the shared result contract are in the preloaded
-`ticket-gate-reference` skill. The dividing line is WHO obeys the rule, not whether one is
+The per-lens briefs and the shared result contract are in
+`references/lens-definitions.md`, read at Step 3C. The dividing line is WHO obeys the rule, not whether one is
 present: a rule the LENS follows travels with its brief, because the brief is dispatched to
 it verbatim, while every rule the ORCHESTRATOR follows (when a lens runs, how its result is
 merged, what a re-run rescopes) stays in this file.
@@ -485,7 +486,7 @@ than any lens, so it stays here and the reference skill only points at it.
 
 Build a markdown review (never a numeric scorecard):
 
-Use the review template in the preloaded `ticket-gate-reference` skill VERBATIM, including
+Read `references/review-template.md` and use it VERBATIM, including
 the optional `### Security lens` and `### Architecture alternatives` slots.
 
 ### Step 5: Post to GitHub
@@ -585,7 +586,7 @@ Instead of auto-remediating, present severity-aware options and wait for user re
 
 (An advisory-only result is PASS and never reaches prompt mode.)
 
-**Option 2 (remediation guide):** post the REMEDIATION template from the reference skill.
+**Option 2 (remediation guide):** post the REMEDIATION template from `references/comment-templates.md`.
 
 **Option 3 override (significant only).** Override is never available for a fundamental item:
 those reject the approach itself, so proceeding would build something the gate rejected.

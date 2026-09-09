@@ -8,7 +8,7 @@ description: |
   nothing, and the only rules it carries are the ones a lens itself obeys.
 ---
 
-<!-- ticket-gate-reference-version: 8 -->
+<!-- ticket-gate-reference-version: 9 -->
 
 # ticket-gate reference
 
@@ -24,147 +24,30 @@ and `ticket-gate.md` wins.
 
 Agents cannot carry a `references/` directory of their own: `agents/` is a flat namespace the
 Claude Code loader claims at any depth, so a companion skill is the supported way to give an agent
-reference material (issue #124). This skill is PRELOADED rather than invoked on demand, so its
-content is present for every run exactly as if it were still inline. That means this split
-reorganises the material and does not reduce the context the gate loads; see issue #109 for the
-follow-up that would make it conditional.
+reference material (issue #124). This file is PRELOADED into ticket-gate; the files under
+`references/` are NOT, and are read on demand. That is the difference #150 turned into a
+reduction: #109 moved material from the agent into this skill and reduced nothing, because both
+are preloaded, and the size guard reported a win it had not made. Moving the read-once artifacts
+one hop further takes 797 words out of every run.
 
-## Review output template
+## What is here, and when to read it
 
-Step 4 composes this. Never a numeric scorecard.
+Each file below is read at ONE point in a run. Find it with Glob rather than a fixed path, because
+this skill lives in the plugin or in a project's `.claude/skills/`, and a hardcoded path is correct
+in one of those and wrong in the other:
 
-```markdown
-## Ticket Readiness Review - #<NUMBER>
+```
+Glob "**/ticket-gate-reference/references/<file>"
+```
 
-**Issue:** <title>
-**Date:** <today>
-**Template version:** v<N> (current: v<M>)
-**Review set:** mechanical checks + critic[, Security lens (label: security)]
-
-**Verdict: PASS / NEEDS-WORK** - <one-sentence reason>
-
-### Mechanical checks
-| Check | Result | Evidence |
+| File | Read it at | What it is |
 |---|---|---|
-| Template version current | pass/fail | ... |
-| Labels valid | pass/fail | ... |
-| Required sections present | pass/fail | ... |
-| GWT structure | pass/fail | ... |
-| Test specs concrete | pass/fail | ... |
-| Documentation impact present | pass/fail | ... |
+| `review-template.md` | Step 4 | the output template the review is composed into |
+| `lens-definitions.md` | Step 3C | each lens brief and its result contract |
+| `comment-templates.md` | Steps 0c, 1.5, 6 | the comment bodies posted to the forge |
+| `forge-call-mapping.md` | when a `forge_*` call is unclear or fails | the call mapping |
+| `installing-the-mechanics-script.md` | install time only | how the shipped asset reaches a project |
 
-### Critique
-<per-section pushback>
-
-### GWT review
-<judgement against the quality bar, plus improved scenarios where written>
-
-### Pros and cons
-<of the proposed approach>
-
-### Best practices
-<researched, with sources; or the stated reason research was skipped>
-
-### Suggested approach
-<the concrete way forward>
-
-[### Security lens
-<specialist findings, when the lens ran>]
-
-[### Architecture alternatives
-<2 to 3 options, each with why it resolves the objection; only on a fundamental verdict>]
-
-
-### Required changes (when NEEDS-WORK)
-- [ ] <blocking change, specific>
-```
-
-## Lens definitions
-
-Step 3C dispatches these.
-
-### Security lens (label `security` or `critical`)
-Use agent type: `security-auditor`. Runs AFTER the critic and receives the critic's JSON:
-it reports only NET-NEW findings and explicit disagreements, never restatements of items
-the critic already raised (the retired committee's sequential-execution dedup, kept). The
-personal-data judgment is the critic's alone; the lens confines itself to this checklist:
-- Authentication: is auth required specified? Any public endpoints justified?
-- Authorization: can users access only their own data? Role checks present?
-- Input validation: validation schemas specified? Max lengths? Format validation?
-- Data exposure: does the response leak sensitive fields?
-- OWASP Top 10: injection, XSS, CSRF, broken access control addressed?
-- Rate limiting: is the endpoint rate-limited or does it need to be?
-Returns `{verdict, blocking, advisory}`: the critic's shape minus `sections` (that key is
-the critic's prose contract), with `class` on each blocking item (fundamental /
-significant; the lens judges its own items). Step 3C's dispatch carries this contract
-verbatim, so the callee never depends on a copy that can drift. The MERGE rule for these results is a rule and
-lives in `ticket-gate.md` at Step 4, not here.
-
-## Comment templates
-
-These are PAYLOADS only. WHEN each is posted, and what blocks or proceeds after it, is decided in
-`ticket-gate.md`. Post them through the call mapping below, under the rule and the legacy fallback
-`ticket-gate.md` states: they left that file in #130, so the inline "GitHub reference form" caveat
-no longer reaches them.
-
-**Synthesis void (Step 0c-v, template auto-upgraded).**
-
-```markdown
-Template auto-upgraded to v<CURRENT_TPL_VER> - content synthesised
-
-Issue was filed against template v<old> (current: v<CURRENT_TPL_VER>).
-The following sections were synthesised from the existing issue content:
-
-- <section id>: <what was synthesised for it, or N/A - <reason>>
-
-Enriched existing sections: <list or "none">
-
-Any previous gate verdict is void. Re-reviewing now against the enriched body.
-Review the synthesised content and re-run /gate-ticket <N> if corrections are needed.
-```
-
-**Clarification (Step 1.5, thin ticket).**
-
-```markdown
-## ticket-gate: clarification needed before review
-
-This ticket lacks enough implementation detail to review accurately. Please answer the
-following questions in the ticket body (not in comments) before re-running the gate:
-
-1. [Question 1]
-2. [Question 2]
-3. [Question 3 (up to 5 questions)]
-
-Answering in the body ensures the next gate run can review the complete spec.
-```
-
-**Remediation guide (Step 6, option 2).**
-
-```markdown
-## ticket-gate: remediation guide
-
-### <Blocking / Advisory>
-- [ ] <required change 1>
-- [ ] <required change 2>
-```
-
-## Installing `check-ticket-mechanics.sh`
-
-This skill ships Step 3A's mechanical checks as `assets/check-ticket-mechanics.sh`. Copy it to
-`scripts/` VERBATIM at install time, the way `forge-host` copies `forge-lib.sh`. It IS Step 3A,
-not an optimisation: without it the gate takes its "record every check as referred" fallback and
-performs NO mechanical checks, which reads as a working gate.
-
-## forge_* call mapping
-
-Which adapter call serves each need. The RULE, that every forge call goes through `forge_*` and
-never through `gh` directly, is in `ticket-gate.md`; this is the lookup.
-
-| Need | Call |
-|---|---|
-| view an issue (body/labels/title) | `forge_issue_view <N>` → JSON `{number,title,body,state,labels[].name}` |
-| comment on an issue | `forge_issue_comment <N> "<body>"` |
-| close an issue | `forge_issue_close <N>` |
-| edit an issue body | `forge_api PATCH "/repos/$REPO/issues/<N>" "$(jq -nc --arg b "<body>" '{body:$b}')"` |
-| create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels (refuse-all on Forgejo: an unresolvable name fails the WHOLE call non-zero and applies nothing, so check the exit and create missing labels first) |
-| list/search issues | `forge_issue_list [state]`, filter client-side |
+**If a file you need cannot be found, SAY SO AND STOP.** Do not reconstruct it from memory. A
+review composed against a remembered template is the silent drift this whole split is at risk of,
+and it is the one failure that would make preloading the safer design after all.

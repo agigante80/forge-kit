@@ -38,8 +38,28 @@ done
 # over budget and 3 over the ceiling, which is a signal worth reading rather than noise.
 # The hard ceiling is 1.5x the budget.
 # ---------------------------------------------------------------------------------------------
+# AN ORCHESTRATOR HAS ITS OWN NUMBER, and the number is stated rather than left as an exemption
+# (#150). An agent that DISPATCHES other agents carries two things a single-purpose agent does not:
+# the briefs it sends, which must travel with the dispatch or the callee depends on a copy that can
+# drift, and the rules it obeys while coordinating. The 2000-word budget was set for an agent that
+# does one job, and applying it to a coordinator produced a permanent breach that meant nothing.
+#
+# 4000 and a 6000 ceiling, keeping the 1.5x relationship every other row uses. Membership is
+# MECHANICAL, not a list: an agent whose `tools:` frontmatter declares `Agent` is one, because that
+# is what lets it dispatch. Today that is ticket-gate alone.
+#
+# The ratchet still applies on top. The ceiling says what the ROLE may cost; the ratchet says THIS
+# instance may not drift upward. An exemption without a number was what nobody wanted to say out
+# loud, and this says it.
+is_orchestrator() {
+  [ "$2" = subagent ] || return 1
+  awk 'NR==1 && $0 != "---" { exit 1 } NR>1 && $0 == "---" { exit 1 } /^tools:.*"Agent"/ { found=1; exit 0 }
+       END { exit found ? 0 : 1 }' "$1"
+}
+
 budget_for() {
   case "$1" in
+    orchestrator) echo 4000 ;;
     subagent) echo 2000 ;;
     command)  echo 2000 ;;
     skill)    echo 2500 ;;
@@ -51,6 +71,10 @@ budget_for() {
 # An exempt component may shrink freely and may not grow by a single word. Retrofitting these is
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
+#
+# LOWERED 2026-09-09: ticket-gate 6355 to 5782 (#150). The companion skill's read-once artifacts
+# moved into references/, which are NOT preloaded, so this is a real reduction in what every run
+# loads rather than a relocation. 582 words, and no capability was given up for them.
 #
 # RE-DERIVED 2026-09-09 UNDER A CHANGED METRIC, NOT RAISED: ticket-gate 5259 to 6355 (#150). The
 # file did not grow by one word. The measure changed to include what the agent PRELOADS, which is
@@ -90,7 +114,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7300 ;;
-    ticket-gate) echo 6355 ;;
+    ticket-gate) echo 5782 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac
@@ -109,7 +133,9 @@ checked=0
 
 while IFS=$'\t' read -r group ctype name version path; do
   [ -n "${name:-}" ] || continue
-  budget=$(budget_for "$ctype")
+  effective="$ctype"
+  is_orchestrator "$path" "$ctype" && effective=orchestrator
+  budget=$(budget_for "$effective")
   [ "$budget" -gt 0 ] || continue          # skip hooks and shell assets
   [ -f "$path" ] || continue
   words=$(wc -w < "$path" | tr -d ' ')
@@ -166,7 +192,7 @@ while IFS=$'\t' read -r group ctype name version path; do
   if [ "$baseline" -gt 0 ]; then
     if [ "$words" -gt "$baseline" ]; then
       echo "FAIL  $ctype $name: $words words${companions:+ (with preloaded companion: $companions)}, above its $baseline-word ratchet baseline."
-      echo "      This component is exempt from the ${budget}-word budget but MAY NOT GROW."
+      echo "      Its ${budget}-word budget (ceiling $ceiling) applies, and the ratchet MAY NOT GROW."
       echo "      Reduce it, or split per the convention in CLAUDE.md."
       fails=$((fails + 1))
     elif [ "$words" -lt "$baseline" ] && [ "$QUIET" -eq 0 ]; then
@@ -180,7 +206,7 @@ while IFS=$'\t' read -r group ctype name version path; do
     echo "FAIL  $ctype $name: $words words${companions:+ (with preloaded companion: $companions)}, over the hard ceiling of $ceiling (budget $budget)."
     fails=$((fails + 1))
   elif [ "$words" -gt "$budget" ]; then
-    [ "$QUIET" -eq 1 ] || echo "warn  $ctype $name: $words words${companions:+ (with preloaded companion: $companions)}, over the $budget-word budget (ceiling $ceiling)."
+    [ "$QUIET" -eq 1 ] || echo "warn  $effective $name: $words words${companions:+ (with preloaded companion: $companions)}, over the $budget-word budget (ceiling $ceiling)."
     warns=$((warns + 1))
   fi
 done < <(bash "$CATALOGUE" --tsv "$ROOT")
