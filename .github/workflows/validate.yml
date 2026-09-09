@@ -58,6 +58,12 @@ jobs:
       - name: Structural validation (plugin.json + marketplace + version markers)
         run: bash scripts/validate-plugins.sh
 
+      # The structural gate had no contract test for most of its life, which is how it could grow
+      # rules nobody could prove fire (#169). Its dependency check in particular catches what
+      # `claude plugin validate` does not: an unresolvable dependency installs silently.
+      - name: Structural validation guard tests
+        run: bash scripts/test-validate-plugins.sh
+
       # Anti-drift lock: the work issue-templates must all share one template-version, so
       # the ticket-gate version check stays correct across ticket types.
       - name: Template version lockstep
