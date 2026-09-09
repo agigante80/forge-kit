@@ -99,7 +99,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-devops` | skill | `release` | v5 | 1137 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v8 | 1606 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
-| `forge-kit-devops` | shell asset | `forge-lib` | v11 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
+| `forge-kit-devops` | shell asset | `forge-lib` | v12 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
 | `forge-kit-devops` | shell asset | `release-run` | v1 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v9 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |

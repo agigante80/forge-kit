@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 11
+# forge-lib-version: 12
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -62,10 +62,15 @@ _forge_root() { git rev-parse --show-toplevel 2>/dev/null || pwd; }
 # Values set FROM THE FILE are also tracked and cleared when the working directory changes, so a
 # process that moves between repos re-reads correctly in-shell.
 #
-# KNOWN LIMIT (issue #131): the tracking is by KEY, not by value, so a caller that exports a
-# FORGE_* value AFTER a load which set that same key from the file will have its export cleared on
-# the next chdir. Env-wins holds everywhere else. Detecting this needs the variable's export
-# attribute, and the portable ways to read it cost a fork per key.
+# The tracking records the VALUE the file wrote, not just the key (#131.1). By key alone, a caller
+# that exported a FORGE_* value AFTER a load which had set that same key from a file had its export
+# cleared on the next chdir, contradicting the env-wins contract stated above and in
+# references/local-auth.md. Comparing the current value against what the file wrote distinguishes
+# the two without reading the export attribute, whose portable readings cost a fork per key
+# (`declare -p`) or need bash 5.0 (`${!k@a}`) in a library that runs on 3.1.
+#
+# A caller who exports the SAME string the file wrote is indistinguishable, and is left alone. That
+# is the right way round: the value is what the caller asked for either way.
 _forge_load_conf() {
   # The guard keys on $PWD, a shell builtin that costs nothing, NOT on the resolved root: resolving
   # the root runs `git rev-parse`, and doing that BEFORE the guard is why the first version of this
@@ -81,7 +86,14 @@ _forge_load_conf() {
   # Clear anything a PREVIOUS directory's file set, or env-wins would make the new file a no-op.
   # Loading in the caller's shell (which is what makes the memo pay) means these values persist,
   # so a process moving between repos would otherwise keep the first repo's identity.
-  for k in ${_FORGE_FROM_FILE-}; do unset "$k"; done
+  # Only clear a key that still holds exactly what the file put there. Anything else is the
+  # caller's, and env wins.
+  for k in ${_FORGE_FROM_FILE-}; do
+    eval "_forge_was=\${_FORGE_FILEVAL_$k-}"
+    [ "${!k-}" = "$_forge_was" ] && unset "$k"
+    unset "_FORGE_FILEVAL_$k"
+  done
+  unset _forge_was
   _FORGE_FROM_FILE=""
   _FORGE_CONF_PWD="${PWD-}"
   f="$root/.forge.conf"
@@ -96,6 +108,7 @@ _forge_load_conf() {
     case "$k" in
       FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS)
         [ -n "${!k:-}" ] || { printf -v "$k" '%s' "$v"     # NOT exported: see the header note
+                              printf -v "_FORGE_FILEVAL_$k" '%s' "$v"   # what the file wrote (#131.1)
                               _FORGE_FROM_FILE="${_FORGE_FROM_FILE-} $k"; } ;;  # env wins; else file
     esac
   done < "$f"
@@ -295,7 +308,10 @@ _forge_tmp_init() {
   # Check the DIRECTORY, not just the variable: a subshell that finished a paginate may have
   # rmdir'd it, and its `unset` cannot escape the subshell, so the parent can hold a stale path.
   if [ -n "${_FORGE_TMPDIR-}" ] && [ -d "$_FORGE_TMPDIR" ]; then return 0; fi
-  _FORGE_TMPDIR="$(mktemp -d)" || return 2
+  # ONE retry (#131.3): a concurrent pagination can remove the shared directory between the check
+  # above and this line, and the second caller then returned 2 with a raw mktemp error. Narrow (0
+  # flakes in 200 stress runs) but it made the concurrency test load-dependent.
+  _FORGE_TMPDIR="$(mktemp -d)" || _FORGE_TMPDIR="$(mktemp -d)" || return 2
   # Install ONLY when the caller has no EXIT trap. Re-installing the caller's command is worse than
   # standing aside: a subshell that inherits the trap string would then run the CALLER's cleanup at
   # SUBSHELL exit, tearing down the caller's state mid-run. Measured, painfully: appending to the

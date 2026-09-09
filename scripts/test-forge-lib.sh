@@ -652,6 +652,52 @@ case $? in
   *) bad "issue_milestone_list errored";;
 esac
 
+# --- #131.1: env-wins must survive a chdir -----------------------------------------------------
+# The tracking recorded the KEY alone, so a value the CALLER exported after a load that had set the
+# same key from a file was cleared on the next chdir. That contradicts the env-wins contract stated
+# in the header and in references/local-auth.md, and it fails loudly: forge_repo then cannot parse
+# owner/repo from an empty remote.
+(
+  . "$LIB"
+  mkdir -p "$T/c1" "$T/c2"
+  ( cd "$T/c1" && git init -q . && printf 'FORGE_REPO=from/file\n' > .forge.conf ) >/dev/null 2>&1
+  ( cd "$T/c2" && git init -q . ) >/dev/null 2>&1
+  cd "$T/c1"; forge_repo >/dev/null 2>&1          # the file sets FORGE_REPO; the key is tracked
+  export FORGE_REPO=owner/explicit                # the caller's own choice, AFTER that load
+  cd "$T/c2"
+  [ "$(forge_repo 2>/dev/null)" = owner/explicit ]
+)
+[ $? -eq 0 ] && ok "an export made after a file load survives a chdir (env wins)" \
+             || bad "the caller's own export was cleared on chdir (#131.1)"
+
+# ...and the file's own value is still cleared, or a process moving between repos keeps the first
+# repo's identity, which is what the tracking exists to prevent.
+(
+  . "$LIB"
+  mkdir -p "$T/d1" "$T/d2"
+  ( cd "$T/d1" && git init -q . && printf 'FORGE_REPO=first/repo\n' > .forge.conf ) >/dev/null 2>&1
+  ( cd "$T/d2" && git init -q . && printf 'FORGE_REPO=second/repo\n' > .forge.conf ) >/dev/null 2>&1
+  cd "$T/d1"; [ "$(forge_repo)" = first/repo ] || exit 1
+  cd "$T/d2"; [ "$(forge_repo)" = second/repo ]
+)
+[ $? -eq 0 ] && ok "and a file-set value is still replaced by the next repo's file" \
+             || bad "a file-set value leaked across a chdir"
+
+# --- #131.2: the stale-tmpdir check is load-bearing on its own ---------------------------------
+# The existing case only reverted to green when BOTH halves of the fix were reverted together, so
+# neither half had its own mutant. This reaches the wedge WITHOUT going through the page cap.
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { printf '[]'; }
+  _forge_tmp_init || exit 9
+  rm -rf "$_FORGE_TMPDIR"                          # a finished subshell removed the shared dir
+  _forge_tmp_init || exit 1                        # must notice and make a new one
+  [ -d "$_FORGE_TMPDIR" ]
+)
+[ $? -eq 0 ] && ok "a stale _FORGE_TMPDIR is re-created without going through the page cap" \
+             || bad "the -d check is not independently exercised (#131.2)"
+
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
