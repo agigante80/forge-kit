@@ -162,6 +162,21 @@ decision brief, which is the artifact a deferral should produce.
 They belong together because they are two halves of one handover, and either alone leaves it
 half-built.
 
+## Phase: What Claude Code now ships itself
+state: planned
+
+A bucket, opened 2026-09-09 after probing the installed CLI (2.1.265) rather than reading its docs.
+Several things this kit built by hand now exist first-party: a `dependencies` array in
+`plugin.json` with a `prune` collector, `claude plugin tag` validating that a plugin's version and
+its marketplace entry agree, and `claude plugin details` reporting a projected TOKEN cost per
+component.
+
+The question each ticket here answers is the same one: is our hand-rolled version still earning its
+place, or is it now duplication with a guard on top? Neither answer is assumed. Some of ours is
+stricter (a build failure, not a tag-time check) and some of it is simply older.
+
+Its plan gets written when it opens, from this prose plus whatever has accumulated by then.
+
 ## Phase: Backlog
 state: backlog
 
