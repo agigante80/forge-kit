@@ -34,12 +34,17 @@ fi
 
 COMPONENT_RE='.*/plugins/[^/]+/(agents|commands)/[^/]+\.md|.*/plugins/[^/]+/skills/[^/]+/SKILL\.md'
 
+# shellcheck source=guard-lib.sh
+. "$(dirname "$0")/guard-lib.sh"
+
 errors=0
+seen=0
 n_user=0
 n_project=0
 
 while IFS= read -r f; do
   rel="${f#"$ROOT"/}"
+  seen=$((seen + 1))
 
   # FRONTMATTER ONLY. A `scope:` written in the body is prose, and reading it would let a component
   # be scoped by an example inside its own documentation.
@@ -69,7 +74,7 @@ while IFS= read -r f; do
     # every project. Positional, like check-live-placeholders.sh: a fenced line is a command.
     hit="$(awk '
       /^[[:space:]]*```/ { fenced = !fenced; next }
-      fenced && /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/ && $0 !~ /sed/ {
+      fenced && /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/ && $0 !~ /(^|[^A-Za-z0-9_])sed[[:space:]]/ {
         match($0, /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/)
         printf("%d: %s", NR, substr($0, RSTART, RLENGTH)); exit }' "$f")"
     if [ -n "$hit" ]; then
@@ -79,6 +84,11 @@ while IFS= read -r f; do
     fi
   fi
 done < <(find "$ROOT" -regextype posix-extended -regex "$COMPONENT_RE" -type f 2>/dev/null | sort)
+
+if [ "$seen" -eq 0 ]; then
+  echo "check-component-scope: no components found under $ROOT. Nothing was checked." >&2
+  exit 2
+fi
 
 if [ "$errors" -gt 0 ]; then
   echo ""

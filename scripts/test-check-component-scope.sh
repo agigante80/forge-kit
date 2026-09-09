@@ -170,6 +170,23 @@ M
 run
 expect "a nested reference file is not a component and is not scanned" 0 "$rc"
 
+# Review round 1: the same unanchored sed test was copied here and inherited the hole.
+mk "$T/plugins/g/agents/a.md" <<'M'
+---
+name: a
+scope: user
+---
+```bash
+REPO={{GITHUB_REPO}}  # the value used at install time
+```
+M
+run
+expect "a line merely containing the letters s-e-d is not exempt here either" 1 "$rc"
+
+mkdir -p "$T/empty/plugins"
+rc=0; out=$(bash "$SCRIPT" "$T/empty/plugins" 2>&1) || rc=$?
+expect "zero components refuses rather than reporting clean" 2 "$rc"
+
 rc=0; out=$(bash "$SCRIPT" "$T/nope" 2>&1) || rc=$?
 expect "a missing root exits 2 rather than passing" 2 "$rc"
 

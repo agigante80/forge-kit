@@ -208,7 +208,8 @@ for n, item in enumerate(items, 1):
         errors.append(f"Precedence item {n} names rules {', '.join(sorted(rules, key=int))} but has "
                       f"an unscoped anchor. With more than one rule an anchor must say which it "
                       f"covers (':: rules N'), or a new bar for ANY of them inherits its licence.")
-        continue
+        # NOT `continue`: the anchors below must still be checked for staleness, which is the exact
+        # cascade the sibling check above documents avoiding (review round 1).
 
     for a, scope in anchors:
         # A multi-line anchor used to be truncated to its first line, which silently turned an
@@ -218,10 +219,14 @@ for n, item in enumerate(items, 1):
             errors.append(f"Precedence item {n} has a multi-line anchor; an anchor must be on one "
                           f"line, because matching only its first line is a prefix match: \"{a[:60]}...\"")
             continue
-        scoped = {r for r in re.findall(r'\d+', scope or '') if r in VALID_RULES}
-        if scope and not scoped:
-            errors.append(f"Precedence item {n} scopes an anchor to rules the doc does not define: "
-                          f"'{scope}'")
+        nums = re.findall(r'\d+', scope or '')
+        scoped = {r for r in nums if r in VALID_RULES}
+        # ANY undefined number refuses. Firing only when EVERY one was undefined let
+        # ':: rules 3 and 44' silently drop 44, narrowing the scope without saying so.
+        undef = [r for r in nums if r not in VALID_RULES]
+        if undef:
+            errors.append(f"Precedence item {n} scopes an anchor to rule(s) the doc does not "
+                          f"define: {', '.join(undef)} (in '{scope}')")
             continue
         sites = anchor_sites(a)
         if not sites:
@@ -232,14 +237,25 @@ for n, item in enumerate(items, 1):
 
 # Direction 2, found-but-unlisted: every rule reference must sit in a covered section.
 seen = set()
+tail_rules = {}          # line index -> rules whose text wrapped onto it from the line above
 for idx, (sec, line) in enumerate(sections):
     fname = sec.split(' :: ')[0]
-    probe = line
+    # A wrapped plural: the rules found only in the JOINED text belong to the NEXT line, which is
+    # where they are written. Attributing them here measured the coverage window from the wrong
+    # line, so a reference whose anchor sat two lines below it read as unlisted (review round 1).
+    #
+    # And an ordered-list item is not a continuation. "...lists the rules" followed by "3. A list
+    # item" joined into a phantom `rules 3`, which would fail a build over prose.
+    here = rules_in(line)
     if TRAILING_PLURAL.search(line.rstrip('\n')) and idx + 1 < len(sections) \
-       and sections[idx + 1][0] == sec:
-        probe = line.rstrip('\n') + ' ' + sections[idx + 1][1]
-    for r in rules_in(probe):
-        if (idx, r) in seen: continue
+       and sections[idx + 1][0] == sec \
+       and not re.match(r'^\s*\d+\.\s', sections[idx + 1][1]):
+        joined = rules_in(line.rstrip('\n') + ' ' + sections[idx + 1][1])
+        for r in joined - here:
+            seen.add((idx + 1, r))
+            tail_rules.setdefault(idx + 1, set()).add(r)
+    for r in here | tail_rules.get(idx, set()):
+        if (idx, r) in seen and r not in tail_rules.get(idx, set()): continue
         seen.add((idx, r))
         head = sec.split(' :: ', 1)[1] if ' :: ' in sec else sec
         # An entry may name the heading ("Step 2.5") or the file-qualified form

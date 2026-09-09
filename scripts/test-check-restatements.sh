@@ -444,6 +444,60 @@ out=$(bash "$SCRIPT" "$T/n/docs/guides/ticket-standards.md" "$T/n/gate/ticket-ga
 printf '%s' "$out" | grep -qi 'no rule' \
   && ok "and says what is wrong" || bad "and says what is wrong (got: $out)"
 
+# --- review round 1 on #138's own fixes ---------------------------------------------------------
+# F3: the joined tail's rules were attributed to the FIRST line, so the coverage window was measured
+# from the wrong place and a reference whose anchor sits two lines below it read as unlisted.
+cat > "$T/gate-wrapline.md" <<'G'
+### Step 9: Something
+This section is restating rules
+5 and 6, covered just below.
+- **the rule 5 bar** anchored here
+- **the rule 6 bar** anchored here
+G
+cat > "$T/items-wrapline.md" <<'I'
+1. Rule 5's bar. <!-- anchor: "**the rule 5 bar**" :: rules 5 -->
+2. Rule 6's bar. <!-- anchor: "**the rule 6 bar**" :: rules 6 -->
+I
+mkfix "$T/r1" "$T/items-wrapline.md" "$T/gate-wrapline.md"
+out=$(bash "$SCRIPT" "$T/r1/docs/guides/ticket-standards.md" "$T/r1/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -eq 0 ] && ok "a wrapped reference is measured from the line it is ON" \
+                || bad "the joined tail is still attributed to the first line ($out)"
+
+# F5: TRAILING_PLURAL fired on any line ending with the bare word "rules", so prose followed by a
+# markdown ordered list joined into a phantom reference.
+cat > "$T/gate-list.md" <<'G'
+### Step 9: Something
+The section below lists the rules
+3. A markdown list item, not a rule reference
+G
+cat > "$T/items-list.md" <<'I'
+1. Rule 1's bar. <!-- anchor: "The section below lists" :: rules 1 -->
+I
+mkfix "$T/r2" "$T/items-list.md" "$T/gate-list.md"
+out=$(bash "$SCRIPT" "$T/r2/docs/guides/ticket-standards.md" "$T/r2/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -eq 0 ] && ok "an ordered-list item is not joined into a phantom rule reference" \
+                || bad "prose followed by a numbered list still reads as a rule reference ($out)"
+
+# F6: the multi-rule scoping error skipped the staleness check for that item, the exact cascade the
+# sibling check documents avoiding.
+cat > "$T/items-both.md" <<'I'
+1. Rule 3's bar and rule 4's judgment. <!-- anchor: "this text is not in the gate" -->
+I
+mkfix "$T/r3" "$T/items-both.md" "$T/gate-ok.md"
+out=$(bash "$SCRIPT" "$T/r3/docs/guides/ticket-standards.md" "$T/r3/gate/ticket-gate.md" 2>&1); rc=$?
+case "$out" in *"this text is not in the gate"*) ok "an unscoped multi-rule item STILL reports its stale anchor" ;;
+               *) bad "the scoping error suppressed the staleness check ($out)" ;; esac
+
+# F7: `:: rules 3 and 44` dropped 44 silently, because the check only fired when EVERY number was
+# undefined.
+cat > "$T/items-partial.md" <<'I'
+1. Rule 3's bar and rule 1's bar. <!-- anchor: "**UI E2E (rule 3):**" :: rules 3 and 44 --> <!-- anchor: "(rule 1 quality bar, the checkable half)" :: rules 1 -->
+I
+mkfix "$T/r4" "$T/items-partial.md" "$T/gate-ok.md"
+out=$(bash "$SCRIPT" "$T/r4/docs/guides/ticket-standards.md" "$T/r4/gate/ticket-gate.md" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && ok "a scope naming one undefined rule is refused, not silently narrowed" \
+                || bad "an undefined rule in a scope is dropped silently"
+
 echo ""
 echo "check-restatements tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

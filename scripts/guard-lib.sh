@@ -54,3 +54,27 @@ guard_tracked_files() {
     printf '%s\0' "$top/$rel"
   done < <(cd "$top" && git ls-files -z)
 }
+
+# component_scope <file> -> prints `user` or `project`, or the raw value if it is neither.
+#
+# FRONTMATTER ONLY. A `scope:` in the body is an example, and reading it would let a component be
+# scoped by its own documentation. Shared because three guards now ask the same question, and a
+# third copy of one rule is what #162 was about.
+component_scope() {
+  local fm scope
+  fm="$(awk 'NR==1 && $0 != "---" { exit } NR>1 { if ($0 == "---") exit; print }' "$1")"
+  scope="$(printf '%s\n' "$fm" | sed -n 's/^scope:[[:space:]]*//p' | head -1)"
+  scope="${scope%"${scope##*[![:space:]]}"}"
+  printf '%s' "${scope:-user}"
+}
+
+# guard_is_substitution <line> -> 0 when the line is the sed that REPLACES a placeholder.
+#
+# Word-anchored. An unanchored `/sed/` matched "used", "based", "parsed" and "closed", so a comment
+# on the same line as a placeholder exempted the command carrying it. Found by review, round 1.
+guard_is_substitution() {
+  case "$1" in
+    sed\ *|*[!A-Za-z0-9_]sed\ *) return 0 ;;
+  esac
+  return 1
+}

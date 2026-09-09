@@ -15,9 +15,13 @@
 # positional: a placeholder inside a FENCED CODE BLOCK is a command and is refused; one in prose,
 # including an inline code span, is documentation and is fine.
 #
-# ONE EXEMPTION, and it is the narrowest possible: a line that also contains `sed` is the
-# substitution command itself, the one command whose whole purpose is to name the placeholder. Any
-# other command mentioning it still fails.
+# ONE EXEMPTION, and it is the narrowest possible: a line whose command IS `sed`, the one command
+# whose whole purpose is to name the placeholder. Word-anchored, because an unanchored match
+# exempted any line containing "used", "based", "parsed" or "closed" (review round 1).
+#
+# A `scope: project` component is skipped entirely: it is DECLARED as needing a per-project rewrite,
+# and check-component-scope.sh offers exactly that as the remedy. Rejecting it here would make the
+# two guards contradict each other inside one CI job.
 #
 # Scanned over the marker-enforced path set, one directory deep, because that is what a component
 # IS in this repo (see the enforced path set in CLAUDE.md). Nested reference files are not
@@ -34,13 +38,23 @@ fi
 
 COMPONENT_RE='.*/plugins/[^/]+/(agents|commands)/[^/]+\.md|.*/plugins/[^/]+/skills/[^/]+/SKILL\.md'
 
+# shellcheck source=guard-lib.sh
+. "$(dirname "$0")/guard-lib.sh"
+
 status=0
+seen=0
 while IFS= read -r f; do
+  seen=$((seen + 1))
+  # A `scope: project` component is DECLARED as needing a per-project rewrite, and
+  # check-component-scope.sh offers exactly that as the remedy for a placeholder. Rejecting it here
+  # would make the two guards contradict each other inside one CI job (review round 1).
+  [ "$(component_scope "$f")" = project ] && continue
   awk -v F="${f#"$ROOT"/}" '
     /^[[:space:]]*```/ { fenced = !fenced; next }
     fenced && /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/ {
-      # The substitution command is the one legitimate live use.
-      if ($0 ~ /sed/) next
+      # The substitution command is the one legitimate live use. Word-anchored: an unanchored
+      # match exempted "used", "based", "parsed" and "closed" (review round 1).
+      if ($0 ~ /(^|[^A-Za-z0-9_])sed[[:space:]]/) next
       match($0, /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/)
       printf("%s:%d: live placeholder %s inside a command\n", F, NR, substr($0, RSTART, RLENGTH))
       hits = 1
@@ -56,6 +70,14 @@ while IFS= read -r f; do
   [ "$rc" -eq 2 ] && { status=2; continue; }
   [ "$rc" -eq 1 ] && [ "$status" -eq 0 ] && status=1
 done < <(find "$ROOT" -regextype posix-extended -regex "$COMPONENT_RE" -type f 2>/dev/null | sort)
+
+# Finding nothing is not the same as finding nothing wrong. A broken root or a COMPONENT_RE
+# regression would otherwise report success, which is the vacuous pass check-template-dir-order.sh
+# already refuses.
+if [ "$seen" -eq 0 ]; then
+  echo "check-live-placeholders: no components found under $ROOT. Nothing was checked." >&2
+  exit 2
+fi
 
 if [ "$status" -eq 1 ]; then
   echo ""

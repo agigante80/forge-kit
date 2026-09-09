@@ -105,6 +105,48 @@ M
 run
 expect "a different placeholder is caught too" 1 "$rc"
 
+echo "== review round 1: the sed exemption was an unanchored substring =="
+# `$0 ~ /sed/` matched "used", "based", "parsed", "closed". A comment on the same line as a
+# placeholder was therefore enough to exempt the command carrying it.
+mk "$T/plugins/g/agents/a.md" <<'M'
+```bash
+REPO={{GITHUB_REPO}}  # the value used at install time
+```
+M
+run
+expect "a line merely containing the letters s-e-d is not exempt" 1 "$rc"
+
+mk "$T/plugins/g/agents/a.md" <<'M'
+```bash
+sed -i "s|{{GITHUB_REPO}}|owner/repo|g" f.md
+```
+M
+run
+expect "and the real sed command still is" 0 "$rc"
+
+echo "== review round 1: a project-scoped component may carry one =="
+# check-component-scope.sh tells a maintainer to declare scope: project as the remedy. This guard
+# rejected that remedy in the same CI job, so the two contradicted each other and the scope suite
+# asserted a behaviour the pipeline refused.
+mk "$T/plugins/g/agents/a.md" <<'M'
+---
+name: a
+scope: project
+scope-reason: the repo placeholder is substituted at install time
+---
+```bash
+gh issue view 1 --repo {{GITHUB_REPO}}
+```
+M
+run
+expect "a declared project scope is honoured here too" 0 "$rc"
+
+echo "== review round 1: finding nothing must not read as success =="
+mkdir -p "$T/empty/plugins"
+rc=0; out=$(bash "$SCRIPT" "$T/empty/plugins" 2>&1) || rc=$?
+expect "zero components refuses rather than reporting clean" 2 "$rc"
+contains "no components" "$out" "and says the scan found none"
+
 echo "== usage =="
 rc=0; out=$(bash "$SCRIPT" "$T/nope" 2>&1) || rc=$?
 expect "a missing root exits 2 rather than passing" 2 "$rc"
