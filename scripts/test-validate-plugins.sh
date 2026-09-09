@@ -39,8 +39,12 @@ M
 }
 plugin() {  # plugin <group> <extra-json-fields-or-empty>
   mkdir -p "$T/tree/plugins/$1/.claude-plugin"
-  printf '{ "name": "%s", "version": "0.1.0", "description": "d"%s }\n' "$1" "${2:+, $2}" \
-    > "$T/tree/plugins/$1/.claude-plugin/plugin.json"
+  printf '{ "name": "%s", "version": "0.1.0", "description": "d", "author": { "name": "someone" }%s }\n' \
+    "$1" "${2:+, $2}" > "$T/tree/plugins/$1/.claude-plugin/plugin.json"
+}
+raw() {  # raw <group> <whole-plugin.json-body>: for the cases about the author field itself
+  mkdir -p "$T/tree/plugins/$1/.claude-plugin"
+  cat > "$T/tree/plugins/$1/.claude-plugin/plugin.json"
 }
 out=""; rc=0
 run() { out=$(cd "$T/tree" && bash "$SCRIPT" 2>&1); rc=$?; }
@@ -96,6 +100,53 @@ echo "== an empty dependencies array is fine =="
 tree; plugin forge-kit-alpha '"dependencies": []'; plugin forge-kit-beta
 run
 expect "an empty array passes" 0 "$rc"
+
+echo "== the author field is required, and its shape is the CLI's (#173) =="
+# PROBED ON 2.1.267, not read: `author` must be an OBJECT with a non-empty `name`. A bare string
+# fails with `author: Invalid input`; an empty name fails with `author.name: Author name cannot be
+# empty`; `url` is optional and accepted. Requiring it here rather than leaving it to the advisory
+# `claude plugin validate` step is the kit's standing preference for a build failure over a warning
+# nobody reads, and the warning is the thing this ticket was filed about.
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+run
+expect "an author object with a name passes" 0 "$rc"
+
+tree; plugin forge-kit-beta
+raw forge-kit-alpha <<'J'
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d" }
+J
+run
+expect "a manifest with no author fails" 1 "$rc"
+contains "forge-kit-alpha" "$out" "and names the group that is missing it"
+
+tree; plugin forge-kit-beta
+raw forge-kit-alpha <<'J'
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": "agigante80" }
+J
+run
+expect "a bare string author fails, as the CLI itself rejects it" 1 "$rc"
+contains "object" "$out" "and says the shape must be an object"
+
+tree; plugin forge-kit-beta
+raw forge-kit-alpha <<'J'
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "name": "" } }
+J
+run
+expect "an empty author name fails" 1 "$rc"
+contains "empty" "$out" "and says the name is empty rather than missing"
+
+tree; plugin forge-kit-beta
+raw forge-kit-alpha <<'J'
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "url": "https://example.invalid" } }
+J
+run
+expect "an author object with a url but no name fails" 1 "$rc"
+
+echo "== this repository's own manifests satisfy every rule above =="
+# The regression test that keeps the eight real manifests honest, and the one case that would have
+# caught the drift this ticket describes had it existed.
+out=$(cd "$ROOT" && bash "$SCRIPT" 2>&1); rc=$?
+expect "the real tree passes" 0 "$rc"
 
 echo ""
 echo "test-validate-plugins: $pass passed, $fail failed"

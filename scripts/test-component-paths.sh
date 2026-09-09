@@ -50,7 +50,9 @@ mkdir -p "$FIX/scripts" "$FIX/.claude-plugin" \
          "$FIX/plugins/g/hooks" \
          "$FIX/plugins/g/skills/s/assets/nested"
 cp "$ROOT/scripts/forge-adapt-catalogue.sh" "$ROOT/scripts/validate-plugins.sh" "$FIX/scripts/"
-printf '{ "name": "g", "version": "1.0.0", "description": "fixture" }\n' \
+# The author field is required by validate-plugins.sh since #173, and this fixture exists to
+# exercise the PATH rules, so it carries one rather than failing for an unrelated reason.
+printf '{ "name": "g", "version": "1.0.0", "description": "fixture", "author": { "name": "fixture" } }\n' \
   > "$FIX/plugins/g/.claude-plugin/plugin.json"
 printf '{ "plugins": [ { "name": "g", "source": "./plugins/g" } ] }\n' \
   > "$FIX/.claude-plugin/marketplace.json"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Structural validation for the forge-kit marketplace. Runs in CI and locally.
 # Checks (current tree, no git diff needed):
-#   1. each plugin.json is valid JSON with name + description + semver version
+#   1. each plugin.json is valid JSON with name + description + semver version + author
 #   2. marketplace.json is valid JSON and every plugin source resolves to a plugin.json
 #   3. every component (agent/command/skill/hook/shell asset) carries a <name>-version marker
 #   4. every declared `dependencies` entry is well shaped and names a plugin this marketplace has
@@ -24,6 +24,21 @@ for pj in plugins/*/.claude-plugin/plugin.json; do
   ver=$(jq -r '.version // empty' "$pj")
   if [ -z "$ver" ]; then fail "$pj: missing version"
   elif ! echo "$ver" | grep -qE "$SEMVER"; then fail "$pj: version '$ver' is not semver"; fi
+
+  # ATTRIBUTION IS REQUIRED HERE, not merely suggested by the advisory step (#173). Every group
+  # was missing it, so `claude plugin validate` printed eight warnings on every build and nobody
+  # read any of them; an advisory check that is never silent is an advisory check that is never
+  # heard. The shape is the CLI's own, probed on 2.1.267: an OBJECT with a non-empty `name`, and
+  # an optional `url`. A bare string fails there with `author: Invalid input`, so accepting one
+  # here would make this guard laxer than the thing it stands in front of.
+  atype=$(jq -r 'if has("author") then (.author | type) else "missing" end' "$pj")
+  case "$atype" in
+    missing) fail "$pj: missing author. Add {\"name\": \"<handle>\"} (a url is optional; an email address is not required and is not published here)" ;;
+    object)
+      [ -n "$(jq -r '.author.name // empty' "$pj")" ] \
+        || fail "$pj: author.name is missing or empty. An empty attribution is the same as none, and the CLI rejects it too" ;;
+    *) fail "$pj: author is a $atype; it must be an object with a name (the CLI rejects a bare string)" ;;
+  esac
 done
 
 # 2. marketplace.json integrity

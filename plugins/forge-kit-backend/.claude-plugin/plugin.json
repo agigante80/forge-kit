@@ -1,5 +1,9 @@
 {
   "name": "forge-kit-backend",
   "description": "Backend architecture and API design skills",
-  "version": "0.1.0"
+  "version": "0.1.1",
+  "author": {
+    "name": "agigante80",
+    "url": "https://github.com/agigante80"
+  }
 }
