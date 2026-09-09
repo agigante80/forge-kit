@@ -9,7 +9,60 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+## v0.2.0 (2026-09-09)
+
+Two new plugin groups, a leak guard for the moment a private repository is made public, and the
+week the guards stopped being taken at their word. The recurring lesson of this release is in the
+last group: a guard was wrong on its own first run against this tree more than once, and every
+fix in it was verified by breaking the code and watching the test fail.
+
 ### Added
+
+- **`forge-kit-roadmap`, an optional eighth plugin group** for rolling wave planning (#160). A
+  roadmap owns which PHASES exist and what state each is in; the host owns which phase each ticket
+  is in, as the milestone. Different facts, so neither duplicates the other. A phase's plan is
+  written when the phase OPENS, never for the whole roadmap at once, and a `planned` phase is a
+  bucket you may file tickets against. `check-phases.sh` enforces four rules and `sync-phases.sh`
+  reconciles the roadmap with the host's milestones. Deliberately its own group, so a project using
+  any other planning method loses nothing by not installing it. forge-kit now runs on it (`docs/roadmap.md`).
+- **A leak guard for the public-repository moment** (#155, #156, #157), shipped as the
+  `leak-guard` skill in `forge-kit-security`. The public half finds home paths BY SHAPE, `~/` roots
+  by allowlist, and email addresses, needing no secret and no configuration, so it runs in CI. The
+  private half checks an identity list held OUTSIDE the repository
+  (`~/.claude/forge-kit/private-names.txt`) and redacts its own output by default, because a scanner
+  that prints what it found is a leak with a progress bar. A machine with no list is told loudly
+  that names are not being checked rather than passing quietly.
+- **Components declare whether they belong at user level or in a project** (#164, #165), with
+  `scope: user` the default and `scope: project` requiring a `scope-reason`. **forge-adapt now
+  REGISTERS a user-scoped component instead of copying it** (#166): a registered component owns no
+  user config, so it cannot drift, duplicate or clobber, which is the copy-and-mutate path CLAUDE.md
+  blames for every hook bug in this repo's history. `drift` gained a `registered` state so a correct
+  install no longer reads as missing and invites the copy back (#167).
+- **The gate's verdict lives in the ticket body, in an addressable block** (#130, #102), rather than
+  only in a comment nobody reads back. The review stays a comment; the state does not. Every body
+  region the gate writes now has ONE lifecycle (#145), and the author sections it touches are
+  written once or not at all (#147).
+- **Step 3A's mechanical checks are a tested script** (#149), `check-ticket-mechanics.sh`, replacing
+  544 words of prose with 41 contract tests. It emits one row per check and never decides a verdict:
+  where it cannot rule mechanically it emits `referred` and the critic rules instead, because its
+  heuristics are deliberately narrower than the canonical rules. Its first run caught the bug that
+  argues for the test: the literal `N/A` matched a "contains a slash" path test.
+- **An orchestrator word budget, stated rather than left as an exemption** (#150). An agent whose
+  `tools:` declares `Agent` gets 4000/6000 instead of 2000/3000, because a coordinator carries the
+  briefs it dispatches as well as the rules it obeys. Membership is mechanical, so it cannot rot
+  into a maintained list.
+- **All round behaviour for `ticket-gate` in one table** (#103), replacing six scattered re-run
+  policies. A new step or lens needs a row. Also `check-lens-contract.sh`, which fails the build
+  when the lens result contract drifts between the two plugin groups that share it, treating a
+  MISSING marker as skew rather than agreement.
+- **`sync-labels` reaches a GitHub-only project** (#120) and gained milestone primitives in
+  `forge-lib.sh` for the roadmap group's host rules.
+- Four guards that did not exist: `check-restatements.sh` derives the doc's Precedence list
+  mechanically instead of letting it certify its own completeness (#125), and found a tenth
+  restatement on its first run; `check-producer-stamps.sh` fails any component that hardcodes a
+  `template-version` stamp, with no allowlist (#84); `check-template-dir-order.sh` keeps the six
+  copies of the template-dir order identical (#77); `check-component-scope.sh` and
+  `check-live-placeholders.sh` keep #164's declarations and #163's placeholder removal honest.
 
 - **The component inventory is generated from the tree** and CI fails on a stale region (#96).
   `README.md` and `CLAUDE.md` carry marker-delimited regions filled by
@@ -26,10 +79,10 @@ tracks the repository, so users are already served from the default branch.
   column in the generated index. A test fails if CLAUDE.md's documented numbers and the script's
   enforced numbers disagree. Framed as a smell detector, not a quality metric.
 - **`ticket-gate.md` deduplicated where it genuinely repeated** (#109, partial): 5715 to 5680
-  words. The `references/` split it also proposes stays blocked and now has its prerequisite
-  ticketed as #124. The canonical doc's restatement list gained six entries and STOPPED claiming to be
-  complete: three review rounds each found it incomplete, so it now says so and points at a
-  guard ticket instead of certifying.
+  words. The `references/` split it also proposes was blocked at the time on #124, which this
+  release also closes. The canonical doc's restatement list gained six entries and STOPPED
+  claiming to be complete: three review rounds each found it incomplete, so it said so and
+  pointed at a guard ticket instead of certifying. That guard is #125, below.
 - **The label taxonomy has an applier and a checker** (#104). `forge-host/assets/sync-labels.sh`
   syncs `.github/labels.yml` to the host or reports drift with `--check`. Host-aware, idempotent,
   and it never deletes an undeclared label. It was declarative with no applier for months: 18
@@ -86,9 +139,43 @@ tracks the repository, so users are already served from the default branch.
   block a push. Same one-time enablement: `git config core.hooksPath .githooks`.
 - **`ticket-gate.md` rules now live at the step they govern** (#109, partial). Rules went from
   17 bullets to 6 cross-cutting ones; 5794 to 5726 words, with the ratchet baseline lowered to
-  match. The `references/` split that ticket proposed is blocked by #112.
+  match. This was the first of several reductions in this release; see Changed for where the
+  number ended up, and #150 for why the number it was measured against was wrong.
 - A splitting convention for components that outgrow the budget, naming the main file as canonical
   so a split cannot restate a rule in two places.
+
+### Changed
+
+- **Work lands on `develop` and merges to `main`. There are no pull requests.** Both range guards
+  were `pull_request`-only, so the change silently left them running on no path at all; #158 moved
+  them to `push` and gave them a shared base resolver.
+- **The six live `{{GITHUB_REPO}}` uses are gone** (#163), replaced by the `forge_repo` resolution
+  those same files already used elsewhere. That install-time placeholder was the only thing pinning
+  components to one project, which is what made #166's registration possible.
+- `ticket-gate.md`'s reference artifacts moved into a companion skill and then, in the parts that
+  are read once rather than preloaded, into `references/` beneath it. 6355 words to 5778, with no
+  capability dropped.
+- `parse_roadmap` is shared between the two roadmap assets (#162), and the precedent that was
+  cited for duplicating it is recorded as not applying.
+
+### Fixed
+
+- **`overnight-guard` blocked branch switching, and blocked writing ABOUT the commands it guards**
+  (#168). Its patterns used `[^|;&]*`, which crosses newlines, so a command on one line matched a
+  fragment on another. Found by arming an overnight run against this repo's own workflow.
+- **Two guards walked the working tree instead of the tracked file set** (#140, #142), so an
+  untracked leftover failed a build CI would never see. Fixed together, through a shared helper;
+  their FALLBACKS are deliberately not shared, because the two mechanisms differ.
+- `forge-lib`'s key-based config tracking cleared a caller's own exported variable (#131).
+- `forge-adapt-agent-skills` corrupted rather than refused on symlinked agents and on mapping items
+  it did not understand (#134), which matters because a declared-but-missing companion skill fails
+  SILENTLY at runtime.
+- `check-template-dir-order` reported the wrong line for the second copy in a merged run (#143).
+- `sync-labels` test gaps and two behaviour changes left by the #121 lookup rewrite (#127).
+- `check-restatements` gained per-item rule coverage and handling for wrapped references (#138).
+- The leak guard's public half judged the first path segment only, and the segment below it is the
+  worse half of the leak (#159). Closed as working-as-intended by maintainer decision, with the
+  limit documented beside the reach statement it qualifies rather than the claim quietly narrowed.
 
 ## v0.1.0 (2026-09-06)
 
