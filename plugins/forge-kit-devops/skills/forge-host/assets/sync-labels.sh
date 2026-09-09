@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-labels-version: 8
+# sync-labels-version: 9
 # sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not.
 #
 # WHY THIS EXISTS (issue #104). forge-kit shipped a label taxonomy, documented that labels drive
@@ -91,8 +91,11 @@ declared=$(awk -v US="$US" '
   # SQ/DQ are built from character codes so this program contains no literal quote of either kind:
   # it is embedded in a single-quoted shell string, and nested quoting is where the first attempt
   # at this function went wrong.
-  BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92)
-          UNTERM = sprintf("%c", 1) "UNTERMINATED" }
+  BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+  # The unterminated-quote verdict travels in its OWN FIELD, not inside the value (#127 H7). It
+  # used to be a sentinel string returned by clean(), so a description that merely CONTAINED that
+  # byte sequence was refused. A verdict smuggled inside a value is the same in-band signalling
+  # this repo has been bitten by elsewhere; the field costs nothing and cannot collide.
   function clean(v,   i, n, ch, out, raw, closed) {
     sub(/\r$/, "", v)
     raw = v
@@ -114,7 +117,8 @@ declared=$(awk -v US="$US" '
         if (ch == DQ) { closed = 1; break }
         out = out ch
       }
-      return closed ? out : UNTERM
+      if (!closed) unterm = 1
+      return out
     }
     if (substr(v, 1, 1) == SQ) {
       # YAML doubles a single quote to escape it, so the closing quote is the first SQ NOT
@@ -126,7 +130,8 @@ declared=$(awk -v US="$US" '
           if (substr(v, i + 1, 1) == SQ) { out = out SQ; i++ } else { closed = 1; break }
         } else out = out ch
       }
-      return closed ? out : UNTERM
+      if (!closed) unterm = 1
+      return out
     }
     sub(/[[:space:]]+#.*$/, "", raw)
     v = raw; gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
@@ -134,14 +139,17 @@ declared=$(awk -v US="$US" '
   }
   /^[[:space:]]*#/ || /^[[:space:]]*\r?$/ { next }
   /^-[[:space:]]+name:/ {
-    if (seen) print n US c US d
-    v = $0; sub(/^-[[:space:]]+name:/, "", v); n = clean(v); c = ""; d = ""; seen = 1; next
+    if (seen) print n US c US d US u
+    # Reset BEFORE parsing the name of this record, so the flag describes THIS record only.
+    # (No apostrophes in here: the whole awk program is a single-quoted shell string.)
+    v = $0; sub(/^-[[:space:]]+name:/, "", v); u = 0; unterm = 0; n = clean(v)
+    c = ""; d = ""; seen = 1; u = unterm; next
   }
   /^[[:space:]]+color:/       { v = $0; sub(/^[[:space:]]+color:/, "", v); c = clean(v)
-                                sub(/^#/, "", c); next }
-  /^[[:space:]]+description:/ { v = $0; sub(/^[[:space:]]+description:/, "", v); d = clean(v); next }
+                                sub(/^#/, "", c); if (unterm) u = 1; next }
+  /^[[:space:]]+description:/ { v = $0; sub(/^[[:space:]]+description:/, "", v); d = clean(v); if (unterm) u = 1; next }
   { print "sync-labels: unparsable line " NR ": " $0 > "/dev/stderr"; bad = 1 }
-  END { if (seen) print n US c US d; if (bad) exit 3 }
+  END { if (seen) print n US c US d US u; if (bad) exit 3 }
 ' "$LABELS_FILE") || {
   echo "sync-labels: $LABELS_FILE is not in the expected shape; refusing to sync a partial set" >&2
   exit 3; }
@@ -153,11 +161,11 @@ declared=$(awk -v US="$US" '
 # discovered after the entries above it have already been created on the host.
 errs=0
 seen_names=""
-while IFS="$US" read -r name color desc; do
-  case "$name$color$desc" in
-    *$'\x01'UNTERMINATED*)
-      echo "sync-labels: an entry has an unterminated quoted value" >&2; errs=$((errs + 1)); continue ;;
-  esac
+while IFS="$US" read -r name color desc unterm; do
+  # Its own field, never a sentinel inside a value (#127 H7).
+  if [ -n "$unterm" ] && [ "$unterm" != 0 ]; then
+    echo "sync-labels: an entry has an unterminated quoted value" >&2; errs=$((errs + 1)); continue
+  fi
   # Empty-name FIRST: the duplicate pattern below is *US US*, which an empty name always matches
   # against a subject that starts with US, so checking duplicates first reported every empty name
   # as a duplicate and left this branch unreachable.
@@ -203,6 +211,11 @@ printf '%s' "$existing" | jq -e 'type == "array"' >/dev/null 2>&1 || {
 declare -A _H_COLOR _H_DESC _H_ID _H_SEEN _H_ML
 while IFS="$US" read -r _n _c _d _i _ml; do
   [ -n "$_n" ] || continue
+  # FIRST wins, which is what the pre-#121 jq `.[0]` did. The associative array kept the LAST
+  # assignment, a behaviour change inside a commit that asserted behaviour was unchanged (#127 H8).
+  # Unreachable on either host, since neither permits duplicate label names; restored because one
+  # line is cheaper than a paragraph explaining a discrepancy.
+  [ -n "${_H_SEEN[$_n]:-}" ] && continue
   _H_SEEN["$_n"]=1; _H_COLOR["$_n"]="$_c"; _H_DESC["$_n"]="$_d"; _H_ID["$_n"]="$_i"
   _H_ML["$_n"]="$_ml"
 done < <(printf '%s' "$existing" | jq -r --arg us "$US" \
@@ -224,7 +237,10 @@ norm_color() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/^#//'; }
 missing=0 drifted=0 created=0 updated=0
 report=""
 
-while IFS="$US" read -r name color desc; do
+# Reads the unterminated flag too, even though pass 1 already refused any record carrying it: the
+# record has four fields now, and a three-field read would silently append the flag to the
+# description and write it to the host.
+while IFS="$US" read -r name color desc unterm; do
   [ -n "$name" ] || continue
   if ! host_has "$name"; then
     missing=$((missing + 1)); report="${report}  missing  $name"$'\n'

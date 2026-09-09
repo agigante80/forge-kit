@@ -457,6 +457,56 @@ got=$(printf '%s' "$out" | grep -c '\[dry-run\] create label')
   && ok "forge-kit's own labels.yml parses to all $n labels" \
   || bad "forge-kit's own labels.yml parses ($got of $n, rc=$rc)"
 
+# --- #127 H6: a host label with an EMPTY name must not register a phantom entry -----------------
+# Defence in depth: neither GitHub nor Forgejo permits an empty label name. It is covered because
+# the guard survived a mutation sweep untested, and an untested guard is this repo's own defect.
+cat > "$T/labels.yml" <<'Y'
+- name: bug
+  color: "d73a4a"
+  description: Something isn't working
+Y
+host_json '[{"name":"","color":"ffffff","description":"phantom","id":9},
+            {"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working","id":1}]'
+run --check
+[ "$rc" -eq 0 ] && ok "an empty-named host label is ignored, not treated as a label" \
+                || bad "an empty-named host label reached the comparison (rc=$rc: $out)"
+printf '%s' "$out" | grep -q "''" \
+  && bad "and it is not reported as an undeclared label" \
+  || ok "and it is not reported as an undeclared label"
+
+# --- #127 H7: the UNTERMINATED sentinel was carried IN BAND ------------------------------------
+# A description containing a raw 0x01 followed by the literal text UNTERMINATED was refused with
+# exit 3, because that is what clean() returned for a genuinely unterminated quote. Theoretical (it
+# needs a control byte in hand-written YAML) and fixed anyway: a verdict smuggled inside a value is
+# the same class as the in-band signalling this repo has already been bitten by.
+printf -- '- name: bug\n  color: "d73a4a"\n  description: \001UNTERMINATED stuff\n' > "$T/labels.yml"
+host_json '[{"name":"bug","color":"d73a4a","description":"\u0001UNTERMINATED stuff","id":1}]'
+run --check
+[ "$rc" -ne 3 ] && ok "a value that merely LOOKS like the sentinel is not refused" \
+                || bad "the in-band sentinel still causes a false refusal (rc=$rc: $out)"
+
+# ...and a genuinely unterminated quote is still refused.
+printf -- '- name: bug\n  color: "d73a4a"\n  description: "never closed\n' > "$T/labels.yml"
+host_json '[]'
+run --check
+[ "$rc" -eq 3 ] && ok "a genuinely unterminated quote is still refused" \
+                || bad "an unterminated quote stopped being refused (rc=$rc)"
+
+# --- #127 H8: duplicate host label names are FIRST-wins, as before #121 -------------------------
+# Unreachable on either host, and recorded because it was a behaviour change inside a commit that
+# asserted behaviour was unchanged. Restoring it costs one line and removes the discrepancy rather
+# than documenting it.
+cat > "$T/labels.yml" <<'Y'
+- name: bug
+  color: "d73a4a"
+  description: first
+Y
+host_json '[{"name":"bug","color":"d73a4a","description":"first","id":1},
+            {"name":"bug","color":"000000","description":"second","id":2}]'
+run --check
+[ "$rc" -eq 0 ] && ok "a duplicate host label compares against the FIRST, as before #121" \
+                || bad "duplicate host labels compare against the last (rc=$rc: $out)"
+
 echo ""
 echo "sync-labels tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
