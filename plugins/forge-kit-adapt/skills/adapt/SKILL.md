@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 60 -->
+<!-- forge-adapt-version: 61 -->
 
 # forge-adapt
 
@@ -394,9 +394,14 @@ Rules for this step:
   templates to `.github/`). `templates` -> the Step 3 issue-template branch. `refresh`/`refresh
   <name>` -> refresh mode (below). "none" -> stop (offer contributions/templates modes).
 
-### Step 3: Install (adapt, then write)
+### Step 3: Install (register or adapt)
 
-For each chosen component, read the forge-kit template, rewrite it for this project, and write it.
+```bash
+"$FORGE_KIT_DIR"/scripts/forge-adapt-install-plan.sh <file> ${NO_MARKETPLACE:+--no-marketplace}
+```
+
+`register`: tell the user to enable that plugin group, write NO copy, quote its reason.
+`copy`: continue below. Exit 2: STOP and report.
 
 **Subagents / Skills / Commands:**
 1. Read the template (`$FORGE_KIT_DIR/plugins/<group>/agents|commands/<name>.md`, or
@@ -427,8 +432,7 @@ For each chosen component, read the forge-kit template, rewrite it for this proj
      marker, add one matching the catalogue version.
 3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`, plus
    its `assets/*.sh` VERBATIM to `scripts/` (uninstalled, it degrades silently); command -> `.claude/commands/<name>.md`.
-4. Replace the repo placeholder: `sed -i "s|{{GITHUB_REPO}}|$CURRENT_REPO|g" <file>`.
-5. **Dependencies the component needs installed alongside it.** Both preserve their markers, per
+4. **Dependencies the component needs installed alongside it.** Both preserve their markers, per
    the rule above.
    - **Forge-host** (ticket-gate, gate-ticket, dep-auditor, ci-health, release/release-automation),
      unless the repo is GitHub-only, in which case they fall back to `gh`: copy `forge-lib.sh` to
@@ -623,7 +627,7 @@ would clobber intentional adaptation). Steps:
    ```
 4. On `yes`: produce a MERGED file - preserve all adaptation verbatim, splice in only the missing
    forge-kit improvements, bump the local `<name>-version` marker to the catalogue value. Write it,
-   re-apply `{{GITHUB_REPO}}` if needed. **For an agent, also run Install step 5's companion-skill
+   **For an agent, also run Install step 4's companion-skill
    step**: a refresh can splice IN a `skills:` line, and skipping it fails silently. Confirm `✓ <name> refreshed v<old> → v<new> (adaptation preserved)`.
    On `no`: write nothing.
 

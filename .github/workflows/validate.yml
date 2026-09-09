@@ -221,6 +221,11 @@ jobs:
       - name: Every component's declared scope matches the tree
         run: bash scripts/check-component-scope.sh
 
+      # Issue #166: whether a component is registered or copied is a rule that decides what lands in
+      # every project, so it is a tested script rather than prose in adapt/SKILL.md.
+      - name: forge-adapt install-plan tests
+        run: bash scripts/test-forge-adapt-install-plan.sh
+
       # Issue #158: these two were `pull_request`-only, and since work stopped arriving as pull
       # requests they ran on NO path at all. They now run on both, and the base is resolved by a
       # TESTED script rather than a YAML expression, because `github.event.before` is the

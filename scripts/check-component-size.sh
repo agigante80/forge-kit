@@ -52,6 +52,12 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-09-09: adapt 7312 to 7311 (#166). The scope rule was measured as prose first: +118
+# words, tightened to about +40, with no duplication left to pay with (the one repeated shingle is
+# two shell snippets in different execution contexts, the #112 shape). Converting it to a tested
+# script instead is the #149 lever, and it SHRANK the file rather than needing a baseline nobody
+# authorised.
+#
 # LOWERED 2026-09-09: ticket-gate 5265 to 5259 (#163). Five `--repo {{GITHUB_REPO}}` uses became
 # `--repo "$REPO"`, which is word-neutral, and two prose claims about a placeholder fallback were
 # deleted because after the change there is no fallback to describe. A reduction, so the baseline
@@ -69,7 +75,7 @@ budget_for() {
 # numbers has been a reduction, and an agent must NEVER raise one on its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7312 ;;
+    adapt)       echo 7311 ;;
     ticket-gate) echo 5259 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
