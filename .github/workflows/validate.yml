@@ -64,6 +64,14 @@ jobs:
       - name: Structural validation guard tests
         run: bash scripts/test-validate-plugins.sh
 
+      # A reference reached only from ANOTHER reference may be read in part rather than whole, and
+      # nothing reports that it was (#175). Three files in this tree were already unreachable.
+      - name: Reference depth guard tests
+        run: bash scripts/test-check-reference-depth.sh
+
+      - name: Reference depth
+        run: bash scripts/check-reference-depth.sh
+
       # Anti-drift lock: the work issue-templates must all share one template-version, so
       # the ticket-gate version check stays correct across ticket types.
       - name: Template version lockstep

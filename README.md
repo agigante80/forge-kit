@@ -85,7 +85,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
 | `forge-kit-adapt` | skill | `adapt` | v63 | 7314 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
-| `forge-kit-backend` | skill | `api-design-principles` | v1 | 1470 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
+| `forge-kit-backend` | skill | `api-design-principles` | v2 | 1551 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
 | `forge-kit-backend` | skill | `architecture-patterns` | v1 | 1330 | Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven… |
 | `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |
 | `forge-kit-backend` | skill | `microservices-patterns` | v1 | 1337 | Design microservices architectures with service boundaries, event-driven communication, and resilience patterns. |
@@ -94,7 +94,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-devops` | agent | `health-check` | v4 | 1029 | Environment health check - verifies that the development environment is correctly set up on this machine. |
 | `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
 | `forge-kit-devops` | skill | `find-dead-code` | v2 | 1155 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
-| `forge-kit-devops` | skill | `forge-host` | v18 | 1319 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. |
+| `forge-kit-devops` | skill | `forge-host` | v19 | 1333 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. |
 | `forge-kit-devops` | skill | `github-to-forgejo` | v7 | 1769 | Migrate a repository from GitHub to a self-hosted Forgejo instance: push the repo, adopt the forge-host adapter, resolv… |
 | `forge-kit-devops` | skill | `release` | v5 | 1137 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v8 | 1606 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |

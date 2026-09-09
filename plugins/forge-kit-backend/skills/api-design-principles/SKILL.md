@@ -3,7 +3,7 @@ name: api-design-principles
 description: Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight developers. Use when designing new APIs, reviewing API specifications, or establishing API design standards.
 ---
 
-<!-- api-design-principles-version: 1 -->
+<!-- api-design-principles-version: 2 -->
 
 # API Design Principles
 
@@ -508,6 +508,18 @@ def create_context():
 5. **Pagination**: Use cursor-based pagination (Relay spec)
 6. **Deprecation**: Use `@deprecated` directive for gradual migration
 7. **Monitoring**: Track query complexity and execution time
+
+## Reference Material
+
+The body above is the working set. Each of these goes deeper on one thing and is read whole when
+that thing is the question:
+
+- `references/rest-best-practices.md`: URL structure, the three pagination shapes, rate limiting
+  headers, idempotency keys, CORS, caching headers, and health endpoints.
+- `references/graphql-schema-design.md`: interfaces and unions, the input/payload mutation
+  pattern, custom scalars and directives, query depth and complexity limiting, and deprecation.
+- `assets/api-design-checklist.md`: the pre-implementation checklist.
+- `assets/rest-api-template.py`: a FastAPI skeleton carrying the patterns above.
 
 ## Common Pitfalls
 

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only. Ships a thin shell adapter (forge-lib.sh) that detects the host per-repo and exposes host-agnostic forge_* operations (issues, comments, releases/tags, CI status) backed by `gh` for GitHub and `curl`+REST for Forgejo. Additive and backward-compatible: a repo with no Forgejo config behaves exactly as before. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 18 -->
+<!-- forge-host-version: 19 -->
 
 # forge-host: host-aware forge operations
 
@@ -91,7 +91,8 @@ does NOT reflect Actions (those are Checks), so the github path stays on `gh run
    declarative taxonomy nobody applies is exactly how forge-kit itself ended up with 18 labels
    declared and 4 present (issue #104).
 4. Components adopt the adapter by replacing direct `gh` calls with `forge_*`; see
-   `references/adopting-forge-lib.md` for the per-component swaps.
+   `references/adopting-forge-lib.md` for the per-component swaps, and `references/forgejo.md`
+   for the API differences that adapter accounts for (PR-versus-issue, pagination, auth header).
 
 ## Supplying the token locally
 
