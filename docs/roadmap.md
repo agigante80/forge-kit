@@ -49,17 +49,35 @@ They belong together because the fix for one is the argument for the fix for the
 a guard suite whose members disagree about what they check is worse than a smaller honest one.
 
 ## Phase: The ticket-gate size decision
-state: open
+state: done
 plan: docs/plans/ticket-gate-size.md
 
-`ticket-gate.md` is 5265 words against a 3000 ceiling and the compression lever is exhausted. This
-phase is blocked on a maintainer decision rather than on implementation, which is exactly what a
-planned phase is for: the tickets sit in the bucket until the decision is made, and the plan is
-written from the decision.
+Closed 2026-09-09, outcome **done**. Both tickets landed, #150 then #103, in the plan's order and
+for the plan's reason: #103 is pure addition and doing it first is how the phase would have ended
+with a bigger problem than it began.
 
-Research done for #150 found that the companion-skill split never reduced what the agent actually
-reads, so the metric may be measuring the wrong quantity. That is an input to the decision, not a
-substitute for it.
+The phase found that the question was wrong before it found an answer. The metric measured one file
+while an agent PRELOADS every skill it declares, so the true figure was 6355 and every option in
+#150 had been costed against a false number. The baseline was RE-DERIVED to 6355, which is not a
+raise, and then genuinely reduced to 5778: the companion's read-once artifacts moved into
+`references/`, which are not preloaded, and the round table paid for itself out of a duplicate
+pointer. No capability was dropped to reach it.
+
+The premortem was right about the shape of the danger and wrong about where it would come from. It
+warned against raising the ceiling quietly; the ceiling was raised LOUDLY, as a stated orchestrator
+number with its reason in CLAUDE.md, which is the thing the premortem asked for. What it did not
+foresee is that the number being enforced was false, so the phase's first act had to be fixing the
+measure rather than arguing about the target.
+
+Two things to carry forward. The orchestrator row is MECHANICAL (an agent whose `tools:` declares
+`Agent`), so it cannot rot into a list, and today it selects `ticket-gate` alone. And the ratchet
+outlived the ceiling: at 5778 against a 6000 ceiling the file finally has headroom, and the ratchet
+is now the only thing holding it, which is exactly the arrangement the policy intends.
+
+`ticket-gate.md` was 5265 words against a 3000 ceiling and the compression lever was exhausted. This
+phase was blocked on a maintainer decision rather than on implementation, which is exactly what a
+planned phase is for: the tickets sat in the bucket until the decision was made, and the plan was
+written from the decision.
 
 ## Phase: Install scope, user level by default
 state: done
