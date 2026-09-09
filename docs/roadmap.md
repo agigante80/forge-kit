@@ -61,8 +61,27 @@ reads, so the metric may be measuring the wrong quantity. That is an input to th
 substitute for it.
 
 ## Phase: Install scope, user level by default
-state: open
+state: done
 plan: docs/plans/install-scope.md
+
+Closed 2026-09-09, outcome **re-shaped**. All four tickets landed, and one acceptance criterion
+of #166 did not: `drift` still reports a registered component as missing. It hit the same ratchet
+that forced #166's rule into a script, so it moved to #167 rather than being squeezed in at 4am.
+That is the circuit breaker working, not a shortfall.
+
+The plan's premortem was right twice. It said the placeholder work must not become a ticket-gate
+rewrite, and #163 stayed six lines while SHRINKING the gate. It said `scope: user` must not become
+a lie, and a review round then found the scope guard and the placeholder guard contradicting each
+other inside one CI job, which is that failure arriving by a route the plan did not name.
+
+## Phase: Known gaps in shipped assets
+state: open
+plan: docs/plans/known-gaps.md
+
+Tickets filed at a review trip wire against components that already shipped. Each was reported as
+LOW or latent, fixed nowhere, and recorded so the next reader would not rediscover it. They belong
+together because they share a cause: a shipped asset whose stated behaviour is broader than what it
+actually does.
 
 The kit installs into a project by copying, and CLAUDE.md already says the opposite is better:
 plugin registration "owns no user config and so has no wiring to drift, duplicate, or clobber, and
