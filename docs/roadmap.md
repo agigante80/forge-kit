@@ -26,8 +26,19 @@ The kit governs tickets, releases and hosts, and has no shape larger than a tick
 one, as an optional plugin group so that a project using any other method loses nothing.
 
 ## Phase: Guards that do not guard
-state: open
+state: done
 plan: docs/plans/guards-that-do-not-guard.md
+
+Closed 2026-09-09, outcome **done**. All six tickets landed in the plan's order, nothing was moved
+or abandoned, and the close review found no skipped work. Every fix was verified by mutation, and
+mutation twice found a hole in a test written minutes earlier: a dropped `-H` that no case could
+see, and a scoping assertion that passed even when the scope was ignored. That is the phase's own
+"fails if" clause earning its place, not a coincidence.
+
+One thing to carry forward. `check-restatements.sh` got STRICTER (an item naming several rules must
+now scope each anchor), which the premortem named as the way this phase could go wrong. It was paid
+immediately, by scoping three items in the real list, rather than left for the next reader to meet
+as a surprise.
 
 Every ticket in this phase shares one cause: a guard that is imprecise, or absent, or checking
 something other than what it claims. #158 is the live one, and it was created BY changing the
@@ -50,7 +61,8 @@ reads, so the metric may be measuring the wrong quantity. That is an input to th
 substitute for it.
 
 ## Phase: Install scope, user level by default
-state: planned
+state: open
+plan: docs/plans/install-scope.md
 
 The kit installs into a project by copying, and CLAUDE.md already says the opposite is better:
 plugin registration "owns no user config and so has no wiring to drift, duplicate, or clobber, and
