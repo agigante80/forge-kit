@@ -9,6 +9,28 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+### Added
+
+- **`decision-brief`, a skill for the ticket that is stalled on a human rather than on work**
+  (#129). It re-gates the ticket against the CURRENT standard rather than citing a stored verdict,
+  checks the ticket's claims against the tree before presenting anything, classifies what is
+  actually being decided (including "no decision needed", which is a real outcome), costs the
+  options with measured numbers, and REWRITES the issue body behind a dated preamble rather than
+  leaving the analysis in a comment nobody opens while triaging. `check-restatements.sh` scans its
+  file, so its promise to run the gate rather than copy the gate's bars is a build failure rather
+  than a sentence.
+- `forge_issue_edit <n> <body>` in `forge-lib.sh` (v13), the library's first body write. Both hosts
+  PATCH the issue, so there is no host branch; it refuses an empty body and sends nothing under
+  `FORGE_DRY_RUN`, because it is the one call there that destroys what was already written.
+
+### Changed
+
+- **The overnight loop honours the iteration contract it was already calling** (#88). It chains
+  rounds with `--since` instead of re-reviewing the whole target every cycle, and it DEFERS on the
+  trip wire instead of deciding for the absent human: findings are ticketed, the item is parked with
+  the loop's stopping data, and the park leads the morning report. A hard stop is deliberately not a
+  defer, because the contract offers no decision there.
+
 ## v0.2.0 (2026-09-09)
 
 Two new plugin groups, a leak guard for the moment a private repository is made public, and the
