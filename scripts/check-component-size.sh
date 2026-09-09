@@ -14,6 +14,49 @@
 # times. Treat a warning as a prompt to look for duplication, never as a reason to compress prose
 # until it is dense but unclear.
 #
+# ---------------------------------------------------------------------------------------------
+# CROSS-CHECK AGAINST `claude plugin details`, AND WHY IT IS NOT THE METRIC (#170).
+#
+# The CLI reports a projected token cost per component in two columns, always-on and on-invoke,
+# which is the quantity this word count has been approximating since #97. It was probed rather
+# than adopted, and it fails the one question that matters here.
+#
+# QUESTION 1, AND THE ANSWER THAT DECIDED IT. Does it charge an agent for the companion skills it
+# PRELOADS? No. Probed on 2.1.267: a throwaway agent declaring one companion, with the companion
+# grown from 14 words to 5,000, moved the companion's own on-invoke figure from `< 20` to `~7.2k`
+# and left the declaring agent at `~40` throughout. #150 established, against the spawn path
+# itself, that every declared skill is rendered into the agent before it runs. So the two measures
+# disagree about the quantity #150 was fought over, and ours is the one that matches the verified
+# behaviour. Adopting the CLI's number would silently undo that phase.
+#
+# QUESTION 2. Stable enough to gate a build on? No. It rounds to two significant figures and has a
+# `< 20` floor, so a ratchet on it could not see a 200-word edit, and a tokenizer change under it
+# would move every number at once for reasons unrelated to this repo.
+#
+# QUESTION 3. Available without an install or a network round trip? Yes, and this was the one
+# favourable answer: `claude --plugin-dir <group> plugin details <group>` reports on a checkout
+# with nothing installed. That is what makes a periodic cross-check possible at all.
+#
+# So: KEEP the word count as the enforced metric, and keep this comparison as a note. Nothing in
+# this script reads it, which is deliberate: a cross-check that could fail a build would be an
+# adoption wearing a note's clothes, and the governance layer must not grow a hard dependency on
+# the `claude` CLI.
+#
+# MEASURED 2026-09-10 against CLI version 2.1.267, `claude --plugin-dir plugins/<group> plugin
+# details <group>` on this tree:
+#
+#   component              our words   CLI on-invoke   tokens per word
+#   adapt                       7314          ~12.7k              1.74
+#   ticket-gate (file only)     5264           ~8.4k              1.60
+#   ticket-gate-reference        514            ~650              1.26
+#   full-review                 3998           ~7.3k              1.83
+#
+# Two things to read from it. The ratio sits near 1.7, so a word budget and a token budget rank
+# components the same way, which is why the proxy has been serviceable. And ticket-gate's enforced
+# number here is 5778, the file PLUS its companion, while the CLI's is 8.4k for the file ALONE:
+# that gap is question 1, not a rounding difference. Re-measure when the divergence is worth
+# knowing again, and update the date and the version above when you do.
+# ---------------------------------------------------------------------------------------------
 # Usage: check-component-size.sh [--root DIR] [--quiet]
 #   exit 0  every component within budget, or only warnings
 #   exit 1  something exceeded the hard ceiling, or an exempt component grew past its baseline

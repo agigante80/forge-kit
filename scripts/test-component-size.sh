@@ -226,6 +226,18 @@ bash "$CHECK" --root "$FIX" >/dev/null 2>&1
                || bad "a missing resolver silently reverted to the old one-file measure"
 mv "$FIX/scripts/resolver.hidden" "$FIX/scripts/forge-adapt-agent-skills.sh"
 
+# --- #170: the recorded cross-check must stay dated, or it is an undated claim -----------------
+# The outcome of #170 was to KEEP the word count and record `claude plugin details` as a note. A
+# note nobody can date is the shape this repo keeps finding: a measurement that reads as current
+# and describes a CLI version nobody has run in a year. So the block must name a version and a
+# date, and this case is what makes deleting either of them a build failure rather than a tidy-up.
+grep -q "claude plugin details" "$CHECK" \
+  && ok "the guard records the plugin details cross-check (#170)" \
+  || bad "the guard records the plugin details cross-check (#170)"
+grep -qE "MEASURED [0-9]{4}-[0-9]{2}-[0-9]{2} against CLI version [0-9]+\.[0-9]+\.[0-9]+" "$CHECK" \
+  && ok "and dates it, naming the CLI version it was measured against" \
+  || bad "and dates it, naming the CLI version it was measured against"
+
 echo ""
 echo "component-size tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
