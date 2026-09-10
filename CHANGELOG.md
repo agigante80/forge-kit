@@ -7,7 +7,20 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
-## Unreleased
+## v0.4.0 (2026-09-10)
+
+The release where forge-kit stopped shipping other people's files. Five components here turned out
+to be, after normalising away the name and the version marker, between one and ten lines from the
+originals in `wshobson/agents`, which is where this kit's specialist agents came from. Eleven
+components and one whole plugin group are gone, each naming its replacement, and a guard now fails
+the build if another one appears.
+
+The boundary that made those retirements obvious was itself only a paragraph in a skill until this
+release. It is now checked twice: at build time by `check-neighbour-overlap.sh`, and at install time
+by forge-adapt, which knows about both neighbours rather than only superpowers. The README was
+rewritten around what the tree actually is, a governance harness for the outer loop, rather than the
+component library it started as.
+
 
 ### Added
 
