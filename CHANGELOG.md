@@ -27,6 +27,11 @@ for the absent human, and `decision-brief` is the artifact that deferral produce
   the bare clone, where nothing resolves anything. `validate-plugins.sh` checks what the CLI does
   not, because an UNRESOLVABLE dependency passes `claude plugin validate` and then installs
   silently, with no dependency line and no error.
+  **Upgrade note:** resolution happens on INSTALL, not on UPDATE. If you already had
+  `forge-kit-governance` or `forge-kit-roadmap` and you `claude plugin update` it, the group
+  reports `failed to load` until you run `claude plugin install forge-kit-devops@forge-kit` once.
+  The error names that command. Found on the maintainer's own machine within the hour, because a
+  fresh-install probe cannot see the upgrade path.
 - **Every `plugin.json` carries an `author`** (#173), so the advisory `claude plugin validate` step
   reports zero warnings instead of eight nobody read. A handle and its profile URL, no email
   address: the handle is already public in every clone URL, and an address cannot be recalled from
