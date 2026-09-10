@@ -277,8 +277,26 @@ compression problem: the splitting convention forbids relocating a step the skil
 file is mostly steps.
 
 ## Phase: The half that needs no Claude Code
-state: open
+state: done
 plan: docs/plans/the-half-that-needs-no-claude-code.md
+
+Closed 2026-09-10, outcome **done**. Both tickets landed in the plan's order, gate then document,
+and the claim is now narrower and true: the rules are portable and the mechanical checks are
+portable, and the judgement is not.
+
+**The phase paid for itself the moment the entry point could be pointed at a real ticket.** Running
+it against this repository's own issues found that EVERY one of them fails or refers every
+mechanical check, because no body carries the `template-version` marker and none uses the `###`
+headings the checker matches. That is #184, filed to the backlog rather than absorbed here: it is a
+defect in how the gate and the tree fit together, not in making the portable half usable, and
+extending a phase to swallow a new finding is the thing this method exists to refuse.
+
+The premortem's first two clauses were the live risks and neither fired. Nothing new was written
+that `check-ticket-mechanics.sh` already does, and the entry point prints no verdict, with tests
+that fail if either ever changes. Two guards fired instead, both correctly: the group-isolation
+guard on a comment naming the optional roadmap group, and the template-dir-order guard on the
+seventh copy of the resolution order, which is the documented cost of resolving a template
+directory outside the agent.
 
 Opened 2026-09-10. The kit calls itself AI-agnostic at the governance layer, and #181 had to write
 down what that actually means today: the templates, `labels.yml`, `docs/guides/ticket-standards.md`
