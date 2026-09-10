@@ -5,6 +5,7 @@
 #   2. marketplace.json is valid JSON and every plugin source resolves to a plugin.json
 #   3. every component (agent/command/skill/hook/shell asset) carries a <name>-version marker
 #   4. every declared `dependencies` entry is well shaped and names a plugin this marketplace has
+#   5. every subagent_type dispatched by a component names an agent that exists
 # Exit 1 on any violation, with every violation on stderr. This is the forge-kit analogue of
 # `claude plugin validate`, and check 4 is the half that analogue does NOT cover (see below).
 # Contract test: scripts/test-validate-plugins.sh.
@@ -119,6 +120,29 @@ for pj in plugins/*/.claude-plugin/plugin.json; do
   bad_entries=$(jq -r '[.dependencies[] | select(type != "string")] | length' "$pj")
   [ "$bad_entries" = "0" ] || fail "$pj: dependencies contains $bad_entries non-string entr(y|ies); each must be a \"plugin@marketplace\" string"
 done
+
+# 5. every dispatched agent exists (#180)
+#
+# WHY THIS IS HERE AND NOT IN A RENAME. #180 asked whether our agent names should carry a plugin
+# prefix the way every neighbouring plugin's do. The answer was no: Claude Code namespaces subagent
+# types by plugin already, so nothing collides, and renaming every agent would touch every marker
+# and every semver to buy readability in a listing most users never see.
+#
+# But the FAILURE that ticket identified is real and became live the day #178 deleted six agents: a
+# component that dispatches `subagent_type: "x"` where no agent x exists fails at RUNTIME, silently,
+# the same class as #124's undeclared companion skill. So the check ships without the rename.
+#
+# `general-purpose` is Claude Code's own built-in and is not ours to provide.
+agents=$(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/agents/[^/]+\.md$' \
+           -exec basename {} .md \; 2>/dev/null | sort -u)
+while IFS= read -r target; do
+  [ -n "$target" ] || continue
+  [ "$target" = general-purpose ] && continue
+  printf '%s\n' "$agents" | grep -qxF "$target" || {
+    where=$(grep -rlP "subagent_type[\":[:space:]=]+$target\\b" plugins/ 2>/dev/null | head -1)
+    fail "${where:-plugins/} dispatches subagent_type '$target', which no agent in this tree provides (it would fail silently at runtime)"
+  }
+done < <(grep -rhoP 'subagent_type[\":[:space:]=]+\K[a-z][a-z0-9-]*' plugins/ 2>/dev/null | sort -u)
 
 if [ "$err" -ne 0 ]; then echo ""; echo "forge-kit: plugin validation FAILED."; exit 1; fi
 echo "forge-kit: plugin validation passed."

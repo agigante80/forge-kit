@@ -142,6 +142,30 @@ J
 run
 expect "an author object with a url but no name fails" 1 "$rc"
 
+echo "== a dispatch to an agent that does not exist fails (#180) =="
+# The failure #178 made live: deleting an agent leaves any component that dispatches it broken at
+# RUNTIME, silently, which is #124's class of bug.
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+mkdir -p "$T/tree/plugins/forge-kit-alpha/agents" "$T/tree/plugins/forge-kit-alpha/commands"
+printf -- '---\nname: real-agent\ndescription: d\n---\n<!-- real-agent-version: 1 -->\n' \
+  > "$T/tree/plugins/forge-kit-alpha/agents/real-agent.md"
+printf -- '<!-- runner-version: 1 -->\nDispatch with subagent_type: "real-agent" when reviewing.\n' \
+  > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"
+run
+expect "dispatching an agent that exists passes" 0 "$rc"
+
+printf -- '<!-- runner-version: 1 -->\nDispatch with subagent_type: "ghost-agent" when reviewing.\n' \
+  > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"
+run
+expect "dispatching an agent that does not exist fails" 1 "$rc"
+contains "ghost-agent" "$out" "and names the missing agent"
+contains "silently" "$out" "and says why it matters: it fails at runtime, quietly"
+
+printf -- '<!-- runner-version: 1 -->\nDispatch with subagent_type: "general-purpose" for a search.\n' \
+  > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"
+run
+expect "general-purpose is Claude Code's own and is not ours to provide" 0 "$rc"
+
 echo "== this repository's own manifests satisfy every rule above =="
 # The regression test that keeps the eight real manifests honest, and the one case that would have
 # caught the drift this ticket describes had it existed.
