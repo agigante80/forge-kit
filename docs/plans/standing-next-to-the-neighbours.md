@@ -24,7 +24,12 @@ times without anything noticing.
 
 Then the retirements, which the guard will then be enforcing rather than proposing. Then the
 forge-adapt coexistence rows, which are the runtime half of the same rule. The naming convention
-last, because it is cosmetic next to the rest and touches every agent file.
+after that, because it is cosmetic next to the rest and touches every agent file.
+
+**The README rewrite is last, and that is a hard ordering rather than a preference.** It documents
+what the other four decide, so running it earlier means describing a boundary that is still moving.
+The README is also the least-guarded file in the repository, checked only by the leak scanner and
+two generated regions, so a wrong claim there survives longer than anywhere else.
 
 ## Fails if
 
@@ -49,14 +54,19 @@ Premortem: it is the end of this phase and it failed badly. What happened?
   collisions are components with genuinely different content on both sides. Retiring one because
   its name appears elsewhere would lose real material to a tidy table.
 - **The kit shrank and nobody could say what it gained.** The measure is not component count. If
-  the phase ends without a shorter, clearer answer to "why would I install this next to the
-  official plugins", it failed whatever the diff says.
+  the phase ends without a shorter, clearer answer to "why would I install this next to what I
+  already have", it failed whatever the diff says.
+- **The README was rewritten from the plan rather than from the tree.** It is the least-guarded
+  file here, and the three errors corrected on the day this phase opened had all been wrong for
+  months, including one introduced that same afternoon. A rewrite is the easiest place in this
+  repository to state something false and the hardest place to notice it.
 
 ## Expected work
 
-Four tickets. The guard, the retirement set with its deprecation path, the official-plugin
-coexistence rows in forge-adapt, and the agent naming convention. Any of them may end as a
-documented decision rather than a change; that is a finished outcome.
+Five tickets. The guard, the retirement set with its deprecation path, the neighbour coexistence
+rows in forge-adapt, the agent naming convention, and the README rewrite that documents the result.
+Any of the first four may end as a documented decision rather than a change; that is a finished
+outcome. The fifth cannot, because the README is wrong today whatever the others conclude.
 
 ## Out of scope
 

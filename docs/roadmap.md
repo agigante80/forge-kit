@@ -216,11 +216,17 @@ crossed it: `tdd-orchestrator` (4 lines differ from the official file, of 185),
 `backend-security-coder` (4 of 155), `pr-enhance` (6 lines of about 2,000 words),
 `architect-review` (12 of 172) and `backend-architect` (13 of 320).
 
-The counter-example is the one to protect. `full-review` shares an ancestor with the official
+The counter-example is the one to protect. `full-review` shares an ancestor with wshobson's
 `comprehensive-review` and diverged by 174 lines, and what diverged is the ITERATION CONTRACT: round
-accounting, the trip wire, bad-fix injection, none of which the official version has. That is
-outer-loop discipline added to an inner-loop tool, and it is what this kit should be doing wherever
-it touches a neighbour.
+accounting, the trip wire, bad-fix injection, none of which the original has. That is outer-loop
+discipline added to an inner-loop tool, and it is what this kit should be doing wherever it touches
+a neighbour.
+
+The attribution matters and was wrong for the first hour of this phase. `claude-code-workflows` is
+`wshobson/agents`, a community collection and the upstream these agents were forked from;
+`claude-plugins-official` is Anthropic's, and superpowers is distributed through it from
+`obra/superpowers`. All five near-duplicates are wshobson's, not Anthropic's. The phase closes with
+a README that says so, which is #181.
 
 ## Phase: Backlog
 state: backlog

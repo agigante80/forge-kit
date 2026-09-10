@@ -74,7 +74,7 @@ questions, and the fastest way to decide what you need is to ask which question 
 | Question | Answered by | For example |
 |---|---|---|
 | **How should this work be done?** | superpowers | brainstorming, writing-plans, test-driven-development, systematic-debugging, requesting-code-review, verification-before-completion |
-| **What tool does this specific task?** | the official plugins | code-review, pr-review-toolkit, claude-security, tdd-workflows, error-diagnostics, commit-commands |
+| **What tool does this specific task?** | Anthropic's official plugins, and community collections such as `wshobson/agents` | code-review, pr-review-toolkit, claude-security, code-simplifier; and from wshobson, tdd-workflows, error-diagnostics, comprehensive-review |
 | **What must be true before work starts, and after it lands?** | **forge-kit** | the ticket gate, the template lockstep, the version and semver guards, the leak guard, governed overnight runs, release enforcement, host awareness, roadmap phases |
 
 The line forge-kit holds itself to is that **superpowers owns the inner loop and forge-kit owns the
@@ -97,27 +97,40 @@ recommends **before** it ranks anything:
 A suppressed component is shown with its reason rather than hidden, and you can still install it
 after the conflict has been repeated back to you.
 
-### Where forge-kit overlaps the official plugins, stated plainly
+### Where forge-kit overlaps its neighbours, stated plainly
 
-The coexistence handling above covers superpowers and **does not yet cover Anthropic's official
-plugins**, which have grown a great deal since this kit started. Measured against the
-`claude-plugins-official` and `claude-code-workflows` marketplaces, four components here are
-substantially the same file the official plugins ship:
+The coexistence handling above covers superpowers and **does not yet cover the other two sources**.
+Measured on 2026-09-10 against both marketplaces as they are actually installed:
 
-| forge-kit component | Official plugin shipping the same thing | Lines that differ |
+- [`anthropics/claude-plugins-official`](https://github.com/anthropics/claude-plugins-official), 292
+  plugins. Superpowers itself is distributed through it, sourced from
+  [`obra/superpowers`](https://github.com/obra/superpowers).
+- [`wshobson/agents`](https://github.com/wshobson/agents), added as the `claude-code-workflows`
+  marketplace, 94 plugins. A community collection, not Anthropic's.
+
+**forge-kit's specialist agents share an ancestor with `wshobson/agents`,** and five of them have
+barely moved since:
+
+| forge-kit component | wshobson plugin shipping the same file | Lines that differ |
 |---|---|---|
 | `tdd-orchestrator` | `tdd-workflows` | 4 of 185 (the name and our version marker) |
 | `backend-security-coder` | `data-validation-suite` | 4 of 155 |
-| `architect-review` | `comprehensive-review` | 12 of 172 |
+| `pr-enhance` | `git-pr-workflows` | 6, on files of about 2,000 words |
+| `architect-review` | `framework-migration` | 12 of 172 |
 | `backend-architect` | `backend-development` | 13 of 320 |
 
-They share an upstream ancestor rather than one having copied the other, but the practical advice
-is the same: **if you have the official plugin, prefer it.** Seven more agent names appear on both
-sides (`code-reviewer`, `code-simplifier`, `tdd-orchestrator`, `test-automator`,
-`performance-engineer`, `security-auditor`, `backend-architect`); Claude Code namespaces subagent
-types by plugin, so nothing collides, but you will be carrying two of each and paying for both.
+If you have those plugins, prefer them: they are maintained by the people who wrote them. Seven
+agent names appear on more than one side (`code-reviewer`, `code-simplifier`, `tdd-orchestrator`,
+`test-automator`, `performance-engineer`, `security-auditor`, `backend-architect`). Claude Code
+namespaces subagent types by plugin, so nothing collides, but you carry two of each and pay for both.
 
-The parts of forge-kit with **no** counterpart in either neighbour are the outer loop: the ticket
+The counter-example is the one to look at, because it shows what this kit is for. `full-review`
+comes from the same ancestor as wshobson's `comprehensive-review` and has diverged by 174 lines.
+What diverged is the **iteration contract**: round accounting, the trip wire, bad-fix injection.
+Eleven references in ours, none in the original. That is outer-loop discipline added to an
+inner-loop tool.
+
+The parts of forge-kit with **no** counterpart anywhere are the rest of that outer loop: the ticket
 gate and its standard, the template lockstep, the component and plugin version guards, the leak
 guard, governed overnight work, release enforcement, host awareness across GitHub and Forgejo, and
 roadmap phases. That is the part to install first, and the part worth having.
