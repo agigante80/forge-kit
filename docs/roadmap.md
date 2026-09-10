@@ -251,8 +251,21 @@ The attribution matters and was wrong for the first hour of this phase. `claude-
 a README that says so, which is #181.
 
 ## Phase: The unit the budget defends
-state: open
+state: done
 plan: docs/plans/the-unit-the-budget-defends.md
+
+Closed 2026-09-10, outcome **done**. One ticket, and it closed the way the plan said it might: as a
+documented decision plus a reporting change rather than as a move.
+
+The classification is the whole result. Sixteen of `adapt`'s twenty fenced blocks are commands the
+skill runs and four are templates it emits; none is reference material, so the splitting convention
+forbids moving any of them and the file is the size the work is. The premortem's first clause was
+the live risk throughout, and it did not fire because the classification came first, which is the
+only reason it did not.
+
+The phase also answers a question that had been open since #97 without being asked: the budget
+counts words because the alternative units measure something this repo cannot act on. Lines are now
+REPORTED beside them, marked against Anthropic's 500-line tip, and gate nothing.
 
 Opened 2026-09-10 to work #176, which came out of the #172 ratchet raise: the thing `adapt`'s
 ratchet defends is a WORD count, a unit nobody outside this repository uses, while the file is 820
