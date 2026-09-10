@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 1
+# forge-gate-mechanics-version: 2
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -115,6 +115,18 @@ if [ -z "$TEMPLATE" ]; then
   [ -f "$TEMPLATE" ] || die "no template for type '$TYPE' at $TEMPLATE (pass --template to choose one)"
 fi
 
+# WAS THIS BODY EVER TEMPLATE-SHAPED? (#184) Two signals, and the message claims exactly what they
+# support and no more: no `template-version` marker, and no `### ` heading anywhere. A body like
+# that was written by hand rather than submitted through the form, so EVERY section check will fail
+# for one reason, and saying it seven times buries the one fact worth knowing.
+#
+# It is not a defect in the ticket and not a defect in the checks. The gate's own Step 0c
+# SYNTHESISES the missing sections and writes the enriched body back to the forge BEFORE Step 3A
+# runs, so inside a gate run the checks always see template-shaped input. This script does not
+# synthesise, deliberately: that step generates prose and needs a model.
+SHAPED=1
+if [ -z "$TPL_VER" ] && ! grep -q '^### ' "$BODY_FILE"; then SHAPED=0; fi
+
 rows=$("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" \
         ${TPL_VER:+--tpl-version "$TPL_VER"} --current-tpl-version "$CURRENT_TPL_VER" \
         --labels "$labels") || die "the checker could not read the body or the template"
@@ -122,6 +134,16 @@ rows=$("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" \
 if [ "$FORMAT" = tsv ]; then
   printf '%s\n' "$rows"
   exit 0
+fi
+
+if [ "$SHAPED" -eq 0 ]; then
+  echo "never template-shaped: issue #$NUM has no template-version marker and no '### ' headings,"
+  echo "  so it was never submitted through the issue form. Every section check below fails for"
+  echo "  that ONE reason, which is not a defect in the ticket and not a defect in the checks."
+  echo "  The full gate handles this at Step 0c: it synthesises the missing sections and writes"
+  echo "  the enriched body back before the mechanics run. This script does not synthesise,"
+  echo "  because that step generates prose and needs a model."
+  echo ""
 fi
 
 printf '%s\n' "$rows" | awk -F'\t' '{ printf "%-26s %-9s %s\n", $1, $2, $3 }'
@@ -132,7 +154,13 @@ echo ""
 echo "forge-gate-mechanics: issue #$NUM against $TEMPLATE (ticket v${TPL_VER:-none}, current v$CURRENT_TPL_VER)"
 echo "  $p pass, $f fail, $w warn, $n n/a, $r REFERRED"
 echo ""
+if [ "$SHAPED" -eq 0 ]; then
+  echo ""
+  echo "  Exit 0 despite the failures: see the note above. Re-run after the gate has synthesised"
+  echo "  this ticket, or on a ticket filed through the form, to get a meaningful result."
+fi
+echo ""
 echo "  This is Step 3A, the mechanical half, and it is not a verdict. The $r referred check(s)"
 echo "  need a human or an agent, and the whole critical review (Step 3B) has not run at all."
 echo "  The rules those checks come from are docs/guides/ticket-standards.md."
-[ "$f" -eq 0 ]
+[ "$SHAPED" -eq 0 ] || [ "$f" -eq 0 ]

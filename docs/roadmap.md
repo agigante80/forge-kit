@@ -309,6 +309,22 @@ The gap is narrower than it looks, which is why this is a phase rather than an a
 is a door between them, and one document to point another agent at. AGENTS.md exists but tells an
 agent how to CONTRIBUTE to forge-kit, which is the opposite of the question.
 
+## Phase: The gate has never run here
+state: open
+plan: docs/plans/the-gate-has-never-run-here.md
+
+Opened 2026-09-10 to work #184, whose central question was answered before the plan was written
+because only one of its two answers described work.
+
+The gate is sound: Step 0c synthesises a body and writes it back to the forge before Step 3A sees
+it, so inside a gate run the mechanics get template-shaped input and the blocking rule holds. What
+the evidence shows instead is that **the gate has never run on this repository's tickets**: not one
+of the last thirty issues carries a gate review comment, and the only bodies containing
+`template-version` contain it in prose.
+
+That makes #184 a reporting problem rather than a defect, and leaves a separate finding underneath
+it: the repository that ships a ticket gate has never gated a ticket.
+
 ## Phase: Backlog
 state: backlog
 

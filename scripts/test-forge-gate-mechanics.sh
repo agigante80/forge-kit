@@ -115,10 +115,15 @@ via=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechan
   || bad "--format tsv reproduces the checker exactly (diff: $(diff <(printf '%s' "$direct") <(printf '%s' "$via") | head -2 | tr '\n' ' '))"
 
 echo "== a failing check exits non-zero, a referred one does not =="
-proj .github/ISSUE_TEMPLATE; issue "no sections at all" feature P2 api
+# Template-shaped on purpose: since #184 a body that was never template-shaped exits 0 with an
+# explanation instead, so a hand-written fixture here would test the wrong branch.
+proj .github/ISSUE_TEMPLATE
+issue '<!-- template-version: 6 -->
+### Summary
+Shaped like a form submission, and missing everything else.' feature P2 api
 run 42
-[ "$rc" -ne 0 ] && ok "a body missing its required sections exits non-zero" \
-  || bad "a body missing its required sections exits non-zero (rc=$rc)"
+[ "$rc" -ne 0 ] && ok "a template-shaped body missing its required sections exits non-zero" \
+  || bad "a template-shaped body missing its required sections exits non-zero (rc=$rc)"
 
 proj .github/ISSUE_TEMPLATE; issue "$FULL" feature P2 api
 run 42
@@ -136,6 +141,64 @@ run 42
 [ "$rc" -ne 0 ] && ok "a project with no template directory exits non-zero" \
   || bad "a project with no template directory exits non-zero (rc=$rc)"
 contains "template" "$out" "and says what is missing"
+
+echo "== a body that was never template-shaped is reported ONCE, not as seven failures (#184) =="
+# The finding behind this: the gate's Step 0c SYNTHESISES a body and writes it back to the forge
+# before Step 3A ever sees it, so inside a gate run the checks get template-shaped input. Run
+# against a raw hand-filed ticket they all fail, and all of those failures are one fact. Saying it
+# seven times buries it.
+proj .github/ISSUE_TEMPLATE
+issue '## Summary
+Written by hand with gh issue create, so no marker and no form headings.
+## Acceptance criteria
+- it works' feature P2 api
+run 42
+contains "never template-shaped" "$out" "the report names the one fact"
+contains "0c" "$out" "and points at the step that would have fixed it"
+notice_line=$(printf '%s\n' "$out" | grep -n "never template-shaped" | head -1 | cut -d: -f1)
+first_row=$(printf '%s\n' "$out" | grep -nE '^[a-z0-9_]+ +(pass|fail|warn|na|referred) ' | head -1 | cut -d: -f1)
+[ -n "$notice_line" ] && [ -n "$first_row" ] && [ "$notice_line" -lt "$first_row" ] \
+  && ok "and the reader meets the explanation BEFORE the rows it explains" \
+  || bad "and the reader meets the explanation before the rows (notice at ${notice_line:-none}, first row at ${first_row:-none})"
+expect "and it exits 0, because the shape is not a ticket defect" 0 "$rc"
+
+echo "== the shape test needs BOTH signals, because either alone is a different situation =="
+# The plan's premortem named this: "a body could carry the headings and no marker, or the reverse.
+# If the message states more certainty than those two signals support, it will be wrong in public."
+# A mutant swapping && for || survived until these two cases existed.
+proj .github/ISSUE_TEMPLATE
+issue '### Summary
+Form headings, but the marker was stripped or the template predates markers.
+### Acceptance criteria
+- it works' feature P2 api
+run 42
+lacks "never template-shaped" "$out" "form headings with no marker is NOT called never-template-shaped"
+
+issue '<!-- template-version: 6 -->
+## Summary
+A marker, but written with two-hash headings afterwards.' feature P2 api
+run 42
+lacks "never template-shaped" "$out" "a marker with no form headings is NOT called never-template-shaped either"
+
+echo "== a template-shaped body missing ONE section still fails that section =="
+# The near-miss that keeps the notice honest: it must key on the SHAPE, not on any failure count,
+# or a gated ticket with a genuine gap would be excused by the same message.
+build_full_body
+python3 - "$T/full-body.md" <<'PY2'
+import sys, re
+lines = open(sys.argv[1]).read().split("\n")
+out, drop = [], False
+for l in lines:
+    if l.startswith("### "): drop = l.startswith("### Documentation impact")
+    if not drop: out.append(l)
+open(sys.argv[1], "w").write("\n".join(out))
+PY2
+issue "$(cat "$T/full-body.md")" feature P2 api
+run 42
+[ "$rc" -ne 0 ] && ok "a template-shaped body with a missing section still fails" \
+  || bad "a template-shaped body with a missing section still fails (rc=$rc)"
+lacks "never template-shaped" "$out" "and is NOT excused by the not-template-shaped notice"
+build_full_body
 
 echo "== a missing forge-lib.sh refuses rather than reporting clean =="
 proj .github/ISSUE_TEMPLATE; issue "$FULL" feature P2 api

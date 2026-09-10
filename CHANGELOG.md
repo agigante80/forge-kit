@@ -17,6 +17,12 @@ tracks the repository, so users are already served from the default branch.
   tests. It never prints a verdict: Step 3A is the mechanical half, every `referred` row is a check
   that could not rule, and a summary saying PASS would look like the real gate with the reading half
   skipped.
+- **`forge-gate-mechanics.sh` reports an unsynthesised body once rather than as seven failures**
+  (#184). The gate's Step 0c synthesises the missing sections and writes the enriched body back to
+  the forge BEFORE the mechanics run, so inside a gate run the checks always see template-shaped
+  input and the blocking rule holds. A raw hand-filed ticket now opens with a `never
+  template-shaped` notice and exits 0, because that shape is not a defect in the ticket. The shape
+  needs BOTH signals, no marker AND no `### ` heading, since either alone is a different situation.
 - **`docs/guides/without-claude-code.md`** (#183), the entry point for a team on another agent or
   none: the four portable artifacts, what to copy, what to run with real output, and a table of what
   is not available. `AGENTS.md` now distinguishes its two audiences rather than serving only

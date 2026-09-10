@@ -93,10 +93,14 @@ Three things to read from that, because they are the whole shape of this tool:
   `ticket-standards.md`, because a check that guessed would reject compliant tickets.
 - **It prints no verdict.** There is no PASS at the bottom, by design. This is the mechanical half
   of the gate; the reading-and-judging half has not run.
-- **That ticket really does fail.** It was filed with `gh issue create --body-file`, so its body
-  carries neither the `template-version` marker nor the `### <label>` headings that a web-form
-  submission produces. The content is all there; the machine-checkable shape is not. If your team
-  files tickets by hand, expect the same and take the `referred` rows as the useful signal.
+- **That ticket really does fail, and the tool says why once rather than seven times.** It was
+  filed with `gh issue create --body-file`, so its body carries neither the `template-version`
+  marker nor the `### <label>` headings a web-form submission produces. The run opens with a
+  `never template-shaped` notice and exits 0, because that shape is not a defect in the ticket.
+  The full gate handles it at its Step 0c by synthesising the missing sections and writing the
+  enriched body back to the forge before the checks run; this script does not synthesise, because
+  that step generates prose and needs a model. If your team files tickets by hand, expect the
+  notice, and take the `referred` rows as the useful signal.
 
 `FORGE_TOKEN` or `GH_TOKEN` is read from the environment by `forge-lib.sh`. It is never written to a
 file by any of these scripts, and you should not put it in one.
