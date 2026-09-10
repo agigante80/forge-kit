@@ -3,6 +3,28 @@
 Every implementation task runs through these in order. Reuse the existing
 components; do not reinvent them.
 
+0. **Premises (is this still true?).** Only for a cleanly-gated ready ticket, and before
+   anything else. A gate verdict says the ticket was READY when it was written; it does not
+   say the ticket is still true weeks later, and this loop exists to run without anyone to
+   ask. Check four things against the tree: does the thing described still exist; has it been
+   fixed **or partly fixed** by other work; do the files and components it names still exist;
+   do the acceptance criteria still make sense.
+   - **Use the Grep, Read and Glob TOOLS. Never `grep` through Bash.** `overnight-guard.py`
+     matches its patterns anywhere in a Bash command string, INCLUDING inside a quoted search
+     term, so searching for a ticket that quotes `git reset --hard` is denied and the denial is
+     recorded as a destructive-command deferral that never happened. The guard returns
+     immediately for any non-Bash tool, so this is not a preference: it is the only shape that
+     does not corrupt the record.
+   - **Implement or park. Nothing else.** `references/safety.md`: a ticket that needs
+     synthesis, a waiver, or a judgment call to pass is parked, not forced through. Re-scoping
+     is a judgment call, so **a partly fixed ticket parks** rather than having its surviving
+     criteria implemented. The loop never closes a ticket and never rewrites one.
+   - **A park writes twice**: the reason into `.claude/overnight/decisions.md`, and an entry in
+     the report's deferred-decisions section BELOW any trip-wire park. A trip-wire park leads
+     because there the loop did the work and needs it judged; here the loop did not do the work.
+   - **A pass is recorded in one line.** Silent choices are not allowed.
+   - `decision-brief` asks this same question with more authority: it is human-invoked and may
+     recommend closing. A parked premise is exactly what a human points it at in the morning.
 1. **Best practice (research).** Web-search the current best practice for the
    specific change (framework, security, testing idioms). Note what you found.
 2. **Project rules.** Apply CLAUDE.md and docs/coding-standards.md. Match the

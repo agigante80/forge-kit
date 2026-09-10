@@ -525,6 +525,26 @@ with tempfile.TemporaryDirectory() as td:
         check(f"armed allows: {cmd[:32]}",
               verdict(p) if p.returncode == 0 else f"exit{p.returncode}", ALLOW)
 
+    # #186: THE SEARCH TERM IS A THIRD FACE OF #168's RESIDUAL LIMIT, and the reason the
+    # overnight premise check is specified as the Grep and Read TOOLS rather than as shell greps.
+    # The patterns match anywhere in a Bash command string, including inside a quoted search term,
+    # so READING the tree for a ticket that quotes a destructive command is denied, and the denial
+    # is recorded as a destructive-command deferral that never happened. The guard returns
+    # immediately for any non-Bash tool, which is what makes the tool choice safe rather than
+    # merely tidy.
+    searched = 'grep -rn "git reset --hard" docs/'
+    p = run(bash(searched), hook=GUARD, project_dir=armed, cwd=str(armed))
+    check("armed DENIES a read-only grep quoting a destructive command (the limit)",
+          verdict(p) if p.returncode == 0 else f"exit{p.returncode}", DENY)
+    p = run({"tool_name": "Grep", "tool_input": {"pattern": "git reset --hard", "path": "docs/"}},
+            hook=GUARD, project_dir=armed, cwd=str(armed))
+    check("armed allows the SAME search through the Grep tool (the escape)",
+          verdict(p) if p.returncode == 0 else f"exit{p.returncode}", ALLOW)
+    p = run({"tool_name": "Read", "tool_input": {"file_path": "docs/roadmap.md"}},
+            hook=GUARD, project_dir=armed, cwd=str(armed))
+    check("armed allows a Read of a file whose content it cannot see",
+          verdict(p) if p.returncode == 0 else f"exit{p.returncode}", ALLOW)
+
     # Dormant when disarmed: even a destructive command is allowed.
     p = run(bash("rm -rf /"), hook=GUARD, project_dir=disarmed, cwd=str(disarmed))
     check("disarmed allows destructive", verdict(p), ALLOW)
