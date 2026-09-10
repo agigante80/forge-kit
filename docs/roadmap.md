@@ -310,8 +310,23 @@ is a door between them, and one document to point another agent at. AGENTS.md ex
 agent how to CONTRIBUTE to forge-kit, which is the opposite of the question.
 
 ## Phase: The gate has never run here
-state: open
+state: done
 plan: docs/plans/the-gate-has-never-run-here.md
+
+Closed 2026-09-10, outcome **done**. One ticket, plus the decision the finding forced.
+
+The answer was the reassuring branch: Step 0c synthesises a body and writes it back to the forge
+before Step 3A sees it, so the blocking rule holds inside a gate run and #184 was a reporting
+problem rather than a defect. The premortem's second clause then fired on the fix: a mutant swapping
+`&&` for `||` in the shape test survived until cases existed for a body with headings and no marker,
+and a marker with no headings. Claiming more than two signals support is exactly what that clause
+warned about.
+
+**The finding underneath became a workflow decision.** This repository ships a ticket gate and had
+never gated a ticket. From 2026-09-10 every NEW ticket is gated before implementation; the closed
+backlog is not retro-gated, because Step 0c would rewrite the bodies of work already shipped. That
+makes the gate's auto-upgrade path something this repo will actually exercise rather than only
+document, which is the same correction #104 made for the label taxonomy.
 
 Opened 2026-09-10 to work #184, whose central question was answered before the plan was written
 because only one of its two answers described work.
