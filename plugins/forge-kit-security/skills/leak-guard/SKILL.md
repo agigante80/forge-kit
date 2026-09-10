@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 4 -->
+<!-- leak-guard-version: 5 -->
 
 # Leak guard
 
@@ -17,6 +17,32 @@ a `ps` line, a test failure. Each carries a working directory, and under a home 
 is not neutral. The username identifies a person, and **the segments above the project are worse**,
 because a path can name an employer, a client, a filing scheme, or a category its owner considers
 private. The project name at the end is the only part anyone meant to publish.
+
+## What this does not reach, and what to run beside it
+
+**Neither half looks at history.** Both enumerate the working tree, the index, or two endpoints of a
+range. A path, a name or an address committed once and removed later stays readable forever in a
+public repository, and nothing here will say so. That is the going-public moment this skill is named
+for, so the limit is stated first rather than last.
+
+**Neither half reads a commit message, a branch name or a tag.** A repository's object store holds
+far more than file contents, and a leak in a commit subject is unreached by both.
+
+**Neither half hunts credentials.** This is about the developer's identity: home paths, personal
+directory names, reachable addresses. An API key or a token is a different subject with a different
+false-positive profile.
+
+So for a repository about to go public, run a history-aware secret scanner as well:
+
+```bash
+gitleaks git .     # full history
+gitleaks dir .     # the working tree
+# every env-style file ever committed, including ones deleted since
+git log --all --diff-filter=A --name-only --format= -- '*.env' '*.env.*' | sort -u
+```
+
+Running both is the answer. Neither covers the other, and a guard that implied otherwise would be
+worse than a narrow one that admits it.
 
 ## Two halves, split by whether the check needs a secret
 

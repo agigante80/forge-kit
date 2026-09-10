@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 5
+# check-public-leaks-version: 6
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -15,6 +15,26 @@
 # scrub. NOTHING PUBLIC CATCHES A BARE PROJECT NAME: that needs the list, the list cannot live in
 # the repository it protects, and so it lives outside it and is checked by the private half. A
 # guard that overstates its reach is worse than a narrow one that admits it.
+#
+# IT NEVER LOOKS AT HISTORY, AND THAT IS THE LIMIT MOST LIKELY TO MATTER (#185). `--all` enumerates
+# `git ls-files`: tracked files in the WORKING TREE. `--staged` reads the index. `--range` looks like
+# it reaches history and reaches it least: it enumerates `git diff --name-only --diff-filter=ACM`
+# between two endpoints and then reads each file as `git show "HEAD:$f"`, so a file added AND deleted
+# inside the range is excluded at both ends and would be skipped even if listed.
+#
+# So a home path committed in one commit and removed in the next is invisible here, in the public
+# repository where it stays readable forever. That is exactly the going-public moment this component
+# was written for, which is why the omission is worth more words than the rules themselves.
+#
+# The object store holds more than file contents: on this repository, 1,639 blobs against 527 commit
+# objects. A history scan that read blobs alone would still miss every leak in a COMMIT MESSAGE, so
+# "reads history" is a claim with two halves and this scanner makes neither.
+#
+# USE A HISTORY-AWARE SCANNER FOR THAT CASE. `gitleaks git .` walks the full history, and
+# `git log --all --diff-filter=A --name-only --format= -- '*.env' '*.env.*'` lists every env-style
+# file ever committed including later-deleted ones. Neither is this component's job: gitleaks hunts
+# CREDENTIALS and this hunts the developer's IDENTITY, which is a different subject with a different
+# false-positive profile. Running both is the answer, and pretending either covers the other is not.
 #
 # AND BOTH PATH RULES JUDGE THE FIRST SEGMENT ONLY. Rule A asks who "/home/<name>/" belongs to and
 # rule B asks whether "~/<root>" may be shown; NEITHER looks below that. So a private directory name

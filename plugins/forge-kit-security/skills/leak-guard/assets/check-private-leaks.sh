@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 6
+# check-private-leaks-version: 7
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -7,6 +7,28 @@
 # anything about you; this one cannot, because deciding that a name is private requires knowing
 # that it is (forge-kit issue #99, split as #156). The first line above is deliberately one whole
 # sentence: the component index renders it verbatim.
+#
+# HONEST STATEMENT OF REACH. This header carried none until #185, which is its own small lesson:
+# the public half states four limits carefully and this one stated nothing, so a reader comparing
+# them would reasonably infer this half had none.
+#
+# IT NEVER LOOKS AT HISTORY. `--all` enumerates tracked files in the WORKING TREE, `--staged` reads
+# the index, and `--range` enumerates two endpoints and reads each file at HEAD, so a name added and
+# removed inside the range is invisible at both ends. A private folder name committed once and
+# deleted later stays readable forever in a public repository and this scanner will never say so.
+# That matters more here than for the public half: a NAME is exactly the thing someone scrubs from
+# the tree and forgets in the history.
+#
+# IT SEES ONLY FILE CONTENT, never a commit message, a branch name or a tag. On this repository the
+# object store holds 527 commit objects, and a private name in any of their messages is unreached.
+#
+# IT MATCHES LITERAL NAMES, not shapes. A name shortened, hyphenated differently, or embedded in a
+# larger word is a different string and is not found. That is the price of the list being exact, and
+# the alternative, matching loosely on names this short, would fire on ordinary prose.
+#
+# For the going-public case, run a history-aware scanner as well. `gitleaks git .` walks the whole
+# history, though it hunts CREDENTIALS rather than identity, so it is a companion and not a
+# substitute.
 #
 #   check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [--show-names] [paths...]
 #
