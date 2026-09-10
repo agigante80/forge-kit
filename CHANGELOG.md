@@ -7,6 +7,30 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
+## Unreleased
+
+### Added
+
+- **The README names the plugin groups and how to install one.** A generated `plugin-catalogue`
+  region gives one row per group: its semver, a copy-pasteable `claude plugin install` command, and
+  the group's own description. Until now the install command for a group existed nowhere in the
+  docs, so finding one meant reading `plugin.json`.
+
+### Fixed
+
+- **The README's headline described the pre-#166 install model.** "Rewritten for your stack, not
+  copy-pasted" holds only for a bare-clone install or a `scope: project` component, and there are
+  none: with a marketplace present, every user-scoped component is REGISTERED. The pitch, the
+  four-step summary and the worked example now say what actually happens.
+- **"Keeping up to date" promised an auto-update that does not exist**, which was the half of #172
+  documented in `adapt/SKILL.md` and never in the README. It now states that registration tracks
+  the repository but pulls nothing, names both commands, and carries the dependency upgrade note.
+- Smaller README corrections: the gate example cited template v5 (v6 today), the contributions
+  section used forge-adapt v1 phase numbers, and the labels row did not mention that
+  `sync-labels.sh` is what puts the taxonomy on the host.
+- `forge-kit-roadmap`'s manifest described itself as self-contained while depending on
+  `forge-kit-devops`.
+
 ## v0.3.0 (2026-09-10)
 
 The release where the kit measured itself against the tooling Claude Code now ships, and mostly
