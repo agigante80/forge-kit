@@ -191,6 +191,8 @@ Four artifacts here are portable, and they are the ones that carry the rules:
 | The shell assets | Ten of them, bash 3.2 compatible with no package manager, so they run in any CI |
 
 Copy those into your project and any AI, or none, can work to the same standard.
+**[docs/guides/without-claude-code.md](docs/guides/without-claude-code.md) is the entry point**: what
+to copy, what you can run, real output from the mechanical gate, and what you do not get.
 
 **Be clear about what you do not get.** Nothing enforces any of it for you. The gate, the hooks, the
 size budget and the drift detection are Claude Code components, and there is no adapter for another

@@ -7,6 +7,21 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
+## Unreleased
+
+### Added
+
+- **The mechanical half of the ticket gate runs without Claude Code** (#182).
+  `forge-gate-mechanics.sh` fetches an issue through `forge-lib.sh` on either host, resolves the
+  template directory, and hands both to `check-ticket-mechanics.sh`, which already had 41 contract
+  tests. It never prints a verdict: Step 3A is the mechanical half, every `referred` row is a check
+  that could not rule, and a summary saying PASS would look like the real gate with the reading half
+  skipped.
+- **`docs/guides/without-claude-code.md`** (#183), the entry point for a team on another agent or
+  none: the four portable artifacts, what to copy, what to run with real output, and a table of what
+  is not available. `AGENTS.md` now distinguishes its two audiences rather than serving only
+  contributors.
+
 ## v0.4.0 (2026-09-10)
 
 The release where forge-kit stopped shipping other people's files. Five components here turned out
