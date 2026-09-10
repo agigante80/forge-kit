@@ -201,6 +201,27 @@ The question each ticket here answers is the same one: is our hand-rolled versio
 place, or is it now duplication with a guard on top? Neither answer is assumed. Some of ours is
 stricter (a build failure, not a tag-time check) and some of it is simply older.
 
+## Phase: Standing next to the neighbours
+state: open
+plan: docs/plans/standing-next-to-the-neighbours.md
+
+Opened 2026-09-10 after measuring this tree against the two installed official marketplaces and
+superpowers. The kit's stated reason for existing is to complement them, and decision #69 draws the
+line: superpowers owns the inner loop, forge-kit the outer.
+
+That line is prose in a skill. Meanwhile `check-group-isolation.sh` fails the build if anything
+outside the roadmap group so much as names it, to keep one optional group optional. The claim that
+defines the project is the least enforced thing in the repository, and five components have already
+crossed it: `tdd-orchestrator` (4 lines differ from the official file, of 185),
+`backend-security-coder` (4 of 155), `pr-enhance` (6 lines of about 2,000 words),
+`architect-review` (12 of 172) and `backend-architect` (13 of 320).
+
+The counter-example is the one to protect. `full-review` shares an ancestor with the official
+`comprehensive-review` and diverged by 174 lines, and what diverged is the ITERATION CONTRACT: round
+accounting, the trip wire, bad-fix injection, none of which the official version has. That is
+outer-loop discipline added to an inner-loop tool, and it is what this kit should be doing wherever
+it touches a neighbour.
+
 ## Phase: Backlog
 state: backlog
 
