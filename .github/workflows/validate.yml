@@ -72,6 +72,14 @@ jobs:
       - name: Reference depth
         run: bash scripts/check-reference-depth.sh
 
+      # The boundary that defines this project was prose in a skill until #177, while a guard
+      # existed to keep one optional plugin group optional. Five components had crossed it.
+      - name: Neighbour overlap guard tests
+        run: bash scripts/test-check-neighbour-overlap.sh
+
+      - name: Neighbour overlap
+        run: bash scripts/check-neighbour-overlap.sh
+
       # Anti-drift lock: the work issue-templates must all share one template-version, so
       # the ticket-gate version check stays correct across ticket types.
       - name: Template version lockstep

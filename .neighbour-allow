@@ -1,0 +1,13 @@
+# Components that share a file with a neighbouring marketplace and stay anyway.
+#
+# Format: <component name> :: <reason>
+# An entry with no reason refuses the whole run. A licence nobody can explain is how a temporary
+# exemption becomes permanent, which is the shape check-restatements.sh already refuses.
+#
+# Regenerate the evidence with: bash scripts/neighbour-manifest.sh --refresh
+
+architect-review :: Dispatched by /full-review as subagent_type "architect-review". Retiring it breaks the one component this phase exists to protect, and pointing the dispatch at a neighbour's agent would be a runtime dependency on a plugin we do not ship, failing silently when it is absent (#124's class of bug). Reviewed 2026-09-10 (#177).
+backend-architect :: Pending retirement in #178.
+backend-security-coder :: Pending retirement in #178.
+tdd-orchestrator :: Pending retirement in #178.
+pr-enhance :: Pending retirement in #178.
