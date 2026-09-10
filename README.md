@@ -43,14 +43,13 @@ and at which version, and `claude plugin uninstall <group>@forge-kit` reverses a
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.6.2 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-backend` | 0.2.0 | `claude plugin install forge-kit-backend@forge-kit` | Backend architecture and API design skills |
-| `forge-kit-devops` | 0.12.0 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
+| `forge-kit-adapt` | 0.6.3 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-devops` | 0.12.1 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.13.0 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
-| `forge-kit-review` | 0.3.5 | `claude plugin install forge-kit-review@forge-kit` | Code review agents (code-reviewer, architect-review, backend-architect, code-simplifier, coding-standards-auditor) and full-review/pr-enhance commands. |
+| `forge-kit-review` | 0.4.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.8.2 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
-| `forge-kit-security` | 0.7.6 | `claude plugin install forge-kit-security@forge-kit` | Security agents (security-auditor, backend-security-coder, api-security-tester), the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
-| `forge-kit-testing` | 0.2.3 | `claude plugin install forge-kit-testing@forge-kit` | Testing agents (tdd-orchestrator, test-automator, performance-engineer) plus the mutation-sweep skill |
+| `forge-kit-security` | 0.8.0 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
+| `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
 
 **A group installed at user level is available everywhere and inert until a project asks for it.**
@@ -88,7 +87,6 @@ recommends **before** it ranks anything:
 
 | forge-kit component | What forge-adapt does when superpowers is installed |
 |---|---|
-| `tdd-orchestrator` | Not recommended. The superpowers TDD skill owns this. |
 | `code-simplifier` | Not recommended by default; installed only if you ask, with a note that its proactive edits sit outside the review loop's bad-fix accounting |
 | `closing-sessions` | Recommended, with the split stated: project memory is the shareable canon, the private journal is the personal layer |
 | review agents | Recommended, with a note preferring the superpowers dispatch shape: a fresh subagent with crafted context, never session history |
@@ -108,21 +106,25 @@ Measured on 2026-09-10 against both marketplaces as they are actually installed:
 - [`wshobson/agents`](https://github.com/wshobson/agents), added as the `claude-code-workflows`
   marketplace, 94 plugins. A community collection, not Anthropic's.
 
-**forge-kit's specialist agents share an ancestor with `wshobson/agents`,** and five of them have
-barely moved since:
+**forge-kit's specialist agents share an ancestor with `wshobson/agents`.** Five of them had barely
+moved since, and #178 retired them rather than maintaining a fork nobody had changed:
 
-| forge-kit component | wshobson plugin shipping the same file | Lines that differ |
-|---|---|---|
-| `tdd-orchestrator` | `tdd-workflows` | 4 of 185 (the name and our version marker) |
-| `backend-security-coder` | `data-validation-suite` | 4 of 155 |
-| `pr-enhance` | `git-pr-workflows` | 6, on files of about 2,000 words |
-| `architect-review` | `framework-migration` | 12 of 172 |
-| `backend-architect` | `backend-development` | 13 of 320 |
+| Retired from forge-kit | Install this instead |
+|---|---|
+| `tdd-orchestrator`, `test-automator`, `performance-engineer` | `tdd-workflows@claude-code-workflows`, `performance-testing-review@claude-code-workflows` |
+| `backend-architect` | `backend-development@claude-code-workflows` |
+| `backend-security-coder` | `data-validation-suite@claude-code-workflows` |
+| `/pr-enhance` | `comprehensive-review@claude-code-workflows` |
+| the whole `forge-kit-backend` group (5 skills) | `backend-development@claude-code-workflows` |
 
-If you have those plugins, prefer them: they are maintained by the people who wrote them. Seven
-agent names appear on more than one side (`code-reviewer`, `code-simplifier`, `tdd-orchestrator`,
-`test-automator`, `performance-engineer`, `security-auditor`, `backend-architect`). Claude Code
-namespaces subagent types by plugin, so nothing collides, but you carry two of each and pay for both.
+One duplicate stays, and `.neighbour-allow` records why: `architect-review` is dispatched by name
+from `/full-review`, and pointing that at a plugin we do not ship would fail silently when it is
+absent.
+
+What remains that shares a NAME with a neighbour is six collisions, where two projects picked the
+same obvious name and the files are 103 to 529 lines apart. Claude Code namespaces subagent types
+by plugin, so nothing collides in practice. `scripts/check-neighbour-overlap.sh` now fails the
+build on a duplicate and reports a collision, so this table cannot rot back.
 
 The counter-example is the one to look at, because it shows what this kit is for. `full-review`
 comes from the same ancestor as wshobson's `comprehensive-review` and has diverged by 174 lines.
@@ -205,16 +207,11 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 <!-- component-index:start -->
 <!-- Generated by scripts/update-component-index.py from the plugins/ tree. Do not hand-edit: run the script. CI fails on a stale region. -->
 
-**53 components across 8 plugin groups:** 14 agents, 5 commands, 20 skills, 4 hooks, 10 shell assets.
+**42 components across 7 plugin groups:** 9 agents, 4 commands, 15 skills, 4 hooks, 10 shell assets.
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v63 | 7314 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
-| `forge-kit-backend` | skill | `api-design-principles` | v2 | 1551 | Master REST and GraphQL API design principles to build intuitive, scalable, and maintainable APIs that delight develope… |
-| `forge-kit-backend` | skill | `architecture-patterns` | v1 | 1330 | Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven… |
-| `forge-kit-backend` | skill | `cqrs-implementation` | v1 | 1411 | Implement Command Query Responsibility Segregation for scalable architectures. |
-| `forge-kit-backend` | skill | `microservices-patterns` | v1 | 1337 | Design microservices architectures with service boundaries, event-driven communication, and resilience patterns. |
-| `forge-kit-backend` | skill | `saga-orchestration` | v1 | 1216 | Implement saga patterns for distributed transactions and cross-aggregate workflows. |
+| `forge-kit-adapt` | skill | `adapt` | v64 | 7300 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-devops` | agent | `dep-auditor` | v10 | 1321 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
 | `forge-kit-devops` | agent | `health-check` | v5 | 1008 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
 | `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
@@ -238,29 +235,23 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 | `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |
 | `forge-kit-governance` | hook | `overnight-guard` | v4 |  | PreToolUse Bash guard for an armed working-overnight run. |
 | `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v4 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
-| `forge-kit-review` | agent | `architect-review` | v1 | 1047 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
-| `forge-kit-review` | agent | `backend-architect` | v1 | 2232 | Expert backend architect specializing in scalable API design, microservices architecture, and distributed systems. |
-| `forge-kit-review` | agent | `code-reviewer` | v11 | 1588 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
+| `forge-kit-review` | agent | `architect-review` | v2 | 1034 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
+| `forge-kit-review` | agent | `code-reviewer` | v12 | 1596 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v2 | 426 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
 | `forge-kit-review` | agent | `coding-standards-auditor` | v3 | 1285 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
 | `forge-kit-review` | command | `full-review` | v10 | 3998 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
-| `forge-kit-review` | command | `pr-enhance` | v1 | 2015 | You are a PR optimization expert specializing in creating high-quality pull requests that facilitate efficient code rev… |
 | `forge-kit-roadmap` | command | `phase` | v1 | 792 | Work the roadmap. |
 | `forge-kit-roadmap` | skill | `roadmap-phases` | v3 | 1536 | Rolling wave planning made mechanical. |
 | `forge-kit-roadmap` | shell asset | `check-phases` | v4 |  | The roadmap-phases guard: four rules that make rolling wave planning mechanical. |
 | `forge-kit-roadmap` | shell asset | `roadmap-lib` | v1 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v4 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
 | `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
-| `forge-kit-security` | agent | `backend-security-coder` | v1 | 1148 | Expert in secure backend coding practices specializing in input validation, authentication, and API security. |
 | `forge-kit-security` | agent | `security-auditor` | v5 | 1313 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
 | `forge-kit-security` | skill | `leak-guard` | v4 | 1531 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v2 | 764 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
 | `forge-kit-security` | shell asset | `check-private-leaks` | v6 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
 | `forge-kit-security` | shell asset | `check-public-leaks` | v5 |  | The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses. |
-| `forge-kit-testing` | agent | `performance-engineer` | v1 | 313 | Profile and optimize application performance including response times, memory usage, query efficiency, and scalability. |
-| `forge-kit-testing` | agent | `tdd-orchestrator` | v1 | 1261 | Master TDD orchestrator specializing in red-green-refactor discipline, multi-agent workflow coordination, and comprehen… |
-| `forge-kit-testing` | agent | `test-automator` | v3 | 368 | Create comprehensive test suites including unit, integration, and E2E tests. |
 | `forge-kit-testing` | skill | `mutation-sweep` | v3 | 757 | Adopt and adapt mutation testing for this project, whatever the stack. |
 <!-- component-index:end -->
 
@@ -275,7 +266,6 @@ that is not generated.
 | Before writing code for a ticket | `/gate-ticket <N>` | A ticket that fails the gate costs a rewrite; one that passes carries its own GWT scenarios and test specs. |
 | While implementing | `code-reviewer` | The per-task reviewer, under the bounded iteration contract. Not `/full-review`. |
 | Before merging, or periodically | `/full-review` | Multi-lens audit (architecture, security, performance, testing, standards). Findings enter the bounded loop or become tickets. |
-| Opening the PR | `/pr-enhance` | Description, scope review, checklist. |
 | When CI is red | `/ci-health` | Files P0 tickets for failures and auto-fixes the safe classes. |
 | Periodically | "audit dependencies", "health check" | `dep-auditor` and `health-check` are agents, not slash commands: mention them in conversation. |
 | Before a session ends | `closing-sessions` | Persists durable facts and resume state; without it the next session starts cold. |

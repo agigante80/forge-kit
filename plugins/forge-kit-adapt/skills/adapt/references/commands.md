@@ -8,8 +8,9 @@ entry points that delegate to agents, so recommend the command alongside the age
 |---|---|---|---|---|
 | Uses GitHub issues for work intake | `/gate-ticket` | governance | run the readiness gate on an issue | `ticket-gate` |
 | Pre-merge / release / periodic audits | `/full-review` | review | multi-lens audit; per-task uses code-reviewer | review agents |
-| Pull-request workflow | `/pr-enhance` | review | generate PR description + checklist | (none) |
 | `.github/workflows/` present | `/ci-health` | devops | scan CI, ticket failures, auto-fix safe | `ticket-gate` |
 
 Recommend `/gate-ticket` whenever `ticket-gate` is recommended: they are a pair. `/ci-health`
 only when GitHub Actions workflows actually exist.
+
+**Retired in #178**: `/pr-enhance`. The original is `comprehensive-review@claude-code-workflows`.

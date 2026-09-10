@@ -194,6 +194,11 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-09-10: adapt 7314 to 7300 (#178). The retirement removed five rows from its
+# recommendation tables and the tdd-orchestrator coexistence row, and the file came back to exactly
+# the number it was raised from. The raise below stands as history rather than as headroom: this
+# gives back the 14 words it borrowed.
+#
 # RAISED 2026-09-10, THE SECOND RAISE EVER, BY MAINTAINER DECISION: adapt 7300 to 7314 (#172).
 # The drift report needed one line naming the marketplace staleness check, and there was nothing
 # left to pay with: #157, #166 and #167 each searched this file for duplication and each funded
@@ -256,7 +261,7 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7314 ;;
+    adapt)       echo 7300 ;;
     ticket-gate) echo 5709 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;

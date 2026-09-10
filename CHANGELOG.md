@@ -11,10 +11,33 @@ tracks the repository, so users are already served from the default branch.
 
 ### Added
 
+- **`scripts/check-neighbour-overlap.sh`**, which fails the build when a component here is the same
+  file a neighbouring marketplace ships (#177). A DUPLICATE fails; a COLLISION, the same name with
+  different content, is reported and never fails, because `code-reviewer` is a name anyone would
+  pick. The threshold is measured rather than chosen: duplicates differ by 1 to 10 lines and the
+  nearest genuine divergence is 103. Evidence lives in `docs/neighbours.tsv`, refreshed by
+  `scripts/neighbour-manifest.sh --refresh`; the guard reads only the checked-in file, so CI needs
+  no plugins installed.
 - **The README names the plugin groups and how to install one.** A generated `plugin-catalogue`
   region gives one row per group: its semver, a copy-pasteable `claude plugin install` command, and
   the group's own description. Until now the install command for a group existed nowhere in the
   docs, so finding one meant reading `plugin.json`.
+
+### Removed
+
+- **Eleven components retired, and one whole plugin group** (#178), because each was the same file
+  `wshobson/agents` ships and forge-kit had not changed it. `forge-kit-backend` is gone entirely
+  (`api-design-principles`, `architecture-patterns`, `cqrs-implementation`,
+  `microservices-patterns`, `saga-orchestration`); so are `tdd-orchestrator`, `test-automator`,
+  `performance-engineer`, `backend-architect`, `backend-security-coder` and `/pr-enhance`. Every
+  one names its replacement, all of them in `claude-code-workflows`. There is no deprecation field
+  to use: probed on 2.1.267, both `deprecated` and `supersededBy` are unknown fields that Claude
+  Code ignores at load time and that our own zero-warning rule would then break, so the mechanism
+  is this entry, the group descriptions, and forge-adapt.
+- `architect-review` STAYS, allowlisted with its reason: `/full-review` dispatches it by name, and
+  pointing that at a plugin we do not ship would fail silently when it is absent.
+- `mutation-sweep` survives its group-mates. It has no counterpart anywhere and is a quality gate
+  rather than a way of working.
 
 ### Fixed
 

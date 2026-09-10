@@ -1,7 +1,7 @@
 {
   "name": "forge-kit-testing",
-  "description": "Testing agents (tdd-orchestrator, test-automator, performance-engineer) plus the mutation-sweep skill",
-  "version": "0.2.3",
+  "description": "mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships the originals.",
+  "version": "0.3.0",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"

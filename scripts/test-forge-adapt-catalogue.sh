@@ -32,7 +32,10 @@ printf '%s\n' "$out" | grep -qP '^subagent: ticket-gate \| v[0-9]+' \
   && ok "a known agent appears with its marker (ticket-gate)" \
   || bad "a known agent appears with its marker"
 
-printf '%s\n' "$out" | grep -qP '^skill: api-design-principles \| v[0-9]+' \
+# owasp-api-security rather than api-design-principles: the latter was retired with the whole
+# forge-kit-backend group in #178, and a test pinned to a component that no longer exists tells you
+# nothing about the catalogue.
+printf '%s\n' "$out" | grep -qP '^skill: owasp-api-security \| v[0-9]+' \
   && ok "a known skill appears with its marker" \
   || bad "a known skill appears with its marker"
 

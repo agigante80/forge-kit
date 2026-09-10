@@ -1,7 +1,7 @@
 {
   "name": "forge-kit-review",
-  "description": "Code review agents (code-reviewer, architect-review, backend-architect, code-simplifier, coding-standards-auditor) and full-review/pr-enhance commands.",
-  "version": "0.3.5",
+  "description": "code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that its upstream has not.",
+  "version": "0.4.0",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"

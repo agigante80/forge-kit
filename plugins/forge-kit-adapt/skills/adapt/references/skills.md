@@ -8,11 +8,6 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 |---|---|---|---|---|
 | Public API with auth / payments | `owasp-api-security` | security | OWASP API Top 10 test patterns | P1 |
 | Stores personal data (users table, auth provider, privacy policy) | `privacy-regime` | security | names YOUR regime; gate defaults name none | P1 |
-| Designing / refactoring REST or GraphQL APIs | `api-design-principles` | backend | resource design, versioning, contracts | P1 |
-| Architecting / refactoring a backend | `architecture-patterns` | backend | Clean / Hexagonal / DDD patterns | P2 |
-| Microservices / distributed system | `microservices-patterns` | backend | boundaries, comms, resilience | P2 |
-| Scaling reads / event sourcing | `cqrs-implementation` | backend | separate read + write models | P2 |
-| Multi-step distributed transactions | `saga-orchestration` | backend | choreography / orchestration sagas | P2 |
 | Aging / large codebase, pre-refactor or pre-release cleanup | `find-dead-code` | devops | find unused funcs/exports a linter misses | P2 |
 | Test suite + coverage-focused CI | `mutation-sweep` | testing | finds tests that cannot fail; survivor triage | P2 |
 | Ships releases / has a VERSION or package.json version | `release` | devops | semver bump + sync + tag + close shipped tickets | P2 |
@@ -32,3 +27,8 @@ project's own jurisdiction, and forge-kit names none anywhere in its defaults (i
 Installing it silently would put an unfilled template in the project and a `privacy` label
 route pointing at nothing. Recommend it, say it needs their regime filled in, and let them
 choose. Rule 4's seven regime-agnostic facts already bind without it.
+
+**Retired in #178**: the whole `forge-kit-backend` group (`api-design-principles`,
+`architecture-patterns`, `cqrs-implementation`, `microservices-patterns`,
+`saga-orchestration`). The same names are maintained upstream in
+`backend-development@claude-code-workflows`.

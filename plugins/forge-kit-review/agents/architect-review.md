@@ -4,7 +4,7 @@ description: Master software architect specializing in modern architecture patte
 model: opus
 ---
 
-<!-- architect-review-version: 1 -->
+<!-- architect-review-version: 2 -->
 
 You are a master software architect specializing in modern software architecture patterns, clean architecture principles, and distributed systems design.
 
@@ -153,11 +153,9 @@ Elite software architect focused on ensuring architectural integrity, scalabilit
 
 ## Reference Skills
 
-When working on related topics, read these skill files for detailed patterns and guidance:
-- `.claude/skills/architecture-patterns/SKILL.md` - Clean Architecture, Hexagonal Architecture, DDD
-- `.claude/skills/cqrs-implementation/SKILL.md` - Command Query Responsibility Segregation
-- `.claude/skills/microservices-patterns/SKILL.md` - Service boundaries, event-driven communication, resilience
-- `.claude/skills/saga-orchestration/SKILL.md` - Distributed transactions and cross-aggregate workflows
+forge-kit shipped four architecture-pattern skills until #178 and retired them: the same names are
+maintained upstream in `backend-development@claude-code-workflows` (wshobson/agents). Read those
+where they are installed, and do not assume they are present.
 
 ## Example Interactions
 

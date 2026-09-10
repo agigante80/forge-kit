@@ -42,11 +42,6 @@
       "name": "forge-kit-devops",
       "source": "./plugins/forge-kit-devops",
       "description": "dep-auditor, health-check agents, /ci-health command, the block-legacy-host-push hook, and the find-dead-code, release, release-automation, forge-host, github-to-forgejo skills."
-    },
-    {
-      "name": "forge-kit-backend",
-      "source": "./plugins/forge-kit-backend",
-      "description": "Backend architecture and API design skills."
     }
   ]
 }

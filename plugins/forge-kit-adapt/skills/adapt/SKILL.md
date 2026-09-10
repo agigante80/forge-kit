@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 63 -->
+<!-- forge-adapt-version: 64 -->
 
 # forge-adapt
 
@@ -236,9 +236,9 @@ echo "dep-automation:"; ls .github/dependabot.yml renovate.json .renovaterc* 2>/
 |---|---|---|
 | Language / framework | package.json, pyproject.toml, imports | which review/backend agents fit |
 | Auth / payments / PII | code + CLAUDE.md | security-auditor, owasp-api-security; OFFER `privacy-regime` (never install silently) |
-| Public API surface | routes/, controllers, OpenAPI | api-security-tester, api-design-principles |
+| Public API surface | routes/, controllers, OpenAPI | api-security-tester, owasp-api-security |
 | Dependency depth | lockfiles, package count | dep-auditor |
-| Tests present | tests/, *_test, *.spec | tdd-orchestrator, test-automator |
+| Tests present | tests/, *_test, *.spec | mutation-sweep |
 | GitHub Actions | .github/workflows/ | /ci-health command |
 | Forge host: GitHub vs Forgejo | origin remote (github.com vs other) | forge-host adapter (required by ticket-gate/gate-ticket/dep-auditor/ci-health/release on a non-GitHub host) |
 | Ships releases (version + tags) | VERSION, package.json/pyproject version, git tags | release skill; release-automation gate |
@@ -278,7 +278,6 @@ boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
 
 | forge-kit component | Disposition when superpowers is present |
 |---|---|
-| `tdd-orchestrator` | DO NOT recommend. Reason: "superpowers TDD skill owns this" |
 | `code-simplifier` | DO NOT recommend by default; install only on explicit request, and the adapted text carries the caveat that its proactive post-change edits sit outside the review loop's bad-fix accounting |
 | `closing-sessions` | RECOMMEND; the adapted text states the split: project memory (`.claude/memory/`, handoffs) is the shareable canon, the private journal is the personal layer |
 | review agents (`code-reviewer` etc.) | RECOMMEND; the adapted text notes the preferred dispatch shape: fresh subagent, precisely crafted context, never session history |
@@ -301,7 +300,7 @@ Profile
   Domain: <...>
   Security surface: <...>
   Superpowers: <present|absent>
-  Coexistence: <suppressed: tdd-orchestrator (superpowers TDD skill owns this), ... | n/a>
+  Coexistence: <suppressed: code-simplifier (superpowers owns the inner loop), ... | n/a>
   Installed: <... or none>
 
 ### Recommended (top picks for this project)
