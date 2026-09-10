@@ -15,6 +15,33 @@
 # until it is dense but unclear.
 #
 # ---------------------------------------------------------------------------------------------
+# WHY THE UNIT IS WORDS, AND WHAT THE LINE COUNT IS FOR (#176).
+#
+# The budget counts WORDS, which no one outside this repository uses. Anthropic states exactly one
+# number for a skill body and it is lines: "Keep SKILL.md under 500 lines. Move detailed reference
+# material to separate files." `adapt` is 820 lines against that tip, 63% over, and 277 of those
+# lines are fenced blocks. So #176 asked the obvious question: move the blocks out and the file
+# comes back under the only number anyone else states.
+#
+# THE ANSWER IS NO, AND THE CLASSIFICATION IS WHY. All 20 fenced blocks were classified before any
+# of them moved. Sixteen are commands the skill RUNS (the pre-Setup check, the self-update SHA
+# comparison, locating the library, the catalogue call, the Analyze probes, the disposition and
+# install-plan scripts, the sentinel, the hook wiring, the contributions diff, the template-mode
+# detection and guard install). Four are output or file TEMPLATES it emits (the profile block, the
+# recommendation table, the completion summary, the drift report, and the lockstep workflow).
+#
+# Not one is reference material. The splitting convention forbids moving either kind: a step the
+# skill executes, or a template it must emit, becomes a copy the caller depends on, and this repo's
+# review record is that a rule in two places drifts. So there is nothing here to move, and the file
+# is the size the work is.
+#
+# WHAT SHIPPED INSTEAD: `--descriptions` now reports the LINE count beside the word count and marks
+# anything over the 500-line tip. Reported, never budgeted, for the same reason #174 gave for the
+# always-on cost: it is an externally anchored signal worth seeing, and a second ratchet on a number
+# its own author calls a tip would fail components for the wrong reason. The lever that HAS worked
+# on this file four times is the #149 one, converting a rule into a tested script, and it is the
+# only thing that has ever made it smaller.
+# ---------------------------------------------------------------------------------------------
 # THE ALWAYS-ON COST, MEASURED AND RECORDED (#174).
 #
 # MEASURED 2026-09-10, CLI 2.1.267, 39 prose components in this tree: 14,711 characters of
@@ -285,6 +312,7 @@ warns=0
 checked=0
 desc_total=0
 desc_rows=""
+line_rows=""
 
 while IFS=$'\t' read -r group ctype name version path; do
   [ -n "${name:-}" ] || continue
@@ -299,6 +327,8 @@ while IFS=$'\t' read -r group ctype name version path; do
   # kit's commands carry no frontmatter at all, by convention (the name comes from the filename),
   # and a slash command is found by that name rather than by a description. An agent or a skill is
   # selected by its description and by nothing else, so for those an empty one is a defect.
+  plines=$(wc -l < "$path" | tr -d ' ')
+  line_rows="${line_rows}${plines}\t${ctype}\t${name}\n"
   dlen=$(desc_of "$path" | wc -c | tr -d ' ')
   desc_total=$((desc_total + dlen))
   desc_rows="${desc_rows}${dlen}\t${ctype}\t${name}\n"
@@ -385,6 +415,9 @@ if [ "$checked" -eq 0 ]; then
 fi
 
 if [ "$DESCTABLE" -eq 1 ]; then
+  echo ""
+  echo "Line count (the externally anchored cross-check), largest first:"
+  printf '%b' "$line_rows" | sort -rn | awk 'NF { printf "  %6s  %-10s %s%s\n", $1, $2, $3, ($1 > 500 ? "   (over the 500-line tip)" : "") }'
   echo ""
   echo "Description length (the always-on cost, characters), largest first:"
   printf '%b' "$desc_rows" | sort -rn | awk 'NF { printf "  %6s  %-10s %s\n", $1, $2, $3 }'

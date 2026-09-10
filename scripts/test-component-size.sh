@@ -243,7 +243,8 @@ mv "$FIX/scripts/resolver.hidden" "$FIX/scripts/forge-adapt-agent-skills.sh"
 # the thing it was added to reveal is worse than no guard.
 DFIX="$FIX/plugins/fix-g/skills/desc-skill/SKILL.md"
 mkdir -p "$(dirname "$DFIX")"
-desc_len() { bash "$CHECK" --root "$FIX" --descriptions 2>&1 | awk '$3 == "desc-skill" { print $1 }'; }
+desc_len() { bash "$CHECK" --root "$FIX" --descriptions 2>&1 \
+  | awk '/Description length/ { f=1 } f && $3 == "desc-skill" { print $1; exit }'; }
 
 cat > "$DFIX" <<'D'
 ---
@@ -326,6 +327,51 @@ tot=$(bash "$CHECK" --root "$FIX" 2>&1)
 printf '%s' "$tot" | grep -q 'always-on:' \
   && ok "the run reports the tree's total always-on cost" \
   || bad "the run reports the tree's total always-on cost"
+
+# --- #176: the line count is REPORTED, and must never become a second ratchet -----------------
+# Anthropic states one number for a skill body and it is lines. #176 asked whether adapt's fenced
+# blocks could move to get under it, classified all 20, and found every one is a step the skill runs
+# or a template it emits. Nothing could move, so the line count ships as a visible cross-check. If
+# it ever starts failing a build, that is this decision being reversed by accident.
+lfix=$(bash "$CHECK" --root "$FIX" --descriptions 2>&1)
+printf '%s' "$lfix" | grep -q 'Line count' \
+  && ok "the report shows a line count beside the words (#176)" \
+  || bad "the report shows a line count beside the words (#176)"
+
+# A component far over the tip, and well inside its word budget: one word per line, so the two
+# measures cannot be confused for each other.
+cat > "$FIX/plugins/fix-g/agents/long-agent.md" <<'A'
+---
+name: long-agent
+description: Use when checking that a long file is not failed for its line count alone.
+---
+<!-- long-agent-version: 1 -->
+A
+# Mostly BLANK lines: 600 lines carrying about 60 words. A reader that measured words instead of
+# lines would report ~60 here, so the two quantities cannot be mistaken for each other.
+python3 - "$FIX/plugins/fix-g/agents/long-agent.md" <<'PY2'
+import sys
+rows = ["prose here" if i % 10 == 0 else "" for i in range(600)]
+open(sys.argv[1], "a").write("\n".join(rows) + "\n")
+PY2
+want_lines=$(wc -l < "$FIX/plugins/fix-g/agents/long-agent.md" | tr -d ' ')
+got_lines=$(bash "$CHECK" --root "$FIX" --descriptions 2>&1 \
+  | awk '/Line count/ { f=1 } f && $3 == "long-agent" { print $1; exit }')
+[ "$want_lines" = "$got_lines" ] \
+  && ok "the reported line count equals wc -l ($want_lines)" \
+  || bad "the reported line count equals wc -l (want $want_lines, got $got_lines)"
+lfix=$(bash "$CHECK" --root "$FIX" --descriptions 2>&1); rc=$?
+printf '%s' "$lfix" | grep -q '500-line tip' \
+  && ok "and marks a component over the externally stated tip" \
+  || bad "and marks a component over the externally stated tip"
+[ "$rc" -eq 0 ] \
+  && ok "a 900-line component inside its word budget still passes (the tip is not a gate)" \
+  || bad "a 900-line component inside its word budget still passes (the tip became a gate)"
+rm -f "$FIX/plugins/fix-g/agents/long-agent.md"
+
+grep -q "all 20 fenced blocks were classified" "$CHECK" || grep -qi "classified before any" "$CHECK" \
+  && ok "the guard records why adapt's blocks cannot move" \
+  || bad "the guard records why adapt's blocks cannot move"
 
 # --- #170: the recorded cross-check must stay dated, or it is an undated claim -----------------
 # The outcome of #170 was to KEEP the word count and record `claude plugin details` as a note. A

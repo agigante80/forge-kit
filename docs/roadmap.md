@@ -250,6 +250,19 @@ The attribution matters and was wrong for the first hour of this phase. `claude-
 `obra/superpowers`. All five near-duplicates are wshobson's, not Anthropic's. The phase closes with
 a README that says so, which is #181.
 
+## Phase: The unit the budget defends
+state: open
+plan: docs/plans/the-unit-the-budget-defends.md
+
+Opened 2026-09-10 to work #176, which came out of the #172 ratchet raise: the thing `adapt`'s
+ratchet defends is a WORD count, a unit nobody outside this repository uses, while the file is 820
+lines against the only externally stated number, Anthropic's 500-line tip for a skill body.
+
+The phase exists because the question is answerable and has never been asked properly. 277 of those
+lines are fenced blocks, and whether any of them can move is a classification problem, not a
+compression problem: the splitting convention forbids relocating a step the skill executes, and this
+file is mostly steps.
+
 ## Phase: Backlog
 state: backlog
 

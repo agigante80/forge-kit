@@ -30,6 +30,11 @@ tracks the repository, so users are already served from the default branch.
   provides** (#180). That failure is silent at runtime, and #178's retirement of six agents made it
   possible. Agent names stay unprefixed: Claude Code already namespaces subagent types by plugin,
   and the reason is recorded so the question is not re-asked.
+- **The size report shows a line count beside the word count** (#176), marking anything over the
+  500-line tip Anthropic states for a skill body. Reported and never budgeted: `adapt`'s 20 fenced
+  blocks were classified first, and sixteen are commands the skill runs while four are templates it
+  emits, so none of them can move without making the caller depend on a copy. The file is the size
+  the work is, and the reasoning is in the guard rather than in a closed ticket.
 - **The README was rewritten around what forge-kit actually is** (#181): a governance harness, the
   outer loop, with the three-way neighbour table, ten Given/When/Then scenarios, the overlap stated
   rather than discovered, and a real path for a team not using Claude Code.
