@@ -23,6 +23,17 @@ tracks the repository, so users are already served from the default branch.
   the group's own description. Until now the install command for a group existed nowhere in the
   docs, so finding one meant reading `plugin.json`.
 
+- **forge-adapt's coexistence rule covers both neighbours** (#179), in one tested script rather
+  than a table in a skill. It returns `recommend`, `caveat` or `suppress` with a reason, judging
+  the pair and never the name: `code-reviewer` exists on three sides as three different agents.
+- **`validate-plugins.sh` fails a build where a component dispatches a `subagent_type` no agent
+  provides** (#180). That failure is silent at runtime, and #178's retirement of six agents made it
+  possible. Agent names stay unprefixed: Claude Code already namespaces subagent types by plugin,
+  and the reason is recorded so the question is not re-asked.
+- **The README was rewritten around what forge-kit actually is** (#181): a governance harness, the
+  outer loop, with the three-way neighbour table, ten Given/When/Then scenarios, the overlap stated
+  rather than discovered, and a real path for a team not using Claude Code.
+
 ### Removed
 
 - **Eleven components retired, and one whole plugin group** (#178), because each was the same file
