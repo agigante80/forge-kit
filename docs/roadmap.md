@@ -276,6 +276,21 @@ lines are fenced blocks, and whether any of them can move is a classification pr
 compression problem: the splitting convention forbids relocating a step the skill executes, and this
 file is mostly steps.
 
+## Phase: The half that needs no Claude Code
+state: open
+plan: docs/plans/the-half-that-needs-no-claude-code.md
+
+Opened 2026-09-10. The kit calls itself AI-agnostic at the governance layer, and #181 had to write
+down what that actually means today: the templates, `labels.yml`, `docs/guides/ticket-standards.md`
+and ten shell assets are portable, and **nothing enforces any of them** for a team not using Claude
+Code. The gate, the hooks, the size budget and drift detection are all components.
+
+The gap is narrower than it looks, which is why this is a phase rather than an ambition.
+`check-ticket-mechanics.sh` is plain shell with 41 contract tests and already does Step 3A;
+`forge-lib.sh` already fetches an issue on either host without `gh` being assumed. What is missing
+is a door between them, and one document to point another agent at. AGENTS.md exists but tells an
+agent how to CONTRIBUTE to forge-kit, which is the opposite of the question.
+
 ## Phase: Backlog
 state: backlog
 
