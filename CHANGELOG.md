@@ -28,6 +28,34 @@ tracks the repository, so users are already served from the default branch.
   is not available. `AGENTS.md` now distinguishes its two audiences rather than serving only
   contributors.
 
+### Added
+
+- **A finding names an instance, so `code-reviewer` sweeps for its family** (#187). Inside the files
+  the diff touches, each instance is treated per the iteration contract's severity rule. Outside
+  them, do not fix it **and do not confirm its extent**: naming a suspicion needs no scan, and
+  establishing how far it reaches is the scan this agent does not do. The out-of-target list now
+  exists in every round, not only round 2+, which is a gap the rule exposed.
+- **The overnight loop asks whether a ticket is still true** before implementing it (#186), as a
+  step 0 in the per-item pipeline. Implement or park, nothing else, and a PARTLY fixed ticket parks,
+  because implementing only the surviving criteria is re-scoping. The check is specified as the Grep
+  and Read tools rather than shell greps, and that is a security decision: `overnight-guard.py`
+  matches its patterns inside a quoted search term, so a shell grep for a ticket quoting `git reset
+  --hard` is denied and records a destructive-command deferral that never happened.
+- **`scripts/check-label-taxonomy.sh`** (#188): one definition of the area label set, and a guard
+  that fails when a copy disagrees. `ticket-gate.md` restates the set nowhere and the guard fails if
+  a copy returns, because a synchronised copy is one edit from a drifted one. Three area labels now
+  describe this repository's own work (`components`, `tooling`, `governance`), without which every
+  ticket filed here blocked at the gate.
+
+### Fixed
+
+- **Both halves of the leak guard now state that they never look at history** (#185). Every mode
+  reads the working tree, the index, or two endpoints of a range, so a leak committed once and
+  removed later is unreached, which is exactly the going-public moment the component is named for.
+  The private half had carried no reach statement at all. Both also say they read file content only:
+  a commit message is unreached, and this repository's store holds 527 commit objects. The skill
+  names `gitleaks` for the credential class, which this guard does not cover.
+
 ## v0.4.0 (2026-09-10)
 
 The release where forge-kit stopped shipping other people's files. Five components here turned out
