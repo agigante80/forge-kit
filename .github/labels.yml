@@ -50,6 +50,23 @@
   color: "f0c0f0"
   description: Database schema or migrations
 
+# AREA LABELS FOR A GOVERNANCE REPOSITORY (#188). The six above are product-application areas,
+# written for the projects forge-kit is installed INTO. They describe nothing forge-kit itself
+# works on, so every ticket filed here blocked at the gate's Step 0b until these existed. They
+# route nothing today, deliberately: CLAUDE.md prefers modulating the critic's brief over adding a
+# lens, and an area label that changes the review set is a decision to take on its own evidence.
+- name: components
+  color: "c2e0c6"
+  description: An agent, skill, command, hook or shipped shell asset
+
+- name: tooling
+  color: "bfdadc"
+  description: The guards, scripts and CI that enforce the rules
+
+- name: governance
+  color: "d0c6e0"
+  description: Templates, labels, ticket standards, the roadmap and the docs that carry them
+
 - name: testing
   color: "fbca04"
   description: Tests, QA, coverage

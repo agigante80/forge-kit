@@ -24,6 +24,25 @@ GitHub labels serve dual purpose: issue organization AND lens routing in ticket-
 | `mobile` | Mobile app | - |
 | `backend` | Backend services | - |
 | `database` | Database schema or migrations | Add schema-guardian if applicable |
+| `components` | An agent, skill, command, hook or shipped shell asset | - |
+| `tooling` | The guards, scripts and CI that enforce the rules | - |
+| `governance` | Templates, labels, ticket standards, the roadmap and the docs that carry them | - |
+
+**The last three are for a governance repository, and forge-kit is one (#188).** The six above them
+are product-application areas, written for the projects forge-kit is installed into: they describe
+API routes, a frontend, a mobile app, backend services, a schema, personal data. None of them
+describes a plugin component or a CI guard, so every ticket filed in forge-kit's own tracker blocked
+at the gate's Step 0b until these existed. That was found by the first live gate run in this
+repository, on the first ticket it was pointed at.
+
+They route nothing, deliberately. CLAUDE.md's rule is to prefer modulating the critic's brief over
+adding a lens, and a label that changes the review set has to earn it on its own evidence.
+
+**This table is the ONE definition of the area set.** `scripts/check-label-taxonomy.sh` fails the
+build when any other copy disagrees with it. There are three others: `.github/labels.yml`, which is
+what `sync-labels.sh` puts on the host; `check-ticket-mechanics.sh`'s `AREA_LABELS` default; and
+`ticket-gate.md`'s Step 0b. Those three had drifted apart before the guard existed, in three
+different directions at once.
 
 ### Priority labels
 | Label | Meaning |

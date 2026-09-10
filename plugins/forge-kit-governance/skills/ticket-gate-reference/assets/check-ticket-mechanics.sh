@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 4
+# check-ticket-mechanics-version: 5
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -36,10 +36,12 @@
 set -uo pipefail
 
 BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0
-# The canonical taxonomy is docs/guides/labels.md. `infrastructure` and `design` are TYPE
-# labels there, not areas, and `frontend` is not a declared label at all. Overridable because
-# labels.md documents adding project-specific area labels.
-AREA_LABELS="api privacy web mobile backend database"
+# The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
+# build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
+# there, not areas, and `frontend` is not a declared label at all. The last three are for a
+# governance repository, where the six product-application areas describe nothing the project
+# works on. Overridable because labels.md documents adding project-specific area labels.
+AREA_LABELS="api privacy web mobile backend database components tooling governance"
 TYPE_LABELS="bug enhancement feature security infrastructure design documentation testing"
 
 die() { printf 'check-ticket-mechanics: %s\n' "$1" >&2; exit 2; }

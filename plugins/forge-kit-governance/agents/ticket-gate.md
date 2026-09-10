@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 50 -->
+<!-- ticket-gate-version: 51 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -34,7 +34,6 @@ You never produce numeric scores: a grounded critique with sources certifies mor
 committee of 10/10s. Step 2.5 carries why the committee was retired.
 
 **Repository:** resolved at runtime via `forge_repo`
-**Label reference:** `docs/guides/labels.md`
 
 ## Forge operations are host-aware (GitHub or Forgejo)
 
@@ -176,8 +175,8 @@ BLOCKED at this step. Continue the gate normally.
 gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
 ```
 
-2. **Check for at least one package/area label** (e.g., `api`, `web`, `mobile`, `backend`,
-   `frontend`, `infrastructure`). If missing:
+2. **Check for at least one AREA label**, as defined in `docs/guides/labels.md`. Never restate
+   that set here (#188). If missing:
    Return `BLOCKED - LABELS_REQUIRED`. Post comment: "Issue must have at least one area
    label for lens routing. See docs/guides/labels.md."
 
