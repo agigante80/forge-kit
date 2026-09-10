@@ -36,8 +36,12 @@ TYPE_LABEL = {
     "asset": "shell asset",
 }
 DESC_CAP = 120
+# The catalogue column is the primary answer to "what would I get", so it gets more room than the
+# per-component excerpt, which sits above a table naming every component anyway.
+CATALOGUE_DESC_CAP = 200
 
 _PLUGIN_SEMVERS = {}
+_PLUGIN_DESCRIPTIONS = {}
 
 # The component version marker, skipped by the comment fallback so a hook is not described
 # as "block-dashes-version: 5".
@@ -247,6 +251,33 @@ def render_plugin_groups(rows):
     return "\n".join(out)
 
 
+def render_plugin_catalogue(rows):
+    """The user-facing group table, for README.md.
+
+    A separate region from render_plugin_groups rather than a shared one: CLAUDE.md's table answers
+    "what is in this repo" and lists every component by name, while this one answers "what would I
+    install and why", so it carries the install command and the group's own description. Generated
+    for the same reason as the others, because a hand-maintained install command is a copy of a
+    string that rots (#96), and README's group table did not exist at all until someone tried to
+    install a group and found the command written down nowhere.
+    """
+    out = [
+        NOTICE,
+        "",
+        "| Plugin group | Version | Install | What you get |",
+        "|---|---|---|---|",
+    ]
+    for group in sorted({r["group"] for r in rows}):
+        desc = _PLUGIN_DESCRIPTIONS.get(group, "")
+        if len(desc) > CATALOGUE_DESC_CAP:
+            desc = desc[: CATALOGUE_DESC_CAP - 1].rstrip() + "\u2026"
+        out.append(
+            "| `%s` | %s | `claude plugin install %s@forge-kit` | %s |"
+            % (group, plugin_version(group), group, desc)
+        )
+    return "\n".join(out)
+
+
 def plugin_version(group):
     return _PLUGIN_SEMVERS.get(group, "?")
 
@@ -259,10 +290,13 @@ def load_plugin_semvers(root):
         pj = os.path.join(base, group, ".claude-plugin", "plugin.json")
         if os.path.isfile(pj):
             with open(pj, encoding="utf-8") as fh:
-                _PLUGIN_SEMVERS[group] = json.load(fh).get("version", "?")
+                manifest = json.load(fh)
+            _PLUGIN_SEMVERS[group] = manifest.get("version", "?")
+            _PLUGIN_DESCRIPTIONS[group] = " ".join(manifest.get("description", "").split())
 
 
 REGIONS = [
+    ("README.md", "plugin-catalogue", render_plugin_catalogue),
     ("README.md", "component-index", render_component_index),
     ("CLAUDE.md", "plugin-groups", render_plugin_groups),
 ]

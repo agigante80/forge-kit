@@ -1,11 +1,11 @@
 {
   "name": "forge-kit-roadmap",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"
   },
-  "description": "Rolling wave planning: docs/roadmap.md owns the phases, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional and self-contained; nothing else in forge-kit depends on it.",
+  "description": "Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops.",
   "dependencies": [
     "forge-kit-devops@forge-kit"
   ]

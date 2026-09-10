@@ -7,6 +7,7 @@
 # when they are not, and the error tells you which file and how to fix it.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
 GEN="$HERE/update-component-index.py"
 
 pass=0
@@ -46,7 +47,7 @@ cat > "$FIX/plugins/fix-beta/hooks/beta-hook.py" <<'M'
 M
 
 mk_docs() {
-  printf 'intro\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n\noutro\n' \
+  printf 'intro\n\n<!-- plugin-catalogue:start -->\n<!-- plugin-catalogue:end -->\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n\noutro\n' \
     > "$FIX/README.md"
   printf 'intro\n\n<!-- plugin-groups:start -->\n<!-- plugin-groups:end -->\n\noutro\n' \
     > "$FIX/CLAUDE.md"
@@ -127,6 +128,52 @@ err=$(python3 "$GEN" --root "$FIX" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && ok "a missing marker region exits non-zero" || bad "a missing marker region exits non-zero"
 printf '%s' "$err" | grep -q 'component-index' \
   && ok "the missing-marker error names the region" || bad "the missing-marker error names the region"
+
+# --- the plugin catalogue: the README's user-facing group table ---------------------------------
+# It exists because the install command for a group was written down NOWHERE, so a user who wanted
+# one group had to read plugin.json to find its name. Generated rather than hand-written for the
+# same reason as every other region here: a hand-maintained command is a copy of a string that rots.
+mk_docs   # the missing-marker case above left README.md without its regions
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+cat=$(sed -n '/plugin-catalogue:start/,/plugin-catalogue:end/p' "$FIX/README.md")
+printf '%s' "$cat" | grep -q 'claude plugin install fix-alpha@forge-kit' \
+  && ok "the catalogue carries a copy-pasteable install command per group" \
+  || bad "the catalogue carries a copy-pasteable install command per group"
+printf '%s' "$cat" | grep -q '1.2.3' \
+  && ok "and the group's plugin.json semver, which is the unit of install" \
+  || bad "and the group's plugin.json semver"
+printf '%s' "$cat" | grep -q 'fixture' \
+  && ok "and the group's own description, so the table says what you would get" \
+  || bad "and the group's own description"
+[ "$(printf '%s' "$cat" | grep -c '^| `fix-')" = "2" ] \
+  && ok "one row per group, no more and no less" \
+  || bad "one row per group (got $(printf '%s' "$cat" | grep -c '^| `fix-'))"
+
+# A description longer than the cap is truncated rather than breaking the table across lines.
+python3 - "$FIX" <<'PY2'
+import json, sys, os
+p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
+d = json.load(open(p)); d["description"] = "x" * 400
+json.dump(d, open(p, "w"))
+PY2
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+row=$(grep '^| `fix-alpha`' "$FIX/README.md" | head -1)
+[ -n "$row" ] && [ "${#row}" -lt 400 ] \
+  && ok "an overlong description is truncated, not spilled into the table" \
+  || bad "an overlong description is truncated (row is ${#row} chars, empty means the row vanished)"
+printf '%s' "$row" | grep -q '…' && ok "and the truncation is marked" || bad "and the truncation is marked"
+python3 - "$FIX" <<'PY2'
+import json, sys, os
+p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
+d = json.load(open(p)); d["description"] = "fixture"
+json.dump(d, open(p, "w"))
+PY2
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+
+# The real README must carry the region, or the section this test protects is not on the page.
+grep -q 'plugin-catalogue:start' "$ROOT/README.md" \
+  && ok "the real README carries the catalogue region" \
+  || bad "the real README carries the catalogue region"
 
 echo ""
 echo "update-component-index tests: $pass passed, $fail failed"

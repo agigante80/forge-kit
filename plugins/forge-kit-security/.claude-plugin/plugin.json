@@ -1,7 +1,7 @@
 {
   "name": "forge-kit-security",
-  "description": "Security agents (security-auditor, backend-security-coder, api-security-tester), the OWASP API security checklist skill, the opt-in privacy-regime skill, and the leak-guard: stop the developer's machine leaking into a repo about to go public",
-  "version": "0.7.5",
+  "description": "Security agents (security-auditor, backend-security-coder, api-security-tester), the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public.",
+  "version": "0.7.6",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"
