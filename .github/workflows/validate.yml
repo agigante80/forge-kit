@@ -80,6 +80,11 @@ jobs:
       - name: Neighbour overlap
         run: bash scripts/check-neighbour-overlap.sh
 
+      # The runtime half of the same boundary: what forge-adapt recommends into a project that
+      # already has the neighbour installed (#179).
+      - name: Neighbour disposition tests
+        run: bash scripts/test-forge-adapt-neighbour-disposition.sh
+
       # Anti-drift lock: the work issue-templates must all share one template-version, so
       # the ticket-gate version check stays correct across ticket types.
       - name: Template version lockstep

@@ -43,7 +43,7 @@ and at which version, and `claude plugin uninstall <group>@forge-kit` reverses a
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.6.3 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.7.0 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.12.1 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.13.0 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
 | `forge-kit-review` | 0.4.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
@@ -211,7 +211,7 @@ the repo actually ships. Versions are the per-component `<name>-version` markers
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v64 | 7300 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | skill | `adapt` | v65 | 7209 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-devops` | agent | `dep-auditor` | v10 | 1321 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
 | `forge-kit-devops` | agent | `health-check` | v5 | 1008 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
 | `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |

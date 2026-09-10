@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 64 -->
+<!-- forge-adapt-version: 65 -->
 
 # forge-adapt
 
@@ -273,24 +273,30 @@ The live `ls` from Setup S3 is the source of truth for what EXISTS; the referenc
 canonical reason + priority. If a reference row names a component that is not in the live
 catalogue, skip that row.
 
-**Superpowers coexistence (apply BEFORE ranking. The in-session skills listing is AUTHORITATIVE in BOTH directions where visible: superpowers:* entries or vendored superpowers skills under `.claude/skills/` mean present even if Step 1 printed absent, and a session whose listing shows NO superpowers skills means absent even if the install record matched, since records can be project-scoped to another repo, disabled in settings, or stale after an uninstall. The Step-1 probe is only the fallback proxy for sessions with no visible listing. Issue #72,
-boundary decision #69: superpowers owns the inner loop, forge-kit the outer):**
+**Coexistence (apply BEFORE ranking).** For every component you are about to list, run:
 
-| forge-kit component | Disposition when superpowers is present |
-|---|---|
-| `code-simplifier` | DO NOT recommend by default; install only on explicit request, and the adapted text carries the caveat that its proactive post-change edits sit outside the review loop's bad-fix accounting |
-| `closing-sessions` | RECOMMEND; the adapted text states the split: project memory (`.claude/memory/`, handoffs) is the shareable canon, the private journal is the personal layer |
-| review agents (`code-reviewer` etc.) | RECOMMEND; the adapted text notes the preferred dispatch shape: fresh subagent, precisely crafted context, never session history |
-| outer-loop components (ticket-gate, hooks, CI guards, working-overnight, release*, forge-host) | RECOMMEND unchanged; this layer has no superpowers counterpart |
+```bash
+"$FORGE_KIT_DIR"/scripts/forge-adapt-neighbour-disposition.sh <name>
+```
 
-The profile's `Coexistence:` line (slot in the template above) states what was suppressed
-and why, so the user learns the boundary rather than wondering where a component went.
-The dispositions follow the component everywhere, not only the top picks: a "more
-subagents" catalogue listing shows a suppressed row WITH its coexistence reason rather
-than hiding it, and Step 3 installs a suppressed component only after the user confirms
-past the stated conflict (the row's reason repeated in the confirmation), so no path
-around the top-picks table silently defeats the boundary. With `superpowers: absent`, nothing
-above applies and recommendations are unchanged.
+It returns `recommend`, `caveat` or `suppress` with a reason, judging the pair rather than the
+name, and it covers superpowers (decision #69: superpowers owns the inner loop, forge-kit the
+outer) and the neighbouring marketplaces in one table (#179).
+
+- `suppress`: do NOT list it among the top picks. It still appears in a fuller catalogue listing
+  WITH its reason, never hidden, so the user learns the boundary instead of wondering where a
+  component went. Installing it needs the user to confirm past the reason, repeated back to them.
+- `caveat`: recommend it, and carry the returned reason into the adapted text and the row.
+- `recommend`: unchanged.
+
+**The in-session skills and agents listing is AUTHORITATIVE IN BOTH DIRECTIONS where visible**, and
+beats the script: `superpowers:*` entries or vendored skills under `.claude/skills/` mean present
+even if the script saw nothing, and a listing showing none of them means absent even if the install
+record matched, since records can be project-scoped to another repo, disabled in settings, or stale
+after an uninstall. The script reads that record, so it is the fallback proxy for a session with no
+visible listing.
+
+The profile's `Coexistence:` line states what was suppressed and why.
 
 ```
 ## forge-adapt - <project> (<stack>)
