@@ -330,6 +330,18 @@ The error names that command, so you will not have to remember it.
 project: it finds the clone and works from there, adapting components into `.claude/` rather than
 registering them, because there is no marketplace to register with.
 
+## Related project
+
+[**vibe-coding-prompts**](https://github.com/agigante80/vibe-coding-prompts) is the same author's
+other answer to the same problem, from the opposite end. It is 14 versioned, platform-agnostic
+meta-prompts you paste into any assistant (Claude, ChatGPT, Gemini, Copilot Chat), where forge-kit
+is components installed into a project. Neither depends on the other and they overlap in subject
+rather than in mechanism.
+
+Take that one if you have no AI CLI, or several, and want the knowledge without the plumbing. Take
+this one if you want rules that fail a build. Two mechanisms here were borrowed from it outright:
+the generated, CI-verified index (#96) and the version-bump gate this repo now runs on every push.
+
 ## Docs
 
 - `docs/guides/ticket-standards.md`: the canonical ready-ticket rules, version-locked to the templates

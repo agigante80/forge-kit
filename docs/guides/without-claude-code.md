@@ -122,6 +122,14 @@ So: **the rules are portable and the mechanical checks are portable. The judgeme
 using another agent can hold every ticket to one written standard and check the machine-checkable
 part of it automatically, which is most of the value and not all of it.
 
+## If you have no AI CLI at all
+
+The same author maintains [vibe-coding-prompts](https://github.com/agigante80/vibe-coding-prompts):
+14 versioned meta-prompts you paste into any assistant, covering documentation, testing, CI/CD,
+security audits and logging. It needs no installation and no CLI, which is the case this page's
+governance layer does not cover. It is a different mechanism from forge-kit, not a port of it: no
+guard runs, and nothing fails a build.
+
 ## Contributing back
 
 If you extend the governance layer, the same repository takes issues. `AGENTS.md` there points an
