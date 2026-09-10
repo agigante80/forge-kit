@@ -219,15 +219,16 @@ bash "$SCRIPT" "$T/does-not-exist" >/dev/null 2>&1
 # --- the real repo must agree across all its sites ----------------------------------------------
 out=$(bash "$SCRIPT" 2>&1); rc=$?
 [ "$rc" -eq 0 ] && ok "this repo's sites all carry the same order" || bad "repo sites agree ($out)"
-# EXACTLY six, which pins the count as well as the agreement. Without this, a site edited down to
+# EXACTLY seven, which pins the count as well as the agreement. Without this, a site edited down to
 # three entries would simply drop out of the comparison and the guard would report agreement among
-# the survivors. The ticket said four; the guard found dep-auditor.md and the lockstep header too.
-# Anchored: a bare substring also matched "16 sites", which is the opposite of pinning a count.
-# EXACTLY six, which pins the count as well as the agreement. The guard holds the definition and
-# is not scanned as a copy of it: counting itself made the site list impossible to empty, so a tree
-# with every copy deleted read as agreement.
-case "$out" in "check-template-dir-order: 6 sites,"*) ok "and it finds exactly the six copies" ;;
-               *) bad "finds exactly six sites (got: $out)" ;; esac
+# the survivors. The ticket said four; the guard found dep-auditor.md and the lockstep header too,
+# and #182 added the seventh when forge-gate-mechanics.sh had to resolve a template directory
+# outside the agent. Anchored: a bare substring also matched "16 sites", which is the opposite of
+# pinning a count. The guard holds the definition and is not scanned as a copy of it: counting
+# itself made the site list impossible to empty, so a tree with every copy deleted read as
+# agreement.
+case "$out" in "check-template-dir-order: 7 sites,"*) ok "and it finds exactly the seven copies" ;;
+               *) bad "finds exactly seven sites (got: $out)" ;; esac
 
 # --- inside a git checkout, only TRACKED files are in scope (#142) ------------------------------
 # Latent when filed, and the hand-maintained exclude list is why: it had to be extended every time

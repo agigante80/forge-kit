@@ -85,6 +85,11 @@ jobs:
       - name: Neighbour disposition tests
         run: bash scripts/test-forge-adapt-neighbour-disposition.sh
 
+      # The mechanical gate's entry point: every check forge-kit has, runnable without the agent
+      # harness (#182). Driven with a stubbed transport, so no forge and no token.
+      - name: Mechanical gate entry-point tests
+        run: bash scripts/test-forge-gate-mechanics.sh
+
       # Anti-drift lock: the work issue-templates must all share one template-version, so
       # the ticket-gate version check stays correct across ticket types.
       - name: Template version lockstep
