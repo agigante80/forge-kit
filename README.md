@@ -65,6 +65,63 @@ in every repository.
 so (`+ 1 dependency: forge-kit-devops`). See the upgrade note under
 [Keeping up to date](#keeping-up-to-date) if you are updating a group you already had.
 
+## How forge-kit fits with superpowers and the official plugins
+
+forge-kit is built to sit **alongside** the [superpowers](https://github.com/obra/superpowers)
+plugin and Anthropic's official plugins, not to replace either. The three answer different
+questions, and the fastest way to decide what you need is to ask which question you have.
+
+| Question | Answered by | For example |
+|---|---|---|
+| **How should this work be done?** | superpowers | brainstorming, writing-plans, test-driven-development, systematic-debugging, requesting-code-review, verification-before-completion |
+| **What tool does this specific task?** | the official plugins | code-review, pr-review-toolkit, claude-security, tdd-workflows, error-diagnostics, commit-commands |
+| **What must be true before work starts, and after it lands?** | **forge-kit** | the ticket gate, the template lockstep, the version and semver guards, the leak guard, governed overnight runs, release enforcement, host awareness, roadmap phases |
+
+The line forge-kit holds itself to is that **superpowers owns the inner loop and forge-kit owns the
+outer loop.** The inner loop is how work happens: brainstorm, plan, write the test, review the
+round. The outer loop is what must be true on either side of it: a ticket that can be implemented
+from, a version that moved when a component did, a guard that fails a build rather than a note that
+asks nicely. Where the two touch, forge-kit gives way.
+
+That is not only a statement of intent. `forge-adapt` detects superpowers and changes what it
+recommends **before** it ranks anything:
+
+| forge-kit component | What forge-adapt does when superpowers is installed |
+|---|---|
+| `tdd-orchestrator` | Not recommended. The superpowers TDD skill owns this. |
+| `code-simplifier` | Not recommended by default; installed only if you ask, with a note that its proactive edits sit outside the review loop's bad-fix accounting |
+| `closing-sessions` | Recommended, with the split stated: project memory is the shareable canon, the private journal is the personal layer |
+| review agents | Recommended, with a note preferring the superpowers dispatch shape: a fresh subagent with crafted context, never session history |
+| everything in the outer loop | Recommended unchanged. superpowers has no counterpart here. |
+
+A suppressed component is shown with its reason rather than hidden, and you can still install it
+after the conflict has been repeated back to you.
+
+### Where forge-kit overlaps the official plugins, stated plainly
+
+The coexistence handling above covers superpowers and **does not yet cover Anthropic's official
+plugins**, which have grown a great deal since this kit started. Measured against the
+`claude-plugins-official` and `claude-code-workflows` marketplaces, four components here are
+substantially the same file the official plugins ship:
+
+| forge-kit component | Official plugin shipping the same thing | Lines that differ |
+|---|---|---|
+| `tdd-orchestrator` | `tdd-workflows` | 4 of 185 (the name and our version marker) |
+| `backend-security-coder` | `data-validation-suite` | 4 of 155 |
+| `architect-review` | `comprehensive-review` | 12 of 172 |
+| `backend-architect` | `backend-development` | 13 of 320 |
+
+They share an upstream ancestor rather than one having copied the other, but the practical advice
+is the same: **if you have the official plugin, prefer it.** Seven more agent names appear on both
+sides (`code-reviewer`, `code-simplifier`, `tdd-orchestrator`, `test-automator`,
+`performance-engineer`, `security-auditor`, `backend-architect`); Claude Code namespaces subagent
+types by plugin, so nothing collides, but you will be carrying two of each and paying for both.
+
+The parts of forge-kit with **no** counterpart in either neighbour are the outer loop: the ticket
+gate and its standard, the template lockstep, the component and plugin version guards, the leak
+guard, governed overnight work, release enforcement, host awareness across GitHub and Forgejo, and
+roadmap phases. That is the part to install first, and the part worth having.
+
 ## What forge-adapt does
 
 When you say "run forge-adapt", it:
