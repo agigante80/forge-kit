@@ -202,8 +202,30 @@ place, or is it now duplication with a guard on top? Neither answer is assumed. 
 stricter (a build failure, not a tag-time check) and some of it is simply older.
 
 ## Phase: Standing next to the neighbours
-state: open
+state: done
 plan: docs/plans/standing-next-to-the-neighbours.md
+
+Closed 2026-09-10, outcome **done**. All five tickets landed in the plan's order, guard first, and
+5,507 lines were deleted.
+
+**The premortem's fifth clause fired, on the ticket it was written about.** It warned against taking
+the comparison as an instruction rather than as evidence, and `architect-review` is exactly that
+case: the table said retire, and `/full-review` dispatches it by name, so retiring it would have
+broken the one component the phase existed to protect. It stayed, allowlisted, with the reason in
+the file. The sixth clause fired too, on the README: the first draft claimed 22 guards and 34 test
+suites and was wrong on both, which is why criterion 8 asked for every number to be checked against
+the tree.
+
+**One thing went wrong that no clause named.** The overlap was measured before its SOURCE was
+checked, so the first hour of this phase credited five near-duplicates to Anthropic when they are
+wshobson/agents, the upstream forge-kit's specialist agents were forked from. It reached a public
+README and two ticket bodies before `known_marketplaces.json` was read. The measurement was right
+and the attribution was not, which is a distinct failure from the ones the premortem imagined.
+
+Two to carry forward. `adapt` went 7314 to 7300 to 7209 in one day, every step through the #149
+lever, which is now the fourth time converting prose to a tested script on that one file has been
+the only way to add a rule to it. And the boundary is now checked in both directions: at build time
+by `check-neighbour-overlap.sh`, and at install time by `forge-adapt-neighbour-disposition.sh`.
 
 Opened 2026-09-10 after measuring this tree against the two installed official marketplaces and
 superpowers. The kit's stated reason for existing is to complement them, and decision #69 draws the
