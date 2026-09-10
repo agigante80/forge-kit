@@ -340,6 +340,23 @@ of the last thirty issues carries a gate review comment, and the only bodies con
 That makes #184 a reporting problem rather than a defect, and leaves a separate finding underneath
 it: the repository that ships a ticket gate has never gated a ticket.
 
+## Phase: Borrowing back from the on-ramp
+state: open
+plan: docs/plans/borrowing-back-from-the-on-ramp.md
+
+Opened 2026-09-10 after a content comparison against `agigante80/vibe-coding-prompts`, the sister
+project and the on-ramp: prose prompts pasted into any assistant, where this kit installs components
+and fails builds. The two have traded mechanisms before, the generated index and the version-bump
+gate both came from there, and this is the third trip.
+
+Three rules that collection states and this one does not. One of them, the leak guard's blindness to
+history, is a defect in a shipped security component rather than a missing feature: `--all` means
+`git ls-files`, so a home path committed and later deleted is invisible to the guard written for the
+moment a repository goes public.
+
+The discipline here is in what was refused. Fourteen prompts were compared and eleven are subjects
+the neighbours own, one day after #178 retired eleven components for being exactly that.
+
 ## Phase: Backlog
 state: backlog
 
