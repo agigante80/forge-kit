@@ -152,7 +152,7 @@ Version column is the group's `plugin.json` semver (the unit of install), not a 
 
 | Plugin group | Version | Contents |
 |---|---|---|
-| `forge-kit-adapt` | 0.7.0 | skill: adapt |
+| `forge-kit-adapt` | 0.7.1 | skill: adapt |
 | `forge-kit-devops` | 0.12.3 | agents: dep-auditor, health-check; command: ci-health; skills: find-dead-code, forge-host, github-to-forgejo, release, release-automation; hook: block-legacy-host-push; shell assets: forge-lib, release-run, sync-labels, version-lib |
 | `forge-kit-governance` | 0.16.5 | agent: ticket-gate; command: gate-ticket; skills: closing-sessions, decision-brief, ticket-gate-reference, working-overnight; hooks: block-dashes, overnight-continue, overnight-guard; shell assets: check-ticket-mechanics, count-gate-rounds, forge-gate-mechanics |
 | `forge-kit-review` | 0.4.1 | agents: architect-review, code-reviewer, code-simplifier, coding-standards-auditor; command: full-review |
