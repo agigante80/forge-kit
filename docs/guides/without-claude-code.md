@@ -71,19 +71,20 @@ cp /tmp/forge-kit/plugins/forge-kit-governance/skills/ticket-gate-reference/asse
 bash scripts/forge-gate-mechanics.sh 182
 ```
 
-Real output, from this repository, against its own issue #182:
+Real output, from this repository, against its own issue #182 (re-measured 2026-09-11, after
+#190):
 
 ```
 template_version           fail      no template-version marker in body (current: v6)
-labels                     fail      no area label (one of: api, privacy, web, mobile, backend, database)
-sections                   fail      heading absent: Summary; Priority; Area(s) affected; ...
-gwt                        fail      no content in Test scenarios (Given / When / Then)
+labels                     fail      no area label (one of: api, privacy, web, mobile, backend, database, components, tooling, governance)
+sections                   fail      heading absent: Summary; Priority; Area(s) affected; Files to create/modify; Rollback plan; ...
+gwt                        fail      needs at least one Positive and one Negative block (found 0 positive, 0 negative)
 unit_tests                 referred  no section matched unit tests; the critic must judge rule 2 unaided
 e2e_tests                  referred  no section matched E2E; the critic must judge rule 3 unaided
-docs_impact                fail      no content in Documentation impact
+docs_impact                pass      CLAUDE.md's validation list and the shipped-executables section. ...
 
 forge-gate-mechanics: issue #182 against .github/ISSUE_TEMPLATE/infrastructure.yml (ticket vnone, current v6)
-  0 pass, 5 fail, 0 warn, 0 n/a, 2 REFERRED
+  1 pass, 4 fail, 0 warn, 0 n/a, 2 REFERRED
 ```
 
 Three things to read from that, because they are the whole shape of this tool:
@@ -93,14 +94,18 @@ Three things to read from that, because they are the whole shape of this tool:
   `ticket-standards.md`, because a check that guessed would reject compliant tickets.
 - **It prints no verdict.** There is no PASS at the bottom, by design. This is the mechanical half
   of the gate; the reading-and-judging half has not run.
-- **That ticket really does fail, and the tool says why once rather than seven times.** It was
-  filed with `gh issue create --body-file`, so its body carries neither the `template-version`
-  marker nor the `### <label>` headings a web-form submission produces. The run opens with a
-  `never template-shaped` notice and exits 0, because that shape is not a defect in the ticket.
-  The full gate handles it at its Step 0c by synthesising the missing sections and writing the
+- **That ticket really does fail, and for its own reasons.** It was filed with `gh issue create
+  --body-file`, so it carries no `template-version` marker and its headings are the author's own
+  `##` lines. The checker reads a template section at `##` or `###` (#190), so the sections it
+  does carry are READ: its documentation impact passes on content, its GWT fails on content
+  (no Positive and Negative blocks), and the sections row names only the headings that are
+  genuinely absent. A body none of whose headings is a template label gets a `never
+  template-shaped` notice once, above the rows, and exits 0, because that shape is not a defect
+  in the ticket. The full
+  gate handles both cases at its Step 0c by synthesising the missing sections and writing the
   enriched body back to the forge before the checks run; this script does not synthesise, because
-  that step generates prose and needs a model. If your team files tickets by hand, expect the
-  notice, and take the `referred` rows as the useful signal.
+  that step generates prose and needs a model. If your team files tickets by hand, take the
+  `referred` rows and the named absences as the useful signal.
 
 **Count the gate rounds a ticket has had**, which is the number a bounded review loop stops on:
 

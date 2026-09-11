@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 2
+# forge-gate-mechanics-version: 3
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -116,16 +116,26 @@ if [ -z "$TEMPLATE" ]; then
 fi
 
 # WAS THIS BODY EVER TEMPLATE-SHAPED? (#184) Two signals, and the message claims exactly what they
-# support and no more: no `template-version` marker, and no `### ` heading anywhere. A body like
-# that was written by hand rather than submitted through the form, so EVERY section check will fail
-# for one reason, and saying it seven times buries the one fact worth knowing.
+# support and no more: no `template-version` marker, and no TEMPLATE LABEL as a heading at either
+# level (the checker reads a section at `##` or `###` since #190, so a `##` body carrying the
+# template's labels is JUDGED, not excused; a body whose `##` headings are the author's own words
+# is not recognised and gets this notice, as before). A body with neither signal was written by
+# hand rather than submitted through the form, so EVERY section check will fail for one reason,
+# and saying it seven times buries the one fact worth knowing.
 #
 # It is not a defect in the ticket and not a defect in the checks. The gate's own Step 0c
 # SYNTHESISES the missing sections and writes the enriched body back to the forge BEFORE Step 3A
 # runs, so inside a gate run the checks always see template-shaped input. This script does not
 # synthesise, deliberately: that step generates prose and needs a model.
 SHAPED=1
-if [ -z "$TPL_VER" ] && ! grep -q '^### ' "$BODY_FILE"; then SHAPED=0; fi
+if [ -z "$TPL_VER" ]; then
+  SHAPED=0
+  while IFS="$(printf '\t')" read -r label _; do
+    [ -n "$label" ] && grep -qxF -e "## $label" -e "### $label" "$BODY_FILE" && { SHAPED=1; break; }
+  done <<FIELDS
+$("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" --dump-fields 2>/dev/null)
+FIELDS
+fi
 
 rows=$("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" \
         ${TPL_VER:+--tpl-version "$TPL_VER"} --current-tpl-version "$CURRENT_TPL_VER" \
@@ -137,7 +147,7 @@ if [ "$FORMAT" = tsv ]; then
 fi
 
 if [ "$SHAPED" -eq 0 ]; then
-  echo "never template-shaped: issue #$NUM has no template-version marker and no '### ' headings,"
+  echo "never template-shaped: issue #$NUM has no template-version marker and none of the template's headings,"
   echo "  so it was never submitted through the issue form. Every section check below fails for"
   echo "  that ONE reason, which is not a defect in the ticket and not a defect in the checks."
   echo "  The full gate handles this at Step 0c: it synthesises the missing sections and writes"

@@ -2,7 +2,7 @@
 # Contract test for forge-gate-mechanics.sh (#182).
 #
 # WHAT THIS ENTRY POINT IS FOR. Every mechanical check forge-kit has is already plain shell with its
-# own suite (check-ticket-mechanics.sh, 41 cases). What was missing was a way to RUN it without
+# own suite (check-ticket-mechanics.sh, 79 cases). What was missing was a way to RUN it without
 # Claude Code, which is the whole of forge-kit's portability claim. So the cases below are mostly
 # about what the entry point must NOT do: not re-judge a row, not print a verdict, not depend on the
 # `claude` CLI, and not report clean when it cannot run.
@@ -49,7 +49,7 @@ build_full_body() {
     echo '<!-- template-version: 6 -->'
     grep -oP '^\s+label: \K.*' "$ROOT/.github/ISSUE_TEMPLATE/feature.yml" | while IFS= read -r l; do
       printf '### %s\n' "$l"
-      # The content heuristics are check-ticket-mechanics.sh's business and it has 41 tests of its
+      # The content heuristics are check-ticket-mechanics.sh's business and it has 79 tests of its
       # own. What this fixture needs is a body that satisfies them, so that a `fail` row here can
       # only mean the ENTRY POINT fed it something wrong.
       case "$l" in
@@ -148,10 +148,9 @@ echo "== a body that was never template-shaped is reported ONCE, not as seven fa
 # against a raw hand-filed ticket they all fail, and all of those failures are one fact. Saying it
 # seven times buries it.
 proj .github/ISSUE_TEMPLATE
-issue '## Summary
-Written by hand with gh issue create, so no marker and no form headings.
-## Acceptance criteria
-- it works' feature P2 api
+issue 'Summary: written by hand with gh issue create, so no marker and no headings at all.
+# A top-level title is not a section heading either
+Acceptance criteria: it works' feature P2 api
 run 42
 contains "never template-shaped" "$out" "the report names the one fact"
 contains "0c" "$out" "and points at the step that would have fixed it"
@@ -175,10 +174,27 @@ run 42
 lacks "never template-shaped" "$out" "form headings with no marker is NOT called never-template-shaped"
 
 issue '<!-- template-version: 6 -->
-## Summary
-A marker, but written with two-hash headings afterwards.' feature P2 api
+Summary: a marker, but no headings at all afterwards.' feature P2 api
 run 42
 lacks "never template-shaped" "$out" "a marker with no form headings is NOT called never-template-shaped either"
+
+# #190: a ## body carrying the template's labels is recognised by the checker and JUDGED on its
+# content, so the notice must not excuse it; its sections row decides.
+issue '## Summary
+Written by hand with gh issue create at two-hash headings.
+## Acceptance criteria
+- it works' feature P2 api
+run 42
+lacks "never template-shaped" "$out" "a ## body with template labels is judged, not called never-template-shaped (#190)"
+
+# ...but a ## body whose headings are the AUTHOR'S words, not template labels, is still
+# unrecognised, and the notice must still fire: this is #184's case, and #190 must not regress it.
+issue '## What happened
+Written by hand with two-hash headings of my own.
+## What I expected
+- it works' feature P2 api
+run 42
+contains "never template-shaped" "$out" "a ## body with no template label is still never-template-shaped (#184 kept under #190)"
 
 echo "== a template-shaped body missing ONE section still fails that section =="
 # The near-miss that keeps the notice honest: it must key on the SHAPE, not on any failure count,
