@@ -9,6 +9,17 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+## v0.5.0 (2026-09-11)
+
+The release where the gate was pointed at the repository that ships it, and at itself. Twelve
+gate runs across two phases found the label taxonomy blocking every ticket here, a resolver that
+picked a stale copy of its own checker three runs in four, and a round counter that any body edit
+reset to one. All three are fixed and the mechanical half of the gate now runs without Claude Code
+at all. Minor rather than patch: two `forge-lib.sh` contract changes (v14 adds
+`forge_issue_comments`; v15 makes `forge_ci_status` say `cancelled` and reserves `not_configured`
+for "could not ask", which `release` acts on), two new shell assets, and a new guide for teams on
+another agent or none. Ten tickets.
+
 ### Added
 
 - **The mechanical half of the ticket gate runs without Claude Code** (#182).
@@ -27,9 +38,6 @@ tracks the repository, so users are already served from the default branch.
   none: the four portable artifacts, what to copy, what to run with real output, and a table of what
   is not available. `AGENTS.md` now distinguishes its two audiences rather than serving only
   contributors.
-
-### Added
-
 - **A finding names an instance, so `code-reviewer` sweeps for its family** (#187). Inside the files
   the diff touches, each instance is treated per the iteration contract's severity rule. Outside
   them, do not fix it **and do not confirm its extent**: naming a suspicion needs no scan, and
@@ -46,9 +54,6 @@ tracks the repository, so users are already served from the default branch.
   a copy returns, because a synchronised copy is one edit from a drifted one. Three area labels now
   describe this repository's own work (`components`, `tooling`, `governance`), without which every
   ticket filed here blocked at the gate.
-
-### Added
-
 - **The gate counts its rounds from posted review comments, never from the issue body** (#192).
   `count-gate-rounds.sh` prints the round the next run should use, and `forge-lib.sh` v14 gains
   `forge_issue_comments` for it. The body's `gate-verdict` block used to carry the number, and any
