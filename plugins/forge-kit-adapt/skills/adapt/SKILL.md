@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 65 -->
+<!-- forge-adapt-version: 66 -->
 
 # forge-adapt
 
@@ -92,7 +92,7 @@ refresh it, INCLUDING the marketplace checkout (Claude Code does not auto-pull i
 ```bash
 FORGE_KIT_DIR=""; FORGE_KIT_SRC=""
 # The marketplace keeps a full checkout of the repo here. Note this is NOT the plugin cache:
-# `~/.claude/plugins/cache/<marketplace>/<plugin>/<sha>/` holds only the installed plugin's own
+# `~/.claude/plugins/cache/<marketplace>/<plugin>/<semver>/` holds only the installed plugin's own
 # files, never a `plugins/` tree, so it can never serve as the component library.
 MARKETPLACE_CHECKOUT=~/.claude/plugins/marketplaces/forge-kit
 if [ -d "$MARKETPLACE_CHECKOUT/plugins" ]; then

@@ -28,6 +28,8 @@ tracks the repository, so users are already served from the default branch.
   resolver said "path as tie-break" without saying which way; the `ROUND=` line shared the empty
   path and ran `./count-gate-rounds.sh`. A missing checker now makes the round `unknown`, the same
   as a counter that cannot run. `/phase` prints `none` the same way.
+- **`adapt` no longer calls the plugin cache leaf `<sha>`** (#195); it is the plugin semver, as
+  CLAUDE.md has said since it was probed. One token, word-neutral against the `adapt` ratchet.
 - **Concurrent gate runs no longer share one body file by name** (#197). Step 1 writes the fetched
   issue to `<scratchpad>/gate-<NUMBER>/` and Step 3A refuses, posting nothing, when that file's
   `.number` is not the run's argument. Three runs in one session had read each other's bodies
