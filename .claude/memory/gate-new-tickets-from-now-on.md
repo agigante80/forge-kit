@@ -1,6 +1,6 @@
 ---
 name: gate-new-tickets-from-now-on
-description: maintainer decision 2026-09-10; six runs cost 110k to 225k tokens each and found five defects in none of the tickets, but do not expect that ratio to hold
+description: maintainer decision 2026-09-10; day one found five defects outside the tickets, day two (2026-09-11) found none outside but changed one design and caught one test gap mutation testing missed; three at once collide in the scratchpad
 metadata:
   type: feedback
 ---
@@ -28,6 +28,21 @@ two contradicting rules in one file.
 **Do not expect that ratio to hold.** Six runs found a great deal because nothing had ever been
 pointed at this repository's own work, so they were draining a backlog of latent defects rather than
 reviewing tickets. When that backlog is gone the same six runs will find much less.
+
+## The second day, measured 2026-09-11 over six more runs
+
+Between 134,000 and 218,000 subagent tokens per run, eleven to twenty-four minutes each; three
+tickets, two rounds each, run three at a time. **The ratio did drop, as predicted, and it did not
+drop to zero.** Round 1 found no defect in the kit outside the tickets (against five the day
+before) but changed the DESIGN of one: the critic reproduced a false green in the downstream
+Option A walk under a server-clamped page, which decided #193 before a line was written. Round 2
+found one real test gap that mutation testing had missed (a fixture that did not kill the mutant it
+named) and otherwise passed two of three. Three P3 follow-ups came out, all advisories. Two of the
+three round-2 verdicts were PASS, so the stopping rule was never strained.
+
+**One process defect surfaced by running three gates at once:** they share the session scratchpad,
+and two runs read a body file the third had overwritten. Both caught it from the evidence column.
+Per-issue scratch directories would fix it; recorded in the roadmap close, not yet ticketed.
 
 **The amendment to watch for:** if it starts feeling heavy, the honest change is to gate what is
 about to be IMPLEMENTED rather than what is about to be FILED. Filing a ticket costs nothing to get
