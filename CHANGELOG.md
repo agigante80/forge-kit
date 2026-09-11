@@ -9,6 +9,12 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+### Fixed
+
+- **Concurrent gate runs no longer share one body file by name** (#197). Step 1 writes the fetched
+  issue to `<scratchpad>/gate-<NUMBER>/` and Step 3A refuses, posting nothing, when that file's
+  `.number` is not the run's argument. Three runs in one session had read each other's bodies
+  twice and were saved both times by a reviewer reading the evidence column.
 ## v0.5.0 (2026-09-11)
 
 The release where the gate was pointed at the repository that ships it, and at itself. Twelve
