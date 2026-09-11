@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 52 -->
+<!-- ticket-gate-version: 53 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -166,8 +166,6 @@ Post the SYNTHESIS VOID template from `references/comment-templates.md`.
 The review runs against the enriched body. Version check is now satisfied. Do NOT return
 BLOCKED at this step. Continue the gate normally.
 
-**Auto-synthesis voids the verdict** (round table): nothing carries forward from a pre-synthesis run.
-
 #### 0b. Label validation
 
 1. **Fetch labels:**
@@ -185,11 +183,22 @@ gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
 
 ---
 
-### Step 1: Fetch the issue
+### Step 1: Fetch the issue, resolve the shipped assets, count the round
 
 ```bash
 gh issue view <NUMBER> --repo "$REPO" --json number,title,body,labels,milestone
+MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
+# Never $CLAUDE_PLUGIN_ROOT (hooks only). Search: a checkout's own tree, then the highest marker
+# across installed copies, path as tie-break; a first `find` hit was stale three runs in four (#189).
+[ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
+[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
+echo "mechanics: $MECH ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))"   # quote in the review
+ROUND=$("$(dirname "$MECH")/count-gate-rounds.sh" <NUMBER> --body <body-file>)
 ```
+
+`<ROUND>` counts posted reviews, never the body, which any edit erases (#192); a disagreeing block
+is reported on stderr and loses. Exit 2 makes it `unknown`: every step runs full scope and the
+review says so.
 
 ### Step 1.5: Thin ticket pre-check
 
@@ -253,8 +262,7 @@ over adding an agent; add an agent only for a genuinely independent domain persp
 ### Step 2.7: Complexity assessment and specialist research
 
 After selecting the review set, assess whether the ticket needs research before the critique.
-**On a re-run** see the round table. Prior research is NOT recoverable: it lived in the comment
-nothing reads back, and the verdict block carries computed fields only. So
+**On a re-run** see the round table. Prior research is NOT recoverable (nothing reads it back), so
 element 5 is re-derived by the critic rather than re-sourced.
 
 **Complexity signals (any 2+ triggers deep research):**
@@ -287,8 +295,7 @@ element 5 is re-derived by the critic rather than re-sourced.
 ### Step 2.9: Codebase exploration
 
 Map existing code patterns relevant to this ticket. This step ALWAYS runs its check, per the
-rules below; findings reach the critic either way, grounding the review in the actual codebase
-state.
+rules below; findings reach the critic either way.
 
 **1. Check if `codebase_context` is already populated**, in the issue body ALREADY FETCHED
 in Step 1 (never a fresh forge call):
@@ -338,13 +345,6 @@ Run the script the `ticket-gate-reference` skill ships; do NOT re-implement its 
 which cannot be tested (#149).
 
 ```bash
-MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
-# $CLAUDE_PLUGIN_ROOT reaches HOOK processes, not an agent's Bash, so search: a checkout's own tree,
-# then the highest marker across installed copies, path as tie-break. The cache holds versions side
-# by side, so a first `find` hit was stale three runs in four (#189). Print the pick.
-[ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
-[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
-echo "mechanics: $MECH ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))"   # quote in the review
 "$MECH" --body <body-file> --template <the type's template file> \
   --tpl-version <marker from the body> --current-tpl-version <0a's value> --labels <0b's labels>
 ```
@@ -486,8 +486,8 @@ gh issue comment <NUMBER> --repo "$REPO" --body "<review>"
 
 ### Step 6: Return result and auto-remediate
 
-**The `gate-verdict` block is written on EVERY path below, PASS included**: it is the run's only
-durable output, `forge_*` has no read-comments primitive, and humans triage bodies.
+**The `gate-verdict` block is written on EVERY path below, PASS included**: humans triage bodies,
+and it is a projection of Step 1's count, never its source.
 
 ```markdown
 <!-- gate-verdict:start -->
@@ -502,8 +502,7 @@ Full review: the latest `## Ticket Readiness Review` comment on this issue.
 gh issue edit <NUMBER> --repo "$REPO" --body "<updated body>"
 ```
 
-`<ROUND>` is 1 when the Step 1 body carries no block, else that block's round plus 1: the round
-number every re-run rule reads (`<N>` stays the issue number). Computed fields only, so nothing
+`<ROUND>` is Step 1's count (`<N>` stays the issue number). Computed fields only, so nothing
 drifts; BLOCKED never appears, those paths returning earlier.
 
 **Every region the gate writes obeys one lifecycle**; per-region answers are how this drifted.
@@ -584,8 +583,7 @@ Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays
 ## Rules
 
 **Cross-cutting policy only.** A rule that governs exactly one step lives AT that step,
-where it is read; this section is for rules that span steps or the whole run. Adding a
-single-step rule here is what put the re-run rules 400 lines from the steps they govern (#109).
+where it is read; this section is for rules that span steps or the whole run (#109).
 
 - **Verify before you post the review (no post-then-retract).** Every factual claim the
   critic or a lens makes - a file path, a route verb, a schema field, an error code, a line
@@ -623,6 +621,8 @@ single-step rule here is what put the re-run rules 400 lines from the steps they
   | 3B critic | prior blocking items plus changed sections, from the `gate-verdict` block; a fresh run has no memory |
   | 3C lenses | one that already ran: its own prior blocking items plus changed sections touching its brief. One triggering for the FIRST time in round 2 runs FULL |
 
-
   Delta scope on a first run reviews nothing and reports clean, which is why the last row is not
-  delta. The target must not grow between rounds; state what was re-checked and what carries forward.
+  delta. Likewise when `<ROUND>` is above 1 with no `gate-verdict` block (erased, or cleared by
+  0c-iv): 3B and 3C run FULL. A 0c-voided round counts (its comment exists) but carries no
+  memory; a deleted review comment lowers the count. The target must not grow between rounds;
+  state what was re-checked and what carries forward.

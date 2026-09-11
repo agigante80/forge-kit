@@ -11,6 +11,7 @@ Step 4 composes this. Never a numeric scorecard.
 
 **Issue:** <title>
 **Date:** <today>
+**Round:** <ROUND>
 **Template version:** v<N> (current: v<M>)
 **Review set:** mechanical checks + critic[, Security lens (label: security)]
 
