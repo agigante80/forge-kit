@@ -430,6 +430,20 @@ to `release`.
 The last phase closed with more gate tickets than it opened with. This one is where they get paid,
 and the premortem says what happens if gating them produces a third crop.
 
+## Phase: Four small debts from the gate runs
+state: open
+plan: docs/plans/four-small-debts.md
+
+Opened 2026-09-11 for what the twelve gate runs of the last two phases left on the board, none of
+it large and all of it in the gate's own machinery: the checker failing five times on a `##` body
+where its own rule says refer once (#190, found by the gate reviewing #186); the provenance line
+printing `mechanics:  ()` on the empty path and a home path in every review (#194, from #189's
+round 2); a stale `<sha>` in `adapt`'s description of the cache leaf (#195, the same round); and
+three concurrent gate runs sharing one body file by name (#197, which bit twice in the last phase
+and was caught both times by luck). This phase is also the first one whose tickets are gated by
+the NEW agent prose without a per-run override, which is the evidence the last close said was
+still owed.
+
 ## Phase: Backlog
 state: backlog
 
