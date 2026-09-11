@@ -11,6 +11,17 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **The mechanical checks find a section at either heading level, bounded by labels rather than
+  by a level** (#190). `gh issue create --body-file` produces `##` headings, and the checker, keyed
+  on `### ` alone, read a doc-compliant `##` body as five absent sections where the same body at
+  `###` got two and a referred: a heuristic miss that inverted the verdict instead of referring it.
+  A first fix detected one level per body; the gate found `dep-auditor` emits `### Priority` beside
+  `##` sections, which that rule inverted the same way. A section now runs to the next heading at
+  its own level or the next heading that is a template label, so a `###` subsection is content and
+  a `### Priority` beside it is a boundary. No content check moved. `forge-gate-mechanics.sh`'s
+  never-template-shaped notice keys on the same signal, and the worked example in
+  `without-claude-code.md` was re-measured: #182's documentation impact passes on content and its
+  GWT fails on content.
 - **Concurrent gate runs no longer share one body file by name** (#197). Step 1 writes the fetched
   issue to `<scratchpad>/gate-<NUMBER>/` and Step 3A refuses, posting nothing, when that file's
   `.number` is not the run's argument. Three runs in one session had read each other's bodies

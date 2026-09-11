@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 5
+# check-ticket-mechanics-version: 6
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -19,6 +19,20 @@
 # either case makes a rule evaporate silently: a project template that renames its sections, or
 # marks E2E optional, would otherwise score a PASS with those bars unjudged by anyone.
 # Only check 1 emits `na`, for a project with no versioned templates at all.
+#
+# A SECTION IS FOUND AT EITHER HEADING LEVEL, AND ITS BOUNDARY IS A LABEL, NOT A LEVEL (#190). A
+# web-form submission renders each field as `### <label>`; `gh issue create --body-file`, a
+# first-class filing path, produces whatever the author wrote, usually `## <label>`; and the kit's
+# own dep-auditor emits `### Priority` beside `##` sections. Keyed on `### ` alone, a `##` body read
+# as five absent sections, five FAILs, where the same body at `###` got two and a referred: a
+# heuristic miss that INVERTED the verdict instead of referring it. A first fix detected one level
+# per body and let `###` win a mixed one, which inverted the dep-auditor shape exactly the same
+# way (found by the gate reviewing the ticket). So there is no level: a label is present at `##`
+# or `###`, and its section runs to the next heading at ITS OWN level or the next heading at
+# either level whose text is a template label, whichever comes first. A `###` subsection inside a
+# `##` section is content, because it is not a label; a `### Priority` beside it is a boundary,
+# because it is. A `###` body is untouched: every boundary it had is still one. Nothing about what
+# a section must CONTAIN moved.
 #
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
@@ -59,7 +73,7 @@ while [ $# -gt 0 ]; do
     --area-labels)         need_value $# "$1"; AREA_LABELS="$2"; shift 2 ;;
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
-    -h|--help)             sed -n '2,34p' "$0"; exit 0 ;;
+    -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -79,11 +93,19 @@ row() {
   printf '%s\t%s\t%s\n' "$1" "$2" "$ev"
 }
 
-# Everything under a `### <label>` heading, up to the next heading. Compared literally, never
-# as a regex, because labels carry `/`, `&` and parentheses.
+# Everything under a `## <label>` or `### <label>` heading, up to the next heading at the same
+# level or the next heading that is itself a template label (see the header). Compared
+# literally, never as a regex, because labels carry `/`, `&` and parentheses. TEMPLATE_LABELS is
+# set once the template is parsed, below.
+TEMPLATE_LABELS=""
 section_of() {
-  awk -v want="$1" '
-    /^### / { cur = substr($0, 5); sub(/[ \t]+$/, "", cur); inside = (cur == want); next }
+  awk -v want="$1" -v labels="$TEMPLATE_LABELS" '
+    BEGIN { n = split(labels, a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1 }
+    /^##+ / {
+      lvl = index($0, " ") - 1; cur = substr($0, lvl + 2); sub(/[ \t]+$/, "", cur)
+      if (inside && (lvl == want_lvl || (cur in islabel))) inside = 0
+      if (!inside && !found && cur == want) { inside = 1; found = 1; want_lvl = lvl; next }
+    }
     inside { print }
   ' "$BODY"
 }
@@ -120,6 +142,7 @@ TEMPLATE_FIELDS="$(template_fields)"
 # first version reported `sections pass` here, a fail-open on the one check that reads it.
 [ -n "$TEMPLATE_FIELDS" ] || die "no fields parsed from template: $TEMPLATE"
 [ "$DUMP_FIELDS" -eq 0 ] || { printf '%s\n' "$TEMPLATE_FIELDS"; exit 0; }
+TEMPLATE_LABELS="$(printf '%s\n' "$TEMPLATE_FIELDS" | cut -f1)"
 
 # Which rendered section plays each role, by label shape rather than by a fixed name.
 #
@@ -194,10 +217,12 @@ fi
 # Every section the template carries needs a heading. Only a field the template marks
 # `required: true` needs CONTENT: GitHub renders an unfilled optional field as `_No response_`,
 # and faulting that failed a template-perfect ticket in the first version.
-missing=""; empty=""
+missing=""; empty=""; at2=""; at3=""
 while IFS="$(printf '\t')" read -r label required; do
+  grep -qxF "## $label" "$BODY" && at2="##"
+  grep -qxF "### $label" "$BODY" && at3="###"
   [ -n "$label" ] || continue
-  if ! grep -qxF "### $label" "$BODY"; then
+  if ! grep -qxF -e "## $label" -e "### $label" "$BODY"; then
     missing="$missing${missing:+; }$label"
   elif [ "$required" = "yes" ] && ! has_content "$(section_of "$label")"; then
     empty="$empty${empty:+; }$label"
@@ -210,7 +235,7 @@ if [ -n "$missing" ]; then
 elif [ -n "$empty" ]; then
   row sections fail "required heading present but empty: $empty"
 else
-  row sections pass "every template section present, every required one filled"
+  row sections pass "every template section present, every required one filled (headings at ${at2}${at2:+${at3:+ and }}${at3})"
 fi
 
 # --- check 4: GWT structure (rule 1, the checkable half) --------------------------------

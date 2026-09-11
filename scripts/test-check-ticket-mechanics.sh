@@ -276,6 +276,72 @@ out="$(run "$B" feature)"
 expect "emits exactly one row per check" 7 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
 printf '%s\n' "$out" | awk -F'\t' 'NF != 3 { bad = 1 } END { exit bad + 0 }' \
   && ok "every row is three tab-separated fields" || bad "a row is not three fields"
+echo "check-ticket-mechanics: a ## body is judged on its content, not reported as five missing sections (#190)"
+# `gh issue create --body-file` is a first-class filing path here and it produces `##` headings.
+# The matcher keyed on `### ` alone, so every section read as absent and a doc-compliant ticket
+# got five FAILs where a `###` copy of the same body got two and a referred. The script's own rule
+# is that a heuristic miss refers rather than fails; a heading-level miss is exactly that. There
+# is no per-body level: a label is present at either level, and its section runs to the next
+# heading at its OWN level or the next heading that is a template label, whichever first, so a
+# ### body is untouched and a ## section keeps its non-label ### subsections as content.
+B="$(mkbody feature "hh-ok.md")"; sed 's/^### /## /' "$B" > "$WORK/hh2.md"
+out="$(run "$WORK/hh2.md" feature)"
+offenders="$(printf '%s\n' "$out" | awk -F'\t' '$2 == "fail" { printf "%s=%s ", $1, $2 }')"
+[ -z "$offenders" ] && ok "a compliant ticket at ## headings has no spurious FAIL" || bad "## body: $offenders"
+expect "and its sections row passes" pass "$(outcome "$out" sections)"
+printf '%s\n' "$out" | awk -F'\t' '$1 == "sections"' | grep -q '##' \
+  && ok "and the sections evidence names the heading level it keyed on" || bad "sections evidence does not name the ## level"
+expect "and GWT is judged on its content, not referred for a missing section" pass "$(outcome "$out" gwt)"
+# Not loosened: a section that IS absent at ## still fails, by name.
+grep -v '^## Documentation impact' "$WORK/hh2.md" > "$WORK/hh2-missing.md"
+out="$(run "$WORK/hh2-missing.md" feature)"
+expect "a genuinely absent section at ## still FAILS" fail "$(outcome "$out" sections)"
+printf '%s\n' "$out" | awk -F'\t' '$1 == "sections"' | grep -q 'Documentation impact' \
+  && ok "and names the absent section" || bad "the absent section is not named"
+# A ## section runs to the next ## heading, so ### subsections inside it are CONTENT.
+python3 - "$WORK/hh2.md" "$WORK/hh2-sub.md" <<'PY'
+import sys,re
+s=open(sys.argv[1]).read()
+s=s.replace("## Test scenarios (Given / When / Then)\n\n", "## Test scenarios (Given / When / Then)\n\n### The only condition\n\n",1)
+open(sys.argv[2],"w").write(s)
+PY
+expect "a ### subsection inside a ## section is content, not a section boundary" pass "$(outcome "$(run "$WORK/hh2-sub.md" feature)" gwt)"
+# A ### body is untouched by the detection: a stray ## prose heading does not flip the level.
+{ cat "$B"; printf '\n## A closing remark\n\nprose\n'; } > "$WORK/hh3-stray.md"
+expect "a ### body with a stray ## prose heading keeps the ### contract" pass "$(outcome "$(run "$WORK/hh3-stray.md" feature)" sections)"
+# Mixed levels across TEMPLATE labels are READ, not adjudicated: dep-auditor emits `### Priority`
+# beside `##` sections (found by the gate reviewing this ticket), and a "### wins" rule inverted
+# that body exactly as v5 did. A label is present at either level, and its section runs to the
+# next heading at its own level or the next heading that IS a template label, whichever first.
+{ cat "$B"; printf '\n## Unit tests\n\nN/A\n'; } > "$WORK/hh3-mixed.md"
+expect "a ### body that also carries a template label at ## still passes sections" pass "$(outcome "$(run "$WORK/hh3-mixed.md" feature)" sections)"
+sed 's/^## Priority$/### Priority/' "$WORK/hh2.md" > "$WORK/hh2-depaud.md"
+out="$(run "$WORK/hh2-depaud.md" feature)"
+offenders="$(printf '%s\n' "$out" | awk -F'\t' '$2 == "fail" { printf "%s=%s ", $1, $2 }')"
+[ -z "$offenders" ] && ok "the dep-auditor shape (### Priority beside ## sections) has no spurious FAIL" || bad "dep-auditor shape: $offenders"
+# A ### label heading ENDS the ## section before it, so Priority's content is not read as Summary's.
+python3 - "$WORK/hh2.md" "$WORK/hh2-bleed.md" <<'PY'
+import sys
+s=open(sys.argv[1]).read()
+s=s.replace("## Documentation impact\n\nUpdates `docs/guides/auth.md`\n", "## Documentation impact\n\n_No response_\n\n### Codebase Context\n\nUpdates `docs/guides/auth.md`\n",1)
+open(sys.argv[2],"w").write(s)
+PY
+out="$(run "$WORK/hh2-bleed.md" feature)"
+[ "$(outcome "$out" docs_impact)" != pass ] && ok "a ### label heading ends the ## section before it (no content bleeds across)" || bad "content bled from the next labelled section into docs_impact"
+# The OWN-LEVEL boundary: a same-level heading that is NOT a template label (the author's own
+# `## Design notes`) still ends the section, or an empty Unit tests section would read the notes
+# that follow it as its content and pass. Found by gate round 2: dropping this clause survived
+# every case above.
+python3 - "$WORK/hh2.md" "$WORK/hh2-own.md" <<'PY'
+import sys
+s=open(sys.argv[1]).read()
+s=s.replace("## Unit tests\n\n- [ ] `tests/unit/auth.test.ts` valid input -> session\n", "## Unit tests\n\n_No response_\n\n## Design notes\n\n- [ ] `tests/unit/auth.test.ts` valid input -> session\n",1)
+open(sys.argv[2],"w").write(s)
+PY
+[ "$(outcome "$(run "$WORK/hh2-own.md" feature)" unit_tests)" != pass ] \
+  && ok "a same-level heading that is not a label still ends the section (own-level boundary)" \
+  || bad "an empty Unit tests section read the author's next ## section as its content"
+
 bash "$SCRIPT" --body "$WORK/nope.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x >"$WORK/o" 2>/dev/null
 [ $? -ne 0 ] && ok "a missing body exits non-zero" || bad "a missing body exited 0"
 [ ! -s "$WORK/o" ] && ok "a missing body emits NO rows, so it cannot read as all-pass" || bad "a missing body emitted rows"
