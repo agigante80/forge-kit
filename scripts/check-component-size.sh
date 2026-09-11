@@ -284,6 +284,11 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# LOWERED 2026-09-11: ticket-gate 5773 to 5767 (#194). #192 and #197 each paid for themselves
+# out of restated sentences and left 19 words of headroom; #194 spent 13 of them (the direction in
+# the comment +2, the provenance echo +1, the ROUND fallback +7, its prose +3) and the remaining 6
+# are locked in here, per the rule that a shrink lowers the baseline.
+#
 # RAISED 2026-09-11, THE THIRD RAISE, BY MAINTAINER DECISION: ticket-gate 5709 to 5773 (#189). Step
 # 3A's resolver went from a first-hit `find | head -1`, which picked a stale cached copy in three
 # gate runs of four, to a ranked search that prints its pick. A correctness fix in the #147 shape:
@@ -301,7 +306,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5773 ;;
+    ticket-gate) echo 5767 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac
