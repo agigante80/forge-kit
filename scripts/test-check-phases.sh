@@ -319,6 +319,43 @@ out=$(cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" \
 expect "FORGE_LIB points it at a library that is not adjacent" 0 "$rc"
 mv "$T/elsewhere/forge-lib.sh" "$T/forge-lib.sh"
 
+echo "== the last-resort search picks the HIGHEST marker, never the first hit (#189) =="
+# ~/.claude/plugins holds plugin versions SIDE BY SIDE (the cache keeps every installed semver and
+# the marketplace checkout is a fifth copy), and `find` returns them in directory order. The old
+# `find ... | head -1` therefore selected an arbitrary copy, and on the machine that filed #189 it
+# selected a stale one in three gate runs out of four. The rule now: highest `forge-lib-version`
+# marker wins, lexical path breaks a tie (an equal marker implies an equal committed body, which
+# check-version-bump.sh enforces), and the choice is PRINTED so a stale pick is visible in the run.
+# Two copies at v1 and one at v9, so a first-hit pick is wrong two times in three even before the
+# provenance line is checked; the provenance assertion is the deterministic half.
+mv "$T/forge-lib.sh" "$T/forge-lib.hidden"
+H="$T/home189"; rm -rf "$H"; mkdir -p "$H/.claude/plugins/cache/g/0.1.0" "$H/.claude/plugins/cache/g/0.2.0" "$H/.claude/plugins/marketplaces/m"
+for d in cache/g/0.1.0 cache/g/0.2.0; do
+  cat > "$H/.claude/plugins/$d/forge-lib.sh" <<'STUB'
+#!/usr/bin/env bash
+# forge-lib-version: 1
+forge_repo() { printf 'o/r'; }
+forge_host() { printf 'github'; }
+forge_milestone_list()       { echo 'STALE COPY' >&2; return 2; }
+forge_issue_milestone_list() { return 2; }
+STUB
+done
+cat > "$H/.claude/plugins/marketplaces/m/forge-lib.sh" <<'STUB'
+#!/usr/bin/env bash
+# forge-lib-version: 9
+forge_repo() { printf 'o/r'; }
+forge_host() { printf 'github'; }
+forge_milestone_list()       { cat "$STUB_MILESTONES"; }
+forge_issue_milestone_list() { cat "$STUB_ISSUES"; }
+STUB
+out=$(cd "$T" && HOME="$H" STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" \
+      bash ./check-phases.sh 2>&1); rc=$?
+expect "the highest-marker copy is the one sourced" 0 "$rc"
+[ "${out#*STALE COPY}" = "$out" ] && ok "and no stale copy ran" || bad "a stale copy ran: $out"
+contains "marketplaces/m/forge-lib.sh" "$out" "and the run prints the path it chose"
+contains "forge-lib-version: 9" "$out" "with its marker"
+mv "$T/forge-lib.hidden" "$T/forge-lib.sh"
+
 echo "== the shared parser library =="
 # parse_roadmap is ONE definition of a file format with two consumers, not two similar behaviours.
 # If the two ever parsed differently the guard would pass a file the sync then mis-applies, so

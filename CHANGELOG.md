@@ -49,6 +49,13 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **A shipped asset is resolved by its version marker, never by the first `find` hit** (#189).
+  `~/.claude/plugins` holds plugin versions side by side, so `find ... | head -1` returned an
+  arbitrary copy, and on the filing machine three different ones in three consecutive runs, one of
+  them stale enough to contradict #188 during a live gate. `ticket-gate.md` Step 3A, `/phase`, and
+  the last-resort search in `check-phases.sh` and `sync-phases.sh` now prefer a project copy, then
+  a forge-kit checkout's own tree, then the highest `<name>-version` marker with the path as
+  tie-break, and every one of them prints the copy it chose. Two contract cases pin the shell half.
 - **Both halves of the leak guard now state that they never look at history** (#185). Every mode
   reads the working tree, the index, or two endpoints of a range, so a leak committed once and
   removed later is unreached, which is exactly the going-public moment the component is named for.

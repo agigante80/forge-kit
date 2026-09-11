@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 51 -->
+<!-- ticket-gate-version: 52 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -339,8 +339,12 @@ which cannot be tested (#149).
 
 ```bash
 MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
-# $CLAUDE_PLUGIN_ROOT reaches HOOK processes, not an agent's Bash, so search for the plugin copy:
-[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh 2>/dev/null | head -1)
+# $CLAUDE_PLUGIN_ROOT reaches HOOK processes, not an agent's Bash, so search: a checkout's own tree,
+# then the highest marker across installed copies, path as tie-break. The cache holds versions side
+# by side, so a first `find` hit was stale three runs in four (#189). Print the pick.
+[ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
+[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
+echo "mechanics: $MECH ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))"   # quote in the review
 "$MECH" --body <body-file> --template <the type's template file> \
   --tpl-version <marker from the body> --current-tpl-version <0a's value> --labels <0b's labels>
 ```
@@ -348,8 +352,7 @@ MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
 One row per check, `<check>\t<outcome>\t<evidence>`; a non-zero exit means every check is
 `referred` and the review says so.
 
-Outcomes are **pass**, **fail**, **warn**, **na** (check 1 only) or **referred**
-(the script could not rule). Neither is a defect in the ticket. **Every FAIL is a blocking
+Outcomes are **pass**, **fail**, **warn**, **na** (check 1 only) or **referred**. **Every FAIL is a blocking
 item, classified significant** (fundamental only ever comes from the critic or the lens, never from
 mechanics), merged into the blocking list before Step 6: a mechanical failure must never be lost
 to a clean critic. Warn, N/A, and referred never block; a referred item blocks only if the

@@ -177,6 +177,36 @@ expect "a missing forge-lib.sh refuses the run" 2 "$rc"
 contains "forge-kit-devops" "$out" "and names the plugin group that provides it"
 mv "$T/forge-lib.hidden" "$T/forge-lib.sh"
 
+# #189: the last-resort search over ~/.claude/plugins ranks copies by `forge-lib-version` marker
+# and prints the pick, instead of `head -1` over whatever order `find` returns. Same fixture shape
+# as test-check-phases.sh: two stale v1 copies and one v9, the v9 one the only one that answers.
+mv "$T/forge-lib.sh" "$T/forge-lib.hidden"
+H="$T/home189"; rm -rf "$H"; mkdir -p "$H/.claude/plugins/cache/g/0.1.0" "$H/.claude/plugins/cache/g/0.2.0" "$H/.claude/plugins/marketplaces/m"
+for d in cache/g/0.1.0 cache/g/0.2.0; do
+  cat > "$H/.claude/plugins/$d/forge-lib.sh" <<'STUB'
+#!/usr/bin/env bash
+# forge-lib-version: 1
+forge_repo() { printf 'o/r'; }
+forge_host() { printf 'github'; }
+forge_milestone_list() { echo 'STALE COPY' >&2; return 2; }
+STUB
+done
+cat > "$H/.claude/plugins/marketplaces/m/forge-lib.sh" <<'STUB'
+#!/usr/bin/env bash
+# forge-lib-version: 9
+forge_repo() { printf 'o/r'; }
+forge_host() { printf 'github'; }
+forge_milestone_list()   { cat "$STUB_MILESTONES"; }
+forge_milestone_create() { echo "create $1" >> "$REQLOG"; }
+forge_milestone_close()  { echo "close $1" >> "$REQLOG"; }
+STUB
+out=$(cd "$T" && HOME="$H" STUB_MILESTONES="$T/ms.json" REQLOG="$REQLOG" \
+      bash ./sync-phases.sh --check 2>&1); rc=$?
+[ "${out#*STALE COPY}" = "$out" ] && ok "the highest-marker copy is sourced, not a stale first hit" || bad "a stale copy ran: $out"
+contains "marketplaces/m/forge-lib.sh" "$out" "and the run prints the path it chose"
+contains "forge-lib-version: 9" "$out" "with its marker"
+mv "$T/forge-lib.hidden" "$T/forge-lib.sh"
+
 echo "== portability =="
 code() { grep -v '^[[:space:]]*#' "$1"; }
 n="$(code "$SRC" | grep -c ',,}')"
