@@ -384,8 +384,38 @@ The discipline here is in what was refused. Fourteen prompts were compared and e
 the neighbours own, one day after #178 retired eleven components for being exactly that.
 
 ## Phase: The gate's own debt, and one contribution
-state: open
+state: done
 plan: docs/plans/the-gates-own-debt.md
+
+Closed 2026-09-11, outcome **done**. All three tickets landed in the plan's order, #189 then #192
+then #193, each gated for exactly two rounds under the bounded contract, and nothing was moved or
+abandoned. Three P3 follow-ups went to `backlog` (#194, #195, #196), which is the "third crop" the
+premortem named, at a size that does not change the verdict on gating.
+
+**Three premortem clauses fired, and two of them fired in the gate rather than in the code.** The
+tests-with-their-blindness clause was exact: #193's round 2 showed that the fixture the ticket
+named for its contains-match mutant (`"build failed"`) does not kill it, and only Forgejo's own
+`"Has been cancelled by admin"` does; the shipped suite carries that string because the gate
+asked. The Option A clause held because the critic REPRODUCED the walk's false green under a
+server-clamped page before anyone had to argue about it. The `none` clause held by writing both
+`release` branches out in full, which is the only form that could be checked.
+
+**One raise, one refusal.** `ticket-gate` grew past its ratchet for #189 and the baseline was
+raised 5709 to 5773 by maintainer decision, the #147 shape; #192 then added more and was paid for
+entirely by cuts, six restated sentences in the file, so the second ask was never made.
+
+**The finding underneath is about running gates in parallel.** Three gate runs in one session
+shared a scratchpad, and two of them read a body file the third had overwritten; both caught it
+from the evidence column and re-fetched, but the collision is a gate-process defect the phase
+did not own. Recorded here rather than fixed, and worth a ticket if it recurs.
+
+**Verified live, with one honest gap.** `count-gate-rounds.sh` read round 3 on all three gated
+issues and round 1 on a never-gated one, against the real forge. The new Step 1 resolver was
+dry-run three times against this machine's five copies and chose the same v5 copy each time, and
+the gate's own runs saw the old `head -1` return a stale v4 copy again. What has NOT happened is a
+gate run driven by the NEW agent prose: the installed plugin is the old version until the
+marketplace updates, so every run this phase used a per-run override instead. The first unforced
+run is the remaining evidence.
 
 Opened 2026-09-11 to pay for what the first live gate runs left behind, plus one fix that arrived
 from downstream. Three signals are reading wrong, each in the direction that stops you looking:
