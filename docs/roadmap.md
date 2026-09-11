@@ -383,6 +383,23 @@ moment a repository goes public.
 The discipline here is in what was refused. Fourteen prompts were compared and eleven are subjects
 the neighbours own, one day after #178 retired eleven components for being exactly that.
 
+## Phase: The gate's own debt, and one contribution
+state: open
+plan: docs/plans/the-gates-own-debt.md
+
+Opened 2026-09-11 to pay for what the first live gate runs left behind, plus one fix that arrived
+from downstream. Three signals are reading wrong, each in the direction that stops you looking:
+Step 3A resolves its checker with `head -1` and picked a stale plugin-cache copy in three of four
+runs (#189); the gate's only durable output can be erased by an ordinary body edit, so the trip wire
+can never fire (#192); and on Forgejo `forge_ci_status` calls a superseded run a failure and a
+not-yet-started one `not_configured` (#193), wrong on 23 of 39 red commits in the sample the ticket
+measured. #193 is a contribution: the fix and its 24 tests have run downstream since 2026-08-28, and
+what forge-kit has to decide is which of the two designs to port and what the vocabulary change does
+to `release`.
+
+The last phase closed with more gate tickets than it opened with. This one is where they get paid,
+and the premortem says what happens if gating them produces a third crop.
+
 ## Phase: Backlog
 state: backlog
 
