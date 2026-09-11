@@ -3,7 +3,7 @@ name: release
 description: Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verify CI is green, tag, and close the tickets the release shipped. Includes a version-check guard (fail if version sources disagree) for CI/pre-commit. Generic skill - forge-adapt tailors the version files, branching model, tag format, and publish pipeline to the project. Use when the user asks to "release", "cut a release", "bump the version", "ship vX.Y.Z", or "tag a release".
 ---
 
-<!-- release-version: 5 -->
+<!-- release-version: 6 -->
 
 # Release
 
@@ -74,15 +74,20 @@ source scripts/forge-lib.sh
 
 | Step | Use |
 |---|---|
-| is CI green? (precondition + step 4) | `forge_ci_status <branch>` → `success` releasable; `pending`/`failure` not; **`not_configured`** (Forgejo with no runner) → see below |
+| is CI green? (precondition + step 4) | `forge_ci_status <branch>` → `success` releasable; `pending`/`failure` not; `cancelled` (superseded) → re-dispatch CI and re-check; `none` (no run found) → wait and re-check, or confirm the repo has no CI and use the local gate; **`not_configured`** (the API could not be asked) → see below |
 | does the tag already exist? | `forge_tag_exists <tag>` |
 | create the release | `forge_release_create <tag> [title] [notes]` |
 | close a shipped ticket | `forge_issue_comment <N> "Released in v<ver>"` then `forge_issue_close <N>` |
 
-**`not_configured` (Forgejo, no Actions runner):** there is no pipeline to verify, so the
+**`not_configured` (the forge could not be asked):** there is no answer to read, so the
 "CI green" gate cannot be checked remotely. Fall back to the project's **local** gate
 (e.g. `make test` must pass before the release), state in the report that CI status was
-`not_configured` (local gate used), and never *claim* a remote-green that doesn't exist. The
+`not_configured` (local gate used), and never *claim* a remote-green that doesn't exist. **`none`
+is not this case** (#193): the forge answered and found no run for the sha, which is what a queued
+run looks like for its first seconds and what a repo with no CI looks like for ever. Stop with "no
+CI run found for <sha>; wait and re-check, or confirm the repo has no CI and use the local gate".
+**`cancelled`** is a superseded run, not a broken one: stop with "re-dispatch CI and re-check".
+Neither falls back to the local gate on its own. The
 `gh …` forms below are the GitHub reference; absent `forge-lib.sh`, fall back to `gh`.
 
 ## Release flow
@@ -91,7 +96,8 @@ source scripts/forge-lib.sh
    - the version was bumped past the last published tag (else: bump first),
    - the version sources agree (run the version-check guard),
    - CI is green on the HEAD being released: `forge_ci_status` is `success` (a red/`pending`
-     pipeline is not releasable; `not_configured` → use the local gate, see above).
+     pipeline is not releasable; `cancelled` → re-dispatch; `none` → wait or confirm no CI;
+     `not_configured` → use the local gate, see above).
    Report exactly which precondition failed and the single next action; do not `--force` past it.
 2. **Compute the release manifest:** the tickets this release ships. Read them from commit
    **subjects** in the release range (`git log <range> --pretty=%s`), matching the
@@ -102,7 +108,8 @@ source scripts/forge-lib.sh
    not a clean fast-forward, STOP - the branches diverged and need manual reconciliation.
 4. **Verify green, then claim:** pushing fires a fresh CI run on the new commit/tag. Wait for
    `forge_ci_status <branch>` to be `success` before reporting the release as shipped. Never
-   report "released" on `pending`/`failure`. On `not_configured` (Forgejo, no runner) there is no
+   report "released" on `pending`/`failure`/`cancelled`, and on `none` wait, since the push may not
+   have produced a status row yet. On `not_configured` (the API could not be asked) there is no
    remote run to wait for: rely on the local gate and report the status honestly as
    `not_configured`, not green.
 5. **Close shipped tickets:** for each ticket from step 2, `forge_issue_comment <N>

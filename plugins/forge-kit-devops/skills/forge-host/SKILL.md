@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 20 -->
+<!-- forge-host-version: 21 -->
 
 # forge-host: host-aware forge operations
 
@@ -53,7 +53,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_label <n> <name…>` | add labels by name (Forgejo: resolves names→IDs against repo AND org labels, all pages; REFUSE-ALL contract: any unresolvable name fails the whole call non-zero and applies nothing, so check the exit and create missing labels first) |
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
-| `forge_ci_status <branch>` | `success\|failure\|pending\|none\|not_configured` (Forgejo via the combined commit-status API; github via `gh run list`, also passing raw GH conclusions like `cancelled` through) |
+| `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask |
 
 **`forge_api` exit codes (forgejo path, v5+):** 0 for 2xx, **44 for 404**, 22 for any other
 non-2xx (including a 3xx that survives `-L`), and curl's own code for a transport failure. A
@@ -64,12 +64,17 @@ because callers read the body with `$(...)` and a variable set in that subshell 
 `FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them. Run
 `bash forge-lib.sh detect` for a one-line host/repo/api/ci diagnostic.
 
-**CI status degrades gracefully.** On Forgejo with no runner yet, `forge_ci_status` returns
-`not_configured` (rather than failing), so a caller can fall back to a local gate (e.g. `make
-test`) instead of hard-failing. **The Forgejo branch is implemented** via the combined commit-status
-endpoint (`/commits/{sha}/status`): Forgejo Actions writes a commit status per job, so one call
-yields `success`/`failure`/`pending`, and `total_count: 0` (no statuses, e.g. no runner) →
-`not_configured`. **Live-verified end to end**: a real runner executed a `.forgejo/workflows/`
+**CI status degrades gracefully, and the vocabulary is honest (#193).** `not_configured` is
+RESERVED for "could not ask" (unparseable remote, API error), and only then does a caller fall back
+to a local gate (e.g. `make test`). "Asked and found nothing" is `none`, on both hosts, which
+invites you to wait or to confirm there is no CI; it is not a licence to skip it. **The Forgejo
+branch is implemented** via the combined commit-status endpoint (`/commits/{sha}/status`): Forgejo
+Actions writes a commit status per job, so one call yields `success`/`failure`/`pending`. Two
+things that endpoint gets wrong are corrected from what it already returns: a superseded run is
+flattened to `failure`, and the per-job `description` ("Has been cancelled") turns it back into
+`cancelled`, an unknown string falling to `failure` rather than to a false green; and `total_count:
+0` means no status row YET, not no CI, so one page of `/actions/tasks` decides `pending` (a task for
+the sha) or `none`. **Live-verified end to end**: a real runner executed a `.forgejo/workflows/`
 job and the combined status flipped `pending` then `success`, with `forge_ci_status` returning
 `success` for both SHA and branch refs (`references/forgejo-ci.md`). GitHub's combined status
 does NOT reflect Actions (those are Checks), so the github path stays on `gh run list`.
@@ -123,7 +128,7 @@ across the GitHub-coupled components (`ci-health`, `release`/`release-automation
 work; the CI/Actions backend (and porting `release-automation`'s GitHub-App-token lanes) is gated
 on a Forgejo runner, designed in `references/forgejo-ci.md`. See `references/adopting-forge-lib.md`
 for the per-component swaps. (The invoked `release` skill is already host-aware for its tag/release/
-ticket-close steps; only its remote-CI-green check is runner-gated and degrades to `not_configured`.)
+ticket-close steps; only its remote-CI-green check is runner-gated and reads `none` until a runner exists.)
 
 ## Notes for forge-adapt
 

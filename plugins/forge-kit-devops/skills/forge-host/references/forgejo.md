@@ -52,9 +52,11 @@ user, organization, package, …`). For CI, scope it down, e.g. `write:issue,wri
 - `gh release create --generate-notes` has no Forgejo equivalent, so build notes from `git log`.
 - **`forge_ci_status` is implemented** via the **combined commit-status API** (`/commits/{sha}/
   status`): Forgejo Actions writes a commit status per job, so one call answers "is CI green?"
-  (simpler than the version-split `/actions/runs`/`/actions/tasks` Actions API). With no runner there
-  are no statuses, so it returns `not_configured` and callers fall back to a local gate (e.g. `make
-  test` pre-push). **Job logs are not API-reachable** (so `ci-health` on Forgejo is detect-only).
+  (simpler than the version-split `/actions/runs`/`/actions/tasks` Actions API). A superseded run,
+  which that endpoint flattens to `failure`, is read back as `cancelled` from the per-job
+  description (#193). With no runner there are no statuses, so it returns `none`; `not_configured`
+  means the API could not be asked, and only that keeps the local-gate fallback (e.g. `make test`
+  pre-push). **Job logs are not API-reachable** (so `ci-health` on Forgejo is detect-only).
   Confirming a real green run flips the status, and the auto-release lane, still want a runner:
   design in `forgejo-ci.md`.
 
