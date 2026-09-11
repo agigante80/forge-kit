@@ -22,6 +22,12 @@ tracks the repository, so users are already served from the default branch.
   never-template-shaped notice keys on the same signal, and the worked example in
   `without-claude-code.md` was re-measured: #182's documentation impact passes on content and its
   GWT fails on content.
+- **The gate's provenance line says `mechanics: none` when nothing was found, prints the path
+  relative to `~`, and the tie-break direction is stated** (#194). The line printed `mechanics:  ()`
+  on the empty path, posted a home path into every review comment, and every description of the
+  resolver said "path as tie-break" without saying which way; the `ROUND=` line shared the empty
+  path and ran `./count-gate-rounds.sh`. A missing checker now makes the round `unknown`, the same
+  as a counter that cannot run. `/phase` prints `none` the same way.
 - **Concurrent gate runs no longer share one body file by name** (#197). Step 1 writes the fetched
   issue to `<scratchpad>/gate-<NUMBER>/` and Step 3A refuses, posting nothing, when that file's
   `.number` is not the run's argument. Three runs in one session had read each other's bodies

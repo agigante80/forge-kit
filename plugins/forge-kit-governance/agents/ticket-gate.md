@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 54 -->
+<!-- ticket-gate-version: 55 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -186,16 +186,16 @@ gh issue view <NUMBER> --repo "$REPO" --json number,title,body,labels,milestone 
 jq -r .body "$D/issue.json" > "$D/body.md"
 MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
 # Never $CLAUDE_PLUGIN_ROOT (hooks only). Search: a checkout's own tree, then the highest marker
-# across installed copies, path as tie-break; a first `find` hit was stale three runs in four (#189).
+# across installed copies, lexically LAST path as tie-break; a first `find` hit was stale three runs in four (#189).
 [ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
 [ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
-echo "mechanics: $MECH ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))"   # quote in the review
-ROUND=$("$(dirname "$MECH")/count-gate-rounds.sh" <NUMBER> --body "$D/body.md")
+P=${MECH/#$HOME/\~}; echo "mechanics: ${P:-none}${MECH:+ ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))}"   # quote in the review
+[ -n "$MECH" ] && ROUND=$("$(dirname "$MECH")/count-gate-rounds.sh" <NUMBER> --body "$D/body.md") || ROUND=unknown
 ```
 
 `<ROUND>` counts posted reviews, never the body, which any edit erases (#192); a disagreeing block
-is reported on stderr and loses. Exit 2 makes it `unknown`: every step runs full scope and the
-review says so.
+is reported on stderr and loses. No checker, or exit 2, makes it `unknown`: every step runs full
+scope and the review says so.
 
 ### Step 1.5: Thin ticket pre-check
 
