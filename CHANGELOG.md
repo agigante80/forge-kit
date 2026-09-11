@@ -47,6 +47,17 @@ tracks the repository, so users are already served from the default branch.
   describe this repository's own work (`components`, `tooling`, `governance`), without which every
   ticket filed here blocked at the gate.
 
+### Added
+
+- **The gate counts its rounds from posted review comments, never from the issue body** (#192).
+  `count-gate-rounds.sh` prints the round the next run should use, and `forge-lib.sh` v14 gains
+  `forge_issue_comments` for it. The body's `gate-verdict` block used to carry the number, and any
+  ordinary body edit erased it, so the gate believed every round was round 1: delta scope never
+  engaged and a caller's trip wire, which counts rounds, could never fire. A stopping rule that
+  cannot fire is worse than one that is absent, because it is believed in. The block is now a
+  projection of the count, every review comment states its `**Round:**`, and 29 contract cases pin
+  what counts as a round and what does not.
+
 ### Fixed
 
 - **A shipped asset is resolved by its version marker, never by the first `find` hit** (#189).

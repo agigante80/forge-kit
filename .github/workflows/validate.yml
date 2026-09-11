@@ -90,6 +90,12 @@ jobs:
       - name: Mechanical gate entry-point tests
         run: bash scripts/test-forge-gate-mechanics.sh
 
+      # The gate's round number comes from posted review comments, because a body edit erases the
+      # block that used to carry it and a count that restarts at 1 can never reach a trip wire
+      # (#192). Stubbed transport, so no forge and no token.
+      - name: Gate round-count tests
+        run: bash scripts/test-count-gate-rounds.sh
+
       # The area set was stated in four places and three disagreed, found by the ticket gate
       # blocking on the first ticket it was ever pointed at here (#188).
       - name: Label taxonomy guard tests

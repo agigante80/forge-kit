@@ -1,7 +1,7 @@
 {
   "name": "forge-kit-governance",
   "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"

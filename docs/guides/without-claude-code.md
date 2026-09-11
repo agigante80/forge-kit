@@ -102,6 +102,18 @@ Three things to read from that, because they are the whole shape of this tool:
   that step generates prose and needs a model. If your team files tickets by hand, expect the
   notice, and take the `referred` rows as the useful signal.
 
+**Count the gate rounds a ticket has had**, which is the number a bounded review loop stops on:
+
+```bash
+cp /tmp/forge-kit/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/count-gate-rounds.sh scripts/
+bash scripts/count-gate-rounds.sh 182
+```
+
+It prints the round the NEXT run would be (posted `## Ticket Readiness Review` comments plus one)
+and never reads the issue body for it, because an ordinary body edit erases what the gate wrote
+there. If the body's block disagrees, one stderr line says so and the comments win. A count that
+cannot run exits 2 and prints nothing, so it can never be mistaken for round 1.
+
 `FORGE_TOKEN` or `GH_TOKEN` is read from the environment by `forge-lib.sh`. It is never written to a
 file by any of these scripts, and you should not put it in one.
 

@@ -11,6 +11,7 @@ never through `gh` directly, is in `ticket-gate.md`; this is the lookup.
 |---|---|
 | view an issue (body/labels/title) | `forge_issue_view <N>` → JSON `{number,title,body,state,labels[].name}` |
 | comment on an issue | `forge_issue_comment <N> "<body>"` |
+| list comments on an issue (all pages) | `forge_issue_comments <N>` (v14; `count-gate-rounds.sh` reads it) |
 | close an issue | `forge_issue_close <N>` |
 | edit an issue body | `forge_api PATCH "/repos/$REPO/issues/<N>" "$(jq -nc --arg b "<body>" '{body:$b}')"` |
 | create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels (refuse-all on Forgejo: an unresolvable name fails the WHOLE call non-zero and applies nothing, so check the exit and create missing labels first) |

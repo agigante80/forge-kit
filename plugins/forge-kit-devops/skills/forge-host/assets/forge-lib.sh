@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 13
+# forge-lib-version: 14
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -35,6 +35,9 @@
 #       This is what makes a child running in a different repo read its OWN .forge.conf. A caller
 #       that relied on sourcing forge-lib and then having a child inherit the repo identity must
 #       now export the value itself, which is the documented env-wins path anyway (issue #78).
+#   v14 forge_issue_comments <n> is NEW (#192): the first read of comments, all pages. Additive; no
+#       caller changes. Named here because ticket-gate's round count now depends on it existing,
+#       so a project holding forge-lib below v14 gets a round count that cannot run.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -353,6 +356,15 @@ forge_issue_view() { forge_api GET "/repos/$(forge_repo)/issues/$1"; }
 forge_issue_comment() {
   local payload; payload="$(jq -nc --arg b "$2" '{body:$b}')"
   forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null
+}
+
+# forge_issue_comments <n> -> JSON array of the issue's comments, oldest first, ALL pages (#192).
+# The one READ of comments in this library. ticket-gate's round count is derived from it, because a
+# body region is erased by any ordinary edit and a posted comment is not; a caller that counts
+# rounds must therefore never read a single page, which is why this goes through the paginator.
+forge_issue_comments() {
+  local repo; repo="$(forge_repo)" || return 2
+  forge_api_paginate "/repos/$repo/issues/$1/comments"
 }
 
 # forge_issue_close <n>

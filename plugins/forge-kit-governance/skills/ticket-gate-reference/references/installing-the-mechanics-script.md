@@ -8,3 +8,8 @@ This skill ships Step 3A's mechanical checks as `assets/check-ticket-mechanics.s
 `scripts/` VERBATIM at install time, the way `forge-host` copies `forge-lib.sh`. It IS Step 3A,
 not an optimisation: without it the gate takes its "record every check as referred" fallback and
 performs NO mechanical checks, which reads as a working gate.
+
+`assets/count-gate-rounds.sh` travels with it (#192): Step 1 runs it from the same directory to
+count the round from posted review comments, and without it the gate cannot count rounds at all,
+which is the state that let a body edit reset every round to 1. Both need `forge-lib.sh` beside
+them, or `FORGE_LIB` pointing at one.

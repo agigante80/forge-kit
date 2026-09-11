@@ -211,6 +211,36 @@ case $? in
   *) bad "issue_label empty-name case errored";;
 esac
 
+# --- forge_issue_comments (#192): ALL pages, in order, so a round count cannot stop at page 1 ---
+# 31 comments across a 30-item page and a 1-item page. The count-gate-rounds helper counts these,
+# and a count that stopped at the first page would read round 31 as round 30 for ever after.
+(
+  . "$LIB"
+  REQLOG="$T/c.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    echo "$1 $2" >> "$REQLOG"
+    case "$2" in
+      */issues/42/comments?*page=1*) jq -nc '[range(1;31) | {id: ., body: ("c" + tostring)}]' ;;
+      */issues/42/comments?*page=2*) printf '[{"id":31,"body":"c31"}]' ;;
+      */issues/42/comments?*)        printf '[]' ;;
+      *) printf '[]' ;;
+    esac
+  }
+  out=$(forge_issue_comments 42) || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 31 ] || exit 1
+  [ "$(printf '%s' "$out" | jq -r '.[30].body')" = c31 ] || exit 2
+  grep -q '/issues/42/comments' "$REQLOG" || exit 3
+  exit 0
+)
+case $? in
+  0) ok "issue_comments returns all 31 comments across two pages, in order (#192)";;
+  1) bad "issue_comments did not return all 31 comments (stopped at a page boundary)";;
+  2) bad "issue_comments returned the comments out of order";;
+  3) bad "issue_comments did not request the issue's comments path";;
+  *) bad "issue_comments errored (function missing?)";;
+esac
+
 # --- pagination: an EMPTY 200 body mid-run is an ERROR, not a silent end-of-list ---
 (
   . "$LIB"
