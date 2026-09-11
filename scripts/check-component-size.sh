@@ -284,6 +284,13 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# RAISED 2026-09-11, THE THIRD RAISE, BY MAINTAINER DECISION: ticket-gate 5709 to 5773 (#189). Step
+# 3A's resolver went from a first-hit `find | head -1`, which picked a stale cached copy in three
+# gate runs of four, to a ranked search that prints its pick. A correctness fix in the #147 shape:
+# the file plus its preloaded companion sat at exactly 5709, the critic found 7 removable words,
+# and a shell helper was rejected because it would have to be found by the search it fixes.
+# Decided on the ticket, 2026-09-11.
+#
 # RAISED 2026-09-07, THE FIRST OF THE TWO, BY MAINTAINER DECISION. ticket-gate went 5209 to 5265 for #147, a
 # correctness fix that could not be paid for: a seven-shingle scan of the file found no remaining
 # duplication after seven consecutive fixes had each paid their own way, and the alternative was
@@ -294,7 +301,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5709 ;;
+    ticket-gate) echo 5773 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

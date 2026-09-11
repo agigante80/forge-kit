@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, close or triage a phase.
 argument-hint: status | plan <name> | close <name> | triage
 ---
 
-<!-- phase-version: 1 -->
+<!-- phase-version: 2 -->
 
 # /phase
 
@@ -15,13 +15,19 @@ acting, and when a guard refuses something, quote its message rather than paraph
 
 **Never use `$CLAUDE_PLUGIN_ROOT`.** It is exported to hook processes, not to an agent's Bash, so it
 expands to nothing here and a leading-slash path silently resolves somewhere else. Resolve by
-search:
+search, in this order: the project's own copy; a forge-kit checkout's tree, which is newer than
+anything installed; then the highest `<name>-version` marker across installed copies, path as the
+tie-break. The plugin cache holds versions side by side and `find` lists them in arbitrary order,
+so a first hit was a stale copy three runs in four (#189). Print the pick.
 
 ```bash
-CP=scripts/check-phases.sh
-[ -f "$CP" ] || CP=$(find ~/.claude/plugins -name check-phases.sh 2>/dev/null | head -1)
-SP=scripts/sync-phases.sh
-[ -f "$SP" ] || SP=$(find ~/.claude/plugins -name sync-phases.sh 2>/dev/null | head -1)
+resolve() {  # resolve <asset.sh>
+  [ -f "scripts/$1" ] && { echo "scripts/$1"; return; }
+  ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/"$1" 2>/dev/null && return
+  find ~/.claude/plugins -name "$1" -exec grep -m1 -Ho "${1%.sh}-version: [0-9]*" {} + 2>/dev/null \
+    | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1
+}
+CP=$(resolve check-phases.sh); SP=$(resolve sync-phases.sh); echo "using $CP, $SP"
 ```
 
 If either is missing, say so and stop. Do not reimplement the checks in prose: the whole point of
