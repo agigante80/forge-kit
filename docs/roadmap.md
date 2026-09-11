@@ -431,8 +431,32 @@ The last phase closed with more gate tickets than it opened with. This one is wh
 and the premortem says what happens if gating them produces a third crop.
 
 ## Phase: Four small debts from the gate runs
-state: open
+state: done
 plan: docs/plans/four-small-debts.md
+
+Closed 2026-09-11, outcome **done**. All four landed in the plan's order, #197, #190, #194, #195;
+nothing moved or abandoned, and for the first time a phase's gate runs filed no follow-up ticket.
+Seven runs: two PASS at round 1 (#197, #195), two NEEDS-WORK twice (#190, #194) and stopped
+there, with the remainder folded in as ticket text rather than a round 3.
+
+**The gate changed the design of the largest ticket, and it was right.** #190 was implemented as
+"detect one heading level per body, `###` wins a mixed one"; round 1 found that `dep-auditor`
+emits `### Priority` beside `##` sections, so that rule inverted the kit's own producer exactly as
+v5 had. The label-bounded rule replaced it (a section runs to the next heading at its own level
+or the next heading that is a template label), and round 2 found the own-level clause had no case
+that killed its removal. Both rounds paid for themselves. #194's round 1 found the ticket's own
+proposed fix printed `mechanics: none ()` rather than `mechanics: none`.
+
+**The second premortem clause fired, as written.** The plugin cache was updated to 0.16.2 before
+the phase opened, and every gate run still reported executing `ticket-gate` v51: the CLI's
+"restart to apply" is literal, and this session never restarted. So every `**Round:**` and
+`mechanics:` line in this phase's reviews was still produced under a per-run instruction, and the
+new Step 1 prose remains unexercised by any real run. That is now two phases carrying the same
+gap, and the first action of the next session is to run one gate with a bare number.
+
+**The ratchet moved in the direction the rule wants.** #197 and #194 were paid from restated
+sentences and the baseline was LOWERED 5773 to 5767 to lock in what was left, the first lowering
+since the third raise the same morning.
 
 Opened 2026-09-11 for what the twelve gate runs of the last two phases left on the board, none of
 it large and all of it in the gate's own machinery: the checker failing five times on a `##` body
