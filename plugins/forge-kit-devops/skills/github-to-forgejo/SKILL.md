@@ -6,7 +6,7 @@ description: >
   push-mirror back to GitHub. Use when moving one or more repos to your own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 8 -->
+<!-- github-to-forgejo-version: 9 -->
 
 # github-to-forgejo
 
@@ -78,9 +78,10 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
 - `/forge-kit-adapt:adapt` → install/refresh `forge-host` + the host-aware components
   (release, ci-health, gate-ticket, ticket-gate, dep-auditor, health-check). Retire any
   project-local forge adapter in favour of `scripts/forge-lib.sh`.
-- Sanity: `bash scripts/forge-lib.sh detect` → `host=forgejo repo=… api=… ci=not_configured`.
-- **No runner yet?** `forge_ci_status` returns `not_configured` (empty combined status);
-  treat that as "no CI, use local gates (`make test`)" until a runner exists.
+- Sanity: `bash scripts/forge-lib.sh detect` → `host=forgejo repo=… api=… ci=none`.
+- **No runner yet?** `forge_ci_status` returns `none` (asked, no run; `not_configured` would mean
+  the API could not be asked, #193). Use local gates (`make test`) until a runner exists, and say
+  so in any report rather than claiming a remote green.
 
 ## Phase 3: the `.github/workflows/` question  ← the migration surprise
 Forgejo Actions does **not** run both dirs. It looks up workflows in exactly ONE directory, using

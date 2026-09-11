@@ -157,6 +157,12 @@ jobs:
       - name: forge-lib contract tests
         run: bash scripts/test-forge-lib.sh
 
+      # forge_ci_status's Forgejo path: a superseded run is `cancelled`, not `failure`, read from
+      # the description the combined status already carries; and no status row yet is `pending` or
+      # `none`, never "no CI here" (#193). Stubbed transport.
+      - name: forge-lib CI-status contract tests
+        run: bash scripts/test-forge-ci-status.sh
+
       # check-ticket-mechanics.sh is a shipped executable: ticket-gate Step 3A, which was prose
       # until #149. Its refer paths are the point of the suite, since a naive implementation
       # fails outright where the script must defer to the critic.

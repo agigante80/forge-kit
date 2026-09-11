@@ -60,6 +60,18 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`forge_ci_status` on Forgejo tells a superseded run from a broken one, and a queued run from
+  no CI at all** (#193, a downstream contribution). The combined commit status flattens a
+  cancelled run to `failure`, so pushing twice in quick succession left a healthy branch red with no
+  failing step anywhere: wrong on 23 of 39 red commits in the sample the ticket measured. The fix
+  reads the per-job `description` Forgejo already returns ("Has been cancelled"), so the red path
+  makes no second request and an unknown string falls to the old answer, never to a false green.
+  The paginated `/actions/tasks` walk the downstream copy carried was not ported: under a
+  server-clamped page it reported `cancelled` with a failure on the next page. `total_count == 0`
+  is now `pending` or `none` rather than `not_configured`, which is reserved for "could not ask";
+  `release` stops on `none` ("wait, or confirm there is no CI") and on `cancelled` ("re-dispatch"),
+  and falls back to its local gate only when the forge could not be asked. `forge-lib.sh` v15,
+  30 contract cases, ten named mutants killed.
 - **A shipped asset is resolved by its version marker, never by the first `find` hit** (#189).
   `~/.claude/plugins` holds plugin versions side by side, so `find ... | head -1` returned an
   arbitrary copy, and on the filing machine three different ones in three consecutive runs, one of

@@ -28,14 +28,19 @@ branch does exactly this:
 ```sh
 # Resolve to a SHA (combined status has quirks on branch/tag refs), then read .state/.total_count.
 sha=$(git rev-parse "$BRANCH"); cs=$(forge_api GET "/repos/$(forge_repo)/commits/$sha/status")
-# total_count==0 -> no statuses -> not_configured (no CI / no runner); else map .state:
-#   success->success | pending->pending | failure|error->failure
+# total_count==0 -> no status row YET: one page of /actions/tasks says pending (a task for the
+#   sha) or none; an endpoint that cannot be asked stays not_configured. Else map .state:
+#   success->success | pending->pending | failure|error-> cancelled if EVERY red row's
+#   description is "Has been cancelled", else failure
 ```
 
-Mapping caveats baked in: pass a **SHA**, not a branch; Actions maps `skipped→success` and
-`cancelled→failure` (so those don't surface distinctly); `warning` never appears from Actions; and
-**`total_count: 0`/no-statuses means "not run", not "failed"**, so a runner-less repo stays
-`not_configured` and callers keep the local-gate fallback. **Runner-gated remainder:** confirming a
+Mapping caveats baked in: pass a **SHA**, not a branch; Actions maps `skipped→success`; it also
+maps `cancelled→failure` in `.state`, which #193 reverses from the per-job `description` Forgejo
+hard-codes in `services/actions/commit_status.go` ("Has been cancelled"), so an i18n change there
+would revert to `failure`, never to a false green; `warning` never appears from Actions; and
+**`total_count: 0`/no-statuses means "no row yet", not "no CI"**: a runner-less repo reads
+`none`, and only an API that cannot be asked is `not_configured`, which is the one case that keeps
+the local-gate fallback. **Runner-gated remainder:** confirming a
 real *green* run actually flips the combined status to `success` needs a live runner to produce one.
 
 **Hard fact: job LOGS are NOT reachable via the Forgejo API** (the Actions-API PR added no log

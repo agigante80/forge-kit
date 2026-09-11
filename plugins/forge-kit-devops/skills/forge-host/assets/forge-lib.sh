@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 14
+# forge-lib-version: 15
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -38,6 +38,13 @@
 #   v14 forge_issue_comments <n> is NEW (#192): the first read of comments, all pages. Additive; no
 #       caller changes. Named here because ticket-gate's round count now depends on it existing,
 #       so a project holding forge-lib below v14 gets a round count that cannot run.
+#   v15 forge_ci_status on Forgejo returns `cancelled` for a superseded run (it was `failure`), and
+#       total_count == 0 is now `pending` (a task exists for the sha) or `none` (asked, nothing
+#       there) instead of `not_configured`, which is RESERVED for "could not ask" (#193). A caller
+#       that treated not_configured as "fall back to a local test gate" keeps that fallback for
+#       the API-error case only; on `none` it must WAIT or confirm there is no CI, and on
+#       `cancelled` re-dispatch and re-check. Neither is a local-gate case. `release` is the one
+#       caller in the kit that branches on the value, and it does both.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -542,18 +549,38 @@ forge_release_create() {
 
 # --- CI status (runner-dependent) ---
 
-# forge_ci_status <branch>  -> success | failure | pending | none | not_configured (github also
-# passes raw GH conclusions like cancelled/timed_out/skipped through). `pending` = a run exists but
-# has not concluded; `none` = no run; `not_configured` = no CI to check (Forgejo with no statuses,
-# e.g. no runner), so callers (ci-health, release) degrade gracefully (e.g. a local `make test`
-# gate) instead of hard-failing.
+# forge_ci_status <branch>  -> success | failure | cancelled | pending | none | not_configured
+# (github also passes other raw GH conclusions like timed_out/skipped through). `cancelled` = a
+# run was superseded, not broken, and both hosts can return it. `pending` = a run exists but has not
+# concluded; `none` = asked, and no run exists; `not_configured` = COULD NOT ASK (unparseable remote,
+# empty ref, API error, empty body), so callers (release) degrade gracefully (e.g. a local
+# `make test` gate) instead of hard-failing. The two hosts agree on this vocabulary since v14.
 #
 # Forgejo: Forgejo Actions writes a COMMIT STATUS per job, so the combined commit-status endpoint
 # (`/commits/{sha}/status`) is the simple, correct "is CI green?" check, better than the
 # version-split /actions/runs|/actions/tasks API. (On GitHub the combined status does NOT reflect
 # Actions (those are Checks), so the github path uses `gh run list`.) We resolve to a SHA because
-# the combined status has known quirks on branch/tag refs; total_count == 0 (no statuses) means no
-# CI ran -> not_configured, preserving the runner-less fallback.
+# the combined status has known quirks on branch/tag refs.
+#
+# TWO EXCEPTIONS, and the first cost a wrongly filed ticket to find (#193).
+#
+# The combined status reports a CANCELLED run as `failure`. Pushing twice in quick succession
+# supersedes the first run, so a healthy branch shows red commits with no failing step anywhere,
+# and "why did it fail?" has no answer because nothing did; v13 was wrong on 23 of 39 red commits in
+# the sample that ticket measured. The answer is ALREADY IN THE RESPONSE: Forgejo writes a hard-coded
+# English description per job (services/actions/commit_status.go: "Has been cancelled",
+# "Failing after 12s", ...), so the red path decides from the rows it holds and asks NOTHING else.
+# Red state, every red row "Has been cancelled" -> cancelled; any red row saying anything else, or
+# nothing -> failure. An unknown string therefore falls to v13's answer, never to a false green.
+# The alternative, walking /actions/tasks, was rejected: it is paginated, version-split, and under
+# a server-clamped page it reported `cancelled` with a failure on the next page.
+#
+# `total_count == 0` does NOT mean "this repo has no CI". It means no status row exists YET: a
+# queued or just-started run has none, and reading that as not_configured told the caller to stop
+# looking while the task was running. ONE page of /actions/tasks decides (never a walk): a task for
+# the sha is `pending`, none is `none`, and an endpoint that cannot be asked stays `not_configured`,
+# which keeps the runner-less fallback exactly where v13 had it. The sha match is a PREFIX match,
+# because the ref falls back to its literal, possibly short, form for a sha in another repository.
 forge_ci_status() {
   case "$(forge_host)" in
     github)  gh run list --branch "$1" --limit 1 --json status,conclusion \
@@ -569,15 +596,40 @@ forge_ci_status() {
       [ -n "$cs" ] || { echo not_configured; return 0; }                 # empty body / dry-run
       total=$(printf '%s' "$cs" | jq -r '.total_count // 0' 2>/dev/null)
       case "$total" in ''|*[!0-9]*) total=0 ;; esac
-      [ "$total" -eq 0 ] && { echo not_configured; return 0; }           # no commit statuses -> no CI
+      [ "$total" -eq 0 ] && { forge_ci_no_status_kind "$repo" "$sha"; return 0; }   # no row YET, see above
       state=$(printf '%s' "$cs" | jq -r '.state // "unknown"' 2>/dev/null)
       case "$state" in
         success)       echo success ;;
         pending)       echo pending ;;
-        failure|error) echo failure ;;                                   # error == infra failure
+        failure|error) _forge_ci_failure_kind_from_status "$cs" ;;      # failure | cancelled
         *)             echo "${state:-unknown}" ;;
       esac ;;
   esac
+}
+
+# _forge_ci_failure_kind_from_status <combined-status-json> -> failure | cancelled
+# Only ever called on a red state. Red rows are status failure or error; the verdict is cancelled
+# only when there is at least one red row and EVERY red row carries Forgejo's cancellation string.
+_forge_ci_failure_kind_from_status() {
+  printf '%s' "$1" | jq -r '
+    [ .statuses[]? | select(.status == "failure" or .status == "error") ] as $red
+    | if ($red | length) > 0 and all($red[]; (.description // "") == "Has been cancelled")
+      then "cancelled" else "failure" end' 2>/dev/null || echo failure
+}
+
+# forge_ci_no_status_kind <repo> <sha> -> pending | none | not_configured
+# Both envelope shapes are accepted (`{workflow_runs: [...]}` and a bare array), because the shape
+# has differed across Forgejo versions and `.workflow_runs // .` RAISES on a bare array: jq's `//`
+# catches null and false, not a type error.
+forge_ci_no_status_kind() {
+  local repo="$1" sha="$2" tasks hit
+  tasks=$(forge_api GET "/repos/$repo/actions/tasks?limit=50&page=1" 2>/dev/null) || { echo not_configured; return 0; }
+  [ -n "$tasks" ] || { echo not_configured; return 0; }
+  hit=$(printf '%s' "$tasks" | jq -r --arg sha "$sha" \
+    '[(if type == "object" then (.workflow_runs // []) else . end)[]?
+      | select((.head_sha // "") | startswith($sha))] | length' 2>/dev/null)
+  case "$hit" in ''|*[!0-9]*) hit=0 ;; esac
+  if [ "$hit" -gt 0 ]; then echo pending; else echo none; fi
 }
 
 # Executed directly: a diagnostics CLI, or call any forge_* function.
