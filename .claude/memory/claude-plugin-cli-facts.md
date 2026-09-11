@@ -35,3 +35,16 @@ Related: [[verify-against-installed-artifacts]], which is why every line above w
 **There is NO deprecation field, probed 2026-09-10 on 2.1.267.** Both `"deprecated"` and `"supersededBy"` come back as `Unknown field ... Claude Code ignores it at load time` and pass validation WITH A WARNING. Since #173 committed this repo to zero warnings, adding either would break its own rule, so a retirement is communicated by the CHANGELOG, the group description and forge-adapt, and never by a manifest field.
 
 **A dependency added to an ALREADY-INSTALLED plugin is resolved by nothing.** Resolution happens on INSTALL only. Adding a `dependencies` entry therefore breaks every existing install until `claude plugin install <dep>` is run once; the error is loud and names the command, which is the right behaviour, but it is a real upgrade cost. Verified on the maintainer's own machine within an hour of #169 shipping.
+
+## `claude plugin update` does not reach a running session (2026-09-11)
+
+`claude plugin marketplace update forge-kit` and `claude plugin update forge-kit-governance@forge-kit`
+both succeeded mid-session (cache went 0.16.0 to 0.16.2, and the CLI printed "Restart to apply
+changes"). Five `ticket-gate` dispatches afterwards, in the same session, each reported executing
+the installed prose at `ticket-gate` v51, the pre-update copy. The agent definitions are read at
+session start and the update is invisible until a restart. Consequence for this repo: a change to
+an agent's prose cannot be exercised by a gate run in the session that made it, however many times
+the cache is refreshed, so "verified by a live gate run" is a claim only the NEXT session can make.
+Two phases (2026-09-11) closed carrying that gap; the first action of the next session is one
+`/gate-ticket <N>` with a bare number and a read of the review comment for the `**Round:**` and
+`mechanics:` lines the agent itself printed.
