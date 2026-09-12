@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 6
+# check-public-leaks-version: 7
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -28,7 +28,10 @@
 #
 # The object store holds more than file contents: on this repository, 1,639 blobs against 527 commit
 # objects. A history scan that read blobs alone would still miss every leak in a COMMIT MESSAGE, so
-# "reads history" is a claim with two halves and this scanner makes neither.
+# "reads history" is a claim with two halves and this scanner makes neither. Whoever scans the
+# store by hand (#198): pass `grep -a` over a `git cat-file --batch` stream, because tree objects
+# contain NUL and a grep then treats the stream as binary, GNU replacing matched lines with "binary
+# file matches" and a wrapper that passes `-I` skipping the stream and reporting no match at all.
 #
 # USE A HISTORY-AWARE SCANNER FOR THAT CASE. `gitleaks git .` walks the full history, and
 # `git log --all --diff-filter=A --name-only --format= -- '*.env' '*.env.*'` lists every env-style

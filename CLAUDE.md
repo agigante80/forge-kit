@@ -157,7 +157,7 @@ Version column is the group's `plugin.json` semver (the unit of install), not a 
 | `forge-kit-governance` | 0.16.5 | agent: ticket-gate; command: gate-ticket; skills: closing-sessions, decision-brief, ticket-gate-reference, working-overnight; hooks: block-dashes, overnight-continue, overnight-guard; shell assets: check-ticket-mechanics, count-gate-rounds, forge-gate-mechanics |
 | `forge-kit-review` | 0.4.1 | agents: architect-review, code-reviewer, code-simplifier, coding-standards-auditor; command: full-review |
 | `forge-kit-roadmap` | 0.8.4 | command: phase; skill: roadmap-phases; shell assets: check-phases, roadmap-lib, sync-phases |
-| `forge-kit-security` | 0.9.0 | agents: api-security-tester, security-auditor; skills: leak-guard, owasp-api-security, privacy-regime; shell assets: check-private-leaks, check-public-leaks |
+| `forge-kit-security` | 0.9.1 | agents: api-security-tester, security-auditor; skills: leak-guard, owasp-api-security, privacy-regime; shell assets: check-private-leaks, check-public-leaks |
 | `forge-kit-testing` | 0.3.0 | skill: mutation-sweep |
 <!-- plugin-groups:end -->
 
