@@ -1,6 +1,6 @@
 ---
 name: a-ticket-assertion-is-a-claim-check-it
-description: the gate caught four false factual claims in my own tickets on 2026-09-10; run the grep, run the suite, and ask whether the criterion can fail
+description: the gate caught four false claims in my tickets (2026-09-10) and three in my own brief (2026-09-12); run the grep, reproduce, date every number
 metadata:
   type: feedback
 ---
@@ -19,3 +19,5 @@ Two more of the same shape: an acceptance criterion that anchored on "lines 80 t
 **How to apply:** before writing a factual claim into a ticket body, RUN the thing. Grep the guard for the filename. Run the suite and read its count. Open the header and look for the statement. Ask whether the acceptance criterion can actually fail, and if it names a guard, check that the guard measures what is changing. An anchor that a change will move is not an anchor: state the criterion behaviourally instead.
 
 Related: [[verify-against-installed-artifacts]], [[verify-provenance-before-publishing-a-comparison]], [[gate-new-tickets-from-now-on]].
+
+**2026-09-12, the same lesson for research.** A decision brief's own facts are claims too. The #191 brief cited a git-scm page for "macOS ships git 2.39" and the ticket's "cat-file -Z needs 2.43"; the gate's critic found current macOS CLT ships 2.50.1 and -Z is 2.42, and a third "fact" (grep prints nothing) was an artefact of this shell's grep wrapper ([[bash-tool-grep-is-a-wrapper]]). Three retractions in one brief, all in the correction comment. Prefer the primary source and a reproduction over a search-result summary, and date every number.

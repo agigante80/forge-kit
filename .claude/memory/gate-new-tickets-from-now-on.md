@@ -44,6 +44,16 @@ three round-2 verdicts were PASS, so the stopping rule was never strained.
 and two runs read a body file the third had overwritten. Both caught it from the evidence column.
 Per-issue scratch directories would fix it; recorded in the roadmap close, not yet ticketed.
 
+## The third day, 2026-09-12, briefly
+
+Seven runs across #197, #190, #194, #195 (the "small debts" phase), #191 (a decision brief's step 1)
+and #198 (two rounds). The gate changed #190's DESIGN (the per-body heading level inverted
+`dep-auditor`'s own output; the label-bounded rule replaced it) and caught two wrong facts in the
+#191 brief and two in #198's prose, one of them a destructive command (the prune empties the stash
+stack) prescribed six lines after saying stashes are kept. Zero follow-ups from the four-ticket
+phase, one from #198. The rule holds, and the ratio has settled: about one real catch per ticket,
+mostly in prose and test specs rather than in code.
+
 **The amendment to watch for:** if it starts feeling heavy, the honest change is to gate what is
 about to be IMPLEMENTED rather than what is about to be FILED. Filing a ticket costs nothing to get
 wrong; implementing one costs a rewrite. That is not a reason to change the rule yet, and it is the
