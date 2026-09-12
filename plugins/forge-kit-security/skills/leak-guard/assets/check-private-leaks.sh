@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 7
+# check-private-leaks-version: 8
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -21,6 +21,9 @@
 #
 # IT SEES ONLY FILE CONTENT, never a commit message, a branch name or a tag. On this repository the
 # object store holds 527 commit objects, and a private name in any of their messages is unreached.
+# Scanning the store by hand (#198): pass `grep -a` over a `git cat-file --batch` stream, since
+# tree objects contain NUL and a grep then treats it as binary; GNU replaces matched lines with
+# "binary file matches", and a wrapper passing `-I` skips the stream and reports no match at all.
 #
 # IT MATCHES LITERAL NAMES, not shapes. A name shortened, hyphenated differently, or embedded in a
 # larger word is a different string and is not found. That is the price of the list being exact, and

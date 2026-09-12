@@ -9,6 +9,16 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+### Changed
+
+- **The leak guard's prose now says that history is two sets and a push sends only one** (#198,
+  from the #191 decision brief). What the pushed refs reach is what `git push` packs; an object
+  orphaned by `commit --amend` stays on the machine (tested), and only a copied `.git` ships it.
+  The pre-publish prune step is given with its scope: local orphans only, before the first push,
+  removes nothing from any copy or host already holding the objects. Both scanner headers gain the
+  `grep -a` trap for anyone reading a `cat-file --batch` stream by hand, stated as the two failure
+  shapes it actually has rather than the one first observed through a `-I` wrapper.
+
 ### Fixed
 
 - **The mechanical checks find a section at either heading level, bounded by labels rather than
