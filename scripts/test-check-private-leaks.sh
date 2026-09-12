@@ -164,6 +164,13 @@ echo "== the shipped asset is a component =="
 grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SCRIPT" \
   && ok "carries a version marker" || bad "carries a version marker"
 
+echo "== --help states the scanner's own reach =="
+# The generic --help checks for this asset (synopsis, exit contract, no hardcoded line range) live
+# in the public suite's loop and are not repeated here. This section pins only what is this
+# scanner's own statement about itself: the grep -a sentence #198 added, by its shared core (#199).
+contains 'pass `grep -a` over a `git cat-file --batch` stream' "$("$SCRIPT" --help 2>&1)" \
+  "check-private-leaks.sh --help states the grep -a rule for scanning the store by hand"
+
 echo "== --init writes the list template, and never over an existing list =="
 # The template lives INSIDE the script rather than beside it as a .txt. forge-adapt installs a
 # skill's `assets/*.sh` and nothing else, so a separate template file would never reach a project,

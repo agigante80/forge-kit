@@ -486,6 +486,14 @@ that deletes them is standard, and `grep` over a `cat-file --batch` stream print
 than zero without `-a`. #191 itself stays in `backlog` waiting on a probe of BWK awk on a real Mac,
 which is written into its body.
 
+## Phase: One sentence, two pins
+state: open
+plan: docs/plans/one-sentence-two-pins.md
+
+Opened 2026-09-12 for #199, the follow-up #198's close filed: the `grep -a` sentence that phase
+added to both scanner headers is pinned by no test, where the public scanner's other reach
+sentences are. One ticket, two suites, one line each, and the `CLAUDE.md` counts that go with them.
+
 ## Phase: Backlog
 state: backlog
 
