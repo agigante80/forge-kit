@@ -243,6 +243,11 @@ for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/asset
     && bad "$a --help does not print a hardcoded line range" \
     || ok "$a --help does not print a hardcoded line range"
 done
+# The reach sentence #198 added is each scanner's own statement about itself, so it is pinned by
+# that scanner's suite rather than by the generic loop above (#199). The needle is the shared core
+# both headers print on one --help line; the reason after it is prose and may be reworded.
+contains 'pass `grep -a` over a `git cat-file --batch` stream' "$("$SCRIPT" --help 2>&1)" \
+  "check-public-leaks.sh --help states the grep -a rule for scanning the store by hand"
 
 echo "== portability, because this ships into other people's repositories =="
 # Both leak scanners were the first files in this tree to reach for bash-4-only expansions and GNU
