@@ -487,8 +487,15 @@ than zero without `-a`. #191 itself stays in `backlog` waiting on a probe of BWK
 which is written into its body.
 
 ## Phase: One sentence, two pins
-state: open
+state: done
 plan: docs/plans/one-sentence-two-pins.md
+
+Closed 2026-09-12, outcome **done**. One ticket, two gate rounds, one follow-up (#200, the history
+sentence, same shape) to `backlog`. Round 1 found the one thing the plan's fourth premortem clause
+named: Documentation impact said "None" against the two `CLAUDE.md` counts, the `965d7e0` drift
+again. This phase's gate runs were also the first on the installed v55 agent, and they confirmed
+what three earlier phase closes could not: the round is counted from posted comments (round 2 read
+as 2) and the mechanics line names its script with a `~`-relative path and its marker.
 
 Opened 2026-09-12 for #199, the follow-up #198's close filed: the `grep -a` sentence that phase
 added to both scanner headers is pinned by no test, where the public scanner's other reach
