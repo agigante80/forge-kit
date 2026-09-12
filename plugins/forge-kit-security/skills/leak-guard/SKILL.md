@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 6 -->
+<!-- leak-guard-version: 7 -->
 
 # Leak guard
 
@@ -27,12 +27,13 @@ for, so the limit is stated first rather than last.
 
 **History is two sets, and a push sends only one of them.** What the PUSHED refs reach is what
 `git push` packs and what the public repository will hold. Everything else, an object orphaned by
-`commit --amend` or a reset, and refs an ordinary push does not send (stash entries among them,
-which `gc` keeps), stays on the machine: tested on a throwaway repository, an amended-away leak was
+`commit --amend` or a reset, and refs an ordinary push does not send (stash entries among them),
+stays on the machine: tested on a throwaway repository, an amended-away leak was
 in the local store, invisible to `rev-list --all`, and absent from the remote after the push. **The
 exception is a copied `.git`**: a tarball or a `cp -r` carries every object, orphans included, and
 the push fact does not apply. Before the first push, delete the local orphans and empty every
-reflog entry:
+reflog entry, the stash stack included, so apply or drop anything stashed first (tested: three
+stashes, one survives the prune as `refs/stash`, the other two are gone):
 
 ```bash
 git reflog expire --expire=now --all && git gc --prune=now
