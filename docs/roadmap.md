@@ -468,6 +468,17 @@ and was caught both times by luck). This phase is also the first one whose ticke
 the NEW agent prose without a per-run override, which is the evidence the last close said was
 still owed.
 
+## Phase: What a push does not send
+state: open
+plan: docs/plans/what-a-push-does-not-send.md
+
+Opened 2026-09-12 for one prose ticket, #198, the half of #191 that needs no stream reader. The
+decision brief on #191 found three facts worth stating whatever happens to the history mode: a
+push never sends orphaned objects (tested on a throwaway repository), the pre-publish prune step
+that deletes them is standard, and `grep` over a `cat-file --batch` stream prints nothing rather
+than zero without `-a`. #191 itself stays in `backlog` waiting on a probe of BWK awk on a real Mac,
+which is written into its body.
+
 ## Phase: Backlog
 state: backlog
 

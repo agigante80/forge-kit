@@ -1,0 +1,39 @@
+# Plan: What a push does not send
+
+Phase opened 2026-09-12 for #198, filed the same day from #191's decision brief.
+
+## Goal
+
+Put the three facts the #191 brief established into the leak guard's prose, so they stop living in a
+backlog ticket's comment.
+
+## Done looks like
+
+- `leak-guard/SKILL.md` says history is two sets, publishable and orphaned, states that a push
+  sends only the first, and gives the two-line prune step with its reason.
+- Both scanner headers carry the `grep -a` trap.
+- 120 leak-guard cases untouched and green; README rows unchanged.
+
+## Fails if
+
+Premortem: it is the end of this phase and it failed badly. What happened?
+
+- **The prose over-claimed.** "A push never sends orphans" became "orphans are safe", and a reader
+  copied a `.git` directory into a tarball believing it. The sentence must name the copied-`.git`
+  case in the same breath.
+- **The prune step was written as a ritual.** Two commands with no reason are the kind of advice
+  people run on the wrong repository. It must say what it deletes and why that matters only before
+  publishing.
+- **A header's first sentence changed**, which the README index renders verbatim, and the generated
+  regions went stale on a prose ticket.
+- **#191 was quietly implemented here** because the facts were at hand. It is not; it waits on the
+  Mac probe, and this phase is the half that does not.
+
+## Expected work
+
+#198. Nothing else.
+
+## Out of scope
+
+- #191 and any code in either scanner.
+- #196.
