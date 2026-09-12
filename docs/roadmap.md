@@ -469,8 +469,15 @@ the NEW agent prose without a per-run override, which is the evidence the last c
 still owed.
 
 ## Phase: What a push does not send
-state: open
+state: done
 plan: docs/plans/what-a-push-does-not-send.md
+
+Closed 2026-09-12, outcome **done**. One ticket, two gate rounds, one follow-up (#199, pin the new
+header sentence) to `backlog`. Both rounds caught something in the facts as first written: round 1
+that "GNU grep prints nothing" was an artefact of a `-I` wrapper in the session that observed it,
+and round 2 that the prune step deletes the stash stack six lines after the prose said stashes are
+kept. The second is the premortem's "written as a ritual" clause, fired by the gate rather than by
+a reader, which is the order this repository wants.
 
 Opened 2026-09-12 for one prose ticket, #198, the half of #191 that needs no stream reader. The
 decision brief on #191 found three facts worth stating whatever happens to the history mode: a
