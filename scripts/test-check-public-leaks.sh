@@ -248,6 +248,12 @@ done
 # both headers print on one --help line; the reason after it is prose and may be reworded.
 contains 'pass `grep -a` over a `git cat-file --batch` stream' "$("$SCRIPT" --help 2>&1)" \
   "check-public-leaks.sh --help states the grep -a rule for scanning the store by hand"
+# The history limit is the one most likely to matter (#185) and was pinned nowhere until #200. Two
+# needles, each occurring exactly once in this scanner's --help: the limit and the pointer past it.
+# `gitleaks` itself is named twice there, so it is not the needle.
+h="$("$SCRIPT" --help 2>&1)"
+contains 'never looks at history' "$h" "check-public-leaks.sh --help states that it never looks at history"
+contains 'history-aware scanner' "$h" "check-public-leaks.sh --help points at a history-aware scanner for that case"
 
 echo "== portability, because this ships into other people's repositories =="
 # Both leak scanners were the first files in this tree to reach for bash-4-only expansions and GNU

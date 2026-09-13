@@ -501,6 +501,13 @@ Opened 2026-09-12 for #199, the follow-up #198's close filed: the `grep -a` sent
 added to both scanner headers is pinned by no test, where the public scanner's other reach
 sentences are. One ticket, two suites, one line each, and the `CLAUDE.md` counts that go with them.
 
+## Phase: The sentence that matters more
+state: open
+plan: docs/plans/the-sentence-that-matters-more.md
+
+Opened 2026-09-13 for #200, the follow-up #199's close filed. Same shape as the last phase, for
+the sentence the leak guard's whole limit rests on (#185).
+
 ## Phase: Backlog
 state: backlog
 
