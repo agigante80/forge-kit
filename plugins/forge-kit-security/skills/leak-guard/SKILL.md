@@ -43,12 +43,18 @@ reported. Findings are keyed `<path>@<oid>:<line>`, `commit@<oid>` or `tag@<oid>
 `git cat-file -p <oid>` shows the object. Cost on this repository, 4,300 objects and 23 MB: a few
 seconds. It refuses, exit 2, a store it cannot read honestly: an alternates file (`git clone
 --shared`, a linked worktree inside one), `GIT_OBJECT_DIRECTORY` or `GIT_ALTERNATE_OBJECT_DIRECTORIES`
-set, and a partial clone, which would fetch every missing object over the network during the scan.
+set, a partial clone, which would fetch every missing object over the network during the scan, a
+store git cannot read in full, a path map it cannot parse (a filename containing a newline), and a
+`grafts` file; `refs/replace` is ignored, because both make git show something a push does not
+send. Remote-tracking branches count as publishable; a detached HEAD, `refs/stash` and `refs/notes`
+do not.
 
 **Written for macOS, verified against its parts on Linux.** The reader was probed against Apple's
 own awk source (`apple-oss-distributions/awk`, the fork macOS ships) built on Linux, and both suites
-run green under bash 3.2.57 built the same way; the whole pipeline runs under `LC_ALL=C` because
-that awk aborts on a byte over 0x7F the moment a regex meets it under a UTF-8 locale. macOS itself,
+run green under bash 3.2.57 built the same way. The reader puts no content or path byte through a
+regex, because that awk aborts the moment a regex meets a byte over 0x7F (every such byte under a
+C locale on glibc, an invalid sequence under a UTF-8 one); `LC_ALL=C` is there so `length` counts
+bytes, not to avoid that abort. macOS itself,
 its BSD `tr` and Apple's `git`, has not been exercised: no Mac was available when this shipped.
 A report from one is a ticket, not a surprise.
 

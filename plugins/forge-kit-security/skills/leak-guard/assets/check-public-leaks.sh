@@ -23,14 +23,20 @@
 # in one commit and removed in the next is invisible to all three, in the public repository where
 # it stays readable forever, and that is exactly the going-public moment this component exists for.
 #
-# `--history` reads the publishable history: every blob reachable from a branch or a tag, and every
+# `--history` reads the publishable history: every blob reachable from a branch, a tag or a
+# remote-tracking ref (a branch that exists only on the remote is already on the forge), and every
 # commit and tag MESSAGE (subject and body; the author, committer and tagger lines are what the forge
-# already shows beside each commit and are not scanned). One `git cat-file --batch` streams the
+# already shows beside each commit and are not scanned). Not reached, by design: a detached HEAD,
+# refs/stash, refs/notes, and a tag message embedded in a commit's mergetag header. One `git cat-file --batch` streams the
 # objects and a POSIX awk reader counts each object's declared BYTES, so a blob whose first line
 # forges a batch header cannot hide the line after it (a line-oriented reader would skip it). The
-# reader puts no content byte through a regex: Apple's awk aborts on a byte over 0x7F the moment a
-# regex meets it under a C locale on glibc, and a reader that only counts and slices cannot meet
-# that on any libc. Objects containing NUL are dropped whole, the stream's equivalent of grep -I.
+# reader puts no content byte, and no path byte, through a regex: Apple's awk aborts the moment a
+# regex meets a byte over 0x7F (every such byte under a C locale on glibc; an invalid sequence under
+# a UTF-8 one), and a reader that only counts and slices cannot meet that on any libc. LC_ALL=C is
+# there for byte-length semantics, not to avoid that abort. Objects containing NUL are dropped
+# whole, the stream's equivalent of grep -I (a genuine \001 byte drops one too, since NUL is mapped
+# to it for awk's sake; the tree modes would read that file). Refs/replace and grafts are ignored
+# or refused, because they make git show a different object than the one a push sends.
 # An object is scanned unless EVERY path it has ever had is skipped (the binary and lockfile names,
 # the allow-file `skip` entries, the scanner's own past copies), so identical content at
 # "zzz.md" and "aaa.lock" is still reported. Cost on this repository, 4,300 reachable objects and
@@ -42,14 +48,20 @@
 # `--history --orphans` also reads objects no branch or tag reaches: a leak amended or reset away is
 # still in the local store until `git gc` prunes it. A push, a bundle and a clone over a URL never
 # send such objects; a clone from a local PATH (git hardlinks the object store) and any copy of the
-# .git directory DO, which is the case the flag exists for. With no path, nothing is skipped by
-# name, and the self-skip falls back to a weaker content test (shebang plus marker line).
+# .git directory DO, which is the case the flag exists for. An object that is also reachable keeps
+# its paths and its skips; a true orphan has no path, so nothing is skipped by name for it and the
+# self-skip falls back to a weaker content test (shebang plus marker line).
 #
 # WHAT --history REFUSES, exit 2, because a store it cannot read honestly is worse than none: an
 # alternates file (a `git clone --shared`, resolved through `git rev-parse --git-path` so a linked
 # worktree's .git FILE is handled), GIT_ALTERNATE_OBJECT_DIRECTORIES or GIT_OBJECT_DIRECTORY set (the
 # second re-points the alternates check itself), and a partial clone, which would otherwise fetch
-# every missing object from its remote during the scan.
+# every missing object from its remote during the scan. It also refuses, exit 2, a store git cannot
+# read in full (an object reported "missing"), a path map it cannot parse (a path containing a
+# newline), and any pipeline stage that fails, since a partial scan reporting clean is the one
+# outcome worse than no scan. The alternatives to this reader, a bash `read -N` (bash 4.1, and it
+# drops NUL uncounted), a helper in another language (forge-adapt installs assets/*.sh only) and
+# `cat-file -Z` (git 2.42), were each costed in #191 and rejected because this one adds no floor.
 #
 # The store holds more than file contents: on this repository, 1,639 blobs against 527 commit
 # objects. Whoever scans the store by hand (#198):
@@ -119,6 +131,7 @@ abspath() {
 SELF="$(abspath "${BASH_SOURCE[0]}")"
 
 MODE=all
+MODESET=0
 BASE=""
 ALLOW_FILE=""
 PATHS=()
@@ -129,10 +142,13 @@ die() { printf 'check-public-leaks: %s\n' "$1" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --all)        MODE=all ;;
-    --staged)     MODE=staged ;;
-    --range)      MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
-    --history)    MODE=history ;;
+    # One mode per run. The last flag used to win silently, so "--history --staged" scanned the
+    # index and reported clean on the history the user asked about.
+    --all)        [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=all ;;
+    --staged)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=staged ;;
+    --range)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1
+                  MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
+    --history)    [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=history ;;
     --orphans)    ORPHANS=1 ;;
     --show-evidence) SHOW_EVIDENCE=1 ;;
     --allow-file) shift; [ $# -gt 0 ] || die "--allow-file needs a path"; ALLOW_FILE="$1" ;;
@@ -203,7 +219,7 @@ fi
 
 # One builtin per lookup, not one iteration per entry: --history judges thousands of matches
 # against these lists in a single run, and a bash loop is the slow part of bash.
-in_list() { local n="$1"; shift; local IFS='|'; case "|$*|" in *"|$n|"*) return 0 ;; esac; return 1; }
+in_list() { local n="$1"; shift; local IFS=$'\n'; case "$IFS$*$IFS" in *"$IFS$n$IFS"*) return 0 ;; esac; return 1; }
 
 # --history is a mode, and the two flags that modify it mean nothing without it. Refused rather
 # than ignored: a flag that silently does nothing is a scan the user believes ran wider than it did.
@@ -222,7 +238,10 @@ if [ "${#PATHS[@]}" -gt 0 ]; then
   MODE=paths
   FILES=("${PATHS[@]}")
 else
-  in_git || die "not inside a git work tree (pass explicit paths to scan without git)"
+  # --history needs an object store, not a work tree: a bare mirror about to be published is a
+  # natural target. The tree modes need the tree.
+  if [ "$MODE" = history ]; then git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
+  else in_git || die "not inside a git work tree (pass explicit paths to scan without git)"; fi
   case "$MODE" in
     history) : ;;
     all)
@@ -375,20 +394,27 @@ judge() {
 # every line subtracts its length plus one, and the object ends when r reaches zero. A content line
 # that looks like a header is therefore content. No regex touches a content line (see the header
 # for why); index, substr and length are byte operations. It emits "<label>\t<line>\t<text>" for
-# every content line of every object it keeps, and drops an object whole when it contains NUL, or
-# when it is the scanner's own source: an oid marked "cand" (some path has this scanner's basename)
-# is self when it carries the marker line; under --orphans, with no path, self is the weaker
-# content test of shebang plus marker on lines 1 and 2.
+# every content line of every object it keeps, and DROPS an object when it contains NUL (seen as
+# \001, so a genuine \001 byte drops it too), or when it is the scanner's own source: an oid marked
+# "cand" (some path has this scanner's basename) is self when it carries the marker line; an oid
+# with NO known path (--orphans) is self under the weaker content test of shebang plus marker on
+# lines 1 and 2. Once an object is dropped nothing more of it is buffered, so memory is bounded by
+# the largest KEPT object, not the largest object. The record on which r reaches zero and that is
+# empty is git's terminator, not a line, and is never emitted.
 # The "r < 0 {" line is the load-bearing one, and the contract test mutates exactly it.
 READER='
 BEGIN {
   r = -1
-  while ((getline l < labels) > 0) { split(l, a, "\t"); label[a[1]] = a[2]; if (a[3] == "cand") cand[a[1]] = 1 }
+  while ((getline l < labels) > 0) {
+    split(l, a, "\t"); label[a[1]] = a[2]
+    if (a[2] != "") haspath[a[1]] = 1
+    if (a[3] == "cand") cand[a[1]] = 1
+  }
   close(labels)
 }
 r < 0 {
-  if (NF == 3 && length($1) == 40 && ($2 == "blob" || $2 == "commit" || $2 == "tag") && $3 ~ /^[0-9]+$/) {
-    oid = $1; type = $2; r = $3 + 1; n = 0; bin = 0; self = 0; cnt = 0; body = (type == "blob")
+  if (NF == 3 && (length($1) == 40 || length($1) == 64) && ($2 == "blob" || $2 == "commit" || $2 == "tag") && $3 ~ /^[0-9]+$/) {
+    oid = $1; type = $2; r = $3 + 1; n = 0; drop = 0; cnt = 0; body = (type == "blob")
     if (type == "blob") { lab = ((oid in label) && label[oid] != "") ? label[oid] "@" oid : "blob@" oid } else lab = type "@" oid
     next
   }
@@ -396,24 +422,40 @@ r < 0 {
 }
 {
   r -= length($0) + 1; n++
-  if (index($0, "\001")) bin = 1
-  if (substr($0, 1, 8) == "# check-" && index($0, "-leaks-version: ")) {
-    if (oid in cand) self = 1
-    else if (orphans && n == 2 && substr(first, 1, 2) == "#!") self = 1
+  if (!drop) {
+    if (n == 1) first = $0
+    if (index($0, "\001")) drop = 1
+    else if (substr($0, 1, 8) == "# check-" && index($0, "-leaks-version: ")) {
+      if (oid in cand) drop = 1
+      else if (orphans && n == 2 && !(oid in haspath) && substr(first, 1, 2) == "#!") drop = 1
+    }
+    if (drop) split("", buf)
+    else if (body) { if (!(r <= 0 && $0 == "")) buf[cnt++] = n "\t" $0 }
+    else if ($0 == "") body = 1
   }
-  if (n == 1) first = $0
-  if (body) buf[cnt++] = n "\t" $0
-  else if ($0 == "") body = 1
   if (r <= 0) {
-    if (!bin && !self) for (i = 0; i < cnt; i++) print lab "\t" buf[i]
+    if (!drop) for (i = 0; i < cnt; i++) print lab "\t" buf[i]
     split("", buf); r = -1
   }
 }
 END { if (r > 0) { print "truncated cat-file stream" > "/dev/stderr"; exit 2 } }
 '
 
+# Every pipeline in here checks EVERY stage. A stage that fails leaves a partial map or a partial
+# stream, and a partial scan that reports clean is the exact outcome this mode exists to prevent.
+pipe_ok() {  # pipe_ok <what> <PIPESTATUS...>
+  local what="$1"; shift; local st
+  for st in "$@"; do [ "$st" = 0 ] || die "$what failed (a stage exited $st); nothing was scanned"; done
+}
+
 history_scan() {
   # Refusals first. Each is a store this scanner would read as if it were the repository, and is not.
+  # Replacement refs and grafts make git SHOW a different object than the one a push sends; the
+  # env var turns the first off for every git call below, and the second cannot be turned off.
+  export GIT_NO_REPLACE_OBJECTS=1
+  local grafts
+  grafts="$(git rev-parse --git-path info/grafts 2>/dev/null)"
+  [ -n "$grafts" ] && [ -f "$grafts" ] && die "refusing --history: info/grafts exists, and grafts hide objects a push still sends"
   [ -z "${GIT_OBJECT_DIRECTORY:-}" ] || die "refusing --history: GIT_OBJECT_DIRECTORY is set"
   [ -z "${GIT_ALTERNATE_OBJECT_DIRECTORIES:-}" ] || die "refusing --history: GIT_ALTERNATE_OBJECT_DIRECTORIES is set"
   local alt promisor
@@ -425,21 +467,40 @@ history_scan() {
 
   local objects="$TMPD/objects" types="$TMPD/types" pathmap="$TMPD/paths" labels="$TMPD/labels" oids="$TMPD/oids"
   local tagged="$TMPD/tagged" hits="$TMPD/hits"
-  # Enumerate. The publishable set carries one path per object; --batch-all-objects carries none.
+  # Enumerate the publishable set: branches, tags AND remote-tracking refs, since a branch that
+  # exists only on the remote is already on the forge that is about to go public. Not --all, which
+  # would drag in refs/stash. --batch-all-objects (--orphans) carries no path; the map below still
+  # supplies paths for whatever is reachable.
   if [ "$ORPHANS" = 1 ]; then
-    git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' > "$types" || die "git cat-file failed"
+    git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
     : > "$objects"
   else
-    git rev-list --objects --branches --tags > "$objects" || die "git rev-list failed"
-    cut -d' ' -f1 "$objects" | git cat-file --batch-check='%(objectname) %(objecttype)' > "$types" || die "git cat-file failed"
+    git rev-list --objects --branches --tags --remotes > "$objects"; pipe_ok "git rev-list" "${PIPESTATUS[@]}"
+    cut -d' ' -f1 "$objects" | git cat-file --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
   fi
+  # An object git cannot read prints "<oid> missing" with exit 0. That is a store this scanner
+  # cannot read honestly, so it refuses rather than scanning what is left.
+  local unreadable
+  unreadable="$(LC_ALL=C awk '$2 != "blob" && $2 != "commit" && $2 != "tag" && $2 != "tree" { print; exit }' "$types")"
+  [ -z "$unreadable" ] || die "refusing --history: git cannot read every object ($unreadable); repair the store first"
   # Every path each blob has ever had, from every commit's diff against every parent (-m: a merge
   # resolved to content in neither parent has no other entry). -z then tr, because --raw quotes
   # unusual paths without it. Deletions carry the null oid and drop out with the "D" status.
-  git log -m --branches --tags --raw --no-abbrev --no-renames --format= -z 2>/dev/null \
+  # The -c overrides pin the output shape against user config that would otherwise change it
+  # silently: log.showSignature injects lines, log.diffMerges=combined changes the record shape and
+  # the field that holds the merge result, diff.relative drops entries outside the cwd, and
+  # log.showRoot=false drops the root commit. Each was reproduced hiding a reachable leak.
+  # The parser then REFUSES a record that is not the five-field meta line it expects (a path
+  # containing a newline, split by tr, is the known way to produce one), because a desynchronised
+  # map suppresses every older entry. The shape test uses no regex over the path line.
+  git -c log.showRoot=true -c log.showSignature=false -c log.diffMerges=separate -c diff.relative=false \
+      log -m --branches --tags --remotes --raw --no-abbrev --no-renames --format= -z \
     | LC_ALL=C tr '\0' '\n' \
-    | LC_ALL=C awk 'NR % 2 == 1 { split($0, a, " "); oid = a[4]; st = a[5]; next } st != "D" && oid !~ /^0+$/ { print oid "\t" $0 }' \
-    | LC_ALL=C sort -u > "$pathmap"
+    | LC_ALL=C awk '
+        NR % 2 == 1 { if (substr($0, 1, 1) != ":" || split($0, a, " ") != 5) { print "path map desynchronised at record " NR ": " $0 > "/dev/stderr"; exit 2 }
+                      oid = a[4]; st = a[5]; next }
+        st != "D" && oid !~ /^0+$/ { print oid "\t" $0 }' \
+    | LC_ALL=C sort -u > "$pathmap"; pipe_ok "the path map (git log --raw)" "${PIPESTATUS[@]}"
   # Decide, per object, whether it is read and under what label. A blob is read unless EVERY path
   # it ever had is skipped; when its only unskipped paths carry this scanner's basename it is a
   # candidate for the identity test, which the reader completes by looking for the marker line. An
@@ -448,13 +509,15 @@ history_scan() {
   # sequential read: no process runs per object, which is what keeps this under a second.
   local merged="$TMPD/merged"
   {
-    LC_ALL=C awk '{ p = $0; sub(/^[0-9a-f]+ ?/, "", p); if (p != "") print $1 "\t0\t" p }' "$objects"
+    # No regex over a line that carries a path (the header says why): the path is what follows the
+    # first space.
+    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects"
     LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
   } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
     | LC_ALL=C awk -F'\t' -v types="$types" '
         BEGIN { while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
         t[$1] == "blob" { seen[$1] = 1; n = split($3, b, "/"); print $1 "\t" $3 "\t" tolower(b[n]) }
-        END { for (o in t) if (t[o] == "blob" && !(o in seen)) print o "\t\t" }' > "$merged"
+        END { for (o in t) if (t[o] == "blob" && !(o in seen)) print o "\t\t" }' > "$merged"; pipe_ok "the object merge" "${PIPESTATUS[@]}"
   local oid type path lower cur="" keep="" selfnamed=0 first="" selfbase="${SELF##*/}"
   set_lower "$selfbase"; local selflower="$LOWER"
   : > "$labels"
@@ -485,9 +548,7 @@ history_scan() {
   # match arrive in order and no process runs per hit. -a on both: the stream carries raw bytes.
   git cat-file --batch < "$oids" \
     | LC_ALL=C tr '\0' '\001' \
-    | LC_ALL=C awk -v labels="$labels" -v orphans="$ORPHANS" "$READER" > "$tagged"
-  local st="${PIPESTATUS[2]}"
-  [ "$st" = 0 ] || die "the history reader failed (exit $st)"
+    | LC_ALL=C awk -v labels="$labels" -v orphans="$ORPHANS" "$READER" > "$tagged"; pipe_ok "the history reader" "${PIPESTATUS[@]}"
   LC_ALL=C grep -aE "$RE_ANY" "$tagged" > "$hits" || true
   # Into a file, not a process substitution: bash reads a pipe one byte per syscall, and this loop
   # read 25x slower from one on the store this was measured on.

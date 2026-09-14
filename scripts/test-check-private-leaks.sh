@@ -211,6 +211,20 @@ hrun --history; rc=$RC; expect "a name inside the PATH is reported" 1 "$rc"
 contains "clients/se********/notes.md@$(hoid HEAD:clients/secretproj/notes.md):1: private-name: Se********" "$OUT" "and redacted in the path as well as the evidence"
 hrun --history --show-names; rc=$RC
 contains "clients/secretproj/notes.md@" "$OUT" "--show-names lifts the path redaction too"
+# A name in the PATH is not itself a finding (the tree modes never report a path), so a three-line
+# clean file under a listed directory reports nothing, and a one-hit file reports exactly one line.
+( cd "$HREPO" && printf 'one\ntwo\nthree\n' > clients/secretproj/clean.md && printf 'a\nb secretproj\nc\n' > clients/secretproj/one.md \
+  && git add clients && git commit -qm more ) >/dev/null 2>&1
+hrun --history; rc=$RC
+n="$(printf '%s\n' "$OUT" | grep -c 'clean.md@')";  expect "a clean file under a listed directory reports no line" 0 "$n"
+n="$(printf '%s\n' "$OUT" | grep -c 'one.md@')";    expect "a file with one hit under it reports exactly one line" 1 "$n"
+contains "clients/se********/one.md@$(hoid HEAD:clients/secretproj/one.md):2: private-name: se********" "$OUT" "at line 2, both redacted"
+# npm-style scoped directories put an @ in the path; the oid follows the LAST @.
+printf 'acme\n' > "$WORK/hlist2"
+( cd "$HREPO" && mkdir -p packages/@acme/core && printf 'export const acme = 1\n' > packages/@acme/core/index.js && git add packages && git commit -qm scoped ) >/dev/null 2>&1
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist2" --history 2>/dev/null )"; rc=$?
+expect "a listed name under an @scope path is reported" 1 "$rc"
+contains "packages/@ac**/core/index.js@$(hoid HEAD:packages/@acme/core/index.js):1: private-name: ac**" "$OUT" "with the name redacted in the path despite the @"
 
 mkrepo message
 ( cd "$HREPO" && git commit -q --allow-empty --author='secretproj bot <bot@t.invalid>' -m 'clean subject' -m 'clean body' ) >/dev/null 2>&1
@@ -234,6 +248,24 @@ hrun --history; rc=$RC; expect "a --shared clone is refused" 2 "$rc"
 contains "alternates" "$ERR" "naming the alternates file"
 hrun --history n.md; rc=$RC; expect "--history with a path is refused" 2 "$rc"
 hrun --orphans; rc=$RC;        expect "--orphans without --history is refused" 2 "$rc"
+hrun --history --staged; rc=$RC; expect "--history --staged is refused rather than scanning the index" 2 "$rc"
+HREPO="$WORK/hist-shared-src"
+OUT="$( cd "$HREPO" && GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent "$SCRIPT" --list "$WORK/hlist" --history 2>"$WORK/herr.txt" )"; rc=$?
+expect "GIT_ALTERNATE_OBJECT_DIRECTORIES set is refused" 2 "$rc"
+OUT="$( cd "$HREPO" && GIT_OBJECT_DIRECTORY="$WORK/hist-shared/.git/objects" "$SCRIPT" --list "$WORK/hlist" --history 2>"$WORK/herr.txt" )"; rc=$?
+expect "GIT_OBJECT_DIRECTORY set is refused" 2 "$rc"
+( cd "$HREPO" && git config uploadpack.allowFilter true )
+git clone -q --filter=blob:none "file://$HREPO" "$WORK/hist-partial" >/dev/null 2>&1
+HREPO="$WORK/hist-partial"
+hrun --history; rc=$RC; expect "a partial clone is refused" 2 "$rc"
+contains "partial clone" "$ERR" "and says so"
+mkrepo selfid
+( cd "$HREPO" && mkdir old && cp "$SCRIPT" old/check-private-leaks.sh && git add old && git commit -qm old ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a past copy of the scanner at another path is not reported (its source names the list)" 0 "$rc"
+mkrepo replace
+( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n && leaky="$(git rev-parse HEAD)" \
+  && git rm -q n.md && git commit -qm clean && git replace "$leaky" HEAD ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a commit hidden by git replace is still scanned" 1 "$rc"
 
 echo "== --history: the mutant proves the byte counting is load-bearing =="
 mkrepo forged
@@ -243,8 +275,8 @@ contains "forged.md@$(hoid HEAD:forged.md):2:" "$OUT" "at line 2"
 MUT="$WORK/mutant-private.sh"
 sed 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
 grep -q '^r < 0 {$' "$MUT" && bad "the mutant no longer carries the r<0 gate" || ok "the mutant no longer carries the r<0 gate"
-( cd "$HREPO" && "$MUT" --list "$WORK/hlist" --history ) >/dev/null 2>&1
-expect "the mutant misses the name (exit 0)" 0 "$?"
+mout="$( cd "$HREPO" && "$MUT" --list "$WORK/hlist" --history 2>/dev/null )"
+[ -z "$mout" ] && ok "the mutant misses the name (prints no finding)" || bad "the mutant misses the name (prints no finding) (got '$mout')"
 
 echo "== --init writes the list template, and never over an existing list =="
 # The template lives INSIDE the script rather than beside it as a .txt. forge-adapt installs a
