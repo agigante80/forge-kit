@@ -230,6 +230,200 @@ expect "--range does not report it either" 0 "$?"
 ( cd "$SELFREPO" && ./scripts/check-public-leaks.sh --all ) >/dev/null 2>&1
 expect "--all does not report it either" 0 "$?"
 
+
+echo "== --history: the publishable history, read by declared byte length =="
+# Every case runs against a throwaway repository built here, never against this one. A helper
+# makes a fresh repo per scenario so no case can lean on another's objects.
+HREPO=""
+mkrepo() {  # mkrepo <name>: a fresh repository, cwd-independent; sets HREPO
+  HREPO="$WORK/hist-$1"; rm -rf "$HREPO"; mkdir -p "$HREPO"
+  ( cd "$HREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t \
+    && printf 'seed\n' > seed.md && git add seed.md && git commit -qm seed ) >/dev/null 2>&1
+}
+hcommit() {  # hcommit <file> <content-printf-format> [msg]: write, add, commit in HREPO
+  ( cd "$HREPO" && printf "$2" > "$1" && git add -- "$1" && git commit -qm "${3:-add $1}" ) >/dev/null 2>&1
+}
+hrun() {  # hrun [flags]: run the scanner in HREPO; output in OUT, stderr in ERR, exit code in RC.
+  # Sets variables rather than echoing the code: a caller's $(...) would run this in a subshell
+  # and lose OUT, which is exactly what happened on the first run of this section.
+  OUT="$( cd "$HREPO" && "$SCRIPT" "$@" 2>"$WORK/herr.txt" )"; RC=$?; ERR="$(cat "$WORK/herr.txt")"
+}
+hoid() { ( cd "$HREPO" && git rev-parse "$1" ); }
+
+mkrepo deleted
+hcommit leak.md 'see /home/alice/proj/x\n'
+( cd "$HREPO" && git rm -q leak.md && git commit -qm remove ) >/dev/null 2>&1
+hrun --all; rc=$RC; expect "a leak committed then deleted is invisible to --all" 0 "$rc"
+hrun --history; rc=$RC; expect "and --history finds it" 1 "$rc"
+contains "leak.md@$(hoid HEAD~1:leak.md):1: home-path: /home/al***/" "$OUT" "at <path>@<oid>:<line>, evidence redacted"
+n="$(printf '%s\n' "$OUT" | grep -c .)"; expect "exactly one line" 1 "$n"
+
+echo "== --history: orphans are opt-in, and the help text says what carries them =="
+mkrepo orphan
+hcommit oops.md 'oops /home/grace/\n' oops
+( cd "$HREPO" && git rm -q oops.md && git commit -q --amend --allow-empty -m fixed ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "an amended-away leak is not in the publishable set" 0 "$rc"
+hrun --history --orphans; rc=$RC; expect "--orphans reaches it" 1 "$rc"
+contains "blob@" "$OUT" "labelled blob@<oid> since no path is known"
+contains "home-path: /home/gr***/" "$OUT" "and redacted"
+( cd "$HREPO" && git reflog expire --expire=now --all && git gc -q --prune=now ) >/dev/null 2>&1
+hrun --history --orphans; rc=$RC; expect "after the prune step nothing is left to find" 0 "$rc"
+h="$("$SCRIPT" --help 2>&1)"
+contains "clone over a URL never" "$h" "--help says a push, a bundle and a URL clone never send orphans"
+contains "local PATH" "$h" "and that a local-path clone does"
+contains "weaker content test" "$h" "and that the self-skip under --orphans is the weaker content test"
+
+echo "== --history: a forged batch header hides nothing, and the mutant proves the counting is load-bearing =="
+# Line 1 is shaped exactly like a cat-file header declaring a huge size; a reader that trusted it
+# would wait for 999999 bytes and never emit the line after it. The reader counts the real
+# object's bytes and reaches line 2.
+mkrepo forged
+hcommit forged.md '0000000000000000000000000000000000000000 blob 999999\n/home/alice/x\n'
+hrun --history; rc=$RC; expect "the leak after a forged header is reported" 1 "$rc"
+contains "forged.md@$(hoid HEAD:forged.md):2: home-path: /home/al***/" "$OUT" "at line 2"
+# The mutant: the same scanner with the reader's r<0 gate replaced by a shape test, so any line
+# that LOOKS like a header is taken as one. It must exit 0 here, or the gate was never doing work.
+MUT="$WORK/mutant-public.sh"
+sed 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
+grep -q '^r < 0 {$' "$SCRIPT" && ok "the scanner carries the r<0 gate the mutant removes" || bad "the scanner carries the r<0 gate the mutant removes"
+grep -q '^r < 0 {$' "$MUT" && bad "the mutant no longer carries it" || ok "the mutant no longer carries it"
+( cd "$HREPO" && "$MUT" --history ) >/dev/null 2>&1
+expect "the mutant misses the leak (exit 0)" 0 "$?"
+
+echo "== --history: an object is scanned unless EVERY path it ever had is skipped =="
+mkrepo twins
+( cd "$HREPO" && printf 'same /home/alice/x\n' > zzz.md && cp zzz.md aaa.lock && git add zzz.md aaa.lock && git commit -qm twins ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "identical content at zzz.md and aaa.lock is reported" 1 "$rc"
+n="$(printf '%s\n' "$OUT" | grep -cF "@$(hoid HEAD:zzz.md):1: home-path: /home/al***/")"; expect "exactly once" 1 "$n"
+contains "zzz.md@" "$OUT" "at the path that is not skipped"
+printf 'skip zzz.md\n' > "$WORK/hallow"
+hrun --history --allow-file "$WORK/hallow"; rc=$RC; expect "with zzz.md skipped by the allow-file, every path is skipped and it is not reported" 0 "$rc"
+( cd "$HREPO" && cp zzz.md keep.md && git add keep.md && git commit -qm keep ) >/dev/null 2>&1
+hrun --history --allow-file "$WORK/hallow"; rc=$RC; expect "a third, unskipped path brings it back" 1 "$rc"
+contains "keep.md@" "$OUT" "reported at that path"
+mkrepo locks
+( cd "$HREPO" && printf 'same /home/alice/x\n' > aaa.lock && cp aaa.lock bbb.lock && git add aaa.lock bbb.lock && git commit -qm locks ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "content that only ever lived in lockfiles is not reported" 0 "$rc"
+# A merge commit resolved to content in neither parent, and a file that exists only in the merge:
+# without -m on the path map, neither has an entry and the every-path rule would skip them vacuously.
+mkrepo merge
+hcommit f.txt 'base\n'
+( cd "$HREPO" && git checkout -q -b side && printf 'side\n' > f.txt && git commit -qam side \
+  && git checkout -q master 2>/dev/null || git checkout -q main; printf 'main\n' > f.txt && git commit -qam main
+  git merge -q --no-commit side >/dev/null 2>&1; printf 'evil /home/alice/x\n' > f.txt; printf 'only /home/bob/y\n' > only-in-merge.txt
+  git add f.txt only-in-merge.txt && git commit -qm merged ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "an evil merge is reported" 1 "$rc"
+contains "f.txt@" "$OUT" "the resolved file"
+contains "only-in-merge.txt@" "$OUT" "and the merge-only file"
+# The case -m actually decides: rev-list gives every reachable blob ONE path, so the map only
+# matters when that path is skipped and the other exists only in the merge. Here the same content
+# lands at x.lock (rev-list's pick, sorted first, a lockfile) and x.md in the merge commit alone.
+mkrepo mergelock
+hcommit f.txt 'base\n'
+( cd "$HREPO" && git checkout -q -b side2 && printf 'side\n' > f.txt && git commit -qam side \
+  && { git checkout -q master 2>/dev/null || git checkout -q main; }; printf 'main\n' > f.txt && git commit -qam main
+  git merge -q --no-commit side2 >/dev/null 2>&1; printf 'twin /home/alice/x\n' > x.lock; cp x.lock x.md
+  git add f.txt x.lock x.md && git commit -qm merged ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "content at a lockfile AND a merge-only path is reported" 1 "$rc"
+contains "x.md@" "$OUT" "at the path the map (with -m) supplies"
+
+echo "== --history: foreign stores are refused =="
+mkrepo origin
+hcommit notes.md '/home/alice/x\n'
+hrun --history; rc=$RC; expect "an ordinary repository with one leaking blob reports it" 1 "$rc"
+contains "notes.md@$(hoid HEAD:notes.md):1: home-path: /home/al***/" "$OUT" "at its path"
+ORIG="$HREPO"
+git clone -q --shared "$ORIG" "$WORK/hist-shared" >/dev/null 2>&1
+HREPO="$WORK/hist-shared"
+hrun --history; rc=$RC; expect "a --shared clone is refused" 2 "$rc"
+contains "refusing --history: objects/info/alternates points outside this repository" "$ERR" "and says why"
+( cd "$WORK/hist-shared" && git worktree add -q "$WORK/hist-linked" -b linked ) >/dev/null 2>&1
+HREPO="$WORK/hist-linked"
+hrun --history; rc=$RC; expect "a linked worktree inside it (.git is a file) is refused too" 2 "$rc"
+contains "alternates" "$ERR" "through git rev-parse --git-path, not a literal path"
+HREPO="$ORIG"
+OUT="$( cd "$HREPO" && GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent "$SCRIPT" --history 2>"$WORK/herr.txt" )"; rc=$?
+expect "GIT_ALTERNATE_OBJECT_DIRECTORIES set is refused" 2 "$rc"
+contains "refusing --history: GIT_ALTERNATE_OBJECT_DIRECTORIES is set" "$(cat "$WORK/herr.txt")" "by name"
+OUT="$( cd "$HREPO" && GIT_OBJECT_DIRECTORY="$WORK/hist-shared/.git/objects" "$SCRIPT" --history 2>"$WORK/herr.txt" )"; rc=$?
+expect "GIT_OBJECT_DIRECTORY set is refused" 2 "$rc"
+contains "refusing --history: GIT_OBJECT_DIRECTORY is set" "$(cat "$WORK/herr.txt")" "by name"
+( cd "$ORIG" && git config uploadpack.allowFilter true )
+git clone -q --filter=blob:none "file://$ORIG" "$WORK/hist-partial" >/dev/null 2>&1
+HREPO="$WORK/hist-partial"
+hrun --history; rc=$RC; expect "a partial clone is refused" 2 "$rc"
+contains "this is a partial clone; --history would fetch every missing object from origin" "$ERR" "naming the remote"
+
+echo "== --history: commit and tag messages are in scope, identity lines are not =="
+mkrepo messages
+( cd "$HREPO" && git commit -q --allow-empty -m 'fix /home/alice/x' ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a leak in a commit SUBJECT is reported" 1 "$rc"
+c="$(hoid HEAD)"; ln="$( cd "$HREPO" && git cat-file -p "$c" | grep -n '/home/alice' | cut -d: -f1 )"
+contains "commit@$c:$ln: home-path: /home/al***/" "$OUT" "as commit@<oid>:<line of git cat-file -p>"
+( cd "$HREPO" && git tag -a v1 -m 'release' -m 'thanks, see /home/alice/x' ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a leak in an annotated tag message is reported" 1 "$rc"
+t="$(hoid v1)"; ln="$( cd "$HREPO" && git cat-file -p "$t" | grep -n '/home/alice' | cut -d: -f1 )"
+contains "tag@$t:$ln: home-path: /home/al***/" "$OUT" "as tag@<oid>:<line>"
+mkrepo identity
+( cd "$HREPO" && git commit -q --allow-empty --author='Alice <alice@corp.io>' -m 'clean subject' -m 'clean body' ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "an address on the author line is not reported" 0 "$rc"
+
+echo "== --history: evidence is redacted by default, shown on request =="
+mkrepo redact
+hcommit three.md '/home/alice/x\n~/secret-clients/y\nalice@corp.io\n'
+hrun --history; rc=$RC; expect "three leaks reported" 1 "$rc"
+contains ":1: home-path: /home/al***/" "$OUT" "the username segment is redacted"
+contains ':2: home-root: ~/se************/' "$OUT" "the ~/ root is redacted"
+contains ':3: email: al***********' "$OUT" "the whole address is redacted (corp.example would be exempt as an RFC 2606 TLD)"
+hrun --history --show-evidence; rc=$RC; expect "--show-evidence still reports" 1 "$rc"
+contains ':1: home-path: /home/alice/' "$OUT" "the path whole"
+contains ':2: home-root: ~/secret-clients/' "$OUT" "the root whole"
+contains ':3: email: alice@corp.io' "$OUT" "the address whole"
+hrun --all --show-evidence; rc=$RC; expect "--show-evidence without --history is refused" 2 "$rc"
+contains "--show-evidence is only valid with --history" "$ERR" "and says so"
+
+echo "== --history: a mode, not a flag =="
+hrun --history three.md; rc=$RC; expect "--history with a path is refused" 2 "$rc"
+contains "--history takes no paths" "$ERR" "and says so"
+hrun --orphans; rc=$RC; expect "--orphans without --history is refused" 2 "$rc"
+contains "--orphans is only valid with --history" "$ERR" "and says so"
+
+echo "== --history: a binary object blinds nothing after it =="
+mkrepo binary
+( cd "$HREPO" && printf 'bin\0ary /home/bob/y\n' > bin.dat && git add bin.dat && git commit -qm bin ) >/dev/null 2>&1
+hcommit text.md '/home/alice/x\n'
+hrun --history; rc=$RC; expect "the text blob after a NUL blob is reported" 1 "$rc"
+n="$(printf '%s\n' "$OUT" | grep -c .)"; expect "and only it" 1 "$n"
+contains "text.md@" "$OUT" "at its path"
+mkrepo binonly
+( cd "$HREPO" && printf 'bin\0ary /home/bob/y\n' > bin.dat && git add bin.dat && git commit -qm bin ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a leak only inside a NUL blob is not reported, as in the tree modes" 0 "$rc"
+
+echo "== --history: the platform claims live here, not in the header =="
+mkrepo bytes
+hcommit utf8.md 'prose with an em dash \342\200\224 and caf\303\251 before it\n/home/alice/x\n'
+( cd "$HREPO" && { head -c 9000 /dev/zero | tr '\0' a; printf '\n/home/alice/x\n'; } > long.md && git add long.md && git commit -qm long ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "leaks after a multibyte line and after a 9000-byte line are reported" 1 "$rc"
+contains "utf8.md@$(hoid HEAD:utf8.md):2:" "$OUT" "the one after the UTF-8 line, at line 2"
+contains "long.md@$(hoid HEAD:long.md):2:" "$OUT" "the one after the long line, at line 2"
+( cd "$HREPO" && printf 'caf\351 latin-1 then /home/alice/x\n' > latin.md && git add latin.md && git commit -qm latin ) >/dev/null 2>&1
+# Pins the behaviour, not the flag: under LC_ALL=C GNU grep calls nothing here binary (no NUL
+# survives tr), so -a is defence in depth for other greps and this case cannot tell them apart.
+hrun --history; rc=$RC; expect "a leak on a line with an invalid UTF-8 byte is reported" 1 "$rc"
+contains "latin.md@" "$OUT" "at its path"
+
+echo "== --history: the self-skip is an identity test, not a content test =="
+mkrepo self
+( cd "$HREPO" && mkdir -p old && cp "$SCRIPT" old/check-public-leaks.sh && git add old && git commit -qm old ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a past copy of the scanner at another path is not reported" 0 "$rc"
+( cd "$HREPO" && printf '#!/usr/bin/env bash\n# check-public-leaks-version: 3\n#\n# a document QUOTING the marker\n#\n/home/alice/x\n' > docs-notes.md && git add docs-notes.md && git commit -qm quote ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a document quoting the marker line is not self" 1 "$rc"
+contains "docs-notes.md@$(hoid HEAD:docs-notes.md):6: home-path: /home/al***/" "$OUT" "and its leak is reported at line 6"
+mkrepo selforphan
+( cd "$HREPO" && cp "$SCRIPT" check-public-leaks.sh && git add check-public-leaks.sh && git commit -qm copy \
+  && git rm -q check-public-leaks.sh && git commit -q --amend --allow-empty -m gone ) >/dev/null 2>&1
+hrun --history --orphans; rc=$RC; expect "a nameless past copy under --orphans is skipped by the content test" 0 "$rc"
+
 echo "== --help does not go stale when the header is edited =="
 # It printed a hardcoded line range, so growing the header by seven lines truncated the output
 # mid-sentence and dropped the usage synopsis entirely. A help text that silently rots is worse
@@ -252,8 +446,12 @@ contains 'pass `grep -a` over a `git cat-file --batch` stream' "$("$SCRIPT" --he
 # needles, each occurring exactly once in this scanner's --help: the limit and the pointer past it.
 # `gitleaks` itself is named twice there, so it is not the needle.
 h="$("$SCRIPT" --help 2>&1)"
-contains 'never looks at history' "$h" "check-public-leaks.sh --help states that it never looks at history"
-contains 'history-aware scanner' "$h" "check-public-leaks.sh --help points at a history-aware scanner for that case"
+# #191 replaced the "never looks at history" limit with the opt-in mode; these pin what the header
+# now claims: the tree modes still never look, --history reads the publishable history, and it is
+# never a hook.
+contains 'tree modes never look at history' "$h" "check-public-leaks.sh --help states that the tree modes never look at history"
+contains 'reads the publishable history' "$h" "check-public-leaks.sh --help states what --history reads"
+contains 'never wired into a hook' "$h" "check-public-leaks.sh --help states that --history is never a hook"
 
 echo "== portability, because this ships into other people's repositories =="
 # Both leak scanners were the first files in this tree to reach for bash-4-only expansions and GNU

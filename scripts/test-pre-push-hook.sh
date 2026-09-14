@@ -169,6 +169,13 @@ rm -rf docs plugins/forge-kit-roadmap; git add -A >/dev/null; git commit --quiet
 
 cd "$ROOT"
 
+echo "== the history mode never reaches the hook =="
+# --history (#191) is a pre-publish step run by hand: it reads the whole reachable store and its
+# evidence is a report, not a commit gate. A hook that ran it would make every commit or push wait
+# on the history and print redacted findings nobody asked for.
+grep -q -- '--history' "$ROOT/.githooks/pre-push" \
+  && bad "the pre-push hook does not invoke --history" || ok "the pre-push hook does not invoke --history"
+
 echo ""
 echo "pre-push hook tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

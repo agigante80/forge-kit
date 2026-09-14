@@ -115,6 +115,13 @@ git add -A
 run_hook >/dev/null 2>&1
 [ "$?" -eq 0 ] && ok "and a bumped one passes" || bad "and a bumped one passes"
 
+
+echo "== the history mode never reaches the hook =="
+# --history (#191) is a pre-publish step run by hand: it reads the whole reachable store and its
+# evidence is a report, not a commit gate. A hook that ran it would make every commit or push wait
+# on the history and print redacted findings nobody asked for.
+grep -q -- '--history' "$ROOT/.githooks/pre-commit" \
+  && bad "the pre-commit hook does not invoke --history" || ok "the pre-commit hook does not invoke --history"
 cd "$ROOT"
 echo ""
 echo "pre-commit hook tests: $pass passed, $fail failed"

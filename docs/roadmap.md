@@ -568,6 +568,14 @@ from the two accurate-today README phrases the plan names, not from zero.
 Opened 2026-09-14 for #203. The sweep #202 promised, with the two phrases the gate found that my
 grep had not.
 
+## Phase: The history the guard never read
+state: open
+plan: docs/plans/the-history-the-guard-never-read.md
+
+Opened 2026-09-14 for #191, outcome A of #185, after the maintainer chose to ship without a Mac:
+the probe was run against Apple's own awk source built on Linux, the suites under bash 3.2.57
+built the same way, and the README states what that does and does not prove.
+
 ## Phase: Backlog
 state: backlog
 
