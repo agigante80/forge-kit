@@ -429,8 +429,10 @@ history_scan() {
   {
     # No regex over a line that carries a path (the header says why): the path is what follows the
     # first space.
-    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects"
-    LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
+    # && inside the group: a brace group's pipeline status is its LAST command's, so without it a
+    # failure of the first awk would be invisible to pipe_ok (found in review round 2).
+    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects" \
+    && LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
   } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
     | LC_ALL=C awk -F'\t' -v types="$types" '
         BEGIN { while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
@@ -483,7 +485,15 @@ history_scan() {
       }
       return p
     }
-    BEGIN { while ((getline l < names) > 0) { name[++nn] = l; lname[nn] = tolower(l) } close(names) }
+    # Longest name first, so a list holding both "secret" and "secretproj" redacts the whole longer
+    # name in a path (never "se****proj") and reports one finding per occurrence, as grep -o
+    # does in the tree mode. Insertion sort: the list is short and this runs once.
+    BEGIN {
+      while ((getline l < names) > 0) { name[++nn] = l }
+      close(names)
+      for (i = 2; i <= nn; i++) { v = name[i]; j = i - 1; while (j > 0 && length(name[j]) < length(v)) { name[j + 1] = name[j]; j-- } name[j + 1] = v }
+      for (i = 1; i <= nn; i++) lname[i] = tolower(name[i])
+    }
     {
       i1 = index($0, "\t"); lab = substr($0, 1, i1 - 1); rest = substr($0, i1 + 1)
       i2 = index(rest, "\t"); ln = substr(rest, 1, i2 - 1); text = substr(rest, i2 + 1)
@@ -491,12 +501,20 @@ history_scan() {
       at = 0; j = 0; while ((j = index(substr(lab, at + 1), "@")) > 0) at += j
       path = substr(lab, 1, at - 1); oid = substr(lab, at)
       ltext = tolower(text)
+      # One finding per position: a byte already inside the match of a longer name is not reported
+      # again for a shorter name listed beside it.
+      split("", taken)
       for (k = 1; k <= nn; k++) {
         pos = 1
         while ((i = index(substr(ltext, pos), lname[k])) > 0) {
-          hit = substr(text, pos + i - 1, length(name[k]))
-          print hide(path) oid ":" ln ": private-name: " (show ? hit : redact(hit))
-          pos += i - 1 + length(name[k])
+          start = pos + i - 1; len = length(name[k]); free = 1
+          for (q = start; q < start + len; q++) if (q in taken) { free = 0; break }
+          if (free) {
+            for (q = start; q < start + len; q++) taken[q] = 1
+            hit = substr(text, start, len)
+            print hide(path) oid ":" ln ": private-name: " (show ? hit : redact(hit))
+          }
+          pos = start + len
         }
       }
     }' "$hits")"

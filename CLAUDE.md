@@ -143,7 +143,7 @@ cross-agent instruction format); keep it a pointer, never duplicate content into
      assert neither hook invokes it. The skill still names `gitleaks` for the credential class this
      guard does not cover.
 
-   - **`leak-guard/assets/check-private-leaks.sh`** (`scripts/test-check-private-leaks.sh`, 79
+   - **`leak-guard/assets/check-private-leaks.sh`** (`scripts/test-check-private-leaks.sh`, 88
      tests, in CI): the IDENTITY half of the leak guard (#156). It is the one shipped executable
      that is contract-tested in CI but never RUN there, and that is permanent: it needs the list of
      private names, and a list of the names you are hiding cannot live in the repository it

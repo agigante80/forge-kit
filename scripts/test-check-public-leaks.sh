@@ -428,11 +428,22 @@ hrun --history --orphans; rc=$RC; expect "a nameless past copy under --orphans i
 echo "== --history: the path map survives user git config, and refuses what it cannot parse =="
 # Each of these was reproduced hiding a reachable leak in review: the map desynchronised or lost
 # entries, and the every-path rule then suppressed a blob whose rev-list path was a lockfile.
+# The shape that log.diffMerges decides: content at a lockfile in an ordinary commit, and at a
+# real name ONLY through a merge resolution. With log.diffMerges=off the merge's diff is omitted
+# from --raw, the map has no zzz.md entry, and rev-list's aaa.lock is the only path: suppressed.
+# (log.diffMerges=combined is refused by the shape check instead; log.showSignature needs a signed
+# commit, and a signing key is not something this suite can assume: the -c override stands
+# unexercised for it, and the shape check would refuse the injected lines anyway.)
 mkrepo cfg
-( cd "$HREPO" && printf 'twin /home/alice/x\n' > aaa.lock && cp aaa.lock zzz.md && git add aaa.lock zzz.md && git commit -qm twins ) >/dev/null 2>&1
-for cfg in log.showSignature=true log.diffMerges=combined log.showRoot=false diff.relative=true; do
+hcommit f.txt 'base\n'
+( cd "$HREPO" && printf 'twin /home/alice/x\n' > aaa.lock && git add aaa.lock && git commit -qm lock \
+  && git checkout -q -b side3 && printf 'side\n' > f.txt && git commit -qam side \
+  && { git checkout -q master 2>/dev/null || git checkout -q main; }; printf 'main\n' > f.txt && git commit -qam main
+  git merge -q --no-commit side3 >/dev/null 2>&1; cp aaa.lock zzz.md; git add f.txt zzz.md && git commit -qm merged ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "the merge-only twin is reported with default config" 1 "$rc"
+for cfg in log.diffMerges=off log.diffMerges=combined; do
   ( cd "$HREPO" && git config "${cfg%%=*}" "${cfg#*=}" )
-  hrun --history; rc=$RC; expect "with $cfg set the twin blob is still reported" 1 "$rc"
+  hrun --history; rc=$RC; expect "with $cfg set it is still reported" 1 "$rc"
   ( cd "$HREPO" && git config --unset "${cfg%%=*}" )
 done
 mkrepo rootonly
@@ -456,6 +467,13 @@ hcommit leak.md '/home/alice/x\n'
 ( cd "$HREPO" && o="$(git rev-parse HEAD:leak.md)" && f=".git/objects/${o:0:2}/${o:2}" && rm -f "$f" && printf 'garbage' > "$f" ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "a corrupt loose object refuses the scan" 2 "$rc"
 contains "cannot read every object" "$ERR" "and says which"
+# A corrupt PACK is different: --batch-check still lists the object, and git cat-file --batch dies
+# mid-stream. The reader pipeline's status check is what refuses it.
+mkrepo corruptpack
+hcommit leak.md '/home/alice/x\n'
+( cd "$HREPO" && git gc -q && pack="$(ls .git/objects/pack/*.pack | head -1)" && chmod u+w "$pack" \
+  && sz="$(wc -c < "$pack")" && printf 'XXXXXXXX' | dd of="$pack" bs=1 seek=$((sz / 2)) conv=notrunc ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a corrupt pack refuses the scan rather than reporting what was read" 2 "$rc"
 
 echo "== --history: what git shows is not always what a push sends =="
 mkrepo replace
@@ -484,6 +502,8 @@ hrun --history --orphans; rc=$RC; expect "and still by --history --orphans (the 
 echo "== --history: shapes the store can take =="
 mkrepo cjk
 ( cd "$HREPO" && printf '/home/alice/x\n' > "$(printf '\303\251tude.md')" && git add . && git commit -qm accent ) >/dev/null 2>&1
+# Can only fail under Apple's awk (a regex over that path line aborts it); under gawk or mawk it
+# passes whatever the code does, so it is a floor case, not a CI case.
 hrun --history; rc=$RC; expect "a path whose first byte is over 0x7F is scanned (no regex over a path line)" 1 "$rc"
 mkrepo bareclone
 hcommit leak.md '/home/alice/x\n'
