@@ -13,7 +13,7 @@
 # the two left behind are the fragile ones. The repo already met this shape with the enforced path
 # set (#112), where the catalogue must use globs while three others use an ERE, and answered it
 # with a guard (test-component-paths.sh) because one implementation was impossible. Same answer
-# here, and it covers all six sites instead of two.
+# here, and it covers every site instead of two.
 #
 # WHY HOST-GROUPED ORDER MATTERS, since a future editor will be tempted to "tidy" it into case
 # groups: a repo migrated to Forgejo that kept a stale .github/ISSUE_TEMPLATE must have its LIVE

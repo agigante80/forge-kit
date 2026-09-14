@@ -6,8 +6,8 @@
 #
 # ABSENT MEANS `user`, and that is a deliberate default rather than a convenience. A default should
 # point at the good path, and after #163 no component bakes a value in at install time, so `user`
-# is not merely the common case: it is the case the tree can prove. Declaring it on all thirty-eight
-# components would be noise that says nothing.
+# is not merely the common case: it is the case the tree can prove. Declaring it on every
+# component would be noise that says nothing.
 #
 # `project` IS THE EXCEPTION AND CARRIES ITS REASON, in a `scope-reason:` field. Same shape
 # check-restatements.sh requires of an allowlist entry, for the same reason: an exception without a
