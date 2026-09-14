@@ -519,8 +519,18 @@ Opened 2026-09-13 for #200, the follow-up #199's close filed. Same shape as the 
 the sentence the leak guard's whole limit rests on (#185).
 
 ## Phase: A number the tree can check
-state: open
+state: done
 plan: docs/plans/a-number-the-tree-can-check.md
+
+Closed 2026-09-14, outcome **done**. One ticket, two gate rounds. Round 1 raised five blocking
+items and all five were right: the Python suite reports on stderr and would have read as zero, the
+anchor as first written would have rewritten `24 downstream tests` on line 97, and the contract
+test's real-repo case would have run the generator inside its own test. Each became a premortem
+clause and then a test case. The gate filed #202 itself (line 19's spelled-out counts), which is
+the one ticket that appeared. Mutation found three gaps in the first draft of the suite: the
+last-line rule was untested because the noise line matched no shape, `testers` was not a near
+miss of `tests`, and the `scripts/` confinement was reachable only by symlink. The generator was
+not changed for any of them; the test was.
 
 Opened 2026-09-14 for #201, filed from #200's gate advisory after two round-1 findings on the same
 hand-maintained numbers, and after running the suites found three more stale. The component index
