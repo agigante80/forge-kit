@@ -12,7 +12,7 @@
 # would shrink from four sites to two rather than to one. This repo already faced the identical
 # shape with the enforced path set (#112), where the catalogue must use globs while the others use
 # an ERE, and chose a guard (test-component-paths.sh) precisely because one implementation was
-# impossible. A guard covers all six sites; a shared script would have covered two.
+# impossible. A guard covers every site; a shared script would have covered two.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/check-template-dir-order.sh"

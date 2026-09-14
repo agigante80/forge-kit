@@ -553,6 +553,13 @@ Opened 2026-09-14 for #202, the gate's own follow-up from #201: the counts the g
 anchor, spelled out or split by a rule nothing defines, come out of the prose rather than getting
 a second generator.
 
+## Phase: The sweep the gate finished
+state: open
+plan: docs/plans/the-sweep-the-gate-finished.md
+
+Opened 2026-09-14 for #203. The sweep #202 promised, with the two phrases the gate found that my
+grep had not.
+
 ## Phase: Backlog
 state: backlog
 
