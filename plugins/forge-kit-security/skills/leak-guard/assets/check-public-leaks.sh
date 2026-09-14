@@ -60,9 +60,11 @@
 # every missing object from its remote during the scan. It also refuses, exit 2, a store git cannot
 # read in full (an object reported "missing"), a path map it cannot parse (a path containing a
 # newline), and any pipeline stage that fails, since a partial scan reporting clean is the one
-# outcome worse than no scan. The alternatives to this reader, a bash `read -N` (bash 4.1, and it
-# drops NUL uncounted), a helper in another language (forge-adapt installs assets/*.sh only) and
-# `cat-file -Z` (git 2.42), were each costed in #191 and rejected because this one adds no floor.
+# outcome worse than no scan. One cosmetic limit: a path containing a TAB prints truncated at the
+# tab in the report label; the finding itself is not affected. The alternatives to this reader, a
+# bash `read -N` (bash 4.1, and it drops NUL uncounted), a helper in another language (forge-adapt
+# installs assets/*.sh only) and `cat-file -Z` (git 2.42), were each costed in #191 and rejected
+# because this one adds no floor.
 #
 # The store holds more than file contents: on this repository, 1,639 blobs against 527 commit
 # objects. Whoever scans the store by hand (#198):

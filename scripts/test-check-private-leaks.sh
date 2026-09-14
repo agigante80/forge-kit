@@ -182,6 +182,12 @@ contains 'never wired into a hook' "$h" "check-private-leaks.sh --help states th
 
 
 echo "== --history: names in the publishable history, redacted in path and evidence =="
+# MUTANTS RUN AGAINST THESE SECTIONS (2026-09-14), on a scratch copy, each confirmed applied. Killed:
+# the r<0 gate replaced by a shape test (run below); path redaction disabled; evidence redaction
+# disabled; the label split at the first @; path-only lines reported; --remotes dropped; the
+# diffMerges override dropped; the unreadable-object refusal removed; the --orphans content test
+# applied to every object; the longest-first sort removed. The reader and selection code is the
+# public half's, whose suite carries the rest of the mutants.
 HREPO=""
 mkrepo() {  # mkrepo <name>: a fresh repository; sets HREPO
   HREPO="$WORK/hist-$1"; rm -rf "$HREPO"; mkdir -p "$HREPO"
