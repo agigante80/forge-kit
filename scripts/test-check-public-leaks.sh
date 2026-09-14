@@ -424,6 +424,81 @@ mkrepo selforphan
   && git rm -q check-public-leaks.sh && git commit -q --amend --allow-empty -m gone ) >/dev/null 2>&1
 hrun --history --orphans; rc=$RC; expect "a nameless past copy under --orphans is skipped by the content test" 0 "$rc"
 
+
+echo "== --history: the path map survives user git config, and refuses what it cannot parse =="
+# Each of these was reproduced hiding a reachable leak in review: the map desynchronised or lost
+# entries, and the every-path rule then suppressed a blob whose rev-list path was a lockfile.
+mkrepo cfg
+( cd "$HREPO" && printf 'twin /home/alice/x\n' > aaa.lock && cp aaa.lock zzz.md && git add aaa.lock zzz.md && git commit -qm twins ) >/dev/null 2>&1
+for cfg in log.showSignature=true log.diffMerges=combined log.showRoot=false diff.relative=true; do
+  ( cd "$HREPO" && git config "${cfg%%=*}" "${cfg#*=}" )
+  hrun --history; rc=$RC; expect "with $cfg set the twin blob is still reported" 1 "$rc"
+  ( cd "$HREPO" && git config --unset "${cfg%%=*}" )
+done
+mkrepo rootonly
+( cd "$HREPO" && git checkout -q --orphan fresh && git rm -qrf . && printf 'twin /home/alice/x\n' > aaa.lock && cp aaa.lock zzz.md \
+  && git add aaa.lock zzz.md && git commit -qm root && { git branch -q -D master 2>/dev/null || git branch -q -D main 2>/dev/null; }; git config log.showRoot false ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "twins in a ROOT commit with log.showRoot=false are still reported" 1 "$rc"
+mkrepo subdir
+( cd "$HREPO" && mkdir sub && printf 'twin /home/alice/x\n' > aaa.lock && cp aaa.lock zzz.md && git add aaa.lock zzz.md && git commit -qm twins && git config diff.relative true ) >/dev/null 2>&1
+OUT="$( cd "$HREPO/sub" && "$SCRIPT" --history 2>/dev/null )"; rc=$?
+expect "run from a subdirectory with diff.relative=true, the twins are still reported" 1 "$rc"
+mkrepo newline
+( cd "$HREPO" && printf 'twin /home/alice/x\n' > aaa.lock && cp aaa.lock zzz.md && git add aaa.lock zzz.md && git commit -qm twins \
+  && printf 'x\n' > "$(printf 'weird\nname.txt')" && git add . && git commit -qm weird ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a path containing a newline makes the map unparseable, and the scan refuses" 2 "$rc"
+contains "path map desynchronised" "$ERR" "saying so"
+
+echo "== --history: a store git cannot read in full is refused, never scanned partially =="
+mkrepo corrupt
+hcommit leak.md '/home/alice/x\n'
+# Loose objects are written read-only, so the file is removed and rewritten, not overwritten.
+( cd "$HREPO" && o="$(git rev-parse HEAD:leak.md)" && f=".git/objects/${o:0:2}/${o:2}" && rm -f "$f" && printf 'garbage' > "$f" ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a corrupt loose object refuses the scan" 2 "$rc"
+contains "cannot read every object" "$ERR" "and says which"
+
+echo "== --history: what git shows is not always what a push sends =="
+mkrepo replace
+hcommit leak.md '/home/alice/x\n'
+( cd "$HREPO" && leaky="$(git rev-parse HEAD)" && git rm -q leak.md && git commit -qm clean && git replace "$leaky" HEAD ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a commit hidden by git replace is still scanned (a push sends it)" 1 "$rc"
+contains "leak.md@" "$OUT" "at its path"
+( cd "$HREPO" && git replace -d "$(git replace -l)" && printf '%s %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" > .git/info/grafts ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a grafts file is refused, since it cannot be switched off" 2 "$rc"
+contains "grafts" "$ERR" "and named"
+
+echo "== --history: a branch that exists only on the remote is publishable =="
+mkrepo remoteonly
+( cd "$HREPO" && git init -q --bare "$WORK/hist-bare" && git remote add origin "$WORK/hist-bare" \
+  && git checkout -q -b wip && printf '/home/alice/x\n' > wip.md && git add wip.md && git commit -qm wip \
+  && git push -q origin wip && { git checkout -q master 2>/dev/null || git checkout -q main; } && git branch -q -D wip ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a leak on a branch deleted locally but pushed is reported" 1 "$rc"
+contains "wip.md@" "$OUT" "at its path, not as an orphan"
+
+echo "== --history: --orphans never narrows what --history reports =="
+mkrepo widen
+( cd "$HREPO" && printf '#!/usr/bin/env bash\n# check-public-leaks-version: 3\n#\n/home/alice/x\n' > quoting.md && git add quoting.md && git commit -qm q ) >/dev/null 2>&1
+hrun --history; rc=$RC;           expect "a reachable document quoting the marker is reported by --history" 1 "$rc"
+hrun --history --orphans; rc=$RC; expect "and still by --history --orphans (the content test is for pathless objects only)" 1 "$rc"
+
+echo "== --history: shapes the store can take =="
+mkrepo cjk
+( cd "$HREPO" && printf '/home/alice/x\n' > "$(printf '\303\251tude.md')" && git add . && git commit -qm accent ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a path whose first byte is over 0x7F is scanned (no regex over a path line)" 1 "$rc"
+mkrepo bareclone
+hcommit leak.md '/home/alice/x\n'
+git clone -q --bare "$HREPO" "$WORK/hist-bare2" >/dev/null 2>&1
+HREPO="$WORK/hist-bare2"
+hrun --history; rc=$RC; expect "a bare repository is scanned (no work tree needed)" 1 "$rc"
+if git init -q --object-format=sha256 "$WORK/hist-sha256" >/dev/null 2>&1; then
+  HREPO="$WORK/hist-sha256"
+  ( cd "$HREPO" && git config user.email t@t.invalid && git config user.name t && printf '/home/alice/x\n' > leak.md && git add leak.md && git commit -qm leak ) >/dev/null 2>&1
+  hrun --history; rc=$RC; expect "a SHA-256 repository is scanned (64-hex headers)" 1 "$rc"
+  contains "leak.md@" "$OUT" "at its path"
+else
+  ok "SHA-256 repositories: this git cannot create one, case skipped"
+fi
+
 echo "== --help does not go stale when the header is edited =="
 # It printed a hardcoded line range, so growing the header by seven lines truncated the output
 # mid-sentence and dropped the usage synopsis entirely. A help text that silently rots is worse

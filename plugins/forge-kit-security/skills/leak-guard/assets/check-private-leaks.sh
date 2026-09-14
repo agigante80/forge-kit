@@ -27,15 +27,21 @@
 # (so a forged batch header hides nothing) and puts no content byte through a regex, NUL-bearing
 # objects dropped whole, and an object scanned unless EVERY path it ever had is skipped. In this
 # mode a listed name is redacted inside the printed PATH as well as in the evidence, since a path
-# is the likeliest place for such a name to sit; --show-names lifts both. NEVER wired into a hook.
+# is the likeliest place for such a name to sit, though a name that appears ONLY in a path is not a
+# finding here any more than in the tree modes; --show-names lifts both redactions. Remote-tracking
+# refs are in the publishable set; a detached HEAD, refs/stash and refs/notes are not. Refs/replace
+# and grafts are ignored or refused, since they make git show what a push does not send.
+# It is never wired into a hook: a pre-publish step, run by hand.
 #
 # `--history --orphans` also reads objects no branch or tag reaches (amended or reset away, not yet
 # pruned). A push, a bundle and a clone over a URL never send them; a clone from a local PATH and
 # any copy of the .git directory do. With no path, the self-skip is the weaker content test.
 #
 # WHAT --history REFUSES, exit 2: an alternates file (a `git clone --shared`, resolved through
-# `git rev-parse --git-path`), GIT_ALTERNATE_OBJECT_DIRECTORIES or GIT_OBJECT_DIRECTORY set, and a
-# partial clone, which would fetch every missing object during the scan.
+# `git rev-parse --git-path`), GIT_ALTERNATE_OBJECT_DIRECTORIES or GIT_OBJECT_DIRECTORY set, a
+# partial clone, which would fetch every missing object during the scan, a store git cannot read in
+# full, a path map it cannot parse, and any pipeline stage that fails: a partial scan reporting
+# clean is the one outcome worse than no scan.
 #
 # Scanning the store by hand (#198):
 # pass `grep -a` over a `git cat-file --batch` stream, since tree objects contain NUL and a grep
@@ -104,6 +110,7 @@ SELF="$(abspath "${BASH_SOURCE[0]}")"
 MIN_NAME_LEN=3
 
 MODE=all
+MODESET=0
 BASE=""
 LIST="${HOME}/.claude/forge-kit/private-names.txt"
 SHOW_NAMES=0
@@ -116,10 +123,13 @@ warn() { printf 'check-private-leaks: %s\n' "$1" >&2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --all)         MODE=all ;;
-    --staged)      MODE=staged ;;
-    --range)       MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
-    --history)     MODE=history ;;
+    # One mode per run. The last flag used to win silently, so "--history --staged" scanned the
+    # index and reported clean on the history the user asked about.
+    --all)         [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=all ;;
+    --staged)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=staged ;;
+    --range)       [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1
+                   MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
+    --history)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=history ;;
     --orphans)     ORPHANS=1 ;;
     --list)        shift; [ $# -gt 0 ] || die "--list needs a path"; LIST="$1" ;;
     --show-names)  SHOW_NAMES=1 ;;
@@ -244,8 +254,11 @@ if [ "${#PATHS[@]}" -gt 0 ]; then
   MODE=paths
   FILES=("${PATHS[@]}")
 else
-  git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-    || die "not inside a git work tree (pass explicit paths to scan without git)"
+  # --history needs an object store, not a work tree: a bare mirror about to be published is a
+  # natural target. The tree modes need the tree.
+  if [ "$MODE" = history ]; then git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
+  else git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "not inside a git work tree (pass explicit paths to scan without git)"; fi
   case "$MODE" in
     history) : ;;
     all)    while IFS= read -r -d '' f; do FILES+=("$f"); done < <(git ls-files -z) ;;
@@ -299,20 +312,27 @@ violations=0
 # every line subtracts its length plus one, and the object ends when r reaches zero. A content line
 # that looks like a header is therefore content. No regex touches a content line (see the header
 # for why); index, substr and length are byte operations. It emits "<label>\t<line>\t<text>" for
-# every content line of every object it keeps, and drops an object whole when it contains NUL, or
-# when it is the scanner's own source: an oid marked "cand" (some path has this scanner's basename)
-# is self when it carries the marker line; under --orphans, with no path, self is the weaker
-# content test of shebang plus marker on lines 1 and 2.
+# every content line of every object it keeps, and DROPS an object when it contains NUL (seen as
+# \001, so a genuine \001 byte drops it too), or when it is the scanner's own source: an oid marked
+# "cand" (some path has this scanner's basename) is self when it carries the marker line; an oid
+# with NO known path (--orphans) is self under the weaker content test of shebang plus marker on
+# lines 1 and 2. Once an object is dropped nothing more of it is buffered, so memory is bounded by
+# the largest KEPT object, not the largest object. The record on which r reaches zero and that is
+# empty is git's terminator, not a line, and is never emitted.
 # The "r < 0 {" line is the load-bearing one, and the contract test mutates exactly it.
 READER='
 BEGIN {
   r = -1
-  while ((getline l < labels) > 0) { split(l, a, "\t"); label[a[1]] = a[2]; if (a[3] == "cand") cand[a[1]] = 1 }
+  while ((getline l < labels) > 0) {
+    split(l, a, "\t"); label[a[1]] = a[2]
+    if (a[2] != "") haspath[a[1]] = 1
+    if (a[3] == "cand") cand[a[1]] = 1
+  }
   close(labels)
 }
 r < 0 {
-  if (NF == 3 && length($1) == 40 && ($2 == "blob" || $2 == "commit" || $2 == "tag") && $3 ~ /^[0-9]+$/) {
-    oid = $1; type = $2; r = $3 + 1; n = 0; bin = 0; self = 0; cnt = 0; body = (type == "blob")
+  if (NF == 3 && (length($1) == 40 || length($1) == 64) && ($2 == "blob" || $2 == "commit" || $2 == "tag") && $3 ~ /^[0-9]+$/) {
+    oid = $1; type = $2; r = $3 + 1; n = 0; drop = 0; cnt = 0; body = (type == "blob")
     if (type == "blob") { lab = ((oid in label) && label[oid] != "") ? label[oid] "@" oid : "blob@" oid } else lab = type "@" oid
     next
   }
@@ -320,24 +340,40 @@ r < 0 {
 }
 {
   r -= length($0) + 1; n++
-  if (index($0, "\001")) bin = 1
-  if (substr($0, 1, 8) == "# check-" && index($0, "-leaks-version: ")) {
-    if (oid in cand) self = 1
-    else if (orphans && n == 2 && substr(first, 1, 2) == "#!") self = 1
+  if (!drop) {
+    if (n == 1) first = $0
+    if (index($0, "\001")) drop = 1
+    else if (substr($0, 1, 8) == "# check-" && index($0, "-leaks-version: ")) {
+      if (oid in cand) drop = 1
+      else if (orphans && n == 2 && !(oid in haspath) && substr(first, 1, 2) == "#!") drop = 1
+    }
+    if (drop) split("", buf)
+    else if (body) { if (!(r <= 0 && $0 == "")) buf[cnt++] = n "\t" $0 }
+    else if ($0 == "") body = 1
   }
-  if (n == 1) first = $0
-  if (body) buf[cnt++] = n "\t" $0
-  else if ($0 == "") body = 1
   if (r <= 0) {
-    if (!bin && !self) for (i = 0; i < cnt; i++) print lab "\t" buf[i]
+    if (!drop) for (i = 0; i < cnt; i++) print lab "\t" buf[i]
     split("", buf); r = -1
   }
 }
 END { if (r > 0) { print "truncated cat-file stream" > "/dev/stderr"; exit 2 } }
 '
 
+# Every pipeline in here checks EVERY stage. A stage that fails leaves a partial map or a partial
+# stream, and a partial scan that reports clean is the exact outcome this mode exists to prevent.
+pipe_ok() {  # pipe_ok <what> <PIPESTATUS...>
+  local what="$1"; shift; local st
+  for st in "$@"; do [ "$st" = 0 ] || die "$what failed (a stage exited $st); nothing was scanned"; done
+}
+
 history_scan() {
   # Refusals first. Each is a store this scanner would read as if it were the repository, and is not.
+  # Replacement refs and grafts make git SHOW a different object than the one a push sends; the
+  # env var turns the first off for every git call below, and the second cannot be turned off.
+  export GIT_NO_REPLACE_OBJECTS=1
+  local grafts
+  grafts="$(git rev-parse --git-path info/grafts 2>/dev/null)"
+  [ -n "$grafts" ] && [ -f "$grafts" ] && die "refusing --history: info/grafts exists, and grafts hide objects a push still sends"
   [ -z "${GIT_OBJECT_DIRECTORY:-}" ] || die "refusing --history: GIT_OBJECT_DIRECTORY is set"
   [ -z "${GIT_ALTERNATE_OBJECT_DIRECTORIES:-}" ] || die "refusing --history: GIT_ALTERNATE_OBJECT_DIRECTORIES is set"
   local alt promisor
@@ -349,21 +385,40 @@ history_scan() {
 
   local objects="$TMPD/objects" types="$TMPD/types" pathmap="$TMPD/paths" labels="$TMPD/labels" oids="$TMPD/oids"
   local tagged="$TMPD/tagged" hits="$TMPD/hits"
-  # Enumerate. The publishable set carries one path per object; --batch-all-objects carries none.
+  # Enumerate the publishable set: branches, tags AND remote-tracking refs, since a branch that
+  # exists only on the remote is already on the forge that is about to go public. Not --all, which
+  # would drag in refs/stash. --batch-all-objects (--orphans) carries no path; the map below still
+  # supplies paths for whatever is reachable.
   if [ "$ORPHANS" = 1 ]; then
-    git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' > "$types" || die "git cat-file failed"
+    git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
     : > "$objects"
   else
-    git rev-list --objects --branches --tags > "$objects" || die "git rev-list failed"
-    cut -d' ' -f1 "$objects" | git cat-file --batch-check='%(objectname) %(objecttype)' > "$types" || die "git cat-file failed"
+    git rev-list --objects --branches --tags --remotes > "$objects"; pipe_ok "git rev-list" "${PIPESTATUS[@]}"
+    cut -d' ' -f1 "$objects" | git cat-file --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
   fi
+  # An object git cannot read prints "<oid> missing" with exit 0. That is a store this scanner
+  # cannot read honestly, so it refuses rather than scanning what is left.
+  local unreadable
+  unreadable="$(LC_ALL=C awk '$2 != "blob" && $2 != "commit" && $2 != "tag" && $2 != "tree" { print; exit }' "$types")"
+  [ -z "$unreadable" ] || die "refusing --history: git cannot read every object ($unreadable); repair the store first"
   # Every path each blob has ever had, from every commit's diff against every parent (-m: a merge
   # resolved to content in neither parent has no other entry). -z then tr, because --raw quotes
   # unusual paths without it. Deletions carry the null oid and drop out with the "D" status.
-  git log -m --branches --tags --raw --no-abbrev --no-renames --format= -z 2>/dev/null \
+  # The -c overrides pin the output shape against user config that would otherwise change it
+  # silently: log.showSignature injects lines, log.diffMerges=combined changes the record shape and
+  # the field that holds the merge result, diff.relative drops entries outside the cwd, and
+  # log.showRoot=false drops the root commit. Each was reproduced hiding a reachable leak.
+  # The parser then REFUSES a record that is not the five-field meta line it expects (a path
+  # containing a newline, split by tr, is the known way to produce one), because a desynchronised
+  # map suppresses every older entry. The shape test uses no regex over the path line.
+  git -c log.showRoot=true -c log.showSignature=false -c log.diffMerges=separate -c diff.relative=false \
+      log -m --branches --tags --remotes --raw --no-abbrev --no-renames --format= -z \
     | LC_ALL=C tr '\0' '\n' \
-    | LC_ALL=C awk 'NR % 2 == 1 { split($0, a, " "); oid = a[4]; st = a[5]; next } st != "D" && oid !~ /^0+$/ { print oid "\t" $0 }' \
-    | LC_ALL=C sort -u > "$pathmap"
+    | LC_ALL=C awk '
+        NR % 2 == 1 { if (substr($0, 1, 1) != ":" || split($0, a, " ") != 5) { print "path map desynchronised at record " NR ": " $0 > "/dev/stderr"; exit 2 }
+                      oid = a[4]; st = a[5]; next }
+        st != "D" && oid !~ /^0+$/ { print oid "\t" $0 }' \
+    | LC_ALL=C sort -u > "$pathmap"; pipe_ok "the path map (git log --raw)" "${PIPESTATUS[@]}"
   # Decide, per object, whether it is read and under what label. A blob is read unless EVERY path
   # it ever had is skipped; when its only unskipped paths carry this scanner's basename it is a
   # candidate for the identity test, which the reader completes by looking for the marker line. An
@@ -372,13 +427,15 @@ history_scan() {
   # sequential read: no process runs per object, which is what keeps this under a second.
   local merged="$TMPD/merged"
   {
-    LC_ALL=C awk '{ p = $0; sub(/^[0-9a-f]+ ?/, "", p); if (p != "") print $1 "\t0\t" p }' "$objects"
+    # No regex over a line that carries a path (the header says why): the path is what follows the
+    # first space.
+    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects"
     LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
   } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
     | LC_ALL=C awk -F'\t' -v types="$types" '
         BEGIN { while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
         t[$1] == "blob" { seen[$1] = 1; n = split($3, b, "/"); print $1 "\t" $3 "\t" tolower(b[n]) }
-        END { for (o in t) if (t[o] == "blob" && !(o in seen)) print o "\t\t" }' > "$merged"
+        END { for (o in t) if (t[o] == "blob" && !(o in seen)) print o "\t\t" }' > "$merged"; pipe_ok "the object merge" "${PIPESTATUS[@]}"
   local oid type path lower cur="" keep="" selfnamed=0 first="" selfbase="${SELF##*/}"
   set_lower "$selfbase"; local selflower="$LOWER"
   : > "$labels"
@@ -404,39 +461,44 @@ history_scan() {
   finish_blob
   cut -f1 "$labels" > "$oids"
   [ -s "$oids" ] || return 0
-  # Read. One cat-file, one tr, one awk; then ONE grep over the tagged stream for any name and one
-  # more, -o, over the hit lines only, joined back to the label and line by hit-line number in awk.
-  # -a on both: the stream carries raw bytes. Names in the printed path are redacted by the same
-  # awk, so no process runs per finding.
+  # Read. One cat-file, one tr, one awk; then ONE grep over the tagged stream for any name, and one
+  # awk over the hit lines that matches in the TEXT column only (the label is part of the grepped
+  # line, and a listed name in a PATH is not a finding: the tree modes never report a path either),
+  # redacts names inside the printed path and in the evidence, and prints one finding per
+  # occurrence. -a on the grep: the stream carries raw bytes. No process runs per finding.
   git cat-file --batch < "$oids" \
     | LC_ALL=C tr '\0' '\001' \
-    | LC_ALL=C awk -v labels="$labels" -v orphans="$ORPHANS" "$READER" > "$tagged"
-  local st="${PIPESTATUS[2]}"
-  [ "$st" = 0 ] || die "the history reader failed (exit $st)"
+    | LC_ALL=C awk -v labels="$labels" -v orphans="$ORPHANS" "$READER" > "$tagged"; pipe_ok "the history reader" "${PIPESTATUS[@]}"
   LC_ALL=C grep -aiF -f "$PATFILE" "$tagged" > "$hits" || true
   [ -s "$hits" ] || return 0
-  LC_ALL=C grep -aoinF -f "$PATFILE" "$hits" > "$TMPD/matches" || true
   local found
-  found="$(LC_ALL=C awk -F'\t' -v matches="$TMPD/matches" -v names="$PATFILE" -v show="$SHOW_NAMES" '
+  found="$(LC_ALL=C awk -v names="$PATFILE" -v show="$SHOW_NAMES" '
     function redact(n,  i, o) { o = substr(n, 1, 2); for (i = 3; i <= length(n); i++) o = o "*"; return o }
     function hide(p,  k, lp, ln, i, out) {   # redact every listed name inside a path, case-insensitively
       if (show) return p
-      lp = tolower(p)
       for (k = 1; k <= nn; k++) {
-        ln = tolower(name[k]); out = ""
+        ln = lname[k]; lp = tolower(p); out = ""
         while ((i = index(lp, ln)) > 0) { out = out substr(p, 1, i - 1) redact(substr(p, i, length(ln))); p = substr(p, i + length(ln)); lp = substr(lp, i + length(ln)) }
-        p = out p; lp = tolower(p)
+        p = out p
       }
       return p
     }
-    BEGIN {
-      while ((getline l < names) > 0) name[++nn] = l; close(names)
-      while ((getline l < matches) > 0) { i = index(l, ":"); hit[substr(l, 1, i - 1)] = hit[substr(l, 1, i - 1)] "\n" substr(l, i + 1) } close(matches)
-    }
-    (NR "") in hit {
-      lab = $1; ln = $2; at = index(lab, "@"); path = substr(lab, 1, at - 1); oid = substr(lab, at)
-      n = split(substr(hit[NR ""], 2), m, "\n")
-      for (i = 1; i <= n; i++) print hide(path) oid ":" ln ": private-name: " (show ? m[i] : redact(m[i]))
+    BEGIN { while ((getline l < names) > 0) { name[++nn] = l; lname[nn] = tolower(l) } close(names) }
+    {
+      i1 = index($0, "\t"); lab = substr($0, 1, i1 - 1); rest = substr($0, i1 + 1)
+      i2 = index(rest, "\t"); ln = substr(rest, 1, i2 - 1); text = substr(rest, i2 + 1)
+      # The oid follows the LAST "@": a path may itself contain one (npm @scope/ directories).
+      at = 0; j = 0; while ((j = index(substr(lab, at + 1), "@")) > 0) at += j
+      path = substr(lab, 1, at - 1); oid = substr(lab, at)
+      ltext = tolower(text)
+      for (k = 1; k <= nn; k++) {
+        pos = 1
+        while ((i = index(substr(ltext, pos), lname[k])) > 0) {
+          hit = substr(text, pos + i - 1, length(name[k]))
+          print hide(path) oid ":" ln ": private-name: " (show ? hit : redact(hit))
+          pos += i - 1 + length(name[k])
+        }
+      }
     }' "$hits")"
   [ -n "$found" ] || return 0
   printf '%s\n' "$found"
