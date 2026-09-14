@@ -536,6 +536,14 @@ Opened 2026-09-14 for #201, filed from #200's gate advisory after two round-1 fi
 hand-maintained numbers, and after running the suites found three more stale. The component index
 shape (#96), applied to a number inside prose.
 
+## Phase: A count claims completeness
+state: open
+plan: docs/plans/a-count-claims-completeness.md
+
+Opened 2026-09-14 for #202, the gate's own follow-up from #201: the counts the generator cannot
+anchor, spelled out or split by a rule nothing defines, come out of the prose rather than getting
+a second generator.
+
 ## Phase: Backlog
 state: backlog
 

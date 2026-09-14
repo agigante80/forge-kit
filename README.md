@@ -4,8 +4,8 @@
 starts and after it lands, enforced by a build failure rather than a note asking nicely.
 
 forge-kit is not a collection of clever agents. It started as one, and the agents turned out to be
-the least distinctive thing in it: the tree today carries 28 prose components against 24 guard
-scripts and 35 contract test suites, and the last six phases of work produced guards, versioning
+the least distinctive thing in it: the tree today carries more guard scripts and contract test
+suites than prose components, and the last six phases of work produced guards, versioning
 discipline, install scope and measurement rather than new capability. What is left that nobody else
 ships is the outer loop, and that is what this is for.
 
