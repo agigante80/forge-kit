@@ -232,6 +232,16 @@ expect "--all does not report it either" 0 "$?"
 
 
 echo "== --history: the publishable history, read by declared byte length =="
+# MUTANTS RUN AGAINST THESE SECTIONS (2026-09-14), each by editing a scratch copy of the scanner and
+# confirming the edit applied; recorded here so the claim can be re-run rather than trusted. Killed:
+# the r<0 gate replaced by a shape test (the case below runs it); NUL objects not dropped; -m dropped
+# from the path map; GIT_OBJECT_DIRECTORY, alternates, unreadable-object and grafts refusals removed;
+# redaction disabled; commit headers scanned as body; self-skip by content alone; self basename not
+# recognised; refs/replace honoured; every -c override dropped; the map shape check weakened;
+# --remotes dropped; the --orphans content test applied to every object; the reader stage's status
+# unchecked; the merge group's first stage failing. Equivalent (no observable difference, kept for
+# hygiene): the terminator record emitted (an empty line matches nothing), the buffer cleared on drop
+# (memory only). Not killable in CI: a regex over the path line (aborts only under Apple's awk).
 # Every case runs against a throwaway repository built here, never against this one. A helper
 # makes a fresh repo per scenario so no case can lean on another's objects.
 HREPO=""

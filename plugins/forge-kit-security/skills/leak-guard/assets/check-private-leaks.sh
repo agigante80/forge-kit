@@ -41,7 +41,8 @@
 # `git rev-parse --git-path`), GIT_ALTERNATE_OBJECT_DIRECTORIES or GIT_OBJECT_DIRECTORY set, a
 # partial clone, which would fetch every missing object during the scan, a store git cannot read in
 # full, a path map it cannot parse, and any pipeline stage that fails: a partial scan reporting
-# clean is the one outcome worse than no scan.
+# clean is the one outcome worse than no scan. One cosmetic limit: a path containing a TAB prints
+# truncated at the tab in the report label; the finding itself is not affected.
 #
 # Scanning the store by hand (#198):
 # pass `grep -a` over a `git cat-file --batch` stream, since tree objects contain NUL and a grep
