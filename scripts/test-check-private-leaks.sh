@@ -225,6 +225,14 @@ printf 'acme\n' > "$WORK/hlist2"
 OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist2" --history 2>/dev/null )"; rc=$?
 expect "a listed name under an @scope path is reported" 1 "$rc"
 contains "packages/@ac**/core/index.js@$(hoid HEAD:packages/@acme/core/index.js):1: private-name: ac**" "$OUT" "with the name redacted in the path despite the @"
+# A list holding a name and a longer name built on it: one finding per occurrence, the longer one,
+# and the path redacts the whole longer name rather than leaking its suffix.
+printf 'secret\nsecretproj\n' > "$WORK/hlist3"
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist3" --history 2>/dev/null )"; rc=$?
+n="$(printf '%s\n' "$OUT" | grep -c 'one.md@')"; expect "nested names report one finding for one occurrence" 1 "$n"
+contains "clients/se********/one.md@" "$OUT" "and the path redacts the longer name whole"
+lacks() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
+lacks "se****proj" "$OUT" "never its suffix"
 
 mkrepo message
 ( cd "$HREPO" && git commit -q --allow-empty --author='secretproj bot <bot@t.invalid>' -m 'clean subject' -m 'clean body' ) >/dev/null 2>&1
@@ -266,6 +274,34 @@ mkrepo replace
 ( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n && leaky="$(git rev-parse HEAD)" \
   && git rm -q n.md && git commit -qm clean && git replace "$leaky" HEAD ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "a commit hidden by git replace is still scanned" 1 "$rc"
+# The same store shapes the public suite pins, mirrored here because the two scripts drift apart
+# once forge-adapt copies one of them.
+mkrepo p-corrupt
+( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n \
+  && o="$(git rev-parse HEAD:n.md)" && f=".git/objects/${o:0:2}/${o:2}" && rm -f "$f" && printf 'garbage' > "$f" ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a corrupt loose object refuses the scan" 2 "$rc"
+mkrepo p-remote
+( cd "$HREPO" && git init -q --bare "$WORK/hist-pbare" && git remote add origin "$WORK/hist-pbare" \
+  && git checkout -q -b wip && printf 'secretproj\n' > wip.md && git add wip.md && git commit -qm wip \
+  && git push -q origin wip && { git checkout -q master 2>/dev/null || git checkout -q main; } && git branch -q -D wip ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a name on a branch deleted locally but pushed is reported" 1 "$rc"
+mkrepo p-cfg
+( cd "$HREPO" && printf 'base\n' > f.txt && git add f.txt && git commit -qm base && printf 'secretproj\n' > aaa.lock && git add aaa.lock && git commit -qm lock \
+  && git checkout -q -b side && printf 'side\n' > f.txt && git commit -qam side \
+  && { git checkout -q master 2>/dev/null || git checkout -q main; }; printf 'main\n' > f.txt && git commit -qam main
+  git merge -q --no-commit side >/dev/null 2>&1; cp aaa.lock zzz.md; git add f.txt zzz.md && git commit -qm merged; git config log.diffMerges off ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "with log.diffMerges=off the merge-only twin is still reported" 1 "$rc"
+mkrepo p-newline
+( cd "$HREPO" && printf 'x\n' > "$(printf 'weird\nname.txt')" && git add . && git commit -qm weird ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a path containing a newline refuses the scan" 2 "$rc"
+mkrepo p-widen
+( cd "$HREPO" && printf '#!/usr/bin/env bash\n# check-private-leaks-version: 3\n#\nsecretproj\n' > quoting.md && git add quoting.md && git commit -qm q ) >/dev/null 2>&1
+hrun --history --orphans; rc=$RC; expect "--orphans still reports a reachable document quoting the marker" 1 "$rc"
+mkrepo p-bare
+( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n ) >/dev/null 2>&1
+git clone -q --bare "$HREPO" "$WORK/hist-pbare2" >/dev/null 2>&1
+HREPO="$WORK/hist-pbare2"
+hrun --history; rc=$RC; expect "a bare repository is scanned" 1 "$rc"
 
 echo "== --history: the mutant proves the byte counting is load-bearing =="
 mkrepo forged

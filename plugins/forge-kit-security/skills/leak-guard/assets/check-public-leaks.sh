@@ -24,7 +24,8 @@
 # it stays readable forever, and that is exactly the going-public moment this component exists for.
 #
 # `--history` reads the publishable history: every blob reachable from a branch, a tag or a
-# remote-tracking ref (a branch that exists only on the remote is already on the forge), and every
+# remote-tracking ref (a branch that exists only on the remote is already on a forge; with several
+# remotes that over-reports, which is the safe side of a pre-publish scan), and every
 # commit and tag MESSAGE (subject and body; the author, committer and tagger lines are what the forge
 # already shows beside each commit and are not scanned). Not reached, by design: a detached HEAD,
 # refs/stash, refs/notes, and a tag message embedded in a commit's mergetag header. One `git cat-file --batch` streams the
@@ -511,8 +512,10 @@ history_scan() {
   {
     # No regex over a line that carries a path (the header says why): the path is what follows the
     # first space.
-    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects"
-    LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
+    # && inside the group: a brace group's pipeline status is its LAST command's, so without it a
+    # failure of the first awk would be invisible to pipe_ok (found in review round 2).
+    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects" \
+    && LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
   } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
     | LC_ALL=C awk -F'\t' -v types="$types" '
         BEGIN { while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
