@@ -554,8 +554,16 @@ anchor, spelled out or split by a rule nothing defines, come out of the prose ra
 a second generator.
 
 ## Phase: The sweep the gate finished
-state: open
+state: done
 plan: docs/plans/the-sweep-the-gate-finished.md
+
+Closed 2026-09-14, outcome **done**. One ticket, two gate rounds, no follow-up. Round 1's one
+blocking item was the ticket's premise: it said the sweep had found "exactly one live claim
+left", and the gate found two more in the same file ("six copies", "six sites", against a guard
+printing 7), because the sweep's grep had looked for a number before a component noun and
+`copies` and `sites` are neither. Round 2 PASS. The lesson is the same as #202's, one level up: a
+sweep that reports completeness is itself a count claiming completeness. The next sweep starts
+from the two accurate-today README phrases the plan names, not from zero.
 
 Opened 2026-09-14 for #203. The sweep #202 promised, with the two phrases the gate found that my
 grep had not.
