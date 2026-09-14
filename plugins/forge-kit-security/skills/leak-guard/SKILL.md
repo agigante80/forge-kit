@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 7 -->
+<!-- leak-guard-version: 8 -->
 
 # Leak guard
 
@@ -20,10 +20,37 @@ private. The project name at the end is the only part anyone meant to publish.
 
 ## What this does not reach, and what to run beside it
 
-**Neither half looks at history.** Both enumerate the working tree, the index, or two endpoints of a
-range. A path, a name or an address committed once and removed later stays readable forever in a
-public repository, and nothing here will say so. That is the going-public moment this skill is named
-for, so the limit is stated first rather than last.
+**The tree modes never look at history; `--history` does, and it is opt-in.** `--all`, `--staged`
+and `--range` enumerate the working tree, the index, or two endpoints of a range, so a path, a name
+or an address committed once and removed later is invisible to all three. That is the going-public
+moment this skill is named for, which is why the mode exists and why it is run by hand rather than
+from a hook:
+
+```bash
+# before going public, from the repository root
+check-public-leaks.sh --history --allow-file .leak-guard-allow    # evidence redacted; --show-evidence to see it
+check-private-leaks.sh --history                                  # names redacted in path and evidence; --show-names
+check-public-leaks.sh --history --orphans                         # also what no branch or tag reaches (see below)
+```
+
+Both read the PUBLISHABLE history: every blob a branch or tag reaches, and every commit and tag
+message (subject and body; the author, committer and tagger lines are what the forge displays
+beside each commit and are not scanned). One `git cat-file --batch` streams the objects and a POSIX
+awk reader counts each object's declared bytes, so a blob whose first line forges a batch header
+cannot hide the line after it, and no content byte goes through a regex. An object is scanned
+unless EVERY path it ever had is skipped, so identical content at `zzz.md` and `aaa.lock` is still
+reported. Findings are keyed `<path>@<oid>:<line>`, `commit@<oid>` or `tag@<oid>`, and
+`git cat-file -p <oid>` shows the object. Cost on this repository, 4,300 objects and 23 MB: a few
+seconds. It refuses, exit 2, a store it cannot read honestly: an alternates file (`git clone
+--shared`, a linked worktree inside one), `GIT_OBJECT_DIRECTORY` or `GIT_ALTERNATE_OBJECT_DIRECTORIES`
+set, and a partial clone, which would fetch every missing object over the network during the scan.
+
+**Written for macOS, verified against its parts on Linux.** The reader was probed against Apple's
+own awk source (`apple-oss-distributions/awk`, the fork macOS ships) built on Linux, and both suites
+run green under bash 3.2.57 built the same way; the whole pipeline runs under `LC_ALL=C` because
+that awk aborts on a byte over 0x7F the moment a regex meets it under a UTF-8 locale. macOS itself,
+its BSD `tr` and Apple's `git`, has not been exercised: no Mac was available when this shipped.
+A report from one is a ticket, not a surprise.
 
 **History is two sets, and a push sends only one of them.** What the PUSHED refs reach is what
 `git push` packs and what the public repository will hold. Everything else, an object orphaned by

@@ -60,7 +60,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | `forge-kit-governance` | 0.16.5 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
 | `forge-kit-review` | 0.4.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.8.4 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
-| `forge-kit-security` | 0.9.2 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
+| `forge-kit-security` | 0.10.0 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
 
@@ -188,7 +188,7 @@ Four artifacts here are portable, and they are the ones that carry the rules:
 | `.github/ISSUE_TEMPLATE/` | Six templates carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
 | `.github/labels.yml` | The label taxonomy that routes issues, applied by `sync-labels.sh`, which never deletes a label it does not recognise |
 | `docs/guides/ticket-standards.md` | **The canonical rules**, not a summary. The gate is only allowed to restate it in enumerated places, and `check-restatements.sh` fails the build if the two disagree. Any agent that can read markdown can hold a ticket to it. |
-| The shell assets | Ten of them, bash 3.2 compatible with no package manager, so they run in any CI |
+| The shell assets | Every one bash 3.2 compatible with no package manager, so they run in any CI. The leak guard's `--history` mode is written for macOS (bash 3.2, Apple's awk) and verified against Apple's awk source and bash 3.2 built on Linux, not on a Mac; a report from one is a ticket, not a surprise |
 
 Copy those into your project and any AI, or none, can work to the same standard.
 **[docs/guides/without-claude-code.md](docs/guides/without-claude-code.md) is the entry point**: what
@@ -273,11 +273,11 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v5 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
 | `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `security-auditor` | v5 | 1313 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
-| `forge-kit-security` | skill | `leak-guard` | v7 | 1949 | Stop the developer's own machine leaking into a repository that is about to be made public. |
+| `forge-kit-security` | skill | `leak-guard` | v8 | 2268 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v2 | 764 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
-| `forge-kit-security` | shell asset | `check-private-leaks` | v8 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
-| `forge-kit-security` | shell asset | `check-public-leaks` | v7 |  | The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses. |
+| `forge-kit-security` | shell asset | `check-private-leaks` | v9 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
+| `forge-kit-security` | shell asset | `check-public-leaks` | v8 |  | The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses. |
 | `forge-kit-testing` | skill | `mutation-sweep` | v3 | 757 | Adopt and adapt mutation testing for this project, whatever the stack. |
 <!-- component-index:end -->
 

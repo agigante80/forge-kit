@@ -172,8 +172,79 @@ echo "== --help states the scanner's own reach =="
 h="$("$SCRIPT" --help 2>&1)"
 contains 'pass `grep -a` over a `git cat-file --batch` stream' "$h" \
   "check-private-leaks.sh --help states the grep -a rule for scanning the store by hand"
-contains 'never looks at history' "$h" "check-private-leaks.sh --help states that it never looks at history"
-contains 'history-aware scanner' "$h" "check-private-leaks.sh --help points at a history-aware scanner for that case"
+# #191 replaced the "never looks at history" limit with the opt-in mode; these pin what the header
+# now claims: the tree modes still never look, --history reads the publishable history, it redacts
+# names inside the path, and it is never a hook.
+contains 'tree modes never look at history' "$h" "check-private-leaks.sh --help states that the tree modes never look at history"
+contains 'reads the publishable history' "$h" "check-private-leaks.sh --help states what --history reads"
+contains 'redacted inside the printed PATH' "$h" "check-private-leaks.sh --help states that names in a path are redacted"
+contains 'never wired into a hook' "$h" "check-private-leaks.sh --help states that --history is never a hook"
+
+
+echo "== --history: names in the publishable history, redacted in path and evidence =="
+HREPO=""
+mkrepo() {  # mkrepo <name>: a fresh repository; sets HREPO
+  HREPO="$WORK/hist-$1"; rm -rf "$HREPO"; mkdir -p "$HREPO"
+  ( cd "$HREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t \
+    && printf 'seed\n' > seed.md && git add seed.md && git commit -qm seed ) >/dev/null 2>&1
+}
+hrun() {  # hrun [flags]: output in OUT, stderr in ERR, exit code in RC (variables, not echo: a
+          # caller's $(...) would run this in a subshell and lose OUT)
+  OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" "$@" 2>"$WORK/herr.txt" )"; RC=$?; ERR="$(cat "$WORK/herr.txt")"
+}
+hoid() { ( cd "$HREPO" && git rev-parse "$1" ); }
+printf 'secretproj\n' > "$WORK/hlist"
+
+mkrepo names
+( cd "$HREPO" && printf 'work on secretproj today\n' > notes.md && git add notes.md && git commit -qm add \
+  && git rm -q notes.md && git commit -qm remove ) >/dev/null 2>&1
+hrun --all; rc=$RC;     expect "a name committed then deleted is invisible to --all" 0 "$rc"
+hrun --history; rc=$RC; expect "and --history finds it" 1 "$rc"
+contains "notes.md@$(hoid HEAD~1:notes.md):1: private-name: se********" "$OUT" "at <path>@<oid>:<line>, redacted"
+hrun --history --show-names; rc=$RC; expect "--show-names still reports" 1 "$rc"
+contains "notes.md@$(hoid HEAD~1:notes.md):1: private-name: secretproj" "$OUT" "the name whole"
+
+mkrepo inpath
+( cd "$HREPO" && mkdir -p clients/secretproj && printf 'about SecretProj\n' > clients/secretproj/notes.md \
+  && git add clients && git commit -qm add ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a name inside the PATH is reported" 1 "$rc"
+contains "clients/se********/notes.md@$(hoid HEAD:clients/secretproj/notes.md):1: private-name: Se********" "$OUT" "and redacted in the path as well as the evidence"
+hrun --history --show-names; rc=$RC
+contains "clients/secretproj/notes.md@" "$OUT" "--show-names lifts the path redaction too"
+
+mkrepo message
+( cd "$HREPO" && git commit -q --allow-empty --author='secretproj bot <bot@t.invalid>' -m 'clean subject' -m 'clean body' ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a listed name on the author line is not reported" 0 "$rc"
+( cd "$HREPO" && git commit -q --allow-empty -m 'mention secretproj here' ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "a listed name in a commit message is reported" 1 "$rc"
+contains "commit@$(hoid HEAD):" "$OUT" "as commit@<oid>"
+
+mkrepo orphan
+( cd "$HREPO" && printf 'secretproj\n' > oops.md && git add oops.md && git commit -qm oops \
+  && git rm -q oops.md && git commit -q --amend --allow-empty -m fixed ) >/dev/null 2>&1
+hrun --history; rc=$RC;           expect "an amended-away name is not in the publishable set" 0 "$rc"
+hrun --history --orphans; rc=$RC; expect "--orphans reaches it" 1 "$rc"
+contains "blob@" "$OUT" "labelled blob@<oid>"
+
+mkrepo shared-src
+( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n ) >/dev/null 2>&1
+git clone -q --shared "$HREPO" "$WORK/hist-shared" >/dev/null 2>&1
+HREPO="$WORK/hist-shared"
+hrun --history; rc=$RC; expect "a --shared clone is refused" 2 "$rc"
+contains "alternates" "$ERR" "naming the alternates file"
+hrun --history n.md; rc=$RC; expect "--history with a path is refused" 2 "$rc"
+hrun --orphans; rc=$RC;        expect "--orphans without --history is refused" 2 "$rc"
+
+echo "== --history: the mutant proves the byte counting is load-bearing =="
+mkrepo forged
+( cd "$HREPO" && printf '0000000000000000000000000000000000000000 blob 999999\nsecretproj\n' > forged.md && git add forged.md && git commit -qm forged ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "the name after a forged header is reported" 1 "$rc"
+contains "forged.md@$(hoid HEAD:forged.md):2:" "$OUT" "at line 2"
+MUT="$WORK/mutant-private.sh"
+sed 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
+grep -q '^r < 0 {$' "$MUT" && bad "the mutant no longer carries the r<0 gate" || ok "the mutant no longer carries the r<0 gate"
+( cd "$HREPO" && "$MUT" --list "$WORK/hlist" --history ) >/dev/null 2>&1
+expect "the mutant misses the name (exit 0)" 0 "$?"
 
 echo "== --init writes the list template, and never over an existing list =="
 # The template lives INSIDE the script rather than beside it as a .txt. forge-adapt installs a

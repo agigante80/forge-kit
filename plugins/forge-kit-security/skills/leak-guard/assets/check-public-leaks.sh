@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 7
+# check-public-leaks-version: 8
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -16,28 +16,50 @@
 # the repository it protects, and so it lives outside it and is checked by the private half. A
 # guard that overstates its reach is worse than a narrow one that admits it.
 #
-# IT NEVER LOOKS AT HISTORY, AND THAT IS THE LIMIT MOST LIKELY TO MATTER (#185). `--all` enumerates
-# `git ls-files`: tracked files in the WORKING TREE. `--staged` reads the index. `--range` looks like
-# it reaches history and reaches it least: it enumerates `git diff --name-only --diff-filter=ACM`
-# between two endpoints and then reads each file as `git show "HEAD:$f"`, so a file added AND deleted
-# inside the range is excluded at both ends and would be skipped even if listed.
+# THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
+# enumerates `git ls-files`: tracked files in the WORKING TREE. `--staged` reads the index. `--range`
+# enumerates `git diff --name-only --diff-filter=ACM` between two endpoints and reads each file at
+# HEAD, so a file added AND deleted inside the range is excluded at both ends. A home path committed
+# in one commit and removed in the next is invisible to all three, in the public repository where
+# it stays readable forever, and that is exactly the going-public moment this component exists for.
 #
-# So a home path committed in one commit and removed in the next is invisible here, in the public
-# repository where it stays readable forever. That is exactly the going-public moment this component
-# was written for, which is why the omission is worth more words than the rules themselves.
+# `--history` reads the publishable history: every blob reachable from a branch or a tag, and every
+# commit and tag MESSAGE (subject and body; the author, committer and tagger lines are what the forge
+# already shows beside each commit and are not scanned). One `git cat-file --batch` streams the
+# objects and a POSIX awk reader counts each object's declared BYTES, so a blob whose first line
+# forges a batch header cannot hide the line after it (a line-oriented reader would skip it). The
+# reader puts no content byte through a regex: Apple's awk aborts on a byte over 0x7F the moment a
+# regex meets it under a C locale on glibc, and a reader that only counts and slices cannot meet
+# that on any libc. Objects containing NUL are dropped whole, the stream's equivalent of grep -I.
+# An object is scanned unless EVERY path it has ever had is skipped (the binary and lockfile names,
+# the allow-file `skip` entries, the scanner's own past copies), so identical content at
+# "zzz.md" and "aaa.lock" is still reported. Cost on this repository, 4,300 reachable objects and
+# 23 MB of content: about 3 s of CPU under bash 5 and twice that under bash 3.2 (measured 2026-09-14
+# on a loaded machine; the reader itself is a tenth of that, the rest is bash judging matches),
+# against fourteen seconds process-per-blob. NEVER wired into a hook: it is a pre-publish step, run
+# by hand, and its evidence is REDACTED by default (see below).
 #
-# The object store holds more than file contents: on this repository, 1,639 blobs against 527 commit
-# objects. A history scan that read blobs alone would still miss every leak in a COMMIT MESSAGE, so
-# "reads history" is a claim with two halves and this scanner makes neither. Whoever scans the
-# store by hand (#198): pass `grep -a` over a `git cat-file --batch` stream, because tree objects
-# contain NUL and a grep then treats the stream as binary, GNU replacing matched lines with "binary
-# file matches" and a wrapper that passes `-I` skipping the stream and reporting no match at all.
+# `--history --orphans` also reads objects no branch or tag reaches: a leak amended or reset away is
+# still in the local store until `git gc` prunes it. A push, a bundle and a clone over a URL never
+# send such objects; a clone from a local PATH (git hardlinks the object store) and any copy of the
+# .git directory DO, which is the case the flag exists for. With no path, nothing is skipped by
+# name, and the self-skip falls back to a weaker content test (shebang plus marker line).
 #
-# USE A HISTORY-AWARE SCANNER FOR THAT CASE. `gitleaks git .` walks the full history, and
-# `git log --all --diff-filter=A --name-only --format= -- '*.env' '*.env.*'` lists every env-style
-# file ever committed including later-deleted ones. Neither is this component's job: gitleaks hunts
-# CREDENTIALS and this hunts the developer's IDENTITY, which is a different subject with a different
-# false-positive profile. Running both is the answer, and pretending either covers the other is not.
+# WHAT --history REFUSES, exit 2, because a store it cannot read honestly is worse than none: an
+# alternates file (a `git clone --shared`, resolved through `git rev-parse --git-path` so a linked
+# worktree's .git FILE is handled), GIT_ALTERNATE_OBJECT_DIRECTORIES or GIT_OBJECT_DIRECTORY set (the
+# second re-points the alternates check itself), and a partial clone, which would otherwise fetch
+# every missing object from its remote during the scan.
+#
+# The store holds more than file contents: on this repository, 1,639 blobs against 527 commit
+# objects. Whoever scans the store by hand (#198):
+# pass `grep -a` over a `git cat-file --batch` stream, because tree objects contain NUL and a grep
+# then treats the stream as binary, GNU replacing matched lines with "binary file matches" and a
+# wrapper that passes `-I` skipping the stream and reporting no match at all.
+#
+# A history-aware CREDENTIAL scanner is still a companion, not a substitute: `gitleaks git .` hunts
+# secrets and this hunts the developer's IDENTITY, which is a different subject with a different
+# false-positive profile. Running both is the answer.
 #
 # AND BOTH PATH RULES JUDGE THE FIRST SEGMENT ONLY. Rule A asks who "/home/<name>/" belongs to and
 # rule B asks whether "~/<root>" may be shown; NEITHER looks below that. So a private directory name
@@ -47,9 +69,15 @@
 # by review AFTER the paragraph above shipped, which is the argument for the paragraph.
 #
 #   check-public-leaks.sh [--staged | --range <base> | --all] [--allow-file <path>] [paths...]
+#   check-public-leaks.sh --history [--orphans] [--show-evidence] [--allow-file <path>]
 #
 # Exit 0 clean, 1 when something was found, 2 when it could not run. One line per violation:
-#   <file>:<line>: <rule>: <evidence>
+#   <file>:<line>: <rule>: <evidence>                        (tree modes)
+#   <path>@<oid>:<line>: <rule>: <evidence>                  (--history; commit@, tag@, or blob@
+#                                                             when no path is known)
+# In --history the evidence is redacted to two leading characters (/home/al***/, ~/se****/,
+# al******) because a pre-publish report is exactly the text that gets pasted into a public
+# issue; --show-evidence prints it whole.
 #
 # WHY RULE B IS AN ALLOWLIST AND THE OTHER TWO ARE NOT. Shape can decide "/home/alice/" is a person
 # and "/home/user/" is a placeholder. Shape cannot decide whether "~/foo" is private, because the
@@ -94,6 +122,8 @@ MODE=all
 BASE=""
 ALLOW_FILE=""
 PATHS=()
+ORPHANS=0
+SHOW_EVIDENCE=0
 
 die() { printf 'check-public-leaks: %s\n' "$1" >&2; exit 2; }
 
@@ -102,6 +132,9 @@ while [ $# -gt 0 ]; do
     --all)        MODE=all ;;
     --staged)     MODE=staged ;;
     --range)      MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
+    --history)    MODE=history ;;
+    --orphans)    ORPHANS=1 ;;
+    --show-evidence) SHOW_EVIDENCE=1 ;;
     --allow-file) shift; [ $# -gt 0 ] || die "--allow-file needs a path"; ALLOW_FILE="$1" ;;
     # Prints the whole comment header, rather than a hardcoded line range. The range was the bug:
     # growing the header by seven lines truncated --help mid-sentence and dropped the synopsis, and
@@ -168,7 +201,18 @@ if [ -n "$ALLOW_FILE" ]; then
   done < "$ALLOW_FILE"
 fi
 
-in_list() { local n="$1"; shift; local x; for x in "$@"; do [ "$x" = "$n" ] && return 0; done; return 1; }
+# One builtin per lookup, not one iteration per entry: --history judges thousands of matches
+# against these lists in a single run, and a bash loop is the slow part of bash.
+in_list() { local n="$1"; shift; local IFS='|'; case "|$*|" in *"|$n|"*) return 0 ;; esac; return 1; }
+
+# --history is a mode, and the two flags that modify it mean nothing without it. Refused rather
+# than ignored: a flag that silently does nothing is a scan the user believes ran wider than it did.
+if [ "$MODE" = history ]; then
+  [ "${#PATHS[@]}" -eq 0 ] || die "--history takes no paths"
+else
+  [ "$ORPHANS" = 0 ] || die "--orphans is only valid with --history"
+  [ "$SHOW_EVIDENCE" = 0 ] || die "--show-evidence is only valid with --history"
+fi
 
 # --- which files ------------------------------------------------------------
 in_git() { git rev-parse --is-inside-work-tree >/dev/null 2>&1; }
@@ -180,6 +224,7 @@ if [ "${#PATHS[@]}" -gt 0 ]; then
 else
   in_git || die "not inside a git work tree (pass explicit paths to scan without git)"
   case "$MODE" in
+    history) : ;;
     all)
       while IFS= read -r -d '' f; do FILES+=("$f"); done < <(git ls-files -z) ;;
     staged)
@@ -195,18 +240,19 @@ else
   esac
 fi
 
-[ "${#FILES[@]}" -gt 0 ] || exit 0
+[ "$MODE" = history ] || [ "${#FILES[@]}" -gt 0 ] || exit 0
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
 BLOB="$TMPD/blob"
 
 # --- what is not worth scanning --------------------------------------------
-skip_by_name() {
+skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
   # Suffixes match anywhere in the path; the named lockfiles must match the BASENAME, or a path
   # like "vendor/package-lock.json" slips through while "package-lock.json" at the root is caught.
-  local base="${1##*/}"
-  set_lower "$base"
+  # The second argument lets --history, which decides thousands of paths in one loop, pass a
+  # basename awk already lowercased, so the loop forks nothing on the bash-3 slow path.
+  if [ $# -ge 2 ]; then LOWER="$2"; else set_lower "${1##*/}"; fi
   case "$LOWER" in
     *.png|*.jpg|*.jpeg|*.gif|*.bmp|*.ico|*.webp|*.svgz|*.pdf|*.zip|*.gz|*.bz2|*.xz|*.tar \
     |*.woff|*.woff2|*.ttf|*.otf|*.eot|*.mp3|*.mp4|*.mov|*.wav|*.class|*.jar|*.so|*.dylib \
@@ -239,6 +285,8 @@ RE_ANY="$RE_HOME|$RE_ROOT|$RE_MAIL"
 # matches the placeholder list, and the guard would start rejecting the documentation forms it
 # exists to permit.
 TAIL_PUNCT='.,;:!?)]}"'"'"
+# Assigns to STRIPPED rather than printing, like set_lower: a command substitution forks, and
+# --history judges thousands of matches in one run.
 strip_tail() {
   local s="$1" c
   while [ -n "$s" ]; do
@@ -248,11 +296,216 @@ strip_tail() {
       *) break ;;
     esac
   done
-  printf '%s' "$s"
+  STRIPPED="$s"
 }
 
 violations=0
 report() { printf '%s:%s: %s: %s\n' "$1" "$2" "$3" "$4"; violations=$((violations + 1)); }
+
+# Two leading characters and stars for the rest, the private half's shape. Applied in --history
+# only, because that report is a pre-publish artifact and the likeliest thing to be pasted.
+redact() {
+  local n="$1" out="${1:0:2}" i
+  for ((i = 2; i < ${#n}; i++)); do out+='*'; done
+  printf '%s' "$out"
+}
+show_evidence() {  # show_evidence <rule> <evidence>: what the report prints for it
+  if [ "$MODE" != history ] || [ "$SHOW_EVIDENCE" = 1 ]; then printf '%s' "$2"; return; fi
+  local e="$2" root seg
+  case "$1" in
+    home-path) root="${e%%/*}"; e="${e#/}"; root="/${e%%/*}"; e="${e#*/}"; seg="${e%%/*}"
+               printf '%s/%s/' "$root" "$(redact "$seg")" ;;
+    home-root) e="${e#\~/}"; seg="${e%%/*}"; printf '~/%s/' "$(redact "$seg")" ;;
+    *)         printf '%s' "$(redact "$e")" ;;
+  esac
+}
+
+# One match, one verdict. Shared by the tree modes and --history so the rules cannot drift between
+# them: <label> is the file in a tree mode and "<path>@<oid>" in history.
+judge() {
+  local f="$1" n="$2" m="$3" raw seg allowed rawt p root addr local_part domain
+  case "$m" in
+    /*)
+      raw="${m%/}"; seg="${raw##*/}"
+      # Checked against BOTH forms: "..." is entirely punctuation, so stripping the trailing dots
+      # would leave nothing to compare and the guard would reject its own documented placeholder.
+      in_list "$seg" "${PLACEHOLDER_USERS[@]}" && return 0
+      strip_tail "$seg"; in_list "$STRIPPED" "${PLACEHOLDER_USERS[@]}" && return 0
+      # Punctuation is stripped here for the same reason as the placeholder check above, and
+      # its absence was a real false positive: with `prefix /home/runner`, an allowed path at
+      # the end of a sentence or inside brackets still reported a leak.
+      allowed=0
+      strip_tail "$raw"; rawt="$STRIPPED"
+      for p in ${ALLOW_PREFIXES+"${ALLOW_PREFIXES[@]}"}; do
+        case "$rawt" in "$p"|"$p"/*) allowed=1; break ;; esac
+      done
+      [ "$allowed" = 1 ] && return 0
+      report "$f" "$n" home-path "$(show_evidence home-path "$m")" ;;
+    '~'/*)
+      strip_tail "${m%/}"; root="${STRIPPED#\~/}"
+      in_list "$root" "${ALLOW_ROOTS[@]}" && return 0
+      report "$f" "$n" home-root "$(show_evidence home-root "$m")" ;;
+    *)
+      strip_tail "$m"; addr="$STRIPPED"
+      local_part="${addr%%@*}"; domain="${addr#*@}"
+      # An address that cannot reach a mailbox is not a leak. noreply is the convention; the rest
+      # are the TLDs reserved by RFC 2606 and RFC 6761 precisely so documentation can use them.
+      set_lower "$local_part"
+      case "$LOWER" in
+        noreply*|no-reply*|donotreply*) return 0 ;;
+        # "git@host" is the SSH clone user, not a mailbox. It is in the clone URL of essentially
+        # every repository, so leaving it to each project's allow-file would make the first run of
+        # this guard noise rather than signal.
+        git) return 0 ;;
+      esac
+      set_lower "$domain"
+      case "$LOWER" in
+        *.example|*.invalid|*.test|*.localhost|*.local) return 0 ;;
+        example.com|example.org|example.net|*.example.com|*.example.org|*.example.net) return 0 ;;
+      esac
+      in_list "$addr" ${ALLOW_EMAILS+"${ALLOW_EMAILS[@]}"} && return 0
+      report "$f" "$n" email "$(show_evidence email "$addr")" ;;
+  esac
+}
+
+# --- history mode --------------------------------------------------------------
+# The reader. One awk program, POSIX, run under LC_ALL=C over the --batch stream with NUL already
+# mapped to \001 by tr. It is in the r<0 state between objects, where the only thing it will accept
+# is a header; inside an object it COUNTS: r starts at the declared size plus the newline git adds,
+# every line subtracts its length plus one, and the object ends when r reaches zero. A content line
+# that looks like a header is therefore content. No regex touches a content line (see the header
+# for why); index, substr and length are byte operations. It emits "<label>\t<line>\t<text>" for
+# every content line of every object it keeps, and drops an object whole when it contains NUL, or
+# when it is the scanner's own source: an oid marked "cand" (some path has this scanner's basename)
+# is self when it carries the marker line; under --orphans, with no path, self is the weaker
+# content test of shebang plus marker on lines 1 and 2.
+# The "r < 0 {" line is the load-bearing one, and the contract test mutates exactly it.
+READER='
+BEGIN {
+  r = -1
+  while ((getline l < labels) > 0) { split(l, a, "\t"); label[a[1]] = a[2]; if (a[3] == "cand") cand[a[1]] = 1 }
+  close(labels)
+}
+r < 0 {
+  if (NF == 3 && length($1) == 40 && ($2 == "blob" || $2 == "commit" || $2 == "tag") && $3 ~ /^[0-9]+$/) {
+    oid = $1; type = $2; r = $3 + 1; n = 0; bin = 0; self = 0; cnt = 0; body = (type == "blob")
+    if (type == "blob") { lab = ((oid in label) && label[oid] != "") ? label[oid] "@" oid : "blob@" oid } else lab = type "@" oid
+    next
+  }
+  print "malformed cat-file header: " $0 > "/dev/stderr"; exit 2
+}
+{
+  r -= length($0) + 1; n++
+  if (index($0, "\001")) bin = 1
+  if (substr($0, 1, 8) == "# check-" && index($0, "-leaks-version: ")) {
+    if (oid in cand) self = 1
+    else if (orphans && n == 2 && substr(first, 1, 2) == "#!") self = 1
+  }
+  if (n == 1) first = $0
+  if (body) buf[cnt++] = n "\t" $0
+  else if ($0 == "") body = 1
+  if (r <= 0) {
+    if (!bin && !self) for (i = 0; i < cnt; i++) print lab "\t" buf[i]
+    split("", buf); r = -1
+  }
+}
+END { if (r > 0) { print "truncated cat-file stream" > "/dev/stderr"; exit 2 } }
+'
+
+history_scan() {
+  # Refusals first. Each is a store this scanner would read as if it were the repository, and is not.
+  [ -z "${GIT_OBJECT_DIRECTORY:-}" ] || die "refusing --history: GIT_OBJECT_DIRECTORY is set"
+  [ -z "${GIT_ALTERNATE_OBJECT_DIRECTORIES:-}" ] || die "refusing --history: GIT_ALTERNATE_OBJECT_DIRECTORIES is set"
+  local alt promisor
+  alt="$(git rev-parse --git-path objects/info/alternates 2>/dev/null)"
+  [ -n "$alt" ] && [ -f "$alt" ] && die "refusing --history: objects/info/alternates points outside this repository ($alt)"
+  promisor="$(git config --get extensions.partialclone 2>/dev/null || true)"
+  [ -n "$promisor" ] || promisor="$(git config --get-regexp '^remote\..*\.promisor$' true 2>/dev/null | sed -n 's/^remote\.\(.*\)\.promisor.*/\1/p' | head -1)"
+  [ -z "$promisor" ] || die "refusing --history: this is a partial clone; --history would fetch every missing object from $promisor"
+
+  local objects="$TMPD/objects" types="$TMPD/types" pathmap="$TMPD/paths" labels="$TMPD/labels" oids="$TMPD/oids"
+  local tagged="$TMPD/tagged" hits="$TMPD/hits"
+  # Enumerate. The publishable set carries one path per object; --batch-all-objects carries none.
+  if [ "$ORPHANS" = 1 ]; then
+    git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' > "$types" || die "git cat-file failed"
+    : > "$objects"
+  else
+    git rev-list --objects --branches --tags > "$objects" || die "git rev-list failed"
+    cut -d' ' -f1 "$objects" | git cat-file --batch-check='%(objectname) %(objecttype)' > "$types" || die "git cat-file failed"
+  fi
+  # Every path each blob has ever had, from every commit's diff against every parent (-m: a merge
+  # resolved to content in neither parent has no other entry). -z then tr, because --raw quotes
+  # unusual paths without it. Deletions carry the null oid and drop out with the "D" status.
+  git log -m --branches --tags --raw --no-abbrev --no-renames --format= -z 2>/dev/null \
+    | LC_ALL=C tr '\0' '\n' \
+    | LC_ALL=C awk 'NR % 2 == 1 { split($0, a, " "); oid = a[4]; st = a[5]; next } st != "D" && oid !~ /^0+$/ { print oid "\t" $0 }' \
+    | LC_ALL=C sort -u > "$pathmap"
+  # Decide, per object, whether it is read and under what label. A blob is read unless EVERY path
+  # it ever had is skipped; when its only unskipped paths carry this scanner's basename it is a
+  # candidate for the identity test, which the reader completes by looking for the marker line. An
+  # object with no path at all (--orphans, or a blob the map never saw) is read.
+  # One sorted merge of every (blob, path) pair, the rev-list path first for each blob, then one
+  # sequential read: no process runs per object, which is what keeps this under a second.
+  local merged="$TMPD/merged"
+  {
+    LC_ALL=C awk '{ p = $0; sub(/^[0-9a-f]+ ?/, "", p); if (p != "") print $1 "\t0\t" p }' "$objects"
+    LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
+  } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
+    | LC_ALL=C awk -F'\t' -v types="$types" '
+        BEGIN { while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
+        t[$1] == "blob" { seen[$1] = 1; n = split($3, b, "/"); print $1 "\t" $3 "\t" tolower(b[n]) }
+        END { for (o in t) if (t[o] == "blob" && !(o in seen)) print o "\t\t" }' > "$merged"
+  local oid type path lower cur="" keep="" selfnamed=0 first="" selfbase="${SELF##*/}"
+  set_lower "$selfbase"; local selflower="$LOWER"
+  : > "$labels"
+  finish_blob() {
+    [ -n "$cur" ] || return 0
+    if [ "$keep" = blob ]; then printf '%s\n' "$cur" >> "$labels"
+    elif [ -n "$keep" ]; then printf '%s\t%s\t\n' "$cur" "$keep" >> "$labels"
+    elif [ "$selfnamed" = 1 ]; then printf '%s\t%s\tcand\n' "$cur" "$first" >> "$labels"
+    fi
+  }
+  while read -r oid type; do
+    case "$type" in commit|tag) printf '%s\n' "$oid" >> "$labels" ;; esac
+  done < "$types"
+  while IFS='	' read -r oid path lower; do
+    if [ "$oid" != "$cur" ]; then finish_blob; cur="$oid"; keep=""; selfnamed=0; first=""; fi
+    [ -n "$path" ] || { keep=blob; continue; }
+    [ -n "$first" ] || first="$path"
+    [ -z "$keep" ] || continue
+    skip_by_name "$path" "$lower" && continue
+    [ "$lower" != "$selflower" ] || { selfnamed=1; continue; }
+    keep="$path"
+  done < "$merged"
+  finish_blob
+  cut -f1 "$labels" > "$oids"
+  [ -s "$oids" ] || return 0
+  # Read. One cat-file, one tr, one awk; then ONE grep over the tagged stream and one more over the
+  # hit lines only, with the tag prefix as an alternation branch so the label, the line and every
+  # match arrive in order and no process runs per hit. -a on both: the stream carries raw bytes.
+  git cat-file --batch < "$oids" \
+    | LC_ALL=C tr '\0' '\001' \
+    | LC_ALL=C awk -v labels="$labels" -v orphans="$ORPHANS" "$READER" > "$tagged"
+  local st="${PIPESTATUS[2]}"
+  [ "$st" = 0 ] || die "the history reader failed (exit $st)"
+  LC_ALL=C grep -aE "$RE_ANY" "$tagged" > "$hits" || true
+  # Into a file, not a process substitution: bash reads a pipe one byte per syscall, and this loop
+  # read 25x slower from one on the store this was measured on.
+  LC_ALL=C grep -aoE '^[^	]*	[^	]*	|'"$RE_ANY" "$hits" > "$TMPD/matches" || true
+  local lab="" n="" g
+  while IFS= read -r g; do
+    case "$g" in
+      *"	")   lab="${g%%	*}"; n="${g#*	}"; n="${n%	}" ;;
+      *)      [ -n "$lab" ] && judge "$lab" "$n" "$g" ;;
+    esac
+  done < "$TMPD/matches"
+}
+
+if [ "$MODE" = history ]; then
+  history_scan
+  [ "$violations" -eq 0 ] || exit 1
+  exit 0
+fi
 
 for f in "${FILES[@]}"; do
   skip_by_name "$f" && continue
@@ -285,49 +538,7 @@ for f in "${FILES[@]}"; do
   # passes cost three process spawns per file, and process spawn is the whole cost here.
   while IFS= read -r g; do
     [ -n "$g" ] || continue
-    n="${g%%:*}"; m="${g#*:}"
-    case "$m" in
-      /*)
-        raw="${m%/}"; seg="${raw##*/}"
-        # Checked against BOTH forms: "..." is entirely punctuation, so stripping the trailing dots
-        # would leave nothing to compare and the guard would reject its own documented placeholder.
-        in_list "$seg" "${PLACEHOLDER_USERS[@]}" && continue
-        in_list "$(strip_tail "$seg")" "${PLACEHOLDER_USERS[@]}" && continue
-        # Punctuation is stripped here for the same reason as the placeholder check above, and
-        # its absence was a real false positive: with `prefix /home/runner`, an allowed path at
-        # the end of a sentence or inside brackets still reported a leak.
-        allowed=0
-        rawt="$(strip_tail "$raw")"
-        for p in ${ALLOW_PREFIXES+"${ALLOW_PREFIXES[@]}"}; do
-          case "$rawt" in "$p"|"$p"/*) allowed=1; break ;; esac
-        done
-        [ "$allowed" = 1 ] && continue
-        report "$f" "$n" home-path "$m" ;;
-      '~'/*)
-        root="$(strip_tail "${m%/}")"; root="${root#\~/}"
-        in_list "$root" "${ALLOW_ROOTS[@]}" && continue
-        report "$f" "$n" home-root "$m" ;;
-      *)
-        addr="$(strip_tail "$m")"
-        local_part="${addr%%@*}"; domain="${addr#*@}"
-        # An address that cannot reach a mailbox is not a leak. noreply is the convention; the rest
-        # are the TLDs reserved by RFC 2606 and RFC 6761 precisely so documentation can use them.
-        set_lower "$local_part"
-        case "$LOWER" in
-          noreply*|no-reply*|donotreply*) continue ;;
-          # "git@host" is the SSH clone user, not a mailbox. It is in the clone URL of essentially
-          # every repository, so leaving it to each project's allow-file would make the first run of
-          # this guard noise rather than signal.
-          git) continue ;;
-        esac
-        set_lower "$domain"
-        case "$LOWER" in
-          *.example|*.invalid|*.test|*.localhost|*.local) continue ;;
-          example.com|example.org|example.net|*.example.com|*.example.org|*.example.net) continue ;;
-        esac
-        in_list "$addr" ${ALLOW_EMAILS+"${ALLOW_EMAILS[@]}"} && continue
-        report "$f" "$n" email "$addr" ;;
-    esac
+    judge "$f" "${g%%:*}" "${g#*:}"
   done < <(grep -onE "$RE_ANY" "$scanfile" 2>/dev/null)
 done
 

@@ -110,7 +110,7 @@ cross-agent instruction format); keep it a pointer, never duplicate content into
 
    - **`forge-host/assets/sync-labels.sh`** (`scripts/test-sync-labels.sh`, 81 tests, in CI): makes the host's labels match `.github/labels.yml`, or `--check` reports that they do not. Host-aware through `forge-lib.sh` (GitHub updates a label by NAME, Forgejo by ID) and **never deletes**: an undeclared label is reported and left alone, because GitHub ships stock defaults and a sync that deletes what it does not recognise is a footgun aimed at other people's data. A malformed `labels.yml` line REFUSES the whole run rather than skipping the entry, since a silent partial sync is the drift it exists to end. Driven in tests by a stub `forge-lib.sh` placed beside a copy of the script, so the script sources the stub instead of the transport.
 
-   - **`leak-guard/assets/check-public-leaks.sh`** (`scripts/test-check-public-leaks.sh`, 83 tests,
+   - **`leak-guard/assets/check-public-leaks.sh`** (`scripts/test-check-public-leaks.sh`, 157 tests,
      in CI): the PUBLIC half of the leak guard (#99, split as #155). Catches home-path shapes,
      unlisted `~/` roots and reachable email addresses, and forge-kit runs it on its own tree the
      way it runs `block-dashes` on itself. Every rule has a NEAR-MISS case as well as a firing one,
@@ -123,14 +123,27 @@ cross-agent instruction format); keep it a pointer, never duplicate content into
      gets deleted rather than reported. Both rules judge the FIRST path segment only, so a private
      directory name under an allowed root is invisible to the public half; the source says so,
      because the first version of its reach statement did not and a review found the gap.
-     **Neither half looks at HISTORY** (#185): both enumerate the working tree, the index or two
-     endpoints of a range, so a leak committed once and removed later is unreached, which is
-     precisely the going-public case the component is named for. Neither reads a commit message
-     either, and this repository's store holds 527 commit objects against 1,639 blobs. Both headers
-     now say so, the private half having carried NO reach statement at all until then, and the
-     skill names `gitleaks` for the credential class this guard does not cover.
+     **The tree modes never look at HISTORY; `--history` does, opt-in and never from a hook**
+     (#185, then #191): `--all`, `--staged` and `--range` enumerate the working tree, the index or
+     two endpoints of a range, so a leak committed once and removed later is unreached by them,
+     which is precisely the going-public case the component is named for. `--history` reads the
+     publishable set (every blob a branch or tag reaches, every commit and tag message) through one
+     `git cat-file --batch` and a POSIX awk reader that COUNTS each object's declared bytes, so a
+     forged batch header hides nothing, and that puts no content byte through a regex, because
+     Apple's awk aborts on a byte over 0x7F the moment a regex meets it under glibc's C locale. It
+     was chosen over a bash reader (`read -N` is bash 4.1 and drops NUL uncounted), a helper in
+     another language (`forge-adapt` copies `assets/*.sh` only) and `cat-file -Z` (git 2.42), so it
+     adds no floor and no dependency. It refuses alternates, `GIT_OBJECT_DIRECTORY`,
+     `GIT_ALTERNATE_OBJECT_DIRECTORIES` and partial clones with exit 2, redacts evidence by default
+     (the private half inside the printed path too), and `--orphans` opts in to what no ref reaches,
+     which a push never sends but a local-path clone does. **The Mac it was written for was never
+     available**: the probe ran against Apple's awk source built on Linux and both suites under bash
+     3.2.57 built the same way, the README says so, and the contract tests carry a mutant with the
+     reader's `r<0` gate removed that must exit 0 on the forged-header fixture. Both hook suites
+     assert neither hook invokes it. The skill still names `gitleaks` for the credential class this
+     guard does not cover.
 
-   - **`leak-guard/assets/check-private-leaks.sh`** (`scripts/test-check-private-leaks.sh`, 43
+   - **`leak-guard/assets/check-private-leaks.sh`** (`scripts/test-check-private-leaks.sh`, 67
      tests, in CI): the IDENTITY half of the leak guard (#156). It is the one shipped executable
      that is contract-tested in CI but never RUN there, and that is permanent: it needs the list of
      private names, and a list of the names you are hiding cannot live in the repository it
@@ -160,7 +173,7 @@ Version column is the group's `plugin.json` semver (the unit of install), not a 
 | `forge-kit-governance` | 0.16.5 | agent: ticket-gate; command: gate-ticket; skills: closing-sessions, decision-brief, ticket-gate-reference, working-overnight; hooks: block-dashes, overnight-continue, overnight-guard; shell assets: check-ticket-mechanics, count-gate-rounds, forge-gate-mechanics |
 | `forge-kit-review` | 0.4.1 | agents: architect-review, code-reviewer, code-simplifier, coding-standards-auditor; command: full-review |
 | `forge-kit-roadmap` | 0.8.4 | command: phase; skill: roadmap-phases; shell assets: check-phases, roadmap-lib, sync-phases |
-| `forge-kit-security` | 0.9.2 | agents: api-security-tester, security-auditor; skills: leak-guard, owasp-api-security, privacy-regime; shell assets: check-private-leaks, check-public-leaks |
+| `forge-kit-security` | 0.10.0 | agents: api-security-tester, security-auditor; skills: leak-guard, owasp-api-security, privacy-regime; shell assets: check-private-leaks, check-public-leaks |
 | `forge-kit-testing` | 0.3.0 | skill: mutation-sweep |
 <!-- plugin-groups:end -->
 
