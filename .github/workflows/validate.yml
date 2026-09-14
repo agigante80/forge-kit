@@ -178,6 +178,16 @@ jobs:
       - name: Component index freshness (generated regions must match the tree)
         run: python3 scripts/update-component-index.py --check
 
+      # Issue #201: CLAUDE.md states a count for eleven contract suites, and nothing checked it.
+      # Two gate rounds were spent on those numbers and three more were stale when the ticket was
+      # filed. The counts are now generated from the suites' own printed totals; this step re-runs
+      # the eleven named suites (about half a minute) and fails when a number is stale.
+      - name: Suite count generator tests
+        run: bash scripts/test-update-suite-counts.sh
+
+      - name: Suite counts in CLAUDE.md match what the suites print
+        run: python3 scripts/update-suite-counts.py --check
+
       - name: Component size guard tests
         run: bash scripts/test-component-size.sh
 

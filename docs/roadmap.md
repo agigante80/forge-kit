@@ -518,6 +518,14 @@ a question for the maintainer rather than a ticket.
 Opened 2026-09-13 for #200, the follow-up #199's close filed. Same shape as the last phase, for
 the sentence the leak guard's whole limit rests on (#185).
 
+## Phase: A number the tree can check
+state: open
+plan: docs/plans/a-number-the-tree-can-check.md
+
+Opened 2026-09-14 for #201, filed from #200's gate advisory after two round-1 findings on the same
+hand-maintained numbers, and after running the suites found three more stale. The component index
+shape (#96), applied to a number inside prose.
+
 ## Phase: Backlog
 state: backlog
 
