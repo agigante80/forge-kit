@@ -60,3 +60,16 @@ wrong; implementing one costs a rewrite. That is not a reason to change the rule
 first thing to reach for when there is one.
 
 Related: [[bounded-review-loop-in-practice]] for when to stop a gating loop.
+
+## Days four to six, 2026-09-12 to 14, briefly
+
+Seven runs across four tickets, each in its own one-ticket phase: #199 (NEEDS-WORK then PASS), #200
+(PASS in round 1, the first hand-filed ticket here to do so), #201 (five blocking items, all right,
+then PASS), #202 (three, then one in round 1's fix; stopped at two rounds per the rule, fix folded
+into the body, no third run). 104k to 145k tokens per run. What the gate caught: the same
+hand-maintained number three times in three files, a Python suite that reports on stderr and would
+have been generated as zero, an anchor that would have rewritten a number that was never a count,
+a contract test that would have run the generator inside itself, and twice my own reasoning in the
+ticket (a claim that a sentence was pinned when it was not; a rationale that a stale list is visible
+when line 19's was stale by omission). The gate also filed a ticket itself (#202). Ratio unchanged:
+about one real catch per ticket, and now often in the ticket's own argument rather than its code.

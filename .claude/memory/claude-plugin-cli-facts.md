@@ -48,3 +48,9 @@ the cache is refreshed, so "verified by a live gate run" is a claim only the NEX
 Two phases (2026-09-11) closed carrying that gap; the first action of the next session is one
 `/gate-ticket <N>` with a bare number and a read of the review comment for the `**Round:**` and
 `mechanics:` lines the agent itself printed.
+
+**Verified 2026-09-12, next session.** After a restart the cache's `0.16.5/` copy carried
+`ticket-gate-version: 55`, same as the tree, and the first gate run (#199) printed `**Round:** 1`
+then `**Round:** 2`, "Round counted from posted review comments (`count-gate-rounds.sh`)", and a
+`~`-relative mechanics path with its marker. The three phase closes from 2026-09-11 that carried
+the gap are now covered; "restart to apply" is literal and one restart is enough.
