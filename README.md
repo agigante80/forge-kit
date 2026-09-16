@@ -240,7 +240,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | agent | `health-check` | v5 | 1008 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
 | `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
 | `forge-kit-devops` | skill | `find-dead-code` | v3 | 1123 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
-| `forge-kit-devops` | skill | `forge-host` | v21 | 1411 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
+| `forge-kit-devops` | skill | `forge-host` | v22 | 1427 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
 | `forge-kit-devops` | skill | `github-to-forgejo` | v9 | 1757 | Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the forge-host adapter, CI ported to .for… |
 | `forge-kit-devops` | skill | `release` | v6 | 1283 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v9 | 1555 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |

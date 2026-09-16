@@ -49,9 +49,12 @@
 #       text after `://` up to the first `/`, `?` or `#`, minus `user@` (stripped first) and
 #       `:port`; on the scp form (no `/` before the first `:`) the text before the colon minus
 #       `user@`; compared case-insensitively. The old `*://*@github.com/*` glob let `*` cross `/`,
-#       so `https://evil.internal/x?z=@github.com/` read as github. Three answers that were
-#       `forgejo` with FORGE_API_URL set are `github` now, because they ARE github.com in the host
-#       slot: `ssh://git@github.com:22/o/r`, `github.com:o/r`, `<user>@github.com:o/r`.
+#       so `https://evil.internal/x?z=@github.com/` read as github. The rule is now "any URL
+#       whose authority host is github.com (or ssh.github.com)", so answers that were `forgejo`
+#       with FORGE_API_URL set are `github` for every such URL the globs missed: a port on the
+#       scheme form (`https://github.com:443/o/r`, `ssh://git@github.com:22/o/r`), the scp form
+#       without or with a user (`github.com:o/r`, `<user>@github.com:o/r`), a mixed-case
+#       spelling, and no path at all.
 #       _forge_token's credential host is the same authority, port kept, so a FORGE_API_URL of
 #       `https://evil.internal#@github.com` asks git for evil.internal's credential, not github's.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
@@ -138,15 +141,20 @@ _forge_load_conf() {
 # scheme://: the authority is the text after `://` up to the first `/`, `?` or `#` (RFC 3986 3.2);
 # strip `user@` FIRST (a password may contain a colon), then `:port` unless asked to keep it (the
 # credential protocol takes host:port). A bracketed IPv6 authority keeps its brackets whole. scp
-# form: no `/` before the first `:`, host is the text before the colon minus `user@`. Anything else
-# (a local or relative path, `file://` with an empty authority) prints nothing. Lowercased. This is
-# the ONLY place a host is taken from a URL: a `case` glob cannot do it, because `*` crosses `/`.
+# form: no `/` before the first `:` (a bracketed IPv6 host, `[::1]:o/r`, is cut at its `]:`), host
+# is the text before the colon minus `user@`. Anything else (a local or relative path, `file://`
+# with an empty authority) prints nothing. The CASE of the host is preserved: git's credential
+# store keys on the spelling as given, so the caller that compares lowercases and the caller that
+# asks for a credential does not (review). This is the ONLY place a host is taken from a URL: a
+# `case` glob cannot do it, because `*` crosses `/`.
 _forge_url_host() {
   local u="$1" auth="" host=""
   case "$u" in
     *://*)
       auth="${u#*://}"; auth="${auth%%/*}"; auth="${auth%%\?*}"; auth="${auth%%#*}"
       auth="${auth##*@}" ;;
+    \[*\]:*|*@\[*\]:*)
+      auth="${u%%\]:*}]"; auth="${auth##*@}" ;;   # scp form with a bracketed host
     *)
       case "${u%%:*}" in
         */*|"$u") return 0 ;;                       # a path with a colon, or no colon at all: not scp form
@@ -157,7 +165,7 @@ _forge_url_host() {
     \[*\]*) host="${auth%%\]*}]"; [ "${2:-}" = keep-port ] && host="$auth" ;;
     *)     if [ "${2:-}" = keep-port ]; then host="$auth"; else host="${auth%%:*}"; fi ;;
   esac
-  printf '%s\n' "$host" | tr '[:upper:]' '[:lower:]'
+  printf '%s\n' "$host"
 }
 
 forge_host() {
@@ -168,8 +176,8 @@ forge_host() {
   fi
   local url; url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"
   [ -n "$url" ] || { echo github; return 0; }        # no remote -> assume github
-  case "$(_forge_url_host "$url")" in
-    github.com) echo github ;;                          # github.com in the HOST slot only (#212)
+  case "$(_forge_url_host "$url" | tr '[:upper:]' '[:lower:]')" in
+    github.com|ssh.github.com) echo github ;;           # github.com in the HOST slot only (#212); ssh.github.com is GitHub's documented SSH-over-443 host
     *) if [ -n "${FORGE_API_URL:-}" ]; then echo forgejo; else echo github; fi ;;
   esac
 }

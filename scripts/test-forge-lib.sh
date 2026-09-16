@@ -798,13 +798,15 @@ done
 r="$(hostof 'https://evil.internal/x/y?z=@github.com/')"
 [ "$r" = "$(printf 'github\nrc=0')" ] && ok "with no FORGE_API_URL the non-github default is still github (unchanged)" || bad "default changed: $r"
 # The mutant: the v15 glob back in place must fail the crafted URL.
-MUT="$T/forge-lib-mut.sh"; sed 's|    github.com) echo github ;;                          # github.com in the HOST slot only (#212)|    *) case "$url" in *://github.com/*\|*://*@github.com/*\|git@github.com:*) echo github; return 0;; esac; if [ -n "${FORGE_API_URL:-}" ]; then echo forgejo; else echo github; fi; return 0 ;;|' "$LIB" > "$MUT"
-grep -q 'github.com) echo github' "$LIB" && ok "mutant ledger: the host compare is exact" || bad "mutant ledger: compare line not found"
+MUT="$T/forge-lib-mut.sh"; sed 's|^    github.com.ssh.github.com) echo github ;;.*$|    *) case "$url" in *://github.com/*\|*://*@github.com/*\|git@github.com:*) echo github; return 0;; esac; if [ -n "${FORGE_API_URL:-}" ]; then echo forgejo; else echo github; fi; return 0 ;;|' "$LIB" > "$MUT"
+grep -q '^    github.com|ssh.github.com) echo github ;;' "$LIB" && ok "mutant ledger: the host compare is exact" || bad "mutant ledger: compare line not found"
+cmp -s "$LIB" "$MUT" && bad "mutant ledger: the sed did not apply" || ok "mutant ledger: the mutant differs from the lib"
 d="$(mktemp -d "$T/fh.XXXXXX")"; r="$( cd "$d" && git init -q . && git remote add origin 'https://evil.internal/x/y?z=@github.com/' && . "$MUT" && FORGE_API_URL=https://forge.example forge_host 2>/dev/null )"
 [ "$r" = github ] && ok "mutant: the v15 glob classifies the crafted URL as github (the case can fail)" || bad "mutant did not misclassify (got '$r')"
 
 echo "== _forge_token: the credential host is the authority, port kept =="
 tokhost() {  # tokhost <FORGE_API_URL>: the host= line _forge_token hands to git credential fill
+  rm -f "$T/credhost.txt"   # a stale capture must never satisfy the next case (review)
   ( . "$LIB"; export FORGE_API_URL="$1" FORGE_TOKEN_ENV=NOPE_UNSET FORGE_NO_GIT_CREDENTIALS=0
     git() { if [ "$1" = credential ]; then sed -n 's/^host=//p' > "$T/credhost.txt"; printf 'password=x\n'; else command git "$@"; fi; }
     _forge_token >/dev/null 2>&1; cat "$T/credhost.txt" )
@@ -814,6 +816,20 @@ expect "a port is kept in the credential request" forgejo.example:3000 "$(tokhos
 expect "a fragment cannot smuggle github.com into the request" evil.internal "$(tokhost 'https://evil.internal#@github.com')"
 expect "nor a query" evil.internal "$(tokhost 'https://evil.internal?@github.com')"
 expect "userinfo is stripped from the request" forgejo.example "$(tokhost 'https://git:git@forgejo.example/')"
+expect "the host's case is preserved: git's credential store keys on the spelling as given" Forgejo.Example:3000 "$(tokhost https://Forgejo.Example:3000/)"
+expect "a scheme-less FORGE_API_URL still yields its host with the port" forgejo.example:3000 "$(tokhost forgejo.example:3000/api/v1)"
+
+echo "== _forge_url_host: the fixture table =="
+uh() { ( . "$LIB"; _forge_url_host "$@" ); }
+expect "bracketed IPv6 with a port, host only" '[::1]' "$(uh 'https://[::1]:8080/o/r')"
+expect "bracketed IPv6 with a port, kept" '[::1]:8080' "$(uh 'https://[::1]:8080/o/r' keep-port)"
+expect "scp form with a bracketed host" '[::1]' "$(uh 'git@[::1]:o/r')"
+expect "file:// has an empty authority" '' "$(uh 'file:///x')"
+expect "an absolute path with a colon is not scp form" '' "$(uh '/tmp/a:b/o/r')"
+expect "a relative path is not scp form" '' "$(uh './host:o/r')"
+expect "a scheme URL with no path" 'host' "$(uh 'ssh://host:2222')"
+expect "a password containing @ : the last @ ends the userinfo" 'host' "$(uh 'ssh://user:p@ss@host/o/r')"
+expect "ssh.github.com is GitHub" github "$(hostof 'ssh://git@ssh.github.com:443/o/r' https://forge.example | head -1)"
 
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"

@@ -21,6 +21,14 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`forge_host` decides the host from the URL's authority, never from a glob** (#212, forge-lib
+  v16). The old `*://*@github.com/*` `case` pattern let `*` cross `/`, so any URL with
+  `@github.com/` in its path or query read as GitHub, and `_forge_token` had the same cut on the
+  credential path (`FORGE_API_URL=https://evil.internal#@github.com` asked git for github.com's
+  secret and sent it to evil.internal). Contract change: any URL whose authority host is
+  `github.com` or `ssh.github.com` is GitHub now, including `ssh://git@github.com:22/o/r`,
+  `github.com:o/r` and a port on the scheme form, which v15 answered `forgejo` when an API URL was
+  set. The private leak scanner's owner parser gained the same authority cut.
 - **The mechanical checks find a section at either heading level, bounded by labels rather than
   by a level** (#190). `gh issue create --body-file` produces `##` headings, and the checker, keyed
   on `### ` alone, read a doc-compliant `##` body as five absent sections where the same body at

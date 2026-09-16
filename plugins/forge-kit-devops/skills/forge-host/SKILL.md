@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 21 -->
+<!-- forge-host-version: 22 -->
 
 # forge-host: host-aware forge operations
 
@@ -33,7 +33,8 @@ match GitHub's REST, so callers' `jq` parsing stays identical across hosts.
 
 1. `$FORGE_HOST` env var: explicit override (e.g. in CI).
 2. A committed **`.forge.conf`** at the repo root (`assets/forge.conf.example`).
-3. The git remote URL: `github.com` → github; otherwise forgejo **iff** a Forgejo API URL is
+3. The git remote URL: an authority host of `github.com` (or `ssh.github.com`) → github, decided
+   by URL form and never by a glob (#212); otherwise forgejo **iff** a Forgejo API URL is
    configured, else github.
 
 The committed `.forge.conf` is the canonical answer for a repo that has **both** remotes during
