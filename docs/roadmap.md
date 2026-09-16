@@ -591,8 +591,17 @@ the probe was run against Apple's own awk source built on Linux, the suites unde
 built the same way, and the README states what that does and does not prove.
 
 ## Phase: Four gaps found downstream
-state: open
+state: done
 plan: docs/plans/four-gaps-found-downstream.md
+
+Closed 2026-09-16, outcome **done**. One ticket, two gate rounds (overnight, the first ticket the
+fold-and-regate rule took to a PASS), two review rounds, one follow-up (#213, the 0c synthesis
+target keyed on a field id) to `backlog`. The premortem's first clause fired in review: the marker
+regex admitted a shape it should not have, twice, and both were caught before shipping. What the
+plan did not name: running the suite with Apple's awk found a fifth defect older than the four,
+BWK awk refusing a newline in a `-v` value, so on a Mac every section of every ticket had read as
+empty. The substitute verification from #191 is now a habit for shipped shell, and it earned its
+keep on the second use.
 
 Opened 2026-09-16 for #205, the first ticket the overnight run took through fold-and-regate to a
 PASS. Four heuristic misses in the mechanics script, found by running it on another project.
