@@ -655,10 +655,27 @@ Opened 2026-09-16 for #212: the adapter every forge-touching component trusts de
 with a glob that reads `github.com` anywhere after an `@`.
 
 ## Phase: What a mirror push sends
-state: open
+state: done
 plan: docs/plans/what-a-mirror-push-sends.md
 
-Opened 2026-09-16 for #210 and #211, the last two tickets from the #191 security audit.
+Opened 2026-09-16 for #210 and #211, the last two tickets from the #191 security audit, and
+**done** on 2026-09-17 with both shipped. #210 widened `--history` to every ref a mirror push
+sends; #211 made rule C linear, which took three changes rather than the one it opened with.
+
+The close review's interesting part is what the phase produced that it did not expect. Both
+premortem clauses fired and were caught by the process rather than by luck: the gate found three
+fixtures in #210's first draft that passed against the unfixed scanner, and review round 1 found
+the same shape in #211's private half, where the path-map line could be reverted with the suite
+still green. Four tickets came out of the two review loops rather than out of the plan: #217
+(`redact` is quadratic on the default `--history` path), #219 (a timing case that flaked once in
+nine runs), #218 (three guards enforce nothing in CI since the assistant files stopped being
+published), and the cosmetic evidence-picker item the #210 gate named, which was folded into #218's
+neighbourhood rather than filed on its own. All four are in Backlog with a phase, none dropped
+silently, which is what rule 4 exists to check.
+
+One thing the plan did not foresee at all: another session untracked `CLAUDE.md`, `AGENTS.md` and
+`.claude/` mid-phase and left the build red, so repairing three guards and restoring the local
+memory store happened inside this phase without being part of it.
 
 ## Phase: Backlog
 state: backlog
