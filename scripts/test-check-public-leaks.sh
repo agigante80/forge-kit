@@ -735,7 +735,8 @@ echo "== rule C is linear in the line length, in both modes and both locales (#2
 # anchor and LC_ALL=C on the tree grep, and judge()'s split is a third quadratic in bash. Each half
 # has a mutant here that must be KILLED at the bound, which is what proves the half load-bearing.
 # MUTANTS (2026-09-16, #211): the anchor removed from RE_MAIL; LC_ALL=C removed from the tree grep
-# (only observable under a territory UTF-8 locale, skipped where none exists); the IFS=@ read split
+# (observable under ANY UTF-8 locale, C.utf8 included, and skipped only where none exists); the
+# IFS=@ read split
 # replaced by ${addr#*@}. All three killed. The bound is this suite's own helper, never GNU
 # `timeout`, which stock macOS does not ship.
 bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it

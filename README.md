@@ -200,8 +200,10 @@ CLI. "AI-agnostic at the governance layer" means the YAML and the markdown are n
 which is a property of file formats rather than a feature. The governance layer takes no dependency
 on the `claude` CLI, deliberately and by rule, which is what keeps that door open.
 
-A root `AGENTS.md`, the cross-agent instruction format, points at `CLAUDE.md` for any agent working
-ON this repository.
+Instructions for an agent working ON this repository are deliberately NOT published: `CLAUDE.md`
+and a root `AGENTS.md` are local working state on a maintainer's machine, not project content
+(2026-09-16). What a consumer needs is here and in `docs/`, and `docs/guides/without-claude-code.md`
+is the entry point for using this governance with another agent or none.
 
 ## What forge-adapt does
 
