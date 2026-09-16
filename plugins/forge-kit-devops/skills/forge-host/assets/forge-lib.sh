@@ -154,7 +154,12 @@ _forge_url_host() {
       auth="${u#*://}"; auth="${auth%%/*}"; auth="${auth%%\?*}"; auth="${auth%%#*}"
       auth="${auth##*@}" ;;
     \[*\]:*|*@\[*\]:*)
-      auth="${u%%\]:*}]"; auth="${auth##*@}" ;;   # scp form with a bracketed host
+      # scp form with a bracketed host, only when the text before "[" is a bare user (no "/" or
+      # ":" in it); otherwise the brackets sit in a PATH and the generic arms decide (review).
+      case "${u%%\[*}" in
+        */*|*:*) case "${u%%:*}" in */*|"$u") return 0 ;; *) auth="${u%%:*}"; auth="${auth##*@}" ;; esac ;;
+        *) auth="${u%%\]:*}]"; auth="${auth##*@}" ;;
+      esac ;;
     *)
       case "${u%%:*}" in
         */*|"$u") return 0 ;;                       # a path with a colon, or no colon at all: not scp form
