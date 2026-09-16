@@ -624,8 +624,17 @@ Opened 2026-09-16 for #208 and #209: the audit's finding that the older tree mod
 hooks run, had fail-open paths the new history mode did not.
 
 ## Phase: One definition that travels
-state: open
+state: done
 plan: docs/plans/one-definition-that-travels.md
+
+Closed 2026-09-16, outcome **done**. One ticket, two gate rounds (the second overnight, the
+maintainer's fold-and-regate rule), two review rounds, no new follow-up: #214 (nothing installs
+the doc) was filed by the gate itself during round 2. The premortem's first clause fired in
+review: the table read ended only at `###`, so a `##` section after it widened the set, and a
+present doc with no table fell back to the nine where the folded spec said refer. Round 2 then
+found two defects in the parity rule added to fix that. The pattern across the last three phases
+is steady: round 1 finds the change's holes, round 2 finds the fix's, and the two-round stop with
+tickets for the rest is holding.
 
 Opened 2026-09-16 for #204: the area set is one definition here (#188) and none where the gate
 is installed, because nothing hands it to the mechanics script.
