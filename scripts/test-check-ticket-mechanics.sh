@@ -418,9 +418,20 @@ o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/nope.md")"
 expect "and the default still admits its own areas" pass "${o%%	*}"
 printf '# Labels\n\nno table here\n' > "$WORK/proj/docs/guides/empty.md"
 o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/empty.md")"
-expect "a doc with no area table keeps the default too, never an empty set" pass "${o%%	*}"
-o="$(lbldoc "components,feature" --labels-doc "$ROOT/docs/guides/labels.md")"
-expect "this repository's own labels.md reads as the same nine (parity with check-label-taxonomy.sh)" pass "${o%%	*}"
+expect "a PRESENT doc with no area table is referred, never silently judged on the default" referred "${o%%	*}"
+printf '### Area labels\n| Label |\n|---|\n' > "$WORK/proj/docs/guides/norows.md"
+o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/norows.md")"
+expect "a table heading with no rows is referred too, never an empty set" referred "${o%%	*}"
+printf '### Area labels\n| Label |\n|---|\n| `client` |\n## Priority labels\n| Label |\n|---|\n| `P0` |\n' > "$WORK/proj/docs/guides/twolevel.md"
+o="$(lbldoc "P0,feature" --labels-doc "$WORK/proj/docs/guides/twolevel.md")"
+expect "a ## heading after the table ends it: a priority label is not an area" fail "${o%%	*}"
+printf '### Area labels\n| Label |\n|---|\n | `server` |\n|`proto`|\n| `client ` |\n' > "$WORK/proj/docs/guides/rows.md"
+for l in server proto client; do
+  o="$(lbldoc "$l,feature" --labels-doc "$WORK/proj/docs/guides/rows.md")"
+  expect "a valid row with unusual whitespace still declares its area ($l)" pass "${o%%	*}"
+done
+o="$(lbldoc "nope,feature" --labels-doc "$ROOT/docs/guides/labels.md")"
+case "${o#*	}" in *"api, privacy, web, mobile, backend, database, components, tooling, governance"*) ok "this repository's own labels.md reads as exactly the nine, in order (parity with check-label-taxonomy.sh)" ;; *) bad "parity: read '${o#*	}'" ;; esac
 
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"

@@ -104,7 +104,9 @@ got_ref=$(printf '%s\n' "$out" | grep -oE '[0-9]+ REFERRED' | grep -oE '^[0-9]+'
 expect "the summary's referred count matches the rows" "$want_ref" "$got_ref"
 
 echo "== the TSV passthrough is byte-identical to the checker's own output =="
-# If the entry point filtered or re-judged a row, this is where it would show.
+# If the entry point filtered or re-judged a row, this is where it would show. The direct run
+# passes no --labels-doc, so this holds only while $T/proj has no docs/guides/labels.md: the #204
+# section below creates one and removes it again; keep it below this block.
 cp "$T/full-body.md" "$T/body.md"
 direct=$(cd "$T/proj" && bash "$BIN/check-ticket-mechanics.sh" --body "$T/body.md" \
   --template .github/ISSUE_TEMPLATE/feature.yml --tpl-version 6 --current-tpl-version 6 --labels "feature,P2,api" 2>/dev/null)

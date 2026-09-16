@@ -107,17 +107,26 @@ done
 [ -n "$TEMPLATE" ] || die "--template is required"
 [ -f "$TEMPLATE" ] || die "template file not found: $TEMPLATE"
 
-# The project's area table, read the way scripts/check-label-taxonomy.sh reads the canonical one:
-# rows of the `### Area labels` table whose first column is a backticked name. Anything else on
-# the way is not an area. Explicit --area-labels wins; no doc or no table keeps the default.
+# The project's area table, read the way scripts/check-label-taxonomy.sh reads the canonical one
+# (the two awk bodies are byte-identical, and its suite asserts that): rows of the `### Area
+# labels` table whose first column is a backticked name, with any leading whitespace or a compact
+# `|\`x\`|` allowed (review: a valid row silently dropped is a wrong set with nothing reporting it).
+# The section ends at the next heading at ANY level, since a `## Priority labels` after the table
+# used to be swallowed into the area set (review). Explicit --area-labels wins. A doc that is
+# ABSENT keeps the default. A doc that is present but carries no such table is REFERRED at check 2
+# rather than silently judged on the default, because forge-gate-mechanics.sh passes this flag
+# unconditionally and a project whose table differs in heading level or case would otherwise be
+# widened back to the nine with nothing saying so. TYPE_LABELS stays compiled-in: a project's own
+# type only draws a warn row here, never a fail.
+DOC_NO_TABLE=0
 if [ "$AREA_EXPLICIT" -eq 0 ] && [ -n "$LABELS_DOC" ] && [ -f "$LABELS_DOC" ]; then
   doc_areas="$(awk '
     /^### Area labels/ { inside = 1; next }
-    inside && /^### / { exit }
-    inside && /^\| `/ { gsub(/^\| `/, ""); sub(/`.*/, ""); print }
+    inside && /^##?#? / { exit }
+    inside && /^[ \t]*\|[ \t]*`/ { sub(/^[ \t]*\|[ \t]*`/, ""); sub(/[ \t]*`.*/, ""); print }
   ' "$LABELS_DOC" | tr '\n' ' ')"
   doc_areas="${doc_areas% }"
-  [ -n "$doc_areas" ] && AREA_LABELS="$doc_areas"
+  if [ -n "$doc_areas" ]; then AREA_LABELS="$doc_areas"; else DOC_NO_TABLE=1; fi
 fi
 
 is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
@@ -281,7 +290,9 @@ has_label_from() {
   done
   return 1
 }
-if ! has_label_from "$AREA_LABELS"; then
+if [ "$DOC_NO_TABLE" -eq 1 ]; then
+  row labels referred "no Area labels table in $LABELS_DOC; Step 3B rules on the area label"
+elif ! has_label_from "$AREA_LABELS"; then
   row labels fail "no area label (one of: ${AREA_LABELS// /, })"
 elif ! has_label_from "$TYPE_LABELS"; then
   row labels warn "no type label (one of: ${TYPE_LABELS// /, })"

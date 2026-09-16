@@ -49,10 +49,11 @@ for f in "$DOC" "$YML" "$MECH"; do
 done
 
 # The canonical set: the rows of the Area labels table, in order, read as `| \`name\` |`.
+# Byte-identical to the read in check-ticket-mechanics.sh (rule 4 below keeps it so).
 canon=$(awk '
   /^### Area labels/ { inside = 1; next }
-  inside && /^### / { exit }
-  inside && /^\| `/ { gsub(/^\| `/, ""); sub(/`.*/, ""); print }
+  inside && /^##?#? / { exit }
+  inside && /^[ \t]*\|[ \t]*`/ { sub(/^[ \t]*\|[ \t]*`/, ""); sub(/[ \t]*`.*/, ""); print }
 ' "$DOC")
 [ -n "$canon" ] || { echo "check-label-taxonomy: no Area labels table found in $DOC. It is the definition, so an empty read is an error rather than agreement." >&2; exit 2; }
 
@@ -87,6 +88,14 @@ if [ -z "$mech" ]; then
 elif [ "$(printf '%s\n' "$canon" | sort)" != "$(printf '%s\n' "$mech" | sort)" ]; then
   echo "check-label-taxonomy: AREA_LABELS in check-ticket-mechanics.sh disagrees with $DOC." >&2
   report "check-ticket-mechanics.sh" "$mech"
+  fails=$((fails + 1))
+fi
+
+# 4. The two awk programs that read the table, here and in check-ticket-mechanics.sh, must be
+#    byte-identical, or "the same read" is a claim (#204). Extracted by their unique first line.
+awkof() { sed -n '/\/\^### Area labels\// { :a; N; /print }/!ba; p; q }' "$1" | sed 's/^[ \t]*//'; }
+if [ "$(awkof "$0")" != "$(awkof "$MECH")" ]; then
+  echo "check-label-taxonomy: the Area labels table is read differently by $MECH and this script." >&2
   fails=$((fails + 1))
 fi
 

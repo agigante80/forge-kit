@@ -23,19 +23,21 @@ older template gets brought forward.
 
 ## 2. What do I install?
 
-Four things, and it is a copy rather than an installer:
+Five things, and it is a copy rather than an installer:
 
 ```bash
 git clone https://github.com/agigante80/forge-kit /tmp/forge-kit
 cp -r /tmp/forge-kit/.github/ISSUE_TEMPLATE  .github/
 cp    /tmp/forge-kit/.github/labels.yml      .github/
 mkdir -p docs/guides && cp /tmp/forge-kit/docs/guides/ticket-standards.md docs/guides/
+cp    /tmp/forge-kit/docs/guides/labels.md   docs/guides/
 ```
 
 | What | Why |
 |---|---|
 | `.github/ISSUE_TEMPLATE/` | Six issue forms carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
 | `.github/labels.yml` | The label taxonomy that routes issues |
+| `docs/guides/labels.md` | The area table the mechanical checks read (`--labels-doc`); edit its rows to declare your own areas, and the gate judges against them rather than forge-kit's nine |
 | `docs/guides/ticket-standards.md` | The rules the templates encode |
 | the shell assets below | The checks you can actually run |
 

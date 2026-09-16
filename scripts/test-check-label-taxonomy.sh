@@ -43,7 +43,11 @@ tree() {  # tree <canonical areas> <yml areas> <AREA_LABELS> [gate-line]
   } > "$T/tree/docs/guides/labels.md"
   { for l in $2; do printf -- '- name: %s\n  color: "ffffff"\n  description: fixture\n\n' "$l"; done
   } > "$T/tree/.github/labels.yml"
-  printf 'AREA_LABELS="%s"\n' "$3" > "$T/tree/$MECHDIR/check-ticket-mechanics.sh"
+  # The fixture script carries the REAL table read (rule 4 compares it byte for byte with the
+  # guard's own), unless a case overrides it to prove that rule can fail.
+  { printf 'AREA_LABELS="%s"\n' "$3"
+    sed -n '/\/\^### Area labels\// { :a; N; /print }/!ba; p; q }' "$ROOT/$MECHDIR/check-ticket-mechanics.sh"
+  } > "$T/tree/$MECHDIR/check-ticket-mechanics.sh"
   printf '%s\n' "${4:-Check for an area label, as defined in docs/guides/labels.md.}" \
     > "$T/tree/$GATEDIR/ticket-gate.md"
 }
@@ -99,6 +103,13 @@ echo "== labels.yml may carry MORE than the areas =="
 tree "$SIX" "$SIX bug enhancement P0 P1" "$SIX"
 run
 expect "extra non-area entries in labels.yml are fine" 0 "$rc"
+
+echo "== the two reads of the table must be byte-identical (#204) =="
+tree "api web" "api web" "api web"
+sed -i 's|inside && /^##?#? / { exit }|inside \&\& /^### / { exit }|' "$T/tree/$MECHDIR/check-ticket-mechanics.sh"
+run
+expect "a mechanics script that reads the table differently fails" 1 "$rc"
+contains "read differently" "$out" "and says so"
 
 echo "== this repository passes =="
 out=$(bash "$SCRIPT" "$ROOT" 2>&1); rc=$?

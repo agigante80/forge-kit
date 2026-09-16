@@ -26,6 +26,8 @@
 # both land in the project's `scripts/`, so adjacency holds; from a source checkout they sit in two
 # different plugin groups, so the fallbacks below reach across. Absent either one, this REFUSES:
 # a check that cannot run must never report clean, which is the posture every guard here takes.
+# It also reads the project's `docs/guides/labels.md` from the project root (#204): that table is
+# the area set check 2 judges against; absent, the checker's compiled-in default applies.
 #
 # NO DEPENDENCY ON THE HARNESS CLI ANYWHERE IN THIS PATH. That is the entire point of the script,
 # and its contract test asserts it by scanning this file as well as by running it.
