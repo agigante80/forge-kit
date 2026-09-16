@@ -110,6 +110,17 @@ sed -i 's|inside && /^##?#? / { exit }|inside \&\& /^### / { exit }|' "$T/tree/$
 run
 expect "a mechanics script that reads the table differently fails" 1 "$rc"
 contains "read differently" "$out" "and says so"
+# The same rename on both anchors must not compare two empty extractions as agreement.
+tree "api web" "api web" "api web"
+sed -i 's|/\^### Area labels/|/^#+ Area labels/|' "$T/tree/$MECHDIR/check-ticket-mechanics.sh"
+cp "$SCRIPT" "$T/guard-renamed.sh"; sed -i 's|/\^### Area labels/|/^#+ Area labels/|' "$T/guard-renamed.sh"
+out=$(bash "$T/guard-renamed.sh" "$T/tree" 2>&1); rc=$?
+expect "an anchor that moved on both sides refuses rather than agreeing vacuously" 2 "$rc"
+contains "could not extract" "$out" "and says why"
+# A relative invocation from another directory must not read the wrong file.
+tree "api web" "api web" "api web"
+out=$(cd "$ROOT/scripts" && bash ./check-label-taxonomy.sh "$T/tree" 2>&1); rc=$?
+expect "invoked by a relative path from another directory, the guard still finds its own read" 0 "$rc"
 
 echo "== this repository passes =="
 out=$(bash "$SCRIPT" "$ROOT" 2>&1); rc=$?

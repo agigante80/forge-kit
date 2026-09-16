@@ -111,8 +111,9 @@ done
 # (the two awk bodies are byte-identical, and its suite asserts that): rows of the `### Area
 # labels` table whose first column is a backticked name, with any leading whitespace or a compact
 # `|\`x\`|` allowed (review: a valid row silently dropped is a wrong set with nothing reporting it).
-# The section ends at the next heading at ANY level, since a `## Priority labels` after the table
-# used to be swallowed into the area set (review). Explicit --area-labels wins. A doc that is
+# The section ends at the next heading of one to three hashes, since a `## Priority labels` after
+# the table used to be swallowed into the area set (review); a `####` inside it is read through as
+# Markdown nesting. Explicit --area-labels wins. A doc that is
 # ABSENT keeps the default. A doc that is present but carries no such table is REFERRED at check 2
 # rather than silently judged on the default, because forge-gate-mechanics.sh passes this flag
 # unconditionally and a project whose table differs in heading level or case would otherwise be
@@ -291,7 +292,7 @@ has_label_from() {
   return 1
 }
 if [ "$DOC_NO_TABLE" -eq 1 ]; then
-  row labels referred "no Area labels table in $LABELS_DOC; Step 3B rules on the area label"
+  row labels referred "no Area labels table in $LABELS_DOC; Step 3B rules on the area and type labels"
 elif ! has_label_from "$AREA_LABELS"; then
   row labels fail "no area label (one of: ${AREA_LABELS// /, })"
 elif ! has_label_from "$TYPE_LABELS"; then

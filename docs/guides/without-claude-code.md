@@ -41,7 +41,7 @@ cp    /tmp/forge-kit/docs/guides/labels.md   docs/guides/
 | `docs/guides/ticket-standards.md` | The rules the templates encode |
 | the shell assets below | The checks you can actually run |
 
-There is deliberately no bootstrap script. Copying four things is `cp`, and a script for it would be
+There is deliberately no bootstrap script. Copying five things is `cp`, and a script for it would be
 one more thing to keep working.
 
 ## 3. What can I run?

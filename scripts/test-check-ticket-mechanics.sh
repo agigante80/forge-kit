@@ -430,6 +430,8 @@ for l in server proto client; do
   o="$(lbldoc "$l,feature" --labels-doc "$WORK/proj/docs/guides/rows.md")"
   expect "a valid row with unusual whitespace still declares its area ($l)" pass "${o%%	*}"
 done
+o="$(lbldoc "nope,feature" --labels-doc "$WORK/proj/docs/guides/rows.md")"
+case "${o#*	}" in *"server, proto, client)"*) ok "and the trailing space inside the backticks is stripped from the set" ;; *) bad "trailing space kept: '${o#*	}'" ;; esac
 o="$(lbldoc "nope,feature" --labels-doc "$ROOT/docs/guides/labels.md")"
 case "${o#*	}" in *"api, privacy, web, mobile, backend, database, components, tooling, governance"*) ok "this repository's own labels.md reads as exactly the nine, in order (parity with check-label-taxonomy.sh)" ;; *) bad "parity: read '${o#*	}'" ;; esac
 

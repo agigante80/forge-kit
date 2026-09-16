@@ -28,7 +28,9 @@
 # WHAT IT COMPARES:
 #   docs/guides/labels.md      the Area labels table, and it is canonical
 #   .github/labels.yml         what sync-labels.sh puts on the host
-#   check-ticket-mechanics.sh  the AREA_LABELS default the gate passes to the mechanical checks
+#   check-ticket-mechanics.sh  the AREA_LABELS default the gate passes to the mechanical checks,
+#                              and its read of the table, which must be byte-identical to this
+#                              script's own (#204). GNU sed and grep -P; this runs in CI only.
 #
 # WHAT IT DOES NOT DO. It says nothing about TYPE or PRIORITY labels, which have no second copy to
 # drift against, and nothing about whether the host actually carries them. That second one is
@@ -37,6 +39,9 @@
 # of those is asked.
 set -uo pipefail
 
+# Resolved BEFORE the cd below: rule 4 reads this script's own source, and a relative $0 would
+# point somewhere else once the directory changes (found in review).
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)}"
 cd "$ROOT" || { echo "check-label-taxonomy: no such directory: $ROOT" >&2; exit 2; }
 
@@ -93,8 +98,15 @@ fi
 
 # 4. The two awk programs that read the table, here and in check-ticket-mechanics.sh, must be
 #    byte-identical, or "the same read" is a claim (#204). Extracted by their unique first line.
+#    An extraction that finds nothing on either side is a REFUSAL, not agreement: the same rename
+#    applied to both anchors would otherwise compare two empty strings (found in review).
 awkof() { sed -n '/\/\^### Area labels\// { :a; N; /print }/!ba; p; q }' "$1" | sed 's/^[ \t]*//'; }
-if [ "$(awkof "$0")" != "$(awkof "$MECH")" ]; then
+read_here="$(awkof "$SELF")"; read_mech="$(awkof "$MECH")"
+if [ -z "$read_here" ] || [ -z "$read_mech" ]; then
+  echo "check-label-taxonomy: could not extract the table read from $([ -z "$read_here" ] && echo "this script" || echo "$MECH"); the anchor line moved." >&2
+  exit 2
+fi
+if [ "$read_here" != "$read_mech" ]; then
   echo "check-label-taxonomy: the Area labels table is read differently by $MECH and this script." >&2
   fails=$((fails + 1))
 fi
