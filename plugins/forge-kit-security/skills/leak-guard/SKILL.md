@@ -33,8 +33,8 @@ check-private-leaks.sh --history                                  # names redact
 check-public-leaks.sh --history --orphans                         # also what no ref reaches, and the stash (see below)
 ```
 
-Both read the PUBLISHABLE history: every blob any ref except `refs/stash` reaches, plus every
-worktree's HEAD, which is the set a `git push --mirror` sends, and every commit and tag
+Both read the PUBLISHABLE history: every blob any ref except `refs/stash` reaches (the set a
+`git push --mirror` sends), plus every worktree's HEAD, and every commit and tag
 message (subject and body; the author, committer and tagger lines are what the forge displays
 beside each commit and are not scanned). One `git cat-file --batch` streams the objects and a POSIX
 awk reader counts each object's declared bytes, so a blob whose first line forges a batch header
@@ -50,8 +50,8 @@ store git cannot read in full, a path map it cannot parse (a filename containing
 send. Every ref except `refs/stash` is publishable, plus every worktree's HEAD: remote-tracking
 branches, `refs/notes`, a `filter-branch` backup under `refs/original`, `refs/pull` and any custom
 namespace all count (#210: the first cut read branches, tags and remotes, so a scrubbed history
-whose backup ref still held the leak scanned clean). A detached HEAD over-reports, since a push
-sends `refs/` only, which is the safe side; the stash is the one ref left out, because no push
+whose backup ref still held the leak scanned clean). A detached HEAD over-reports against a mirror
+push, which sends `refs/` only, and is exactly what `git push origin HEAD:main` sends; the stash is the one ref left out, because no push
 sends it, and `--orphans` reaches it.
 
 **Written for macOS, verified against its parts on Linux.** The reader was probed against Apple's

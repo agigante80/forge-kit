@@ -189,8 +189,8 @@ echo "== --history: names in the publishable history, redacted in path and evide
 # disabled; the label split at the first @; path-only lines reported; the
 # diffMerges override dropped; the unreadable-object refusal removed; the --orphans content test
 # applied to every object; the longest-first sort removed. Re-run 2026-09-16 (#210): the
-# enumeration reverted to --branches --tags --remotes (the refs/original case fails); --exclude
-# placed after --all (the stash case fails). The reader and selection code is the public half's,
+# enumeration reverted to --branches --tags --remotes (the refs/original case fails); the path map
+# alone reverted (the pathmap case fails); --exclude placed after --all (the stash case fails). The reader and selection code is the public half's,
 # whose suite carries the rest of the mutants.
 HREPO=""
 mkrepo() {  # mkrepo <name>: a fresh repository; sets HREPO
@@ -259,8 +259,9 @@ hrun --history --orphans; rc=$RC; expect "--orphans reaches it" 1 "$rc"
 contains "blob@" "$OUT" "labelled blob@<oid>"
 
 echo "== --history: every ref a mirror push sends (#210) =="
-# Mirrors the public suite's section with a listed name; the enumeration code is the public
-# half's, whose suite carries the two reverting mutants.
+# Mirrors the public suite's section with a listed name. The enumeration code is DUPLICATED from
+# the public half, not shared (#206), so the public suite's mutants cannot see a regression in
+# this file: the pathmap fixture below is what fails when this file's log -m line is reverted.
 mkrepo original
 ( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md && git commit -qm leak \
   && git update-ref refs/original/refs/heads/scrubbed HEAD && git reset -q --hard HEAD~1 ) >/dev/null 2>&1
@@ -288,6 +289,16 @@ mkrepo stash
 ( cd "$HREPO" && git rev-parse -q --verify refs/stash >/dev/null ) && ok "the fixture holds a stash entry" || bad "the fixture holds a stash entry"
 hrun --history; expect "a name only in refs/stash is not reported: no push sends it" 0 "$RC"
 hrun --history --orphans; expect "--orphans reaches the stash" 1 "$RC"
+
+# The path map must walk the same set: the blob's current name is skipped (.png) and only the
+# refs/original walk knows it was once leak.md (review round 1 on #210: reverting this file's
+# log -m line alone passed the suite until this case existed).
+mkrepo pathmap
+( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md && git commit -qm leak \
+  && git mv leak.md leak.png && git commit -qm png && git update-ref refs/original/refs/heads/scrubbed HEAD \
+  && git reset -q --hard HEAD~2 ) >/dev/null 2>&1
+hrun --history; expect "a blob skipped by its current name is read for its historical one, through refs/original" 1 "$RC"
+contains "leak.md@" "$OUT" "at the historical path"
 h="$("$SCRIPT" --help 2>&1)"
 contains "filter-branch" "$h" "--help names filter-branch's refs/original"
 contains "mirror" "$h" "and the mirror push"

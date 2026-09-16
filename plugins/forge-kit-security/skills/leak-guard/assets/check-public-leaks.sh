@@ -58,9 +58,10 @@
 #
 # `--history --orphans` also reads objects no ref reaches: a leak amended or reset away is still
 # in the local store until `git gc` prunes it, and so is a stash entry, which is the one ref the
-# set above leaves out. A push (a `--mirror` push included), a bundle and a clone over a URL never
-# send such objects; a clone from a local PATH (git hardlinks the object store) and any copy of the
-# .git directory DO, which is the case the flag exists for. It is NOT what reaches a filter-branch
+# set above leaves out. A push (a `--mirror` push included) and a clone over a URL never send
+# either; a bundle never carries an orphan but `bundle create --all` does carry the stash; a clone
+# from a local PATH (git hardlinks the object store) and any copy of the .git directory carry
+# both, which is the case the flag exists for. It is NOT what reaches a filter-branch
 # backup: refs/original is a ref, a mirror push sends it, and plain --history reads it. An object that is also reachable keeps
 # its paths and its skips; a true orphan has no path, so nothing is skipped by name for it and the
 # self-skip falls back to a weaker content test (shebang plus marker line).

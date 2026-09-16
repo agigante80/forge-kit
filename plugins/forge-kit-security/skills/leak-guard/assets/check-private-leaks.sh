@@ -41,9 +41,9 @@
 # It is never wired into a hook: a pre-publish step, run by hand.
 #
 # `--history --orphans` also reads objects no ref reaches (amended or reset away, not yet pruned)
-# and the stash, the one ref the set leaves out. A push (`--mirror` included), a bundle and a
-# clone over a URL never send them; a clone from a local PATH and any copy of the .git directory
-# do. A filter-branch backup under refs/original is a ref and needs no --orphans. With no path,
+# and the stash, the one ref the set leaves out. A push (`--mirror` included) and a clone over a
+# URL never send either; a bundle carries no orphan but `bundle create --all` does carry the
+# stash; a clone from a local PATH and any copy of the .git directory carry both. A filter-branch backup under refs/original is a ref and needs no --orphans. With no path,
 # the self-skip is the weaker content test.
 #
 # WHAT --history REFUSES, exit 2: an alternates file (a `git clone --shared`, resolved through

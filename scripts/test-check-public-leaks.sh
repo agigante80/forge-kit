@@ -311,10 +311,13 @@ hcommit clean.md 'ok\n'
 ( cd "$HREPO" && git notes add -m '/home/alice/x' HEAD ) >/dev/null 2>&1
 hrun --history; expect "a leak only in refs/notes/commits is reported" 1 "$RC"
 contains "home-path:" "$OUT" "as a home path"
+contains "$(hoid HEAD)@" "$OUT" "labelled by the annotated commit's oid, which is the blob's name in the notes tree"
 # `git notes remove` commits a new notes tree whose PARENT still holds the blob, so the ref must
 # go, not the note: found on the first run, where the gate's remove-and-gc draft still reported.
-( cd "$HREPO" && git update-ref -d refs/notes/commits && git reflog expire --expire=now --all && git gc -q --prune=now ) >/dev/null 2>&1
-hrun --history; expect "with the notes ref deleted and pruned nothing is reported (reachability, not presence)" 0 "$RC"
+# No gc here: the blob stays in the store, so this passes only for a scanner reading reachability.
+( cd "$HREPO" && git update-ref -d refs/notes/commits ) >/dev/null 2>&1
+hrun --history; expect "with the notes ref deleted nothing is reported (reachability, not presence)" 0 "$RC"
+hrun --history --orphans; expect "and --orphans still finds the blob in the store" 1 "$RC"
 
 mkrepo detached
 hcommit leak.md '/home/alice/x\n'
