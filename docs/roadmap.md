@@ -590,6 +590,13 @@ Opened 2026-09-14 for #191, outcome A of #185, after the maintainer chose to shi
 the probe was run against Apple's own awk source built on Linux, the suites under bash 3.2.57
 built the same way, and the README states what that does and does not prove.
 
+## Phase: Four gaps found downstream
+state: open
+plan: docs/plans/four-gaps-found-downstream.md
+
+Opened 2026-09-16 for #205, the first ticket the overnight run took through fold-and-regate to a
+PASS. Four heuristic misses in the mechanics script, found by running it on another project.
+
 ## Phase: Backlog
 state: backlog
 

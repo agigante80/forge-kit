@@ -271,6 +271,91 @@ expect "a bare none fails" fail "$(outcome "$(run "$D" feature)" docs_impact)"
 D="$(mkbody feature "docsvague.md" "" "" "" "we should think about it")"
 expect "neither a doc nor a none claim fails" fail "$(outcome "$(run "$D" feature)" docs_impact)"
 
+
+echo "check-ticket-mechanics: the four gaps found gating another project (#205)"
+# --- gap 1: the evidence row was cut at 160 characters, so a long absent-list lost its tail. ---
+# feature.yml's required-label list is 248 characters joined; bug.yml's 259. The count prefix is
+# what makes any future truncation visible, and the companion below asserts the count is honest.
+printf '<!-- template-version: 6 -->\n' > "$WORK/bare.md"
+ev="$(run "$WORK/bare.md" feature | awk -F'\t' '$1=="sections"{print $3}')"
+case "$ev" in "heading absent ("*"):"*) ok "gap 1: the absent list carries a count prefix" ;; *) bad "gap 1: no count prefix in '$ev'" ;; esac
+case "$ev" in *"Codebase Context"*) ok "gap 1: the LAST feature.yml label survives (no 160-byte cut)" ;; *) bad "gap 1: the absent list is still truncated: '$ev'" ;; esac
+n="$(printf '%s' "$ev" | sed -n 's/^heading absent (\([0-9]*\)):.*/\1/p')"
+items="$(printf '%s' "${ev#*: }" | awk -F'; ' '{print NF}')"
+expect "gap 1: the count equals the items listed (companion)" "$n" "$items"
+B="$(mkbody bug "gap1-bug.md")"
+sed 's/^filled in$/_No response_/; s/^- \[x\] acknowledged$/_No response_/' "$B" > "$WORK/gap1-empty.md"
+ev="$(run "$WORK/gap1-empty.md" bug | awk -F'\t' '$1=="sections"{print $3}')"
+case "$ev" in "required heading present but empty ("*"):"*"QA & Regression tests"*) ok "gap 1: the present-but-empty branch counts and keeps its tail too (bug.yml)" ;; *) bad "gap 1: present-but-empty branch: '$ev'" ;; esac
+
+# --- gap 2: one marker regex for all seven sites; qualified and bold markers count, prose does not.
+G2="$(mkbody feature "gap2.md" "$(printf 'Positive (happy path)\n- Given: a\n- When: b\n- Then: c\n\n**Negative** with a note\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+expect "gap 2: a parenthetical qualifier and a bold marker both count as blocks" pass "$(outcome "$(run "$G2" feature)" gwt)"
+G2b="$(mkbody feature "gap2b.md" "$(printf 'Positive:\n- Given: a\n- When: b\n- Then: c\n\n**Negative:**\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+expect "gap 2: a trailing colon, bare or inside bold, counts" pass "$(outcome "$(run "$G2b" feature)" gwt)"
+G2c="$(mkbody feature "gap2c.md" "$(printf 'Positive outcome expected here\nNegative scenarios are listed below.\n\nPositive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+o="$(run "$G2c" feature)"
+expect "gap 2: a prose line starting with the bare word is NOT a block (near miss)" pass "$(outcome "$o" gwt)"
+case "$(printf '%s\n' "$o" | awk -F'\t' '$1=="gwt"{print $3}')" in "1 positive and 1 negative"*) ok "gap 2: and the counts stay 1/1" ;; *) bad "gap 2: prose lines were counted as blocks" ;; esac
+G2d="$(mkbody feature "gap2d.md" "$(printf 'Positively wrong\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+expect "gap 2: a longer word is not the marker" fail "$(outcome "$(run "$G2d" feature)" gwt)"
+G2e="$(mkbody feature "gap2e.md" "$(printf 'Positive (a)\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n**Negative**\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+expect "gap 2: the When-count site recognises the qualified marker (two Whens still fail)" fail "$(outcome "$(run "$G2e" feature)" gwt)"
+G2f="$(mkbody feature "gap2f.md" "$(printf 'Positive (a)\n- Given: a\n- When: b\n- Then: c\n\n**Negative** case\n- Given: d\n- When: e')")"
+expect "gap 2: the missing-Then site recognises the bold marker" fail "$(outcome "$(run "$G2f" feature)" gwt)"
+
+# --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
+mktpl() {  # mktpl <out> <fields as "id|label|required" ...>
+  local out="$1"; shift; { echo 'body:'; for f in "$@"; do IFS='|' read -r id lab req <<EOF
+$f
+EOF
+  printf '  - type: textarea\n    id: %s\n    attributes:\n      label: %s\n    validations:\n      required: %s\n' "$id" "$lab" "$req"; done; } > "$out"; }
+mktpl "$WORK/hubbub.yml" "summary|Summary|true" "integration_tests|Integration / subprocess test scenarios|true" "docs|Documentation impact|true"
+printf '<!-- template-version: 6 -->\n\n### Summary\n\nx\n\n### Integration / subprocess test scenarios\n\n- [ ] `tests/integration/spawn.test.ts` spawns the child\n\n### Documentation impact\n\nUpdates `docs/x.md`\n' > "$WORK/hubbub.md"
+o="$(bash "$SCRIPT" --body "$WORK/hubbub.md" --template "$WORK/hubbub.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null)"
+expect "gap 3: a section renamed to Integration in both id and label is judged, not referred" pass "$(outcome "$o" e2e_tests)"
+mktpl "$WORK/tie.yml" "integration_tests|Integration tests|true" "e2e_tests|Browser flows|true"
+printf '<!-- template-version: 6 -->\n\n### Integration tests\n\nprose with no path at all\n\n### Browser flows\n\n- [ ] `tests/e2e/login.spec.ts`\n' > "$WORK/tie.md"
+o="$(bash "$SCRIPT" --body "$WORK/tie.md" --template "$WORK/tie.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null)"
+expect "gap 3: an E2E-named id outranks an integration-named section listed before it (tie-break)" pass "$(outcome "$o" e2e_tests)"
+mktpl "$WORK/idonly.yml" "e2e_tests|Browser flows|true"
+printf '<!-- template-version: 6 -->\n\n### Browser flows\n\n- [ ] `tests/e2e/login.spec.ts`\n' > "$WORK/idonly.md"
+o="$(bash "$SCRIPT" --body "$WORK/idonly.md" --template "$WORK/idonly.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null)"
+expect "gap 3: the id decides when the label says nothing" pass "$(outcome "$o" e2e_tests)"
+B="$(mkbody security "gap3-sec.md")"
+expect "gap 3: a template with no E2E-shaped section at all still refers" referred "$(outcome "$(run "$B" security)" e2e_tests)"
+bash "$SCRIPT" --body "$WORK/idonly.md" --template "$WORK/idonly.yml" --e2e-label x >/dev/null 2>&1
+[ $? -ne 0 ] && ok "gap 3: there is no --e2e-label option" || bad "gap 3: --e2e-label was accepted"
+dump="$(bash "$SCRIPT" --body "$WORK/idonly.md" --template "$WORK/idonly.yml" --dump-fields)"
+expect "gap 3: --dump-fields keeps its two-column contract" "Browser flows	yes" "$dump"
+
+# --- gap 4: a template's own value:/placeholder: sub-headings are content inside THEIR field. ---
+# feature.yml renders E2E's placeholder as `### Happy path` / `### Unhappy path`; on a web-form
+# body every label is `###` too, so those two used to END the section: E2E read as empty (one
+# false fail) and e2e_tests had no content (a second). The kit's own template, failing itself.
+B="$(mkbody feature "gap4.md" "$(printf 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')" '- [ ] `tests/unit/auth.test.ts` valid input' "$(printf '### Happy path\n- [ ] `tests/e2e/login.spec.ts` user sees the screen\n\n### Unhappy path\n- [ ] API returns 500 -> retry button')")"
+o="$(run "$B" feature)"
+expect "gap 4: E2E filled under the placeholder sub-headings is present and filled" pass "$(outcome "$o" sections)"
+expect "gap 4: and its content is judged" pass "$(outcome "$o" e2e_tests)"
+python3 - "$B" "$WORK/gap4-other.md" <<'PY'
+import sys
+s=open(sys.argv[1]).read()
+before=s
+s=s.replace("### Unit tests\n\n- [ ] `tests/unit/auth.test.ts` valid input\n","### Unit tests\n\n_No response_\n\n### Happy path\n- [ ] `tests/unit/auth.test.ts`\n",1)
+assert s != before, "fixture anchor did not match"
+open(sys.argv[2],"w").write(s)
+PY
+o="$(run "$WORK/gap4-other.md" feature)"
+[ "$(outcome "$o" unit_tests)" != pass ] && ok "gap 4: a sub-heading belonging to ANOTHER field still ends this one (scoped per field)" || bad "gap 4: another field's sub-heading was read as this field's content"
+
+# --- mutants, in the shape of the suite's other companions: a scratch copy, one line altered. ---
+MUT="$WORK/mut.sh"
+sed 's/cut -c1-1000/cut -c1-160/' "$SCRIPT" > "$MUT"
+grep -q 'cut -c1-1000' "$SCRIPT" && ok "mutant ledger: the script carries the 1000-byte bound" || bad "mutant ledger: bound line not found"
+ev="$(bash "$MUT" --body "$WORK/bare.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="sections"{print $3}')"
+n="$(printf '%s' "$ev" | sed -n 's/^heading absent (\([0-9]*\)):.*/\1/p')"; items="$(printf '%s' "${ev#*: }" | awk -F'; ' '{print NF}')"
+[ "$n" != "$items" ] && ok "mutant: with the old 160-byte cut the count disagrees with the items (the companion can fail)" || bad "mutant: the companion did not notice the cut"
+
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"
 expect "emits exactly one row per check" 7 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 6
+# check-ticket-mechanics-version: 7
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -33,6 +33,22 @@
 # `##` section is content, because it is not a label; a `### Priority` beside it is a boundary,
 # because it is. A `###` body is untouched: every boundary it had is still one. Nothing about what
 # a section must CONTAIN moved.
+#
+# FOUR SHAPES FOUND BY RUNNING THIS ON ANOTHER PROJECT (#205). The evidence row was cut at 160
+# bytes, so on a template whose joined label list is 248 bytes the absent-sections list lost its
+# tail and the gate read "Required reviews" as never absent: the bound is now 1000 and the list
+# carries a count prefix, so any future truncation is visible. A Positive/Negative marker with a
+# qualifier (`Positive (happy path)`, `**Negative** note`, `Positive:`) read as no block: ONE marker
+# regex, defined once and shared by every site, admits those and refuses a prose line that merely
+# starts with the word, because admitting that would produce a block with no When and a false
+# FAIL. A template that renames its E2E section (id and label both) to "Integration / subprocess
+# test scenarios" got `referred` forever: roles are now found by pattern in priority order (E2E
+# before integration), each tried against the field's `id:` before its label, so an E2E-named
+# section outranks an integration-named one whatever the template order. And a template whose
+# `value:` or `placeholder:` carries `### ...` sub-headings ended a `###`-level section at the
+# first of them, so the kit's own feature.yml failed a compliant web-form body twice: a same-level
+# heading now ends a section unless its text is a sub-heading the template places inside THIS
+# field, scoped per field; a template label always ends it.
 #
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
@@ -87,9 +103,12 @@ is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
 # Evidence is untrusted body text. A newline in it would emit a phantom row and a tab would
 # shift a field, so the row separator is stripped from the payload rather than trusted.
+# The bound is 1000, not 160: the joined required-label list of a shipped template is 248 bytes
+# (feature.yml) and 259 (bug.yml), and the old cut hid the tail of the absent list (#205). Any row
+# that lists items carries a count prefix so a cut can never again pass as a complete list.
 row() {
   local ev
-  ev="$(printf '%s' "$3" | tr '\n\t' '  ' | cut -c1-160)"
+  ev="$(printf '%s' "$3" | tr '\n\t' '  ' | cut -c1-1000)"
   printf '%s\t%s\t%s\n' "$1" "$2" "$ev"
 }
 
@@ -97,17 +116,36 @@ row() {
 # level or the next heading that is itself a template label (see the header). Compared
 # literally, never as a regex, because labels carry `/`, `&` and parentheses. TEMPLATE_LABELS is
 # set once the template is parsed, below.
+# A same-level heading ends the section UNLESS its text is a sub-heading the template itself
+# places inside this field (its `value:` or `placeholder:` block), scoped per field (#205):
+# feature.yml's E2E placeholder carries `### Happy path`, and a web-form body renders the label at
+# `###` too, so without this the kit's own template ended its E2E section at its own first line.
+# A template label always ends it, whatever field it belongs to.
+# The two newline-joined lists travel through the ENVIRONMENT, never `-v`: Apple's awk (the one
+# macOS ships) refuses a -v value containing a newline ("newline in string"), so on a Mac every
+# section read as empty and every check failed. Found by running the suite with that awk (#205).
 TEMPLATE_LABELS=""
 section_of() {
-  awk -v want="$1" -v labels="$TEMPLATE_LABELS" '
-    BEGIN { n = split(labels, a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1 }
+  CTM_LABELS="$TEMPLATE_LABELS" CTM_SUBS="$(template_subheadings "$1")" awk -v want="$1" '
+    BEGIN { n = split(ENVIRON["CTM_LABELS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1
+            n = split(ENVIRON["CTM_SUBS"], b, "\n");   for (i = 1; i <= n; i++) if (b[i] != "") issub[b[i]] = 1 }
     /^##+ / {
       lvl = index($0, " ") - 1; cur = substr($0, lvl + 2); sub(/[ \t]+$/, "", cur)
-      if (inside && (lvl == want_lvl || (cur in islabel))) inside = 0
+      if (inside && ((lvl == want_lvl && !(cur in issub)) || (cur in islabel))) inside = 0
       if (!inside && !found && cur == want) { inside = 1; found = 1; want_lvl = lvl; next }
     }
     inside { print }
   ' "$BODY"
+}
+# The `#`-headed lines inside ONE field's `value:` or `placeholder:` block, heading marks stripped.
+template_subheadings() {
+  awk -v want="$1" '
+    /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ { label = ""; inblk = 0; next }
+    /^      label: / { if (label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = l } }
+    /^      (value|placeholder): \|/ { inblk = 1; next }
+    /^      [a-z]/ { inblk = 0 }
+    inblk && label == want && /^        #+ / { h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/[ \t]+$/, "", h); print h }
+  ' "$TEMPLATE"
 }
 
 # GitHub renders an unfilled OPTIONAL textarea as `_No response_`. That is presence without
@@ -120,20 +158,23 @@ has_content() {
 
 first_line() { printf '%s' "$1" | grep -m1 -v '^[[:space:]]*$' | cut -c1-120; }
 
-# Emits `<label>\t<required>` per rendered field. Field labels sit at exactly six spaces and
+# Emits `<label>\t<required>\t<id>` per rendered field. Field labels sit at exactly six spaces and
 # field-level `required` at six; a checkboxes OPTION nests deeper and carries a leading dash,
-# which is what keeps option text out of the section list.
+# which is what keeps option text out of the section list. The id is the third column and every
+# reader below takes it explicitly (`read -r label required _`): a two-field read would take the
+# id as the required flag and check 3 would fail open. --dump-fields keeps its two-column contract.
 template_fields() {
   awk '
     /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ {
-      if (label != "") { print label "\t" (req == "true" ? "yes" : "no") }
+      if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id }
       t = $0; sub(/^.*type:[[:space:]]*/, "", t); gsub(/[[:space:]]/, "", t)
-      type = t; label = ""; req = "false"; next
+      type = t; label = ""; req = "false"; id = ""; next
     }
+    /^    id: / { i = substr($0, 9); gsub(/[[:space:]]/, "", i); id = i }
     /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = l } }
     /^      required: / { r = $0; sub(/^.*required:[[:space:]]*/, "", r); gsub(/[[:space:]]/, "", r); req = r }
     /^          required: true/ { req = "true" }   # a checkboxes group with a required option
-    END { if (label != "") { print label "\t" (req == "true" ? "yes" : "no") } }
+    END { if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id } }
   ' "$TEMPLATE"
 }
 
@@ -141,7 +182,7 @@ TEMPLATE_FIELDS="$(template_fields)"
 # A template that parses to nothing is unusable input, not a body that passes every check. The
 # first version reported `sections pass` here, a fail-open on the one check that reads it.
 [ -n "$TEMPLATE_FIELDS" ] || die "no fields parsed from template: $TEMPLATE"
-[ "$DUMP_FIELDS" -eq 0 ] || { printf '%s\n' "$TEMPLATE_FIELDS"; exit 0; }
+[ "$DUMP_FIELDS" -eq 0 ] || { printf '%s\n' "$TEMPLATE_FIELDS" | cut -f1,2; exit 0; }
 TEMPLATE_LABELS="$(printf '%s\n' "$TEMPLATE_FIELDS" | cut -f1)"
 
 # Which rendered section plays each role, by label shape rather than by a fixed name.
@@ -152,8 +193,18 @@ TEMPLATE_LABELS="$(printf '%s\n' "$TEMPLATE_FIELDS" | cut -f1)"
 # every check `na` and the gate would PASS having checked nothing. `referred` costs a little
 # noise on the three templates that genuinely carry no test sections, and `referred` never
 # blocks, so the trade is one the critic can absorb and a silent pass is not.
+# Patterns in PRIORITY order, each tried against the field id first and then the label, so an
+# E2E-named section outranks an integration-named one whatever order the template lists them,
+# and a template that renames both id and label still resolves (#205).
 role_label() {
-  printf '%s\n' "$TEMPLATE_FIELDS" | cut -f1 | grep -m1 -iE "$1" || true
+  local pat hit
+  for pat in "$@"; do
+    hit="$(printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' -v p="$pat" 'tolower($3) ~ p { print $1; exit }')"
+    [ -n "$hit" ] && { printf '%s\n' "$hit"; return 0; }
+    hit="$(printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' -v p="$pat" 'tolower($1) ~ p { print $1; exit }')"
+    [ -n "$hit" ] && { printf '%s\n' "$hit"; return 0; }
+  done
+  return 0
 }
 role_required() {
   [ -n "$1" ] || return 1
@@ -165,7 +216,7 @@ role_required() {
 empty_outcome() { if role_required "$1"; then echo fail; else echo referred; fi; }
 SCENARIOS_LABEL="$(role_label 'given.*when.*then')"
 UNIT_LABEL="$(role_label 'unit test')"
-E2E_LABEL="$(role_label 'e2e|end.to.end')"
+E2E_LABEL="$(role_label 'e2e|end.to.end' 'integration')"
 DOCS_LABEL="$(role_label 'documentation impact')"
 
 # --- check 1: template version currency -------------------------------------------------
@@ -218,7 +269,7 @@ fi
 # `required: true` needs CONTENT: GitHub renders an unfilled optional field as `_No response_`,
 # and faulting that failed a template-perfect ticket in the first version.
 missing=""; empty=""; at2=""; at3=""
-while IFS="$(printf '\t')" read -r label required; do
+while IFS="$(printf '\t')" read -r label required _; do
   grep -qxF "## $label" "$BODY" && at2="##"
   grep -qxF "### $label" "$BODY" && at3="###"
   [ -n "$label" ] || continue
@@ -230,16 +281,26 @@ while IFS="$(printf '\t')" read -r label required; do
 done <<EOF
 $TEMPLATE_FIELDS
 EOF
+count_items() { printf '%s' "$1" | awk -F'; ' '{ print NF }'; }
 if [ -n "$missing" ]; then
-  row sections fail "heading absent: $missing"
+  row sections fail "heading absent ($(count_items "$missing")): $missing"
 elif [ -n "$empty" ]; then
-  row sections fail "required heading present but empty: $empty"
+  row sections fail "required heading present but empty ($(count_items "$empty")): $empty"
 else
   row sections pass "every template section present, every required one filled (headings at ${at2}${at2:+${at3:+ and }}${at3})"
 fi
 
 # --- check 4: GWT structure (rule 1, the checkable half) --------------------------------
 # WHICH conditions are independent is the critic's judgment, never this check's.
+#
+# ONE marker regex for every site (#205): the bare word with an optional parenthetical and/or
+# trailing colon and nothing else, OR the word wrapped in bold or italic followed by anything.
+# `Positive (happy path)`, `**Negative** note` and `Positive:` are markers; `Positive outcome
+# expected here` is prose, and admitting it would make a block with no When and a false FAIL.
+# Bracket expressions rather than backslashes, because the string is handed to awk through -v,
+# which processes escapes. bash 3.2 has no function returning a string, so a variable per word.
+marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[[:space:]]*$|^[[:space:]]*([*][*]|__|[*]|_)(%s):?([*][*]|__|[*]|_)' "$1" "$1"; }
+MARK_ANY="$(marker_re 'Positive|Negative')"; MARK_POS="$(marker_re Positive)"; MARK_NEG="$(marker_re Negative)"
 if [ -z "$SCENARIOS_LABEL" ]; then
   row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"
 else
@@ -247,15 +308,15 @@ else
   if ! has_content "$SCENARIOS"; then
     row gwt "$(empty_outcome "$SCENARIOS_LABEL")" "no content in $SCENARIOS_LABEL"
   else
-    pos_count=$(printf '%s\n' "$SCENARIOS" | grep -cE '^[[:space:]]*\**Positive\**[[:space:]]*$')
-    neg_count=$(printf '%s\n' "$SCENARIOS" | grep -cE '^[[:space:]]*\**Negative\**[[:space:]]*$')
+    pos_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_POS")
+    neg_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_NEG")
     if [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
     else
-      multi_when="$(printf '%s\n' "$SCENARIOS" | awk '
-        /^[[:space:]]*\**(Positive|Negative)\**[[:space:]]*$/ {
+      multi_when="$(printf '%s\n' "$SCENARIOS" | awk -v any="$MARK_ANY" '
+        $0 ~ any {
           if (block != "" && whens != 1) { print block ": " whens " When lines" }
-          block = $0; gsub(/[^A-Za-z]/, "", block); whens = 0; next
+          block = (index($0, "Positive") ? "Positive" : "Negative"); whens = 0; next
         }
         block != "" && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { whens++ }
         END { if (block != "" && whens != 1) { print block ": " whens " When lines" } }
@@ -268,14 +329,14 @@ else
         # quoted message, or an UPPER_SNAKE identifier is specific enough; anything else is
         # REFERRED, never failed, because this heuristic is narrower than rule 1's quality
         # bar on purpose and must not reject a message the canonical doc allows.
-        vague="$(printf '%s\n' "$SCENARIOS" | awk '
-          /^[[:space:]]*\**Negative\**[[:space:]]*$/ { inneg = 1; seen = 0; next }
-          /^[[:space:]]*\**Positive\**[[:space:]]*$/ { inneg = 0; next }
+        vague="$(printf '%s\n' "$SCENARIOS" | awk -v neg="$MARK_NEG" -v pos="$MARK_POS" '
+          $0 ~ neg { inneg = 1; seen = 0; next }
+          $0 ~ pos { inneg = 0; next }
           inneg && !seen && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1; print }
         ' | grep -vE '[0-9]|"[^"]+"|'"'"'[^'"'"']+'"'"'|[A-Z][A-Z0-9_]{2,}' | head -1)"
-        missing_then=$(printf '%s\n' "$SCENARIOS" | awk '
-          /^[[:space:]]*\**Negative\**[[:space:]]*$/ { if (inneg && !seen) n++; inneg = 1; seen = 0; next }
-          /^[[:space:]]*\**Positive\**[[:space:]]*$/ { if (inneg && !seen) n++; inneg = 0; next }
+        missing_then=$(printf '%s\n' "$SCENARIOS" | awk -v neg="$MARK_NEG" -v pos="$MARK_POS" '
+          $0 ~ neg { if (inneg && !seen) n++; inneg = 1; seen = 0; next }
+          $0 ~ pos { if (inneg && !seen) n++; inneg = 0; next }
           inneg && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1 }
           END { if (inneg && !seen) n++; print n+0 }
         ')
