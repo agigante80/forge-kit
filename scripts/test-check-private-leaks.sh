@@ -340,6 +340,15 @@ mkrepo p-gitlink
 ( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md \
   && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub ) >/dev/null 2>&1
 hrun --staged; rc=$RC; expect "a staged gitlink beside a staged name: reported, never a refusal" 1 "$rc"
+( cd "$HREPO" && c="$(git commit-tree -m 'secretproj in a message' "$(git write-tree)")" \
+  && git update-index --add --cacheinfo 160000,"$c",present ) >/dev/null 2>&1
+hrun --staged; rc=$RC; lacks "present:" "$OUT" "a gitlink whose commit is present is not scanned as a file"
+mkrepo p-listshown
+( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n ) >/dev/null 2>&1
+mkdir -p "$WORK/fakehome/.claude"; printf 'ab\n' > "$WORK/fakehome/.claude/short"
+err="$( cd "$HREPO" && HOME="$WORK/fakehome" "$SCRIPT" --list "$WORK/fakehome/.claude/short" --all 2>&1 >/dev/null )"
+contains "~/.claude/short:1:" "$err" "a message names the list under the home directory as ~ (bash 5 and 3.2 alike)"
+lacks "$WORK/fakehome" "$err" "and never the expanded path"
 mkrepo p-nowrite
 ( cd "$HREPO" && head -c 3000 /dev/zero | tr '\0' a > big.md && printf '\nsecretproj\n' >> big.md && git add big.md ) >/dev/null 2>&1
 ( cd "$HREPO" && ulimit -f 1 && "$SCRIPT" --list "$WORK/hlist" --staged </dev/null >"$WORK/pwout.txt" 2>"$WORK/pwerr.txt"; echo $? > "$WORK/pwrc.txt" ) 2>/dev/null

@@ -159,14 +159,21 @@ else
   [ "$ORPHANS" = 0 ] || die "--orphans is only valid with --history"
 fi
 
+# Messages show the list path with the home directory as "~": this scanner's own stderr is exactly
+# the text the public half polices, and the default path is under $HOME. A case, not a pattern
+# substitution: bash 5 tilde-expands "~" in a replacement string, so `${LIST/#$HOME/~}` printed
+# the path unchanged there and only bash 3.2 showed the tilde (review). Segment-anchored, so
+# HOME=/h/b never rewrites /h/bee/y.
+case "$LIST" in "$HOME"/*) LIST_SHOWN="~${LIST#"$HOME"}" ;; *) LIST_SHOWN="$LIST" ;; esac
+
 # --- --init: write a starter list ------------------------------------------
 # The template is HERE rather than in a .txt beside this script, because forge-adapt installs a
 # skill's `assets/*.sh` and nothing else: a separate template file would never reach the project,
 # and the guidance would point at a file that was not installed. One asset, one marker, and no
 # second copy of this text to drift out of step with the rules the script actually enforces.
 if [ "$DO_INIT" = 1 ]; then
-  [ -e "$LIST" ] && die "refusing to overwrite the existing list at $LIST"
-  mkdir -p "$(dirname "$LIST")" || die "could not create $(dirname "$LIST")"
+  [ -e "$LIST" ] && die "refusing to overwrite the existing list at $LIST_SHOWN"
+  mkdir -p "$(dirname "$LIST")" || die "could not create $(dirname "$LIST_SHOWN")"
   cat > "$LIST" <<'TEMPLATE'
 # private-names.txt -- the identity half of forge-kit's leak guard.
 #
@@ -192,13 +199,13 @@ if [ "$DO_INIT" = 1 ]; then
 # Matching is case insensitive and matches anywhere in a line, so a short distinctive name also
 # catches the longer names built from it. Prefer the shortest name that is still distinctive.
 TEMPLATE
-  printf 'check-private-leaks: wrote %s. Add your names to it.\n' "${LIST/#$HOME/~}" >&2
+  printf 'check-private-leaks: wrote %s. Add your names to it.\n' "$LIST_SHOWN" >&2
   exit 0
 fi
 
 # --- the list ---------------------------------------------------------------
 if [ ! -f "$LIST" ]; then
-  warn "no private-name list at ${LIST/#$HOME/~}, so NAMES ARE NOT BEING CHECKED."
+  warn "no private-name list at $LIST_SHOWN, so NAMES ARE NOT BEING CHECKED."
   warn "  this is not an error: the list is deliberately outside the repository, and a machine"
   warn "  that never had one must not be blocked. Run this with --init to write a starter list."
   exit 0
@@ -271,9 +278,6 @@ if [ "$MODE" != history ] && [ -n "$OWNER" ]; then
   case "$OWNER_HOST" in github.com|gitlab.com|codeberg.org|bitbucket.org) DROP_OWNER=1 ;; esac
 fi
 
-# Messages show the list path with the home directory as "~": this scanner's own stderr is
-# exactly the text the public half polices, and the default path is under $HOME.
-LIST_SHOWN="${LIST/#$HOME/~}"
 NAMES=()
 lineno=0
 while IFS= read -r raw || [ -n "$raw" ]; do

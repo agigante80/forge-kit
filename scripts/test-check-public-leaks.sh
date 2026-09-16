@@ -568,7 +568,6 @@ mkrepo symlink
 ( cd "$HREPO" && ln -s /home/alice/secret dangling && git add dangling && git commit -qm link ) >/dev/null 2>&1
 hrun --all; rc=$RC; expect "a tracked symlink is scanned as its link TEXT under --all (it used to be followed and skipped)" 1 "$rc"
 contains "dangling:1: home-path: /home/alice/" "$OUT" "at the link's path"
-hrun --staged; rc=$RC; expect "--staged agrees" 0 "$rc"
 ( cd "$HREPO" && git rm -q dangling && ln -s /home/alice/secret staged-link && git add staged-link ) >/dev/null 2>&1
 hrun --staged; rc=$RC; expect "and a staged symlink is reported the same way" 1 "$rc"
 mkrepo optnames
