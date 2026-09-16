@@ -25,6 +25,7 @@ passed=0; failed=0
 ok()  { printf '  ok: %s\n' "$1"; passed=$((passed+1)); }
 bad() { printf '  FAIL: %s\n' "$1"; failed=$((failed+1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
+lacks()    { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
 contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
@@ -528,6 +529,76 @@ if git init -q --object-format=sha256 "$WORK/hist-sha256" >/dev/null 2>&1; then
 else
   ok "SHA-256 repositories: this git cannot create one, case skipped"
 fi
+
+
+echo "== the tree modes fail closed, the way --history does (#208) =="
+# Each of these was a silent exit 0 on a real leak at 89e774f, found by the overnight audit.
+mkrepo rename
+( cd "$HREPO" && for i in $(seq 1 20); do echo "line $i"; done > a.md && git add a.md && git commit -qm twenty \
+  && git mv a.md b.md && printf '/home/alice/x\n' >> b.md && git add b.md ) >/dev/null 2>&1
+st="$( cd "$HREPO" && git diff --cached --name-status | cut -c1 )"; expect "fixture: git sees a rename" R "$st"
+hrun --staged; rc=$RC; expect "a renamed-and-edited file is reported by --staged" 1 "$rc"
+contains "b.md:21: home-path: /home/alice/" "$OUT" "at its new name and line"
+( cd "$HREPO" && git commit -qm renamed ) >/dev/null 2>&1
+hrun --range HEAD~1; rc=$RC; expect "and by --range" 1 "$rc"
+contains "b.md:21:" "$OUT" "at the new name"
+mkrepo purerename
+( cd "$HREPO" && for i in $(seq 1 20); do echo "line $i"; done > a.md && git add a.md && git commit -qm twenty && git mv a.md c.md ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "a pure rename adds no content and is clean" 0 "$rc"
+mkrepo typechange
+( cd "$HREPO" && ln -s seed.md link.md && git add link.md && git commit -qm link && rm link.md && printf '/home/alice/x\n' > link.md && git add link.md ) >/dev/null 2>&1
+st="$( cd "$HREPO" && git diff --cached --name-status | cut -c1 )"; expect "fixture: git sees a typechange" T "$st"
+hrun --staged; rc=$RC; expect "a symlink replaced by a leaking file is reported" 1 "$rc"
+contains "link.md:1:" "$OUT" "at its path"
+mkrepo stagesyntax
+( cd "$HREPO" && printf '/home/alice/x\n' > '0:x' && git add -- '0:x' ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "a staged path shaped like a stage spec (0:x) is reported" 1 "$rc"
+contains "0:x:1:" "$OUT" "at its path"
+mkrepo gitlink
+( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && git add leak.md \
+  && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "a staged gitlink beside a staged leak: reported, never a refusal" 1 "$rc"
+mkrepo optnames
+( cd "$HREPO" && printf '/home/alice/x\n' > ./-v && printf '/home/bob/y\n' > ./- && git add -- -v - && git commit -qm dashes ) >/dev/null 2>&1
+OUT="$( cd "$HREPO" && "$SCRIPT" --all </dev/null 2>"$WORK/herr.txt" )"; rc=$?
+expect "files named -v and - are scanned, not read as options or stdin" 1 "$rc"
+contains "-v:1:" "$OUT" "the -v file"
+contains "-:1:" "$OUT" "and the - file, with stdin from /dev/null"
+mkrepo notmp
+( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && git add leak.md ) >/dev/null 2>&1
+OUT="$( cd "$HREPO" && TMPDIR="$WORK/does-not-exist" "$SCRIPT" --staged </dev/null 2>"$WORK/herr.txt" )"; rc=$?
+expect "mktemp failure refuses --staged" 2 "$rc"
+contains "cannot create a temp directory" "$(cat "$WORK/herr.txt")" "and says so"
+[ -z "$OUT" ] && ok "with nothing on stdout" || bad "with nothing on stdout (got '$OUT')"
+OUT="$( cd "$HREPO" && TMPDIR="$WORK/does-not-exist" "$SCRIPT" --all </dev/null 2>"$WORK/herr.txt" )"; rc=$?
+[ "$rc" != 0 ] && ok "and --all under the same TMPDIR never reports clean (rc=$rc)" || bad "--all reported clean with no temp directory"
+mkrepo nowrite
+( cd "$HREPO" && head -c 3000 /dev/zero | tr '\0' a > big.md && printf '\n/home/alice/x\n' >> big.md && git add big.md ) >/dev/null 2>&1
+( cd "$HREPO" && trap '' XFSZ && ulimit -f 1 && "$SCRIPT" --staged </dev/null >"$WORK/wout.txt" 2>"$WORK/werr.txt"; echo $? > "$WORK/wrc.txt" ) 2>/dev/null
+expect "a blob the scanner cannot write refuses --staged" 2 "$(cat "$WORK/wrc.txt")"
+contains "could not read big.md" "$(cat "$WORK/werr.txt")" "naming the file"
+lacks "$WORK" "$(cat "$WORK/werr.txt")" "and never the temp path"
+if [ "$(id -u)" -ne 0 ]; then
+  mkrepo unreadable
+  ( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && git add leak.md && git commit -qm leak && chmod 000 leak.md ) >/dev/null 2>&1
+  hrun --all; rc=$RC; expect "a tracked file the scanner cannot open refuses --all" 2 "$rc"
+  contains "could not read leak.md" "$ERR" "naming the file"
+  lacks "$ROOT" "$ERR" "and never the script's own path"
+  [ -z "$OUT" ] && ok "with nothing on stdout" || bad "with nothing on stdout"
+  ( cd "$HREPO" && chmod 644 leak.md ) >/dev/null 2>&1
+  hrun --all; rc=$RC; expect "readable again, it is reported" 1 "$rc"
+else
+  ok "unreadable-file case skipped: running as root"
+fi
+MUT="$WORK/mutant-renames.sh"; sed 's/ --no-renames / /' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
+grep -q -- '--no-renames' "$SCRIPT" && ok "mutant ledger: the scanner passes --no-renames" || bad "mutant ledger: --no-renames not found"
+mkrepo rename2
+( cd "$HREPO" && for i in $(seq 1 20); do echo "line $i"; done > a.md && git add a.md && git commit -qm twenty && git mv a.md b.md && printf '/home/alice/x\n' >> b.md && git add b.md ) >/dev/null 2>&1
+( cd "$HREPO" && "$MUT" --staged ) >/dev/null 2>&1; expect "mutant (a): without --no-renames the rename is missed" 0 "$?"
+MUT2="$WORK/mutant-filter.sh"; sed 's/--diff-filter=ACMT/--diff-filter=ACM/' "$SCRIPT" > "$MUT2"; chmod +x "$MUT2"
+mkrepo typechange2
+( cd "$HREPO" && ln -s seed.md link.md && git add link.md && git commit -qm link && rm link.md && printf '/home/alice/x\n' > link.md && git add link.md ) >/dev/null 2>&1
+( cd "$HREPO" && "$MUT2" --staged ) >/dev/null 2>&1; expect "mutant (b): without T in the filter the typechange is missed" 0 "$?"
 
 echo "== --help does not go stale when the header is edited =="
 # It printed a hardcoded line range, so growing the header by seven lines truncated the output

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 9
+# check-private-leaks-version: 10
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -14,8 +14,11 @@
 #
 # THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
 # enumerates tracked files in the WORKING TREE, `--staged` reads the index, and `--range` enumerates
-# two endpoints and reads each file at HEAD, so a name added and removed inside the range is
-# invisible at both ends. A private folder name committed once and deleted later stays readable
+# two endpoints (`--no-renames --diff-filter=ACMT`, so a renamed-and-edited file and a symlink
+# replaced by a file are listed; both were invisible before #208) and reads each file at HEAD, so a
+# name added and removed inside the range is invisible at both ends. The tree modes fail closed
+# like `--history` (#208): a temp directory that cannot be made, a names file or blob that cannot
+# be written, a tracked file this process cannot open, are each exit 2 naming the file. A private folder name committed once and deleted later stays readable
 # forever in a public repository, and a NAME is exactly the thing someone scrubs from the tree and
 # forgets in the history.
 #
@@ -80,9 +83,11 @@
 # forced to keep:
 #
 #   - A MISSING LIST exits 0 and says so. A guard that blocks every fresh clone gets uninstalled.
-#   - THE OWNING ACCOUNT'S NAME is dropped with a warning rather than obeyed. It is in the
-#     repository's own clone URL, so a list containing it refuses every commit that touches the
-#     README. Public identity and private identity are different sets.
+#   - THE OWNING ACCOUNT'S NAME is dropped with a warning rather than obeyed, in the TREE MODES and
+#     only when origin's host is a public forge (github.com, gitlab.com, codeberg.org,
+#     bitbucket.org): there it is in the public clone URL, so a list containing it refuses every
+#     commit that touches the README. Public identity and private identity are different sets. On
+#     a private origin the list is obeyed, and --history obeys it everywhere (#209).
 #   - A VERY SHORT ENTRY refuses the run. Two characters match nearly every file, and a guard that
 #     fires on everything is one its owner switches off within a day.
 
@@ -174,10 +179,12 @@ if [ "$DO_INIT" = 1 ]; then
 # for, which converts a guard into an index. That is also why this half never runs in CI, and why
 # the list must not go in a CI secret. The scanner REFUSES to run against a tracked list.
 #
-# DO NOT ADD THE OWNING ACCOUNT NAME of a repository you work in. It is in that repository's own
-# clone URL, so it would fire on the README, the workflows and the install instructions. Public
-# identity and private identity are different sets. The scanner drops such an entry with a
-# warning rather than obeying it, but it can only do that for the repository it is run in.
+# DO NOT ADD THE OWNING ACCOUNT NAME of a repository hosted on a PUBLIC forge. It is in that
+# repository's public clone URL, so it would fire on the README, the workflows and the install
+# instructions. Public identity and private identity are different sets. The scanner drops such an
+# entry with a warning in the tree modes when origin is github.com, gitlab.com, codeberg.org or
+# bitbucket.org; on a private forge origin, and always under --history, the list is obeyed, since
+# the going-public scan is exactly where a private organisation name must be caught.
 #
 # Names shorter than three characters are refused: they match nearly every file, and a guard that
 # fires on everything is one you switch off within a day.
@@ -213,15 +220,55 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   ~/.claude/forge-kit/private-names.txt, which no project repository can track."
 fi
 
-# The account that owns this repository is public by definition: it is in the clone URL. A list
-# entry matching it would fire on the README, the workflows, and the install instructions.
-OWNER=""
+# Two leading characters and the length, which is enough for the owner to recognise their own name
+# and not enough for a reader of a pasted transcript to learn it.
+redact() {
+  local n="$1" out="${1:0:2}" i
+  for ((i = 2; i < ${#n}; i++)); do out+='*'; done
+  printf '%s' "$out"
+}
+
+# The account that owns this repository on a PUBLIC forge is public by definition: it is in the
+# clone URL. A list entry matching it would fire on the README, the workflows, and the install
+# instructions. That rationale is true of a public clone URL and false of a private one (#209):
+# with origin on a self-hosted Forgejo and GitHub as the second remote, the going-public scan is
+# exactly the one the drop used to defeat. So the drop applies ONLY in the tree modes, and ONLY
+# when origin's HOST is exactly one of the four public forges below; never in --history, which
+# obeys its list and leaves allowlisting to the user. The URL is parsed by FORM, following git's
+# URL grammar: on the `scheme://` form the host is the authority minus `user@` (stripped first)
+# and `:port` (only this form carries one), and the owner is the first path segment; on the scp
+# form (no `/` before the first `:`) the host is the text before the colon, minus `user@`, and the
+# owner the first segment after it; a local or relative path, or `file://`, yields no owner. No
+# digit heuristic anywhere: all-digit GitHub owners exist, and v9 took `2222` in `host:2222/` for
+# the owner. A look-alike host (`github.com.evil.internal`) and `@github.com/` in a path or query
+# are not the host; the comparison is exact on the isolated authority.
+OWNER=""; OWNER_HOST=""
 remote_url="$(git remote get-url origin 2>/dev/null || true)"
 if [ -n "$remote_url" ]; then
   u="${remote_url%.git}"
-  u="${u#*://}"; u="${u#*@}"          # strip scheme and any ssh user
-  u="${u#*[:/]}"                      # strip host
-  OWNER="${u%%/*}"
+  case "$u" in
+    *://*)
+      rest="${u#*://}"
+      case "$rest" in
+        */*) auth="${rest%%/*}"; upath="${rest#*/}" ;;
+        *)   auth="$rest"; upath="" ;;
+      esac
+      auth="${auth##*@}"; OWNER_HOST="${auth%%:*}"
+      [ -n "$OWNER_HOST" ] && OWNER="${upath%%/*}" ;;
+    *)
+      pre="${u%%:*}"
+      case "$u" in
+        *:*) case "$pre" in
+               */*) : ;;                                   # a path with a colon in it, not scp form
+               *)   OWNER_HOST="${pre##*@}"; upath="${u#*:}"; OWNER="${upath%%/*}" ;;
+             esac ;;
+      esac ;;
+  esac
+fi
+set_lower "$OWNER_HOST"; OWNER_HOST="$LOWER"
+DROP_OWNER=0
+if [ "$MODE" != history ] && [ -n "$OWNER" ]; then
+  case "$OWNER_HOST" in github.com|gitlab.com|codeberg.org|bitbucket.org) DROP_OWNER=1 ;; esac
 fi
 
 NAMES=()
@@ -238,10 +285,10 @@ while IFS= read -r raw || [ -n "$raw" ]; do
   fi
   set_lower "$n";     n_lc="$LOWER"
   set_lower "$OWNER"; owner_lc="$LOWER"
-  if [ -n "$OWNER" ] && [ "$n_lc" = "$owner_lc" ]; then
-    warn "$LIST:$lineno: dropping '$n': it is the OWNING ACCOUNT of this repository, so it appears"
-    warn "  in the clone URL and would refuse every commit touching the README. Public identity and"
-    warn "  private identity are different sets."
+  if [ "$DROP_OWNER" = 1 ] && [ "$n_lc" = "$owner_lc" ]; then
+    warn "$LIST:$lineno: dropping '$(redact "$n")': it is the OWNING ACCOUNT of this repository on $OWNER_HOST,"
+    warn "  so it appears in the public clone URL and would refuse every commit touching the README."
+    warn "  Public identity and private identity are different sets. --history never drops it."
     continue
   fi
   NAMES+=("$n")
@@ -264,18 +311,20 @@ else
     history) : ;;
     all)    while IFS= read -r -d '' f; do FILES+=("$f"); done < <(git ls-files -z) ;;
     staged) while IFS= read -r -d '' f; do FILES+=("$f"); done \
-              < <(git diff --cached --name-only --diff-filter=ACM -z) ;;
+              < <(git diff --cached --no-renames --name-only --diff-filter=ACMT -z) ;;
     range)
       # Fail CLOSED on an absent base, rather than passing vacuously.
       git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null \
         || die "base ref not found: $BASE (fetch it first)"
       while IFS= read -r -d '' f; do FILES+=("$f"); done \
-        < <(git diff --name-only --diff-filter=ACM -z "$BASE...HEAD") ;;
+        < <(git diff --no-renames --name-only --diff-filter=ACMT -z "$BASE...HEAD") ;;
   esac
 fi
 [ "$MODE" = history ] || [ "${#FILES[@]}" -gt 0 ] || exit 0
 
-TMPD="$(mktemp -d)"
+# Unconditional and fatal: a scan that cannot make its temp directory used to continue and
+# report clean (#208). A refusal is the honest answer and the hooks treat exit 2 as a block.
+TMPD="$(mktemp -d 2>/dev/null)" || die "cannot create a temp directory"
 trap 'rm -rf "$TMPD"' EXIT
 BLOB="$TMPD/blob"
 
@@ -293,17 +342,10 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
   return 1
 }
 
-# Two leading characters and the length, which is enough for the owner to recognise their own name
-# and not enough for a reader of a pasted transcript to learn it.
-redact() {
-  local n="$1" out="${1:0:2}" i
-  for ((i = 2; i < ${#n}; i++)); do out+='*'; done
-  printf '%s' "$out"
-}
 
 # The names as a grep pattern file, written once. -F is literal, so nothing in a name is a regex.
 PATFILE="$TMPD/names"
-printf '%s\n' "${NAMES[@]}" > "$PATFILE"
+printf '%s\n' "${NAMES[@]}" > "$PATFILE" || die "could not write the names file"
 
 violations=0
 # --- history mode --------------------------------------------------------------
@@ -533,11 +575,19 @@ fi
 for f in "${FILES[@]}"; do
   skip_by_name "$f" && continue
   case "$MODE" in
-    staged) git show ":$f" > "$BLOB" 2>/dev/null || continue; scanfile="$BLOB" ;;
-    range)  git show "HEAD:$f" > "$BLOB" 2>/dev/null || continue; scanfile="$BLOB" ;;
+    # ":0:$f", never ":$f": git reads ":<stage>:<path>" first, so a path shaped "0:x" was taken
+    # for a stage spec and skipped (#208). When the show fails, the cause test decides: an object
+    # git does not HAVE (a gitlink's commit oid, a path git cannot show) is skipped as before, an
+    # object it has that could not be written (disk full under TMPDIR) is a refusal, since the
+    # old "|| continue" turned that into a clean report. The message names the file, never $TMPD.
+    staged) git show ":0:$f" > "$BLOB" 2>/dev/null || { git cat-file -e ":0:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
+    range)  git show "HEAD:$f" > "$BLOB" 2>/dev/null || { git cat-file -e "HEAD:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac
   [ -f "$scanfile" ] || continue
+  # A tracked file this process cannot OPEN (mode 000) used to fall through the greps below and
+  # read as clean (#208); it is a refusal, and the message names the file, not the script.
+  [ -r "$scanfile" ] || die "could not read $f"
   # Compared against the NAMED path, never the file being read. In --staged and --range that file
   # is a temp blob, so comparing it here would never match and the scanner would report its own
   # source. Every project that vendors this asset and wires the commit hook hits that on the
@@ -549,7 +599,10 @@ for f in "${FILES[@]}"; do
   esac
   # Read by grep, never through a command substitution: null bytes would be dropped and warned
   # about once per occurrence, so a full scan would print a wall of noise and read fonts as text.
-  grep -Iq . "$scanfile" 2>/dev/null || continue
+  # The file is read by REDIRECTION, never as an operand: a tracked file named "-v" was an option
+  # and one named "-" was stdin, and both were unscanned (#208). stderr is closed before the open so
+  # a bash diagnostic, which carries this script's absolute path, cannot print.
+  grep -Iq . 2>/dev/null < "$scanfile" || continue
 
   # ONE grep per file, matching every name at once from a pattern file, rather than one grep per
   # (file x name). At ten names and five thousand files the old shape was fifty thousand process
@@ -560,7 +613,7 @@ for f in "${FILES[@]}"; do
     if [ "$SHOW_NAMES" = 1 ]; then shown="$hit"; else shown="$(redact "$hit")"; fi
     printf '%s:%s: private-name: %s\n' "$f" "${g%%:*}" "$shown"
     violations=$((violations + 1))
-  done < <(grep -noiF -f "$PATFILE" -- "$scanfile" 2>/dev/null)
+  done < <(grep -noiF -f "$PATFILE" 2>/dev/null < "$scanfile")
 done
 
 [ "$violations" -eq 0 ] || exit 1

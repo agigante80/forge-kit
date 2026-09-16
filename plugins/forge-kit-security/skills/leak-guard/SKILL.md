@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 8 -->
+<!-- leak-guard-version: 9 -->
 
 # Leak guard
 
@@ -168,9 +168,12 @@ missing check, so it refuses rather than warns, and says which command fixes it.
 
 Two rules learned the hard way, both written into the list `--init` creates:
 
-- **The account name that owns the repository must not go in the list.** It appears in the
-  repository's own clone URL, so a denylist containing it refuses every commit that touches the
-  README. Public identity and private identity are different sets.
+- **The account name that owns the repository on a public forge must not go in the list.** It
+  appears in the public clone URL, so a denylist containing it refuses every commit that touches
+  the README; the scanner drops it with a warning in the tree modes when origin is github.com,
+  gitlab.com, codeberg.org or bitbucket.org. On a private forge origin the list is obeyed, and
+  `--history` obeys it everywhere: a private organisation name is exactly what the going-public
+  scan must catch. Public identity and private identity are different sets.
 - **The list stays untracked.** Its entire security property is that it was never published. The
   default location is outside every project repository precisely so this cannot be got wrong by
   forgetting a `.gitignore` entry.

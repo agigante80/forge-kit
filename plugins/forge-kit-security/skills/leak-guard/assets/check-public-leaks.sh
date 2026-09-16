@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 8
+# check-public-leaks-version: 9
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -18,10 +18,16 @@
 #
 # THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
 # enumerates `git ls-files`: tracked files in the WORKING TREE. `--staged` reads the index. `--range`
-# enumerates `git diff --name-only --diff-filter=ACM` between two endpoints and reads each file at
-# HEAD, so a file added AND deleted inside the range is excluded at both ends. A home path committed
-# in one commit and removed in the next is invisible to all three, in the public repository where
-# it stays readable forever, and that is exactly the going-public moment this component exists for.
+# enumerates `git diff --no-renames --name-only --diff-filter=ACMT` between two endpoints and reads
+# each file at HEAD, so a file added AND deleted inside the range is excluded at both ends. A home
+# path committed in one commit and removed in the next is invisible to all three, in the public
+# repository where it stays readable forever, and that is exactly the going-public moment this
+# component exists for. `--no-renames` and the `T` are load-bearing (#208): with rename detection
+# on, a renamed-and-edited file is status R and was listed by nothing, so the commit hook said
+# clean on an ordinary `git mv` plus an appended leak; a symlink replaced by a file is T and was
+# invisible the same way. The tree modes also FAIL CLOSED like `--history` now: a temp directory
+# that cannot be made, a blob git has but cannot write, a tracked file this process cannot open,
+# are each exit 2 with the file named, where every one used to be exit 0.
 #
 # `--history` reads the publishable history: every blob reachable from a branch, a tag or a
 # remote-tracking ref (a branch that exists only on the remote is already on a forge; with several
@@ -251,20 +257,22 @@ else
       while IFS= read -r -d '' f; do FILES+=("$f"); done < <(git ls-files -z) ;;
     staged)
       while IFS= read -r -d '' f; do FILES+=("$f"); done \
-        < <(git diff --cached --name-only --diff-filter=ACM -z) ;;
+        < <(git diff --cached --no-renames --name-only --diff-filter=ACMT -z) ;;
     range)
       # Fail CLOSED on a base ref that is not present, rather than passing vacuously. The same
       # posture the repo's other range guards take: a check that cannot run must not report clean.
       git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null \
         || die "base ref not found: $BASE (fetch it first)"
       while IFS= read -r -d '' f; do FILES+=("$f"); done \
-        < <(git diff --name-only --diff-filter=ACM -z "$BASE...HEAD") ;;
+        < <(git diff --no-renames --name-only --diff-filter=ACMT -z "$BASE...HEAD") ;;
   esac
 fi
 
 [ "$MODE" = history ] || [ "${#FILES[@]}" -gt 0 ] || exit 0
 
-TMPD="$(mktemp -d)"
+# Unconditional and fatal: a scan that cannot make its temp directory used to continue and
+# report clean (#208). A refusal is the honest answer and the hooks treat exit 2 as a block.
+TMPD="$(mktemp -d 2>/dev/null)" || die "cannot create a temp directory"
 trap 'rm -rf "$TMPD"' EXIT
 BLOB="$TMPD/blob"
 
@@ -577,11 +585,19 @@ for f in "${FILES[@]}"; do
   skip_by_name "$f" && continue
 
   case "$MODE" in
-    staged) git show ":$f" > "$BLOB" 2>/dev/null || continue; scanfile="$BLOB" ;;
-    range)  git show "HEAD:$f" > "$BLOB" 2>/dev/null || continue; scanfile="$BLOB" ;;
+    # ":0:$f", never ":$f": git reads ":<stage>:<path>" first, so a path shaped "0:x" was taken
+    # for a stage spec and skipped (#208). When the show fails, the cause test decides: an object
+    # git does not HAVE (a gitlink's commit oid, a path git cannot show) is skipped as before, an
+    # object it has that could not be written (disk full under TMPDIR) is a refusal, since the
+    # old "|| continue" turned that into a clean report. The message names the file, never $TMPD.
+    staged) git show ":0:$f" > "$BLOB" 2>/dev/null || { git cat-file -e ":0:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
+    range)  git show "HEAD:$f" > "$BLOB" 2>/dev/null || { git cat-file -e "HEAD:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac
   [ -f "$scanfile" ] || continue
+  # A tracked file this process cannot OPEN (mode 000) used to fall through the greps below and
+  # read as clean (#208); it is a refusal, and the message names the file, not the script.
+  [ -r "$scanfile" ] || die "could not read $f"
 
   # Never report the guard's own source: it has to contain the patterns to apply them.
   # Compared against the NAMED path, never the file being read. In --staged and --range that file
@@ -597,7 +613,10 @@ for f in "${FILES[@]}"; do
   # Binary detection reads the file, never a shell variable, so null bytes are neither dropped nor
   # warned about. -I makes grep treat a binary file as non-matching, so an empty result means
   # "binary or empty", and both are nothing to scan.
-  grep -Iq . "$scanfile" 2>/dev/null || continue
+  # The file is read by REDIRECTION, never as an operand: a tracked file named "-v" was an option
+  # and one named "-" was stdin, and both were unscanned (#208). stderr is closed before the open so
+  # a bash diagnostic, which carries this script's absolute path, cannot print.
+  grep -Iq . 2>/dev/null < "$scanfile" || continue
 
   # ONE grep per file, not one per rule. The rules are distinguished by the SHAPE of the match,
   # which they already are: only rule A's starts with a slash and only rule B's with a tilde. Three
@@ -605,7 +624,7 @@ for f in "${FILES[@]}"; do
   while IFS= read -r g; do
     [ -n "$g" ] || continue
     judge "$f" "${g%%:*}" "${g#*:}"
-  done < <(grep -onE "$RE_ANY" "$scanfile" 2>/dev/null)
+  done < <(grep -onE "$RE_ANY" 2>/dev/null < "$scanfile")
 done
 
 [ "$violations" -eq 0 ] || exit 1

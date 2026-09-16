@@ -606,6 +606,13 @@ keep on the second use.
 Opened 2026-09-16 for #205, the first ticket the overnight run took through fold-and-regate to a
 PASS. Four heuristic misses in the mechanics script, found by running it on another project.
 
+## Phase: What the tree modes could not read
+state: open
+plan: docs/plans/what-the-tree-modes-could-not-read.md
+
+Opened 2026-09-16 for #208 and #209: the audit's finding that the older tree modes, the ones the
+hooks run, had fail-open paths the new history mode did not.
+
 ## Phase: Backlog
 state: backlog
 

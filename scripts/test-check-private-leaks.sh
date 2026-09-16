@@ -7,8 +7,9 @@
 #
 # THE THREE CASES THAT ARE THE REASON THIS IS A SCRIPT AND NOT PROSE. A missing list must exit 0
 # and say so, because a guard that blocks every fresh clone gets uninstalled. The owning account's
-# name must be dropped with a warning, because it is in the repository's own clone URL and a list
-# containing it refuses every commit that touches the README. And a two-character entry must refuse
+# name must be dropped with a warning when origin is a PUBLIC forge and the mode is a tree mode,
+# because there it is in the public clone URL and a list containing it refuses every commit that
+# touches the README (#209: on a private origin, and under --history, the list is obeyed). And a two-character entry must refuse
 # the run, because it matches nearly every file and turns the guard into noise its owner then
 # switches off. All three fail in the direction of the guard being REMOVED, which is the only
 # failure mode that matters for something nobody is forced to keep.
@@ -25,6 +26,7 @@ ok()  { printf '  ok: %s\n' "$1"; passed=$((passed+1)); }
 bad() { printf '  FAIL: %s\n' "$1"; failed=$((failed+1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
 # Case insensitive: the assertion is that the reason was ANNOUNCED, not how it was capitalised.
+lacks()    { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
 contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
@@ -319,6 +321,69 @@ sed 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' "$SCRI
 grep -q '^r < 0 {$' "$MUT" && bad "the mutant no longer carries the r<0 gate" || ok "the mutant no longer carries the r<0 gate"
 mout="$( cd "$HREPO" && "$MUT" --list "$WORK/hlist" --history 2>/dev/null )"
 [ -z "$mout" ] && ok "the mutant misses the name (prints no finding)" || bad "the mutant misses the name (prints no finding) (got '$mout')"
+
+
+echo "== the tree modes fail closed (#208) =="
+mkrepo p-rename
+( cd "$HREPO" && for i in $(seq 1 20); do echo "line $i"; done > a.md && git add a.md && git commit -qm twenty \
+  && git mv a.md b.md && printf 'secretproj\n' >> b.md && git add b.md ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "a renamed-and-edited file is reported by --staged" 1 "$rc"
+contains "b.md:21: private-name: se********" "$OUT" "at its new name and line"
+mkrepo p-type
+( cd "$HREPO" && ln -s seed.md link.md && git add link.md && git commit -qm link && rm link.md && printf 'secretproj\n' > link.md && git add link.md ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "a symlink replaced by a file naming a listed name is reported" 1 "$rc"
+mkrepo p-stage
+( cd "$HREPO" && printf 'secretproj\n' > '0:x' && git add -- '0:x' ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "a staged path shaped 0:x is reported" 1 "$rc"
+contains "0:x:1:" "$OUT" "at its path"
+mkrepo p-dashes
+( cd "$HREPO" && printf 'secretproj\n' > ./-v && printf 'secretproj\n' > ./- && git add -- -v - && git commit -qm dashes ) >/dev/null 2>&1
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" --all </dev/null 2>"$WORK/herr.txt" )"; rc=$?
+expect "files named -v and - are scanned" 1 "$rc"
+contains "-:1:" "$OUT" "the - file too"
+mkrepo p-notmp
+( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md && git commit -qm leak ) >/dev/null 2>&1
+OUT="$( cd "$HREPO" && TMPDIR="$WORK/does-not-exist" "$SCRIPT" --list "$WORK/hlist" --all </dev/null 2>"$WORK/herr.txt" )"; rc=$?
+expect "mktemp failure refuses --all, the pre-push hook's mode (it exited 0 at v9)" 2 "$rc"
+contains "cannot create a temp directory" "$(cat "$WORK/herr.txt")" "and says so"
+if [ "$(id -u)" -ne 0 ]; then
+  ( cd "$HREPO" && chmod 000 leak.md )
+  hrun --all; rc=$RC; expect "a tracked file the scanner cannot open refuses --all" 2 "$rc"
+  contains "could not read leak.md" "$ERR" "naming the file"
+  ( cd "$HREPO" && chmod 644 leak.md )
+else
+  ok "unreadable-file case skipped: running as root"
+fi
+
+echo "== the owner drop applies only where its rationale is true (#209) =="
+own() {  # own <origin-url> <list-name> <mode...>: fresh repo naming the listed name in README; OUT/ERR/RC
+  mkrepo "own-$RANDOM"; printf '%s\n' "$2" > "$WORK/ownlist"
+  ( cd "$HREPO" && git remote add origin "$1" && printf 'about %s here\n' "$2" > README.md && git add README.md && git commit -qm readme ) >/dev/null 2>&1
+  shift 2; OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/ownlist" "$@" 2>"$WORK/herr.txt" )"; RC=$?; ERR="$(cat "$WORK/herr.txt")"
+}
+own 'git@forgejo.example.internal:acme-secret-org/repo.git' acme-secret-org --history
+expect "a listed owner on a private forge origin is reported by --history" 1 "$RC"; lacks "dropping" "$ERR" "with no dropping warning"
+own 'git@forgejo.example.internal:acme-secret-org/repo.git' acme-secret-org --all
+expect "and by --all: the drop is for public forges only" 1 "$RC"; lacks "dropping" "$ERR" "no warning"
+own 'https://forgejo.example.internal:3000/acme-secret-org/repo.git' acme-secret-org --all
+expect "a private https origin with a port: reported" 1 "$RC"
+own 'git@github.com:acme-secret-org/repo.git' acme-secret-org --all
+expect "a github.com origin in a tree mode: the documented drop" 0 "$RC"; contains "dropping" "$ERR" "with the warning"
+lacks "acme-secret-org" "$ERR" "and the name redacted in it"
+own 'git@github.com:acme-secret-org/repo.git' acme-secret-org --history
+expect "a github.com origin in --history: never dropped" 1 "$RC"
+own 'ssh://git@github.com:2222/acme-secret-org/repo.git' 2222 --all
+expect "a listed 2222 with a port-carrying URL is reported (v9 took the port for the owner)" 1 "$RC"; lacks "dropping" "$ERR" "no drop"
+own 'ssh://git@github.com:2222/acme-secret-org/repo.git' acme-secret-org --all
+expect "and the owner behind the port is still the owner on github.com" 0 "$RC"
+own '../acme-secret-org/repo.git' acme-secret-org --all
+expect "a relative-path origin yields no owner: the listed folder name is reported" 1 "$RC"
+own 'https://git:git@github.com/acme-secret-org/repo.git' acme-secret-org --all
+expect "userinfo is stripped before the port: github.com is still the host" 0 "$RC"
+own 'https://evil.internal/x/y?z=@github.com/acme-secret-org/repo.git' acme-secret-org --all
+expect "github.com in the path or query is not the host" 1 "$RC"
+own 'https://github.com.evil.internal/acme-secret-org/repo.git' acme-secret-org --all
+expect "a look-alike host is not github.com" 1 "$RC"
 
 echo "== --init writes the list template, and never over an existing list =="
 # The template lives INSIDE the script rather than beside it as a .txt. forge-adapt installs a
