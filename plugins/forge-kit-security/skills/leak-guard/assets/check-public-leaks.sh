@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 10
+# check-public-leaks-version: 11
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -53,8 +53,35 @@
 # "zzz.md" and "aaa.lock" is still reported. Cost on this repository, 4,300 reachable objects and
 # 23 MB of content: about 3 s of CPU under bash 5 and twice that under bash 3.2 (measured 2026-09-14
 # on a loaded machine; the reader itself is a tenth of that, the rest is bash judging matches),
-# against fourteen seconds process-per-blob. NEVER wired into a hook: it is a pre-publish step, run
-# by hand, and its evidence is REDACTED by default (see below).
+# against fourteen seconds process-per-blob. The tagged stream materialises the whole readable
+# history under TMPDIR once, and `hits` can equal it again, so budget twice the readable content on
+# disk; awk holds the largest kept object twice in memory. NEVER wired into a hook: it is a
+# pre-publish step, run by hand, and its evidence is REDACTED by default (see below).
+#
+# COST AND ITS LIMITS (#211). Rule C is linear in the line length in both modes: the anchored
+# RE_MAIL keeps grep on its DFA, LC_ALL=C on the tree-mode grep keeps it there under any locale,
+# and judge() splits the address with `IFS=@ read` rather than `${addr#*@}`. A 1 MB token followed
+# by an address costs 0.08 s where it once cost minutes, which is what matters: a hook that stalls
+# is a hook that gets --no-verify, and that is how this guard gets removed. Two things are NOT
+# linear and belong to a sibling ticket rather than to that claim: `redact`'s append loop, so a
+# REDACTED --history report over a megabyte-long match is still slow (24 s at 128 KB), which is why
+# the timing cases that use a glued match pass --show-evidence; and rules A and B's own bash-side
+# work on pathological paths.
+#
+# TWO SHAPES THIS DELIBERATELY DOES NOT REPORT, both consequences of the above, both pinned by a
+# test case so they cannot be rediscovered as bugs:
+#   1. An address glued to a home path or root, `/home/alice/alice@corp.io` and
+#      `~/secret/alice@corp.io`: rules A and B end in `/?`, which consumes the byte rule C's anchor
+#      needs, so the path row is reported and the address is not. Dropping that `/?` would change
+#      five existing cases for a shape no real tree here has produced. A separator between the two
+#      (`/home/alice/notes alice@corp.io`) reports both.
+#   2. An accented local part or domain in TREE mode, `jose@corp.io` with an acute e, `zoe@corp.io`
+#      with a diaeresis, `alice@corpe.io` likewise: LC_ALL=C narrows `[A-Za-z]` to ASCII, where a
+#      territory UTF-8 locale would admit Latin letters with diacritics. This is not a new blind
+#      spot: --history has always run under C, and CI runs under C.UTF-8, where GNU grep already
+#      misses them; the pin makes the laptop hook path match them. Widening the three classes with
+#      \x80-\xff is linear and was costed, and it glues any preceding multibyte byte into the
+#      evidence, so it is a maintainer decision rather than an oversight.
 #
 # `--history --orphans` also reads objects no ref reaches: a leak amended or reset away is still
 # in the local store until `git gc` prunes it, and so is a stash entry, which is the one ref the
@@ -313,7 +340,12 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
 # "~/name`" as the root means the project's own allow-file entry never matches it.
 RE_HOME='(/home|/Users)/[^/[:space:]"`]+/?'
 RE_ROOT='~/[^/[:space:]"`]+/?'
-RE_MAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+# The leading "(^|[^class])" is the half of #211 that makes rule C linear: unanchored, the local
+# part's "+" run can start at EVERY position of a long word-class byte run, and grep leaves its DFA
+# to retry each one (64 KB of [A-Za-z0-9] then one address: 105 s before, milliseconds after). The
+# match therefore carries one leading byte where the line does not start with the address, and
+# judge() strips it before dispatching. The other half is LC_ALL=C on the tree-mode grep below.
+RE_MAIL='(^|[^A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 RE_ANY="$RE_HOME|$RE_ROOT|$RE_MAIL"
 
 # Trailing sentence punctuation belongs to the prose, not to the name. Only the tail is stripped,
@@ -361,6 +393,14 @@ show_evidence() {  # show_evidence <rule> <evidence>: what the report prints for
 # them: <label> is the file in a tree mode and "<path>@<oid>" in history.
 judge() {
   local f="$1" n="$2" m="$3" raw seg allowed rawt p root addr local_part domain
+  # Rule C's anchor (#211) leaves one leading byte on the match, and the dispatch below keys on the
+  # FIRST byte, so "see docs/alice@corp.io" would arrive as "/alice@corp.io" and be judged a home
+  # path. Strip it BEFORE the dispatch, never inside the email arm. A match that already starts
+  # with a class byte, or that is a rule A or rule B match, is left exactly as it was.
+  case "$m" in
+    [A-Za-z0-9._%+-]*@*|/home/*|/Users/*|'~'/*) ;;
+    *@*) m="${m#?}" ;;
+  esac
   case "$m" in
     /*)
       raw="${m%/}"; seg="${raw##*/}"
@@ -384,7 +424,9 @@ judge() {
       report "$f" "$n" home-root "$(show_evidence home-root "$m")" ;;
     *)
       strip_tail "$m"; addr="$STRIPPED"
-      local_part="${addr%%@*}"; domain="${addr#*@}"
+      # IFS=@ read, not "${addr#*@}": that expansion is quadratic in the match length (3.1 s at
+      # 64 KB, 48 s at 256 KB), which would move the cost the anchor removed into bash (#211).
+      IFS=@ read -r local_part domain <<< "$addr"
       # An address that cannot reach a mailbox is not a leak. noreply is the convention; the rest
       # are the TLDs reserved by RFC 2606 and RFC 6761 precisely so documentation can use them.
       set_lower "$local_part"
@@ -448,7 +490,7 @@ r < 0 {
       else if (orphans && n == 2 && !(oid in haspath) && substr(first, 1, 2) == "#!") drop = 1
     }
     if (drop) split("", buf)
-    else if (body) { if (!(r <= 0 && $0 == "")) buf[cnt++] = n "\t" $0 }
+    else if (body) { if (!(r <= 0 && $0 == "")) buf[cnt++] = n "\t " $0 }
     else if ($0 == "") body = 1
   }
   if (r <= 0) {
@@ -645,7 +687,11 @@ for f in "${FILES[@]}"; do
   while IFS= read -r g; do
     [ -n "$g" ] || continue
     judge "$f" "${g%%:*}" "${g#*:}"
-  done < <(grep -onE "$RE_ANY" 2>/dev/null < "$scanfile")
+    # LC_ALL=C is the second half of #211 and it is not cosmetic: under a territory UTF-8 locale
+    # grep stays off its byte-wise DFA and the anchored regex is still quadratic (162 s at 1 MB
+    # against 0.08 s under C). The history pipeline above has always run under C; this is the path
+    # a hook takes, and it did not. The cost is the letter-class narrowing named in the header.
+  done < <(LC_ALL=C grep -onE "$RE_ANY" 2>/dev/null < "$scanfile")
 done
 
 [ "$violations" -eq 0 ] || exit 1

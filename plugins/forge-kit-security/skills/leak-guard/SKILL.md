@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 10 -->
+<!-- leak-guard-version: 11 -->
 
 # Leak guard
 
@@ -63,15 +63,12 @@ bytes, not to avoid that abort. macOS itself,
 its BSD `tr` and Apple's `git`, has not been exercised: no Mac was available when this shipped.
 A report from one is a ticket, not a surprise.
 
-**History is two sets, and a push sends only one of them.** What the PUSHED refs reach is what
-`git push` packs and what the public repository will hold. Everything else, an object orphaned by
-`commit --amend` or a reset, and refs an ordinary push does not send (stash entries among them),
-stays on the machine: tested on a throwaway repository, an amended-away leak was
-in the local store, invisible to `rev-list --all`, and absent from the remote after the push. **The
-exception is a copied `.git`**: a tarball or a `cp -r` carries every object, orphans included, and
-the push fact does not apply. Before the first push, delete the local orphans and empty every
-reflog entry, the stash stack included, so apply or drop anything stashed first (tested: three
-stashes, one survives the prune as `refs/stash`, the other two are gone):
+**What the refs above do not reach stays on the machine**, tested on a throwaway repository: an
+amended-away leak was in the local store, invisible to `rev-list --all`, and absent from the remote
+after the push. **The exception is a copied `.git`**, a tarball or a `cp -r`, which carries every
+object and every ref. Before the first push, prune the orphans and empty every reflog, the stash
+stack included, so apply or drop anything stashed first (tested: of three stashes, one survives the
+prune as `refs/stash` and the other two are gone):
 
 ```bash
 git reflog expire --expire=now --all && git gc --prune=now
@@ -83,6 +80,11 @@ pre-publish step and never a remedy for an exposure that has happened.
 
 **Neither half reads a commit message, a branch name or a tag.** A repository's object store holds
 far more than file contents, and a leak in a commit subject is unreached by both.
+
+**Two email shapes the public half misses, each pinned by a test (#211).** An address glued to a
+home path or root with no separator reports the path row alone, and an address carrying an accented
+letter is silent in tree mode, which runs under the C locale like history mode and CI. Both are the price of
+rule C being linear rather than minutes on a long line; the scanner's header states them.
 
 **Neither half hunts credentials.** This is about the developer's identity: home paths, personal
 directory names, reachable addresses. An API key or a token is a different subject with a different

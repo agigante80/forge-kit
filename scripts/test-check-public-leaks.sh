@@ -728,6 +728,142 @@ contains 'tree modes never look at history' "$h" "check-public-leaks.sh --help s
 contains 'reads the publishable history' "$h" "check-public-leaks.sh --help states what --history reads"
 contains 'never wired into a hook' "$h" "check-public-leaks.sh --help states that --history is never a hook"
 
+
+echo "== rule C is linear in the line length, in both modes and both locales (#211) =="
+# The defect: unanchored, rule C's local part can start at every position of a long word-class run
+# and grep leaves its DFA to retry each one (64 KB then one address: 105 s). Two halves fix it, the
+# anchor and LC_ALL=C on the tree grep, and judge()'s split is a third quadratic in bash. Each half
+# has a mutant here that must be KILLED at the bound, which is what proves the half load-bearing.
+# MUTANTS (2026-09-16, #211): the anchor removed from RE_MAIL; LC_ALL=C removed from the tree grep
+# (only observable under a territory UTF-8 locale, skipped where none exists); the IFS=@ read split
+# replaced by ${addr#*@}. All three killed. The bound is this suite's own helper, never GNU
+# `timeout`, which stock macOS does not ship.
+bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it
+  local secs="$1"; shift
+  ( set -m
+    "$@" & pid=$!
+    ( sleep "$secs"; kill -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+    set +m
+    wait "$pid" 2>/dev/null; rc=$?
+    kill -- -"$w" 2>/dev/null
+    [ "$rc" -ge 128 ] && rc=124; exit "$rc" )
+}
+# The watcher is spawned while set -m is still on, so it is its own group and the kill reaches its
+# sleep, and its stdio is detached so that sleep cannot hold a capture pipe open: written the naive
+# way, OUT="$(bounded 10 ...)" blocks for the whole bound even when the command returns at once.
+# On bash 3.2 a killed mutant's WALL time overshoots the bound (a fatal signal waits for the
+# expansion it is inside to finish); the exit code is still 124. The three mutants cost about 40 s.
+LONG="$WORK/long-spaced.md"; { head -c 1048576 /dev/zero | tr '\0' a; printf ' alice@corp.io\n'; } > "$LONG"
+GLUED="$WORK/long-glued.md"; { head -c 262144 /dev/zero | tr '\0' a; printf '@corp.io\n'; } > "$GLUED"
+# 1 MB spaced, 256 KB glued: the glued shape is the one that reaches bash, and at 1 MB the FIXED
+# scanner needs 5.1 s of a 10 s bound on bash 3.2.57, which is a flake waiting to happen; at
+# 256 KB it is 1.3 s and the unfixed split still needs 48 s.
+OUT="$(bounded 10 "$SCRIPT" --all "$LONG" 2>/dev/null)"; rc=$?
+expect "a 1 MB token followed by an address is reported within the bound (--all)" 1 "$rc"
+contains "email: alice@corp.io" "$OUT" "and the address is the evidence"
+OUT="$(bounded 10 "$SCRIPT" --all "$GLUED" 2>/dev/null)"; rc=$?
+expect "a 256 KB match is split within the bound (--all)" 1 "$rc"
+contains "email: a" "$OUT" "and reported"
+
+mkrepo longtoken
+cp "$LONG" "$HREPO/long.md"; cp "$GLUED" "$HREPO/glued.md"
+( cd "$HREPO" && git add long.md glued.md && git commit -qm long ) >/dev/null 2>&1
+OUT="$( cd "$HREPO" && bounded 10 "$SCRIPT" --history --show-evidence 2>/dev/null )"; rc=$?
+expect "both shapes are reported within the bound (--history)" 1 "$rc"
+contains "long.md@" "$OUT" "the spaced one at its path"
+contains ":1: email: alice@corp.io" "$OUT" "on line 1"
+contains "glued.md@" "$OUT" "the glued one too"
+
+MUTA="$WORK/mutant-unanchored.sh"
+sed "s/^RE_MAIL='(^|\[^A-Za-z0-9._%+-\])/RE_MAIL='/" "$SCRIPT" > "$MUTA"; chmod +x "$MUTA"
+# -F, not a BRE: ugrep reads the pattern as an ERE and would report the anchor absent from the
+# file that carries it, passing a mutant identical to the scanner.
+grep -qF "RE_MAIL='(^|" "$SCRIPT" && ok "the scanner carries the anchor the mutant removes" || bad "the scanner carries the anchor the mutant removes"
+grep -qF "RE_MAIL='(^|" "$MUTA" && bad "the mutant no longer carries it" || ok "the mutant no longer carries it"
+bounded 10 "$MUTA" --all "$LONG" >/dev/null 2>&1
+expect "the unanchored mutant is killed at the bound (exit 124)" 124 "$?"
+
+MUTS="$WORK/mutant-split.sh"
+sed 's/IFS=@ read -r local_part domain <<< "$addr"/local_part="${addr%%@*}"; domain="${addr#*@}"/' "$SCRIPT" > "$MUTS"; chmod +x "$MUTS"
+expect "the scanner splits the address with IFS=@ read" 1 "$(grep -c 'IFS=@ read -r local_part domain' "$SCRIPT")"
+expect "the split mutant uses the quadratic expansion instead" 0 "$(grep -c 'IFS=@ read -r local_part domain' "$MUTS")"
+bounded 10 "$MUTS" --all "$GLUED" >/dev/null 2>&1
+expect "the quadratic-split mutant is killed at the bound (exit 124)" 124 "$?"
+
+# The locale half is only observable where a territory UTF-8 locale exists: C.UTF-8 does not admit
+# the accented classes either, so it cannot tell the pin from its absence.
+UTF8="$(locale -a 2>/dev/null | grep -i '^en_.*utf' | head -1)"
+if [ -n "$UTF8" ]; then
+  MUTL="$WORK/mutant-locale.sh"
+  sed 's/done < <(LC_ALL=C grep -onE/done < <(grep -onE/' "$SCRIPT" > "$MUTL"; chmod +x "$MUTL"
+  expect "the scanner pins the tree-mode grep to the C locale" 1 "$(grep -c 'LC_ALL=C grep -onE' "$SCRIPT")"
+  expect "the locale mutant drops the pin" 0 "$(grep -c 'LC_ALL=C grep -onE' "$MUTL")"
+  LC_ALL="$UTF8" bounded 10 "$MUTL" --all "$LONG" >/dev/null 2>&1
+  expect "without the pin the anchored regex is still quadratic under a territory UTF-8 locale (124)" 124 "$?"
+  OUT="$(LC_ALL="$UTF8" bounded 10 "$SCRIPT" --all "$LONG" 2>/dev/null)"; rc=$?
+  expect "with the pin the same run is reported within the bound" 1 "$rc"
+else
+  ok "(skipped, no territory UTF-8 locale on this machine) the locale mutant"
+fi
+
+echo "== the two shapes rule C deliberately misses, pinned so they are not rediscovered as bugs =="
+# Both are stated in the scanner's header. A limit with no case is a limit nobody knows about.
+printf 'see /home/alice/alice@corp.io here\n' > "$WORK/glue-path.txt"
+OUT="$("$SCRIPT" "$WORK/glue-path.txt" 2>/dev/null)"; rc=$?
+expect "an address glued to a home path still trips" 1 "$rc"
+contains "home-path: /home/alice/" "$OUT" "as the path row"
+lacks "email:" "$OUT" "and NOT as an email: rule A's /? consumes the anchor byte (documented limit)"
+printf 'see ~/secret/alice@corp.io here\n' > "$WORK/glue-root.txt"
+OUT="$("$SCRIPT" "$WORK/glue-root.txt" 2>/dev/null)"; rc=$?
+expect "an address glued to a home root still trips" 1 "$rc"
+lacks "email:" "$OUT" "and not as an email either, the same limit in rule B"
+printf 'x /home/alice/notes alice@corp.io\n' > "$WORK/glue-sep.txt"
+OUT="$("$SCRIPT" "$WORK/glue-sep.txt" 2>/dev/null)"; rc=$?
+expect "a separator between the path and the address restores both rows" 1 "$rc"
+contains "home-path:" "$OUT" "the path"
+contains "email: alice@corp.io" "$OUT" "and the address"
+if [ -n "$UTF8" ]; then
+  printf 'mail jos\xc3\xa9@corp.io today\n' > "$WORK/accent.txt"
+  OUT="$(LC_ALL="$UTF8" "$SCRIPT" "$WORK/accent.txt" 2>/dev/null)"; rc=$?
+  expect "an accented local part is SILENT under the C pin (documented limit)" 0 "$rc"
+  OUT="$(LC_ALL="$UTF8" "$WORK/mutant-locale.sh" "$WORK/accent.txt" 2>/dev/null)"; rc=$?
+  expect "and the pin, not the anchor, is what narrows it (the unpinned copy reports it)" 1 "$rc"
+else
+  ok "(skipped, no territory UTF-8 locale) the accented-address limit"
+fi
+
+echo "== no address shape is lost by the anchor =="
+expect "an address at line start trips" yes "$(trips 'alice@corp.io wrote this')"
+expect "an address after a space trips" yes "$(trips 'mail alice@corp.io for help')"
+expect "an address in brackets trips" yes "$(trips 'contact (alice@corp.io) first')"
+expect "an address after a quote trips" yes "$(trips 'author "alice@corp.io"')"
+expect "an address after a tab trips" yes "$(trips "$(printf 'owner\talice@corp.io')")"
+expect "an address after an equals sign trips" yes "$(trips 'MAIL=alice@corp.io')"
+expect "an address after a slash trips" yes "$(trips 'see docs/alice@corp.io')"
+expect "an address after a tilde trips" yes "$(trips 'see ~alice@corp.io')"
+expect "an address after a multibyte character trips" yes "$(trips "$(printf 'caf\xc3\xa9alice@corp.io')")"
+printf 'a@corp.io,b@corp.io\n' > "$WORK/two.txt"
+OUT="$("$SCRIPT" "$WORK/two.txt" 2>/dev/null)"
+expect "two adjacent addresses are both reported" 2 "$(printf '%s\n' "$OUT" | grep -c 'email:')"
+expect "a slash-preceded address is judged as email, not as a path" yes "$(trips 'see docs/alice@corp.io')"
+OUT="$("$SCRIPT" "$WORK/two.txt" 2>/dev/null)"
+contains "email: a@corp.io" "$OUT" "the first whole"
+contains "email: b@corp.io" "$OUT" "the second whole"
+expect "noreply@ survives" no "$(trips 'from noreply@github.com')"
+expect "the git@ SSH clone user survives" no "$(trips 'clone git@github.com:owner/repo.git')"
+expect "example.com survives" no "$(trips 'try someone@example.com')"
+expect "the .invalid TLD survives" no "$(trips 'try someone@mail.invalid')"
+expect "a bare mention survives" no "$(trips 'thanks @agigante80 for the fix')"
+
+echo "== the stripped byte does not bypass redaction =="
+mkrepo slashmail
+hcommit notes.md 'see docs/alice@corp.io\n'
+hrun --history; expect "a slash-preceded address in history is reported" 1 "$RC"
+contains "email: al***********" "$OUT" "redacted by default"
+lacks "alice@corp.io" "$OUT" "with the whole address absent from the report"
+hrun --history --show-evidence; expect "--show-evidence still shows it" 1 "$RC"
+contains "email: alice@corp.io" "$OUT" "whole"
+
 echo "== portability, because this ships into other people's repositories =="
 # Both leak scanners were the first files in this tree to reach for bash-4-only expansions and GNU
 # readlink. macOS still ships bash 3.2 and BSD readlink, which has no -f, and a shipped component
