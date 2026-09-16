@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 11
+# check-private-leaks-version: 12
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -31,14 +31,20 @@
 # objects dropped whole, and an object scanned unless EVERY path it ever had is skipped. In this
 # mode a listed name is redacted inside the printed PATH as well as in the evidence, since a path
 # is the likeliest place for such a name to sit, though a name that appears ONLY in a path is not a
-# finding here any more than in the tree modes; --show-names lifts both redactions. Remote-tracking
-# refs are in the publishable set; a detached HEAD, refs/stash and refs/notes are not. Refs/replace
-# and grafts are ignored or refused, since they make git show what a push does not send.
+# finding here any more than in the tree modes; --show-names lifts both redactions. The set is
+# what a mirror push sends: every ref except refs/stash, plus every worktree's HEAD
+# (`--exclude=refs/stash --all`, the exclude before the selector it narrows), so remote-tracking
+# refs, refs/notes, filter-branch's refs/original backups and custom namespaces are all in (#210:
+# the first cut read branches, tags and remotes only) and a detached HEAD over-reports, the safe
+# side. Refs/replace and grafts are ignored or refused, since they make git show what a push does
+# not send.
 # It is never wired into a hook: a pre-publish step, run by hand.
 #
-# `--history --orphans` also reads objects no branch or tag reaches (amended or reset away, not yet
-# pruned). A push, a bundle and a clone over a URL never send them; a clone from a local PATH and
-# any copy of the .git directory do. With no path, the self-skip is the weaker content test.
+# `--history --orphans` also reads objects no ref reaches (amended or reset away, not yet pruned)
+# and the stash, the one ref the set leaves out. A push (`--mirror` included), a bundle and a
+# clone over a URL never send them; a clone from a local PATH and any copy of the .git directory
+# do. A filter-branch backup under refs/original is a ref and needs no --orphans. With no path,
+# the self-skip is the weaker content test.
 #
 # WHAT --history REFUSES, exit 2: an alternates file (a `git clone --shared`, resolved through
 # `git rev-parse --git-path`), GIT_ALTERNATE_OBJECT_DIRECTORIES or GIT_OBJECT_DIRECTORY set, a
@@ -439,15 +445,18 @@ history_scan() {
 
   local objects="$TMPD/objects" types="$TMPD/types" pathmap="$TMPD/paths" labels="$TMPD/labels" oids="$TMPD/oids"
   local tagged="$TMPD/tagged" hits="$TMPD/hits"
-  # Enumerate the publishable set: branches, tags AND remote-tracking refs, since a branch that
-  # exists only on the remote is already on the forge that is about to go public. Not --all, which
-  # would drag in refs/stash. --batch-all-objects (--orphans) carries no path; the map below still
-  # supplies paths for whatever is reachable.
+  # Enumerate the publishable set: every ref except refs/stash, plus every worktree's HEAD, which is
+  # what a mirror push sends (#210: --branches --tags --remotes missed refs/original, refs/notes
+  # and every custom namespace). --exclude narrows only the selector AFTER it, so it must precede
+  # --all; the other way round the stash is scanned and the suite's stash case fails. No
+  # --single-worktree: a linked worktree's detached HEAD over-reports, the safe side.
+  # --batch-all-objects (--orphans) carries no path; the map below still supplies paths for
+  # whatever is reachable.
   if [ "$ORPHANS" = 1 ]; then
     git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
     : > "$objects"
   else
-    git rev-list --objects --branches --tags --remotes > "$objects"; pipe_ok "git rev-list" "${PIPESTATUS[@]}"
+    git rev-list --objects --exclude=refs/stash --all > "$objects"; pipe_ok "git rev-list" "${PIPESTATUS[@]}"
     cut -d' ' -f1 "$objects" | git cat-file --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
   fi
   # An object git cannot read prints "<oid> missing" with exit 0. That is a store this scanner
@@ -466,7 +475,7 @@ history_scan() {
   # containing a newline, split by tr, is the known way to produce one), because a desynchronised
   # map suppresses every older entry. The shape test uses no regex over the path line.
   git -c log.showRoot=true -c log.showSignature=false -c log.diffMerges=separate -c diff.relative=false \
-      log -m --branches --tags --remotes --raw --no-abbrev --no-renames --format= -z \
+      log -m --exclude=refs/stash --all --raw --no-abbrev --no-renames --format= -z \
     | LC_ALL=C tr '\0' '\n' \
     | LC_ALL=C awk '
         NR % 2 == 1 { if (substr($0, 1, 1) != ":" || split($0, a, " ") != 5) { print "path map desynchronised at record " NR ": " $0 > "/dev/stderr"; exit 2 }

@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 9 -->
+<!-- leak-guard-version: 10 -->
 
 # Leak guard
 
@@ -30,10 +30,11 @@ from a hook:
 # before going public, from the repository root
 check-public-leaks.sh --history --allow-file .leak-guard-allow    # evidence redacted; --show-evidence to see it
 check-private-leaks.sh --history                                  # names redacted in path and evidence; --show-names
-check-public-leaks.sh --history --orphans                         # also what no branch or tag reaches (see below)
+check-public-leaks.sh --history --orphans                         # also what no ref reaches, and the stash (see below)
 ```
 
-Both read the PUBLISHABLE history: every blob a branch or tag reaches, and every commit and tag
+Both read the PUBLISHABLE history: every blob any ref except `refs/stash` reaches, plus every
+worktree's HEAD, which is the set a `git push --mirror` sends, and every commit and tag
 message (subject and body; the author, committer and tagger lines are what the forge displays
 beside each commit and are not scanned). One `git cat-file --batch` streams the objects and a POSIX
 awk reader counts each object's declared bytes, so a blob whose first line forges a batch header
@@ -46,8 +47,12 @@ seconds. It refuses, exit 2, a store it cannot read honestly: an alternates file
 set, a partial clone, which would fetch every missing object over the network during the scan, a
 store git cannot read in full, a path map it cannot parse (a filename containing a newline), and a
 `grafts` file; `refs/replace` is ignored, because both make git show something a push does not
-send. Remote-tracking branches count as publishable; a detached HEAD, `refs/stash` and `refs/notes`
-do not.
+send. Every ref except `refs/stash` is publishable, plus every worktree's HEAD: remote-tracking
+branches, `refs/notes`, a `filter-branch` backup under `refs/original`, `refs/pull` and any custom
+namespace all count (#210: the first cut read branches, tags and remotes, so a scrubbed history
+whose backup ref still held the leak scanned clean). A detached HEAD over-reports, since a push
+sends `refs/` only, which is the safe side; the stash is the one ref left out, because no push
+sends it, and `--orphans` reaches it.
 
 **Written for macOS, verified against its parts on Linux.** The reader was probed against Apple's
 own awk source (`apple-oss-distributions/awk`, the fork macOS ships) built on Linux, and both suites

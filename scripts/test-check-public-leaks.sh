@@ -239,8 +239,12 @@ echo "== --history: the publishable history, read by declared byte length =="
 # from the path map; GIT_OBJECT_DIRECTORY, alternates, unreadable-object and grafts refusals removed;
 # redaction disabled; commit headers scanned as body; self-skip by content alone; self basename not
 # recognised; refs/replace honoured; every -c override dropped; the map shape check weakened;
-# --remotes dropped; the --orphans content test applied to every object; the reader stage's status
-# unchecked; the merge group's first stage failing. Equivalent (no observable difference, kept for
+# the --orphans content test applied to every object; the reader stage's status
+# unchecked; the merge group's first stage failing. Re-run 2026-09-16 (#210): the enumeration and
+# the path map each reverted to --branches --tags --remotes (both run below, each losing a finding);
+# --exclude placed after --all (the stash case fails); --all replaced by HEAD --branches
+# (refs/original lost). The former "--remotes dropped" mutant no longer exists, since --remotes is
+# no longer named. Equivalent (no observable difference, kept for
 # hygiene): the terminator record emitted (an empty line matches nothing), the buffer cleared on drop
 # (memory only). Not killable in CI: a regex over the path line (aborts only under Apple's awk).
 # Every case runs against a throwaway repository built here, never against this one. A helper
@@ -283,6 +287,82 @@ h="$("$SCRIPT" --help 2>&1)"
 contains "clone over a URL never" "$h" "--help says a push, a bundle and a URL clone never send orphans"
 contains "local PATH" "$h" "and that a local-path clone does"
 contains "weaker content test" "$h" "and that the self-skip under --orphans is the weaker content test"
+
+echo "== --history: every ref a mirror push sends (#210) =="
+# The first cut enumerated --branches --tags --remotes, so a scrubbed history whose filter-branch
+# backup under refs/original still held the leak scanned clean, as did refs/notes, a detached HEAD
+# and any custom namespace. The set is now --exclude=refs/stash --all. The mutants below revert
+# the enumeration and the path map separately, and each must LOSE THE FINDING against a fixture
+# that passes only because of the widened set; a fixture that also passes against the mutant is
+# testing nothing (three such fixtures were caught by the gate on the ticket's first draft).
+mkrepo original
+hcommit leak.md '/home/alice/x\n'
+L="$(hoid HEAD)"
+# reset --hard, not checkout --orphan: the orphan keeps the index, so the "clean" tip held the leak.
+( cd "$HREPO" && git update-ref refs/original/refs/heads/scrubbed "$L" && git reset -q --hard HEAD~1 ) >/dev/null 2>&1
+hrun --history; expect "a leak reachable only from refs/original (a filter-branch backup) is reported" 1 "$RC"
+contains "leak.md@$(hoid "$L:leak.md"):1: home-path:" "$OUT" "at its path"
+( cd "$HREPO" && git update-ref -d refs/original/refs/heads/scrubbed ) >/dev/null 2>&1
+hrun --history; expect "with the backup ref deleted the blob is unreachable and not reported" 0 "$RC"
+hrun --history --orphans; expect "and --orphans still reaches it in the store" 1 "$RC"
+
+mkrepo notes
+hcommit clean.md 'ok\n'
+( cd "$HREPO" && git notes add -m '/home/alice/x' HEAD ) >/dev/null 2>&1
+hrun --history; expect "a leak only in refs/notes/commits is reported" 1 "$RC"
+contains "home-path:" "$OUT" "as a home path"
+# `git notes remove` commits a new notes tree whose PARENT still holds the blob, so the ref must
+# go, not the note: found on the first run, where the gate's remove-and-gc draft still reported.
+( cd "$HREPO" && git update-ref -d refs/notes/commits && git reflog expire --expire=now --all && git gc -q --prune=now ) >/dev/null 2>&1
+hrun --history; expect "with the notes ref deleted and pruned nothing is reported (reachability, not presence)" 0 "$RC"
+
+mkrepo detached
+hcommit leak.md '/home/alice/x\n'
+# symbolic-ref, never a hardcoded refs/heads/master: the default branch name is user config.
+( cd "$HREPO" && B="$(git symbolic-ref HEAD)" && git checkout -q --detach && git update-ref -d "$B" ) >/dev/null 2>&1
+hrun --history; expect "a leak reachable only from a detached HEAD is reported (over-reporting, the safe side)" 1 "$RC"
+
+mkrepo blobref
+( cd "$HREPO" && o="$(printf '/home/alice/x\n' | git hash-object -w --stdin)" && git update-ref refs/misc/raw "$o" ) >/dev/null 2>&1
+hrun --history; expect "a ref pointing straight at a blob is reported" 1 "$RC"
+contains "blob@" "$OUT" "labelled blob@<oid>, since no commit ever carried it"
+
+mkrepo stash
+hcommit clean.md 'ok\n'
+( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && git add leak.md && git stash push -q ) >/dev/null 2>&1
+( cd "$HREPO" && git rev-parse -q --verify refs/stash >/dev/null ) && ok "the fixture holds a stash entry" || bad "the fixture holds a stash entry"
+hrun --history; expect "a leak only in refs/stash is not reported: no push sends it" 0 "$RC"
+hrun --history --orphans; expect "--orphans reaches the stash" 1 "$RC"
+
+# The path map must walk the same set: this blob's CURRENT name is skipped (.png) and only the
+# refs/original walk knows it was once leak.md. Only the map rescues it.
+mkrepo pathmap
+hcommit leak.md '/home/alice/x\n'
+( cd "$HREPO" && git mv leak.md leak.png && git commit -qm png && git update-ref refs/original/refs/heads/scrubbed HEAD && git reset -q --hard HEAD~2 ) >/dev/null 2>&1
+hrun --history; expect "a blob skipped by its current name is read for its historical one, through refs/original" 1 "$RC"
+contains "leak.md@" "$OUT" "at the historical path"
+
+MUT="$WORK/mutant-enum.sh"
+sed 's/rev-list --objects --exclude=refs\/stash --all/rev-list --objects --branches --tags --remotes/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
+expect "mutant ledger: the scanner enumerates with --exclude=refs/stash --all" 1 "$(grep -c -- 'rev-list --objects --exclude=refs/stash --all' "$SCRIPT")"
+expect "the enumeration mutant reads branches, tags and remotes only" 1 "$(grep -c -- 'rev-list --objects --branches --tags --remotes' "$MUT")"
+mkrepo original2
+hcommit leak.md '/home/alice/x\n'
+( cd "$HREPO" && git update-ref refs/original/refs/heads/scrubbed HEAD && git reset -q --hard HEAD~1 ) >/dev/null 2>&1
+( cd "$HREPO" && "$MUT" --history ) >/dev/null 2>&1; expect "the enumeration mutant loses the refs/original finding" 0 "$?"
+hrun --history; expect "the scanner finds it" 1 "$RC"
+MUT2="$WORK/mutant-pathmap.sh"
+sed 's/log -m --exclude=refs\/stash --all --raw/log -m --branches --tags --remotes --raw/' "$SCRIPT" > "$MUT2"; chmod +x "$MUT2"
+expect "mutant ledger: the path map walks --exclude=refs/stash --all" 1 "$(grep -c -- 'log -m --exclude=refs/stash --all --raw' "$SCRIPT")"
+expect "the path-map mutant walks branches, tags and remotes only" 1 "$(grep -c -- 'log -m --branches --tags --remotes --raw' "$MUT2")"
+mkrepo pathmap2
+hcommit leak.md '/home/alice/x\n'
+( cd "$HREPO" && git mv leak.md leak.png && git commit -qm png && git update-ref refs/original/refs/heads/scrubbed HEAD && git reset -q --hard HEAD~2 ) >/dev/null 2>&1
+( cd "$HREPO" && "$MUT2" --history ) >/dev/null 2>&1; expect "the path-map mutant loses the finding (its only mapped name is the skipped leak.png)" 0 "$?"
+hrun --history; expect "the scanner finds it" 1 "$RC"
+h="$("$SCRIPT" --help 2>&1)"
+contains "filter-branch" "$h" "--help names filter-branch's refs/original"
+contains "mirror" "$h" "and the mirror push"
 
 echo "== --history: a forged batch header hides nothing, and the mutant proves the counting is load-bearing =="
 # Line 1 is shaped exactly like a cat-file header declaring a huge size; a reader that trusted it

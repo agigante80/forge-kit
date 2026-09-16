@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 9
+# check-public-leaks-version: 10
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -29,12 +29,16 @@
 # that cannot be made, a blob git has but cannot write, a tracked file this process cannot open,
 # are each exit 2 with the file named, where every one used to be exit 0.
 #
-# `--history` reads the publishable history: every blob reachable from a branch, a tag or a
-# remote-tracking ref (a branch that exists only on the remote is already on a forge; with several
-# remotes that over-reports, which is the safe side of a pre-publish scan), and every
-# commit and tag MESSAGE (subject and body; the author, committer and tagger lines are what the forge
-# already shows beside each commit and are not scanned). Not reached, by design: a detached HEAD,
-# refs/stash, refs/notes, and a tag message embedded in a commit's mergetag header. One `git cat-file --batch` streams the
+# `--history` reads the publishable history: every blob reachable from EVERY REF EXCEPT refs/stash,
+# plus every worktree's HEAD (`--exclude=refs/stash --all`, the exclude BEFORE the selector it
+# narrows), and every commit and tag MESSAGE (subject and body; the author, committer and tagger
+# lines are what the forge already shows beside each commit and are not scanned). That set is what
+# a mirror push sends: branches, tags, remote-tracking refs (a branch that exists only on the remote
+# is already on a forge), refs/notes, filter-branch's refs/original backups, refs/pull and any
+# custom namespace (#210: the first cut read branches, tags and remotes only, so a scrubbed
+# history whose backup ref still held the leak scanned clean). A detached HEAD is over-reporting,
+# since a push sends refs/ only, which is the safe side. Not reached, by design: refs/stash, which no
+# push sends (--orphans reaches it), and a tag message embedded in a commit's mergetag header. One `git cat-file --batch` streams the
 # objects and a POSIX awk reader counts each object's declared BYTES, so a blob whose first line
 # forges a batch header cannot hide the line after it (a line-oriented reader would skip it). The
 # reader puts no content byte, and no path byte, through a regex: Apple's awk aborts the moment a
@@ -52,10 +56,12 @@
 # against fourteen seconds process-per-blob. NEVER wired into a hook: it is a pre-publish step, run
 # by hand, and its evidence is REDACTED by default (see below).
 #
-# `--history --orphans` also reads objects no branch or tag reaches: a leak amended or reset away is
-# still in the local store until `git gc` prunes it. A push, a bundle and a clone over a URL never
+# `--history --orphans` also reads objects no ref reaches: a leak amended or reset away is still
+# in the local store until `git gc` prunes it, and so is a stash entry, which is the one ref the
+# set above leaves out. A push (a `--mirror` push included), a bundle and a clone over a URL never
 # send such objects; a clone from a local PATH (git hardlinks the object store) and any copy of the
-# .git directory DO, which is the case the flag exists for. An object that is also reachable keeps
+# .git directory DO, which is the case the flag exists for. It is NOT what reaches a filter-branch
+# backup: refs/original is a ref, a mirror push sends it, and plain --history reads it. An object that is also reachable keeps
 # its paths and its skips; a true orphan has no path, so nothing is skipped by name for it and the
 # self-skip falls back to a weaker content test (shebang plus marker line).
 #
@@ -478,15 +484,18 @@ history_scan() {
 
   local objects="$TMPD/objects" types="$TMPD/types" pathmap="$TMPD/paths" labels="$TMPD/labels" oids="$TMPD/oids"
   local tagged="$TMPD/tagged" hits="$TMPD/hits"
-  # Enumerate the publishable set: branches, tags AND remote-tracking refs, since a branch that
-  # exists only on the remote is already on the forge that is about to go public. Not --all, which
-  # would drag in refs/stash. --batch-all-objects (--orphans) carries no path; the map below still
-  # supplies paths for whatever is reachable.
+  # Enumerate the publishable set: every ref except refs/stash, plus every worktree's HEAD, which is
+  # what a mirror push sends (#210: --branches --tags --remotes missed refs/original, refs/notes
+  # and every custom namespace). --exclude narrows only the selector AFTER it, so it must precede
+  # --all; the other way round the stash is scanned and the suite's stash case fails. No
+  # --single-worktree: a linked worktree's detached HEAD over-reports, the safe side.
+  # --batch-all-objects (--orphans) carries no path; the map below still supplies paths for
+  # whatever is reachable.
   if [ "$ORPHANS" = 1 ]; then
     git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
     : > "$objects"
   else
-    git rev-list --objects --branches --tags --remotes > "$objects"; pipe_ok "git rev-list" "${PIPESTATUS[@]}"
+    git rev-list --objects --exclude=refs/stash --all > "$objects"; pipe_ok "git rev-list" "${PIPESTATUS[@]}"
     cut -d' ' -f1 "$objects" | git cat-file --batch-check='%(objectname) %(objecttype)' > "$types"; pipe_ok "git cat-file --batch-check" "${PIPESTATUS[@]}"
   fi
   # An object git cannot read prints "<oid> missing" with exit 0. That is a store this scanner
@@ -505,7 +514,7 @@ history_scan() {
   # containing a newline, split by tr, is the known way to produce one), because a desynchronised
   # map suppresses every older entry. The shape test uses no regex over the path line.
   git -c log.showRoot=true -c log.showSignature=false -c log.diffMerges=separate -c diff.relative=false \
-      log -m --branches --tags --remotes --raw --no-abbrev --no-renames --format= -z \
+      log -m --exclude=refs/stash --all --raw --no-abbrev --no-renames --format= -z \
     | LC_ALL=C tr '\0' '\n' \
     | LC_ALL=C awk '
         NR % 2 == 1 { if (substr($0, 1, 1) != ":" || split($0, a, " ") != 5) { print "path map desynchronised at record " NR ": " $0 > "/dev/stderr"; exit 2 }

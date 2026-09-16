@@ -654,6 +654,12 @@ spelling as given; the helper now preserves case and only the compare lowercases
 Opened 2026-09-16 for #212: the adapter every forge-touching component trusts decided the host
 with a glob that reads `github.com` anywhere after an `@`.
 
+## Phase: What a mirror push sends
+state: open
+plan: docs/plans/what-a-mirror-push-sends.md
+
+Opened 2026-09-16 for #210 and #211, the last two tickets from the #191 security audit.
+
 ## Phase: Backlog
 state: backlog
 

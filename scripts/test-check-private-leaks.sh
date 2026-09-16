@@ -186,10 +186,12 @@ contains 'never wired into a hook' "$h" "check-private-leaks.sh --help states th
 echo "== --history: names in the publishable history, redacted in path and evidence =="
 # MUTANTS RUN AGAINST THESE SECTIONS (2026-09-14), on a scratch copy, each confirmed applied. Killed:
 # the r<0 gate replaced by a shape test (run below); path redaction disabled; evidence redaction
-# disabled; the label split at the first @; path-only lines reported; --remotes dropped; the
+# disabled; the label split at the first @; path-only lines reported; the
 # diffMerges override dropped; the unreadable-object refusal removed; the --orphans content test
-# applied to every object; the longest-first sort removed. The reader and selection code is the
-# public half's, whose suite carries the rest of the mutants.
+# applied to every object; the longest-first sort removed. Re-run 2026-09-16 (#210): the
+# enumeration reverted to --branches --tags --remotes (the refs/original case fails); --exclude
+# placed after --all (the stash case fails). The reader and selection code is the public half's,
+# whose suite carries the rest of the mutants.
 HREPO=""
 mkrepo() {  # mkrepo <name>: a fresh repository; sets HREPO
   HREPO="$WORK/hist-$1"; rm -rf "$HREPO"; mkdir -p "$HREPO"
@@ -255,6 +257,40 @@ mkrepo orphan
 hrun --history; rc=$RC;           expect "an amended-away name is not in the publishable set" 0 "$rc"
 hrun --history --orphans; rc=$RC; expect "--orphans reaches it" 1 "$rc"
 contains "blob@" "$OUT" "labelled blob@<oid>"
+
+echo "== --history: every ref a mirror push sends (#210) =="
+# Mirrors the public suite's section with a listed name; the enumeration code is the public
+# half's, whose suite carries the two reverting mutants.
+mkrepo original
+( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md && git commit -qm leak \
+  && git update-ref refs/original/refs/heads/scrubbed HEAD && git reset -q --hard HEAD~1 ) >/dev/null 2>&1
+hrun --history; expect "a name reachable only from refs/original (a filter-branch backup) is reported" 1 "$RC"
+contains "leak.md@" "$OUT" "at its path"
+( cd "$HREPO" && git update-ref -d refs/original/refs/heads/scrubbed ) >/dev/null 2>&1
+hrun --history; expect "with the backup ref deleted it is unreachable and not reported" 0 "$RC"
+hrun --history --orphans; expect "and --orphans still reaches it" 1 "$RC"
+
+mkrepo notes
+( cd "$HREPO" && git notes add -m 'secretproj' HEAD ) >/dev/null 2>&1
+hrun --history; expect "a name only in refs/notes/commits is reported" 1 "$RC"
+
+mkrepo detached
+( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md && git commit -qm leak \
+  && B="$(git symbolic-ref HEAD)" && git checkout -q --detach && git update-ref -d "$B" ) >/dev/null 2>&1
+hrun --history; expect "a name reachable only from a detached HEAD is reported" 1 "$RC"
+
+mkrepo blobref
+( cd "$HREPO" && o="$(printf 'secretproj\n' | git hash-object -w --stdin)" && git update-ref refs/misc/raw "$o" ) >/dev/null 2>&1
+hrun --history; expect "a ref pointing straight at a blob is reported" 1 "$RC"
+
+mkrepo stash
+( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md && git stash push -q ) >/dev/null 2>&1
+( cd "$HREPO" && git rev-parse -q --verify refs/stash >/dev/null ) && ok "the fixture holds a stash entry" || bad "the fixture holds a stash entry"
+hrun --history; expect "a name only in refs/stash is not reported: no push sends it" 0 "$RC"
+hrun --history --orphans; expect "--orphans reaches the stash" 1 "$RC"
+h="$("$SCRIPT" --help 2>&1)"
+contains "filter-branch" "$h" "--help names filter-branch's refs/original"
+contains "mirror" "$h" "and the mirror push"
 
 mkrepo shared-src
 ( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n ) >/dev/null 2>&1
