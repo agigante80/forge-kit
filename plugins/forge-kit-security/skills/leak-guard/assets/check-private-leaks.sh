@@ -25,7 +25,7 @@
 # `--history` reads the publishable history: every blob reachable from a branch or a tag, and every
 # commit and tag MESSAGE (subject and body). The author, committer and tagger lines are NOT scanned
 # by this half either: that identity is what the forge already displays beside every commit, public
-# by construction like the owning account this scanner drops from its list. The reader is the public
+# by construction: the forge shows it whether or not the scan does. The reader is the public
 # half's: one `git cat-file --batch`, a POSIX awk reader that counts each object's declared BYTES
 # (so a forged batch header hides nothing) and puts no content byte through a regex, NUL-bearing
 # objects dropped whole, and an object scanned unless EVERY path it ever had is skipped. In this
@@ -192,13 +192,13 @@ if [ "$DO_INIT" = 1 ]; then
 # Matching is case insensitive and matches anywhere in a line, so a short distinctive name also
 # catches the longer names built from it. Prefer the shortest name that is still distinctive.
 TEMPLATE
-  printf 'check-private-leaks: wrote %s. Add your names to it.\n' "$LIST" >&2
+  printf 'check-private-leaks: wrote %s. Add your names to it.\n' "${LIST/#$HOME/~}" >&2
   exit 0
 fi
 
 # --- the list ---------------------------------------------------------------
 if [ ! -f "$LIST" ]; then
-  warn "no private-name list at $LIST, so NAMES ARE NOT BEING CHECKED."
+  warn "no private-name list at ${LIST/#$HOME/~}, so NAMES ARE NOT BEING CHECKED."
   warn "  this is not an error: the list is deliberately outside the repository, and a machine"
   warn "  that never had one must not be blocked. Run this with --init to write a starter list."
   exit 0
@@ -271,6 +271,9 @@ if [ "$MODE" != history ] && [ -n "$OWNER" ]; then
   case "$OWNER_HOST" in github.com|gitlab.com|codeberg.org|bitbucket.org) DROP_OWNER=1 ;; esac
 fi
 
+# Messages show the list path with the home directory as "~": this scanner's own stderr is
+# exactly the text the public half polices, and the default path is under $HOME.
+LIST_SHOWN="${LIST/#$HOME/~}"
 NAMES=()
 lineno=0
 while IFS= read -r raw || [ -n "$raw" ]; do
@@ -280,13 +283,13 @@ while IFS= read -r raw || [ -n "$raw" ]; do
   n="${n%"${n##*[![:space:]]}"}"
   case "$n" in ''|'#'*) continue ;; esac
   if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then
-    die "$LIST:$lineno: '$n' is too short (under $MIN_NAME_LEN characters). It would match almost
+    die "$LIST_SHOWN:$lineno: '$n' is too short (under $MIN_NAME_LEN characters). It would match almost
   every file, and a guard that fires on everything is one you switch off. Use the full name."
   fi
   set_lower "$n";     n_lc="$LOWER"
   set_lower "$OWNER"; owner_lc="$LOWER"
   if [ "$DROP_OWNER" = 1 ] && [ "$n_lc" = "$owner_lc" ]; then
-    warn "$LIST:$lineno: dropping '$(redact "$n")': it is the OWNING ACCOUNT of this repository on $OWNER_HOST,"
+    warn "$LIST_SHOWN:$lineno: dropping '$(redact "$n")': it is the OWNING ACCOUNT of this repository on $OWNER_HOST,"
     warn "  so it appears in the public clone URL and would refuse every commit touching the README."
     warn "  Public identity and private identity are different sets. --history never drops it."
     continue
@@ -576,14 +579,25 @@ for f in "${FILES[@]}"; do
   skip_by_name "$f" && continue
   case "$MODE" in
     # ":0:$f", never ":$f": git reads ":<stage>:<path>" first, so a path shaped "0:x" was taken
-    # for a stage spec and skipped (#208). When the show fails, the cause test decides: an object
-    # git does not HAVE (a gitlink's commit oid, a path git cannot show) is skipped as before, an
-    # object it has that could not be written (disk full under TMPDIR) is a refusal, since the
-    # old "|| continue" turned that into a clean report. The message names the file, never $TMPD.
-    staged) git show ":0:$f" > "$BLOB" 2>/dev/null || { git cat-file -e ":0:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
-    range)  git show "HEAD:$f" > "$BLOB" 2>/dev/null || { git cat-file -e "HEAD:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
+    # for a stage spec and skipped (#208). Only a BLOB is read: a gitlink names a commit, and when
+    # that commit happens to be in the store `git show` prints it and its message was scanned as
+    # the file (review); a path git cannot show at all is skipped as before. A blob git has but
+    # could not write (disk full under TMPDIR) is a refusal, since the old "|| continue" turned
+    # that into a clean report. The whole group's stderr is closed, so neither git's message nor
+    # the shell's own notice for a child killed by a signal (RLIMIT_FSIZE, an OOM kill) can print
+    # this script's path; the message names the file, never $TMPD.
+    staged) [ "$(git cat-file -t ":0:$f" 2>/dev/null)" = blob ] || continue
+            { git show ":0:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
+    range)  [ "$(git cat-file -t "HEAD:$f" 2>/dev/null)" = blob ] || continue
+            { git show "HEAD:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac
+  # A tracked SYMLINK is its target text in git, and the worktree read followed it: a dangling
+  # link whose target is a home path was reported by --staged and clean under --all, the pre-push
+  # hook's mode (review of #208). The link text is what git commits, so it is what is scanned.
+  if [ "$MODE" != staged ] && [ "$MODE" != range ] && [ -L "$scanfile" ]; then
+    { readlink -- "$scanfile" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB"
+  fi
   [ -f "$scanfile" ] || continue
   # A tracked file this process cannot OPEN (mode 000) used to fall through the greps below and
   # read as clean (#208); it is a refusal, and the message names the file, not the script.

@@ -324,6 +324,10 @@ mout="$( cd "$HREPO" && "$MUT" --list "$WORK/hlist" --history 2>/dev/null )"
 
 
 echo "== the tree modes fail closed (#208) =="
+# MUTANTS RUN AGAINST THIS SECTION AND THE NEXT (2026-09-16), on a scratch copy, each confirmed
+# applied. Killed: --no-renames dropped; T dropped from the diff filter; the unreadable-file check
+# removed; the drop applied in --history; the host allowlist dropped; the port stripped before the
+# userinfo; the scp form keeping user@ in the host; the warning printing the name whole.
 mkrepo p-rename
 ( cd "$HREPO" && for i in $(seq 1 20); do echo "line $i"; done > a.md && git add a.md && git commit -qm twenty \
   && git mv a.md b.md && printf 'secretproj\n' >> b.md && git add b.md ) >/dev/null 2>&1
@@ -332,6 +336,23 @@ contains "b.md:21: private-name: se********" "$OUT" "at its new name and line"
 mkrepo p-type
 ( cd "$HREPO" && ln -s seed.md link.md && git add link.md && git commit -qm link && rm link.md && printf 'secretproj\n' > link.md && git add link.md ) >/dev/null 2>&1
 hrun --staged; rc=$RC; expect "a symlink replaced by a file naming a listed name is reported" 1 "$rc"
+mkrepo p-gitlink
+( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md \
+  && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "a staged gitlink beside a staged name: reported, never a refusal" 1 "$rc"
+mkrepo p-nowrite
+( cd "$HREPO" && head -c 3000 /dev/zero | tr '\0' a > big.md && printf '\nsecretproj\n' >> big.md && git add big.md ) >/dev/null 2>&1
+( cd "$HREPO" && ulimit -f 1 && "$SCRIPT" --list "$WORK/hlist" --staged </dev/null >"$WORK/pwout.txt" 2>"$WORK/pwerr.txt"; echo $? > "$WORK/pwrc.txt" ) 2>/dev/null
+expect "a blob the scanner cannot write refuses --staged" 2 "$(cat "$WORK/pwrc.txt")"
+contains "could not read big.md" "$(cat "$WORK/pwerr.txt")" "naming the file"
+lacks "$ROOT" "$(cat "$WORK/pwerr.txt")" "and never the script's path"
+mkrepo p-rangerename
+( cd "$HREPO" && for i in $(seq 1 20); do echo "line $i"; done > a.md && git add a.md && git commit -qm twenty \
+  && git mv a.md b.md && printf 'secretproj\n' >> b.md && git add b.md && git commit -qm renamed ) >/dev/null 2>&1
+hrun --range HEAD~1; rc=$RC; expect "a renamed-and-edited file is reported by --range" 1 "$rc"
+mkrepo p-symlink
+( cd "$HREPO" && ln -s /srv/secretproj/data link && git add link && git commit -qm link ) >/dev/null 2>&1
+hrun --all; rc=$RC; expect "a tracked symlink's text is scanned under --all" 1 "$rc"
 mkrepo p-stage
 ( cd "$HREPO" && printf 'secretproj\n' > '0:x' && git add -- '0:x' ) >/dev/null 2>&1
 hrun --staged; rc=$RC; expect "a staged path shaped 0:x is reported" 1 "$rc"
@@ -340,6 +361,7 @@ mkrepo p-dashes
 ( cd "$HREPO" && printf 'secretproj\n' > ./-v && printf 'secretproj\n' > ./- && git add -- -v - && git commit -qm dashes ) >/dev/null 2>&1
 OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" --all </dev/null 2>"$WORK/herr.txt" )"; rc=$?
 expect "files named -v and - are scanned" 1 "$rc"
+contains "-v:1:" "$OUT" "the -v file"
 contains "-:1:" "$OUT" "the - file too"
 mkrepo p-notmp
 ( cd "$HREPO" && printf 'secretproj\n' > leak.md && git add leak.md && git commit -qm leak ) >/dev/null 2>&1

@@ -558,6 +558,19 @@ mkrepo gitlink
 ( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && git add leak.md \
   && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub ) >/dev/null 2>&1
 hrun --staged; rc=$RC; expect "a staged gitlink beside a staged leak: reported, never a refusal" 1 "$rc"
+# A gitlink whose commit IS in the store: git show would print the commit, and its message was
+# scanned as the file (review). Only a blob is read.
+( cd "$HREPO" && c="$(git commit-tree -m '/home/carol/z in a message' "$(git write-tree)")" \
+  && git update-index --add --cacheinfo 160000,"$c",present ) >/dev/null 2>&1
+hrun --staged; rc=$RC
+lacks "present:" "$OUT" "a gitlink whose commit is present is not scanned as a file"
+mkrepo symlink
+( cd "$HREPO" && ln -s /home/alice/secret dangling && git add dangling && git commit -qm link ) >/dev/null 2>&1
+hrun --all; rc=$RC; expect "a tracked symlink is scanned as its link TEXT under --all (it used to be followed and skipped)" 1 "$rc"
+contains "dangling:1: home-path: /home/alice/" "$OUT" "at the link's path"
+hrun --staged; rc=$RC; expect "--staged agrees" 0 "$rc"
+( cd "$HREPO" && git rm -q dangling && ln -s /home/alice/secret staged-link && git add staged-link ) >/dev/null 2>&1
+hrun --staged; rc=$RC; expect "and a staged symlink is reported the same way" 1 "$rc"
 mkrepo optnames
 ( cd "$HREPO" && printf '/home/alice/x\n' > ./-v && printf '/home/bob/y\n' > ./- && git add -- -v - && git commit -qm dashes ) >/dev/null 2>&1
 OUT="$( cd "$HREPO" && "$SCRIPT" --all </dev/null 2>"$WORK/herr.txt" )"; rc=$?
@@ -571,13 +584,17 @@ expect "mktemp failure refuses --staged" 2 "$rc"
 contains "cannot create a temp directory" "$(cat "$WORK/herr.txt")" "and says so"
 [ -z "$OUT" ] && ok "with nothing on stdout" || bad "with nothing on stdout (got '$OUT')"
 OUT="$( cd "$HREPO" && TMPDIR="$WORK/does-not-exist" "$SCRIPT" --all </dev/null 2>"$WORK/herr.txt" )"; rc=$?
-[ "$rc" != 0 ] && ok "and --all under the same TMPDIR never reports clean (rc=$rc)" || bad "--all reported clean with no temp directory"
+expect "and --all under the same TMPDIR refuses the same way" 2 "$rc"
 mkrepo nowrite
 ( cd "$HREPO" && head -c 3000 /dev/zero | tr '\0' a > big.md && printf '\n/home/alice/x\n' >> big.md && git add big.md ) >/dev/null 2>&1
-( cd "$HREPO" && trap '' XFSZ && ulimit -f 1 && "$SCRIPT" --staged </dev/null >"$WORK/wout.txt" 2>"$WORK/werr.txt"; echo $? > "$WORK/wrc.txt" ) 2>/dev/null
+# No trap in the harness: the kernel KILLS git show under RLIMIT_FSIZE, and it is the scanner's
+# job to keep the shell's own notice for a signalled child (which carries the script's path) off
+# its stderr (review of #208).
+( cd "$HREPO" && ulimit -f 1 && "$SCRIPT" --staged </dev/null >"$WORK/wout.txt" 2>"$WORK/werr.txt"; echo $? > "$WORK/wrc.txt" ) 2>/dev/null
 expect "a blob the scanner cannot write refuses --staged" 2 "$(cat "$WORK/wrc.txt")"
 contains "could not read big.md" "$(cat "$WORK/werr.txt")" "naming the file"
 lacks "$WORK" "$(cat "$WORK/werr.txt")" "and never the temp path"
+lacks "$ROOT" "$(cat "$WORK/werr.txt")" "nor the script's path, even for a child killed by a signal"
 if [ "$(id -u)" -ne 0 ]; then
   mkrepo unreadable
   ( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && git add leak.md && git commit -qm leak && chmod 000 leak.md ) >/dev/null 2>&1

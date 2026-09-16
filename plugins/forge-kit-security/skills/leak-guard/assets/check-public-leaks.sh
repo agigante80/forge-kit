@@ -586,14 +586,25 @@ for f in "${FILES[@]}"; do
 
   case "$MODE" in
     # ":0:$f", never ":$f": git reads ":<stage>:<path>" first, so a path shaped "0:x" was taken
-    # for a stage spec and skipped (#208). When the show fails, the cause test decides: an object
-    # git does not HAVE (a gitlink's commit oid, a path git cannot show) is skipped as before, an
-    # object it has that could not be written (disk full under TMPDIR) is a refusal, since the
-    # old "|| continue" turned that into a clean report. The message names the file, never $TMPD.
-    staged) git show ":0:$f" > "$BLOB" 2>/dev/null || { git cat-file -e ":0:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
-    range)  git show "HEAD:$f" > "$BLOB" 2>/dev/null || { git cat-file -e "HEAD:$f" 2>/dev/null && die "could not read $f"; continue; }; scanfile="$BLOB" ;;
+    # for a stage spec and skipped (#208). Only a BLOB is read: a gitlink names a commit, and when
+    # that commit happens to be in the store `git show` prints it and its message was scanned as
+    # the file (review); a path git cannot show at all is skipped as before. A blob git has but
+    # could not write (disk full under TMPDIR) is a refusal, since the old "|| continue" turned
+    # that into a clean report. The whole group's stderr is closed, so neither git's message nor
+    # the shell's own notice for a child killed by a signal (RLIMIT_FSIZE, an OOM kill) can print
+    # this script's path; the message names the file, never $TMPD.
+    staged) [ "$(git cat-file -t ":0:$f" 2>/dev/null)" = blob ] || continue
+            { git show ":0:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
+    range)  [ "$(git cat-file -t "HEAD:$f" 2>/dev/null)" = blob ] || continue
+            { git show "HEAD:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac
+  # A tracked SYMLINK is its target text in git, and the worktree read followed it: a dangling
+  # link whose target is a home path was reported by --staged and clean under --all, the pre-push
+  # hook's mode (review of #208). The link text is what git commits, so it is what is scanned.
+  if [ "$MODE" != staged ] && [ "$MODE" != range ] && [ -L "$scanfile" ]; then
+    { readlink -- "$scanfile" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB"
+  fi
   [ -f "$scanfile" ] || continue
   # A tracked file this process cannot OPEN (mode 000) used to fall through the greps below and
   # read as clean (#208); it is a refusal, and the message names the file, not the script.
