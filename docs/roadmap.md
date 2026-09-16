@@ -607,8 +607,18 @@ Opened 2026-09-16 for #205, the first ticket the overnight run took through fold
 PASS. Four heuristic misses in the mechanics script, found by running it on another project.
 
 ## Phase: What the tree modes could not read
-state: open
+state: done
 plan: docs/plans/what-the-tree-modes-could-not-read.md
+
+Closed 2026-09-16, outcome **done**. Two tickets, both gated to PASS (one with its last item
+folded at the two-round stop), one implementation commit and two review rounds, no follow-up.
+Work that appeared: round 1 found a pre-existing false negative the plan had not named, a tracked
+symlink followed rather than read as its text under `--all`, and it shipped inside the phase since
+the new `-r` test had turned it into a refusal. The premortem's third clause fired in review: a
+signal-killed child made the shell print the script's path, and the test had hidden it with its
+own trap; and its first clause almost fired, a gitlink whose commit is present being scanned as
+text. Round 2's finding was the shape #191's substitute verification keeps producing: a fix that
+worked on one bash and not the other, with no test on the platform CI runs.
 
 Opened 2026-09-16 for #208 and #209: the audit's finding that the older tree modes, the ones the
 hooks run, had fail-open paths the new history mode did not.
