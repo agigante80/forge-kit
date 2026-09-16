@@ -415,6 +415,10 @@ own 'https://evil.internal/x/y?z=@github.com/acme-secret-org/repo.git' acme-secr
 expect "github.com in the path or query is not the host" 1 "$RC"
 own 'https://github.com.evil.internal/acme-secret-org/repo.git' acme-secret-org --all
 expect "a look-alike host is not github.com" 1 "$RC"
+own 'https://evil.internal?@github.com/acme-secret-org/repo.git' acme-secret-org --all
+expect "a query before the first slash does not move the host (the authority ends at / ? or #)" 1 "$RC"
+own 'https://evil.internal#@github.com/acme-secret-org/repo.git' acme-secret-org --all
+expect "nor a fragment" 1 "$RC"
 
 echo "== --init writes the list template, and never over an existing list =="
 # The template lives INSIDE the script rather than beside it as a .txt. forge-adapt installs a

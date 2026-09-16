@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 10
+# check-private-leaks-version: 11
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -260,6 +260,10 @@ if [ -n "$remote_url" ]; then
         */*) auth="${rest%%/*}"; upath="${rest#*/}" ;;
         *)   auth="$rest"; upath="" ;;
       esac
+      # The authority ends at the first of `/`, `?` or `#` (RFC 3986 3.2), not `/` alone: a query or
+      # fragment before the first slash let `https://evil.internal?@github.com/o/r` read as
+      # github.com and drop a listed owner on a private host (#212).
+      auth="${auth%%\?*}"; auth="${auth%%#*}"
       auth="${auth##*@}"; OWNER_HOST="${auth%%:*}"
       [ -n "$OWNER_HOST" ] && OWNER="${upath%%/*}" ;;
     *)

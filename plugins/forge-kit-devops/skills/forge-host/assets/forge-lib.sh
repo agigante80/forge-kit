@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 15
+# forge-lib-version: 16
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -45,6 +45,15 @@
 #       the API-error case only; on `none` it must WAIT or confirm there is no CI, and on
 #       `cancelled` re-dispatch and re-check. Neither is a local-gate case. `release` is the one
 #       caller in the kit that branches on the value, and it does both.
+#   v16 forge_host decides the host from the URL's AUTHORITY, by form (#212): on `scheme://` the
+#       text after `://` up to the first `/`, `?` or `#`, minus `user@` (stripped first) and
+#       `:port`; on the scp form (no `/` before the first `:`) the text before the colon minus
+#       `user@`; compared case-insensitively. The old `*://*@github.com/*` glob let `*` cross `/`,
+#       so `https://evil.internal/x?z=@github.com/` read as github. Three answers that were
+#       `forgejo` with FORGE_API_URL set are `github` now, because they ARE github.com in the host
+#       slot: `ssh://git@github.com:22/o/r`, `github.com:o/r`, `<user>@github.com:o/r`.
+#       _forge_token's credential host is the same authority, port kept, so a FORGE_API_URL of
+#       `https://evil.internal#@github.com` asks git for evil.internal's credential, not github's.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -125,6 +134,32 @@ _forge_load_conf() {
 }
 
 # forge_host: print 'github' or 'forgejo'.
+# _forge_url_host <url> [keep-port]: the host from a git URL, by URL FORM (git's grammar, #212).
+# scheme://: the authority is the text after `://` up to the first `/`, `?` or `#` (RFC 3986 3.2);
+# strip `user@` FIRST (a password may contain a colon), then `:port` unless asked to keep it (the
+# credential protocol takes host:port). A bracketed IPv6 authority keeps its brackets whole. scp
+# form: no `/` before the first `:`, host is the text before the colon minus `user@`. Anything else
+# (a local or relative path, `file://` with an empty authority) prints nothing. Lowercased. This is
+# the ONLY place a host is taken from a URL: a `case` glob cannot do it, because `*` crosses `/`.
+_forge_url_host() {
+  local u="$1" auth="" host=""
+  case "$u" in
+    *://*)
+      auth="${u#*://}"; auth="${auth%%/*}"; auth="${auth%%\?*}"; auth="${auth%%#*}"
+      auth="${auth##*@}" ;;
+    *)
+      case "${u%%:*}" in
+        */*|"$u") return 0 ;;                       # a path with a colon, or no colon at all: not scp form
+        *) auth="${u%%:*}"; auth="${auth##*@}" ;;
+      esac ;;
+  esac
+  case "$auth" in
+    \[*\]*) host="${auth%%\]*}]"; [ "${2:-}" = keep-port ] && host="$auth" ;;
+    *)     if [ "${2:-}" = keep-port ]; then host="$auth"; else host="${auth%%:*}"; fi ;;
+  esac
+  printf '%s\n' "$host" | tr '[:upper:]' '[:lower:]'
+}
+
 forge_host() {
   _forge_load_conf
   if [ -n "${FORGE_HOST:-}" ]; then
@@ -132,9 +167,9 @@ forge_host() {
       *) echo "forge-lib: FORGE_HOST='$FORGE_HOST' is invalid (use github|forgejo)" >&2; return 2 ;; esac
   fi
   local url; url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"
-  case "$url" in
-    '')                                          echo github ;;   # no remote -> assume github
-    *://github.com/*|*://*@github.com/*|git@github.com:*) echo github ;;  # github.com in the HOST slot only
+  [ -n "$url" ] || { echo github; return 0; }        # no remote -> assume github
+  case "$(_forge_url_host "$url")" in
+    github.com) echo github ;;                          # github.com in the HOST slot only (#212)
     *) if [ -n "${FORGE_API_URL:-}" ]; then echo forgejo; else echo github; fi ;;
   esac
 }
@@ -184,7 +219,9 @@ _forge_token() {
   url="${FORGE_API_URL:-}"
   if [ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then
     proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
-    host="${url#*://}"; host="${host%%/*}"; host="${host#*@}"
+    # The same authority rule as forge_host, port kept (#212): the old cut at `/` alone let
+    # `https://evil.internal#@github.com` hand github.com's credential to evil.internal.
+    case "$url" in *://*) host="$(_forge_url_host "$url" keep-port)" ;; *) host="$(_forge_url_host "https://$url" keep-port)" ;; esac
     cred=$(printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" \
              | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true git credential fill 2>/dev/null \
              | sed -n 's/^password=//p' | head -n1)

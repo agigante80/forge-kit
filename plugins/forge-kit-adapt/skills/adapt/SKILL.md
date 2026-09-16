@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 66 -->
+<!-- forge-adapt-version: 67 -->
 
 # forge-adapt
 
@@ -200,7 +200,7 @@ for f in .claude/hooks/*; do
 done
 # Forge host + repo slug (host-aware: GitHub or self-hosted Forgejo).
 REMOTE_URL=$(git remote get-url origin 2>/dev/null)
-# Anchor github.com to the HOST slot (matches forge-lib.sh's forge_host). A Forgejo URL that merely
+# Anchor github.com to the HOST slot (see forge_host, #215). A Forgejo URL that merely
 # contains 'github.com' in its path/vanity host must NOT read as github.
 case "$REMOTE_URL" in
   ''|*://github.com/*|*://*@github.com/*|git@github.com:*) FORGE_HOST=github ;;

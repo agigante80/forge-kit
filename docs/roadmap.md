@@ -639,6 +639,13 @@ tickets for the rest is holding.
 Opened 2026-09-16 for #204: the area set is one definition here (#188) and none where the gate
 is installed, because nothing hands it to the mechanics script.
 
+## Phase: The host slot
+state: open
+plan: docs/plans/the-host-slot.md
+
+Opened 2026-09-16 for #212: the adapter every forge-touching component trusts decided the host
+with a glob that reads `github.com` anywhere after an `@`.
+
 ## Phase: Backlog
 state: backlog
 

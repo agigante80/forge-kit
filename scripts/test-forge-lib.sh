@@ -23,6 +23,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 pass=0; fail=0
 ok()   { echo "  ok: $1"; pass=$((pass+1)); }
 bad()  { echo "  FAIL: $1"; fail=$((fail+1)); }
+expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
 
 # Each case runs in a subshell: source the lib, shadow forge_api with the stub, act, assert.
 # The stub logs every request to REQLOG and serves canned pages keyed on the query string.
@@ -778,6 +779,41 @@ esac
 )
 [ $? -eq 0 ] && ok "an empty body is refused and nothing is sent (a rewrite would erase the ticket)" \
              || bad "issue_edit accepted an empty body"
+
+
+# --- forge_host decides by the URL's authority, never by a glob (#212) ---
+echo "== forge_host: the host slot only =="
+hostof() {  # hostof <origin-url> [FORGE_API_URL]: forge_host in a fresh repo with that origin
+  local d; d="$(mktemp -d "$T/fh.XXXXXX")"
+  ( cd "$d" && git init -q . && git remote add origin "$1" && . "$LIB" && FORGE_API_URL="${2:-}" forge_host 2>/dev/null; echo "rc=$?" )
+}
+for u in 'https://git:git@github.com/o/r' 'ssh://git@github.com:22/o/r' 'git@github.com:o/r' 'github.com:o/r' 'https://github.com/o/r' 'https://GitHub.com/o/r' 'noreply@github.com:o/r'; do
+  r="$(hostof "$u" https://forge.example)"
+  [ "$r" = "$(printf 'github\nrc=0')" ] && ok "github.com in the host slot is github: $u" || bad "not github: $u -> $r"
+done
+for u in 'https://evil.internal/x/y?z=@github.com/' 'https://evil.internal?@github.com/o/r' 'https://evil.internal#@github.com/o/r' 'https://github.com.evil.internal/o/r' 'ssh://[::1]/o/r' 'https://forgejo.example:3000/o/r'; do
+  r="$(hostof "$u" https://forge.example)"
+  [ "$r" = "$(printf 'forgejo\nrc=0')" ] && ok "github.com outside the host slot is not github: $u" || bad "misclassified: $u -> $r"
+done
+r="$(hostof 'https://evil.internal/x/y?z=@github.com/')"
+[ "$r" = "$(printf 'github\nrc=0')" ] && ok "with no FORGE_API_URL the non-github default is still github (unchanged)" || bad "default changed: $r"
+# The mutant: the v15 glob back in place must fail the crafted URL.
+MUT="$T/forge-lib-mut.sh"; sed 's|    github.com) echo github ;;                          # github.com in the HOST slot only (#212)|    *) case "$url" in *://github.com/*\|*://*@github.com/*\|git@github.com:*) echo github; return 0;; esac; if [ -n "${FORGE_API_URL:-}" ]; then echo forgejo; else echo github; fi; return 0 ;;|' "$LIB" > "$MUT"
+grep -q 'github.com) echo github' "$LIB" && ok "mutant ledger: the host compare is exact" || bad "mutant ledger: compare line not found"
+d="$(mktemp -d "$T/fh.XXXXXX")"; r="$( cd "$d" && git init -q . && git remote add origin 'https://evil.internal/x/y?z=@github.com/' && . "$MUT" && FORGE_API_URL=https://forge.example forge_host 2>/dev/null )"
+[ "$r" = github ] && ok "mutant: the v15 glob classifies the crafted URL as github (the case can fail)" || bad "mutant did not misclassify (got '$r')"
+
+echo "== _forge_token: the credential host is the authority, port kept =="
+tokhost() {  # tokhost <FORGE_API_URL>: the host= line _forge_token hands to git credential fill
+  ( . "$LIB"; export FORGE_API_URL="$1" FORGE_TOKEN_ENV=NOPE_UNSET FORGE_NO_GIT_CREDENTIALS=0
+    git() { if [ "$1" = credential ]; then sed -n 's/^host=//p' > "$T/credhost.txt"; printf 'password=x\n'; else command git "$@"; fi; }
+    _forge_token >/dev/null 2>&1; cat "$T/credhost.txt" )
+}
+expect "a plain instance URL asks for its host" forgejo.example "$(tokhost https://forgejo.example/api/v1)"
+expect "a port is kept in the credential request" forgejo.example:3000 "$(tokhost https://forgejo.example:3000/)"
+expect "a fragment cannot smuggle github.com into the request" evil.internal "$(tokhost 'https://evil.internal#@github.com')"
+expect "nor a query" evil.internal "$(tokhost 'https://evil.internal?@github.com')"
+expect "userinfo is stripped from the request" forgejo.example "$(tokhost 'https://git:git@forgejo.example/')"
 
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
