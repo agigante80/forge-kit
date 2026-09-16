@@ -293,6 +293,9 @@ G2="$(mkbody feature "gap2.md" "$(printf 'Positive (happy path)\n- Given: a\n- W
 expect "gap 2: a parenthetical qualifier and a bold marker both count as blocks" pass "$(outcome "$(run "$G2" feature)" gwt)"
 G2b="$(mkbody feature "gap2b.md" "$(printf 'Positive:\n- Given: a\n- When: b\n- Then: c\n\n**Negative:**\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
 expect "gap 2: a trailing colon, bare or inside bold, counts" pass "$(outcome "$(run "$G2b" feature)" gwt)"
+G2h="$(mkbody feature "gap2h.md" "$(printf '*Positive _and_ negative paths are covered.*\n\nPositive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+o="$(run "$G2h" feature)"
+case "$(printf '%s\n' "$o" | awk -F'\t' '$1=="gwt"{print $3}')" in "1 positive and 1 negative"*) ok "gap 2: an emphasised prose line whose inner markup could pose as a closer is not a marker" ;; *) bad "gap 2: emphasised prose was counted as a block" ;; esac
 G2g="$(mkbody feature "gap2g.md" "$(printf 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED\n\nPositive:\n- Given: f\n- When: g\n- Then: h\n\n**Negative (bad input)**\n- Given: i\n- When: j\n- Then: 400 BAD_INPUT')")"
 o="$(run "$G2g" feature)"
 expect "gap 2: a parenthetical INSIDE the bold markup is a marker (the ticket's own scenario)" pass "$(outcome "$o" gwt)"
@@ -368,12 +371,15 @@ n="$(printf '%s' "$ev" | sed -n 's/^heading absent (\([0-9]*\)):.*/\1/p')"; item
 
 # The fifth fix (lists via ENVIRON) is invisible to gawk, which accepts a newline in -v; only BWK
 # awk refuses it, and CI has no BWK awk. Running the whole script under a second awk is still the
-# only CI-visible tripwire for awk portability, so when busybox is on PATH (ubuntu-latest ships
-# it) the compliant feature body is checked under it too. The Apple-awk run is by hand.
+# only CI-visible tripwire for awk portability, so when busybox is on PATH the compliant feature
+# body is checked under it too, and the skip line says when it is not. The Apple-awk run is by hand.
 if command -v busybox >/dev/null 2>&1 && busybox awk 'BEGIN{}' 2>/dev/null; then
   mkdir -p "$WORK/bbawk"; printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$WORK/bbawk/awk"; chmod +x "$WORK/bbawk/awk"
   o="$(PATH="$WORK/bbawk:$PATH" run "$WORK/ok-feature.md" feature)"
-  expect "portability: the compliant feature body passes every check under busybox awk" 0 "$(printf '%s\n' "$o" | awk -F'\t' '$2=="fail"' | wc -l | tr -d ' ')"
+  # Seven rows AND no fail: a refused awk construct dies with no rows at all, and "zero fails"
+  # alone was satisfied by that (found in review).
+  expect "portability: the compliant feature body emits every row under busybox awk" 7 "$(printf '%s\n' "$o" | grep -c .)"
+  expect "portability: and none of them fails" 0 "$(printf '%s\n' "$o" | awk -F'\t' '$2=="fail"' | wc -l | tr -d ' ')"
 else
   ok "portability: busybox awk not on PATH, second-awk case skipped"
 fi

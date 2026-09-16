@@ -306,7 +306,7 @@ fi
 # The bold branch allows a parenthetical INSIDE the markup too (`**Negative (bad input)**`), the
 # shape the ticket's own scenario used; without it the block's lines fell into the previous block
 # and the author was told THAT block had two Whens (found in review).
-marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[[:space:]]*$|^[[:space:]]*([*][*]|__|[*]|_)(%s)[[:space:]]*([(][^)]*[)])?:?([*][*]|__|[*]|_)' "$1" "$1"; }
+marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[[:space:]]*$|^[[:space:]]*([*][*]|__|[*]|_)(%s)([[:space:]]*[(][^)]*[)])?:?([*][*]|__|[*]|_)' "$1" "$1"; }
 MARK_ANY="$(marker_re 'Positive|Negative')"; MARK_POS="$(marker_re Positive)"; MARK_NEG="$(marker_re Negative)"
 if [ -z "$SCENARIOS_LABEL" ]; then
   row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"
