@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 11
+# check-public-leaks-version: 12
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
