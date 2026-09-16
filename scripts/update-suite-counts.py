@@ -102,6 +102,20 @@ def main():
     root = os.path.realpath(root)
     doc = args.doc or os.path.join(root, "CLAUDE.md")
 
+    # An absent doc is SKIPPED, loudly, and is never a failure. CLAUDE.md stopped being published
+    # on 2026-09-16 (a maintainer decision: assistant instructions are local working state), so the
+    # claims live on a maintainer's machine and in no CI checkout. Failing here would fail every
+    # build over a file the repository has decided not to carry; saying nothing would let the
+    # claims rot unnoticed. The counts are still checked wherever the doc exists, which is where
+    # they can be wrong. An explicit --doc that is missing is still an error, since the caller
+    # named a file it expected to be there.
+    if args.doc is not None and not os.path.isfile(doc):
+        print("update-suite-counts: no such doc: %s. Nothing checked." % doc, file=sys.stderr)
+        return 2
+    if args.doc is None and not os.path.isfile(doc):
+        print("update-suite-counts: %s is not in this checkout, so no claim was checked."
+              % os.path.relpath(doc, root))
+        return 0
     with open(doc, encoding="utf-8") as fh:
         text = fh.read()
     found = claims(text)

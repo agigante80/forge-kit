@@ -295,6 +295,8 @@ def load_plugin_semvers(root):
             _PLUGIN_DESCRIPTIONS[group] = " ".join(manifest.get("description", "").split())
 
 
+# A region whose FILE is absent from the checkout is skipped with a notice (see main): CLAUDE.md
+# is local-only since 2026-09-16 and is in no CI checkout.
 REGIONS = [
     ("README.md", "plugin-catalogue", render_plugin_catalogue),
     ("README.md", "component-index", render_component_index),
@@ -331,9 +333,18 @@ def main():
     if not rows:
         raise SystemExit("update-component-index: catalogue returned no components under " + root)
 
-    stale, changed = [], []
+    stale, changed, absent = [], [], []
     for filename, region_id, render in REGIONS:
         path = os.path.join(root, filename)
+        # A target doc that is not in this checkout is SKIPPED, loudly, and is never a failure.
+        # CLAUDE.md stopped being published on 2026-09-16 (a maintainer decision: assistant
+        # instructions are local working state), so it is absent from every CI checkout and
+        # present on a maintainer's machine. A generator that died on the absence would fail
+        # every build for a file the repository has decided not to carry, and one that stayed
+        # silent would let the local region rot; this says what it skipped and why.
+        if not os.path.isfile(path):
+            absent.append(filename)
+            continue
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
         updated = replace_region(text, region_id, render(rows), path)
@@ -346,6 +357,8 @@ def main():
                 fh.write(updated)
             changed.append(filename)
 
+    if absent:
+        print("update-component-index: not in this checkout, skipped: " + ", ".join(absent))
     if args.check:
         if stale:
             print("update-component-index: STALE region(s): " + ", ".join(stale))

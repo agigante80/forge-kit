@@ -175,6 +175,22 @@ grep -q 'plugin-catalogue:start' "$ROOT/README.md" \
   && ok "the real README carries the catalogue region" \
   || bad "the real README carries the catalogue region"
 
+# --- an absent target doc is skipped, loudly, and is never a failure ---------------------------
+# CLAUDE.md stopped being published on 2026-09-16 (assistant instructions are local working state),
+# so it is absent from every CI checkout and present on a maintainer's machine. Dying on the
+# absence would fail every build over a file the repository has decided not to carry; skipping
+# silently would let the local region rot with nothing saying so. Last, because it deletes the
+# fixture's copy.
+rm -f "$FIX/CLAUDE.md"
+out="$(python3 "$GEN" --check --root "$FIX" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "an absent target doc leaves --check green" || bad "an absent target doc leaves --check green (rc $rc)"
+printf '%s' "$out" | grep -q 'skipped: CLAUDE.md' && ok "and the skip is named" || bad "and the skip is named"
+printf '%s' "$out" | grep -q 'Traceback' && bad "with no traceback" || ok "with no traceback"
+out="$(python3 "$GEN" --root "$FIX" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "and a rewrite run skips it too" || bad "and a rewrite run skips it too"
+[ -f "$FIX/CLAUDE.md" ] && bad "without creating the file" || ok "without creating the file"
+grep -q 'component-index:start' "$FIX/README.md" && ok "the README region is still generated" || bad "the README region is still generated"
+
 echo ""
 echo "update-component-index tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

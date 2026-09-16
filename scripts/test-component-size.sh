@@ -107,6 +107,13 @@ bash "$CHECK" --root "$EMPTY" >/dev/null 2>&1
 rm -rf "$EMPTY"
 
 # --- 8. POLICY AGREEMENT: CLAUDE.md's table must match the script's enforced numbers ------------
+# Skipped where the doc is absent, which is every CI checkout since 2026-09-16: CLAUDE.md is local
+# working state and is no longer published. The agreement is still checked on a maintainer's
+# machine, which is the only place the two can drift apart, and a skip says so out loud rather than
+# failing a build over a file the repository has decided not to carry.
+if [ ! -f "$ROOT/CLAUDE.md" ]; then
+  ok "(skipped, CLAUDE.md is not in this checkout) the budget table and the ratchet baselines"
+else
 # The whole point of the budget is mechanical enforcement, so the documented numbers may not drift
 # from the applied ones.
 for pair in "subagent:agent" "command:command" "skill:skill"; do
@@ -137,6 +144,8 @@ while read -r name base; do
     || bad "CLAUDE.md records the $name ratchet baseline ($base)"
 done < <(awk '/^baseline_for\(\) \{/,/^\}/' "$CHECK" \
            | sed -n 's/^    \([a-z-]\+\))\s*echo \([0-9]\+\) ;;/\1 \2/p')
+
+fi
 
 # --- 9. the index word counts must equal what the budget counts --------------------------------
 # Two different counters (python str.split, wc -w) would silently disagree about whether a

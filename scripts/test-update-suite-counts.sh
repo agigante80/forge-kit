@@ -151,9 +151,26 @@ contains "test-absent.sh" "$out" "and the second, since nothing was run"
 lines="$(printf '%s\n' "$out" | grep -c 'scripts/test-')"
 expect "one line per claim" 2 "$lines"
 
+echo "== an absent doc is skipped loudly, and a doc named explicitly is refused =="
+# CLAUDE.md stopped being published on 2026-09-16, so it is absent from every CI checkout: the
+# default target being gone must be a loud skip and exit 0, never a traceback and never a silent
+# pass that looks like agreement. A doc the CALLER named is different: that is a mistake worth an
+# exit 2, because the caller expected the file to be there.
+NODOC="$FIX/empty-root"; mkdir -p "$NODOC/scripts"
+out="$(python3 "$GEN" --root "$NODOC" --check 2>&1)"; rc=$?
+expect "an absent default doc exits 0" 0 "$rc"
+contains "not in this checkout" "$out" "and says what it skipped"
+out="$(python3 "$GEN" --doc "$NODOC/missing.md" --root "$NODOC" --check 2>&1)"; rc=$?
+expect "a doc named on the command line and missing is refused (exit 2)" 2 "$rc"
+contains "no such doc" "$out" "naming it"
+lacks "Traceback" "$out" "without a traceback"
+
 echo "== the real doc: the parser sees every claim CLAUDE.md makes, and runs nothing =="
 # Reads this repository through --list only. The claims are the eleven the ticket counted; a
 # twelfth appearing here is a doc edit, which is what this case is for.
+if [ ! -f "$ROOT/CLAUDE.md" ]; then
+  ok "(skipped, CLAUDE.md is not in this checkout) the claims in this repository's own doc"
+else
 out="$(python3 "$GEN" --list --doc "$ROOT/CLAUDE.md" --root "$ROOT" 2>&1)"; rc=$?
 expect "--list on CLAUDE.md exits 0" 0 "$rc"
 contains "scripts/test-check-private-leaks.sh" "$out" "the wrapped claim on line 130 is found"
@@ -164,6 +181,7 @@ n="$(printf '%s\n' "$out" | grep -c 'scripts/test-')"
 missing=0
 for p in $(printf '%s\n' "$out" | grep -o 'scripts/test-[a-z0-9-]*\.[a-z]*' | sort -u); do [ -f "$ROOT/$p" ] || missing=$((missing + 1)); done
 expect "every claimed suite exists in the tree" 0 "$missing"
+fi
 
 echo
 echo "update-suite-counts tests: $pass passed, $fail failed"
