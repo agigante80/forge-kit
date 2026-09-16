@@ -640,8 +640,16 @@ Opened 2026-09-16 for #204: the area set is one definition here (#188) and none 
 is installed, because nothing hands it to the mechanics script.
 
 ## Phase: The host slot
-state: open
+state: done
 plan: docs/plans/the-host-slot.md
+
+Closed 2026-09-16, outcome **done**. One ticket, two gate rounds, two review rounds, two
+follow-ups to `backlog`: #215 (adapt's copy of the globs, a ratcheted file) and #216 (`forge_repo`
+keeps its own parser). Work that appeared and shipped inside: the authority cut in the #209 parser
+(`/` alone, where a query before the first slash moved the host), because the two parsers must not
+disagree on what an authority is. The premortem's third clause fired, in the review rather than
+the tests: the credential fix would have been undone by lowercasing, since git's store keys on the
+spelling as given; the helper now preserves case and only the compare lowercases.
 
 Opened 2026-09-16 for #212: the adapter every forge-touching component trusts decided the host
 with a glob that reads `github.com` anywhere after an `@`.
