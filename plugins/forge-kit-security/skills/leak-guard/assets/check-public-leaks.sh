@@ -63,10 +63,10 @@
 # and judge() splits the address with `IFS=@ read` rather than `${addr#*@}`. A 1 MB token followed
 # by an address costs 0.08 s where it once cost minutes, which is what matters: a hook that stalls
 # is a hook that gets --no-verify, and that is how this guard gets removed. Two things are NOT
-# linear and belong to a sibling ticket rather than to that claim: `redact`'s append loop, so a
-# REDACTED --history report over a megabyte-long match is still slow (24 s at 128 KB), which is why
-# the timing cases that use a glued match pass --show-evidence; and rules A and B's own bash-side
-# work on pathological paths.
+# linear and are #217 rather than part of that claim: `redact`'s append loop, so a REDACTED
+# --history report over a long match is still slow (20 s at 128 KB, 81 s at 256 KB, four times per
+# doubling), which is why the timing cases that use a glued match pass --show-evidence; and rules A
+# and B's own bash-side work on pathological paths.
 #
 # TWO SHAPES THIS DELIBERATELY DOES NOT REPORT, both consequences of the above, both pinned by a
 # test case so they cannot be rediscovered as bugs:

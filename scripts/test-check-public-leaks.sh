@@ -790,20 +790,24 @@ expect "the split mutant uses the quadratic expansion instead" 0 "$(grep -c 'IFS
 bounded 10 "$MUTS" --all "$GLUED" >/dev/null 2>&1
 expect "the quadratic-split mutant is killed at the bound (exit 124)" 124 "$?"
 
-# The locale half is only observable where a territory UTF-8 locale exists: C.UTF-8 does not admit
-# the accented classes either, so it cannot tell the pin from its absence.
-UTF8="$(locale -a 2>/dev/null | grep -i '^en_.*utf' | head -1)"
-if [ -n "$UTF8" ]; then
+# Two different locales are needed, and conflating them skipped half of this for no reason (review
+# round 1). The TIMING mutant dies under ANY UTF-8 locale, C.utf8 included (25 s there against
+# 0.098 s pinned), so a slim container still runs it. The accented-class case needs a TERRITORY
+# locale, because C.utf8 does not admit the accented classes either and so cannot tell the pin
+# from its absence.
+ANYUTF8="$(locale -a 2>/dev/null | grep -i 'utf' | head -1)"
+UTF8="$(locale -a 2>/dev/null | grep -i '^[a-z][a-z]_.*utf' | head -1)"
+if [ -n "$ANYUTF8" ]; then
   MUTL="$WORK/mutant-locale.sh"
   sed 's/done < <(LC_ALL=C grep -onE/done < <(grep -onE/' "$SCRIPT" > "$MUTL"; chmod +x "$MUTL"
   expect "the scanner pins the tree-mode grep to the C locale" 1 "$(grep -c 'LC_ALL=C grep -onE' "$SCRIPT")"
   expect "the locale mutant drops the pin" 0 "$(grep -c 'LC_ALL=C grep -onE' "$MUTL")"
-  LC_ALL="$UTF8" bounded 10 "$MUTL" --all "$LONG" >/dev/null 2>&1
-  expect "without the pin the anchored regex is still quadratic under a territory UTF-8 locale (124)" 124 "$?"
-  OUT="$(LC_ALL="$UTF8" bounded 10 "$SCRIPT" --all "$LONG" 2>/dev/null)"; rc=$?
+  LC_ALL="$ANYUTF8" bounded 10 "$MUTL" --all "$LONG" >/dev/null 2>&1
+  expect "without the pin the anchored regex is still quadratic under a UTF-8 locale (124)" 124 "$?"
+  OUT="$(LC_ALL="$ANYUTF8" bounded 10 "$SCRIPT" --all "$LONG" 2>/dev/null)"; rc=$?
   expect "with the pin the same run is reported within the bound" 1 "$rc"
 else
-  ok "(skipped, no territory UTF-8 locale on this machine) the locale mutant"
+  ok "(skipped, no UTF-8 locale on this machine) the locale mutant"
 fi
 
 echo "== the two shapes rule C deliberately misses, pinned so they are not rediscovered as bugs =="
@@ -845,7 +849,12 @@ expect "an address after a multibyte character trips" yes "$(trips "$(printf 'ca
 printf 'a@corp.io,b@corp.io\n' > "$WORK/two.txt"
 OUT="$("$SCRIPT" "$WORK/two.txt" 2>/dev/null)"
 expect "two adjacent addresses are both reported" 2 "$(printf '%s\n' "$OUT" | grep -c 'email:')"
-expect "a slash-preceded address is judged as email, not as a path" yes "$(trips 'see docs/alice@corp.io')"
+# The ROW, not the exit code: the strip mutant reports `home-path: /alice@corp.io` here and still
+# trips, so an exit-code assertion would pass on the mutant it is named for (review round 1).
+printf 'see docs/alice@corp.io\n' > "$WORK/slashmail.txt"
+OUT="$("$SCRIPT" "$WORK/slashmail.txt" 2>/dev/null)"
+contains "email: alice@corp.io" "$OUT" "a slash-preceded address is judged as email, not as a path"
+lacks "home-path:" "$OUT" "and no path row is invented from the stripped byte"
 OUT="$("$SCRIPT" "$WORK/two.txt" 2>/dev/null)"
 contains "email: a@corp.io" "$OUT" "the first whole"
 contains "email: b@corp.io" "$OUT" "the second whole"
