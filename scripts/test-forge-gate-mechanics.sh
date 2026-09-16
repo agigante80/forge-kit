@@ -114,6 +114,19 @@ via=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechan
 [ "$direct" = "$via" ] && ok "--format tsv reproduces check-ticket-mechanics.sh exactly" \
   || bad "--format tsv reproduces the checker exactly (diff: $(diff <(printf '%s' "$direct") <(printf '%s' "$via") | head -2 | tr '\n' ' '))"
 
+echo "== the project's own area set reaches the checker (#204) =="
+# The entry point passes --labels-doc docs/guides/labels.md unconditionally, so a project whose
+# table declares `protocol` and whose ticket carries only `protocol` gets `labels pass`; without
+# the doc the same ticket fails on the compiled-in nine.
+mkdir -p "$T/proj/docs/guides"
+printf '### Area labels\n| Label |\n|---|\n| `protocol` |\n\n### Type labels\n' > "$T/proj/docs/guides/labels.md"
+issue "$(cat "$T/full-body.md")" feature P2 protocol
+out=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechanics.sh" 42 --format tsv 2>/dev/null)
+expect "a ticket carrying only the project's own area passes check 2 through the entry point" pass "$(printf '%s\n' "$out" | awk -F'\t' '$1=="labels"{print $2}')"
+rm "$T/proj/docs/guides/labels.md"
+out=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechanics.sh" 42 --format tsv 2>/dev/null)
+expect "without the doc the same ticket fails on the compiled-in set" fail "$(printf '%s\n' "$out" | awk -F'\t' '$1=="labels"{print $2}')"
+
 echo "== a failing check exits non-zero, a referred one does not =="
 # Template-shaped on purpose: since #184 a body that was never template-shaped exits 0 with an
 # explanation instead, so a hand-written fixture here would test the wrong branch.

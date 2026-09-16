@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 8
+# check-ticket-mechanics-version: 9
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -53,7 +53,14 @@
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
 #     --tpl-version N --current-tpl-version N --labels "a,b" \
-#     [--area-labels "..."] [--type-labels "..."]
+#     [--labels-doc docs/guides/labels.md] [--area-labels "..."] [--type-labels "..."]
+#
+# THE AREA SET IS THE PROJECT'S OWN, WHEN IT HAS ONE (#204). `--labels-doc` names the project's
+# `docs/guides/labels.md`, and the first column of its `### Area labels` table REPLACES the
+# compiled-in nine (one definition, #188: a union would keep forge-kit's areas as areas in every
+# project forever). Both callers pass it. An explicit `--area-labels` still wins. A doc that is
+# missing, or has no such table, means the compiled-in default and never a wider set, so this
+# flag can narrow what check 2 accepts but cannot loosen it.
 #
 # Emits TSV to stdout: <check>\t<outcome>\t<evidence>, outcome in pass|fail|warn|na|referred.
 # Exit 0 whenever the checks ran, so a FAIL is data, and so is a version it cannot parse. Exit
@@ -65,7 +72,7 @@
 
 set -uo pipefail
 
-BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0
+BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -86,7 +93,8 @@ while [ $# -gt 0 ]; do
     --tpl-version)         need_value $# "$1"; TPL_VERSION="$2"; shift 2 ;;
     --current-tpl-version) need_value $# "$1"; CURRENT_TPL_VERSION="$2"; shift 2 ;;
     --labels)              need_value $# "$1"; LABELS="$2"; shift 2 ;;
-    --area-labels)         need_value $# "$1"; AREA_LABELS="$2"; shift 2 ;;
+    --area-labels)         need_value $# "$1"; AREA_LABELS="$2"; AREA_EXPLICIT=1; shift 2 ;;
+    --labels-doc)          need_value $# "$1"; LABELS_DOC="$2"; shift 2 ;;
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
     -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' "$0"; exit 0 ;;
@@ -98,6 +106,19 @@ done
 [ -f "$BODY" ]     || die "body file not found: $BODY"
 [ -n "$TEMPLATE" ] || die "--template is required"
 [ -f "$TEMPLATE" ] || die "template file not found: $TEMPLATE"
+
+# The project's area table, read the way scripts/check-label-taxonomy.sh reads the canonical one:
+# rows of the `### Area labels` table whose first column is a backticked name. Anything else on
+# the way is not an area. Explicit --area-labels wins; no doc or no table keeps the default.
+if [ "$AREA_EXPLICIT" -eq 0 ] && [ -n "$LABELS_DOC" ] && [ -f "$LABELS_DOC" ]; then
+  doc_areas="$(awk '
+    /^### Area labels/ { inside = 1; next }
+    inside && /^### / { exit }
+    inside && /^\| `/ { gsub(/^\| `/, ""); sub(/`.*/, ""); print }
+  ' "$LABELS_DOC" | tr '\n' ' ')"
+  doc_areas="${doc_areas% }"
+  [ -n "$doc_areas" ] && AREA_LABELS="$doc_areas"
+fi
 
 is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 

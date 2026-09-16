@@ -81,7 +81,13 @@ unexercisable in the repo that ships it. A manual instruction is what allowed th
 
 ## Adding project-specific labels
 
-Add entries to `.github/labels.yml` for your domain:
+The area table above IS the set the gate checks against: both `ticket-gate` (Step 3A) and
+`forge-gate-mechanics.sh` pass this file to `check-ticket-mechanics.sh --labels-doc`, and the
+first column of the `### Area labels` table replaces the compiled-in default (#204). To add an area,
+add a row to that table and the matching entry to `.github/labels.yml` (`sync-labels.sh` puts it on
+the host; `check-label-taxonomy.sh` fails the build if the two disagree). Without this file the
+checker falls back to forge-kit's nine, so a project that renames its areas needs the doc installed,
+not only the labels:
 ```yaml
 - name: my-domain
   color: "c5def5"

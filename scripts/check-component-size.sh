@@ -284,6 +284,8 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# LOWERED 2026-09-16: ticket-gate 5767 to 5766 (#204: --labels-doc added to Step 3A, paid for by
+# deleting Step 0b's drifted type-set parenthetical, net one word down).
 # LOWERED 2026-09-11: ticket-gate 5773 to 5767 (#194). #192 and #197 each paid for themselves
 # out of restated sentences and left 19 words of headroom; #194 spent 13 of them (the direction in
 # the comment +2, the provenance echo +1, the ROUND fallback +7, its prose +3) and the remaining 6
@@ -306,7 +308,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5767 ;;
+    ticket-gate) echo 5766 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

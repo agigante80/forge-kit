@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 55 -->
+<!-- ticket-gate-version: 56 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -173,8 +173,8 @@ gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
    Return `BLOCKED - LABELS_REQUIRED`. Post comment: "Issue must have at least one area
    label for lens routing. See docs/guides/labels.md."
 
-3. **Warn if no type label** (any of: `bug`, `feature`, `enhancement`, `security`,
-   `documentation`, `testing`). If missing: log the warning in the review but do NOT block.
+3. **Warn if no type label**, as defined in `docs/guides/labels.md`. If missing: log the
+   warning in the review but do NOT block.
 
 ---
 
@@ -344,7 +344,8 @@ which cannot be tested (#149).
 ```bash
 [ "$(jq .number "$D/issue.json")" = <NUMBER> ] || exit 2   # another run's fetch: STOP, post nothing (#197)
 "$MECH" --body "$D/body.md" --template <the type's template file> \
-  --tpl-version <marker from the body> --current-tpl-version <0a's value> --labels <0b's labels>
+  --tpl-version <marker from the body> --current-tpl-version <0a's value> --labels <0b's labels> \
+  --labels-doc docs/guides/labels.md
 ```
 
 One row per check, `<check>\t<outcome>\t<evidence>`; a non-zero exit means every check is

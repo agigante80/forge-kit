@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 3
+# forge-gate-mechanics-version: 4
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -137,9 +137,11 @@ $("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" --dump-fields 2>/dev/null)
 FIELDS
 fi
 
+# --labels-doc is the project's own area set (#204); the checker keeps its default when the file
+# is absent, so this is passed unconditionally and the two callers cannot diverge on it.
 rows=$("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" \
         ${TPL_VER:+--tpl-version "$TPL_VER"} --current-tpl-version "$CURRENT_TPL_VER" \
-        --labels "$labels") || die "the checker could not read the body or the template"
+        --labels "$labels" --labels-doc docs/guides/labels.md) || die "the checker could not read the body or the template"
 
 if [ "$FORMAT" = tsv ]; then
   printf '%s\n' "$rows"

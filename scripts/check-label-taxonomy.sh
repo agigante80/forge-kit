@@ -76,8 +76,10 @@ if [ -n "$missing_yml" ]; then
   fails=$((fails + 1))
 fi
 
-# 2. AREA_LABELS in the mechanical checks must EQUAL the canonical set. It is the value the gate
-#    passes when it does not override, so a difference here is a check judging a different taxonomy.
+# 2. AREA_LABELS in the mechanical checks must EQUAL the canonical set. It is the DEFAULT: the
+#    value in force when the gate's --labels-doc names no readable table (#204), and in this
+#    repository the table it names is this same doc, so a difference here is a check judging a
+#    different taxonomy the moment the doc is out of reach.
 mech=$(grep -oP '^AREA_LABELS="\K[^"]+' "$MECH" | head -1 | tr ' ' '\n')
 if [ -z "$mech" ]; then
   echo "check-label-taxonomy: no AREA_LABELS default found in $MECH" >&2

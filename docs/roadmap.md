@@ -623,6 +623,13 @@ worked on one bash and not the other, with no test on the platform CI runs.
 Opened 2026-09-16 for #208 and #209: the audit's finding that the older tree modes, the ones the
 hooks run, had fail-open paths the new history mode did not.
 
+## Phase: One definition that travels
+state: open
+plan: docs/plans/one-definition-that-travels.md
+
+Opened 2026-09-16 for #204: the area set is one definition here (#188) and none where the gate
+is installed, because nothing hands it to the mechanics script.
+
 ## Phase: Backlog
 state: backlog
 

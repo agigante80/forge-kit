@@ -384,6 +384,44 @@ else
   ok "portability: busybox awk not on PATH, second-awk case skipped"
 fi
 
+
+echo "check-ticket-mechanics: the area set comes from the project's own labels.md (#204)"
+mkdir -p "$WORK/proj/docs/guides"
+cat > "$WORK/proj/docs/guides/labels.md" <<'MD'
+# Labels
+
+### Area labels (this project's)
+| Label | Description |
+|---|---|
+| `protocol` | The wire protocol |
+| `client` | The client |
+not-a-row `server` |
+
+### Type labels
+| Label |
+|---|
+| `bug` |
+MD
+B="$(mkbody feature "areas.md")"
+lbldoc() { bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "$1" "${@:2}" 2>/dev/null | awk -F'\t' '$1=="labels"{print $2 "\t" $3}'; }
+o="$(lbldoc "protocol,feature" --labels-doc "$WORK/proj/docs/guides/labels.md")"
+expect "a ticket carrying only the project's own area passes with --labels-doc" pass "${o%%	*}"
+o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/labels.md")"
+expect "REPLACEMENT: a compiled-in area absent from the table fails" fail "${o%%	*}"
+case "${o#*	}" in *"protocol, client"*) ok "and the fail message lists the table's set, not the nine" ;; *) bad "the fail message lists the wrong set: '${o#*	}'" ;; esac
+case "${o#*	}" in *server*) bad "a malformed row became an area" ;; *) ok "a row whose first column is not backticked is not an area" ;; esac
+o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/labels.md" --area-labels "components")"
+expect "an explicit --area-labels wins over the doc" pass "${o%%	*}"
+o="$(lbldoc "protocol,feature" --labels-doc "$WORK/proj/docs/guides/nope.md")"
+expect "a missing doc keeps the compiled-in default (protocol is not in it)" fail "${o%%	*}"
+o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/nope.md")"
+expect "and the default still admits its own areas" pass "${o%%	*}"
+printf '# Labels\n\nno table here\n' > "$WORK/proj/docs/guides/empty.md"
+o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/empty.md")"
+expect "a doc with no area table keeps the default too, never an empty set" pass "${o%%	*}"
+o="$(lbldoc "components,feature" --labels-doc "$ROOT/docs/guides/labels.md")"
+expect "this repository's own labels.md reads as the same nine (parity with check-label-taxonomy.sh)" pass "${o%%	*}"
+
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"
 expect "emits exactly one row per check" 7 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
