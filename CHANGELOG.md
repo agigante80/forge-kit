@@ -7,7 +7,39 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
-## Unreleased
+## v0.6.0 (2026-09-16)
+
+Five overnight and daytime phases from the #191 decision brief onward: the leak guard reads
+history, the numbers in the prose are generated, the tree modes fail closed, the area set travels,
+and the forge adapter decides the host by URL form. Shipped without a Mac: the macOS claims are
+verified against Apple's awk source and bash 3.2.57 built on Linux, and the README says so.
+
+### Added
+
+- **`--history` for both leak-guard scanners** (#191, forge-kit-security 0.10.0). Reads the
+  publishable history (every blob a branch, tag or remote-tracking ref reaches, every commit and
+  tag message) through one `git cat-file --batch` stream and a POSIX awk reader that COUNTS each
+  object's declared bytes, so a blob forging a batch header hides nothing, and that puts no content
+  or path byte through a regex, because Apple's awk aborts on a byte over 0x7F the moment a regex
+  meets it under a C locale. An object is scanned unless EVERY path it ever had is skipped; the
+  path map is pinned with `git -c` overrides against user config that reshapes `--raw` output and
+  refuses a filename with a newline. Refuses alternates, `GIT_OBJECT_DIRECTORY`,
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES`, partial clones, grafts, an object git cannot read and any
+  failed pipeline stage; ignores `refs/replace`. Evidence is redacted by default (`--show-evidence`,
+  `--show-names`); `--orphans` opts in to what no ref reaches. Never wired into a hook. Two review
+  rounds found five ways a reachable leak became a silent exit 0 before it shipped, all inputs the
+  tool does not control; the suites carry a mutant with the reader's `r<0` gate removed.
+- **`scripts/update-suite-counts.py`** (#201). CLAUDE.md states a count for every contract suite
+  and three were stale when the ticket was filed; the numbers are generated from the suites' own
+  printed totals now, `--check` fails the build on a stale one, and a suite that cannot run refuses
+  rather than writing a zero. The spelled-out counts the generator cannot anchor came out of the
+  prose instead (#202, #203).
+- **`check-ticket-mechanics.sh --labels-doc`** (#204). The first column of the project's own
+  `docs/guides/labels.md` area table REPLACES the compiled-in nine, passed by both callers, so a
+  project that declares `protocol` as its area satisfies check 2 with `protocol` alone. An absent
+  doc keeps the default; a present doc with no readable table refers rather than silently widening
+  back. `check-label-taxonomy.sh` keeps the two table reads byte-identical. Nothing installs the
+  doc yet (#214).
 
 ### Changed
 
@@ -21,6 +53,31 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **The leak guard's tree modes fail closed** (#208, P1, from the #191 security audit). A
+  renamed-and-edited file was status R and listed by nothing (`--no-renames --diff-filter=ACMT`),
+  a staged path shaped `0:x` was read by `git show ":$f"` as a stage spec, a file named `-v` was an
+  option and `-` was stdin, and a temp directory, names file or blob that could not be written, or
+  a tracked file the process could not open, each continued and reported clean. Each is exit 2
+  naming the file, never `$TMPD` and never the script's path, even for a child killed by a signal.
+  A tracked symlink is scanned as its link text under `--all` (it was followed), and only a blob
+  is shown (a gitlink whose commit is present was scanned as text).
+- **The private half drops a listed owner name only where its rationale is true** (#209): in the
+  tree modes and only when origin's host is exactly `github.com`, `gitlab.com`, `codeberg.org` or
+  `bitbucket.org`, parsed by URL form; never in `--history`, and never on a private forge, which
+  is exactly where a private organisation name must be caught. `2222` in `host:2222/` is a port,
+  not the owner. The list path shows as `~` in every message on every bash.
+- **Four checker gaps found gating twelve tickets downstream, and a fifth found under Apple's awk**
+  (#205, check-ticket-mechanics v8). The evidence row was cut at 160 bytes (a 248-byte label list
+  lost its tail; the bound is 1000 with a count prefix), a Positive/Negative marker with a
+  qualifier or in bold read as no block (one marker regex shared by every site, which refuses a
+  prose line that merely starts with the word), a template renaming its E2E section got
+  `referred` forever (roles resolve by pattern in priority order, id before label), and a template
+  whose `value:` or `placeholder:` carries `### ...` sub-headings ended a section at its own first
+  line. The fifth: BWK awk refuses a `-v` value containing a newline, so on a Mac every section of
+  every ticket had read as empty; the lists travel via `ENVIRON`. The busybox awk on the CI runner
+  now runs the compliant body as a second-awk tripwire.
+- **The reach sentences both leak-guard headers carry are pinned** (#199, #200): the `grep -a`
+  rule, the history limit and its pointer, each through `--help`, one needle per sentence.
 - **`forge_host` decides the host from the URL's authority, never from a glob** (#212, forge-lib
   v16). The old `*://*@github.com/*` `case` pattern let `*` cross `/`, so any URL with
   `@github.com/` in its path or query read as GitHub, and `_forge_token` had the same cut on the
