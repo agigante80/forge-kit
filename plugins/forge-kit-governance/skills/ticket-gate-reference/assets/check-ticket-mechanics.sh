@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 7
+# check-ticket-mechanics-version: 8
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -216,7 +216,11 @@ role_required() {
 empty_outcome() { if role_required "$1"; then echo fail; else echo referred; fi; }
 SCENARIOS_LABEL="$(role_label 'given.*when.*then')"
 UNIT_LABEL="$(role_label 'unit test')"
-E2E_LABEL="$(role_label 'e2e|end.to.end' 'integration')"
+# The second pattern needs "test" or "scenario" beside "integration": a design template's
+# "Integration points" section (prose, no E2E field) would otherwise be read as the E2E section
+# and FAIL for naming no path, where v6 referred it. Wider than before, into FAIL, is the one
+# direction this script forbids (found in review).
+E2E_LABEL="$(role_label 'e2e|end.to.end' 'integration.*(test|scenario)')"
 DOCS_LABEL="$(role_label 'documentation impact')"
 
 # --- check 1: template version currency -------------------------------------------------
@@ -299,7 +303,10 @@ fi
 # expected here` is prose, and admitting it would make a block with no When and a false FAIL.
 # Bracket expressions rather than backslashes, because the string is handed to awk through -v,
 # which processes escapes. bash 3.2 has no function returning a string, so a variable per word.
-marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[[:space:]]*$|^[[:space:]]*([*][*]|__|[*]|_)(%s):?([*][*]|__|[*]|_)' "$1" "$1"; }
+# The bold branch allows a parenthetical INSIDE the markup too (`**Negative (bad input)**`), the
+# shape the ticket's own scenario used; without it the block's lines fell into the previous block
+# and the author was told THAT block had two Whens (found in review).
+marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[[:space:]]*$|^[[:space:]]*([*][*]|__|[*]|_)(%s)[[:space:]]*([(][^)]*[)])?:?([*][*]|__|[*]|_)' "$1" "$1"; }
 MARK_ANY="$(marker_re 'Positive|Negative')"; MARK_POS="$(marker_re Positive)"; MARK_NEG="$(marker_re Negative)"
 if [ -z "$SCENARIOS_LABEL" ]; then
   row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"

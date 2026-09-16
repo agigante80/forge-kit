@@ -258,7 +258,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
 | `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |
 | `forge-kit-governance` | hook | `overnight-guard` | v4 |  | PreToolUse Bash guard for an armed working-overnight run. |
-| `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v7 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
+| `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v8 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
 | `forge-kit-governance` | shell asset | `count-gate-rounds` | v1 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
 | `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v3 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
 | `forge-kit-review` | agent | `architect-review` | v2 | 1034 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |

@@ -293,6 +293,10 @@ G2="$(mkbody feature "gap2.md" "$(printf 'Positive (happy path)\n- Given: a\n- W
 expect "gap 2: a parenthetical qualifier and a bold marker both count as blocks" pass "$(outcome "$(run "$G2" feature)" gwt)"
 G2b="$(mkbody feature "gap2b.md" "$(printf 'Positive:\n- Given: a\n- When: b\n- Then: c\n\n**Negative:**\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
 expect "gap 2: a trailing colon, bare or inside bold, counts" pass "$(outcome "$(run "$G2b" feature)" gwt)"
+G2g="$(mkbody feature "gap2g.md" "$(printf 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED\n\nPositive:\n- Given: f\n- When: g\n- Then: h\n\n**Negative (bad input)**\n- Given: i\n- When: j\n- Then: 400 BAD_INPUT')")"
+o="$(run "$G2g" feature)"
+expect "gap 2: a parenthetical INSIDE the bold markup is a marker (the ticket's own scenario)" pass "$(outcome "$o" gwt)"
+case "$(printf '%s\n' "$o" | awk -F'\t' '$1=="gwt"{print $3}')" in "2 positive and 2 negative"*) ok "gap 2: and both pairs are counted" ;; *) bad "gap 2: the bold-with-parenthetical block was folded into the previous one" ;; esac
 G2c="$(mkbody feature "gap2c.md" "$(printf 'Positive outcome expected here\nNegative scenarios are listed below.\n\nPositive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
 o="$(run "$G2c" feature)"
 expect "gap 2: a prose line starting with the bare word is NOT a block (near miss)" pass "$(outcome "$o" gwt)"
@@ -324,6 +328,12 @@ o="$(bash "$SCRIPT" --body "$WORK/idonly.md" --template "$WORK/idonly.yml" --tpl
 expect "gap 3: the id decides when the label says nothing" pass "$(outcome "$o" e2e_tests)"
 B="$(mkbody security "gap3-sec.md")"
 expect "gap 3: a template with no E2E-shaped section at all still refers" referred "$(outcome "$(run "$B" security)" e2e_tests)"
+# A non-test "Integration" section must NOT be taken for the E2E role: v6 referred this, and a
+# bare `integration` pattern turned it into a FAIL for naming no path, the forbidden direction.
+mktpl "$WORK/design-int.yml" "summary|Summary|true" "integration_points|Integration points|true"
+printf '<!-- template-version: 6 -->\n\n### Summary\n\nx\n\n### Integration points\n\nTalks to the billing service over its queue.\n' > "$WORK/design-int.md"
+o="$(bash "$SCRIPT" --body "$WORK/design-int.md" --template "$WORK/design-int.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null)"
+expect "gap 3: a prose Integration section without test or scenario in its name is still referred, never failed" referred "$(outcome "$o" e2e_tests)"
 bash "$SCRIPT" --body "$WORK/idonly.md" --template "$WORK/idonly.yml" --e2e-label x >/dev/null 2>&1
 [ $? -ne 0 ] && ok "gap 3: there is no --e2e-label option" || bad "gap 3: --e2e-label was accepted"
 dump="$(bash "$SCRIPT" --body "$WORK/idonly.md" --template "$WORK/idonly.yml" --dump-fields)"
@@ -346,7 +356,7 @@ assert s != before, "fixture anchor did not match"
 open(sys.argv[2],"w").write(s)
 PY
 o="$(run "$WORK/gap4-other.md" feature)"
-[ "$(outcome "$o" unit_tests)" != pass ] && ok "gap 4: a sub-heading belonging to ANOTHER field still ends this one (scoped per field)" || bad "gap 4: another field's sub-heading was read as this field's content"
+expect "gap 4: a sub-heading belonging to ANOTHER field still ends this one (scoped per field)" fail "$(outcome "$o" unit_tests)"
 
 # --- mutants, in the shape of the suite's other companions: a scratch copy, one line altered. ---
 MUT="$WORK/mut.sh"
@@ -355,6 +365,18 @@ grep -q 'cut -c1-1000' "$SCRIPT" && ok "mutant ledger: the script carries the 10
 ev="$(bash "$MUT" --body "$WORK/bare.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="sections"{print $3}')"
 n="$(printf '%s' "$ev" | sed -n 's/^heading absent (\([0-9]*\)):.*/\1/p')"; items="$(printf '%s' "${ev#*: }" | awk -F'; ' '{print NF}')"
 [ "$n" != "$items" ] && ok "mutant: with the old 160-byte cut the count disagrees with the items (the companion can fail)" || bad "mutant: the companion did not notice the cut"
+
+# The fifth fix (lists via ENVIRON) is invisible to gawk, which accepts a newline in -v; only BWK
+# awk refuses it, and CI has no BWK awk. Running the whole script under a second awk is still the
+# only CI-visible tripwire for awk portability, so when busybox is on PATH (ubuntu-latest ships
+# it) the compliant feature body is checked under it too. The Apple-awk run is by hand.
+if command -v busybox >/dev/null 2>&1 && busybox awk 'BEGIN{}' 2>/dev/null; then
+  mkdir -p "$WORK/bbawk"; printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$WORK/bbawk/awk"; chmod +x "$WORK/bbawk/awk"
+  o="$(PATH="$WORK/bbawk:$PATH" run "$WORK/ok-feature.md" feature)"
+  expect "portability: the compliant feature body passes every check under busybox awk" 0 "$(printf '%s\n' "$o" | awk -F'\t' '$2=="fail"' | wc -l | tr -d ' ')"
+else
+  ok "portability: busybox awk not on PATH, second-awk case skipped"
+fi
 
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"
