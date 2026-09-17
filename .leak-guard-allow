@@ -63,3 +63,7 @@ prefix /home/runner
 root [^
 root %s
 prefix /home/*|
+
+# Historical doc roots (public --history): the project's own former name, and a <name> placeholder.
+root ai-projectforge
+root name>
