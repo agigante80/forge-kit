@@ -151,6 +151,10 @@ lacks "pnpm-lock.yaml" "$OUT" "comment and blank lines in the allow-file are ign
 expect "and it still exits 1 on the remaining finding" 1 "$rc"
 expect "with no stderr complaint about the comment or blank lines" "" "$(cat "$WORK/err.txt")"
 
+"$SCRIPT" --list "$WORK/list" --allow-file >/dev/null 2>"$WORK/err.txt"
+expect "--allow-file as the last argument dies rather than silently no-opping" 2 "$?"
+contains "needs a path" "$(cat "$WORK/err.txt")" "and says so"
+
 echo "== what is not scanned =="
 printf 'acme-migration\n' > "$WORK/skipme.png"
 "$SCRIPT" --list "$WORK/list" "$WORK/skipme.png" >/dev/null 2>&1
@@ -300,6 +304,21 @@ mkrepo orphan
 hrun --history; rc=$RC;           expect "an amended-away name is not in the publishable set" 0 "$rc"
 hrun --history --orphans; rc=$RC; expect "--orphans reaches it" 1 "$rc"
 contains "blob@" "$OUT" "labelled blob@<oid>"
+
+# Task 3 review: the allow-file's `skip` globs must reach history mode too, since the weekly
+# sweep runs --history and a name permanently stuck in an old commit (a test fixture, a
+# generated lockfile) has no OTHER way to be silenced without weakening the list itself.
+# Neither file below is a lockfile skip_by_name already exempts, so a pass here proves the
+# allow-file's SKIP_PATHS did the work, not the built-in lockfile list.
+mkrepo history-skip
+( cd "$HREPO" && printf 'secretproj\n' > fixture.txt && printf 'secretproj too\n' > other.md \
+  && git add fixture.txt other.md && git commit -qm add \
+  && git rm -q fixture.txt other.md && git commit -qm remove ) >/dev/null 2>&1
+printf 'skip fixture.txt\n' > "$WORK/hskipallow"
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" --history --allow-file "$WORK/hskipallow" 2>/dev/null )"; rc=$?
+lacks "fixture.txt@" "$OUT" "a name in a skipped path from an OLD commit is not reported under --history --allow-file"
+contains "other.md@" "$OUT" "the same name in an unskipped historical path is still reported"
+expect "and the run exits 1 on the surviving finding" 1 "$rc"
 
 echo "== --history: every ref a mirror push sends (#210) =="
 # Mirrors the public suite's section with a listed name. The enumeration code is DUPLICATED from

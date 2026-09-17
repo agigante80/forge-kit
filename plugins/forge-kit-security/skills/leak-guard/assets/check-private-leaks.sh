@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 13
+# check-private-leaks-version: 14
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -145,7 +145,7 @@ while [ $# -gt 0 ]; do
     --history)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=history ;;
     --orphans)     ORPHANS=1 ;;
     --list)        shift; [ $# -gt 0 ] || die "--list needs a path"; LIST="$1" ;;
-    --allow-file)  shift; ALLOW_FILE="${1:-}" ;;
+    --allow-file)  shift; [ $# -gt 0 ] || die "--allow-file needs a path"; ALLOW_FILE="$1" ;;
     --show-names)  SHOW_NAMES=1 ;;
     --init)        DO_INIT=1 ;;
     # Prints the whole comment header, rather than a hardcoded line range. The range was the bug:
@@ -548,6 +548,13 @@ history_scan() {
     [ -n "$first" ] || first="$path"
     [ -z "$keep" ] || continue
     skip_by_name "$path" "$lower" && continue
+    # An allow-file skip applies to a KNOWN path, same as the tree-mode loop. A blob with no
+    # path at all (--orphans, or one the map never saw) never reaches here: the empty-path
+    # branch above already resolved it to `keep=blob` and moved on, so it cannot be silenced
+    # by a path glob and is not meant to be.
+    for s in ${SKIP_PATHS+"${SKIP_PATHS[@]}"}; do
+      case "$path" in $s) continue 2 ;; esac
+    done
     [ "$lower" != "$selflower" ] || { selfnamed=1; continue; }
     keep="$path"
   done < "$merged"
