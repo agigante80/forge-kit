@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 17
+# forge-lib-version: 18
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -63,6 +63,13 @@
 #       keeps its bytes); and `o/r.git/` prints `o/r` (was `o/r.git`). A URL with no authority is
 #       refused with one message naming the URL, with scheme-form userinfo redacted, where v16
 #       named a fabricated sub-path (`colon/o/r` for `/path/with:colon/o/r`).
+#   v18 forge_api_paginate STOPS on a page whose stable keys (id, else number) equal the previous
+#       page's, and says so on stderr; it also names the ordinary empty-page end there (#228). On
+#       a host that ignores page= (Gitea's per-issue comments endpoint, go-gitea #6132) a call
+#       that spun to the 500-page cap and returned 2 now returns the page once, rc 0, in two
+#       requests, so count-gate-rounds reads a number instead of `unknown`. A caller that
+#       treated any stderr from a paginate as a failure now sees one line per call. Termination
+#       on an EMPTY page is unchanged and `length < limit` is still not a stop.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -328,7 +335,8 @@ forge_api() {
 # forge_api_paginate <path>  GET every page of a LIST endpoint and print ONE concatenated
 # JSON array, host-aware: github delegates to `gh api --paginate` (which merges pages into one
 # array without -q); forgejo loops page/limit itself, appending '?' or '&' as the path needs.
-# Forgejo termination is an EMPTY page, deliberately NOT `length < limit`: the server clamps
+# Forgejo termination is an EMPTY page or an IDENTICAL page (#228, keys compared, see the loop),
+# deliberately NOT `length < limit`: the server clamps
 # `limit` to its admin-set MAX_RESPONSE_ITEMS (stock default 50), so a clamped page satisfies
 # `< limit` while pages remain, which would silently reproduce the exact single-page
 # truncation this helper exists to fix (issue #62). One extra request per call is the price
@@ -364,6 +372,7 @@ forge_api_paginate() {
   # mktemp, NOT "paginate.$$": $$ is the PARENT pid inside every subshell, so two concurrent
   # paginations in one process shared a path and each returned the union of both streams, exit 0.
   tmp="$(mktemp "$_FORGE_TMPDIR/paginate.XXXXXX")" || return 2
+  local prev="" sig
   while :; do
     chunk="$(forge_api GET "${path}${sep}limit=50&page=${page}")" || { rc=$?; _forge_tmp_done "$tmp"; return "$rc"; }
     n="$(printf '%s' "$chunk" | jq 'if type == "array" then length else -1 end' 2>/dev/null)"
@@ -372,7 +381,21 @@ forge_api_paginate() {
         echo "forge-lib: paginate: non-array or empty response from ${path} page ${page}" >&2
         _forge_tmp_done "$tmp"; return 2 ;;
     esac
-    [ "$n" -gt 0 ] || break
+    [ "$n" -gt 0 ] || { echo "forge-lib: paginate: empty page ${page}: end of ${path}" >&2; break; }
+    # #228: a host that IGNORES page= returns the same page for ever (Gitea's per-issue comments
+    # endpoint has since before the Forgejo fork, go-gitea #6132), so no page is ever empty and
+    # v16 spun to the cap: 500 requests, then rc 2. The stop compares each page's STABLE KEYS
+    # (id, else number) with the previous page's, not its bytes, because a live response can
+    # carry a field that changes between calls; a row with no key falls back to the bytes, so
+    # null keys can never read as equal. It runs BEFORE the append, or the page would land
+    # twice. Residual, accepted: a comment written between two reads makes page 2 a superset of
+    # page 1, page 3 then matches page 2, and page 1 is carried twice; the next read is correct.
+    sig="$(printf '%s' "$chunk" | jq -c 'if all(.[]; type == "object" and (.id // .number) != null) then map(.id // .number) else . end' 2>/dev/null)"
+    if [ -n "$prev" ] && [ "$sig" = "$prev" ]; then
+      echo "forge-lib: paginate: identical page: server ignores page (stopped at page ${page} of ${path})" >&2
+      break
+    fi
+    prev="$sig"
     printf '%s\n' "$chunk" >> "$tmp"
     page=$((page + 1))
     if [ "$page" -gt "$cap" ]; then

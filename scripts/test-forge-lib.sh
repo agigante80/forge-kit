@@ -146,9 +146,9 @@ esac
   export FORGE_HOST=forgejo FORGE_REPO=o/r
   PAD="$(head -c 1300 /dev/zero | tr '\0' x)"
   BIGPAGE="$(jq -nc --arg pad "$PAD" '[range(50)] | map({number:., body:$pad})')"
-  forge_api() {
+  forge_api() {   # ids derive from the page, or the #228 identical-page stop would end this at page 2
     case "$2" in
-      *"/issues?"*page=1*|*"/issues?"*page=2*|*"/issues?"*page=3*) printf '%s' "$BIGPAGE" ;;
+      *"/issues?"*page=1*|*"/issues?"*page=2*|*"/issues?"*page=3*) printf '%s' "$BIGPAGE" | jq -c --argjson pg "${2##*page=}" 'map(.number += 50*($pg-1))' ;;
       *) printf '[]' ;;
     esac
   }
@@ -266,16 +266,93 @@ esac
 (
   . "$LIB"
   export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=junk
-  forge_api() { printf '[{"number":1}]'; }   # non-empty forever: only the cap can stop this
+  # non-empty forever, with a DISTINCT id per page so the #228 identical-page stop cannot end it:
+  # only the cap can stop this
   out=$(timeout 30 bash -c '
     . "'"$LIB"'"
     export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=junk
-    forge_api() { printf "[{\"number\":1}]"; }
+    forge_api() { printf "[{\"number\":%s}]" "${2##*page=}"; }
     forge_issue_list 2>/dev/null
   '); rc=$?
   [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]
 )
 [ $? -eq 0 ] && ok "a non-numeric FORGE_PAGINATE_MAX_PAGES falls back to the default cap (errors, no spin)"              || bad "a non-numeric page cap disabled the spin guard (timed out or exited 0)"
+
+# --- #228: a host that IGNORES page returns the same page for ever; stop on the same KEYS -------
+# Forgejo's per-issue comments endpoint returns the whole list whatever page= says (go-gitea
+# #6132), so no page is ever empty and v16 spun to the cap: 500 requests, seventeen minutes,
+# then rc 2 and count-gate-rounds read `unknown`. The stop compares stable keys, not bytes.
+(
+  . "$LIB"
+  REQLOG="$T/ign.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=3   # red takes seconds, not minutes
+  forge_api() { echo "$1 $2" >> "$REQLOG"; printf '[{"id":13725,"body":"a"},{"id":13734,"body":"b"}]'; }
+  out=$(forge_issue_comments 104 2>"$T/ign.err") || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 2 ] || exit 1
+  [ "$(grep -c comments "$REQLOG")" = 2 ] || exit 2
+  grep -q 'identical page: server ignores page' "$T/ign.err" || exit 3
+  exit 0
+)
+case $? in
+  0) ok "paginate stops after one identical page on a host that ignores page= (#228)";;
+  1) bad "paginate returned the identical page more than once (accumulated before comparing)";;
+  2) bad "paginate made more than two requests on an identical page (did not stop)";;
+  3) bad "paginate did not say on stderr that the identical-page stop fired";;
+  *) bad "paginate ran to the cap on an identical page (#228 spin)";;
+esac
+
+# --- #228: same keys, different bytes: a volatile field must not defeat the stop ----------------
+(
+  . "$LIB"
+  REQLOG="$T/vol.log"; : > "$REQLOG"; n=0
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=3
+  forge_api() { echo "$1 $2" >> "$REQLOG"; local c; c=$(wc -l < "$REQLOG"); printf '[{"id":1,"updated_at":"t%s"},{"id":2,"updated_at":"t%s"}]' "$c" "$c"; }
+  out=$(forge_api_paginate /repos/o/r/issues/1/comments 2>"$T/vol.err") || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 2 ] || exit 1
+  [ "$(wc -l < "$REQLOG")" = 2 ] || exit 2
+  grep -q 'identical page: server ignores page' "$T/vol.err" || exit 3
+  exit 0
+)
+case $? in
+  0) ok "paginate's identical-page stop compares keys, so a volatile updated_at does not defeat it";;
+  1) bad "paginate returned duplicated rows when only a volatile field differed";;
+  2) bad "paginate kept requesting when only a volatile field differed (byte comparison)";;
+  3) bad "the volatile-field stop did not name itself on stderr";;
+  *) bad "paginate ran to the cap when only a volatile field differed";;
+esac
+
+# --- #228 keeps #62: a short non-empty page is a FULL page on a clamped host, never a stop ------
+(
+  . "$LIB"
+  REQLOG="$T/clamp.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { echo "$1 $2" >> "$REQLOG"; case "$2" in *page=1*) printf '[{"id":1},{"id":2}]';; *page=2*) printf '[{"id":3}]';; *) printf '[]';; esac; }
+  out=$(forge_api_paginate /repos/o/r/x 2>"$T/clamp.err") || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 3 ] || exit 1
+  [ "$(wc -l < "$REQLOG")" = 3 ] || exit 2
+  grep -q 'empty page' "$T/clamp.err" || exit 3
+  grep -q 'identical page' "$T/clamp.err" && exit 4
+  exit 0
+)
+case $? in
+  0) ok "a short non-empty page still does not terminate beside the identical-page stop (#62 holds), and stderr says empty page";;
+  1) bad "paginate truncated after a short page (the length < limit rule crept back in)";;
+  2) bad "paginate made the wrong number of requests on a 2-1-0 sequence";;
+  3) bad "the ordinary empty-page end did not say so on stderr";;
+  4) bad "an ordinary end was reported as an identical-page stop";;
+  *) bad "clamp case errored";;
+esac
+
+# --- #228: rows without a stable key fall back to bytes rather than stopping on nothing ----------
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=3
+  forge_api() { case "$2" in *page=1*) printf '[{"x":"a"}]';; *page=2*) printf '[{"x":"b"}]';; *) printf '[]';; esac; }
+  out=$(forge_api_paginate /y 2>/dev/null) || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 2 ]
+)
+[ $? -eq 0 ] && ok "keyless rows that differ are not read as identical (null keys are not equal keys)" \
+  || bad "keyless rows stopped the paginator early (null == null read as identical)"
 
 # --- forge_api_paginate directly under dry-run: prints [] and sends nothing real ---
 (
@@ -493,7 +570,7 @@ line2'
 (
   . "$LIB"
   export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=2
-  forge_api() { printf '[{"id":1}]'; }
+  forge_api() { printf '[{"id":%s}]' "${2##*page=}"; }   # distinct per page, so the CAP trips, not the #228 stop
   forge_api_paginate /x >/dev/null 2>&1          # trips the cap, leaving the dir behind
   forge_api() { printf '[]'; }
   out=$(forge_api_paginate /x 2>/dev/null)        # a SUBSHELL that finishes and cleans up
