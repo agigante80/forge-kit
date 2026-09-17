@@ -876,11 +876,11 @@ w229() {  # w229 <label> <rc-from-stub> <expect-rc> <fn> <args...>
     [ -z "$out" ] || exit 2
     case "$STUBRC" in
       0)  [ ! -s "$T/w.err" ] || exit 3 ;;
-      44) [ "$(wc -l < "$T/w.err")" = 1 ] || exit 4
+      44) [ "$(wc -l < "$T/w.err" | tr -d " ")" = 1 ] || exit 4
           grep -q "$fn" "$T/w.err" || exit 5
           grep -q 'HTTP 404' "$T/w.err" || exit 5
           grep -q "#${1}" "$T/w.err" || exit 6 ;;
-      22) [ "$(wc -l < "$T/w.err")" = 1 ] || exit 7
+      22) [ "$(wc -l < "$T/w.err" | tr -d " ")" = 1 ] || exit 7
           grep -q "$fn" "$T/w.err" && exit 7 ;;
     esac
     exit 0
