@@ -697,6 +697,18 @@ cost clause drove the whole shape: 93 s for the battery against 0.035 s for the 
 Three tickets came out of the two loops (#219, #220, #221) and one more was filed from the gate's
 advisory about `ticket-standards.md` rule 8. All are in Backlog with a phase, none dropped.
 
+## Phase: What a downstream Forgejo found
+state: open
+plan: docs/plans/what-a-downstream-forgejo-found.md
+
+Opened 2026-09-18 for #228 and #229, the two defects a forge-adapt refresh on a private downstream
+repo (Forgejo 11.0.16) found in `forge-lib.sh` v16, plus #216, the parser follow-up #212 left in
+the same file. Both bugs fail in the direction that stops you looking: the comments paginator
+spins to its 500-page cap on a host that ignores `page`, so `count-gate-rounds.sh` waits seventeen
+minutes and then reports `unknown` on every Forgejo gate run, and the three silenced writers say
+nothing at all on a 404, so a comment to a wrong issue number looks like success. Neither has a
+workaround, and the first breaks the round count #192 made durable.
+
 ## Phase: Backlog
 state: backlog
 
