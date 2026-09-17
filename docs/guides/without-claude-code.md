@@ -141,6 +141,14 @@ So: **the rules are portable and the mechanical checks are portable. The judgeme
 using another agent can hold every ticket to one written standard and check the machine-checkable
 part of it automatically, which is most of the value and not all of it.
 
+**One thing you will not find in a clone, and should not go looking for.** This repository's own
+assistant instructions (`CLAUDE.md`) are local working state and are not published, so two of its
+guards have nothing to check here: `scripts/update-suite-counts.py`, which verifies the test counts
+that file states, and the `plugin-groups` region of `scripts/update-component-index.py`. Both skip
+with a notice rather than failing, and `.githooks/pre-push` runs them where a copy exists. Nothing
+you need is in that file: the rules are in `docs/guides/ticket-standards.md`, the component
+inventory is generated into `README.md`, and both are checked by CI.
+
 ## If you have no AI CLI at all
 
 The same author maintains [vibe-coding-prompts](https://github.com/agigante80/vibe-coding-prompts):

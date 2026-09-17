@@ -677,6 +677,13 @@ One thing the plan did not foresee at all: another session untracked `CLAUDE.md`
 `.claude/` mid-phase and left the build red, so repairing three guards and restoring the local
 memory store happened inside this phase without being part of it.
 
+## Phase: A guard that can fire
+state: open
+plan: docs/plans/a-guard-that-can-fire.md
+
+Opened 2026-09-17 for #218. After the assistant files stopped being published, one CI step could no
+longer fail for any input; this phase deletes it and checks the claims where the doc lives.
+
 ## Phase: Backlog
 state: backlog
 

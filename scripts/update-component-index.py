@@ -338,10 +338,11 @@ def main():
         path = os.path.join(root, filename)
         # A target doc that is not in this checkout is SKIPPED, loudly, and is never a failure.
         # CLAUDE.md stopped being published on 2026-09-16 (a maintainer decision: assistant
-        # instructions are local working state), so it is absent from every CI checkout and
-        # present on a maintainer's machine. A generator that died on the absence would fail
-        # every build for a file the repository has decided not to carry, and one that stayed
-        # silent would let the local region rot; this says what it skipped and why.
+        # instructions are local working state), so it is absent from every CI checkout, and
+        # present only where someone keeps a local copy. A generator that died on the absence
+        # would fail every build for a file the repository has decided not to carry, and one that
+        # stayed silent would let the local region rot; this says what it skipped and why.
+        # .githooks/pre-push is what checks the local copy (#218), since CI cannot.
         if not os.path.isfile(path):
             absent.append(filename)
             continue

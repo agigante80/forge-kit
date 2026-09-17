@@ -178,15 +178,15 @@ jobs:
       - name: Component index freshness (generated regions must match the tree)
         run: python3 scripts/update-component-index.py --check
 
-      # Issue #201: CLAUDE.md states a count for eleven contract suites, and nothing checked it.
-      # Two gate rounds were spent on those numbers and three more were stale when the ticket was
-      # filed. The counts are now generated from the suites' own printed totals; this step re-runs
-      # the eleven named suites (about half a minute) and fails when a number is stale.
+      # Issue #201 built a generator for the suite counts CLAUDE.md states, and a step here ran
+      # `update-suite-counts.py --check` against them. Issue #218 DELETED that step rather than
+      # disabling it: CLAUDE.md stopped being published on 2026-09-16, so its claims are in no
+      # checkout here and the step could no longer fail for any input, and a check that cannot fire
+      # is worse than one that is absent because it is believed in. The claims are checked by
+      # .githooks/pre-push instead, on the machine that has the doc. This step is the generator's
+      # own contract test, which runs against fixtures and is unaffected.
       - name: Suite count generator tests
         run: bash scripts/test-update-suite-counts.sh
-
-      - name: Suite counts in CLAUDE.md match what the suites print
-        run: python3 scripts/update-suite-counts.py --check
 
       - name: Component size guard tests
         run: bash scripts/test-component-size.sh

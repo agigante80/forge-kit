@@ -31,6 +31,17 @@ Usage:
   default   run each named suite and rewrite its number in place, reporting what changed
   --check   run each named suite; exit 1 naming every stale claim, write nothing (for CI)
   --list    parse and print the claims (path, line, stated N); run nothing
+  --changed PATH...  narrow whichever of the above ran to the claims whose suite is in PATH...
+
+--changed is a FILTER, not a third mode, and it exists because the full run is expensive: every
+claim is checked by RUNNING its suite, which is 93 s for the twelve here, so a git hook can only
+afford the suites the push actually touched (#218). Paths are compared after normalising to the
+repo-relative form, so `scripts/test-x.sh`, `./scripts/test-x.sh` and an absolute path under the
+root all match the same claim.
+
+ITS REACH LIMIT, stated rather than implied: a claim can go stale without its suite FILE changing,
+because a suite whose printed total depends on the tree moves when the tree does. Only a full run
+sees that, which is what regenerates the doc.
 """
 import argparse
 import os
@@ -94,6 +105,8 @@ def main():
     mode.add_argument("--list", action="store_true", help="print the claims and run nothing")
     ap.add_argument("--doc", default=None, help="the doc to read (default: <root>/CLAUDE.md)")
     ap.add_argument("--root", default=None, help="repo root the suites run from (default: git toplevel)")
+    ap.add_argument("--changed", nargs="*", default=None, metavar="PATH",
+                    help="narrow to the claims whose suite is among these paths (#218)")
     args = ap.parse_args()
 
     root = args.root or subprocess.run(
@@ -104,11 +117,12 @@ def main():
 
     # An absent doc is SKIPPED, loudly, and is never a failure. CLAUDE.md stopped being published
     # on 2026-09-16 (a maintainer decision: assistant instructions are local working state), so the
-    # claims live on a maintainer's machine and in no CI checkout. Failing here would fail every
-    # build over a file the repository has decided not to carry; saying nothing would let the
-    # claims rot unnoticed. The counts are still checked wherever the doc exists, which is where
-    # they can be wrong. An explicit --doc that is missing is still an error, since the caller
-    # named a file it expected to be there.
+    # claims live only where someone keeps a local copy, and in no CI checkout. Failing here would
+    # fail every build over a file the repository has decided not to carry; saying nothing would
+    # let the claims rot unnoticed. The counts are checked where the doc exists, by
+    # .githooks/pre-push (#218), which is the only place left that can ask. The CI step that used
+    # to ask was DELETED rather than left to pass vacuously. An explicit --doc that is missing is
+    # still an error, since the caller named a file it expected to be there.
     if args.doc is not None and not os.path.isfile(doc):
         print("update-suite-counts: no such doc: %s. Nothing checked." % doc, file=sys.stderr)
         return 2
@@ -119,6 +133,20 @@ def main():
     with open(doc, encoding="utf-8") as fh:
         text = fh.read()
     found = claims(text)
+
+    if args.changed is not None:
+        # Normalise both sides to the repo-relative path a claim carries, so a caller may pass
+        # whatever `git diff --name-only` gave it, absolute or not.
+        wanted = set()
+        for raw in args.changed:
+            full = os.path.realpath(os.path.join(root, raw))
+            rel = os.path.relpath(full, root)
+            wanted.add(rel)
+        narrowed = [c for c in found if c[0] in wanted]
+        if not narrowed:
+            print("update-suite-counts: no counted suite changed (%d claim(s) skipped)" % len(found))
+            return 0
+        found = narrowed
 
     if args.list:
         for path, stated, _, line in found:

@@ -165,22 +165,82 @@ expect "a doc named on the command line and missing is refused (exit 2)" 2 "$rc"
 contains "no such doc" "$out" "naming it"
 lacks "Traceback" "$out" "without a traceback"
 
-echo "== the real doc: the parser sees every claim CLAUDE.md makes, and runs nothing =="
-# Reads this repository through --list only. The claims are the eleven the ticket counted; a
-# twelfth appearing here is a doc edit, which is what this case is for.
-if [ ! -f "$ROOT/CLAUDE.md" ]; then
-  ok "(skipped, CLAUDE.md is not in this checkout) the claims in this repository's own doc"
-else
-out="$(python3 "$GEN" --list --doc "$ROOT/CLAUDE.md" --root "$ROOT" 2>&1)"; rc=$?
-expect "--list on CLAUDE.md exits 0" 0 "$rc"
+echo "== --changed narrows the run to the suites a push touched (#218) =="
+# Every claim is checked by RUNNING its suite, which is 93 s for the twelve in this repository, so
+# a git hook can only afford the ones the range touched. A sentinel file per suite is what proves
+# which ran: wall time would flake on a loaded machine, the failure #219 is already about.
+SENT="$FIX/sent"; mkdir -p "$SENT"
+cat > "$FIX/scripts/test-sent-a.sh" <<'SA'
+#!/usr/bin/env bash
+: > "$SENTDIR/a.ran"
+echo "a tests: 4 passed, 0 failed"
+SA
+cat > "$FIX/scripts/test-sent-b.sh" <<'SB'
+#!/usr/bin/env bash
+: > "$SENTDIR/b.ran"
+echo "b tests: 6 passed, 0 failed"
+SB
+chmod +x "$FIX/scripts/test-sent-a.sh" "$FIX/scripts/test-sent-b.sh"
+printf -- '- `scripts/test-sent-a.sh`, 4 tests.\n- `scripts/test-sent-b.sh`, 6 tests.\n' > "$DOC"
+rm -f "$SENT"/*.ran
+out="$(SENTDIR="$SENT" run --check --changed scripts/test-sent-a.sh 2>&1)"; rc=$?
+expect "--changed with one path exits 0 when that claim is current" 0 "$rc"
+[ -f "$SENT/a.ran" ] && ok "the named suite ran" || bad "the named suite ran"
+[ -f "$SENT/b.ran" ] && bad "and the other did not" || ok "and the other did not"
+rm -f "$SENT"/*.ran
+out="$(SENTDIR="$SENT" run --check --changed docs/roadmap.md 2>&1)"; rc=$?
+expect "--changed with no counted suite exits 0" 0 "$rc"
+contains "no counted suite changed" "$out" "and says so"
+ls "$SENT"/*.ran >/dev/null 2>&1 && bad "and runs nothing" || ok "and runs nothing"
+rm -f "$SENT"/*.ran
+out="$(SENTDIR="$SENT" run --check --changed ./scripts/test-sent-a.sh scripts/test-sent-b.sh 2>&1)"; rc=$?
+expect "--changed takes several paths, dotted or plain" 0 "$rc"
+{ [ -f "$SENT/a.ran" ] && [ -f "$SENT/b.ran" ]; } && ok "and runs exactly those" || bad "and runs exactly those"
+printf -- '- `scripts/test-sent-a.sh`, 99 tests.\n- `scripts/test-sent-b.sh`, 6 tests.\n' > "$DOC"
+out="$(SENTDIR="$SENT" run --check --changed scripts/test-sent-a.sh 2>&1)"; rc=$?
+expect "--changed still fails a stale claim it covers" 1 "$rc"
+contains "test-sent-a.sh" "$out" "naming it"
+out="$(SENTDIR="$SENT" run --check --changed scripts/test-sent-b.sh 2>&1)"; rc=$?
+expect "and ignores a stale claim it does not cover, which is the point of the filter" 0 "$rc"
+
+echo "== a doc shaped like this repository's own: every claim is seen, and nothing is run =="
+# This used to read $ROOT/CLAUDE.md and skip when it was absent, which made the suite's OWN total
+# environment-dependent: 48 cases in a CI checkout, 52 on a machine that has the doc (#218). A
+# suite whose count depends on a file that is in no checkout cannot state a stable count, and that
+# count is itself one of the twelve claims the generator checks. So the cases below always run,
+# against the real doc where it exists and against a fixture carrying the same shapes where it does
+# not: the wrapped claim, the .py suite, and a dozen claims in one file.
+# Both branches emit exactly one line, so the suite's own total is the same either way, which is
+# the whole point of this section.
+REALDOC="$ROOT/CLAUDE.md"
+if [ -f "$REALDOC" ]; then
+  ok "(this repository's own CLAUDE.md) the parser reads the real prose"
+fi
+if [ ! -f "$REALDOC" ]; then
+  REALDOC="$FIX/realish.md"
+  {
+    printf -- '- **`closing-sessions/scripts/memory.py`** (`scripts/test-closing-sessions-memory.py`, 12 tests): prose.\n'
+    printf -- '   - **`leak-guard/assets/check-private-leaks.sh`** (`scripts/test-check-private-leaks.sh`, 127\n     tests, in CI): a claim that wraps between the digits and the word.\n'
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      printf -- '- `scripts/test-fixture-%s.sh`, %s tests, in CI.\n' "$i" "$i"
+    done
+  } > "$REALDOC"
+  ok "(no CLAUDE.md here) the same cases run against a fixture carrying its shapes"
+fi
+out="$(python3 "$GEN" --list --doc "$REALDOC" --root "$ROOT" 2>&1)"; rc=$?
+expect "--list on the doc exits 0" 0 "$rc"
 contains "scripts/test-check-private-leaks.sh" "$out" "the wrapped claim on line 130 is found"
 contains "scripts/test-closing-sessions-memory.py" "$out" "the python suite is a claim"
 n="$(printf '%s\n' "$out" | grep -c 'scripts/test-')"
 [ "$n" -ge 11 ] && ok "at least the eleven claims the ticket counted ($n)" || bad "at least the eleven claims the ticket counted (got $n)"
-# Every listed path must exist: a claim naming a suite that is not there would fail --check.
-missing=0
-for p in $(printf '%s\n' "$out" | grep -o 'scripts/test-[a-z0-9-]*\.[a-z]*' | sort -u); do [ -f "$ROOT/$p" ] || missing=$((missing + 1)); done
-expect "every claimed suite exists in the tree" 0 "$missing"
+# Every listed path must exist, but only when the doc IS this repository's: a fixture names
+# suites that deliberately do not exist, and asserting otherwise would test the fixture.
+if [ "$REALDOC" = "$ROOT/CLAUDE.md" ]; then
+  missing=0
+  for p in $(printf '%s\n' "$out" | grep -o 'scripts/test-[a-z0-9-]*\.[a-z]*' | sort -u); do [ -f "$ROOT/$p" ] || missing=$((missing + 1)); done
+  expect "every claimed suite exists in the tree" 0 "$missing"
+else
+  ok "(fixture doc) the suite-exists check belongs to the real doc"
 fi
 
 echo

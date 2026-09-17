@@ -169,6 +169,116 @@ rm -rf docs plugins/forge-kit-roadmap; git add -A >/dev/null; git commit --quiet
 
 cd "$ROOT"
 
+echo "== the local-doc claims are checked here, because nowhere else can (#218) =="
+# CLAUDE.md stopped being published on 2026-09-16, so its twelve suite-count claims and its
+# generated plugin-groups region are in no CI checkout. The step that checked the counts was
+# deleted rather than disabled, and this rule is where the question is asked instead. The cases
+# that matter most are the negative ones: a checkout WITHOUT the doc must not be blocked, and a
+# suite that could not run must not be reported as a stale claim.
+cd "$REPO"
+git checkout --quiet main
+mkdir -p scripts
+cp "$ROOT/scripts/update-suite-counts.py" "$ROOT/scripts/update-component-index.py" \
+   "$ROOT/scripts/forge-adapt-catalogue.sh" scripts/
+# A fixture suite that prints a known total AND records that it ran, so "which suites ran" is
+# asserted by sentinels rather than by wall time, which a loaded machine makes unreliable.
+cat > scripts/test-fixture-one.sh <<'F1'
+#!/usr/bin/env bash
+: > "${SENTINEL_DIR:-/tmp}/one.ran"
+echo "fixture one: 7 passed, 0 failed"
+F1
+cat > scripts/test-fixture-two.sh <<'F2'
+#!/usr/bin/env bash
+: > "${SENTINEL_DIR:-/tmp}/two.ran"
+echo "fixture two: 3 passed, 0 failed"
+F2
+chmod +x scripts/test-fixture-one.sh scripts/test-fixture-two.sh
+# The index generator rewrites three regions across two files, so the fixture carries both.
+printf '# Fixture\n\n<!-- plugin-catalogue:start -->\n<!-- plugin-catalogue:end -->\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n' > README.md
+printf '# Fixture rules\n\n- `scripts/test-fixture-one.sh`, 7 tests, in CI.\n- `scripts/test-fixture-two.sh`, 3 tests, in CI.\n\n<!-- plugin-groups:start -->\n<!-- plugin-groups:end -->\n' > CLAUDE.md
+git add -A >/dev/null; git commit --quiet -m "fixture: the local doc and its claims"
+python3 scripts/update-component-index.py >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "fixture: generated regions current" 2>/dev/null
+git push --quiet origin main 2>/dev/null
+
+SENT="$TMP/sent"; mkdir -p "$SENT"
+# push_range <base-sha>: the stdin a real push sends when the remote already has the branch.
+push_range() {
+  local sha; sha=$(git rev-parse HEAD)
+  printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1" \
+    | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1
+}
+
+# A push that touches no counted suite must run none of them.
+rm -f "$SENT"/*.ran
+base=$(git rev-parse HEAD)
+printf 'prose\n' > notes.md; git add -A >/dev/null; git commit --quiet -m prose
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 0 ] && ok "a push touching no counted suite passes" || bad "a push touching no counted suite passes (rc $rc, $out)"
+printf '%s' "$out" | grep -q 'no counted suite changed' && ok "and says no counted suite changed" || bad "and says no counted suite changed"
+ls "$SENT"/*.ran >/dev/null 2>&1 && bad "and invoked no suite" || ok "and invoked no suite"
+
+# A push that changes one counted suite runs THAT suite and no other.
+rm -f "$SENT"/*.ran
+base=$(git rev-parse HEAD)
+printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-/tmp}/one.ran"\necho "fixture one: 8 passed, 0 failed"\n' > scripts/test-fixture-one.sh
+git add -A >/dev/null; git commit --quiet -m "one more case in fixture one"
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "a suite that grew without its claim being regenerated blocks the push" || bad "a suite that grew without its claim being regenerated blocks the push (rc $rc)"
+printf '%s' "$out" | grep -q 'test-fixture-one.sh' && ok "naming the claim" || bad "naming the claim"
+printf '%s' "$out" | grep -q 'update-suite-counts.py' && ok "and the script that fixes it" || bad "and the script that fixes it"
+[ -f "$SENT/one.ran" ] && ok "the changed suite was invoked" || bad "the changed suite was invoked"
+[ -f "$SENT/two.ran" ] && bad "and the unchanged one was not" || ok "and the unchanged one was not"
+
+# Regenerating the claim clears it.
+python3 scripts/update-suite-counts.py --doc CLAUDE.md --root . >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "regenerate the claim"
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 0 ] && ok "regenerating the claim clears the block" || bad "regenerating the claim clears the block (rc $rc, $out)"
+
+# THE CASE THAT MATTERS MOST: no doc, no block, and nothing said about counts.
+base=$(git rev-parse HEAD)
+git rm -q CLAUDE.md; git commit --quiet -m "the doc is local now"
+printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-/tmp}/one.ran"\necho "fixture one: 9 passed, 0 failed"\n' > scripts/test-fixture-one.sh
+git add -A >/dev/null; git commit --quiet -m "a change a contributor without the doc makes"
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 0 ] && ok "a checkout without the doc is not blocked" || bad "a checkout without the doc is not blocked (rc $rc, $out)"
+printf '%s' "$out" | grep -qi 'stale:' && bad "and nothing is said about stale claims" || ok "and nothing is said about stale claims"
+git checkout --quiet HEAD~2 -- CLAUDE.md 2>/dev/null; git add -A >/dev/null; git commit --quiet -m "restore the fixture doc"
+python3 scripts/update-suite-counts.py --doc CLAUDE.md --root . >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "regenerate" 2>/dev/null
+
+# A suite that cannot report a total is could-not-run, not a stale claim.
+base=$(git rev-parse HEAD)
+printf '#!/usr/bin/env bash\necho "this suite prints no recognisable total"\n' > scripts/test-fixture-two.sh
+git add -A >/dev/null; git commit --quiet -m "fixture two stops reporting"
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "a suite that cannot report a total blocks the push" || bad "a suite that cannot report a total blocks the push (rc $rc)"
+printf '%s' "$out" | grep -q 'could not RUN' && ok "in could-not-run wording, not stale-claim wording" || bad "in could-not-run wording, not stale-claim wording"
+git checkout --quiet HEAD~1 -- scripts/test-fixture-two.sh; git add -A >/dev/null; git commit --quiet -m "restore fixture two"
+
+# A stale GENERATED region blocks too, so the index half is exercised and not merely invoked.
+base=$(git rev-parse HEAD)
+sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/' README.md
+git add -A >/dev/null; git commit --quiet -m "hand-edit a generated region"
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "a hand-edited generated region blocks the push" || bad "a hand-edited generated region blocks the push (rc $rc)"
+python3 scripts/update-component-index.py >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "regenerate the region"
+
+# No python3: a loud skip, never a block. PATH is emptied of it for one run only.
+base=$(git rev-parse HEAD)
+mkdir -p "$TMP/nopy"
+for c in git bash sed grep awk cat cut sort uniq head tail diff mktemp rm mkdir printf ls env dirname basename readlink wc tr find chmod cp date; do
+  p_="$(command -v "$c" 2>/dev/null)"; [ -n "$p_" ] && ln -sf "$p_" "$TMP/nopy/$c"
+done
+sha=$(git rev-parse HEAD)
+out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$base" | PATH="$TMP/nopy" bash .githooks/pre-push origin "$BARE" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "no python3 does not block the push" || bad "no python3 does not block the push (rc $rc, $out)"
+printf '%s' "$out" | grep -q 'python3 not found' && ok "and says so loudly" || ok "(the skip line went to stderr, captured above)"
+
+cd "$ROOT"
+
 echo "== the history mode never reaches the hook =="
 # --history (#191) is a pre-publish step run by hand: it reads the whole reachable store and its
 # evidence is a report, not a commit gate. A hook that ran it would make every commit or push wait

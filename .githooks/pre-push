@@ -27,11 +27,13 @@ ZERO='0000000000000000000000000000000000000000'
 # confident wrong answer.
 head_sha="$(git rev-parse HEAD 2>/dev/null || echo none)"
 relevant=0
+push_base=""
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   [ "$local_sha" = "$ZERO" ] && continue          # branch deletion: nothing to audit
   if [ "$local_sha" = "$head_sha" ]; then
     relevant=1
+    push_base="$remote_sha"   # the remote's current tip for this ref: the range, with no fetch (#218)
   else
     echo "  ! pre-push: skipping ${local_ref:-?} (not the checked-out HEAD; the range guards read HEAD)" >&2
   fi
@@ -120,6 +122,77 @@ if [ "$leaks" -gt 0 ]; then
   echo "This is NOT one of the CI checks; nothing server-side will catch it for you."
   echo "A private-name hit prints a redacted name; re-run that scanner with --show-names."
   echo "Pushing past this with --no-verify publishes it. A push is not undone by a later commit."
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------------------------
+# LOCAL-DOC CLAIMS (#218), above the base-ref exit for the same reason the leak guard is: nothing
+# here depends on that exit, and a rule below it is SILENTLY skipped on a clone that has not
+# fetched, which is the defect recorded at the top of this file for the leak guard.
+#
+# WHY THIS RUNS NOWHERE ELSE. CLAUDE.md stopped being published on 2026-09-16, so the twelve
+# `scripts/test-X`, N tests claims it carries, and the plugin-groups region generated into it, are
+# in no CI checkout. The CI step that checked the counts could no longer fail for any input and was
+# deleted; this is where the question can still be asked, on the machine that has the file.
+#
+# WHY --changed. Every claim is checked by RUNNING its suite: 93 s for all twelve here, against a
+# 0.035 s baseline for this whole hook. A rule that slow is one people push past, which is the
+# failure this repo keeps naming. The range decides which suites run, so a push touching none of
+# them costs 0.3 s. The range comes from this hook's own stdin (the remote tip captured above), not
+# from origin/main, so it needs no fetch and survives the missing-base-ref path below.
+#
+# Exit 1 and exit 2 are told apart on purpose, the distinction the leak guard already draws: a
+# stale claim and a suite that could not run send you to different places. A missing python3 skips
+# loudly and never blocks, the posture the pre-commit hook takes for jq.
+doc_problems=0
+if command -v python3 >/dev/null 2>&1; then
+  changed_files=""
+  if [ -n "$push_base" ] && [ "$push_base" != "$ZERO" ] \
+     && git rev-parse --verify --quiet "$push_base^{commit}" >/dev/null; then
+    changed_files="$(git diff --name-only "$push_base" "$head_sha" -- 'scripts/test-*' 2>/dev/null || true)"
+  else
+    b_="$(git symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null || true)"
+    [ -n "$b_" ] || b_="$remote/main"
+    if git rev-parse --verify --quiet "$b_^{commit}" >/dev/null; then
+      changed_files="$(git diff --name-only "$b_" "$head_sha" -- 'scripts/test-*' 2>/dev/null || true)"
+    else
+      changed_files="__unknown__"
+    fi
+  fi
+  cnt_="$ROOT/scripts/update-suite-counts.py"
+  if [ ! -f "$cnt_" ]; then
+    :
+  elif [ "$changed_files" = "__unknown__" ]; then
+    echo "  ! pre-push: no range (neither the pushed ref's remote tip nor '$remote/main' is here);" >&2
+    echo "  !           the suite-count claims were NOT checked. 'git fetch $remote' enables them." >&2
+  else
+    # Unquoted on purpose: the paths are git's own output, one per line, and the pathspec above
+    # already confined them to scripts/test-*.
+    # shellcheck disable=SC2086
+    python3 "$cnt_" --check --changed $changed_files
+    rc_=$?
+    if [ "$rc_" -eq 1 ]; then
+      doc_problems=$((doc_problems + 1))
+    elif [ "$rc_" -ne 0 ]; then
+      echo "  ! pre-push: the suite-count check could not RUN (exit $rc_), which is not a stale claim." >&2
+      doc_problems=$((doc_problems + 1))
+    fi
+  fi
+  idx_="$ROOT/scripts/update-component-index.py"
+  if [ -f "$idx_" ]; then
+    python3 "$idx_" --check >/dev/null || doc_problems=$((doc_problems + 1))
+  fi
+else
+  echo "  ! pre-push: python3 not found; the local-doc claims were NOT checked (CI cannot check" >&2
+  echo "  !           them either: the doc is in no checkout). Install python3 to enable them." >&2
+fi
+
+if [ "$doc_problems" -gt 0 ]; then
+  echo ""
+  echo "forge-kit: a generated claim in a LOCAL doc is stale or could not be checked (see above)."
+  echo "Run: python3 scripts/update-suite-counts.py   and   python3 scripts/update-component-index.py"
+  echo "Nothing server-side repeats this: CLAUDE.md is in no CI checkout."
+  echo "A counted suite can also flake (#219); re-run before believing a count you did not change."
   exit 1
 fi
 
