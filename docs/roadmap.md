@@ -738,6 +738,24 @@ minutes and then reports `unknown` on every Forgejo gate run, and the three sile
 nothing at all on a 404, so a comment to a wrong issue number looks like success. Neither has a
 workaround, and the first breaks the round count #192 made durable.
 
+## Phase: What seventeen repositories found
+state: open
+plan: docs/plans/what-seventeen-repositories-found.md
+
+Opened 2026-09-18, unattended, for the crop of the leak guard's first rollout: on 2026-09-17 the
+two scanners were installed in seventeen public repositories and run in every mode, and the
+findings were filed as #222 to #227 and #230, with #231 and #233 from reviewing that work. Every
+one is a place where the scanner's behaviour is narrower, broader or louder than its own
+documentation says: a short identity token that matches inside ordinary words (#222, the one P2,
+and the one with a workaround that is the guard being switched off), a redaction marker read as a
+home root after the very rewrite that removed the leak (#227), `/home/` inside a relative import
+(#230), the scanner's own doc comments tripping a host project's guard (#223), a `root` key that
+accepts a dead entry (#224), `skip` globs whose `*` crosses `/` (#226), two facts about the private
+half's `skip` missing from SKILL.md (#225), and this repository carrying the scanner twice (#231).
+They belong together because each was found by USE rather than by review, in the shape the
+component was named for, and because a guard that cannot be silenced precisely is a guard that
+gets removed.
+
 ## Phase: Backlog
 state: backlog
 
