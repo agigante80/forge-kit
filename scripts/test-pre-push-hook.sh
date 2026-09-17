@@ -275,7 +275,37 @@ done
 sha=$(git rev-parse HEAD)
 out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$base" | PATH="$TMP/nopy" bash .githooks/pre-push origin "$BARE" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "no python3 does not block the push" || bad "no python3 does not block the push (rc $rc, $out)"
-printf '%s' "$out" | grep -q 'python3 not found' && ok "and says so loudly" || ok "(the skip line went to stderr, captured above)"
+printf '%s' "$out" | grep -q 'python3 not found' && ok "and says so loudly" || bad "and says so loudly"
+
+# THE PLACEMENT ITSELF (review round 1 on #218). Every case above runs with origin/main intact, so
+# moving the whole block below the base-ref exit at the end of this hook left the suite green. The
+# defect that mutation reintroduces is the one gate round 2 blocked this ticket on: with no
+# remote-tracking ref, a rule placed down there is skipped by a bare `exit 0` and says nothing.
+# Here the remote tip comes from the hook's own stdin, which is why the rule can still run.
+base=$(git rev-parse HEAD)
+printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-/tmp}/one.ran"\necho "fixture one: 11 passed, 0 failed"\n' > scripts/test-fixture-one.sh
+git add -A >/dev/null; git commit --quiet -m "a claim goes stale"
+git update-ref -d refs/remotes/origin/HEAD 2>/dev/null
+git update-ref -d refs/remotes/origin/main 2>/dev/null
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "with no remote-tracking ref at all, a stale claim still blocks: the rule sits above the base-ref exit" \
+  || bad "with no remote-tracking ref at all, a stale claim still blocks (rc $rc, $out)"
+printf '%s' "$out" | grep -q 'test-fixture-one.sh' && ok "and still names the claim" || bad "and still names the claim"
+
+# ITS OWN SKIP LINE. No remote-tracking ref AND a branch the remote does not have: there is no
+# range to compute, so the rule must say so in its own words rather than leave the impression it
+# checked. Distinct from the range guards' 'range checks SKIPPED', which is a different rule.
+sha=$(git rev-parse HEAD)
+out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" \
+  "0000000000000000000000000000000000000000" \
+  | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "with no range at all the push is not blocked" || bad "with no range at all the push is not blocked (rc $rc)"
+printf '%s' "$out" | grep -q 'suite-count claims were NOT checked' \
+  && ok "and the rule says so in its own words" || bad "and the rule says so in its own words"
+git remote set-head origin main >/dev/null 2>&1
+git fetch -q origin main 2>/dev/null
+python3 scripts/update-suite-counts.py --doc CLAUDE.md --root . >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "regenerate after the placement cases" 2>/dev/null
 
 cd "$ROOT"
 
