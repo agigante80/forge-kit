@@ -304,12 +304,12 @@ esac
 # --- #228: same keys, different bytes: a volatile field must not defeat the stop ----------------
 (
   . "$LIB"
-  REQLOG="$T/vol.log"; : > "$REQLOG"; n=0
+  REQLOG="$T/vol.log"; : > "$REQLOG"
   export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=3
-  forge_api() { echo "$1 $2" >> "$REQLOG"; local c; c=$(wc -l < "$REQLOG"); printf '[{"id":1,"updated_at":"t%s"},{"id":2,"updated_at":"t%s"}]' "$c" "$c"; }
+  forge_api() { echo "$1 $2" >> "$REQLOG"; local c; c=$(wc -l < "$REQLOG" | tr -d " "); printf '[{"id":1,"updated_at":"t%s"},{"id":2,"updated_at":"t%s"}]' "$c" "$c"; }
   out=$(forge_api_paginate /repos/o/r/issues/1/comments 2>"$T/vol.err") || exit 9
   [ "$(printf '%s' "$out" | jq 'length')" = 2 ] || exit 1
-  [ "$(wc -l < "$REQLOG")" = 2 ] || exit 2
+  [ "$(wc -l < "$REQLOG" | tr -d " ")" = 2 ] || exit 2
   grep -q 'identical page: server ignores page' "$T/vol.err" || exit 3
   exit 0
 )
@@ -329,7 +329,7 @@ esac
   forge_api() { echo "$1 $2" >> "$REQLOG"; case "$2" in *page=1*) printf '[{"id":1},{"id":2}]';; *page=2*) printf '[{"id":3}]';; *) printf '[]';; esac; }
   out=$(forge_api_paginate /repos/o/r/x 2>"$T/clamp.err") || exit 9
   [ "$(printf '%s' "$out" | jq 'length')" = 3 ] || exit 1
-  [ "$(wc -l < "$REQLOG")" = 3 ] || exit 2
+  [ "$(wc -l < "$REQLOG" | tr -d " ")" = 3 ] || exit 2
   grep -q 'empty page' "$T/clamp.err" || exit 3
   grep -q 'identical page' "$T/clamp.err" && exit 4
   exit 0
