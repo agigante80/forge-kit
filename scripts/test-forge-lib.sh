@@ -834,6 +834,49 @@ expect "a scheme URL with no path" 'host' "$(uh 'ssh://host:2222')"
 expect "a password containing @ : the last @ ends the userinfo" 'host' "$(uh 'ssh://user:p@ss@host/o/r')"
 expect "ssh.github.com is GitHub" github "$(hostof 'ssh://git@ssh.github.com:443/o/r' https://forge.example | head -1)"
 
+# --- #216: forge_repo cuts the slug after the SAME authority _forge_url_host isolates ---------
+# v16 kept a second parser (`*://*/*` and `*:*/*` globs) that disagreed with the host helper on
+# the shapes #212 was written for: `git@[::1]:o/r` printed `:1]:o/r`. Now one authority
+# isolation serves both. A refusal names the URL with scheme-form userinfo redacted, because a
+# remote can carry `user:token@` and the message lands in a hook's output (#229 review).
+echo "== forge_repo: one authority isolation (#216) =="
+repoof() {  # repoof <origin-url>: forge_repo in a fresh repo with that origin; stdout then rc
+  local d; d="$(mktemp -d "$T/fr.XXXXXX")"
+  ( cd "$d" && git init -q . && git remote add origin "$1" && . "$LIB" && forge_repo 2>"$d/err"; echo "rc=$?"; cat "$d/err" )
+}
+for u in 'ssh://git@github.com:22/o/r' 'https://github.com/o/r.git' 'git@github.com:o/r.git' 'ssh://git@[::1]:22/o/r' 'https://user:pa:ss@h/o/r' 'ssh://host:2222/o/r'; do
+  expect "baseline slug unchanged: $u" "$(printf 'o/r\nrc=0')" "$(repoof "$u")"
+done
+expect "scp form with a bracketed IPv6 host cuts after ]: (was :1]:o/r)" "$(printf 'o/r\nrc=0')" "$(repoof 'git@[::1]:o/r')"
+expect "a query is stripped from a scheme-form slug (new on v17)" "$(printf 'o/r\nrc=0')" "$(repoof 'https://h/o/r?x=1')"
+expect "a fragment is stripped from a scheme-form slug (new on v17)" "$(printf 'o/r\nrc=0')" "$(repoof 'https://h/o/r#frag')"
+expect "query and fragment together" "$(printf 'o/r\nrc=0')" "$(repoof 'https://h/o/r?x=1#f')"
+expect "the scp form has no query syntax: bytes are kept" "$(printf 'o/r?legacy\nrc=0')" "$(repoof 'git@host:o/r?legacy')"
+expect "a trailing slash and .git are both stripped, in that order" "$(printf 'o/r\nrc=0')" "$(repoof 'git@host:o/r.git/')"
+r="$(repoof '/path/with:colon/o/r')"
+case "$r" in "rc=2"*"cannot parse owner/repo from remote '/path/with:colon/o/r'"*"a local path has no host"*) ok "a local path with a colon is refused, naming the real path (git-clone(1): a slash before the first colon is never scp form)";; *) bad "colon path: $r";; esac
+case "$r" in *"remote 'colon/o/r'"*) bad "the refusal named a fabricated sub-path";; *) ok "the refusal does not name a fabricated sub-path";; esac
+r="$(repoof './o/r')"
+case "$r" in "rc=2"*"cannot parse owner/repo from remote './o/r'"*) ok "a relative path is refused as before";; *) bad "relative path: $r";; esac
+r="$(repoof 'file:///srv/git/o/r')"
+case "$r" in "rc=2"*"file:///srv/git/o/r"*) ok "file:// has an empty authority and is refused naming the URL";; *) bad "file://: $r";; esac
+r="$(repoof 'git@host:/o/r')"
+case "$r" in "rc=2"*) ok "git@host:/o/r stays refused on v17 (scoped out of #216)";; *) bad "git@host:/o/r: $r";; esac
+r="$(repoof 'https://user:s3cret@h/x')"
+case "$r" in *s3cret*) bad "a refusal printed the credential from the remote URL";; "rc=2"*) ok "a refusal redacts scheme-form userinfo (a remote can carry user:token@)";; *) bad "single-segment refusal: $r";; esac
+r="$(repoof 'https://user:p@ss@h/x')"
+case "$r" in *"remote 'https://***@h/x'"*) ok "the redaction cuts at the LAST @ of the authority, so a password containing @ leaves no tail (review round 1)";; *) bad "password with @: $r";; esac
+r="$(repoof 'https://h/x@y')"
+case "$r" in *"remote 'https://h/x@y'"*) ok "an @ in the path is not userinfo and is not redacted";; *) bad "@ in path: $r";; esac
+r="$(repoof 'https://h/a/b/c')"
+case "$r" in "rc=2"*"not a plain owner/repo"*) ok "three segments are still refused as not a plain owner/repo";; *) bad "three segments: $r";; esac
+# The mutant: the bracket-aware scp cut replaced by a first-colon cut must print :1]:o/r.
+MUT216="$T/forge-lib-mut216.sh"; sed 's|^\( *\)\\\[\*\\\]\*) path="${url#\*\\\]:}" ;; *# bracket-aware cut.*$|\1\\[*\\]*) path="${url#*:}" ;;|' "$LIB" > "$MUT216"
+grep -q '# bracket-aware cut: the #216 mutant replaces this line$' "$LIB" && ok "mutant ledger (#216): the bracket-aware cut line exists" || bad "mutant ledger (#216): cut line not found"
+cmp -s "$LIB" "$MUT216" && bad "mutant ledger (#216): the sed did not apply" || ok "mutant ledger (#216): the mutant differs from the lib"
+d="$(mktemp -d "$T/fr.XXXXXX")"; r="$( cd "$d" && git init -q . && git remote add origin 'git@[::1]:o/r' && . "$MUT216" && forge_repo 2>/dev/null )"
+[ "$r" = ':1]:o/r' ] && ok "mutant (#216): a first-colon cut prints :1]:o/r, so the bracket case can fail" || bad "mutant (#216) did not misbehave (got '$r')"
+
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

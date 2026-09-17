@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 16
+# forge-lib-version: 17
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -57,6 +57,12 @@
 #       spelling, and no path at all.
 #       _forge_token's credential host is the same authority, port kept, so a FORGE_API_URL of
 #       `https://evil.internal#@github.com` asks git for evil.internal's credential, not github's.
+#   v17 forge_repo cuts the slug after the SAME authority _forge_url_host isolates (#216). Three
+#       answers change: `git@[::1]:o/r` prints `o/r` (was `:1]:o/r`); a scheme-form `?query` or
+#       `#fragment` is stripped (`https://h/o/r?x=1` prints `o/r`, was `o/r?x=1`; the scp form
+#       keeps its bytes); and `o/r.git/` prints `o/r` (was `o/r.git`). A URL with no authority is
+#       refused with one message naming the URL, with scheme-form userinfo redacted, where v16
+#       named a fabricated sub-path (`colon/o/r` for `/path/with:colon/o/r`).
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -188,21 +194,48 @@ forge_host() {
 }
 
 # forge_repo: print owner/repo on the active host (config wins; else parse the remote URL).
+# The slug is cut after the SAME authority _forge_url_host isolates (#216), so the two can never
+# disagree on what a host is: scheme form is the path after the authority, minus `?query` and
+# `#fragment` (RFC 3986; new on v17, and scheme form only, since the scp form has no query
+# syntax); scp form is the text after `]:` for a bracketed host, else after the first `:`. A URL
+# with no authority (a local path, `./x`, `file://` with an empty authority) is refused with ONE
+# message whatever its shape: it is the same branch, and three messages for one branch is a
+# split a later editor would collapse anyway. Inherited and NOT resolved: `C:/x/o/r` is a Windows
+# drive path that the scp arm reads as host `C`, which git itself also cannot tell apart.
+# A refusal names the URL with scheme-form userinfo redacted, because a remote can carry
+# `user:token@` and the message lands in a hook's output (#229 review).
 forge_repo() {
   _forge_load_conf
   if [ -n "${FORGE_REPO:-}" ]; then printf '%s\n' "$FORGE_REPO"; return 0; fi
-  local url repo; url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"
-  url="${url%.git}"; url="${url%/}"             # strip a trailing .git and a trailing slash
+  local url host path shown; url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"
+  # Redact at the LAST @ of the AUTHORITY, the same cut _forge_url_host makes: a password may
+  # contain @ (review: the first-@ form printed the tail of `p@ss`), and an @ in the path is not
+  # userinfo at all.
+  shown="$url"
+  case "$url" in *://*)
+    path="${url#*://}"; host="${path%%[/?#]*}"
+    case "$host" in *@*) shown="${url%%://*}://***@${host##*@}${path#"$host"}" ;; esac ;;
+  esac
+  host="$(_forge_url_host "$url")"
+  if [ -z "$host" ]; then
+    echo "forge-lib: cannot parse owner/repo from remote '$shown' (a local path has no host); set FORGE_REPO in .forge.conf" >&2; return 2
+  fi
   case "$url" in
-    *://*/*) repo="${url#*://*/}" ;;            # scheme://[user@]host[:port]/owner/repo
-    *:*/*)   repo="${url#*:}" ;;                # scp form  git@host:owner/repo
-    *)       repo="" ;;
+    *://*)
+      path="${url#*://}"; path="${path#"${path%%[/?#]*}"}"   # drop the authority: up to the first / ? or #
+      path="${path%%\?*}"; path="${path%%#*}"; path="${path#/}" ;;
+    *)
+      case "$host" in
+        \[*\]*) path="${url#*\]:}" ;;   # bracket-aware cut: the #216 mutant replaces this line
+        *)     path="${url#*:}" ;;
+      esac ;;
   esac
-  case "$repo" in
-    */*/*) echo "forge-lib: remote path '$repo' is not a plain owner/repo; set FORGE_REPO in .forge.conf" >&2; return 2 ;;
-    */*)   printf '%s\n' "$repo" ;;
-    *)     echo "forge-lib: cannot parse owner/repo from remote '$url'; set FORGE_REPO in .forge.conf" >&2; return 2 ;;  # 0 or 1 segment
+  path="${path%/}"; path="${path%.git}"      # a trailing slash first, so `o/r.git/` reads as o/r
+  case "$path" in
+    */*/*) echo "forge-lib: remote path '$path' is not a plain owner/repo; set FORGE_REPO in .forge.conf" >&2; return 2 ;;
+    */*)   case "$path" in /*|*/) ;; *) printf '%s\n' "$path"; return 0 ;; esac ;;
   esac
+  echo "forge-lib: cannot parse owner/repo from remote '$shown'; set FORGE_REPO in .forge.conf" >&2; return 2   # 0 or 1 segment
 }
 
 # forge_api_base: REST base URL for the active host.
