@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 12 -->
+<!-- leak-guard-version: 13 -->
 
 # Leak guard
 
@@ -138,6 +138,9 @@ real first name is not. Shape cannot decide whether `~/<root>` is private, becau
 carries no marker either way. So the test is inverted: an allowlist of roots a document may show.
 That catches the case by construction rather than by enumeration, and it asks one thing of the
 project, **a canonical example root, agreed once**. A project without one has a different problem.
+Neither rule reports a user segment or root that is entirely punctuation once trailing punctuation
+is stripped (`/home/..`, `~/...`, `~/}`): a path idiom or a code fragment, not a person, and one no
+allow-file entry could name either.
 
 **Rule C, email addresses**, excluding the service accounts and the TLDs reserved by RFC 2606 and
 RFC 6761, which cannot reach a mailbox.

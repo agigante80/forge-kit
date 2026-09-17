@@ -51,6 +51,12 @@ expect "the /home/.../ placeholder survives"    no  "$(trips 'install to /home/.
 expect "the /home/\$USER/ form survives"         no  "$(trips 'install to /home/$USER/.claude/')"
 expect "/Users/username/ survives"              no  "$(trips 'install to /Users/username/x')"
 expect "/home/ with no segment does not trip"   no  "$(trips 'the /home/ directory')"
+# /home/.. is the relative-path idiom, not a username: the segment strips to nothing, and before
+# this fix nothing in the allow-file could suppress it either (fleet hit: actual-mcp-server's
+# budget_loader_postcondition.test.js).
+expect "the /home/.. relative-path idiom survives" no  "$(trips 'require(from + "/home/../fixtures")')"
+expect "/home/alice/ still trips (no regression from the /home/.. fix)" yes \
+  "$(trips '/home/alice/notes.txt')"
 
 echo "== rule B: ~/ roots, by allowlist =="
 expect "an unlisted ~/ root trips"              yes "$(trips 'cloned into ~/secret-clients/thing')"
@@ -65,6 +71,11 @@ expect "the ~/<root> placeholder survives"      no  "$(trips 'cloned into ~/<roo
 expect "bare ~/ survives"                       no  "$(trips 'relative to ~/ itself')"
 expect "a trailing period does not hide a root" yes "$(trips 'it lives in ~/acme-client.')"
 expect "trailing punctuation is not part of the root" no "$(trips 'it lives in ~/projects.')"
+# ~/} and ~/... are shell/shape fragments (a "$HOME/..."-style line, a bare ellipsis), not a
+# person's home: the root strips to nothing. Fleet hit: this scanner's own source, and a home-path
+# style doc example.
+expect "~/} survives (a shell-fragment root, not a person)" no "$(trips 'like \"\$HOME/...\": echo ~/}')"
+expect "~/... survives (an ellipsis root, not a person)"    no "$(trips 'root at ~/... something')"
 
 echo "== rule C: email addresses =="
 expect "a real address trips"                   yes "$(trips 'mail alice@realdomain.com for help')"
@@ -114,6 +125,14 @@ printf 'prefix /home/runner/work/myrepo\n' > "$WORK/deep-allow"
 "$SCRIPT" --allow-file "$WORK/deep-allow" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
 expect "a prefix deeper than one segment refuses the run" 2 "$?"
 contains "one segment" "$(cat "$WORK/err.txt")" "and explains that rule A judges one segment"
+
+# A prefix segment that strips to nothing ("..") is never a username, so judge() would return
+# before ALLOW_PREFIXES is ever consulted: such an entry can never match anything. Refused at
+# parse time rather than accepted as a silent no-op.
+printf 'prefix /home/..\n' > "$WORK/punct-allow"
+"$SCRIPT" --allow-file "$WORK/punct-allow" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+expect "a punctuation-only prefix segment refuses the run" 2 "$?"
+contains "cannot be a username" "$(cat "$WORK/err.txt")" "and explains why"
 
 printf 'x\n' > "$WORK/sample.txt"
 "$SCRIPT" --allow-file "$WORK/nope" "$WORK/sample.txt" >/dev/null 2>&1
