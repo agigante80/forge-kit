@@ -35,3 +35,9 @@ email a.gigante@gmail.com
 # skips its own source without being asked; its test is skipped HERE, so the exemption is visible
 # in config rather than hidden in the code.
 skip scripts/test-check-public-leaks.sh
+
+# check-private-leaks.sh's own contract test now carries an allow-file fixture (Task 3, forge-kit
+# issue: a path allow-file for the private half) that includes a real-shaped root/prefix/email
+# block, copied verbatim from the public suite's fixture above, to prove those keys are ignored
+# rather than refused. Same reasoning, same exemption.
+skip scripts/test-check-private-leaks.sh

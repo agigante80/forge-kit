@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 11 -->
+<!-- leak-guard-version: 12 -->
 
 # Leak guard
 
@@ -150,8 +150,17 @@ purpose: everything in it is something the project decided it may show.
 ## The private half
 
 ```
-check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [--show-names] [paths...]
+check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>]
+                       [--allow-file <path>] [--show-names] [paths...]
 ```
+
+> **The allow-file takes `skip` and nothing else.** It is the same
+> `.leak-guard-allow` the public half reads, and this half honours only path globs from
+> it: a generated lockfile that happens to contain a listed name, a test fixture using one
+> as sample data. A **name** must never appear in it — the file is tracked and public, and
+> a name there rebuilds the index the list exists to avoid. `root`, `prefix` and `email`
+> are the public half's keys and are ignored here rather than refused, so one file serves
+> both scanners.
 
 **It reports a redacted name by default**, two leading characters and the length, and `--show-names`
 prints it in full. The class of leak this component exists to stop is pasted output, and this hook's

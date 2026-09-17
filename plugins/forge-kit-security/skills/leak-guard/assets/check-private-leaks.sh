@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 12
+# check-private-leaks-version: 13
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -65,7 +65,8 @@
 # For the going-public case, run a credential scanner as well: `gitleaks git .` walks the whole
 # history for SECRETS rather than identity, so it is a companion and not a substitute.
 #
-#   check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [--show-names] [paths...]
+#   check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>]
+#                          [--allow-file <path>] [--show-names] [paths...]
 #   check-private-leaks.sh --history [--orphans] [--list <path>] [--show-names]
 #
 # Exit 0 clean, 1 on a finding, 2 when it could not run. One line per finding:
@@ -144,6 +145,7 @@ while [ $# -gt 0 ]; do
     --history)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=history ;;
     --orphans)     ORPHANS=1 ;;
     --list)        shift; [ $# -gt 0 ] || die "--list needs a path"; LIST="$1" ;;
+    --allow-file)  shift; ALLOW_FILE="${1:-}" ;;
     --show-names)  SHOW_NAMES=1 ;;
     --init)        DO_INIT=1 ;;
     # Prints the whole comment header, rather than a hardcoded line range. The range was the bug:
@@ -156,6 +158,32 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+SKIP_PATHS=()
+ALLOW_FILE="${ALLOW_FILE:-}"
+# Paths only, never names. Listing a path discloses nothing; a name here would rebuild
+# the index this component exists to avoid — which is why `skip` is the ONLY key.
+if [ -n "$ALLOW_FILE" ]; then
+  [ -f "$ALLOW_FILE" ] || die "allow-file not found: $ALLOW_FILE"
+  lineno=0
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    lineno=$((lineno+1))
+    line="${raw%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in ''|'#'*) continue ;; esac
+    key="${line%% *}"; val="${line#* }"
+    [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value: $line"
+    case "$key" in
+      skip) SKIP_PATHS+=("$val") ;;
+      root|prefix|email)
+        # These belong to check-public-leaks.sh. Sharing one file is intended; silently
+        # ignoring a key is not, so say which scanner owns it.
+        : ;;
+      *) die "$ALLOW_FILE:$lineno: unknown key '$key' (this scanner wants skip)" ;;
+    esac
+  done < "$ALLOW_FILE"
+fi
 
 # --history is a mode, and --orphans means nothing without it. Refused rather than ignored: a flag
 # that silently does nothing is a scan the user believes ran wider than it did.
@@ -594,6 +622,9 @@ fi
 
 for f in "${FILES[@]}"; do
   skip_by_name "$f" && continue
+  for s in ${SKIP_PATHS+"${SKIP_PATHS[@]}"}; do
+    case "$f" in $s) continue 2 ;; esac
+  done
   case "$MODE" in
     # ":0:$f", never ":$f": git reads ":<stage>:<path>" first, so a path shaped "0:x" was taken
     # for a stage spec and skipped (#208). Only a BLOB is read: a gitlink names a commit, and when

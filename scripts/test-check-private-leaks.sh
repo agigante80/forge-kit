@@ -108,6 +108,49 @@ contains "git rm --cached" "$(cat "$WORK/err.txt")" "and says exactly how to fix
 ( cd "$WORK/repo" && "$SCRIPT" --list names.txt hit.md ) >/dev/null 2>&1
 expect "an untracked list in the same directory is fine" 1 "$?"
 
+echo "== the allow-file skips paths, honouring only skip (Task 3, forge-kit) =="
+# Same .leak-guard-allow the public half reads. This half honours only `skip`; root/prefix/email
+# are the public half's keys and must be ignored here rather than refused, so one file serves both.
+cat > "$WORK/allow" <<'ALLOW'
+# comment lines and blank lines are ignored
+
+root ~/forge-kit
+prefix /home/runner/
+email a.gigante@gmail.com
+skip pnpm-lock.yaml
+ALLOW
+ALLOWREPO="$WORK/allow-repo"; mkdir -p "$ALLOWREPO"
+( cd "$ALLOWREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t
+  printf 'acme-migration@1.2.3\n' > pnpm-lock.yaml
+  printf 'the acme-migration repo\n' > leak.md
+  git add -A && git commit -qm seed ) >/dev/null 2>&1
+OUT="$( cd "$ALLOWREPO" && "$SCRIPT" --list "$WORK/list" --all --allow-file "$WORK/allow" 2>"$WORK/err.txt" )"; rc=$?
+lacks "pnpm-lock.yaml" "$OUT" "a skip <glob> path is not reported"
+contains "leak.md" "$OUT" "an unskipped finding is still reported"
+expect "and the run exits 1 on the surviving finding" 1 "$rc"
+expect "root/prefix/email are ignored rather than refused: no stderr" "" "$(cat "$WORK/err.txt")"
+
+printf 'x\n' > "$WORK/sample2.txt"
+"$SCRIPT" --list "$WORK/list" --allow-file "$WORK/no-such-allow" "$WORK/sample2.txt" >/dev/null 2>"$WORK/err.txt"
+expect "a missing allow-file dies rather than scanning" 2 "$?"
+contains "allow-file not found" "$(cat "$WORK/err.txt")" "and the message says so"
+
+printf 'bogus key\n' > "$WORK/bad-allow"
+"$SCRIPT" --list "$WORK/list" --allow-file "$WORK/bad-allow" "$WORK/sample2.txt" >/dev/null 2>"$WORK/err.txt"
+expect "an unknown allow-file key refuses the run" 2 "$?"
+contains "unknown key" "$(cat "$WORK/err.txt")" "and names the offending key"
+
+cat > "$WORK/blank-allow" <<'ALLOW2'
+# just a comment
+
+
+skip pnpm-lock.yaml
+ALLOW2
+OUT="$( cd "$ALLOWREPO" && "$SCRIPT" --list "$WORK/list" --all --allow-file "$WORK/blank-allow" 2>"$WORK/err.txt" )"; rc=$?
+lacks "pnpm-lock.yaml" "$OUT" "comment and blank lines in the allow-file are ignored, and skip still applies"
+expect "and it still exits 1 on the remaining finding" 1 "$rc"
+expect "with no stderr complaint about the comment or blank lines" "" "$(cat "$WORK/err.txt")"
+
 echo "== what is not scanned =="
 printf 'acme-migration\n' > "$WORK/skipme.png"
 "$SCRIPT" --list "$WORK/list" "$WORK/skipme.png" >/dev/null 2>&1
