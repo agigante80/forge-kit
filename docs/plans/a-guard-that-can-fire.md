@@ -1,7 +1,7 @@
 # Plan: A guard that can fire
 
-Phase opened 2026-09-17 for #218, which follows `a44d7e3` (the assistant files stopped being
-published) and `a5bd55c` (three guards made to skip an absent doc rather than fail the build).
+Phase opened 2026-09-17 for #218, which follows `19c39af` (the assistant files stopped being
+published) and `9378395` (three guards made to skip an absent doc rather than fail the build).
 
 ## Goal
 
@@ -48,5 +48,5 @@ Premortem: it is the end of this phase and it failed badly. What happened?
 
 - Moving the twelve claims into a tracked doc. Weighed in the ticket and rejected on audience; if
   the counts ever acquire a public reader, that option subsumes this one.
-- Anything about `a44d7e3` itself. The files were restored by hand; the local store is not this
+- Anything about `19c39af` itself. The files were restored by hand; the local store is not this
   phase's subject.

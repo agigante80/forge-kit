@@ -33,7 +33,7 @@ Written as a premortem: it is the end of this phase and it failed badly. What ha
 
 ## Expected work
 
-Eight tasks in the implementation plan. Tasks 1 to 7 shipped (`1c762f0` through `b358dc7`), Task 8
+Eight tasks in the implementation plan. Tasks 1 to 7 shipped (`c106995` through `c6de113`), Task 8
 is this bootstrap.
 
 ## Out of scope

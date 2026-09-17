@@ -30,8 +30,8 @@ Premortem: it is the end of this phase and it failed badly. What happened?
 - **The header was edited to fit the test.** The needle is the shared core both headers already
   print on one line; if it does not match, the test is wrong, not the header. AC 2's rewrite is
   optional and not taken here.
-- **The CLAUDE.md counts were left at 80 and 40**, which is the exact drift `965d7e0` was filed to
-  fix, and the one blocking item the gate found on this ticket.
+- **The CLAUDE.md counts were left at 80 and 40**, which is the exact drift the commit "docs: the public leak suite has 80 cases, not 72" (since
+  purged from history with CLAUDE.md, #232) was filed to fix, and the one blocking item the gate found on this ticket.
 
 ## Expected work
 
