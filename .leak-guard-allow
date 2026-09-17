@@ -67,3 +67,7 @@ prefix /home/*|
 # Historical doc roots (public --history): the project's own former name, and a <name> placeholder.
 root ai-projectforge
 root name>
+# The history purge replaces a private root with [redacted]; rule B must not read that as a new root.
+root [redacted]
+# (the scanner strips trailing "]" from a match before comparing, so the stripped form is what matches)
+root [redacted
