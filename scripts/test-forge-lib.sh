@@ -858,6 +858,55 @@ esac
              || bad "issue_edit accepted an empty body"
 
 
+# --- #229: the three silenced writers SPEAK on a 404, and only on a 404 ---------------------------
+# forge_api's 404 arm is quiet on purpose (an org with no labels is an ordinary 404 for a READ),
+# and the three writers redirect the body to /dev/null, so under v16 a comment to a mistyped
+# issue number produced nothing on either stream and rc 44. A caller reading silence as success
+# could not tell a landed write from a miss. Every other non-zero code already prints a line
+# (forge_api on rc 22, curl on transport, gh on GitHub), so those get NO second line.
+w229() {  # w229 <label> <rc-from-stub> <expect-rc> <fn> <args...>
+  local label="$1" stubrc="$2" wantrc="$3" fn="$4"; shift 4
+  (
+    . "$LIB"
+    export FORGE_HOST=forgejo FORGE_REPO=o/r
+    STUBRC="$stubrc"
+    forge_api() { [ "$STUBRC" = 22 ] && echo "forge-lib: HTTP 500 from $1 $2" >&2; return "$STUBRC"; }
+    out=$("$fn" "$@" 2>"$T/w.err"); rc=$?
+    [ "$rc" = "$wantrc" ] || exit 1
+    [ -z "$out" ] || exit 2
+    case "$STUBRC" in
+      0)  [ ! -s "$T/w.err" ] || exit 3 ;;
+      44) [ "$(wc -l < "$T/w.err")" = 1 ] || exit 4
+          grep -q "$fn" "$T/w.err" || exit 5
+          grep -q 'HTTP 404' "$T/w.err" || exit 5
+          grep -q "#${1}" "$T/w.err" || exit 6 ;;
+      22) [ "$(wc -l < "$T/w.err")" = 1 ] || exit 7
+          grep -q "$fn" "$T/w.err" && exit 7 ;;
+    esac
+    exit 0
+  )
+  case $? in
+    0) ok "$label";;
+    1) bad "$label (exit code not propagated unchanged)";;
+    2) bad "$label (stdout was not empty)";;
+    3) bad "$label (success printed something on stderr)";;
+    4) bad "$label (404 did not print exactly one stderr line)";;
+    5) bad "$label (the 404 line does not name the function and HTTP 404)";;
+    6) bad "$label (the 404 line does not name the issue number)";;
+    7) bad "$label (a failure that already spoke got a second line)";;
+    *) bad "$label (errored)";;
+  esac
+}
+w229 "forge_issue_comment stays silent on success (#229)"           0  0  forge_issue_comment 999 body
+w229 "forge_issue_comment names a 404 on stderr, rc 44 (#229)"       44 44 forge_issue_comment 999 body
+w229 "forge_issue_comment adds no second line on rc 22 (#229)"       22 22 forge_issue_comment 999 body
+w229 "forge_issue_close stays silent on success (#229)"             0  0  forge_issue_close 999
+w229 "forge_issue_close names a 404 on stderr, rc 44 (#229)"         44 44 forge_issue_close 999
+w229 "forge_issue_close adds no second line on rc 22 (#229)"         22 22 forge_issue_close 999
+w229 "forge_issue_edit stays silent on success (#229)"              0  0  forge_issue_edit 999 new
+w229 "forge_issue_edit names a 404 on stderr, rc 44 (#229)"          44 44 forge_issue_edit 999 new
+w229 "forge_issue_edit adds no second line on rc 22 (#229)"          22 22 forge_issue_edit 999 new
+
 # --- forge_host decides by the URL's authority, never by a glob (#212) ---
 echo "== forge_host: the host slot only =="
 hostof() {  # hostof <origin-url> [FORGE_API_URL]: forge_host in a fresh repo with that origin

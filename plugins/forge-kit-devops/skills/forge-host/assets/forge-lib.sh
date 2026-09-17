@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 18
+# forge-lib-version: 19
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -70,6 +70,11 @@
 #       requests, so count-gate-rounds reads a number instead of `unknown`. A caller that
 #       treated any stderr from a paginate as a failure now sees one line per call. Termination
 #       on an EMPTY page is unchanged and `length < limit` is still not a stop.
+#   v19 forge_issue_comment, forge_issue_close and forge_issue_edit print ONE stderr line when
+#       forge_api returns 44 (`forge-lib: <function>: issue #<n>: HTTP 404 (no such issue)`) and
+#       propagate the code (#229). Every other code is unchanged and adds no line, since forge_api,
+#       curl or gh already printed one. Success is still silent on both streams. forge_api's own
+#       404 arm stays quiet, so read callers that treat 404 as ordinary are untouched.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -466,9 +471,22 @@ _forge_resolve_names() {
 forge_issue_view() { forge_api GET "/repos/$(forge_repo)/issues/$1"; }
 
 # forge_issue_comment <n> <body>
+# _forge_write_rc <function> <issue> <rc>: a WRITE addressed by issue number speaks on a 404 (#229).
+# forge_api's 404 arm is quiet on purpose, because for a READ a 404 is often ordinary (an org with
+# no labels), and the three writers below redirect the body to /dev/null; under v16 a comment to a
+# mistyped issue number therefore produced nothing on either stream and rc 44, and a caller reading
+# silence as success could not tell a landed write from a miss. Only 44 gets a line: rc 22, a
+# transport failure and the GitHub arm's `gh` already print one, and a second line would say less
+# than the first. The line carries the function, the issue and the status, never a path.
+_forge_write_rc() {
+  [ "$3" -eq 44 ] && echo "forge-lib: $1: issue #$2: HTTP 404 (no such issue)" >&2
+  return "$3"
+}
+
 forge_issue_comment() {
-  local payload; payload="$(jq -nc --arg b "$2" '{body:$b}')"
-  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null
+  local payload rc; payload="$(jq -nc --arg b "$2" '{body:$b}')"
+  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null; rc=$?
+  _forge_write_rc forge_issue_comment "$1" "$rc"
 }
 
 # forge_issue_comments <n> -> JSON array of the issue's comments, oldest first, ALL pages (#192).
@@ -481,7 +499,10 @@ forge_issue_comments() {
 }
 
 # forge_issue_close <n>
-forge_issue_close() { forge_api PATCH "/repos/$(forge_repo)/issues/$1" '{"state":"closed"}' >/dev/null; }
+forge_issue_close() {
+  local rc; forge_api PATCH "/repos/$(forge_repo)/issues/$1" '{"state":"closed"}' >/dev/null; rc=$?
+  _forge_write_rc forge_issue_close "$1" "$rc"
+}
 
 # forge_issue_edit <n> <body>   REPLACES the issue body on either host (#129).
 # Both hosts PATCH the issue itself, so there is no host branch here. It is the one write in this
@@ -494,7 +515,8 @@ forge_issue_edit() {
     printf '[dry-run] replace body of issue %s on %s (%s bytes)\n' "$1" "$(forge_repo)" "${#2}" >&2
     return 0
   fi
-  forge_api PATCH "/repos/$(forge_repo)/issues/$1" "$payload" >/dev/null
+  local rc; forge_api PATCH "/repos/$(forge_repo)/issues/$1" "$payload" >/dev/null; rc=$?
+  _forge_write_rc forge_issue_edit "$1" "$rc"
 }
 
 # forge_issue_list [state]  (default open) -> JSON array of issues, PRs excluded, ALL pages.
