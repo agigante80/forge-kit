@@ -184,12 +184,12 @@ cp "$ROOT/scripts/update-suite-counts.py" "$ROOT/scripts/update-component-index.
 # asserted by sentinels rather than by wall time, which a loaded machine makes unreliable.
 cat > scripts/test-fixture-one.sh <<'F1'
 #!/usr/bin/env bash
-: > "${SENTINEL_DIR:-/tmp}/one.ran"
+: > "${SENTINEL_DIR:-$(dirname "$0")}/one.ran"
 echo "fixture one: 7 passed, 0 failed"
 F1
 cat > scripts/test-fixture-two.sh <<'F2'
 #!/usr/bin/env bash
-: > "${SENTINEL_DIR:-/tmp}/two.ran"
+: > "${SENTINEL_DIR:-$(dirname "$0")}/two.ran"
 echo "fixture two: 3 passed, 0 failed"
 F2
 chmod +x scripts/test-fixture-one.sh scripts/test-fixture-two.sh
@@ -221,7 +221,7 @@ ls "$SENT"/*.ran >/dev/null 2>&1 && bad "and invoked no suite" || ok "and invoke
 # A push that changes one counted suite runs THAT suite and no other.
 rm -f "$SENT"/*.ran
 base=$(git rev-parse HEAD)
-printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-/tmp}/one.ran"\necho "fixture one: 8 passed, 0 failed"\n' > scripts/test-fixture-one.sh
+printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-$(dirname "$0")}/one.ran"\necho "fixture one: 8 passed, 0 failed"\n' > scripts/test-fixture-one.sh
 git add -A >/dev/null; git commit --quiet -m "one more case in fixture one"
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "a suite that grew without its claim being regenerated blocks the push" || bad "a suite that grew without its claim being regenerated blocks the push (rc $rc)"
@@ -239,7 +239,7 @@ out="$(push_range "$base")"; rc=$?
 # THE CASE THAT MATTERS MOST: no doc, no block, and nothing said about counts.
 base=$(git rev-parse HEAD)
 git rm -q CLAUDE.md; git commit --quiet -m "the doc is local now"
-printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-/tmp}/one.ran"\necho "fixture one: 9 passed, 0 failed"\n' > scripts/test-fixture-one.sh
+printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-$(dirname "$0")}/one.ran"\necho "fixture one: 9 passed, 0 failed"\n' > scripts/test-fixture-one.sh
 git add -A >/dev/null; git commit --quiet -m "a change a contributor without the doc makes"
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "a checkout without the doc is not blocked" || bad "a checkout without the doc is not blocked (rc $rc, $out)"
@@ -283,7 +283,7 @@ printf '%s' "$out" | grep -q 'python3 not found' && ok "and says so loudly" || b
 # remote-tracking ref, a rule placed down there is skipped by a bare `exit 0` and says nothing.
 # Here the remote tip comes from the hook's own stdin, which is why the rule can still run.
 base=$(git rev-parse HEAD)
-printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-/tmp}/one.ran"\necho "fixture one: 11 passed, 0 failed"\n' > scripts/test-fixture-one.sh
+printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-$(dirname "$0")}/one.ran"\necho "fixture one: 11 passed, 0 failed"\n' > scripts/test-fixture-one.sh
 git add -A >/dev/null; git commit --quiet -m "a claim goes stale"
 git update-ref -d refs/remotes/origin/HEAD 2>/dev/null
 git update-ref -d refs/remotes/origin/main 2>/dev/null
@@ -302,8 +302,8 @@ out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" \
 [ "$rc" -eq 0 ] && ok "with no range at all the push is not blocked" || bad "with no range at all the push is not blocked (rc $rc)"
 printf '%s' "$out" | grep -q 'suite-count claims were NOT checked' \
   && ok "and the rule says so in its own words" || bad "and the rule says so in its own words"
-git remote set-head origin main >/dev/null 2>&1
 git fetch -q origin main 2>/dev/null
+git remote set-head origin main >/dev/null 2>&1   # after the fetch: before it, there is no ref to point at
 python3 scripts/update-suite-counts.py --doc CLAUDE.md --root . >/dev/null 2>&1
 git add -A >/dev/null; git commit --quiet -m "regenerate after the placement cases" 2>/dev/null
 
