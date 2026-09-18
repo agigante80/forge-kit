@@ -3,7 +3,8 @@
 # Four keys, and an unknown one refuses the whole run rather than being skipped: a silently
 # ignored line in a security config is a guard reporting a coverage it does not have.
 #
-#   root ~/<root>   a home root this project's documents are allowed to show
+#   root ~/<root>   a home root this project's documents are allowed to show; EXACTLY ONE segment,
+#                   since rule B matches one segment and nothing deeper (a longer root is refused)
 #   prefix <path>   an absolute path under /home or /Users naming EXACTLY ONE segment, as in
 #                   /home/<user>. Rule A matches one segment and nothing deeper, so a longer
 #                   prefix could never match; it is refused rather than silently ignored.

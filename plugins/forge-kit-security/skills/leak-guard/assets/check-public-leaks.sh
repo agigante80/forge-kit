@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 17
+# check-public-leaks-version: 18
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -281,6 +281,7 @@ if [ -n "$ALLOW_FILE" ]; then
     line="${line%"${line##*[![:space:]]}"}"          # strip trailing whitespace
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%% *}"; val="${line#* }"
+    val="${val#"${val%%[![:space:]]*}"}"              # two spaces after the key are not part of the value (#240)
     [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value: $line"
     case "$key" in
       # A root is written the way it appears in prose, "~/name", so the config reads like the
@@ -290,6 +291,11 @@ if [ -n "$ALLOW_FILE" ]; then
         # `~/<root>/`, so the natural copy-paste carries the slash, and judge() compares the root
         # without its slash, so stored with it the entry could never match (review of #224).
         rootv="${val#\~/}"; rootv="${rootv%/}"   # ~/ first, so `root ~/` strips to nothing and refuses
+        # Exactly one segment, as the prefix key requires (#240): rule B yields one segment and
+        # nothing deeper, so a two-segment root, a doubled slash (one is stripped above, one
+        # remains) and a bare tilde (nothing strips it) could never match. This clause runs
+        # BEFORE strip_tail below, which would otherwise pop nothing off "a/b" and accept it.
+        case "$rootv" in '~'|*/*) die "$ALLOW_FILE:$lineno: root must name exactly one segment, because rule B matches one segment and nothing deeper: $val" ;; esac
         # A root that is entirely punctuation ("..", "}", "...") is returned clean by rule B before
         # the list is consulted, so an entry naming one can never change a verdict: a dead entry
         # that reads as a decision. Refused at parse time, as the prefix key's segment is (#224).

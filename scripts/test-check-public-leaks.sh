@@ -241,6 +241,29 @@ expect "a root written with its trailing slash, as the report prints it, still s
 printf 'root ~/\n' > "$WORK/bare-root"
 "$SCRIPT" --allow-file "$WORK/bare-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
 expect "root ~/ alone strips to nothing and refuses" 2 "$?"
+# #240: the remaining dead root shapes, refused by ONE clause after the strips: a two-segment
+# root, a doubled slash (only one is stripped, so a slash remains) and a bare tilde (nothing
+# strips it), each of which rule B could never yield as a one-segment root.
+printf 'x\n' > "$WORK/sample.txt"
+for v in '~/a/b' 'a/b' '//' '~/foo//' '~'; do
+  printf 'root %s\n' "$v" > "$WORK/dead-root"
+  "$SCRIPT" --allow-file "$WORK/dead-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a root that is not exactly one segment ($v) refuses the run (#240)" 2 "$?"
+  contains "root must name exactly one segment" "$(cat "$WORK/err.txt")" "and explains why ($v)"
+done
+for v in '~/work' 'work' '.codex' '[redacted]' '<redacted>' '***REMOVED***' '<root>' '~/clients/'; do
+  printf 'root %s\n' "$v" > "$WORK/live-root"
+  "$SCRIPT" --allow-file "$WORK/live-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a one-segment root ($v) is still accepted" 0 "$?"
+done
+# #240: the shared key/value split leaked a leading space into the value when two spaces followed
+# the key, for EVERY key: `root  foo` stored " foo" and never matched foo.
+printf 'root  foo\n' > "$WORK/two-space"
+expect "two spaces after the key: root  foo allows ~/foo/x" 0 "$(scan_line 'see ~/foo/x' --allow-file "$WORK/two-space")"
+expect "and still reports ~/other/x" 1 "$(scan_line 'see ~/other/x' --allow-file "$WORK/two-space")"
+printf 'email  ab@cd.io\n' > "$WORK/two-space-email"
+expect "two spaces after the key on another key: email  ab@cd.io allows the address (near miss)" 0 "$(scan_line 'mail ab@cd.io' --allow-file "$WORK/two-space-email")"
+expect "and that address is reported without the entry" 1 "$(scan_line 'mail ab@cd.io')"
 
 printf 'x\n' > "$WORK/sample.txt"
 "$SCRIPT" --allow-file "$WORK/nope" "$WORK/sample.txt" >/dev/null 2>&1
