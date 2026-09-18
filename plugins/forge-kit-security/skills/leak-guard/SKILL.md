@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 14 -->
+<!-- leak-guard-version: 15 -->
 
 # Leak guard
 
@@ -147,8 +147,10 @@ RFC 6761, which cannot reach a mailbox.
 
 The project's allow-file takes four keys, `root`, `prefix`, `email` and `skip`. An unrecognised key
 **refuses the whole run** rather than skipping the line, because a silently ignored entry in a
-security config is a guard reporting a coverage it does not have. The file is tracked and public on
-purpose: everything in it is something the project decided it may show.
+security config is a guard reporting a coverage it does not have, and so does a `prefix` or `root`
+entry that could never match (a segment or root that is entirely punctuation), since a dead entry
+in a tracked file reads as a decision somebody made. The file is tracked and public on purpose:
+everything in it is something the project decided it may show.
 
 ## The private half
 

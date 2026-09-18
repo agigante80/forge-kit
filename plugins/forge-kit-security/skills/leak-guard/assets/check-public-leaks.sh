@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 15
+# check-public-leaks-version: 16
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -285,7 +285,15 @@ if [ -n "$ALLOW_FILE" ]; then
     case "$key" in
       # A root is written the way it appears in prose, "~/name", so the config reads like the
       # thing it permits.
-      root)   ALLOW_ROOTS+=("${val#\~/}") ;;
+      root)
+        rootv="${val#\~/}"
+        # A root that is entirely punctuation ("..", "}", "...") is returned clean by rule B before
+        # the list is consulted, so an entry naming one can never change a verdict: a dead entry
+        # that reads as a decision. Refused at parse time, as the prefix key's segment is (#224).
+        # The redaction markers strip to something and stay accepted.
+        strip_tail "$rootv"
+        [ -n "$STRIPPED" ] || die "$ALLOW_FILE:$lineno: root cannot be entirely punctuation (rule B never reports one), so this entry could never match: $val"
+        ALLOW_ROOTS+=("$rootv") ;;
       # Rule A matches "/home/<seg>" or "/Users/<seg>" and nothing deeper, so a prefix with more
       # than one segment, or one under any other root, can never equal a match. It would parse
       # cleanly and silently do nothing, which is the config bug every other key here refuses.

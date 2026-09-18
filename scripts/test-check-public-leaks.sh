@@ -203,6 +203,25 @@ printf 'prefix /home/..\n' > "$WORK/punct-allow"
 expect "a punctuation-only prefix segment refuses the run" 2 "$?"
 contains "cannot be a username" "$(cat "$WORK/err.txt")" "and explains why"
 
+# #224: the root key gets the same guard. A root that strips to nothing ("..", "}", "...") is
+# returned clean by rule B before the list is consulted, so the entry can never change a verdict;
+# it sits in a tracked allow-file looking like a decision somebody made. One of the seventeen
+# rollout repositories carried `root }`. The three markers strip to something and stay accepted.
+printf 'x\n' > "$WORK/sample.txt"
+for v in '..' '}' '...' ')' '~/..'; do
+  printf 'root %s\n' "$v" > "$WORK/punct-root"
+  "$SCRIPT" --allow-file "$WORK/punct-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a punctuation-only root entry ($v) refuses the run (#224)" 2 "$?"
+  contains "root cannot be entirely punctuation" "$(cat "$WORK/err.txt")" "and explains why ($v)"
+done
+for v in '[redacted]' '<redacted>' '***REMOVED***' '.codex' 'foo'; do
+  printf 'root %s\n' "$v" > "$WORK/ok-root"
+  "$SCRIPT" --allow-file "$WORK/ok-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a root entry that strips to something ($v) is accepted" 0 "$?"
+done
+printf 'root .codex\n' > "$WORK/ok-root"
+expect "and an accepted dotfile root suppresses its match" 0 "$(scan_line 'edit ~/.codex/config' --allow-file "$WORK/ok-root")"
+
 printf 'x\n' > "$WORK/sample.txt"
 "$SCRIPT" --allow-file "$WORK/nope" "$WORK/sample.txt" >/dev/null 2>&1
 expect "a missing allow-file refuses the run" 2 "$?"
