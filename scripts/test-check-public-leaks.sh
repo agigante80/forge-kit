@@ -221,6 +221,13 @@ for v in '[redacted]' '<redacted>' '***REMOVED***' '.codex' 'foo'; do
 done
 printf 'root .codex\n' > "$WORK/ok-root"
 expect "and an accepted dotfile root suppresses its match" 0 "$(scan_line 'edit ~/.codex/config' --allow-file "$WORK/ok-root")"
+# The copy-paste shape: rule B prints `~/foo/`, so an allow line written from the report carries
+# the slash, and stored with it the entry could never match (review round 1).
+printf 'root ~/foo/\n' > "$WORK/slash-root"
+expect "a root written with its trailing slash, as the report prints it, still suppresses" 0 "$(scan_line 'see ~/foo/bar' --allow-file "$WORK/slash-root")"
+printf 'root ~/\n' > "$WORK/bare-root"
+"$SCRIPT" --allow-file "$WORK/bare-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+expect "root ~/ alone strips to nothing and refuses" 2 "$?"
 
 printf 'x\n' > "$WORK/sample.txt"
 "$SCRIPT" --allow-file "$WORK/nope" "$WORK/sample.txt" >/dev/null 2>&1

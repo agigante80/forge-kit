@@ -43,8 +43,9 @@ skip scripts/test-check-public-leaks.sh
 skip scripts/test-check-private-leaks.sh
 
 # The scanner's own documented example user, /home/<name> with the name the scanner's header uses,
-# appears in this repository's plans when they quote rule A's boundary shapes (#230's plan names
-# four of them). The asset skips its own source; a plan that quotes it is not the source.
+# appears in this repository's plans when they quote rule A's boundary shapes
+# (docs/plans/what-seventeen-repositories-found.md quotes four of them). The asset skips its own
+# source; a plan that quotes it is not the source.
 prefix /home/alice
 
 # Historical doc roots (public --history): the project's own former name, and a <name> placeholder.

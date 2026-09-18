@@ -286,7 +286,10 @@ if [ -n "$ALLOW_FILE" ]; then
       # A root is written the way it appears in prose, "~/name", so the config reads like the
       # thing it permits.
       root)
-        rootv="${val#\~/}"
+        # A trailing slash is stripped, as the prefix key strips it: rule B's own report prints
+        # `~/foo/`, so the natural copy-paste is `root ~/foo/`, and judge() compares the root
+        # without its slash, so stored with it the entry could never match (review of #224).
+        rootv="${val#\~/}"; rootv="${rootv%/}"   # ~/ first, so `root ~/` strips to nothing and refuses
         # A root that is entirely punctuation ("..", "}", "...") is returned clean by rule B before
         # the list is consulted, so an entry naming one can never change a verdict: a dead entry
         # that reads as a decision. Refused at parse time, as the prefix key's segment is (#224).
