@@ -82,9 +82,9 @@
 #      misses them; the pin makes the laptop hook path match them. Widening the three classes with
 #      \x80-\xff is linear and was costed, and it glues any preceding multibyte byte into the
 #      evidence, so it is a maintainer decision rather than an oversight.
-#   3. A `/home/` or `/Users/` preceded by a word byte or a dot (#230): `./home/Foo.vue`,
-#      `src/home/index.ts`, `https://example.com/home/alice`. Rule A is anchored on the byte
-#      before it, so a home path glued to a word (`cd/home/alice` in a pasted transcript with the
+#   3. A `/home/` or `/Users/` preceded by a word byte or a dot (#230): `./home/<Screen>.vue`,
+#      `src/home/index.ts`, `https://example.com/home/<name>`. Rule A is anchored on the byte
+#      before it, so a home path glued to a word (`cd/home/<name>` in a pasted transcript with the
 #      space lost) is not reported either. A real path starts at a boundary, and the fleet hit
 #      that argued for this was a Vue screen importing its siblings from `./home/`. The same
 #      mechanism as shape 1 applies to rule A against itself: in `/home/<a>//home/<b>` the first
@@ -405,7 +405,7 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
 # real tree: a markdown code span is the commonest way a path appears in prose, and reading
 # "~/name`" as the root means the project's own allow-file entry never matches it.
 # Anchored like RE_MAIL below (#230): the byte before /home/ or /Users/ must not be a word byte or a
-# dot, so "./home/Foo.vue", "src/home/index.ts" and "https://example.com/home/alice" are a
+# dot, so "./home/Foo.vue", "src/home/index.ts" and "https://example.com/home/<name>" are a
 # directory called home, not a home directory. A real path always starts at a boundary (a quote,
 # =, (, a space, the start of the line). The match carries that one leading byte, and judge()
 # strips it before dispatching, as it does for rule C. `~` is excluded from the anchor class too
@@ -472,7 +472,7 @@ judge() {
       # parser above refuses to accept one), so without this it could never be suppressed.
       [ -n "$STRIPPED" ] || return 0
       # Punctuation is stripped here for the same reason as the placeholder check above, and
-      # its absence was a real false positive: with `prefix /home/runner`, an allowed path at
+      # its absence was a real false positive: with the CI runner's home allowed as a prefix, an allowed path at
       # the end of a sentence or inside brackets still reported a leak.
       allowed=0
       strip_tail "$raw"; rawt="$STRIPPED"

@@ -66,12 +66,13 @@ expect "/home/alice/ still trips (no regression from the /home/.. fix)" yes \
 # any tracked file" test that fired on the scanner's doc examples the moment it was copied in. The
 # examples are kept (a rule without its firing shape is unreviewable) in placeholder form.
 echo "== the scanner's own source carries no real-shaped example (#223) =="
-HOSTRE='/home/[a-z]+/|/Users/[a-z]+/|~/[a-z.]+/|[a-z]+@[a-z]+\.[a-z]+'
-expect "the whole asset has zero lines matching a host guard's shapes" 0 "$(grep -cE "$HOSTRE" "$SCRIPT")"
+# The classes admit case and digits (a host guard's would), and a home path needs no trailing
+# slash to look real, so `/home/<word>` with no slash counts too (review round 1). Placeholder
+# forms and the redaction demo (`/home/ab***/`) are the only exclusions.
+HOSTRE='/home/[A-Za-z0-9._-]+|/Users/[A-Za-z0-9._-]+|~/[A-Za-z0-9._-]+/|[A-Za-z0-9._-]+@[A-Za-z0-9-]+\.[A-Za-z]+'
+expect "the whole asset has zero lines matching a host guard's shapes" 0 "$(grep -E "$HOSTRE" "$SCRIPT" | grep -vcE '/home/<|/Users/<|~/<|<name>@|\*\*\*/' )"
 M223="$WORK/mutant-223.sh"; sed '3s|^|# documentation example: a person at /home/alice/notes\n|' "$SCRIPT" > "$M223"
-n=$(grep -nE "$HOSTRE" "$M223" | wc -l | tr -d ' ')
-expect "a real-shaped example reintroduced into one comment is found, exactly once" 1 "$n"
-[ "$n" = 1 ] && ok "documentation example matches a real-path shape: line $(grep -nE "$HOSTRE" "$M223" | cut -d: -f1)" || bad "documentation example matches a real-path shape: line unknown"
+expect "a real-shaped example reintroduced into one comment is found, exactly once, at line 3 (documentation example matches a real-path shape)" 3 "$(grep -nE "$HOSTRE" "$M223" | grep -vE '/home/<|/Users/<|~/<|<name>@|\*\*\*/' | cut -d: -f1 | tr '\n' ' ' | sed 's/ $//')"
 
 echo "== rule A: a /home/ preceded by a word byte or a dot is not a home directory (#230) =="
 expect "./home/Foo.vue (a relative import) does not trip"  no  "$(trips "import Foo from './home/Foo.vue'")"
