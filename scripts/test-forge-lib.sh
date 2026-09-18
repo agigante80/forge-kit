@@ -1023,6 +1023,29 @@ cmp -s "$LIB" "$MUT216" && bad "mutant ledger (#216): the sed did not apply" || 
 d="$(mktemp -d "$T/fr.XXXXXX")"; r="$( cd "$d" && git init -q . && git remote add origin 'git@[::1]:o/r' && . "$MUT216" && forge_repo 2>/dev/null )"
 [ "$r" = ':1]:o/r' ] && ok "mutant (#216): a first-colon cut prints :1]:o/r, so the bracket case can fail" || bad "mutant (#216) did not misbehave (got '$r')"
 
+# --- #235: an scp remote whose PATH carries an @ is refused, never printed as a slug ----------
+# git reads `x-access-token:TOKEN@host:o/r` as host x-access-token and path TOKEN@host:o/r, so no
+# slug forge-lib could print names a clonable repository, and the string a user pasted as a token
+# would otherwise be interpolated into every API request path this library builds. Refused, with
+# the remote redacted at its last @; _forge_url_host is unchanged (it already returns git's read).
+echo "== forge_repo: an @ in the scp path is refused (#235) =="
+r="$(repoof 'x-access-token:TOKEN@host:o/r')"
+case "$r" in "rc=2"*"remote '***@host:o/r'"*) ok "a userinfo-shaped scp remote is refused, redacted at the last @ (#235)";; *) bad "userinfo-shaped scp remote: $r";; esac
+case "$r" in *TOKEN*) bad "the token reached a stream";; *) ok "and the token appears on neither stream";; esac
+r="$(repoof 'user:p@ss@host:o/r')"
+case "$r" in "rc=2"*"remote '***@host:o/r'"*) ok "a password containing @ is redacted whole";; *) bad "password with @: $r";; esac
+case "$r" in *p@ss*) bad "the password reached a stream";; *) ok "and the password appears on neither stream";; esac
+r="$(repoof 'user@host:o/r@x')"
+case "$r" in "rc=2"*"remote '***@x'"*) ok "an @ in the scp path alone is refused, redacted at the last @";; *) bad "@ in scp path: $r";; esac
+expect "git@host:o/r is unchanged" "$(printf 'o/r\nrc=0')" "$(repoof 'git@host:o/r')"
+expect "a@b@host:o/r (the last @ ends the user, as ssh reads it) is unchanged" "$(printf 'o/r\nrc=0')" "$(repoof 'a@b@host:o/r')"
+expect "_forge_url_host reads the repro as git does: host x-access-token" 'x-access-token' "$(uh 'x-access-token:TOKEN@host:o/r')"
+MUT235="$T/forge-lib-mut235.sh"; sed '/# an @ in the scp path is a credential shape, refuse (#235)$/d' "$LIB" > "$MUT235"
+grep -q '# an @ in the scp path is a credential shape, refuse (#235)$' "$LIB" && ok "mutant ledger (#235): the refusal line exists" || bad "mutant ledger (#235): refusal line not found"
+cmp -s "$LIB" "$MUT235" && bad "mutant ledger (#235): the sed did not apply" || ok "mutant ledger (#235): the mutant differs from the lib"
+d="$(mktemp -d "$T/fr.XXXXXX")"; r="$( cd "$d" && git init -q . && git remote add origin 'x-access-token:TOKEN@host:o/r' && . "$MUT235" && forge_repo 2>/dev/null )"
+[ "$r" = 'TOKEN@host:o/r' ] && ok "mutant (#235): without the refusal the token is printed as a slug again" || bad "mutant (#235) did not misbehave (got '$r')"
+
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

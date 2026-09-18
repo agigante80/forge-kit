@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 20
+# forge-lib-version: 21
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -77,6 +77,10 @@
 #       404 arm stays quiet, so read callers that treat 404 as ordinary are untouched.
 #   v20 the three writers capture forge_api's code in the errexit-safe shape, so the v19 line is
 #       printed under a `set -e` caller too (#237). No caller changes; the codes are unchanged.
+#   v21 forge_repo REFUSES an scp remote whose path carries an @ (#235): v20 printed
+#       `TOKEN@host:o/r` as the slug for `x-access-token:TOKEN@host:o/r` and every request path
+#       carried it. rc 2, nothing on stdout, the remote redacted at its last @ in the message.
+#       `git@host:o/r` and `a@b@host:o/r` are unchanged.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -217,7 +221,9 @@ forge_host() {
 # split a later editor would collapse anyway. Inherited and NOT resolved: `C:/x/o/r` is a Windows
 # drive path that the scp arm reads as host `C`, which git itself also cannot tell apart.
 # A refusal names the URL with scheme-form userinfo redacted, because a remote can carry
-# `user:token@` and the message lands in a hook's output (#229 review).
+# `user:token@` and the message lands in a hook's output (#229 review). An scp remote whose PATH
+# carries an @ is refused outright (#235): git reads it as a credential-shaped path, no slug names
+# a repository, and the string would otherwise reach every API request path.
 forge_repo() {
   _forge_load_conf
   if [ -n "${FORGE_REPO:-}" ]; then printf '%s\n' "$FORGE_REPO"; return 0; fi
@@ -242,7 +248,13 @@ forge_repo() {
       case "$host" in
         \[*\]*) path="${url#*\]:}" ;;   # bracket-aware cut: the #216 mutant replaces this line
         *)     path="${url#*:}" ;;
-      esac ;;
+      esac
+      # git reads `x-access-token:TOKEN@host:o/r` as host x-access-token and path TOKEN@host:o/r,
+      # so no slug names a clonable repository and the pasted token would be interpolated into
+      # every API request path this library builds. The message redacts at the LAST @ of the
+      # whole remote, since the text before it is the credential shape.
+      case "$path" in *@*) shown="***@${url##*@}"; path="" ;; esac   # an @ in the scp path is a credential shape, refuse (#235)
+      ;;
   esac
   path="${path%/}"; path="${path%.git}"      # a trailing slash first, so `o/r.git/` reads as o/r
   case "$path" in
