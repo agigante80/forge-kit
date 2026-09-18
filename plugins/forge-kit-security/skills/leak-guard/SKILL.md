@@ -155,14 +155,15 @@ everything in it is something the project decided it may show.
 ## The private half
 
 ```
-check-private-leaks.sh [--staged | --range <base> | --all | --history [--orphans]] [--list <path>]
-                       [--allow-file <path>] [--show-names] [--init] [paths...]
+check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [--allow-file <path>] [--show-names] [paths...]
+check-private-leaks.sh --history [--orphans] [--list <path>] [--allow-file <path>] [--show-names]
+check-private-leaks.sh --init [--list <path>]
 ```
 
 > **The allow-file takes `skip` and nothing else.** It is the same
 > `.leak-guard-allow` the public half reads, and this half honours only path globs from
 > it: a generated lockfile that happens to contain a listed name, a test fixture using one
-> as sample data. A **name** must never appear in it — the file is tracked and public, and
+> as sample data. A **name** must never appear in it: the file is tracked and public, and
 > a name there rebuilds the index the list exists to avoid. `root`, `prefix` and `email`
 > are the public half's keys and are ignored here rather than refused, so one file serves
 > both scanners.

@@ -275,7 +275,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v5 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
 | `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `security-auditor` | v5 | 1313 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
-| `forge-kit-security` | skill | `leak-guard` | v16 | 2865 | Stop the developer's own machine leaking into a repository that is about to be made public. |
+| `forge-kit-security` | skill | `leak-guard` | v16 | 2872 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v2 | 764 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
 | `forge-kit-security` | shell asset | `check-private-leaks` | v14 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
