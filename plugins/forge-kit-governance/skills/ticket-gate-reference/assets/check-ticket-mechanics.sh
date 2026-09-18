@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 9
+# check-ticket-mechanics-version: 10
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -49,6 +49,17 @@
 # first of them, so the kit's own feature.yml failed a compliant web-form body twice: a same-level
 # heading now ends a section unless its text is a sub-heading the template places inside THIS
 # field, scoped per field; a template label always ends it.
+#
+# TWO SHAPES CHECK 4 REFERS RATHER THAN FAILS (#233, #241), both found by the gate on this
+# repository's own tickets in one night. A ONE-LINE scenario, `- Positive. Given a. When b. Then
+# c.` in any of its markups, carries a complete scenario the marker regex cannot read, and v9
+# emitted "0 positive, 0 negative": a heuristic miss that inverted the verdict. It is detected by
+# a separate test run BEFORE the block count, so the marker regex and every site keyed on it are
+# unchanged; widening the regex would have read the line as a block with zero When lines and
+# failed it one site later. And a REASONED N/A in the scenarios section, which the canonical doc
+# permits where no behaviour delta exists, failed the same way where check 5 had always referred one for
+# the unit and E2E sections; it is now tested first, only where no block exists, so an N/A named
+# inside a real pair is still a pair, and a bare N/A with no reason still fails.
 #
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
@@ -341,6 +352,19 @@ fi
 # and the author was told THAT block had two Whens (found in review).
 marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[[:space:]]*$|^[[:space:]]*([*][*]|__|[*]|_)(%s)([[:space:]]*[(][^)]*[)])?:?([*][*]|__|[*]|_)' "$1" "$1"; }
 MARK_ANY="$(marker_re 'Positive|Negative')"; MARK_POS="$(marker_re Positive)"; MARK_NEG="$(marker_re Negative)"
+# Defined here, above their first use: check 4 reads them since #241, and bash resolves a
+# function at call time.
+looks_na()   { printf '%s' "$1" | grep -qiE '(^|[^a-z])n/?a([^a-z]|$)|not applicable'; }
+long_enough() { [ "$(printf '%s' "$1" | tr -d '[:space:]' | wc -c)" -gt 12 ]; }
+names_path() { printf '%s' "$1" | grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rb|rs|java|kt|php|cs|sh|sql|md|yml|yaml)([^A-Za-z0-9]|$)'; }
+# A ONE-LINE scenario (#233): after an optional list marker, optional bold or italic markup and
+# whitespace, the marker word followed by `.` or `:`, with Given, When and Then inline. It is a
+# complete scenario this check cannot read (the marker must stand alone on its line), so it is
+# REFERRED, never failed: v9 emitted "0 positive, 0 negative" on it, a heuristic miss that
+# inverted the verdict. A separate detector, run BEFORE the block count and the When/Then scans;
+# widening the marker regex instead would read the line as a block with zero When lines and fail
+# it one site later, which is what `**Positive**: Given ...` did on v9.
+ONE_LINE='^[[:space:]]*([-*][[:space:]]+)?([*][*]|__|[*]|_)?(Positive|Negative)([*][*]|__|[*]|_)?[.:].*(^|[^A-Za-z])Given([^A-Za-z]|$).*(^|[^A-Za-z])When([^A-Za-z]|$).*(^|[^A-Za-z])Then([^A-Za-z]|$)'
 if [ -z "$SCENARIOS_LABEL" ]; then
   row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"
 else
@@ -350,7 +374,19 @@ else
   else
     pos_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_POS")
     neg_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_NEG")
-    if [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
+    one_line="$(printf '%s\n' "$SCENARIOS" | grep -m1 -E "$ONE_LINE")"
+    # Order: a reasoned N/A (#241) is tested first, as check 5 tests it before a path, and only
+    # where NO block exists, so an N/A mentioned inside a real pair is still a pair; then the
+    # one-line form (#233); then the block count. A bare N/A with no reason is still a fail.
+    if [ "$pos_count" -eq 0 ] && [ "$neg_count" -eq 0 ] && [ -z "$one_line" ] && looks_na "$SCENARIOS"; then
+      if long_enough "$SCENARIOS"; then
+        row gwt referred "scenarios claim N/A; legitimate only where rule 1 finds no behaviour delta: $(first_line "$SCENARIOS")"
+      else
+        row gwt fail "scenarios claim a bare N/A with no reason: $(first_line "$SCENARIOS")"
+      fi
+    elif [ -n "$one_line" ]; then
+      row gwt referred "one-line scenario form; the critic must judge rule 1 unaided: $(first_line "$one_line")"
+    elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
     else
       multi_when="$(printf '%s\n' "$SCENARIOS" | awk -v any="$MARK_ANY" '
@@ -399,9 +435,6 @@ fi
 # A path is a backticked token containing a slash, or a bare filename with a known extension.
 # Deliberately NOT "anything containing a slash": the literal `N/A` matches that, so an N/A
 # claim read as a named path and PASSED a check that must refer it. So did prose like "and/or".
-looks_na()   { printf '%s' "$1" | grep -qiE '(^|[^a-z])n/?a([^a-z]|$)|not applicable'; }
-names_path() { printf '%s' "$1" | grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rb|rs|java|kt|php|cs|sh|sql|md|yml|yaml)([^A-Za-z0-9]|$)'; }
-long_enough() { [ "$(printf '%s' "$1" | tr -d '[:space:]' | wc -c)" -gt 12 ]; }
 
 if [ -z "$UNIT_LABEL" ]; then
   row unit_tests referred "no section matched unit tests; the critic must judge rule 2 unaided"

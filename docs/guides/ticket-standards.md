@@ -168,12 +168,14 @@ can still fork silently, so do not create more of them.
 2. The security lens checklist, which restates rule 5 point for point. It lives in the
    `ticket-gate-reference` skill since #109, not in the agent file.
    <!-- anchor: "OWASP Top 10: injection, XSS, CSRF" -->
-3. Rule 1's GWT quality bar, which appears three times: in the Step 0c-iii synthesis table, and
-   twice in `check-ticket-mechanics.sh`, which took Step 3A's checks over from prose in #149.
+3. Rule 1's GWT quality bar, which appears four times: in the Step 0c-iii synthesis table, and
+   three times in `check-ticket-mechanics.sh`, which took Step 3A's checks over from prose in
+   #149, the third being the N/A clause check 4 refers since #241.
    <!-- anchor: "Apply the rule-1 quality bar" -->
    <!-- anchor: "check 4: GWT structure (rule 1, the checkable half)" -->
    <!-- anchor: "narrower than rule 1's quality" -->
    <!-- anchor: "the critic must judge rule 1 unaided" -->
+   <!-- anchor: "legitimate only where rule 1 finds no behaviour delta" -->
 4. Rule 2's integration and regression coverage, and rule 8's implementation concreteness (build
    and test commands, dependency justification, N+1 and scalability), which the critic's brief
    carries as blocking-capable concerns. These joined this doc in #117 (issue #94); before that

@@ -311,6 +311,44 @@ expect "gap 2: the When-count site recognises the qualified marker (two Whens st
 G2f="$(mkbody feature "gap2f.md" "$(printf 'Positive (a)\n- Given: a\n- When: b\n- Then: c\n\n**Negative** case\n- Given: d\n- When: e')")"
 expect "gap 2: the missing-Then site recognises the bold marker" fail "$(outcome "$(run "$G2f" feature)" gwt)"
 
+# --- #233: a ONE-LINE scenario is a shape this check cannot read, so it refers, never fails.
+# `- Positive. Given a. When b. Then c.` carries a complete scenario that the marker regex cannot
+# see (the marker must stand alone on its line), and v9 emitted `fail`, "0 positive, 0 negative":
+# a heuristic miss that INVERTED the verdict, which the header forbids. The detector is separate
+# from the marker regex and runs before the block count; the regexes are unchanged.
+gwt_ev() { printf '%s\n' "$1" | awk -F'\t' '$1=="gwt"{print $3}'; }
+O1="$(mkbody feature "one1.md" "$(printf -- '**Condition: x**\n- Positive. Given a valid token. When the endpoint is called. Then it returns 200.\n- Negative. Given a bad token. When the endpoint is called. Then 401 AUTH_FAILED.')")"
+o="$(run "$O1" feature)"
+expect "#233: a one-line bullet scenario (dot form) refers, never fails" referred "$(outcome "$o" gwt)"
+case "$(gwt_ev "$o")" in *"one-line scenario"*"Positive. Given a valid token"*) ok "#233: and the evidence quotes the one-line bullet" ;; *) bad "#233: evidence does not quote the bullet: $(gwt_ev "$o")" ;; esac
+O2="$(mkbody feature "one2.md" "$(printf -- '- Positive: Given a. When b. Then c.\n- Negative: Given d. When e. Then 401 AUTH_FAILED.')")"
+expect "#233: the colon form refers too" referred "$(outcome "$(run "$O2" feature)" gwt)"
+O3="$(mkbody feature "one3.md" "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\n- Negative: Given d. When e. Then 401 AUTH_FAILED.')")"
+o="$(run "$O3" feature)"
+expect "#233: a one-line Negative beside a block-shaped Positive refers" referred "$(outcome "$o" gwt)"
+case "$(gwt_ev "$o")" in *"When lines"*) bad "#233: the mixed section emitted a When-count row" ;; *) ok "#233: and no When-count row is emitted for the mixed section" ;; esac
+O4="$(mkbody feature "one4.md" "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\n- **Negative**: Given d. When e. Then 401 AUTH_FAILED.')")"
+expect "#233: a bold one-liner is the same shape with different markup and refers" referred "$(outcome "$(run "$O4" feature)" gwt)"
+O5="$(mkbody feature "one5.md" "$(printf -- '**Positive**: Given a. When b. Then c.\n**Negative**: Given d. When e. Then 401 AUTH_FAILED.')")"
+expect "#233: a bold one-liner with no bullet (v9 failed it one site later with 0 When lines) refers" referred "$(outcome "$(run "$O5" feature)" gwt)"
+O6="$(mkbody feature "one6.md" "$(printf -- '- Positive outcome expected here.\n- Negative cases are below.')")"
+expect "#233: a bullet starting with the word, no punctuation and no Given/When/Then, still fails 0/0 (near miss)" fail "$(outcome "$(run "$O6" feature)" gwt)"
+case "$(gwt_ev "$(run "$O6" feature)")" in *"found 0 positive, 0 negative"*) ok "#233: and the near miss keeps v9's message" ;; *) bad "#233: near-miss message changed" ;; esac
+
+# --- #241: a REASONED N/A in the scenarios section refers, as check 5 refers one for unit and E2E
+# tests; a bare N/A with no reason fails; and an N/A mentioned inside a real block pair is a block.
+N1="$(mkbody feature "na1.md" "$(printf -- 'N/A: documentation only, no behaviour delta, nothing for a scenario to review.')")"
+o="$(run "$N1" feature)"
+expect "#241: a reasoned N/A in the scenarios section refers" referred "$(outcome "$o" gwt)"
+case "$(gwt_ev "$o")" in *"claim N/A"*"rule 1"*) ok "#241: and the evidence is in check 5's shape" ;; *) bad "#241: evidence shape: $(gwt_ev "$o")" ;; esac
+N2="$(mkbody feature "na2.md" "$(printf -- 'N/A.')")"
+expect "#241: a bare N/A with no reason fails" fail "$(outcome "$(run "$N2" feature)" gwt)"
+N3="$(mkbody feature "na3.md" "$(printf -- 'Positive\n- Given: a config whose field is N/A\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+o="$(run "$N3" feature)"
+expect "#241: an N/A mentioned inside a real block pair is still a block pair (near miss)" pass "$(outcome "$o" gwt)"
+N4="$(mkbody feature "na4.md" "$(printf -- 'The scenarios below cover the change; nothing is n/a here.\n\nPositive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
+expect "#241: a prose mention of n/a above real blocks is not an N/A claim (near miss)" pass "$(outcome "$(run "$N4" feature)" gwt)"
+
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
 mktpl() {  # mktpl <out> <fields as "id|label|required" ...>
   local out="$1"; shift; { echo 'body:'; for f in "$@"; do IFS='|' read -r id lab req <<EOF
