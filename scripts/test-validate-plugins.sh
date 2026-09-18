@@ -166,6 +166,30 @@ printf -- '<!-- runner-version: 1 -->\nDispatch with subagent_type: "general-pur
 run
 expect "general-purpose is Claude Code's own and is not ours to provide" 0 "$rc"
 
+echo "== a scripts/ copy of a shipped asset fails (#231) =="
+# The leak guard was installed into this repository the way it is installed into any other, as a
+# scripts/ copy, in the one tree that ships the same file as an asset. The copy drifted the first
+# time the asset was bumped and CI ran a stale scanner. Keyed on the MARKER NAME, never on content,
+# and scripts/test-*.sh is excluded because four suites carry marker lines as heredoc fixtures.
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+mkdir -p "$T/tree/plugins/forge-kit-alpha/skills/guard/assets" "$T/tree/scripts"
+printf -- '#!/usr/bin/env bash\n# check-thing-version: 3\necho ok\n' > "$T/tree/plugins/forge-kit-alpha/skills/guard/assets/check-thing.sh"
+printf -- '---\nname: guard\ndescription: d\n---\n<!-- guard-version: 1 -->\n' > "$T/tree/plugins/forge-kit-alpha/skills/guard/SKILL.md"
+printf -- '#!/usr/bin/env bash\n# unrelated-version: 9\necho ok\n' > "$T/tree/scripts/unrelated.sh"
+run
+expect "a scripts/*.sh whose marker name matches no shipped asset passes" 0 "$rc"
+
+printf -- '#!/usr/bin/env bash\n# check-thing-version: 2\necho stale\n' > "$T/tree/scripts/check-thing.sh"
+run
+expect "a scripts/ copy carrying a shipped asset's marker name fails" 1 "$rc"
+contains "scripts/check-thing.sh" "$out" "and names the copy"
+contains "plugins/forge-kit-alpha/skills/guard/assets/check-thing.sh" "$out" "and names the asset it duplicates"
+rm -f "$T/tree/scripts/check-thing.sh"
+
+printf -- '#!/usr/bin/env bash\ncat <<EOF\n# check-thing-version: 1\nEOF\n' > "$T/tree/scripts/test-check-thing.sh"
+run
+expect "a scripts/test-*.sh whose heredoc fixture carries the marker line passes (near miss)" 0 "$rc"
+
 echo "== this repository's own manifests satisfy every rule above =="
 # The regression test that keeps the eight real manifests honest, and the one case that would have
 # caught the drift this ticket describes had it existed.

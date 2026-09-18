@@ -42,27 +42,10 @@ skip scripts/test-check-public-leaks.sh
 # rather than refused. Same reasoning, same exemption.
 skip scripts/test-check-private-leaks.sh
 
-# Guard rollout: a freshly-staged copy of check-public-leaks.sh at scripts/ has no commit
-# history at that path yet, so the scanner's self-skip (keyed on the invoked file's own path
-# history) does not cover it the way it covers the canonical copy above. Every entry below is a
-# doc-comment example or rule-illustration from the scanner's own source, not a real path.
+# The scanner's own documented example user, /home/<name> with the name the scanner's header uses,
+# appears in this repository's plans when they quote rule A's boundary shapes (#230's plan names
+# four of them). The asset skips its own source; a plan that quotes it is not the source.
 prefix /home/alice
-prefix /Users/alice
-root secret
-email alice@corp.io
-email jose@corp.io
-email zoe@corp.io
-email alice@corpe.io
-prefix /home/al***
-root se****
-root foo
-root name
-prefix /home/<seg>
-prefix /Users/<seg>
-prefix /home/runner
-root [^
-root %s
-prefix /home/*|
 
 # Historical doc roots (public --history): the project's own former name, and a <name> placeholder.
 root ai-projectforge

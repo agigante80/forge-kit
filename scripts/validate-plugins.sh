@@ -6,6 +6,7 @@
 #   3. every component (agent/command/skill/hook/shell asset) carries a <name>-version marker
 #   4. every declared `dependencies` entry is well shaped and names a plugin this marketplace has
 #   5. every subagent_type dispatched by a component names an agent that exists
+#   6. no scripts/*.sh carries the marker name of a shipped shell asset (a second copy, #231)
 # Exit 1 on any violation, with every violation on stderr. This is the forge-kit analogue of
 # `claude plugin validate`, and check 4 is the half that analogue does NOT cover (see below).
 # Contract test: scripts/test-validate-plugins.sh.
@@ -143,6 +144,29 @@ while IFS= read -r target; do
     fail "${where:-plugins/} dispatches subagent_type '$target', which no agent in this tree provides (it would fail silently at runtime)"
   }
 done < <(grep -rhoP 'subagent_type[\":[:space:]=]+\K[a-z][a-z0-9-]*' plugins/ 2>/dev/null | sort -u)
+
+# 6. no scripts/ copy of a shipped shell asset (#231)
+#
+# The leak guard was installed into this repository the way it is installed into any other: as a
+# scripts/ copy, in the one tree that ships the same file as an asset. The hooks ran the asset and a
+# second workflow ran the copy, and the first bump to the asset left CI running a stale scanner that
+# reported the new asset's own doc examples. Keyed on the MARKER NAME, never on content: a copy that
+# still matches byte for byte is the one that is about to drift. scripts/test-*.sh is excluded,
+# because four suites carry marker lines as heredoc fixtures, and that exclusion is pinned by a
+# near-miss case rather than left to memory.
+assets=$(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/skills/[^/]+/assets/[^/]+\.sh$' 2>/dev/null)
+for sc in scripts/*.sh; do
+  [ -f "$sc" ] || continue
+  case "$sc" in scripts/test-*) continue ;; esac
+  m=$(ver_of < "$sc") || true
+  [ -n "$m" ] || continue
+  mname="${m%%-version:*}"
+  while IFS= read -r asset; do
+    [ -n "$asset" ] || continue
+    [ "$(ver_of < "$asset" | sed 's/-version:.*//')" = "$mname" ] || continue
+    fail "$sc carries the marker '$mname-version', which the shipped asset $asset also carries: a second copy of a shipped asset drifts the moment the asset is bumped; run the asset instead"
+  done <<< "$assets"
+done
 
 if [ "$err" -ne 0 ]; then echo ""; echo "forge-kit: plugin validation FAILED."; exit 1; fi
 echo "forge-kit: plugin validation passed."
