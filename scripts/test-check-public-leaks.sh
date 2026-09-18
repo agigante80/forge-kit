@@ -58,6 +58,32 @@ expect "the /home/.. relative-path idiom survives" no  "$(trips 'require(from + 
 expect "/home/alice/ still trips (no regression from the /home/.. fix)" yes \
   "$(trips '/home/alice/notes.txt')"
 
+# #230: /home/ INSIDE a relative path is a directory called home, not a home directory. Rule A is
+# anchored the way rule C is (#211): the byte before /home/ or /Users/ must not be a word byte or a
+# dot. A real path always starts at a boundary (a quote, =, (, a space, start of line).
+echo "== rule A: a /home/ preceded by a word byte or a dot is not a home directory (#230) =="
+expect "./home/Foo.vue (a relative import) does not trip"  no  "$(trips "import Foo from './home/Foo.vue'")"
+expect "src/home/index.ts does not trip"                    no  "$(trips 'export * from "src/home/index.ts"')"
+expect "./Users/bob/x does not trip (symmetry)"             no  "$(trips 'see ./Users/bob/x')"
+expect "a URL path https://example.com/home/alice does not trip" no "$(trips 'https://example.com/home/alice')"
+expect "/home/alice/x at the start of the line still trips" yes "$(trips '/home/alice/x')"
+expect '"/home/alice" after a quote still trips'             yes "$(trips 'p = "/home/alice"')"
+expect "path=/home/alice after = still trips"                yes "$(trips 'path=/home/alice')"
+expect "(/home/alice) after ( still trips"                   yes "$(trips 'see (/home/alice)')"
+expect "a space then /home/alice/x still trips"              yes "$(trips 'https://example.com/ /home/alice/x')"
+expect "//home/alice (a doubled slash) still trips"          yes "$(trips 'x //home/alice/y')"
+expect "see /Users/bob/Desktop/x still trips"                yes "$(trips 'see /Users/bob/Desktop/x')"
+expect "the evidence is the path without its boundary byte" yes "$(scan_line 'path=/home/alice/x' >/dev/null; printf '%s' "$OUT" | grep -q 'home-path: /home/alice/' && echo yes || echo no)"
+expect "~/home/x still lands on rule B, not rule A"          yes "$(scan_line 'see ~/home/x' >/dev/null; printf '%s' "$OUT" | grep -q 'home-root: ~/home/' && echo yes || echo no)"
+# The header names the shape it gives up, the way it names rule C's two.
+expect "the header's shape list names the word-byte boundary" 1 "$(grep -c 'preceded by a word byte or a dot' "$SCRIPT")"
+# The mutant: the anchor removed must report the relative import again, or the cases above prove nothing.
+MUT230="$WORK/mutant-230.sh"; sed "s#^RE_HOME='(^|\[^A-Za-z0-9_.\])(/home#RE_HOME='(/home#" "$SCRIPT" > "$MUT230"; chmod +x "$MUT230"
+expect "mutant ledger (#230): the anchored RE_HOME line exists" 1 "$(grep -c "^RE_HOME='(^|\[^A-Za-z0-9_.\])(/home" "$SCRIPT")"
+expect "mutant ledger (#230): the anchor is gone from the mutant" 0 "$(grep -c "^RE_HOME='(^|" "$MUT230")"
+printf '%s\n' "import Foo from './home/Foo.vue'" > "$WORK/m230.txt"
+"$MUT230" "$WORK/m230.txt" >/dev/null 2>&1; expect "mutant (#230): without the anchor the relative import is reported again" 1 "$?"
+
 echo "== rule B: ~/ roots, by allowlist =="
 expect "an unlisted ~/ root trips"              yes "$(trips 'cloned into ~/secret-clients/thing')"
 expect "~/projects survives"                    no  "$(trips 'cloned into ~/projects/thing')"
@@ -283,6 +309,13 @@ hrun() {  # hrun [flags]: run the scanner in HREPO; output in OUT, stderr in ERR
   OUT="$( cd "$HREPO" && "$SCRIPT" "$@" 2>"$WORK/herr.txt" )"; RC=$?; ERR="$(cat "$WORK/herr.txt")"
 }
 hoid() { ( cd "$HREPO" && git rev-parse "$1" ); }
+
+mkrepo relimport
+hcommit screen.vue "import A from './home/A.vue'\n"
+hrun --history; rc=$RC; expect "--history: a relative ./home/ import is not a home path (#230)" 0 "$rc"
+hcommit note.md 'const p = "/home/alice/notes"\n'
+hrun --history; rc=$RC; expect "--history: a quoted /home/alice/ still is" 1 "$rc"
+contains "home-path: /home/al***/" "$OUT" "--history: the evidence is the path, redacted"
 
 mkrepo deleted
 hcommit leak.md 'see /home/alice/proj/x\n'

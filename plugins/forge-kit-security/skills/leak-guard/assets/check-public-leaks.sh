@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 13
+# check-public-leaks-version: 14
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -68,8 +68,8 @@
 # doubling), which is why the timing cases that use a glued match pass --show-evidence; and rules A
 # and B's own bash-side work on pathological paths.
 #
-# TWO SHAPES THIS DELIBERATELY DOES NOT REPORT, both consequences of the above, both pinned by a
-# test case so they cannot be rediscovered as bugs:
+# THREE SHAPES THIS DELIBERATELY DOES NOT REPORT, the first two consequences of the above, each
+# pinned by a test case so they cannot be rediscovered as bugs:
 #   1. An address glued to a home path or root, `/home/alice/alice@corp.io` and
 #      `~/secret/alice@corp.io`: rules A and B end in `/?`, which consumes the byte rule C's anchor
 #      needs, so the path row is reported and the address is not. Dropping that `/?` would change
@@ -82,6 +82,11 @@
 #      misses them; the pin makes the laptop hook path match them. Widening the three classes with
 #      \x80-\xff is linear and was costed, and it glues any preceding multibyte byte into the
 #      evidence, so it is a maintainer decision rather than an oversight.
+#   3. A `/home/` or `/Users/` preceded by a word byte or a dot (#230): `./home/Foo.vue`,
+#      `src/home/index.ts`, `https://example.com/home/alice`. Rule A is anchored on the byte
+#      before it, so a home path glued to a word (`cd/home/alice` in a pasted transcript with the
+#      space lost) is not reported either. A real path starts at a boundary, and the fleet hit
+#      that argued for this was a Vue screen importing its siblings from `./home/`.
 #
 # `--history --orphans` also reads objects no ref reaches: a leak amended or reset away is still
 # in the local store until `git gc` prunes it, and so is a stash entry, which is the one ref the
@@ -364,7 +369,12 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
 # The backtick is excluded from both character classes for one reason found by running this over a
 # real tree: a markdown code span is the commonest way a path appears in prose, and reading
 # "~/name`" as the root means the project's own allow-file entry never matches it.
-RE_HOME='(/home|/Users)/[^/[:space:]"`]+/?'
+# Anchored like RE_MAIL below (#230): the byte before /home/ or /Users/ must not be a word byte or a
+# dot, so "./home/Foo.vue", "src/home/index.ts" and "https://example.com/home/alice" are a
+# directory called home, not a home directory. A real path always starts at a boundary (a quote,
+# =, (, a space, the start of the line). The match carries that one leading byte, and judge()
+# strips it before dispatching, as it does for rule C.
+RE_HOME='(^|[^A-Za-z0-9_.])(/home|/Users)/[^/[:space:]"`]+/?'
 RE_ROOT='~/[^/[:space:]"`]+/?'
 # The leading "(^|[^class])" is the half of #211 that makes rule C linear: unanchored, the local
 # part's "+" run can start at EVERY position of a long word-class byte run, and grep leaves its DFA
@@ -405,6 +415,7 @@ judge() {
   # with a class byte, or that is a rule A or rule B match, is left exactly as it was.
   case "$m" in
     [A-Za-z0-9._%+-]*@*|/home/*|/Users/*|'~'/*) ;;
+    ?/home/*|?/Users/*) m="${m#?}" ;;   # rule A's anchor byte (#230)
     *@*) m="${m#?}" ;;
   esac
   case "$m" in
