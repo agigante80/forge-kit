@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 15 -->
+<!-- leak-guard-version: 16 -->
 
 # Leak guard
 
@@ -155,8 +155,8 @@ everything in it is something the project decided it may show.
 ## The private half
 
 ```
-check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>]
-                       [--allow-file <path>] [--show-names] [paths...]
+check-private-leaks.sh [--staged | --range <base> | --all | --history [--orphans]] [--list <path>]
+                       [--allow-file <path>] [--show-names] [--init] [paths...]
 ```
 
 > **The allow-file takes `skip` and nothing else.** It is the same
@@ -166,6 +166,11 @@ check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>]
 > a name there rebuilds the index the list exists to avoid. `root`, `prefix` and `email`
 > are the public half's keys and are ignored here rather than refused, so one file serves
 > both scanners.
+> `skip` reaches `--history` too: it is applied to each path a blob was ever known by, and the
+> blob is scanned unless every one of those paths is skipped (the rule stated above), so a
+> permanent fixture can be silenced in the weekly history scan without weakening the list. A
+> blob with NO known path, one that `--orphans` reaches or that the path map never saw, cannot
+> match a path glob and is judged as before; that is the intended rule, not a gap.
 
 **It reports a redacted name by default**, two leading characters and the length, and `--show-names`
 prints it in full. The class of leak this component exists to stop is pasted output, and this hook's
