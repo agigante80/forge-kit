@@ -20,7 +20,7 @@ to a missing issue says so.
 - `count-gate-rounds.sh` reports a number rather than `unknown` on the reproduction host, verified
   by the downstream session that holds that host, because this checkout never touches it.
 - `forge_issue_comment`, `forge_issue_close` and `forge_issue_edit` each print one stderr line
-  naming the function, the issue and the status on a non-zero `forge_api` return, and propagate
+  naming the function, the issue and the status when `forge_api` returns 44, and propagate
   the code; success stays silent on both streams. `forge_api`'s own 404 arm stays quiet, and the
   org-404 case that pins it stays green.
 - `forge_repo` derives its slug from the same authority isolation as `_forge_url_host`, every
@@ -28,8 +28,8 @@ to a missing issue says so.
   old `*:*/*` glob fails.
 - Every new case in `scripts/test-forge-lib.sh` was shown red against v16 first, with
   `FORGE_PAGINATE_MAX_PAGES` lowered in the identical-page case so red takes seconds.
-- `forge-lib.sh` marker 16 to 17, its header changelog says why, `forge-kit-devops` semver bumped,
-  and the suite count in CLAUDE.md regenerated rather than typed.
+- `forge-lib.sh` marker 16 to 17, its header changelog says why, `forge-kit-devops` semver bumped.
+  (CLAUDE.md states no count for this suite, so there is nothing to regenerate; corrected by #234.)
 
 ## Fails if
 

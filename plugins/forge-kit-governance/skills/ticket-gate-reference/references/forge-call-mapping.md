@@ -13,6 +13,6 @@ never through `gh` directly, is in `ticket-gate.md`; this is the lookup.
 | comment on an issue | `forge_issue_comment <N> "<body>"` |
 | list comments on an issue (all pages) | `forge_issue_comments <N>` (v14; `count-gate-rounds.sh` reads it) |
 | close an issue | `forge_issue_close <N>` |
-| edit an issue body | `forge_api PATCH "/repos/$REPO/issues/<N>" "$(jq -nc --arg b "<body>" '{body:$b}')"` |
+| edit an issue body | `forge_issue_edit <N> "<body>"` (v13; the body is `$2`, a string, never a file path: a gate once passed `--body-file` and the issue body became that literal for a minute). Set `FORGE_DRY_RUN=1` while drafting, as `decision-brief` does; it prints the byte count and sends nothing |
 | create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels (refuse-all on Forgejo: an unresolvable name fails the WHOLE call non-zero and applies nothing, so check the exit and create missing labels first) |
 | list/search issues | `forge_issue_list [state]`, filter client-side |
