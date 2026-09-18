@@ -246,7 +246,7 @@ Do the rewrite anyway, so the working history is clean. Just do not report it as
 **Replace the private string with a marker the scanner knows.** `check-public-leaks.sh` recognises
 two, as literals: `[redacted]`, which this remediation uses, and `***REMOVED***`, which is what
 `git filter-repo --replace-text` writes when an expression names no replacement. Either one in a
-`~/` root or a `/home/` segment is not reported, in the tree modes or under `--history`, so the
-rewrite that removes the leak leaves the scan green. Any other replacement is reported as a root
+`~/` root or a `/home/` segment is not reported, in the tree modes or under `--history`, with or
+without sentence punctuation after it, so the rewrite that removes the leak leaves the scan green. Any other replacement is reported as a root
 until the repository allows it, and a marker is never a shape: any other bracketed name is still
 a root.

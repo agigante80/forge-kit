@@ -233,6 +233,20 @@ strip_tail() {
   done
   STRIPPED="$s"
 }
+# in_list_stripping <value> <entries...>: is the value, or the value with any number of trailing
+# TAIL_PUNCT bytes removed, in the list? A marker such as `[redacted]` ends in a byte strip_tail
+# would pop, so "~/[redacted]." must be compared at EVERY step of the strip, not only raw and fully
+# stripped: raw is `[redacted].`, fully stripped is `[redacted`, and the literal sits between them
+# (#227 review). A list entry that itself ends in punctuation therefore matches its literal.
+in_list_stripping() {
+  local s="$1" c; shift
+  while :; do
+    in_list "$s" "$@" && return 0
+    [ -n "$s" ] || return 1
+    c="${s: -1}"
+    case "$TAIL_PUNCT" in *"$c"*) s="${s%?}" ;; *) return 1 ;; esac
+  done
+}
 
 # --- the allowed sets ------------------------------------------------------
 # Roots a document may show. "<root>" is the generic placeholder for projects that have not agreed
@@ -437,10 +451,11 @@ judge() {
   case "$m" in
     /*)
       raw="${m%/}"; seg="${raw##*/}"
-      # Checked against BOTH forms: "..." is entirely punctuation, so stripping the trailing dots
-      # would leave nothing to compare and the guard would reject its own documented placeholder.
-      in_list "$seg" "${PLACEHOLDER_USERS[@]}" && return 0
-      strip_tail "$seg"; in_list "$STRIPPED" "${PLACEHOLDER_USERS[@]}" && return 0
+      # Checked at every strip step: "..." is entirely punctuation, so stripping the trailing dots
+      # would leave nothing to compare and the guard would reject its own documented placeholder,
+      # and "[redacted]." holds its marker one step in (#227).
+      in_list_stripping "$seg" "${PLACEHOLDER_USERS[@]}" && return 0
+      strip_tail "$seg"
       # A segment that strips to nothing is entirely punctuation ("..", "...", a lone "}"): a
       # path idiom or a code fragment, not a person. No allow-file entry can name it (the prefix
       # parser above refuses to accept one), so without this it could never be suppressed.
@@ -456,17 +471,16 @@ judge() {
       [ "$allowed" = 1 ] && return 0
       report "$f" "$n" home-path "$(show_evidence home-path "$m")" ;;
     '~'/*)
-      # The RAW root is compared before the stripped one, as rule A does with the segment: strip_tail
-      # pops a marker's own "]" (it is in TAIL_PUNCT), so a stripped-only compare could never match
-      # the literal `[redacted]`, and an allow-file `root [redacted]` only worked written without
-      # its closing bracket (#227).
+      # Compared at every strip step, as rule A does with the segment: strip_tail pops a marker's
+      # own "]" (it is in TAIL_PUNCT), so a stripped-only compare could never match the literal
+      # `[redacted]`, and an allow-file `root [redacted]` only worked written without its closing
+      # bracket; and "~/[redacted]." holds the marker one step in (#227).
       local rawroot; rawroot="${m%/}"; rawroot="${rawroot#\~/}"
-      in_list "$rawroot" "${ALLOW_ROOTS[@]}" && return 0   # raw first (#227)
+      in_list_stripping "$rawroot" "${ALLOW_ROOTS[@]}" && return 0   # every step (#227)
       strip_tail "${m%/}"; root="${STRIPPED#\~/}"
       # A root that strips to nothing is entirely punctuation ("~/..", "~/}"): a path idiom or a
       # code fragment, not a person's home. No allow-file `root` entry could name it either.
       [ -n "$root" ] || return 0
-      in_list "$root" "${ALLOW_ROOTS[@]}" && return 0
       report "$f" "$n" home-root "$(show_evidence home-root "$m")" ;;
     *)
       strip_tail "$m"; addr="$STRIPPED"

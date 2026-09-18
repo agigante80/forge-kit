@@ -117,8 +117,15 @@ expect "and a different bracketed root is not covered by it" 1 "$(scan_line 'see
 expect "a bracketed allow entry matches its own root as written" 0 "$(scan_line 'see ~/[redacted-other]/notes' --allow-file "$WORK/allow-marker-other")"
 expect "the header names the two markers" 1 "$(grep -c 'filter-repo.s own default' "$SCRIPT")"
 # The mutant: rule B back to the stripped-only compare must fail the bracket-as-written case.
-MUT227="$WORK/mutant-227.sh"; sed 's/^      in_list "$rawroot" "${ALLOW_ROOTS\[@\]}" && return 0   # raw first (#227).*$//' "$SCRIPT" > "$MUT227"; chmod +x "$MUT227"
-expect "mutant ledger (#227): the raw-first compare line exists" 1 "$(grep -c '^      in_list "$rawroot" "${ALLOW_ROOTS\[@\]}" && return 0   # raw first (#227)' "$SCRIPT")"
+# Punctuation after the marker: the literal sits between the raw and the fully stripped forms
+# (review round 1), so the compare runs at every step.
+expect "~/[redacted]. at the end of a sentence is not a root"  no  "$(trips 'cloned into ~/[redacted].')"
+expect "(~/[redacted]) in brackets is not a root"              no  "$(trips '(see ~/[redacted])')"
+expect "/home/[redacted]. at the end of a sentence is not a user" no "$(trips 'was at /home/[redacted].')"
+expect "~/[myco]. is still a root"                             yes "$(trips 'cloned into ~/[myco].')"
+# The mutant: the stepwise compare replaced by the stripped-only one must fail the bracket-as-written case.
+MUT227="$WORK/mutant-227.sh"; sed 's/^      in_list_stripping "$rawroot" "${ALLOW_ROOTS\[@\]}" && return 0   # every step (#227).*$/      strip_tail "$rawroot"; in_list "$STRIPPED" "${ALLOW_ROOTS[@]}" \&\& return 0/' "$SCRIPT" > "$MUT227"; chmod +x "$MUT227"
+expect "mutant ledger (#227): the stepwise compare line exists" 1 "$(grep -c '^      in_list_stripping "$rawroot" "${ALLOW_ROOTS\[@\]}" && return 0   # every step (#227)' "$SCRIPT")"
 cmp -s "$SCRIPT" "$MUT227" && bad "mutant ledger (#227): the sed did not apply" || ok "mutant ledger (#227): the mutant differs from the script"
 printf 'see ~/[redacted-other]/notes\n' > "$WORK/m227.txt"
 "$MUT227" --allow-file "$WORK/allow-marker-other" "$WORK/m227.txt" >/dev/null 2>&1; expect "mutant (#227): with a stripped-only compare the bracketed entry no longer matches as written" 1 "$?"
