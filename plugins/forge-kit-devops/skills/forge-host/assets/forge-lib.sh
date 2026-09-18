@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 19
+# forge-lib-version: 20
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -75,6 +75,8 @@
 #       propagate the code (#229). Every other code is unchanged and adds no line, since forge_api,
 #       curl or gh already printed one. Success is still silent on both streams. forge_api's own
 #       404 arm stays quiet, so read callers that treat 404 as ordinary are untouched.
+#   v20 the three writers capture forge_api's code in the errexit-safe shape, so the v19 line is
+#       printed under a `set -e` caller too (#237). No caller changes; the codes are unchanged.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -484,8 +486,11 @@ _forge_write_rc() {
 }
 
 forge_issue_comment() {
-  local payload rc; payload="$(jq -nc --arg b "$2" '{body:$b}')"
-  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null; rc=$?
+  local payload rc=0; payload="$(jq -nc --arg b "$2" '{body:$b}')"
+  # `rc=0; ... || rc=$?`, never `...; rc=$?` (#237): under a `set -e` caller errexit fires on the
+  # forge_api line before rc=$? runs, and the 404 line is never printed. The || form is the one
+  # shape that survives -e for 0, 22 and 44; a subshell or `|| true` swallows the code.
+  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null || rc=$?
   _forge_write_rc forge_issue_comment "$1" "$rc"
 }
 
@@ -500,7 +505,7 @@ forge_issue_comments() {
 
 # forge_issue_close <n>
 forge_issue_close() {
-  local rc; forge_api PATCH "/repos/$(forge_repo)/issues/$1" '{"state":"closed"}' >/dev/null; rc=$?
+  local rc=0; forge_api PATCH "/repos/$(forge_repo)/issues/$1" '{"state":"closed"}' >/dev/null || rc=$?   # #237, see forge_issue_comment
   _forge_write_rc forge_issue_close "$1" "$rc"
 }
 
@@ -515,7 +520,7 @@ forge_issue_edit() {
     printf '[dry-run] replace body of issue %s on %s (%s bytes)\n' "$1" "$(forge_repo)" "${#2}" >&2
     return 0
   fi
-  local rc; forge_api PATCH "/repos/$(forge_repo)/issues/$1" "$payload" >/dev/null; rc=$?
+  local rc=0; forge_api PATCH "/repos/$(forge_repo)/issues/$1" "$payload" >/dev/null || rc=$?   # #237, see forge_issue_comment
   _forge_write_rc forge_issue_edit "$1" "$rc"
 }
 

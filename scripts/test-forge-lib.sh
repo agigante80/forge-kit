@@ -907,6 +907,25 @@ w229 "forge_issue_edit stays silent on success (#229)"              0  0  forge_
 w229 "forge_issue_edit names a 404 on stderr, rc 44 (#229)"          44 44 forge_issue_edit 999 new
 w229 "forge_issue_edit adds no second line on rc 22 (#229)"          22 22 forge_issue_edit 999 new
 
+# --- #237: the 404 line survives a `set -e` caller. `forge_api ... >/dev/null; rc=$?` let errexit
+# fire on the forge_api line before rc=$? ran, so the one shell mode forge_api's own comment
+# designs for got the pre-#229 silence back. The capture is now `rc=0; ... || rc=$?`.
+e237() {  # e237 <label> <stub-rc> <fn> <args...>: run the writer under `bash -c 'set -e; ...'`
+  local label="$1" stubrc="$2" fn="$3"; shift 3
+  local out; out="$(FORGE_HOST=forgejo FORGE_REPO=o/r STUBRC="$stubrc" bash -c '
+    set -e; . "'"$LIB"'"; forge_api() { return "$STUBRC"; }; '"$fn"' "$@"; echo "rc=$?"' _ "$@" 2>"$T/e.err")"; local rc=$?
+  case "$stubrc" in
+    0)  [ "$out" = "rc=0" ] && [ ! -s "$T/e.err" ] && ok "$label" || bad "$label (out='$out' err='$(cat "$T/e.err")')" ;;
+    44) [ "$rc" = 44 ] && grep -q "$fn" "$T/e.err" && grep -q 'HTTP 404' "$T/e.err" && ok "$label" || bad "$label (rc=$rc err='$(cat "$T/e.err")')" ;;
+  esac
+}
+e237 "forge_issue_comment under set -e: silent success, rc 0 (#237)"    0  forge_issue_comment 7 b
+e237 "forge_issue_comment under set -e: the 404 line and rc 44 (#237)"  44 forge_issue_comment 7 b
+e237 "forge_issue_close under set -e: silent success (#237)"             0  forge_issue_close 7
+e237 "forge_issue_close under set -e: the 404 line and rc 44 (#237)"    44 forge_issue_close 7
+e237 "forge_issue_edit under set -e: silent success (#237)"              0  forge_issue_edit 7 new
+e237 "forge_issue_edit under set -e: the 404 line and rc 44 (#237)"     44 forge_issue_edit 7 new
+
 # --- forge_host decides by the URL's authority, never by a glob (#212) ---
 echo "== forge_host: the host slot only =="
 hostof() {  # hostof <origin-url> [FORGE_API_URL]: forge_host in a fresh repo with that origin
