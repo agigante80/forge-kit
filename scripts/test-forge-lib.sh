@@ -917,6 +917,7 @@ e237() {  # e237 <label> <stub-rc> <fn> <args...>: run the writer under `bash -c
   case "$stubrc" in
     0)  [ "$out" = "rc=0" ] && [ ! -s "$T/e.err" ] && ok "$label" || bad "$label (out='$out' err='$(cat "$T/e.err")')" ;;
     44) [ "$rc" = 44 ] && grep -q "$fn" "$T/e.err" && grep -q 'HTTP 404' "$T/e.err" && ok "$label" || bad "$label (rc=$rc err='$(cat "$T/e.err")')" ;;
+    *)  bad "$label (unhandled stub rc $stubrc: a case that asserts nothing counts nothing)" ;;
   esac
 }
 e237 "forge_issue_comment under set -e: silent success, rc 0 (#237)"    0  forge_issue_comment 7 b
