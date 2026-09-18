@@ -86,7 +86,9 @@
 #      `src/home/index.ts`, `https://example.com/home/alice`. Rule A is anchored on the byte
 #      before it, so a home path glued to a word (`cd/home/alice` in a pasted transcript with the
 #      space lost) is not reported either. A real path starts at a boundary, and the fleet hit
-#      that argued for this was a Vue screen importing its siblings from `./home/`.
+#      that argued for this was a Vue screen importing its siblings from `./home/`. The same
+#      mechanism as shape 1 applies to rule A against itself: in `/home/a//home/b` the first
+#      match's trailing `/` consumes the second's anchor byte, so only `/home/a/` is reported.
 #
 # `--history --orphans` also reads objects no ref reaches: a leak amended or reset away is still
 # in the local store until `git gc` prunes it, and so is a stash entry, which is the one ref the
@@ -373,8 +375,10 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
 # dot, so "./home/Foo.vue", "src/home/index.ts" and "https://example.com/home/alice" are a
 # directory called home, not a home directory. A real path always starts at a boundary (a quote,
 # =, (, a space, the start of the line). The match carries that one leading byte, and judge()
-# strips it before dispatching, as it does for rule C.
-RE_HOME='(^|[^A-Za-z0-9_.])(/home|/Users)/[^/[:space:]"`]+/?'
+# strips it before dispatching, as it does for rule C. `~` is excluded from the anchor class too
+# (review): with it admitted, `~/home/x` matched rule A as the longer alternative and lost its
+# rule B `root home` allow entry.
+RE_HOME='(^|[^A-Za-z0-9_.~])(/home|/Users)/[^/[:space:]"`]+/?'
 RE_ROOT='~/[^/[:space:]"`]+/?'
 # The leading "(^|[^class])" is the half of #211 that makes rule C linear: unanchored, the local
 # part's "+" run can start at EVERY position of a long word-class byte run, and grep leaves its DFA
@@ -413,9 +417,13 @@ judge() {
   # FIRST byte, so "see docs/alice@corp.io" would arrive as "/alice@corp.io" and be judged a home
   # path. Strip it BEFORE the dispatch, never inside the email arm. A match that already starts
   # with a class byte, or that is a rule A or rule B match, is left exactly as it was.
+  # Rule A and B shapes are tested BEFORE the email arm (review of #230): a segment may contain
+  # `@`, so `-/home/alice@corp.io` would otherwise satisfy the email arm's class and keep its
+  # anchor byte, and be judged an address.
   case "$m" in
-    [A-Za-z0-9._%+-]*@*|/home/*|/Users/*|'~'/*) ;;
+    /home/*|/Users/*|'~'/*) ;;
     ?/home/*|?/Users/*) m="${m#?}" ;;   # rule A's anchor byte (#230)
+    [A-Za-z0-9._%+-]*@*) ;;
     *@*) m="${m#?}" ;;
   esac
   case "$m" in

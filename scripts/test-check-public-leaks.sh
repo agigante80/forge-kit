@@ -73,13 +73,19 @@ expect "(/home/alice) after ( still trips"                   yes "$(trips 'see (
 expect "a space then /home/alice/x still trips"              yes "$(trips 'https://example.com/ /home/alice/x')"
 expect "//home/alice (a doubled slash) still trips"          yes "$(trips 'x //home/alice/y')"
 expect "see /Users/bob/Desktop/x still trips"                yes "$(trips 'see /Users/bob/Desktop/x')"
-expect "the evidence is the path without its boundary byte" yes "$(scan_line 'path=/home/alice/x' >/dev/null; printf '%s' "$OUT" | grep -q 'home-path: /home/alice/' && echo yes || echo no)"
-expect "~/home/x still lands on rule B, not rule A"          yes "$(scan_line 'see ~/home/x' >/dev/null; printf '%s' "$OUT" | grep -q 'home-root: ~/home/' && echo yes || echo no)"
+scan_line 'path=/home/alice/x' >/dev/null
+expect "the evidence is the path without its boundary byte" "$WORK/sample.txt:1: home-path: /home/alice/" "$OUT"
+scan_line 'see ~/home/x' >/dev/null
+expect "~/home/x still lands on rule B with rule B's evidence (the anchor class excludes ~)" "$WORK/sample.txt:1: home-root: ~/home/" "$OUT"
+printf 'root home\n' > "$WORK/allow-home"
+expect "and its root allow entry still suppresses it (review round 1)" 0 "$(scan_line 'see ~/home/x' --allow-file "$WORK/allow-home")"
+scan_line 'diff +/home/alice@corp.io' >/dev/null
+expect "an anchor byte in the email class with an @ in the segment is still a home path, not an address" "$WORK/sample.txt:1: home-path: /home/alice@corp.io" "$OUT"
 # The header names the shape it gives up, the way it names rule C's two.
 expect "the header's shape list names the word-byte boundary" 1 "$(grep -c 'preceded by a word byte or a dot' "$SCRIPT")"
 # The mutant: the anchor removed must report the relative import again, or the cases above prove nothing.
-MUT230="$WORK/mutant-230.sh"; sed "s#^RE_HOME='(^|\[^A-Za-z0-9_.\])(/home#RE_HOME='(/home#" "$SCRIPT" > "$MUT230"; chmod +x "$MUT230"
-expect "mutant ledger (#230): the anchored RE_HOME line exists" 1 "$(grep -c "^RE_HOME='(^|\[^A-Za-z0-9_.\])(/home" "$SCRIPT")"
+MUT230="$WORK/mutant-230.sh"; sed "s#^RE_HOME='(^|\[^A-Za-z0-9_.~\])(/home#RE_HOME='(/home#" "$SCRIPT" > "$MUT230"; chmod +x "$MUT230"
+expect "mutant ledger (#230): the anchored RE_HOME line exists" 1 "$(grep -c "^RE_HOME='(^|\[^A-Za-z0-9_.~\])(/home" "$SCRIPT")"
 expect "mutant ledger (#230): the anchor is gone from the mutant" 0 "$(grep -c "^RE_HOME='(^|" "$MUT230")"
 printf '%s\n' "import Foo from './home/Foo.vue'" > "$WORK/m230.txt"
 "$MUT230" "$WORK/m230.txt" >/dev/null 2>&1; expect "mutant (#230): without the anchor the relative import is reported again" 1 "$?"
