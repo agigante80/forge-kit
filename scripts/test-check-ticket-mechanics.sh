@@ -348,6 +348,12 @@ o="$(run "$N3" feature)"
 expect "#241: an N/A mentioned inside a real block pair is still a block pair (near miss)" pass "$(outcome "$o" gwt)"
 N4="$(mkbody feature "na4.md" "$(printf -- 'The scenarios below cover the change; nothing is n/a here.\n\nPositive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
 expect "#241: a prose mention of n/a above real blocks is not an N/A claim (near miss)" pass "$(outcome "$(run "$N4" feature)" gwt)"
+# Two mutants survived the first draft of these cases (review round 1): the `-z "$one_line"`
+# guard on the N/A branch, and ONE_LINE's Then clause. Each gets the fixture that kills it.
+N5="$(mkbody feature "na5.md" "$(printf -- '- Positive: Given N/A. When b. Then c.\n- Negative: Given d. When e. Then 401 AUTH_FAILED.')")"
+case "$(gwt_ev "$(run "$N5" feature)")" in "one-line scenario"*) ok "#233/#241: a one-line scenario that mentions N/A is reported as the one-line form, not as an N/A claim" ;; *) bad "#233/#241: the N/A branch took a one-line scenario: $(gwt_ev "$(run "$N5" feature)")" ;; esac
+O7="$(mkbody feature "one7.md" "$(printf -- '- Positive: Given a. When b.\n- Negative: Given d. When e.')")"
+expect "#233: a one-line bullet with no Then is not a scenario and still fails 0/0 (near miss)" fail "$(outcome "$(run "$O7" feature)" gwt)"
 
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
 mktpl() {  # mktpl <out> <fields as "id|label|required" ...>
