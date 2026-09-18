@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 14
+# check-public-leaks-version: 15
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -242,9 +242,17 @@ strip_tail() {
 # identical on every machine, so it discloses nothing about whose machine it is, which is the only
 # question this rule asks.
 ALLOW_ROOTS=(projects .claude .config .local .cache dev code src work '<root>'
-             .ssh .bashrc .bash_profile .zshrc .profile .gitconfig .npmrc)
+             .ssh .bashrc .bash_profile .zshrc .profile .gitconfig .npmrc
+             '[redacted]' '<redacted>' '***REMOVED***')
+# The last three entries of both lists are REDACTION MARKERS (#227): a history rewrite that removes
+# a private root or user replaces it with one, and the scanner must know the marker or the very
+# rewrite that removed the leak leaves the scan red in every affected repository. `[redacted]` is
+# the convention the leak-guard remediation uses; `***REMOVED***` is git filter-repo's own default
+# when a --replace-text expression names no replacement. A marker is a LITERAL, never a shape:
+# `~/[myco]/` is still a root.
 # Segments that are obviously a stand-in for a person rather than a person.
-PLACEHOLDER_USERS=(user users username youruser '<user>' '<username>' '<name>' '<you>' '...' '$USER' '${USER}' '$HOME')
+PLACEHOLDER_USERS=(user users username youruser '<user>' '<username>' '<name>' '<you>' '...' '$USER' '${USER}' '$HOME'
+                   '[redacted]' '<redacted>' '***REMOVED***')
 ALLOW_PREFIXES=()
 ALLOW_EMAILS=()
 SKIP_PATHS=()
@@ -412,7 +420,7 @@ show_evidence() {  # show_evidence <rule> <evidence>: what the report prints for
 # One match, one verdict. Shared by the tree modes and --history so the rules cannot drift between
 # them: <label> is the file in a tree mode and "<path>@<oid>" in history.
 judge() {
-  local f="$1" n="$2" m="$3" raw seg allowed rawt p root addr local_part domain
+  local f="$1" n="$2" m="$3" raw seg allowed rawt p root rawroot addr local_part domain
   # Rule C's anchor (#211) leaves one leading byte on the match, and the dispatch below keys on the
   # FIRST byte, so "see docs/alice@corp.io" would arrive as "/alice@corp.io" and be judged a home
   # path. Strip it BEFORE the dispatch, never inside the email arm. A match that already starts
@@ -448,6 +456,12 @@ judge() {
       [ "$allowed" = 1 ] && return 0
       report "$f" "$n" home-path "$(show_evidence home-path "$m")" ;;
     '~'/*)
+      # The RAW root is compared before the stripped one, as rule A does with the segment: strip_tail
+      # pops a marker's own "]" (it is in TAIL_PUNCT), so a stripped-only compare could never match
+      # the literal `[redacted]`, and an allow-file `root [redacted]` only worked written without
+      # its closing bracket (#227).
+      local rawroot; rawroot="${m%/}"; rawroot="${rawroot#\~/}"
+      in_list "$rawroot" "${ALLOW_ROOTS[@]}" && return 0   # raw first (#227)
       strip_tail "${m%/}"; root="${STRIPPED#\~/}"
       # A root that strips to nothing is entirely punctuation ("~/..", "~/}"): a path idiom or a
       # code fragment, not a person's home. No allow-file `root` entry could name it either.

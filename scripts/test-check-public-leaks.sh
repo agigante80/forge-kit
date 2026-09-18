@@ -92,6 +92,36 @@ printf '%s\n' "import Foo from './home/Foo.vue'" > "$WORK/m230.txt"
 
 echo "== rule B: ~/ roots, by allowlist =="
 expect "an unlisted ~/ root trips"              yes "$(trips 'cloned into ~/secret-clients/thing')"
+
+# #227: a history rewrite that redacts a private root replaces it with a MARKER, and the scanner
+# must know the two markers it will meet ([redacted], the fleet's convention; ***REMOVED***,
+# filter-repo's default) or the very rewrite that removed the leak leaves the scan red. A marker
+# is a literal, never a shape: ~/[myco]/ is still a root. Rule B compares the RAW root first and
+# the stripped one second, as rule A does: strip_tail pops the marker's own "]", so a stripped-only
+# compare could never match the literal, and an allow-file "root [redacted]" only worked without
+# its closing bracket.
+echo "== rule B and rule A: redaction markers are not roots or users (#227) =="
+expect "~/[redacted]/ is not a root"                no  "$(trips 'see ~/[redacted]/notes')"
+expect "~/<redacted>/ is not a root"                no  "$(trips 'see ~/<redacted>/notes')"
+expect "~/***REMOVED***/ (filter-repo default) is not a root" no "$(trips 'see ~/***REMOVED***/notes')"
+expect "/home/[redacted]/ is not a user"            no  "$(trips 'see /home/[redacted]/notes')"
+expect "/home/<redacted>/ is not a user"            no  "$(trips 'see /home/<redacted>/notes')"
+expect "/home/***REMOVED***/ is not a user"         no  "$(trips 'see /home/***REMOVED***/notes')"
+expect "~/redacted/ (no brackets) is still a root"  yes "$(trips 'see ~/redacted/notes')"
+expect "/home/redacted/ is still a user"            yes "$(trips 'see /home/redacted/notes')"
+expect "~/[myco]/ is still a root: a marker is a literal, not a shape" yes "$(trips 'see ~/[myco]/notes')"
+printf 'root [redacted]\n' > "$WORK/allow-marker"
+printf 'root [redacted-other]\n' > "$WORK/allow-marker-other"
+expect "an allow-file 'root [redacted]' works WITH its closing bracket (raw compare first)" 0 "$(scan_line 'see ~/[redacted]/notes' --allow-file "$WORK/allow-marker")"
+expect "and a different bracketed root is not covered by it" 1 "$(scan_line 'see ~/[redacted-other]/notes' --allow-file "$WORK/allow-marker")"
+expect "a bracketed allow entry matches its own root as written" 0 "$(scan_line 'see ~/[redacted-other]/notes' --allow-file "$WORK/allow-marker-other")"
+expect "the header names the two markers" 1 "$(grep -c 'filter-repo.s own default' "$SCRIPT")"
+# The mutant: rule B back to the stripped-only compare must fail the bracket-as-written case.
+MUT227="$WORK/mutant-227.sh"; sed 's/^      in_list "$rawroot" "${ALLOW_ROOTS\[@\]}" && return 0   # raw first (#227).*$//' "$SCRIPT" > "$MUT227"; chmod +x "$MUT227"
+expect "mutant ledger (#227): the raw-first compare line exists" 1 "$(grep -c '^      in_list "$rawroot" "${ALLOW_ROOTS\[@\]}" && return 0   # raw first (#227)' "$SCRIPT")"
+cmp -s "$SCRIPT" "$MUT227" && bad "mutant ledger (#227): the sed did not apply" || ok "mutant ledger (#227): the mutant differs from the script"
+printf 'see ~/[redacted-other]/notes\n' > "$WORK/m227.txt"
+"$MUT227" --allow-file "$WORK/allow-marker-other" "$WORK/m227.txt" >/dev/null 2>&1; expect "mutant (#227): with a stripped-only compare the bracketed entry no longer matches as written" 1 "$?"
 expect "~/projects survives"                    no  "$(trips 'cloned into ~/projects/thing')"
 expect "~/.claude survives"                     no  "$(trips 'edit ~/.claude/settings.json')"
 expect "~/.config survives"                     no  "$(trips 'edit ~/.config/app.toml')"
@@ -315,6 +345,16 @@ hrun() {  # hrun [flags]: run the scanner in HREPO; output in OUT, stderr in ERR
   OUT="$( cd "$HREPO" && "$SCRIPT" "$@" 2>"$WORK/herr.txt" )"; RC=$?; ERR="$(cat "$WORK/herr.txt")"
 }
 hoid() { ( cd "$HREPO" && git rev-parse "$1" ); }
+
+mkrepo redacted
+hcommit notes.md 'see ~/secretroot/notes\n'
+hrun --history; rc=$RC; expect "--history: an unrewritten private root is reported" 1 "$rc"
+contains "home-root: ~/se********/" "$OUT" "--history: redacted evidence for the root"
+# The rewrite: the commit is amended with the marker in place of the root, so the old blob is
+# unreachable (a filter-repo --replace-text run leaves the same shape behind).
+( cd "$HREPO" && printf 'see ~/[redacted]/notes\n' > notes.md && git add notes.md && git commit -q --amend -m rewritten ) >/dev/null 2>&1
+hrun --history; rc=$RC; expect "--history: after the rewrite replaces it with [redacted], the scan is clean (#227)" 0 "$rc"
+hrun --history --orphans; rc=$RC; expect "--history --orphans still reaches the pre-rewrite blob" 1 "$rc"
 
 mkrepo relimport
 hcommit screen.vue "import A from './home/A.vue'\n"

@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 13 -->
+<!-- leak-guard-version: 14 -->
 
 # Leak guard
 
@@ -242,3 +242,11 @@ support request, and it is the only thing that actually removes the objects. Rot
 was a credential rather than waiting for the purge, because the purge does not undo the copies.
 
 Do the rewrite anyway, so the working history is clean. Just do not report it as a deletion.
+
+**Replace the private string with a marker the scanner knows.** `check-public-leaks.sh` recognises
+two, as literals: `[redacted]`, which this remediation uses, and `***REMOVED***`, which is what
+`git filter-repo --replace-text` writes when an expression names no replacement. Either one in a
+`~/` root or a `/home/` segment is not reported, in the tree modes or under `--history`, so the
+rewrite that removes the leak leaves the scan green. Any other replacement is reported as a root
+until the repository allows it, and a marker is never a shape: any other bracketed name is still
+a root.
