@@ -61,6 +61,18 @@ expect "/home/alice/ still trips (no regression from the /home/.. fix)" yes \
 # #230: /home/ INSIDE a relative path is a directory called home, not a home directory. Rule A is
 # anchored the way rule C is (#211): the byte before /home/ or /Users/ must not be a word byte or a
 # dot. A real path always starts at a boundary (a quote, =, (, a space, start of line).
+# #223: the scanner's own comments must not look like a leak to a HOST project's guard. The asset
+# skips itself, but two of seventeen rollout repositories carried an independent "no home path in
+# any tracked file" test that fired on the scanner's doc examples the moment it was copied in. The
+# examples are kept (a rule without its firing shape is unreviewable) in placeholder form.
+echo "== the scanner's own source carries no real-shaped example (#223) =="
+HOSTRE='/home/[a-z]+/|/Users/[a-z]+/|~/[a-z.]+/|[a-z]+@[a-z]+\.[a-z]+'
+expect "the whole asset has zero lines matching a host guard's shapes" 0 "$(grep -cE "$HOSTRE" "$SCRIPT")"
+M223="$WORK/mutant-223.sh"; sed '3s|^|# documentation example: a person at /home/alice/notes\n|' "$SCRIPT" > "$M223"
+n=$(grep -nE "$HOSTRE" "$M223" | wc -l | tr -d ' ')
+expect "a real-shaped example reintroduced into one comment is found, exactly once" 1 "$n"
+[ "$n" = 1 ] && ok "documentation example matches a real-path shape: line $(grep -nE "$HOSTRE" "$M223" | cut -d: -f1)" || bad "documentation example matches a real-path shape: line unknown"
+
 echo "== rule A: a /home/ preceded by a word byte or a dot is not a home directory (#230) =="
 expect "./home/Foo.vue (a relative import) does not trip"  no  "$(trips "import Foo from './home/Foo.vue'")"
 expect "src/home/index.ts does not trip"                    no  "$(trips 'export * from "src/home/index.ts"')"

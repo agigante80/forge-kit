@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 16 -->
+<!-- leak-guard-version: 17 -->
 
 # Leak guard
 
@@ -213,6 +213,12 @@ the one that matters the moment a history rewrite is ever needed, because it ask
 of the tree rather than about one change to it. A project that wires only the commit stage has the
 weaker half of the pair.
 
+The scanner documents its own rules in placeholder shapes (`/home/<name>/`, `~/<root>/`,
+`<name>@<host>.<tld>`) rather than with a real-looking path or address, so a host project's own
+home-path or email guard, which does not know the scanner skips itself, does not fire on the
+scanner's comments the moment it is installed. Two of the seventeen rollout repositories carried
+such a guard and went red on the copy.
+
 ## What this does NOT catch, and why it says so
 
 **The public half would not have caught the leak that prompted the design.** That was a set of real
@@ -224,7 +230,7 @@ cannot be public.
 
 **And both path rules judge the FIRST segment only.** Rule A asks who `/home/<name>/` belongs to and
 rule B asks whether `~/<root>` may be shown; neither looks below that. So a private directory name
-under an allowed root, `~/work/<client>/repo` or `/home/user/clients/<client>/build.log`, is
+under an allowed root, `~/<root>/<client>/repo` or `/home/<name>/clients/<client>/build.log`, is
 invisible to the public half, and the segments above the project are exactly what the original
 finding called the worse half of the leak.
 

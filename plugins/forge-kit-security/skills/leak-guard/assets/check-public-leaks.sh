@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 16
+# check-public-leaks-version: 17
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -70,13 +70,13 @@
 #
 # THREE SHAPES THIS DELIBERATELY DOES NOT REPORT, the first two consequences of the above, each
 # pinned by a test case so they cannot be rediscovered as bugs:
-#   1. An address glued to a home path or root, `/home/alice/alice@corp.io` and
-#      `~/secret/alice@corp.io`: rules A and B end in `/?`, which consumes the byte rule C's anchor
+#   1. An address glued to a home path or root, `/home/<name>/<name>@<host>.<tld>` and
+#      `~/<root>/<name>@<host>.<tld>`: rules A and B end in `/?`, which consumes the byte rule C's anchor
 #      needs, so the path row is reported and the address is not. Dropping that `/?` would change
 #      five existing cases for a shape no real tree here has produced. A separator between the two
-#      (`/home/alice/notes alice@corp.io`) reports both.
-#   2. An accented local part or domain in TREE mode, `jose@corp.io` with an acute e, `zoe@corp.io`
-#      with a diaeresis, `alice@corpe.io` likewise: LC_ALL=C narrows `[A-Za-z]` to ASCII, where a
+#      (`/home/<name>/notes <name>@<host>.<tld>`) reports both.
+#   2. An accented local part or domain in TREE mode, a local part with an acute e or a diaeresis,
+#      or a domain with an accented letter, likewise: LC_ALL=C narrows `[A-Za-z]` to ASCII, where a
 #      territory UTF-8 locale would admit Latin letters with diacritics. This is not a new blind
 #      spot: --history has always run under C, and CI runs under C.UTF-8, where GNU grep already
 #      misses them; the pin makes the laptop hook path match them. Widening the three classes with
@@ -87,8 +87,8 @@
 #      before it, so a home path glued to a word (`cd/home/alice` in a pasted transcript with the
 #      space lost) is not reported either. A real path starts at a boundary, and the fleet hit
 #      that argued for this was a Vue screen importing its siblings from `./home/`. The same
-#      mechanism as shape 1 applies to rule A against itself: in `/home/a//home/b` the first
-#      match's trailing `/` consumes the second's anchor byte, so only `/home/a/` is reported.
+#      mechanism as shape 1 applies to rule A against itself: in `/home/<a>//home/<b>` the first
+#      match's trailing `/` consumes the second's anchor byte, so only `/home/<a>/` is reported.
 #
 # `--history --orphans` also reads objects no ref reaches: a leak amended or reset away is still
 # in the local store until `git gc` prunes it, and so is a stash entry, which is the one ref the
@@ -125,7 +125,7 @@
 #
 # AND BOTH PATH RULES JUDGE THE FIRST SEGMENT ONLY. Rule A asks who "/home/<name>/" belongs to and
 # rule B asks whether "~/<root>" may be shown; NEITHER looks below that. So a private directory name
-# under an allowed root ("~/work/<client>/repo", "/home/user/clients/<client>/build.log") is
+# under an allowed root ("~/<root>/<client>/repo", "/home/<name>/clients/<client>/build.log") is
 # invisible here, and the segments above the project are exactly what the ticket called the worse
 # half of the leak. Catching those needs the name, which is the private half's job. This was found
 # by review AFTER the paragraph above shipped, which is the argument for the paragraph.
@@ -141,8 +141,8 @@
 # al******) because a pre-publish report is exactly the text that gets pasted into a public
 # issue; --show-evidence prints it whole.
 #
-# WHY RULE B IS AN ALLOWLIST AND THE OTHER TWO ARE NOT. Shape can decide "/home/alice/" is a person
-# and "/home/user/" is a placeholder. Shape cannot decide whether "~/foo" is private, because the
+# WHY RULE B IS AN ALLOWLIST AND THE OTHER TWO ARE NOT. Shape can decide that a first name after
+# /home/ is a person and that the word user there is a placeholder. Shape cannot decide whether "~/foo" is private, because the
 # string carries no marker either way. So the test is inverted: an allowlist of roots a document is
 # allowed to show. That catches the case by construction rather than by enumeration, and it needs
 # one thing from the project, a canonical example root, agreed once.
@@ -287,7 +287,7 @@ if [ -n "$ALLOW_FILE" ]; then
       # thing it permits.
       root)
         # A trailing slash is stripped, as the prefix key strips it: rule B's own report prints
-        # `~/foo/`, so the natural copy-paste is `root ~/foo/`, and judge() compares the root
+        # `~/<root>/`, so the natural copy-paste carries the slash, and judge() compares the root
         # without its slash, so stored with it the entry could never match (review of #224).
         rootv="${val#\~/}"; rootv="${rootv%/}"   # ~/ first, so `root ~/` strips to nothing and refuses
         # A root that is entirely punctuation ("..", "}", "...") is returned clean by rule B before
@@ -409,7 +409,7 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
 # directory called home, not a home directory. A real path always starts at a boundary (a quote,
 # =, (, a space, the start of the line). The match carries that one leading byte, and judge()
 # strips it before dispatching, as it does for rule C. `~` is excluded from the anchor class too
-# (review): with it admitted, `~/home/x` matched rule A as the longer alternative and lost its
+# (review): with it admitted, a tilde root whose name is the word home matched rule A as the longer alternative and lost its
 # rule B `root home` allow entry.
 RE_HOME='(^|[^A-Za-z0-9_.~])(/home|/Users)/[^/[:space:]"`]+/?'
 RE_ROOT='~/[^/[:space:]"`]+/?'
@@ -447,11 +447,11 @@ show_evidence() {  # show_evidence <rule> <evidence>: what the report prints for
 judge() {
   local f="$1" n="$2" m="$3" raw seg allowed rawt p root rawroot addr local_part domain
   # Rule C's anchor (#211) leaves one leading byte on the match, and the dispatch below keys on the
-  # FIRST byte, so "see docs/alice@corp.io" would arrive as "/alice@corp.io" and be judged a home
+  # FIRST byte, so "see docs/<name>@<host>.<tld>" would arrive as "/<name>@..." and be judged a home
   # path. Strip it BEFORE the dispatch, never inside the email arm. A match that already starts
   # with a class byte, or that is a rule A or rule B match, is left exactly as it was.
   # Rule A and B shapes are tested BEFORE the email arm (review of #230): a segment may contain
-  # `@`, so `-/home/alice@corp.io` would otherwise satisfy the email arm's class and keep its
+  # `@`, so `-/home/<name>@<host>.<tld>` would otherwise satisfy the email arm's class and keep its
   # anchor byte, and be judged an address.
   case "$m" in
     /home/*|/Users/*|'~'/*) ;;
