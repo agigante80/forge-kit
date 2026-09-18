@@ -786,6 +786,20 @@ They belong together because each was found by USE rather than by review, in the
 component was named for, and because a guard that cannot be silenced precisely is a guard that
 gets removed.
 
+## Phase: The reviews' own crop
+state: open
+plan: docs/plans/the-reviews-own-crop.md
+
+Opened 2026-09-18, unattended, for the follow-ups the night's review loops filed as Lows and
+refused to fix inside their rounds: #237 (the writers' 404 line is skipped under a `set -e`
+caller), #235 (an scp-form `user:token@` prefix reaches stdout as a slug), #240 (three more dead
+`root` shapes the punctuation guard does not catch), #239 (a punctuation-ending `root` entry
+matches its literal, and rules A and B are quadratic on a punctuation tail), and #234 (three
+prose drifts, among them `forge-call-mapping.md` mapping a body edit to a raw PATCH). They belong
+together because each is a finding the bounded review loop turned into a ticket rather than a
+fourth round, which is the loop working; a phase that pays them the same night is what keeps
+"ticket it" from meaning "forget it".
+
 ## Phase: Backlog
 state: backlog
 
