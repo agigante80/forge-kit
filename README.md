@@ -6,8 +6,8 @@ starts and after it lands, enforced by a build failure rather than a note asking
 forge-kit is not a collection of clever agents. It started as one, and the agents turned out to be
 the least distinctive thing in it: the tree today carries more guard scripts and contract test
 suites than prose components, and thirty closed phases of work produced guards, versioning
-discipline, install scope, measurement and a leak guard rather than new capability. What is left that nobody else
-ships is the outer loop, and that is what this is for.
+discipline, install scope, measurement and a leak guard rather than new capability. What is left
+that nobody else ships is the outer loop, and that is what this is for.
 
 ## What forge-kit answers, and what its neighbours answer
 
