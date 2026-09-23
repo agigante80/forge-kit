@@ -3,7 +3,7 @@ name: decision-brief
 description: Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and rewrite the ticket body so the decision can be made from it. Use when a ticket is waiting on a human decision, when asked for a decision brief on an issue, when a ticket has stalled through several nudges, or when someone asks which option to pick on a ticket.
 ---
 
-<!-- decision-brief-version: 1 -->
+<!-- decision-brief-version: 2 -->
 
 # Decision brief
 
@@ -111,10 +111,24 @@ The rewrite MUST:
 - post a separate correction COMMENT first when a factual claim is being retracted, so the public
   record shows the correction independently of the rewrite.
 
-**Region ownership, so two writers never contend.** The gate appends its own required-changes
-section and writes into the template's sections during auto-remediation. The brief owns exactly two
-regions, the preamble and a `### Decision` section, and touches nothing else. Do not run a brief and
-a gate remediation on one ticket at the same time.
+**What this skill may change, stated once.** It OWNS two regions, `brief-preamble` and
+`brief-decision`, which it may create and replace outright. It may ALSO rewrite author sections
+under the four clauses above, which is the whole point of Step 7: a brief that touched only its own
+two regions would leave the disproven claims standing, which is the failure it exists to end. It
+may never touch a region belonging to another writer.
+
+**This paragraph used to say the opposite of Step 7** and claimed the skill "touches nothing else",
+eighteen lines below a step titled REWRITE the ticket body. A reader got a different answer
+depending on which they weighed, and the false one read like the binding constraint because it was
+phrased as a boundary (#262).
+
+**The third rule is enforced, not remembered.** Write through `forge_body_region_set` and
+`forge_body_region_clear` with prefix `brief`, and a whole-body rewrite through
+`forge_body_compose_preserving` with the same prefix, all from `forge-lib.sh`. They splice or
+compose while preserving every byte the caller did not ask to change, refuse a region the prefix
+does not own, and refuse a body that moved since it was read. Never `forge_issue_edit`, which
+replaces the whole body. Do not run a brief and a gate remediation on one ticket at the same time:
+the primitive stops them destroying each other's regions, and it cannot stop them disagreeing.
 
 ## Step 8: print a short summary in the conversation
 

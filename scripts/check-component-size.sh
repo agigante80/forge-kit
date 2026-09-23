@@ -284,6 +284,12 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# LOWERED 2026-09-23: ticket-gate 5766 to 5733 (#248). Two of the three body-lifecycle clauses
+# became one sentence saying to call forge_body_region_set/_clear, because insert-or-replace, the
+# markers, disjointness and the re-read are now the primitive's BEHAVIOUR rather than rules the
+# agent has to remember. The re-read is the one that earns it: remembering it is what silently
+# dropped Step 2.9's write every round. A correctness fix that SHRANK the file, which is the #149
+# lever again and the only one that has ever worked on these three components.
 # LOWERED 2026-09-16: ticket-gate 5767 to 5766 (#204: --labels-doc added to Step 3A, paid for by
 # deleting Step 0b's drifted type-set parenthetical, net one word down).
 # LOWERED 2026-09-11: ticket-gate 5773 to 5767 (#194). #192 and #197 each paid for themselves
@@ -308,7 +314,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5766 ;;
+    ticket-gate) echo 5733 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

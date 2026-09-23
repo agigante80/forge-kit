@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 56 -->
+<!-- ticket-gate-version: 57 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -506,28 +506,27 @@ drifts; BLOCKED never appears, those paths returning earlier.
 
 **Every region the gate writes obeys one lifecycle**; per-region answers are how this drifted.
 The regions are `gate-verdict`, `gate-required-changes` and `gate-alternatives`, written here,
-plus `gate-context` written by Step 2.9. Each is wrapped in `<!-- <name>:start -->` and
-`<!-- <name>:end -->`, carries the heading `Gate verdict` / `Required changes (gate)` /
-`Architecture alternatives` / `Codebase context (gate)`, and is disjoint from the others. Writes
-into AUTHOR sections are OUTSIDE the three clauses below; WRITE ONCE, after them, governs.
+plus `gate-context` written by Step 2.9, carrying the headings `Gate verdict` / `Required changes
+(gate)` / `Architecture alternatives` / `Codebase context (gate)`.
 
-1. **Insert or replace, never append.** A second copy is a second answer, and the stale one is
-   indistinguishable from the live one. An absent region is inserted at the top, unless the
-   step that owns it names a location. A body gated before this rule has those sections
-   un-delimited, or marked `<!-- ticket-gate: populated ... -->`: wrap the first, delete later
-   duplicates.
-2. **Re-read the body first.** 0c-iv writes before the Step 1 fetch and Step 2.9 after it, so
-   that cache is stale here; rebuilding from it silently dropped 2.9's write every round.
-3. **Every region is rewritten from THIS round's result, or removed.** An empty blocking list
+1. **Write each one with `forge_body_region_set` or `_clear`, prefix `gate`. Never
+   `forge_issue_edit`.** Insert-or-replace-never-append, the markers, disjointness from the other
+   writers, and the re-read that 0c-iv and Step 2.9 both need are the primitive's behaviour, not
+   rules to remember; remembering the re-read is what silently dropped 2.9's write every round.
+   One case it cannot see: a body gated before this has those sections un-delimited or marked
+   `<!-- ticket-gate: populated ... -->`, so wrap the first and delete later duplicates.
+2. **Every region is rewritten from THIS round's result, or removed.** An empty blocking list
    removes `gate-required-changes`; no fundamental item this round removes `gate-alternatives`;
    0c-iv removes all of them, since it voids the verdict. A region this round deliberately
    REUSES (only `gate-context`, via Step 2.9's cache skip) is left untouched. Keyed on the
    result, not the verdict: a NEEDS-WORK round that cleared its fundamental would otherwise
    leave the alternatives standing.
+
 **WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only a section that is empty,
 placeholder, or synthesised by THIS run's 0c; never text the author may have written, since a
 later round cannot tell an edit of gate prose from its own. 0c-iii's thin append is the deliberate
-exception, and is how a pre-v6 section reaches v6.
+exception, and is how a pre-v6 section reaches v6. Such a write goes through
+`forge_body_compose_preserving` with prefix `gate`, so the other writers' regions survive it.
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.
