@@ -8,20 +8,28 @@
 #
 # Throwaway files only; nothing here touches a forge, and the library has no host dependency.
 #
-# MUTANTS KILLED, all fifteen run by hand on 2026-09-23 and each one shown to fail this suite:
-# the parse-back comparison removed; the one-open rule removed from both sites; the state and the
-# plan ambiguity checks removed, one each; the prose section-opening refusal removed; the
-# --milestone-empty assertion no longer required; the writer's extent widened to the parser's
-# (`^## ` back to `^## Phase:`); rename's host-consequence report silenced; the duplicate-name
-# verdict dropped from _rm_block; _rm_block restored to printing a block line AND then DUPLICATE,
-# which is the defect this suite found; insert's duplicate-name check removed; the temp file moved
-# into TMPDIR; `cp -p` dropped so the mode is not preserved; the symlink walk skipped; and the
-# multi-line prose moved off ENVIRON back onto an awk -v.
+# MUTANTS KILLED, all twenty-one run by hand on 2026-09-23 and each shown to fail this suite: the
+# parse-back comparison removed; the one-open rule removed from both sites; the state and the plan
+# ambiguity checks removed, one each; the prose section guard removed, and separately its
+# first-line arm removed; the --milestone-empty assertion no longer required; the writer's extent
+# widened to the parser's; rename's host-consequence report silenced; the duplicate-name verdict
+# dropped from _rm_block; _rm_block restored to printing a block line AND then DUPLICATE; insert's
+# duplicate-name check removed; the temp file moved into TMPDIR; `cp -p` dropped so the mode is not
+# preserved; the symlink walk skipped, and separately its depth bound raised past the fixture; the
+# arguments bound unguarded so `set -u` aborts the caller; set_state's arity check removed; the
+# plan path and the phase name each moved back onto `awk -v`; reorder's block put back through a
+# command substitution; and `--end` made to mean end of FILE.
 #
-# Two of those were not hypothetical. The ambiguity cases and the repeated-name case were added
-# BECAUSE the first battery left three mutants alive: the state-ambiguity case had been written
-# against `open`, so the one-open rule refused first and the case tested neither, and nothing
-# covered a repeated phase name at all, which is how the _rm_block defect survived to be found.
+# Three of those are the suite's own history rather than hypotheticals. The ambiguity cases and the
+# repeated-name case were added BECAUSE a first battery left three mutants alive: the
+# state-ambiguity case had been written against `open`, so the one-open rule refused before the
+# check under test could run, and nothing covered a repeated name at all, which is how _rm_block
+# printing a block line AND then DUPLICATE survived to be found. The `awk -v` and `set -u` cases
+# came from a review round, which found both defects live in the first implementation.
+#
+# One mutant is deliberately absent. A sha-equality branch was considered for the parse-back check
+# and never written, because the age of a line and the identity of its commit answer the same
+# question here; see check-doc-drift.sh, where the same branch WAS written and had to be removed.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -191,13 +199,114 @@ run roadmap_set_state "$T/link.md" Alpha planned
 expect "a symlinked roadmap is written through" 0 "$RC"
 [ -L "$T/link.md" ] && ok "and survives as a symlink" || bad "the symlink was replaced by a regular file"
 
+echo "== a short call RETURNS, it does not kill the caller (the header promises this) =="
+# NOT through run(), which wraps every call in a subshell and would hide exactly this. Both
+# consumers run `set -u`, under which an unguarded `local st="$3"` aborts the CALLER before the
+# function can return anything, so the documented usage code is unreachable for the commonest
+# mistake there is.
+fixture "$T/r.md"
+for call in "roadmap_set_state \"$T/r.md\" Beta" \
+            "roadmap_set_plan \"$T/r.md\" Beta" \
+            "roadmap_set_prose \"$T/r.md\"" \
+            "roadmap_reorder \"$T/r.md\" Beta" \
+            "roadmap_rename \"$T/r.md\" Beta" \
+            "roadmap_remove \"$T/r.md\"" \
+            "roadmap_insert_at \"$T/r.md\" --before Gamma Delta"; do
+  out="$(bash -c "set -uo pipefail; . '$LIB'; $call 2>'$T/uerr' >/dev/null; echo \"SURVIVED rc=\$?\"" 2>/dev/null)"
+  expect "a short call to ${call%% *} returns 2 and the caller lives" "SURVIVED rc=2" "$out"
+  # The message matters as much as the code. Without the arity check every one of these still
+  # reaches SOME later validation and still returns 2, but says "unknown state ''" to someone who
+  # simply left an argument off, which sends them to look at the wrong thing.
+  contains "usage:" "$(cat "$T/uerr")" "and says so as a usage error, naming the signature"
+done
+run roadmap_set_state "$T/r.md" Beta sideways
+expect "an unknown state is a usage error, 2" 2 "$RC"
+run roadmap_reorder "$T/r.md" Beta --sideways
+expect "an unrecognised placement word is a usage error, 2" 2 "$RC"
+run roadmap_reorder "$T/r.md" Beta --before
+expect "--before with no reference is a usage error, 2" 2 "$RC"
+run roadmap_insert_at "$T/r.md" --sideways Delta planned d.md "why"
+expect "an unrecognised insert placement is a usage error, 2" 2 "$RC"
+
+echo "== caller text is written verbatim, never through an awk -v escape pass =="
+# awk -v processes backslash escapes in its value, so `a\tb` in a plan path is WRITTEN as a tab.
+# A phase NAME is worse: parse_roadmap emits TSV, so a tab in a name splits into the state column
+# and every consumer reads garbage. The parse-back check cannot catch it when the intent and the
+# write share the mangling, which is why this is asserted on the BYTES.
+fixture "$T/esc.md"
+run roadmap_set_plan "$T/esc.md" Beta 'docs/plans/a\tb.md'
+expect "a plan path carrying a backslash escape is accepted" 0 "$RC"
+contains 'plan: docs/plans/a\tb.md' "$(cat "$T/esc.md")" "and written verbatim, with no tab in it"
+expect "and the block still parses as three fields" 1 "$(. "$LIB"; parse_roadmap "$T/esc.md" | awk -F'\t' '$1 == "Beta" && NF == 3' | grep -c .)"
+fixture "$T/esc2.md"
+run roadmap_rename "$T/esc2.md" Beta 'Beta\tRenamed'
+expect "a phase name carrying a backslash escape is accepted" 0 "$RC"
+contains '## Phase: Beta\tRenamed' "$(cat "$T/esc2.md")" "and written verbatim"
+expect "so the parsed row keeps its state in column 2" "planned" "$(. "$LIB"; parse_roadmap "$T/esc2.md" | awk -F'\t' 'NR == 2 { print $2 }')"
+
+echo "== prose that opens a section is refused by BOTH primitives that take prose =="
+fixture "$T/pr.md"
+run roadmap_set_prose "$T/pr.md" Beta "## Straight away
+and then some text."
+expect "set_prose refuses prose whose FIRST line opens a section" 5 "$RC"
+run roadmap_insert_at "$T/pr.md" --before Gamma Delta planned d.md "Why Delta exists.
+
+## Design notes
+
+Text the author meant as part of Delta."
+expect "insert_at refuses it too, where it used to accept it" 5 "$RC"
+expect "and nothing was inserted" "Alpha Beta Gamma" "$(grep '^## Phase:' "$T/pr.md" | sed 's/^## Phase: //' | tr '\n' ' ' | sed 's/ $//')"
+
+echo "== --end means after the last PHASE, not end of file =="
+fixture "$T/e1.md"
+run roadmap_insert_at "$T/e1.md" --end "Delta" planned docs/plans/delta.md "Why Delta exists."
+expect "insert --end succeeds" 0 "$RC"
+expect "and lands after the last phase" "Alpha Beta Gamma Delta" "$(grep '^## Phase:' "$T/e1.md" | sed 's/^## Phase: //' | tr '\n' ' ' | sed 's/ $//')"
+expect "and BEFORE the trailing non-phase section, which stays last" "## Notes" "$(grep '^## ' "$T/e1.md" | tail -1)"
+fixture "$T/e2.md"
+run roadmap_reorder "$T/e2.md" Alpha --end
+expect "reorder --end succeeds" 0 "$RC"
+expect "and moves the phase to last" "Beta Gamma Alpha" "$(grep '^## Phase:' "$T/e2.md" | sed 's/^## Phase: //' | tr '\n' ' ' | sed 's/ $//')"
+expect "with the trailing section still last" "## Notes" "$(grep '^## ' "$T/e2.md" | tail -1)"
+
+echo "== reorder moves BYTES: its inverse restores the file exactly =="
+fixture "$T/rt.md"; cp "$T/rt.md" "$T/rtbefore.md"
+run roadmap_reorder "$T/rt.md" Gamma --before Alpha
+expect "the move succeeds" 0 "$RC"
+run roadmap_reorder "$T/rt.md" Gamma --before Notes
+expect "moving it before a NON-phase section is refused with 5" 5 "$RC"
+run roadmap_reorder "$T/rt.md" Gamma --end
+expect "and the inverse move succeeds" 0 "$RC"
+expect "leaving the file byte-identical to where it started" "" "$(diff "$T/rtbefore.md" "$T/rt.md")"
+
+echo "== a symlink chain deeper than the bound REFUSES rather than severing the link =="
+fixture "$T/deep-real.md"
+prev="$T/deep-real.md"
+i=1; while [ "$i" -le 12 ]; do ln -sf "$prev" "$T/deep-$i.md"; prev="$T/deep-$i.md"; i=$((i + 1)); done
+cp "$T/deep-real.md" "$T/deep-before.md"
+run roadmap_set_state "$T/deep-12.md" Alpha planned
+expect "a 12-deep chain is refused with 2" 2 "$RC"
+expect "and the real file is untouched" "" "$(diff "$T/deep-before.md" "$T/deep-real.md")"
+[ -L "$T/deep-10.md" ] && ok "and no link in the chain was replaced by a regular file" || bad "a link in the chain became a regular file"
+
 echo "== portability: this library installs onto a bash 3.2 laptop =="
 # Scoped to the WRITE half. The parser's `set_lower` uses `${x,,}` on purpose, inside a
 # BASH_VERSINFO branch with a `tr` fallback beside it, so a flat ban would fail the very shape the
 # file already uses to stay portable. What this pins is that the primitives added no NEW one.
 expect "no bash-4 case expansion in the write primitives" 0 "$(sed -n '/--- the WRITE primitives/,$p' "$LIB" | grep -cE '\$\{[A-Za-z_][A-Za-z0-9_]*,,\}|\$\{[A-Za-z_][A-Za-z0-9_]*\^\^\}')"
 expect "no GNU readlink -f" 0 "$(grep -c 'readlink -f' "$LIB")"
-expect "multi-line text reaches awk through ENVIRON, never -v" 0 "$(grep -cE "awk -v [A-Za-z_]+=\"\\\$(prose|text)" "$LIB")"
+# The previous shape of this assertion was VACUOUS and a review caught it: it required the shell
+# variable to be literally named `prose` or `text`, and the library calls it RM_PROSE, so the count
+# was 0 whatever the file said. Key on the invariant instead. Every `-v` in this file may carry
+# only a line number, a literal key, a filename this library made, or awk's own OFS; caller text
+# has exactly one route, and it is ENVIRON. It matters more than an ordinary vacuous check, because
+# the symptom is invisible here: under gawk an `-v` mutant works, and it is Apple's awk (#205) that
+# refuses a newline, so CI would never see the regression this line is the only guard against.
+# CODE lines only: the header names the banned `awk -v x="$v"` shape on purpose, to say why it is
+# banned, and a flat grep would fail the library for documenting its own rule.
+expect "no awk -v carries anything but a number, a literal key or OFS" 0 \
+  "$(grep -v '^[[:space:]]*#' "$LIB" | grep -oE '\-v [A-Za-z_]+=' | sed 's/-v //; s/=//' | grep -vxE 's|e|k|at|bf|OFS' | grep -c .)"
+expect "and every primitive that writes prose reads it from ENVIRON" 3 "$(grep -c 'ENVIRON\["RM_PROSE"\]' "$LIB")"
 
 echo ""
 echo "roadmap-lib tests: $pass passed, $fail failed"
