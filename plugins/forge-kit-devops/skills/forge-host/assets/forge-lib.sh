@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 21
+# forge-lib-version: 22
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -81,6 +81,11 @@
 #       `TOKEN@host:o/r` as the slug for `x-access-token:TOKEN@host:o/r` and every request path
 #       carried it. rc 2, nothing on stdout, the remote redacted at its last @ in the message.
 #       `git@host:o/r` and `a@b@host:o/r` are unchanged.
+#   v22 forge_issue_milestone <n> <title|""> is NEW (#245): the write half of the milestone
+#       primitives, setting or clearing a ticket's milestone by title. Additive; no caller
+#       changes. It is what lets a phase move happen on a self-hosted forge at all, and the
+#       clear form is host-specific (`null` on GitHub, the literal `0` on Forgejo, where a
+#       `null` is a silent no-op that returns success).
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -672,6 +677,48 @@ forge_milestone_close() {
   id="$(_forge_milestone_id "$title")" || {
     echo "forge-lib: no milestone titled '$title' on $repo" >&2; return 2; }
   forge_api PATCH "/repos/$repo/milestones/$id" '{"state":"closed"}' >/dev/null
+}
+
+# forge_issue_milestone <issue> <title|"">  set or clear a ticket's milestone (#245).
+# The WRITE half the milestone primitives never had: the kit could list, create and close a
+# milestone and list its issues, and could not put a ticket in one, so every phase move went
+# through `gh issue edit --milestone` and was GitHub-only. `/phase` is the consumer.
+#
+# Two host differences, both verified at source rather than assumed. The id to send is the
+# per-repo NUMBER on GitHub ("the number of the milestone", issue PATCH) and the `id` on
+# Forgejo, whose handler passes it to a primary-key lookup; `forge_milestone_list` already
+# normalises the two into one field, and `_forge_milestone_id` resolves it, so the resolution
+# is reused rather than rewritten. And the CLEAR form differs: GitHub documents `null`, while
+# Forgejo and Gitea declare the field `*int64` and gate the handler on it being non-nil, so a
+# `null` there is a SILENT no-op returning success and only the literal `0` unsets it. A wrong
+# clear form is therefore loud on neither host and indistinguishable from success on one, which
+# is the #229 class.
+#
+# The dry-run guard runs BEFORE the resolution, as forge_issue_label's does: under FORGE_DRY_RUN
+# the paginator returns a literal `[]`, so every title is unresolvable and a dry run would report
+# a real phase as missing (that is what forge_milestone_close does today, #254).
+forge_issue_milestone() {
+  local n="$1" title="$2" repo id payload rc=0
+  repo="$(forge_repo)" || return 2
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    if [ -n "$title" ]; then printf '[dry-run] set milestone of issue %s to %s on %s\n' "$n" "$title" "$repo" >&2
+    else printf '[dry-run] clear the milestone of issue %s on %s\n' "$n" "$repo" >&2; fi
+    return 0
+  fi
+  if [ -n "$title" ]; then
+    # REFUSE rather than clear on an unresolvable title: a phase move that silently unset the
+    # phase leaves the ticket where check-phases rule 1 finds it, which reads as a roadmap bug.
+    id="$(_forge_milestone_id "$title")" || {
+      echo "forge-lib: no milestone titled '$title' on $repo" >&2; return 2; }
+    payload="$(jq -nc --argjson m "$id" '{milestone:$m}')"
+  else
+    case "$(forge_host)" in
+      forgejo) payload='{"milestone":0}' ;;
+      *)       payload='{"milestone":null}' ;;
+    esac
+  fi
+  forge_api PATCH "/repos/$repo/issues/$n" "$payload" >/dev/null || rc=$?
+  _forge_write_rc forge_issue_milestone "$n" "$rc"
 }
 
 # Open issues with their milestone TITLE (or null). Excludes pull requests, for the same reason

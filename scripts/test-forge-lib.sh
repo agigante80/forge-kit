@@ -907,6 +907,73 @@ w229 "forge_issue_edit stays silent on success (#229)"              0  0  forge_
 w229 "forge_issue_edit names a 404 on stderr, rc 44 (#229)"          44 44 forge_issue_edit 999 new
 w229 "forge_issue_edit adds no second line on rc 22 (#229)"          22 22 forge_issue_edit 999 new
 
+# --- #245: forge_issue_milestone, the missing WRITE half of the milestone primitives -----------
+# The kit could list, create and close a milestone and list a milestone's issues, and could not put
+# a ticket in one, so every phase move went through `gh issue edit --milestone` and was GitHub-only.
+# Two host differences, both proved at source by the gate: the id to send is the per-repo NUMBER on
+# GitHub and the `id` on Forgejo (forge_milestone_list already normalises them), and the CLEAR form
+# is `null` on GitHub but the literal `0` on Forgejo, whose handler skips a nil field and returns
+# SUCCESS having changed nothing, which is the #229 class of silence.
+ms_stub() {  # ms_stub <host>: a forge_api that answers the milestone list and logs every request
+  cat <<STUB
+    forge_api() {
+      echo "\$1 \$2 \${3-}" >> "$T/ms.log"
+      case "\$1 \$2" in
+        "GET /repos/o/r/milestones"*) printf '[{"id":7,"title":"Phase A"},{"id":9,"title":"Phase B"}]' ;;
+        *) : ;;
+      esac
+    }
+STUB
+}
+ms_run() {  # ms_run <host> <args...>: run forge_issue_milestone with the stub; sets RC and MSLOG
+  : > "$T/ms.log"
+  RC=$( ( . "$LIB"; export FORGE_HOST="$1" FORGE_REPO=o/r; shift
+          eval "$(ms_stub)"
+          forge_issue_milestone "$@" >/dev/null 2>"$T/ms.err"; echo $? ) )
+  MSLOG="$(cat "$T/ms.log")"; MSERR="$(cat "$T/ms.err")"
+}
+ms_run forgejo 12 "Phase A"
+expect "forgejo: setting a phase PATCHes the issue with the milestone id" 0 "$RC"
+case "$MSLOG" in *"PATCH /repos/o/r/issues/12"*7*) ok "and the payload carries the id 7" ;; *) bad "payload: $MSLOG" ;; esac
+# The SET payload carries whatever _forge_milestone_id returned, and nothing else: WHICH id that
+# is per host is forge_milestone_list's contract (it normalises GitHub's per-repo number and
+# Forgejo's id into one field, and its own comment records the live 404 that taught it). This
+# function must not re-derive it, so the case stubs the resolver and asserts the passthrough. The
+# github LIST path cannot be driven from here at all: forge_api_paginate shells out to `gh` there
+# rather than through forge_api, which is why the suite has always said the github branches are
+# exercised by real use.
+RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+        : > "$T/ms3.log"
+        forge_api() { echo "$1 $2 ${3-}" >> "$T/ms3.log"; }
+        _forge_milestone_id() { printf '%s' 4242; }
+        forge_issue_milestone 12 "Phase A" >/dev/null 2>&1; echo $? ) )
+expect "the SET payload carries exactly what the resolver returned" 0 "$RC"
+case "$(cat "$T/ms3.log")" in *'"milestone":4242'*) ok "and never re-derives the id itself" ;; *) bad "passthrough payload: $(cat "$T/ms3.log")" ;; esac
+ms_run forgejo 12 ""
+expect "forgejo: clearing a phase succeeds" 0 "$RC"
+case "$MSLOG" in *'"milestone":0'*) ok "and sends the literal 0, which is the only form Forgejo acts on" ;; *) bad "forgejo clear payload: $MSLOG" ;; esac
+ms_run github 12 ""
+expect "github: clearing a phase succeeds" 0 "$RC"
+case "$MSLOG" in *'"milestone":null'*) ok "and sends null, the only form GitHub resolves" ;; *) bad "github clear payload: $MSLOG" ;; esac
+ms_run forgejo 12 "Phase Z"
+expect "an unresolvable title refuses with rc 2" 2 "$RC"
+case "$MSERR" in *"Phase Z"*) ok "and names the title" ;; *) bad "refusal message: $MSERR" ;; esac
+case "$MSLOG" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH" ;; esac
+# The dry-run guard runs BEFORE the resolution, or every title is unresolvable under it: paginate
+# returns a literal [] in dry-run, so a real title would take the refusal path (gate round 1).
+RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+        forge_api() { echo "REQUEST" >> "$T/ms2.log"; }
+        : > "$T/ms2.log"
+        forge_issue_milestone 12 "Phase A" >/dev/null 2>"$T/ms2.err"; echo $? ) )
+expect "a dry-run SET prints the intended change instead of refusing a real title" 0 "$RC"
+[ -s "$T/ms2.log" ] && bad "dry-run sent a request" || ok "and sends nothing at all"
+grep -q 'Phase A' "$T/ms2.err" && ok "and names the phase it would set" || bad "dry-run said nothing useful"
+# The 404 and rc 22 rows run on the CLEAR path, which resolves nothing, because w229's stub answers
+# every call with one rc and a resolving writer would consume it on the GET (gate round 1, AC 5).
+w229 "forge_issue_milestone names a 404 on stderr, rc 44 (#245)"     44 44 forge_issue_milestone 999 ""
+w229 "forge_issue_milestone stays silent on success (#245)"           0  0 forge_issue_milestone 999 ""
+w229 "forge_issue_milestone adds no second line on rc 22 (#245)"     22 22 forge_issue_milestone 999 ""
+
 # --- #237: the 404 line survives a `set -e` caller. `forge_api ... >/dev/null; rc=$?` let errexit
 # fire on the forge_api line before rc=$? ran, so the one shell mode forge_api's own comment
 # designs for got the pre-#229 silence back. The capture is now `rc=0; ... || rc=$?`.

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 24 -->
+<!-- forge-host-version: 25 -->
 
 # forge-host: host-aware forge operations
 
@@ -53,6 +53,9 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_create <title> <body>` | open an issue (labels omitted, added with the next op) |
 | `forge_issue_label <n> <name…>` | add labels by name (Forgejo: resolves names→IDs against repo AND org labels, all pages; REFUSE-ALL contract: any unresolvable name fails the whole call non-zero and applies nothing, so check the exit and create missing labels first) |
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination, and a stop on a page whose ids repeat the last page's, since Gitea's per-issue comments endpoint ignores `page`, #228). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
+| `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
+| `forge_issue_milestone_list <title>` | the open issues in a milestone, by title, PRs excluded |
+| `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
 | `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask |
 
