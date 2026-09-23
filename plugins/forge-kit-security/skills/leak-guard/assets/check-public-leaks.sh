@@ -244,15 +244,20 @@ TAIL_PUNCT='.,;:!?)]}"'"'"
 # stated floor is 3.2.57, where neither the reload nor the cost is measured.
 _TAIL_CLASS="]${TAIL_PUNCT//]/}"
 _TAIL_RE="^(.*[^$_TAIL_CLASS])[$_TAIL_CLASS]*$"
-# The fallback is not defensive clutter, it is what makes the unmeasured floor safe (review): a
-# failed match means "the whole value is punctuation" only if the regex engine behaved, and the
-# one way this can fail on an older bash is the direction that SUPPRESSES a finding. So a failed
-# match on a non-empty value walks the bytes instead, which is the v18 rule exactly. It cannot
-# cost anything on a working engine, where that path is reachable only for an empty or
-# entirely-punctuation value, both short.
+# TWO matches, then a loop that a working engine never reaches. The first says where the tail
+# starts. The second is what the first failing MEANS on a working engine: the value is empty or
+# entirely punctuation, so the answer is the empty string, and it is asked as a second anchored
+# match rather than assumed, because assuming it is the direction that SUPPRESSES a finding on an
+# engine that did not reload the locale (review of #239). Only when both disagree does the byte
+# loop run, which is v18's rule exactly: correct, and slow only on an engine already misbehaving.
+# The loop is NOT free and must stay unreachable: an entirely-punctuation segment is reachable
+# (`/home/` followed by 64 KB of dots is a rule A match) and walking it byte by byte costs 33 s,
+# which the second match answers in a millisecond (round 2 of the review found exactly that).
+_TAIL_ALL="^[$_TAIL_CLASS]*$"
 strip_tail() {
   local s="$1" c LC_ALL=C
   if [[ $s =~ $_TAIL_RE ]]; then STRIPPED="${BASH_REMATCH[1]}"; return; fi
+  if [[ $s =~ $_TAIL_ALL ]]; then STRIPPED=""; return; fi
   while [ -n "$s" ]; do
     c="${s: -1}"
     case "$_TAIL_CLASS" in *"$c"*) s="${s%?}" ;; *) break ;; esac

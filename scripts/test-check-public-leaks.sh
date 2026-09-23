@@ -992,6 +992,14 @@ case "$OUT" in *"home-path: /home/alice."*) ok "and the evidence is the raw matc
 # leading `.*` already spans from the start, so removing the anchor changes neither the result nor
 # the cost (measured: 0.15 s either way at 64 KB). The loop is what the anchored match is faster
 # than, and it is what a future editor might reach for again.
+# An entirely-punctuation segment is a rule A match too (`/home/` then 64 KB of dots), and it is
+# the shape that reaches strip_tail's failed-match path. The second anchored match answers it; a
+# byte loop there cost 33 s (round 2 of the #239 review).
+ALLP="$WORK/all-punct.txt"; printf '/home/%s\n' "$(head -c 65536 /dev/zero | tr '\0' .)" > "$ALLP"
+bounded 10 "$SCRIPT" "$ALLP" >/dev/null 2>&1
+expect "an entirely-punctuation segment is answered within the bound, not walked" 0 "$?"
+expect "the scanner answers a failed tail match with a second anchored match" 1 "$(grep -c '=~ \$_TAIL_ALL' "$SCRIPT")"
+
 MUT239A="$WORK/mutant-byte-loop.sh"
 awk '
   /^strip_tail\(\) \{$/ { print; print "  local s=\"$1\" c";
@@ -1004,6 +1012,8 @@ grep -qF '=~ $_TAIL_RE' "$SCRIPT" && ok "mutant ledger (#239): the scanner strip
 grep -qF '=~ $_TAIL_RE' "$MUT239A" && bad "mutant ledger (#239): the mutant still uses the regex" || ok "mutant ledger (#239): the mutant walks byte by byte instead"
 bounded 10 "$MUT239A" "$DOTS" >/dev/null 2>&1
 expect "the byte-loop mutant is killed at the bound (exit 124), where the scanner takes under a second" 124 "$?"
+bounded 10 "$MUT239A" "$ALLP" >/dev/null 2>&1
+expect "and killed on the entirely-punctuation shape too" 124 "$?"
 # Every TAIL_PUNCT byte is a tail, not only the dot.
 while IFS= read -r b; do
   [ -n "$b" ] || continue
