@@ -252,7 +252,7 @@ jobs:
         run: bash scripts/test-pre-commit-hook.sh
 
       # forge-kit-roadmap is an OPTIONAL group holding one opinionated planning method (rolling
-      # wave). These four keep it working AND keep it optional: the last one fails the build if
+      # wave). These five keep it working AND keep it optional: the last one fails the build if
       # anything outside the group references it, because a boundary that is only stated survives
       # until the first convenient reference.
       - name: Roadmap phase guard tests
@@ -260,6 +260,9 @@ jobs:
 
       - name: Roadmap sync tests
         run: bash scripts/test-sync-phases.sh
+
+      - name: Roadmap library write-primitive tests
+        run: bash scripts/test-roadmap-lib.sh
 
       - name: Group isolation tests
         run: bash scripts/test-check-group-isolation.sh
