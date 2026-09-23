@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 24
+# forge-lib-version: 25
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -110,6 +110,17 @@
 #       deliberately: an earlier draft of this very comment named one and the isolation guard
 #       refused the build, which is the second time a comment in this file explaining a boundary
 #       has crossed it.
+#   v25 forge_body_compose_preserving LOSES its <prefix> argument (#248 review round 1). v24 took
+#       one and re-threaded only the regions that did NOT match it, so a caller rewriting an author
+#       section with its OWN prefix deleted its own regions and returned 0. It now re-threads every
+#       region present in the current body and absent from the new one, so a caller keeps a region
+#       it deliberately restates and loses none by omission. CALLERS MUST DROP THE ARGUMENT.
+#       Also in v25, all defects rather than contract changes: one marker grammar shared by every
+#       function, so the composer refuses what the splice refuses and preserves a CRLF body rather
+#       than dropping its regions; content carrying a marker line is refused, since it locked the
+#       region permanently; content travels by FILE, removing the MAX_ARG_STRLEN ceiling; a non-2xx
+#       or non-issue response no longer reads as an empty body; a fetch failure in the region
+#       reader is no longer indistinguishable from an absent region.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -524,158 +535,244 @@ forge_issue_view() { forge_api GET "/repos/$(forge_repo)/issues/$1"; }
 #
 # forge_issue_edit is "the one write in this library that DESTROYS what was there". Three components
 # will write a ticket body once the phase reviews land, and the rule keeping two of them apart was
-# one sentence of prose. #248's gate found that a rule in a GOVERNANCE doc cannot reach the third
-# writer at all: that writer ships in an OPTIONAL planning group which check-restatements.sh does
-# not scan and cannot be made to scan, because the group owns its own numbered rule vocabulary and
-# because the guard fails closed on an unreadable file, which would break a core CI check in any
-# checkout that declined the group.
+# one sentence of prose. A rule in a GOVERNANCE doc cannot reach the third writer at all: it ships
+# in an OPTIONAL group the governance guard neither scans nor can be made to scan. So the contract
+# lives HERE, every group that needs it already declares this one as a dependency, and it fires at
+# the write rather than at a guard over prose. This file names no component and no group.
 #
-# So the contract lives HERE, and every group that needs it already declares this one as a
-# dependency. It is enforced at the moment of the write rather than by a guard over prose. This
-# file names no component and no group, which is not stylistic: the isolation guard refuses a build
-# where anything outside that optional group names it, and an earlier draft of this comment was
-# refused for exactly that.
+# ONE DEFINITION OF A MARKER, SHARED BY EVERY FUNCTION. The first cut had two: the splice matched a
+# prefix and the composer matched an anchored regex, so five ordinary bodies (CRLF from the GitHub
+# web form, a region name with a dot, a marker with trailing text, an unterminated region, content
+# holding a stray end marker) made the COMPOSER silently drop regions and return 0, while the splice
+# refused the same shapes. The one function that rewrites a whole body was the one with no guard.
+# Both now normalise a line the same way and refuse the same shapes.
 #
-# FOUR FUNCTIONS AND NOT TWO. A splice API alone cannot express what two of the three writers do:
-# the phase review's operation is a whole-body rewrite, and this library's own governance caller
-# rewrites author sections during synthesis. Those callers would have had to hand-copy the foreign
-# regions, which is the error the primitive exists to prevent, moved one level up.
+# A MARKER IS A WHOLE LINE, after a trailing CR and trailing blanks are stripped, exactly
+# `<!-- <name>:start -->` or `<!-- <name>:end -->`. A line that BEGINS with one and carries other
+# text is REFUSED rather than read as a marker or as prose, because it is a body a human edited and
+# guessing which they meant is how the edit gets eaten.
 #
 # WHAT IT ENFORCES IS DISJOINTNESS, NOT OWNERSHIP. Nothing stops a caller declaring a prefix it does
-# not own. That is acceptable because the failure this prevents is a full-body overwrite by a buggy
-# component, not impersonation by a hostile one, and saying so here is what stops a later reader
-# believing in a protection that is not present.
+# not own. That is acceptable because the failure prevented is a full-body overwrite by a buggy
+# component, not impersonation by a hostile one.
 #
 # LAST-WRITER-WINS IS STRUCTURAL. GitHub offers no If-Match on an issue-body PATCH, so the re-read
 # before the write NARROWS the window and cannot close it. Do not propose a lock as the fix.
 #
-# RETURN CODES 101, 102 and 103: a prefix refusal, a body that moved since it was read, and a
-# malformed or unterminated marker pair. They sit ABOVE curl's 1 to 99, because forge_api propagates
-# curl's own code on a transport failure and a collision would make a refusal indistinguishable from
-# a network error, and BELOW the 126 the shell reserves. The existing vocabulary is unchanged: 2 for
-# usage and configuration, 22 for a non-2xx, 44 for a 404.
+# CODES 101 (a prefix refusal), 102 (the body moved since it was read) and 103 (a malformed,
+# unterminated or duplicated marker pair, or content that would create one). Above curl's 1 to 99,
+# because forge_api propagates curl's own code and a collision would make a refusal look like a
+# network error; below the 126 the shell reserves. A splice that fails for ANY OTHER reason returns
+# 2 and says so, rather than being laundered into 103 and sending someone to fix markers that are
+# fine.
 #
-# A MARKER IS A WHOLE LINE, at column 1. A region named inside a sentence is prose, not a marker.
+# CONTENT TRAVELS BY FILE, NOT BY ENVIRONMENT. A single execve argument is capped at
+# MAX_ARG_STRLEN, about 128KiB on Linux, which this library's own paginator header already warns
+# about; Forgejo puts no cap on a body, so a large one is reachable. Only the region NAME goes
+# through ENVIRON, and never through `-v`, which Apple's awk refuses a newline in.
 
-_forge_body_of() { forge_issue_view "$1" | jq -r '.body // ""'; }
+_forge_body_of() {   # <n>: the issue body, or non-zero if the response is not an issue
+  local raw
+  raw="$(forge_issue_view "$1")" || return $?
+  printf '%s' "$raw" | jq -e 'has("body")' >/dev/null 2>&1 || {
+    echo "forge-lib: issue #$1: the response carries no body field; refusing to treat it as empty" >&2
+    return 2
+  }
+  printf '%s' "$raw" | jq -r '.body // ""'
+}
 
-# _forge_splice: body on stdin, new body on stdout. FL_REGION, FL_MODE (set|clear), FL_CONTENT.
+# The shared normaliser and marker grammar, textually identical in every awk below.
+_FORGE_AWK_MARKER='
+  function norm(l) { sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); return l }
+  function mname(l,   n) {
+    if (l !~ /^<!-- [^ \t]+:(start|end) -->$/) return ""
+    n = l; sub(/^<!-- /, "", n); sub(/:(start|end) -->$/, "", n); return n
+  }
+  function mkind(l) { return (l ~ /:start -->$/) ? "start" : "end" }
+'
+
+# _forge_splice: body on stdin, new body on stdout. FL_REGION, FL_MODE (set|clear); content in the
+# file named by FL_CONTENT_FILE. Exit 103 on any malformed marker shape.
 _forge_splice() {
-  awk '
+  awk "$_FORGE_AWK_MARKER"'
     BEGIN {
       r = ENVIRON["FL_REGION"]; mode = ENVIRON["FL_MODE"]
       s = "<!-- " r ":start -->"; e = "<!-- " r ":end -->"
     }
     {
       line[NR] = $0
-      if (index($0, s) == 1) { nstart++; si = NR }
-      if (index($0, e) == 1) { nend++; ei = NR }
+      n = norm($0)
+      if (n == s) { nstart++; si = NR }
+      else if (index(n, s) == 1) bad = 1
+      if (n == e) { nend++; ei = NR }
+      else if (index(n, e) == 1) bad = 1
     }
     END {
-      # Refuse rather than guess where the region ends. An unterminated or repeated marker is a
-      # body a human has edited by hand, and splicing it on a guess is how the edit gets eaten.
-      if (nstart != nend || nstart > 1) exit 103
+      if (bad || nstart != nend || nstart > 1) exit 103
       if (nstart == 1 && si > ei) exit 103
       if (nstart == 0) {
         for (i = 1; i <= NR; i++) print line[i]
         if (mode == "set") {
-          if (NR > 0 && line[NR] != "") print ""
-          print s; printf "%s\n", ENVIRON["FL_CONTENT"]; print e
+          if (NR > 0 && norm(line[NR]) != "") print ""
+          print s
+          while ((getline c < ENVIRON["FL_CONTENT_FILE"]) > 0) print c
+          print e
         }
         exit 0
       }
       for (i = 1; i < si; i++) print line[i]
-      if (mode == "set") { print s; printf "%s\n", ENVIRON["FL_CONTENT"]; print e }
-      else {
-        # Close the gap without leaving a double-blank scar where the region used to be.
-        if (si > 1 && line[si - 1] == "" && ei < NR && line[ei + 1] == "") ei++
-      }
+      if (mode == "set") {
+        print s
+        while ((getline c < ENVIRON["FL_CONTENT_FILE"]) > 0) print c
+        print e
+      } else if (si > 1 && norm(line[si - 1]) == "" && ei < NR && norm(line[ei + 1]) == "") ei++
       for (i = ei + 1; i <= NR; i++) print line[i]
     }
   '
 }
 
-# _forge_body_write <function> <n> <new-body> <original-body>: re-read, compare, then PATCH.
+# _forge_body_write <function> <n> <new-body-file> <original-body>: re-read, compare, then PATCH.
 _forge_body_write() {
-  local fn="$1" n="$2" new="$3" original="$4" now payload rc=0
+  local fn="$1" n="$2" file="$3" original="$4" now payload rc=0
   now="$(_forge_body_of "$n")" || return $?
   if [ "$now" != "$original" ]; then
     echo "forge-lib: $fn: issue #$n changed since it was read; refusing to write" >&2
     return 102
   fi
-  payload="$(jq -nc --arg b "$new" '{body:$b}')" || return 2
+  payload="$(jq -Rs '{body:.}' < "$file")" || return 2
   forge_api PATCH "/repos/$(forge_repo)/issues/$n" "$payload" >/dev/null || rc=$?
   _forge_write_rc "$fn" "$n" "$rc"
 }
 
 # forge_body_region_get <issue> <region>
 # No prefix argument and no check: reading another component's region is not a write, and a caller
-# legitimately reads a region it does not own (a delta round reads the previous round's findings).
-# An absent region is empty with rc 0, because "not there yet" is the ordinary first case.
+# legitimately reads one it does not own. An absent region is empty with rc 0; a FETCH FAILURE is
+# not, because a caller that cannot tell them apart reads a dead network as "no previous round".
 forge_body_region_get() {
-  local n="${1-}" region="${2-}"
+  local n="${1-}" region="${2-}" body rc=0
   [ -n "$n" ] && [ -n "$region" ] || { echo "forge-lib: usage: forge_body_region_get <issue> <region>" >&2; return 2; }
-  printf '%s\n' "$(_forge_body_of "$n")" | FL_REGION="$region" awk '
+  body="$(_forge_body_of "$n")" || rc=$?
+  [ "$rc" = 0 ] || return "$rc"
+  printf '%s\n' "$body" | FL_REGION="$region" awk "$_FORGE_AWK_MARKER"'
     BEGIN { r = ENVIRON["FL_REGION"]; s = "<!-- " r ":start -->"; e = "<!-- " r ":end -->" }
-    index($0, s) == 1 { inside = 1; next }
-    index($0, e) == 1 { inside = 0; next }
+    { n = norm($0) }
+    n == s { inside = 1; next }
+    n == e { inside = 0; next }
     inside { print }
   '
 }
 
-forge_body_region_set()   { _forge_region_write set   "$@"; }
-forge_body_region_clear() { _forge_region_write clear "$1" "$2" "$3" ""; }
+forge_body_region_set()   { _forge_region_write set   "${1-}" "${2-}" "${3-}" "${4-}"; }
+forge_body_region_clear() { _forge_region_write clear "${1-}" "${2-}" "${3-}" ""; }
 
 _forge_region_write() {
-  local mode="$1" n="${2-}" prefix="${3-}" region="${4-}" content="${5-}" body new rc
+  local mode="$1" n="${2-}" prefix="${3-}" region="${4-}" content="${5-}" body tmp out rc=0
   [ -n "$n" ] && [ -n "$prefix" ] && [ -n "$region" ] || {
     echo "forge-lib: usage: forge_body_region_$mode <issue> <prefix> <region> [content]" >&2; return 2; }
   case "$region" in
     "$prefix"-*|"$prefix") ;;
     *) echo "forge-lib: region '$region' is not owned by prefix '$prefix'; refusing" >&2; return 101 ;;
   esac
-  # THE DRY-RUN GUARD SITS HERE, BEFORE THE FETCH, and that placement is the whole point. forge_api
-  # short-circuits EVERY method including GET under dry-run, returning 0 with an empty body, so a
-  # guard placed after the fetch would splice against an empty string and report success.
+  # CONTENT MAY NOT CARRY A MARKER LINE. Without this, a gate review quoting a marker writes a
+  # second end marker into its own region, and every later set, clear and get on that region
+  # refuses or truncates: the region is unrecoverable except by the whole-body write rule 1
+  # forbids. This repository gates its own tickets, so the quoting case is ordinary.
+  if [ "$mode" = set ] && printf '%s\n' "$content" | awk "$_FORGE_AWK_MARKER"'
+       { if (mname(norm($0)) != "") { found = 1 } } END { exit !found }'; then
+    echo "forge-lib: refusing content that carries a region marker line; it would lock '$region'" >&2
+    return 103
+  fi
+  # THE DRY-RUN GUARD SITS HERE, BEFORE THE FETCH. forge_api short-circuits EVERY method including
+  # GET under dry-run, returning 0 with an empty body, so a guard placed after the fetch would
+  # splice against an empty string and report success.
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    printf '[dry-run] %s region %s of issue %s on %s (%s bytes)\n' "$mode" "$region" "$n" "$(forge_repo)" "${#content}" >&2
+    printf '[dry-run] %s region %s of issue %s on %s (%s characters)\n' "$mode" "$region" "$n" "$(forge_repo)" "${#content}" >&2
     return 0
   fi
   body="$(_forge_body_of "$n")" || return $?
-  new="$(printf '%s\n' "$body" | FL_REGION="$region" FL_MODE="$mode" FL_CONTENT="$content" _forge_splice)"; rc=$?
-  [ "$rc" = 0 ] || { echo "forge-lib: issue #$n has a malformed or unterminated '$region' marker pair; refusing" >&2; return 103; }
-  _forge_body_write "forge_body_region_$mode" "$n" "$new" "$body"
+  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/region.$$"; out="$_FORGE_TMPDIR/out.$$"
+  printf '%s\n' "$content" > "$tmp" || { _forge_tmp_done "$tmp"; return 2; }
+  rc=0
+  printf '%s\n' "$body" | FL_REGION="$region" FL_MODE="$mode" FL_CONTENT_FILE="$tmp" _forge_splice > "$out" || rc=$?
+  _forge_tmp_done "$tmp"
+  case "$rc" in
+    0) ;;
+    103) _forge_tmp_done "$out"
+         echo "forge-lib: issue #$n has a malformed, unterminated or duplicated '$region' marker pair; refusing" >&2
+         return 103 ;;
+    *)   _forge_tmp_done "$out"
+         echo "forge-lib: could not rewrite issue #$n (awk exited $rc); nothing was sent" >&2
+         return 2 ;;
+  esac
+  _forge_body_write "forge_body_region_$mode" "$n" "$out" "$body"; rc=$?
+  _forge_tmp_done "$out"
+  return "$rc"
 }
 
-# forge_body_compose_preserving <issue> <prefix> <new-body>
-# The caller hands over a WHOLE new body; every region whose name does not begin with the caller's
-# prefix is re-threaded onto the end of it. The caller does not enumerate the foreign regions and
-# therefore cannot forget one, which is the same reasoning as folding the re-read in: a rule the
-# caller must remember is a rule that gets dropped.
+# forge_body_compose_preserving <issue> <new-body>
+#
+# NO PREFIX ARGUMENT, and that is the fix for the defect the first cut shipped. It took one and
+# re-threaded only the regions that did NOT match it, so a caller rewriting an author section with
+# its own prefix DELETED ITS OWN REGIONS and returned 0. For the governance writer that meant a
+# Step 6 author write erasing the context its own Step 2.9 had just written, which is exactly the
+# silently-dropped-write this whole contract exists to end.
+#
+# The rule instead: a region present in the CURRENT body and ABSENT from the new one is re-threaded.
+# A caller that deliberately restates a region in its new body keeps its own version. Regions are
+# otherwise managed with _set and _clear, which is where the prefix check belongs.
 forge_body_compose_preserving() {
-  local n="${1-}" prefix="${2-}" new="${3-}" body foreign
-  [ -n "$n" ] && [ -n "$prefix" ] && [ -n "$new" ] || {
-    echo "forge-lib: usage: forge_body_compose_preserving <issue> <prefix> <new-body>" >&2; return 2; }
+  local n="${1-}" new="${2-}" body tmp out rc=0
+  [ -n "$n" ] && [ -n "$new" ] || {
+    echo "forge-lib: usage: forge_body_compose_preserving <issue> <new-body>" >&2; return 2; }
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    printf '[dry-run] compose body of issue %s on %s as prefix %s (%s bytes)\n' "$n" "$(forge_repo)" "$prefix" "${#new}" >&2
+    printf '[dry-run] compose body of issue %s on %s (%s characters)\n' "$n" "$(forge_repo)" "${#new}" >&2
     return 0
   fi
   body="$(_forge_body_of "$n")" || return $?
-  foreign="$(printf '%s\n' "$body" | FL_PREFIX="$prefix" awk '
-    BEGIN { p = ENVIRON["FL_PREFIX"] }
-    /^<!-- [A-Za-z0-9_-]+:start -->$/ {
-      name = $2; sub(/:start$/, "", name)
-      keep = (index(name, p "-") == 1 || name == p) ? 0 : 1
-      if (keep) { buf = $0; collecting = 1 } else collecting = 0
-      next
+  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/new.$$"; out="$_FORGE_TMPDIR/composed.$$"
+  printf '%s\n' "$new" > "$tmp" || { _forge_tmp_done "$tmp"; return 2; }
+  rc=0
+  printf '%s\n' "$body" | FL_NEW_FILE="$tmp" awk "$_FORGE_AWK_MARKER"'
+    BEGIN {
+      while ((getline l < ENVIRON["FL_NEW_FILE"]) > 0) {
+        nl[++nn] = l
+        nm = mname(norm(l)); if (nm != "") present[nm] = 1
+      }
     }
-    /^<!-- [A-Za-z0-9_-]+:end -->$/ {
-      if (collecting) { print ""; print buf; print $0; collecting = 0; buf = "" }
-      next
+    { line[NR] = $0
+      nm = mname(norm($0))
+      if (nm != "") {
+        if (mkind(norm($0)) == "start") { if (st[nm]) bad = 1; st[nm] = NR; order[++no] = nm }
+        else { if (!st[nm] || en[nm]) bad = 1; en[nm] = NR }
+      } else if ($0 ~ /^<!-- [^ \t]+:(start|end) -->/) bad = 1
     }
-    collecting { buf = buf "\n" $0 }
-  ')"
-  _forge_body_write forge_body_compose_preserving "$n" "$new$foreign" "$body"
+    END {
+      for (k in st) if (!en[k]) bad = 1
+      if (bad) exit 103
+      for (i = 1; i <= nn; i++) print nl[i]
+      for (i = 1; i <= no; i++) {
+        k = order[i]
+        if (present[k]) continue
+        print ""
+        for (j = st[k]; j <= en[k]; j++) print line[j]
+      }
+    }
+  ' > "$out" || rc=$?
+  _forge_tmp_done "$tmp"
+  case "$rc" in
+    0) ;;
+    103) _forge_tmp_done "$out"
+         echo "forge-lib: issue #$n has a malformed, unterminated or duplicated marker pair; refusing" >&2
+         return 103 ;;
+    *)   _forge_tmp_done "$out"
+         echo "forge-lib: could not compose issue #$n (awk exited $rc); nothing was sent" >&2
+         return 2 ;;
+  esac
+  _forge_body_write forge_body_compose_preserving "$n" "$out" "$body"; rc=$?
+  _forge_tmp_done "$out"
+  return "$rc"
 }
 
 # forge_issue_comment <n> <body>

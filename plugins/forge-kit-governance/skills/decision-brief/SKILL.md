@@ -3,7 +3,7 @@ name: decision-brief
 description: Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and rewrite the ticket body so the decision can be made from it. Use when a ticket is waiting on a human decision, when asked for a decision brief on an issue, when a ticket has stalled through several nudges, or when someone asks which option to pick on a ticket.
 ---
 
-<!-- decision-brief-version: 3 -->
+<!-- decision-brief-version: 4 -->
 
 # Decision brief
 
@@ -129,9 +129,11 @@ phrased as a boundary (#262).
 
 **The third rule is enforced, not remembered.** Write through `forge_body_region_set` and
 `forge_body_region_clear` with prefix `brief`, and a whole-body rewrite through
-`forge_body_compose_preserving` with the same prefix, all from `forge-lib.sh`. They splice or
-compose while preserving every byte the caller did not ask to change, refuse a region the prefix
-does not own, and refuse a body that moved since it was read. Never `forge_issue_edit`, which
+`forge_body_compose_preserving`, which takes NO prefix, all from `forge-lib.sh`. The splice
+preserves every byte outside the one region; compose takes a whole new body and re-threads every
+region it finds, the brief's own included, so an author-section rewrite cannot drop
+`brief-preamble`. Both refuse a region the prefix does not own and a body that moved since it was
+read. Never `forge_issue_edit`, which
 replaces the whole body. Do not run a brief and a gate remediation on one ticket at the same time:
 the primitive stops them destroying each other's regions, and it cannot stop them disagreeing.
 

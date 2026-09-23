@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 57 -->
+<!-- ticket-gate-version: 58 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -150,7 +150,7 @@ Merge synthesised content into the existing issue body, preserving all prior AUT
 verbatim, and clear the gate's regions (Step 6's lifecycle). Replace or add
 `template-version: $CURRENT_TPL_VER` (0a's value; never a hardcoded literal).
 
-Write it with Step 6's `gh issue edit`, minus the verdict block.
+Write it with Step 6's primitives, minus the verdict block.
 
 **0c-v. Post void and synthesis comment**
 
@@ -328,7 +328,7 @@ under Step 6's lifecycle:
 <!-- gate-context:end -->
 ```
 
-Write it with Step 6's `gh issue edit`, minus the verdict block.
+Write it with Step 6's primitives, minus the verdict block.
 
 If no relevant files exist, write `greenfield area: no existing patterns in scope` and note
 this to the critic (absence of patterns is itself useful architectural context).
@@ -498,7 +498,9 @@ Full review: the latest `## Ticket Readiness Review` comment on this issue.
 ```
 
 ```bash
-gh issue edit <NUMBER> --repo "$REPO" --body "<updated body>"
+forge_body_region_set <NUMBER> gate <region> "<content>"
+forge_body_region_clear <NUMBER> gate <region>
+forge_body_compose_preserving <NUMBER> "<whole body>"
 ```
 
 `<ROUND>` is Step 1's count (`<N>` stays the issue number). Computed fields only, so nothing
@@ -525,8 +527,8 @@ plus `gate-context` written by Step 2.9, carrying the headings `Gate verdict` / 
 **WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only a section that is empty,
 placeholder, or synthesised by THIS run's 0c; never text the author may have written, since a
 later round cannot tell an edit of gate prose from its own. 0c-iii's thin append is the deliberate
-exception, and is how a pre-v6 section reaches v6. Such a write goes through
-`forge_body_compose_preserving` with prefix `gate`, so the other writers' regions survive it.
+exception, and is how a pre-v6 section reaches v6. Such a write uses
+`forge_body_compose_preserving`, which re-threads every region including the gate's own.
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.
@@ -543,7 +545,7 @@ alike), per Step 3B. A **fundamental** item's architecture alternatives were gen
 
 **Default behaviour: auto-remediate without prompting.**
 
-Under the lifecycle above, in the single edit above:
+Under the lifecycle above, one region per call:
 1. Replace `gate-required-changes` with the blocking items as a checklist
 2. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, insert them into
    the corresponding section per WRITE ONCE above, marked as gate-written

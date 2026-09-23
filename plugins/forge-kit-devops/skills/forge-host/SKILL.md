@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 27 -->
+<!-- forge-host-version: 28 -->
 
 # forge-host: host-aware forge operations
 
@@ -55,7 +55,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination, and a stop on a page whose ids repeat the last page's, since Gitea's per-issue comments endpoint ignores `page`, #228). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
 | `forge_body_region_get <n> <region>` | the current content of one marker-delimited region of an issue body, empty and rc 0 when absent. NO prefix check: reading another component's region is not a write |
 | `forge_body_region_set <n> <prefix> <region> <content>` / `forge_body_region_clear <n> <prefix> <region>` | splice exactly one region, preserving every other byte. Refuses a region not owned by `<prefix>` (101), a body that moved since it was read (102), and a malformed, unterminated or DUPLICATED marker pair (103) |
-| `forge_body_compose_preserving <n> <prefix> <new-body>` | a WHOLE-body write that re-threads every region the caller does not own, so a rewriting component cannot drop another's region by forgetting it |
+| `forge_body_compose_preserving <n> <new-body>` | a WHOLE-body write that re-threads EVERY region, the caller's own included, so an author-section rewrite cannot drop a region anyone wrote. A region restated in the new body is kept once, not duplicated |
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
 | `forge_issue_milestone_list <title>` | the open issues in a milestone, by title, PRs excluded |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
@@ -84,8 +84,8 @@ full-body overwrite by a buggy component rather than impersonation by a hostile 
 last-writer-wins is structural, since GitHub offers no `If-Match` on an issue-body PATCH, so the
 re-read before the write narrows the window and cannot close it.
 
-`FORGE_DRY_RUN=1` decides BEFORE the fetch, not before the PATCH, and prints the byte count of the
-ARGUMENT. That placement is load-bearing: `forge_api` short-circuits every method including GET, so
+`FORGE_DRY_RUN=1` decides BEFORE the fetch, not before the PATCH, and prints the CHARACTER count
+of the argument. That placement is load-bearing: `forge_api` short-circuits every method including GET, so
 a guard placed later would splice against an empty string and report success.
 
 **`FORGE_DEBUG=1` makes the one routine explanation speak, and nothing else changes (#236).**

@@ -1449,10 +1449,10 @@ echo "== #248: the read side has no prefix check, because reading is not writing
 )
 [ $? -eq 0 ] && ok "and an absent region is empty and rc 0, not an error" || bad "get on an absent region did not return empty with rc 0"
 
-echo "== #248: a whole-body write re-threads the regions it does not own =="
+echo "== #248: a whole-body write re-threads every region, INCLUDING the caller's own =="
 (
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
-  forge_body_compose_preserving 7 phase "Entirely new body." >/dev/null 2>&1 || exit 9
+  forge_body_compose_preserving 7 "Entirely new body." >/dev/null 2>&1 || exit 9
   out="$(patched)"
   printf '%s' "$out" | grep -q 'Entirely new body' || exit 1
   printf '%s' "$out" | grep -q 'old verdict' || exit 2
@@ -1461,29 +1461,127 @@ echo "== #248: a whole-body write re-threads the regions it does not own =="
   exit 0
 )
 case $? in
-  0) ok "compose keeps every FOREIGN region and drops the author text the caller replaced";;
+  0) ok "compose keeps EVERY region and drops only the author text the caller replaced";;
   1) bad "the composed body is not what was written";;
-  2) bad "the foreign gate-verdict region was not re-threaded";;
-  3) bad "the foreign brief-decision region was not re-threaded";;
+  2) bad "the gate-verdict region was dropped";;
+  3) bad "the brief-decision region was dropped";;
   4) bad "author text the caller replaced survived anyway";;
   *) bad "the compose case errored";;
 esac
 (
+  # The defect the first cut shipped: compose took a prefix and re-threaded only the regions that
+  # did NOT match it, so a caller rewriting an author section with its own prefix deleted its own
+  # regions and returned 0. For the gate that meant a Step 6 author write erasing the context its
+  # own Step 2.9 had just written, which is the silently-dropped-write the contract exists to end.
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
-  forge_body_compose_preserving 7 gate "Entirely new body." >/dev/null 2>&1 || exit 9
+  forge_body_compose_preserving 7 "New." >/dev/null 2>&1 || exit 9
+  printf '%s' "$(patched)" | grep -q 'old verdict' || exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "a caller does not lose its OWN regions, which the first cut did and returned 0 for" || bad "compose dropped the caller's own region"
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_compose_preserving 7 "New body.
+<!-- gate-verdict:start -->
+mine, restated
+<!-- gate-verdict:end -->" >/dev/null 2>&1 || exit 9
   out="$(patched)"
-  printf '%s' "$out" | grep -q 'old verdict' && exit 1
-  printf '%s' "$out" | grep -q 'the brief owns this' || exit 2
+  [ "$(printf '%s' "$out" | grep -c 'gate-verdict:start')" = 1 ] || exit 1
+  printf '%s' "$out" | grep -q 'mine, restated' || exit 2
+  printf '%s' "$out" | grep -q 'old verdict' && exit 3
   exit 0
 )
 case $? in
-  0) ok "and the caller's OWN prefix is not re-threaded, which is what shows the prefix selects";;
-  1) bad "compose re-threaded the caller's own region, so it preserves unconditionally";;
-  2) bad "compose dropped a foreign region while dropping its own";;
-  *) bad "the compose-own-prefix case errored";;
+  0) ok "a region the caller RESTATES in its new body is kept once, not duplicated";;
+  1) bad "the restated region was duplicated";;
+  2) bad "the caller's restated content was lost";;
+  3) bad "the old content survived beside the restated one";;
+  *) bad "the restate case errored";;
 esac
 
-echo "== #248: a dry run decides BEFORE it would have fetched =="
+echo "== #248: compose refuses every shape the splice refuses (one marker definition) =="
+for shape in crlf trailing unterminated; do
+  (
+    . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+    case "$shape" in
+      crlf)         BODY_FIXTURE="$(printf 'Author.\r\n<!-- brief-d:start -->\r\nPRECIOUS\r\n<!-- brief-d:end -->\r')" ;;
+      trailing)     BODY_FIXTURE='Author.
+<!-- brief-d:start --> note
+PRECIOUS
+<!-- brief-d:end -->' ;;
+      unterminated) BODY_FIXTURE='Author.
+<!-- brief-d:start -->
+PRECIOUS' ;;
+    esac
+    bodystub
+    forge_body_compose_preserving 7 "NEW BODY." >/dev/null 2>&1; rc=$?
+    if [ "$shape" = crlf ]; then
+      # CRLF is not malformed, it is what the GitHub web form produces. It must be PRESERVED.
+      [ "$rc" = 0 ] || exit 1
+      printf '%s' "$(patched)" | grep -q 'PRECIOUS' || exit 2
+    else
+      [ "$rc" = 103 ] || exit 1
+      [ -f "$T/patch.json" ] && exit 2
+    fi
+    exit 0
+  )
+  case $? in
+    0) ok "compose handles the '$shape' shape the way the splice does";;
+    1) bad "compose gave the wrong status on the '$shape' shape";;
+    2) bad "compose destroyed or wrote on the '$shape' shape";;
+    *) bad "the '$shape' case errored";;
+  esac
+done
+
+echo "== #248: content carrying a marker line would LOCK the region, so it is refused =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_set 7 gate gate-verdict 'prose
+<!-- gate-verdict:end -->
+more prose' >/dev/null 2>&1; rc=$?
+  [ "$rc" = 103 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "content holding a marker line is refused with 103, since it would lock the region forever";;
+  1) bad "content holding a marker line was not refused";;
+  2) bad "content holding a marker line was written";;
+  *) bad "the marker-in-content case errored";;
+esac
+
+echo "== #248: a response that is not an issue is not treated as an empty body =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  forge_api() { case "$1" in GET) echo '{"message":"Not Found"}';; PATCH) printf '%s' "$3" > "$T/patch.json"; echo "{}";; esac; }
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 0 ] && exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "a 2xx response with no body field refuses, rather than composing a body from nothing";;
+  1) bad "a non-issue response was accepted as an empty body";;
+  2) bad "a non-issue response still produced a PATCH, replacing the whole ticket";;
+  *) bad "the non-issue case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { return 44; }
+  out="$(forge_body_region_get 7 gate-verdict 2>/dev/null)"; rc=$?
+  [ "$rc" = 0 ] && exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "get propagates a FETCH FAILURE instead of answering empty like an absent region" || bad "get read a dead fetch as an absent region"
+
+echo "== #248: an arity mistake returns 2 and the caller lives =="
+for call in "forge_body_region_clear 7 gate" "forge_body_region_set 7 gate" "forge_body_compose_preserving 7"; do
+  out="$(bash -c "set -uo pipefail; . '$LIB'; export FORGE_HOST=forgejo FORGE_REPO=o/r; $call >/dev/null 2>&1; echo \"SURVIVED rc=\$?\"" 2>/dev/null)"
+  expect_name="${call%% *}"
+  [ "$out" = "SURVIVED rc=2" ] && ok "$expect_name returns 2 on a short call and the caller lives" || bad "$expect_name killed the caller or gave the wrong code (got '$out')"
+done
+
+echo "== #248: a dry run decides BEFORE it would have fetched =="echo "== #248: a dry run decides BEFORE it would have fetched =="
 (
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
   # A stub that FAILS the case if it is called at all, for any method including GET. forge_api
@@ -1496,7 +1594,7 @@ echo "== #248: a dry run decides BEFORE it would have fetched =="
   [ "$rc" = 0 ] || exit 1
   [ -f "$T/called" ] && exit 2
   printf '%s' "$out" | grep -q 'gate-verdict' || exit 3
-  printf '%s' "$out" | grep -q '16 bytes' || exit 4
+  printf '%s' "$out" | grep -q '16 characters' || exit 4
   exit 0
 )
 case $? in
@@ -1504,7 +1602,7 @@ case $? in
   1) bad "dry-run did not return 0";;
   2) bad "dry-run called forge_api, so the guard sits after the fetch (#254's shape)";;
   3) bad "dry-run did not name the region";;
-  4) bad "dry-run did not print the argument byte count";;
+  4) bad "dry-run did not print the argument character count";;
   *) bad "the dry-run case errored";;
 esac
 

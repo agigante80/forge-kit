@@ -284,6 +284,11 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# LOWERED 2026-09-23 (again): ticket-gate 5733 to 5729, in #248's round-1 review fixes. Step 6's
+# fenced write block grew from one `gh issue edit` line to three primitive calls, and was paid for
+# by deleting a prohibition that restated rule 1 eleven lines above it and a clause naming a prefix
+# the redesigned compose no longer takes. Both were duplication, which is the only currency this
+# file has ever had.
 # LOWERED 2026-09-23: ticket-gate 5766 to 5733 (#248). Two of the three body-lifecycle clauses
 # became one sentence saying to call forge_body_region_set/_clear, because insert-or-replace, the
 # markers, disjointness and the re-read are now the primitive's BEHAVIOUR rather than rules the
@@ -314,7 +319,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5733 ;;
+    ticket-gate) echo 5729 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac
