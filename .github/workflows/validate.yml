@@ -264,6 +264,12 @@ jobs:
       - name: Roadmap library write-primitive tests
         run: bash scripts/test-roadmap-lib.sh
 
+      # The guard itself is deliberately NOT a step. It reports and never fails, so a step running
+      # it could only print rows nobody is required to read, which is the shape #173 removed. Its
+      # callers are the phase review and the roadmap reassessment.
+      - name: Doc-drift check tests
+        run: bash scripts/test-check-doc-drift.sh
+
       - name: Group isolation tests
         run: bash scripts/test-check-group-isolation.sh
 
