@@ -1,9 +1,9 @@
 ---
-description: Work the roadmap. status, plan, close or triage a phase.
-argument-hint: status | plan <name> | close <name> | triage
+description: Work the roadmap. status, plan, review, close or triage a phase.
+argument-hint: status | plan <name> | review [name] | close <name> | triage
 ---
 
-<!-- phase-version: 4 -->
+<!-- phase-version: 5 -->
 
 # /phase
 
@@ -93,28 +93,32 @@ Finish by running `bash "$CP"` and reporting the result. If it refuses, the phas
 
 ## `/phase review [name]`
 
-The mid-phase alignment review. Defaults to the one `open` phase, and REFUSES, naming every open
-phase or the absence of one, rather than guessing which to review.
+The mid-phase alignment review. The `roadmap-phases` skill is canonical for every rule, including
+which phase is reviewed, what a rewrite may destroy, and when a ticket is re-gated. This is the
+order of work and the mechanism only.
 
-The `roadmap-phases` skill is canonical for every rule; this is the order of work.
+Resolve three more assets the same way and for the same reason:
+
+```bash
+FL=$(resolve forge-lib.sh); RL=$(resolve roadmap-lib.sh); DD=$(resolve check-doc-drift.sh)
+echo "using ${FL:-none}, ${RL:-none}, ${DD:-none}" | sed "s|$HOME|~|g"
+. "$FL"; . "$RL"
+```
+
+The two libraries are SOURCED, not run, and `forge-lib.sh` must be v25 or later. `check-doc-drift.sh`
+is forge-kit's own guard and no plugin group ships it, so `${DD:-none}` is often `none` and step 6
+is then asked by hand; that is not a reason to stop.
 
 1. Run `bash "$CP"` and report its verdict verbatim.
 2. Read the plan, the phase's roadmap prose, and EVERY ticket in the milestone, open and closed,
-   **including its comments**. `forge_issue_comments` is the primitive; `count-gate-rounds.sh`
-   gives a ticket's gate history.
-3. Report each ticket as implemented (naming the commit), partly implemented (naming what is
-   missing), not started, or superseded. Judge against the TREE, never against the ticket.
-4. Act: close, rewrite, split, create. One line per act, with its reason.
-5. If the scope moved, update the plan's five sections and the phase's roadmap prose through
-   `roadmap-lib.sh`'s writers, never by hand.
-6. Run `bash scripts/check-doc-drift.sh` over the phase's commits and act on the rows.
-7. If every ticket is implemented, run the close review rather than repeating it here.
-
-**Writes go through the body-region primitives with prefix `phase`**, so the gate's and the brief's
-regions survive, and a materially rewritten ticket is re-gated.
-
-**Stop if the answer is that the phase itself is wrong.** Altering which phases exist or their
-order is a reassessment, not a review.
+   including its comments through `forge_issue_comments`.
+3. Report each ticket against the tree: implemented (naming the commit), partly implemented
+   (naming what is missing), not started, or superseded.
+4. Show every act you would perform, each with its reason, then act.
+5. If the scope moved, edit the plan file and set the phase's roadmap prose with `roadmap_set_prose`.
+6. Run `bash "$DD" --range <base>..HEAD --docs README.md`, adding the project's other standing
+   documents, and act on the rows. Both flags are required; the range is the phase's.
+7. If every ticket is implemented, hand over to `/phase close`. Do not close it here.
 
 ## `/phase triage`
 
