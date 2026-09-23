@@ -3,7 +3,7 @@ name: decision-brief
 description: Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and rewrite the ticket body so the decision can be made from it. Use when a ticket is waiting on a human decision, when asked for a decision brief on an issue, when a ticket has stalled through several nudges, or when someone asks which option to pick on a ticket.
 ---
 
-<!-- decision-brief-version: 2 -->
+<!-- decision-brief-version: 3 -->
 
 # Decision brief
 
@@ -35,13 +35,18 @@ nothing in devops knows what a decision brief is. Install it alongside.
 
 Read and write through the `forge_*` functions, never `gh` directly, so a brief works on GitHub and
 Forgejo alike: `forge_issue_view <n>` to read, `forge_issue_comment <n> <body>` for a correction
-comment, `forge_issue_edit <n> <body>` for the rewrite. Set `FORGE_DRY_RUN=1` while drafting;
-`forge_issue_edit` REPLACES the body and the host's edit history is the only other copy.
+comment, and the body-region primitives for every write (see Step 7). Set `FORGE_DRY_RUN=1` while
+drafting.
 
-`forge_issue_edit` arrived in `forge-lib.sh` v13, added for this skill. **On an older copy the
-rewrite step has no primitive**, and a GitHub-only fallback (`gh issue edit`) silently costs the
-Forgejo half. Refresh the asset rather than falling back: check the marker, and say so plainly
-rather than quietly posting a comment instead, which is the failure step 7 exists to prevent.
+**Never `forge_issue_edit`.** It REPLACES the whole body, and the host's edit history is the only
+other copy. It is what this skill used before v24, and the primitives exist because three
+components now write these bodies.
+
+The primitives arrived in `forge-lib.sh` v24, and `forge_issue_edit` in v13. **On a copy older
+than v24 the rewrite step has no safe primitive**, and a GitHub-only fallback (`gh issue edit`)
+silently costs the Forgejo half. Refresh the asset rather than falling back: check the marker, and
+say so plainly rather than quietly posting a comment instead, which is the failure step 7 exists
+to prevent.
 
 ## Step 1: re-validate. This step BLOCKS
 

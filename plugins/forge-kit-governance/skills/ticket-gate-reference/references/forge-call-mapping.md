@@ -13,6 +13,9 @@ never through `gh` directly, is in `ticket-gate.md`; this is the lookup.
 | comment on an issue | `forge_issue_comment <N> "<body>"` |
 | list comments on an issue (all pages) | `forge_issue_comments <N>` (v14; `count-gate-rounds.sh` reads it) |
 | close an issue | `forge_issue_close <N>` |
-| edit an issue body | `forge_issue_edit <N> "<body>"` (v13; the body is `$2`, a string, never a file path: a gate once passed `--body-file` and the issue body became that literal for a minute). Set `FORGE_DRY_RUN=1` while drafting, as `decision-brief` does; it prints the byte count and sends nothing |
+| write ONE region of an issue body | `forge_body_region_set <N> gate <region> "<content>"` / `forge_body_region_clear <N> gate <region>` (v24). Splices one region and preserves every other byte, refuses a region not prefixed `gate` (101), a body that moved since it was read (102), and a malformed or duplicated marker pair (103) |
+| read one region | `forge_body_region_get <N> <region>` (v24; no prefix check, empty and rc 0 when absent) |
+| rewrite a WHOLE body | `forge_body_compose_preserving <N> gate "<body>"` (v24; re-threads every region the gate does not own, so another writer's region cannot be dropped by forgetting it) |
+| edit an issue body wholesale | `forge_issue_edit <N> "<body>"` (v13). **Not for the gate since v24**: it replaces the whole body, which is how two writers destroy each other. The body is `$2`, a string, never a file path: a gate once passed `--body-file` and the issue body became that literal string |
 | create a follow-up issue | `forge_issue_create "<title>" "<body>"`, then `forge_issue_label <N> <name…>` for labels (refuse-all on Forgejo: an unresolvable name fails the WHOLE call non-zero and applies nothing, so check the exit and create missing labels first) |
 | list/search issues | `forge_issue_list [state]`, filter client-side |
