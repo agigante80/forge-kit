@@ -17,6 +17,13 @@
 # The github branches shell out to `gh` and are unchanged by #62/#63; they are exercised by
 # real use, not stubbed here.
 set -uo pipefail
+
+# Every case that wants one of these EXPORTS it inside its own subshell, so the suite must start
+# from a known-clean environment. It did not, and the review measured what that cost: an ambient
+# FORGE_DRY_RUN=1 fails 48 cases, FORGE_REMOTE=upstream fails 31, FORGE_PAGINATE_MAX_PAGES=2 fails
+# 6, and FORGE_DEBUG=1 fails 1. The person most likely to have any of them exported is the one
+# debugging forge-lib.sh, and each failure accuses the library rather than the environment.
+unset FORGE_DEBUG FORGE_DRY_RUN FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -395,7 +402,12 @@ for v in 0 no "" 2; do
   )
   # `= 1` and not `!= 0`, the shape FORGE_DRY_RUN uses at six sites in the library: under `!= 0`
   # the value `no` would turn debugging ON, which is the opposite of what typing it means.
-  [ $? -eq 0 ] && ok "FORGE_DEBUG=${v:-<empty>} is quiet, because the test is = 1 and not != 0" || bad "FORGE_DEBUG=${v:-<empty>} was treated as truthy"
+  rc=$?   # captured BEFORE the case below, which would otherwise overwrite it and make this row vacuous
+  case "$v" in
+    no|2) why=", which is what tells = 1 from != 0" ;;
+    *)    why="" ;;   # 0 and empty are quiet under BOTH spellings, so they pin nothing about the test
+  esac
+  [ "$rc" -eq 0 ] && ok "FORGE_DEBUG=${v:-<empty>} is quiet$why" || bad "FORGE_DEBUG=${v:-<empty>} was treated as truthy"
 done
 (
   . "$LIB"
@@ -403,10 +415,35 @@ done
   forge_api() { printf '[{"id":1}]'; }
   export FORGE_PAGINATE_MAX_PAGES=3
   out=$(forge_api_paginate /repos/o/r/x 2>"$T/anom.err"); rc=$?
+  [ "$rc" = 0 ] || exit 2
+  [ "$(printf '%s' "$out" | jq 'length')" = 1 ] || exit 3
   grep -q 'identical page' "$T/anom.err" || exit 1
   exit 0
 )
-[ $? -eq 0 ] && ok "the identical-page anomaly still speaks under FORGE_DEBUG=1: the flag adds lines, never removes one" || bad "FORGE_DEBUG changed the identical-page line"
+case $? in
+  0) ok "the identical-page anomaly still speaks under FORGE_DEBUG=1: the flag adds lines, never removes one";;
+  1) bad "FORGE_DEBUG changed the identical-page line";;
+  2) bad "the identical-page stop stopped returning 0";;
+  3) bad "the identical-page stop returned the wrong number of rows";;
+  *) bad "the identical-page case errored";;
+esac
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=3
+  # A distinct id per page, so the identical-page stop cannot end it and only the cap can. Three
+  # requests reach a cap of 3, so this needs no bound and no timeout.
+  forge_api() { printf '[{"id":%s}]' "${2##*page=}"; }
+  forge_api_paginate /repos/o/r/x >/dev/null 2>"$T/cap.err"; rc=$?
+  [ "$rc" = 2 ] || exit 1
+  grep -q 'exceeded 3 pages' "$T/cap.err" || exit 2
+  exit 0
+)
+case $? in
+  0) ok "the cap's rc-2 line is NOT gated either, so BOTH walk-ended-early lines speak without FORGE_DEBUG";;
+  1) bad "the cap path stopped returning 2";;
+  2) bad "the cap rc-2 line was gated behind FORGE_DEBUG as well";;
+  *) bad "the cap case errored";;
+esac
 (
   . "$LIB"
   export FORGE_HOST=forgejo FORGE_REPO=o/r
