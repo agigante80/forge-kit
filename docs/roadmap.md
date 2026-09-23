@@ -861,6 +861,26 @@ Its plan gets written when it opens, from this prose plus whatever has accumulat
 question it will have to answer is where the boundary between the two workflows actually falls,
 since a phase review that finds the phase itself wrong is already a reassessment.
 
+## Phase: Choosing a model and an effort on purpose
+state: planned
+plan: docs/plans/choosing-a-model-and-an-effort.md
+
+Opened as a bucket 2026-09-23, when the maintainer adopted superpowers' and Anthropic's guidance on
+model selection as guidelines this kit follows rather than references. Both say the same thing from
+different ends: Anthropic's `agent-development` skill recommends `inherit` unless an agent needs
+specific capabilities, and superpowers' `subagent-driven-development` says to use the least powerful
+model that can handle each role, warns that an omitted model at a dispatch silently inherits the
+session's most expensive one, and warns in the other direction that turn count beats token price, so
+the cheapest tier is not the cheap answer.
+
+Measured against that, this kit is wrong twice. Nine agents declare `model: opus` and none declares
+`inherit`, and those lines are a fork artefact rather than a decision: `architect-review` is a
+verified duplicate of an upstream file that declares it (#250). And no dispatch site in the kit names
+a model at all, so every critic, thin-check and lens runs on whatever the caller happens to be, which
+on this repository's own runs means Opus for a step whose whole job is to call a shell script (#251).
+Beside them: an `effort:` key Anthropic ships on eight of its own agents and documents nowhere, worth
+a probe before an adoption (#252), and the guard without which all of it goes stale again (#253).
+
 ## Phase: Backlog
 state: backlog
 
