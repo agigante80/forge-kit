@@ -934,7 +934,7 @@ ms_run() {  # ms_run <host> <args...>: run forge_issue_milestone with the stub; 
 }
 ms_run forgejo 12 "Phase A"
 expect "forgejo: setting a phase PATCHes the issue with the milestone id" 0 "$RC"
-case "$MSLOG" in *"PATCH /repos/o/r/issues/12"*7*) ok "and the payload carries the id 7" ;; *) bad "payload: $MSLOG" ;; esac
+case "$MSLOG" in *'"milestone":7'*) ok "and the payload carries the id 7, as a number" ;; *) bad "payload: $MSLOG" ;; esac
 # The SET payload carries whatever _forge_milestone_id returned, and nothing else: WHICH id that
 # is per host is forge_milestone_list's contract (it normalises GitHub's per-repo number and
 # Forgejo's id into one field, and its own comment records the live 404 that taught it). This
@@ -973,6 +973,27 @@ grep -q 'Phase A' "$T/ms2.err" && ok "and names the phase it would set" || bad "
 w229 "forge_issue_milestone names a 404 on stderr, rc 44 (#245)"     44 44 forge_issue_milestone 999 ""
 w229 "forge_issue_milestone stays silent on success (#245)"           0  0 forge_issue_milestone 999 ""
 w229 "forge_issue_milestone adds no second line on rc 22 (#245)"     22 22 forge_issue_milestone 999 ""
+# Review round 1: two shapes where the writer acted on an answer it should have refused.
+# An invalid FORGE_HOST makes forge_host REFUSE and print nothing, so a catch-all arm reads the
+# refusal as "not forgejo" and sends GitHub's wire form; and a resolver that yields a JSON null or
+# a non-numeric token turned a SET into a CLEAR, or sent an empty body, instead of refusing.
+RC=$( ( . "$LIB"; export FORGE_HOST=gitea FORGE_REPO=o/r
+        : > "$T/ms4.log"; forge_api() { echo "SENT $3" >> "$T/ms4.log"; }
+        forge_issue_milestone 12 "" >/dev/null 2>&1; echo $? ) )
+expect "an invalid FORGE_HOST refuses rather than guessing a wire form" 2 "$RC"
+[ -s "$T/ms4.log" ] && bad "it sent a payload for an unknown host" || ok "and sends nothing"
+RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+        : > "$T/ms5.log"; forge_api() { echo "SENT ${3-}" >> "$T/ms5.log"; }
+        _forge_milestone_id() { printf '%s' null; }
+        forge_issue_milestone 12 "Phase A" >/dev/null 2>&1; echo $? ) )
+expect "a resolver yielding a JSON null refuses instead of CLEARING the field" 2 "$RC"
+case "$(cat "$T/ms5.log")" in *milestone*) bad "a null id reached the payload: $(cat "$T/ms5.log")" ;; *) ok "and sends no payload" ;; esac
+RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+        : > "$T/ms6.log"; forge_api() { echo "SENT ${3-}" >> "$T/ms6.log"; }
+        _forge_milestone_id() { printf '%s' 'abc'; }
+        forge_issue_milestone 12 "Phase A" >/dev/null 2>&1; echo $? ) )
+expect "a non-numeric id refuses instead of sending an empty body" 2 "$RC"
+[ -s "$T/ms6.log" ] && bad "it sent something for a non-numeric id" || ok "and sends nothing"
 
 # --- #237: the 404 line survives a `set -e` caller. `forge_api ... >/dev/null; rc=$?` let errexit
 # fire on the forge_api line before rc=$? ran, so the one shell mode forge_api's own comment

@@ -698,8 +698,12 @@ forge_milestone_close() {
 # the paginator returns a literal `[]`, so every title is unresolvable and a dry run would report
 # a real phase as missing (that is what forge_milestone_close does today, #254).
 forge_issue_milestone() {
-  local n="$1" title="$2" repo id payload rc=0
+  local n="$1" title="$2" repo host id payload rc=0
   repo="$(forge_repo)" || return 2
+  # The host is CAPTURED, never matched with a catch-all (review): forge_host refuses an invalid
+  # FORGE_HOST by printing nothing, and a `*)` arm would read that refusal as "not forgejo" and
+  # send the other host's wire form. `_forge_api_base` refuses the same way for the same reason.
+  host="$(forge_host)" || return 2
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     if [ -n "$title" ]; then printf '[dry-run] set milestone of issue %s to %s on %s\n' "$n" "$title" "$repo" >&2
     else printf '[dry-run] clear the milestone of issue %s on %s\n' "$n" "$repo" >&2; fi
@@ -710,11 +714,19 @@ forge_issue_milestone() {
     # phase leaves the ticket where check-phases rule 1 finds it, which reads as a roadmap bug.
     id="$(_forge_milestone_id "$title")" || {
       echo "forge-lib: no milestone titled '$title' on $repo" >&2; return 2; }
-    payload="$(jq -nc --argjson m "$id" '{milestone:$m}')"
+    # An id must be DIGITS, and the check is not defensive clutter (review): `jq -r` renders a
+    # JSON null as the four characters `null`, so a milestone object missing its id field would
+    # otherwise build `{"milestone":null}` and a SET would silently CLEAR the field, which is the
+    # one thing this function's refusal contract promises not to do. A non-numeric token instead
+    # makes `--argjson` fail, leaving the payload empty and sending a body-less PATCH.
+    case "$id" in
+      ''|*[!0-9]*) echo "forge-lib: milestone id for '$title' on $repo is not a number: $id" >&2; return 2 ;;
+    esac
+    payload="$(jq -nc --argjson m "$id" '{milestone:$m}')" || return 2
   else
-    case "$(forge_host)" in
+    case "$host" in
       forgejo) payload='{"milestone":0}' ;;
-      *)       payload='{"milestone":null}' ;;
+      github)  payload='{"milestone":null}' ;;
     esac
   fi
   forge_api PATCH "/repos/$repo/issues/$n" "$payload" >/dev/null || rc=$?
