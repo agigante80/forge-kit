@@ -65,7 +65,9 @@
 # the string does not end in one. A 64 KB punctuation tail cost 40 s and now costs 0.15 s; 1 MB is
 # 2 s. The REDACTED `--history` report is still quadratic in the match, which is #217 and is not
 # claimed here. Measured on bash 5.2.21 and glibc; this repository's stated floor is bash 3.2.57,
-# where neither the cost nor the locale reload `local LC_ALL=C` relies on has been measured.
+# where the COST is unmeasured. Correctness does not rest on that floor behaving: a failed tail
+# match falls back to the byte loop, so an engine that does not reload the locale the way
+# `local LC_ALL=C` expects reports a finding slowly rather than missing it (review of #239).
 # Rule C is linear in the line length in both modes: the anchored
 # RE_MAIL keeps grep on its DFA, LC_ALL=C on the tree-mode grep keeps it there under any locale,
 # and judge() splits the address with `IFS=@ read` rather than `${addr#*@}`. A 1 MB token followed
@@ -242,9 +244,20 @@ TAIL_PUNCT='.,;:!?)]}"'"'"
 # stated floor is 3.2.57, where neither the reload nor the cost is measured.
 _TAIL_CLASS="]${TAIL_PUNCT//]/}"
 _TAIL_RE="^(.*[^$_TAIL_CLASS])[$_TAIL_CLASS]*$"
+# The fallback is not defensive clutter, it is what makes the unmeasured floor safe (review): a
+# failed match means "the whole value is punctuation" only if the regex engine behaved, and the
+# one way this can fail on an older bash is the direction that SUPPRESSES a finding. So a failed
+# match on a non-empty value walks the bytes instead, which is the v18 rule exactly. It cannot
+# cost anything on a working engine, where that path is reachable only for an empty or
+# entirely-punctuation value, both short.
 strip_tail() {
-  local s="$1" LC_ALL=C
-  if [[ $s =~ $_TAIL_RE ]]; then STRIPPED="${BASH_REMATCH[1]}"; else STRIPPED=""; fi
+  local s="$1" c LC_ALL=C
+  if [[ $s =~ $_TAIL_RE ]]; then STRIPPED="${BASH_REMATCH[1]}"; return; fi
+  while [ -n "$s" ]; do
+    c="${s: -1}"
+    case "$_TAIL_CLASS" in *"$c"*) s="${s%?}" ;; *) break ;; esac
+  done
+  STRIPPED="$s"
 }
 # in_list_stripping <value> <entries...>: is the value, or the value with any number of trailing
 # TAIL_PUNCT bytes removed, in the list? A marker such as `[redacted]` ends in a byte strip_tail
@@ -518,7 +531,7 @@ judge() {
       case "$raw" in
         /home/*)  seg="${raw#/home/}" ;;
         /Users/*) seg="${raw#/Users/}" ;;
-        *)        seg="${raw##*/}" ;;
+        *)        seg="${raw##*/}" ;;   # unreachable while RE_HOME keeps its two roots: a guard, not a path
       esac
       # Checked at every strip step: "..." is entirely punctuation, so stripping the trailing dots
       # would leave nothing to compare and the guard would reject its own documented placeholder,

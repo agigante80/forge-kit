@@ -1037,12 +1037,33 @@ if [ -n "$ANYUTF8" ]; then
   expect "a non-UTF-8 byte inside the segment is still reported under a UTF-8 locale" 1 "$rc"
   case "$OUT" in *home-path:*) ok "the home-path row survives the locale" ;; *) bad "no home-path row: $OUT" ;; esac
   case "$OUT" in *home-root:*) ok "the home-root row survives the locale" ;; *) bad "no home-root row: $OUT" ;; esac
-  MUT239C="$WORK/mutant-tail-locale.sh"
-  sed 's/^\(  local s="\$1"\) LC_ALL=C$/\1/; s/^\(  local s="\$1" e n min\) LC_ALL=C; shift$/\1; shift/' "$SCRIPT" > "$MUT239C"; chmod +x "$MUT239C"
+  # Two things keep a non-UTF-8 byte inside the segment from being read as "entirely punctuation"
+  # and silently suppressed: the C pin on both helpers, and strip_tail's byte-loop fallback for a
+  # failed match. Either one alone is enough, which is the point of having both, so the mutant that
+  # proves them is the one that removes BOTH (review round 1).
+  # A regex-only strip_tail, the version without the fallback.
+  nofb() { awk '
+    /^strip_tail\(\) \{$/ { print; print "  local s=\"$1\" c LC_ALL=C";
+      print "  if [[ $s =~ $_TAIL_RE ]]; then STRIPPED=\"${BASH_REMATCH[1]}\"; else STRIPPED=\"\"; fi";
+      print "}"; skip = 1; next }
+    skip && /^\}$/ { skip = 0; next }
+    skip { next }
+    { print }' "$1"; }
+  MUT239C="$WORK/mutant-tail-nopin.sh"
+  sed 's/^\(  local s="\$1" c\) LC_ALL=C$/\1/; s/^\(  local s="\$1" e n min\) LC_ALL=C; shift$/\1; shift/' "$SCRIPT" > "$MUT239C"; chmod +x "$MUT239C"
   expect "the scanner pins both tail helpers to the C locale" 2 "$(grep -c 'local s="$1".*LC_ALL=C' "$SCRIPT" | tr -d ' ')"
-  expect "the pin-drop mutant carries neither" 0 "$(grep -c 'local s="$1".*LC_ALL=C' "$MUT239C" | tr -d ' ')"
+  expect "the pin-drop mutant carries neither pin" 0 "$(grep -c 'local s="$1".*LC_ALL=C' "$MUT239C" | tr -d ' ')"
   LC_ALL="$ANYUTF8" "$MUT239C" "$ACC" >/dev/null 2>&1
-  expect "without the pin the same leak is suppressed (mutant exits 0)" 0 "$?"
+  expect "with the pin dropped the fallback still reports it" 1 "$?"
+  MUT239D="$WORK/mutant-tail-nofallback.sh"; nofb "$SCRIPT" > "$MUT239D"; chmod +x "$MUT239D"
+  expect "the fallback-drop mutant keeps the pin" 2 "$(grep -c 'local s="$1".*LC_ALL=C' "$MUT239D" | tr -d ' ')"
+  expect "and no longer walks the bytes on a failed match" 0 "$(grep -c 'case "$_TAIL_CLASS" in' "$MUT239D" | tr -d ' ')"
+  LC_ALL="$ANYUTF8" "$MUT239D" "$ACC" >/dev/null 2>&1
+  expect "with the fallback dropped the pin still reports it" 1 "$?"
+  MUT239E="$WORK/mutant-tail-neither.sh"
+  sed 's/^\(  local s="\$1" c\) LC_ALL=C$/\1/; s/^\(  local s="\$1" e n min\) LC_ALL=C; shift$/\1; shift/' "$MUT239D" > "$MUT239E"; chmod +x "$MUT239E"
+  LC_ALL="$ANYUTF8" "$MUT239E" "$ACC" >/dev/null 2>&1
+  expect "with NEITHER the pin nor the fallback the leak is suppressed (mutant exits 0)" 0 "$?"
 else
   ok "(skipped, no UTF-8 locale on this machine) the tail-helper locale pin"
 fi
