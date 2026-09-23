@@ -220,6 +220,165 @@ run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "nothing on stdout" "" "$OUT"
 expect "and exit 0, which is the same code a finding produces" 0 "$RC"
 
+# --- #258: the allow-file, keyed on the TEXT of a claim rather than its line number -------------
+#
+# The noise is a per-LINE property. A path filter is per-PATH and provably cannot express the
+# answer here: both noisy paths carry mentions AND claims. An in-document marker was chosen in
+# round 1 and rejected in round 2 as UNPLACEABLE, because the marker must sit on its own line (an
+# end-of-line one changes the claim line's content and blame then re-dates it, suppressing the row
+# for the wrong reason) and every suppression site in this repository's README is a mid-sentence
+# continuation line, where an HTML comment interrupts the paragraph under CommonMark.
+#
+# So the exemption lives in a file and is keyed on an ANCHOR, a substring of the claiming line.
+# That is the house shape, it touches no document, and it is immune to the line moving, which is
+# what broke round 1's acceptance criteria: they named line numbers, and the check blames HEAD, so
+# inserting any line moved every row and a no-op satisfied them.
+
+allowrepo() {  # a repo whose README names the guard twice, once to be suppressed
+  mkrepo "$1"
+  printf 'guard\n' > "$R/scripts/guard.sh"
+  printf '# Doc\n\nIn passing, `scripts/guard.sh` is mentioned here.\n\nThe guard `scripts/guard.sh` does exactly three things.\n' > "$R/README.md"
+  snap "$T1" "base"; BASE=$(sha HEAD)
+  printf 'guard, changed\n' > "$R/scripts/guard.sh"
+  snap "$T2" "change the guard"
+}
+allow() { printf '%s\n' "$@" > "$R/.doc-drift-allow"; }
+
+echo "== #258: an anchored mention is suppressed and an unanchored claim is not =="
+allowrepo allow1
+allow '# names the path in passing and claims nothing about it' 'mention README.md scripts/guard.sh In passing,'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an anchored line is suppressed" 1 "$(printf '%s' "$OUT" | grep -c .)"
+contains "does exactly three things" "$(git -C "$R" show HEAD:README.md | sed -n "$(printf '%s' "$OUT" | cut -f2)p")" "and the surviving row is the CLAIM, not the mention"
+expect "and it exits 0" 0 "$RC"
+rm -f "$R/.doc-drift-allow"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "removing the allow-file brings the row back, so the entry was the reason" 2 "$(printf '%s' "$OUT" | grep -c .)"
+
+echo "== #258: the exemption survives the line moving, which a line number could not =="
+allowrepo allow2
+allow '# incidental' 'mention README.md scripts/guard.sh In passing,'
+printf '%s\n' "prepended one" "prepended two" "prepended three" > "$R/pre.txt"
+{ cat "$R/pre.txt"; git -C "$R" show HEAD:README.md; } > "$R/README.md"
+snap "$T2" "prepend three lines, moving every line below"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "the anchored line is still suppressed after three lines were inserted above it" 1 "$(printf '%s' "$OUT" | grep -c .)"
+contains "does exactly three things" "$(git -C "$R" show HEAD:README.md | sed -n "$(printf '%s' "$OUT" | cut -f2)p")" "and the row that survives is still the claim"
+
+echo "== #258: an anchor matching nothing is STALE, and does not block =="
+allowrepo allow3
+allow '# a reason' 'mention README.md scripts/guard.sh this text is nowhere in the document'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a stale entry exits 0" 0 "$RC"
+expect "and suppresses nothing" 2 "$(printf '%s' "$OUT" | grep -c .)"
+contains ".doc-drift-allow line 2: stale" "$ERR" "and says so on stderr, naming the entry"
+# Range-independence is the whole point: round 1's rule was 'matches no ROW', which reported a live
+# entry as stale on any range where its path happened not to change. So an entry whose anchor DOES
+# match a line must never be called stale, even on an empty range that produces no rows at all.
+allow '# a reason' 'mention README.md scripts/guard.sh In passing,'
+run --range "$BASE..$BASE" --docs README.md
+lacks ".doc-drift-allow line" "$ERR" "and a matching entry is never called stale, even on a range with no rows"
+
+echo "== #258: an ambiguous anchor refuses rather than guessing which line was meant =="
+allowrepo allow4
+allow '# a reason' 'mention README.md scripts/guard.sh guard'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an anchor matching two lines exits 2" 2 "$RC"
+expect "with nothing on stdout" "" "$OUT"
+contains "more than one line" "$ERR" "and says what is ambiguous"
+allow '# a reason' 'mention README.md scripts/guard.sh The guard `scripts/guard.sh` does'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "lengthening the anchor to match one line resolves it" 0 "$RC"
+
+echo "== #258: a malformed entry refuses the whole run =="
+allowrepo allow5
+allow '# a reason' 'suppress README.md scripts/guard.sh In passing,'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an unknown key exits 2" 2 "$RC"
+contains "unknown key" "$ERR" "naming the key"
+allow 'mention README.md scripts/guard.sh In passing,'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an entry with no reason above it exits 2" 2 "$RC"
+contains "reason" "$ERR" "and says a reason is required"
+allow '# a reason' 'mention README.md'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an entry missing its anchor exits 2" 2 "$RC"
+
+echo "== #258: the anchor is LITERAL text, not a pattern =="
+(
+  # `.` is a regex metacharacter. An anchor of `guard.sh` read as a pattern also matches `guardXsh`,
+  # which makes it ambiguous and refuses a run that should have worked.
+  mkrepo literal
+  printf 'guard\n' > "$R/scripts/guard.sh"
+  printf '# Doc\n\nThe file `scripts/guard.sh` does things.\n\nUnrelated prose mentioning guardXsh here.\n' > "$R/README.md"
+  snap "$T1" "base"; BASE=$(sha HEAD)
+  printf 'guard, changed\n' > "$R/scripts/guard.sh"
+  snap "$T2" "change it"
+  # Anchor `guard.sh`. Literally it matches line 3 alone. As a PATTERN the `.` matches any
+  # character, so it also matches `guardXsh` on line 5, which makes it ambiguous and refuses.
+  printf '%s\n' '# a reason' 'mention README.md scripts/guard.sh guard.sh' > "$R/.doc-drift-allow"
+  out="$(cd "$R" && bash "$SUT" --range "$BASE..$(sha HEAD)" --docs README.md 2>"$T/lit.err")"; rc=$?
+  [ "$rc" = 0 ] || exit 1
+  [ -z "$out" ] || exit 2
+  exit 0
+)
+case $? in
+  0) ok "an anchor containing a regex metacharacter is matched literally and suppresses its row";;
+  1) bad "the literal anchor was read as a pattern and the run refused";;
+  2) bad "the literal anchor did not suppress its row";;
+  *) bad "the literal-anchor case errored";;
+esac
+
+echo "== #258: an exemption is per PATH, not per line =="
+(
+  # One line can claim things about two paths. Exempting one must not silence the other.
+  mkrepo perpath
+  printf 'a\n' > "$R/scripts/guard.sh"; printf 'b\n' > "$R/scripts/other.sh"
+  printf '# Doc\n\nBoth `scripts/guard.sh` and `scripts/other.sh` are described on this one line.\n' > "$R/README.md"
+  snap "$T1" "base"; BASE=$(sha HEAD)
+  printf 'a2\n' > "$R/scripts/guard.sh"; printf 'b2\n' > "$R/scripts/other.sh"
+  snap "$T2" "change both"
+  printf '%s\n' '# a reason' 'mention README.md scripts/guard.sh described on this one line' > "$R/.doc-drift-allow"
+  out="$(cd "$R" && bash "$SUT" --range "$BASE..$(sha HEAD)" --docs README.md 2>/dev/null)"
+  [ "$(printf '%s' "$out" | grep -c .)" = 1 ] || exit 1
+  printf '%s' "$out" | grep -q 'scripts/other.sh' || exit 2
+  printf '%s' "$out" | grep -q 'scripts/guard.sh' && exit 3
+  exit 0
+)
+case $? in
+  0) ok "exempting one path on a shared line leaves the other path's row standing";;
+  1) bad "the wrong number of rows survived a shared line";;
+  2) bad "the unexempted path lost its row";;
+  3) bad "the exempted path kept its row";;
+  *) bad "the per-path case errored";;
+esac
+
+echo "== #258: no allow-file, and an empty one, change nothing =="
+allowrepo allow6
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "with no allow-file both rows are printed" 2 "$(printf '%s' "$OUT" | grep -c .)"
+expect "and it exits 0" 0 "$RC"
+allow '# only a comment, no entries'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an allow-file of comments alone suppresses nothing" 2 "$(printf '%s' "$OUT" | grep -c .)"
+expect "and is not read as suppress-everything" 0 "$RC"
+
+echo "== #258: this repository's own three ranges, asserted on TEXT and never on a line number =="
+# Round 1's criteria named line numbers. check-doc-drift blames HEAD, so inserting any line moves
+# every row below it, and a no-op satisfied them.
+for r in f15dd74e..106a4531 106a4531..9416a77b 9416a77b..c15150c4; do
+  got="$(cd "$ROOT" && bash "$SUT" --range "$r" --docs README.md 2>/dev/null | cut -f2)"
+  txt=""; for ln in $got; do txt="$txt$(git -C "$ROOT" show HEAD:README.md | sed -n "${ln}p")"; done
+  for a in 'block-dashes` hook stays dormant' 'the group stays inert' 'you copy the issue templates'; do
+    case "$txt" in *"$a"*) bad "range $r still reports the mention anchored by '$a'" ;; *) ok "range $r no longer reports '$a'" ;; esac
+  done
+done
+got="$(cd "$ROOT" && bash "$SUT" --range f15dd74e..106a4531 --docs README.md 2>/dev/null | cut -f2)"
+txt=""; for ln in $got; do txt="$txt$(git -C "$ROOT" show HEAD:README.md | sed -n "${ln}p")"; done
+for a in 'The canonical rules' 'canonical ready-ticket rules' 'what is being worked on now'; do
+  case "$txt" in *"$a"*) ok "range 1 still reports the claim '$a'" ;; *) bad "range 1 lost the claim '$a'" ;; esac
+done
+
 echo "== portability: this runs on a bash 3.2 laptop with BSD tools =="
 # CODE lines only. The header names every banned tool on purpose, to say it is not used, and a flat
 # grep would fail the script for documenting its own portability floor.
@@ -231,6 +390,7 @@ expect "no GNU timeout" 0 "$(printf '%s\n' "$CODE" | grep -cE '(^|[^-[:alnum:]])
 expect "no grep -P" 0 "$(printf '%s\n' "$CODE" | grep -cE 'grep [^|]*-[A-Za-z]*P')"
 lacks "date -d" "$CODE" "no GNU date -d, which BSD date spells differently"
 expect "the header states the residual limit of the line-level rule" 0 "$(grep -qi 'reflow' "$SUT"; echo $?)"
+expect "and the residual limit of the exemptions beside it" 0 "$(grep -qi 'THE EXEMPTIONS HAVE THEIR OWN LIMITS' "$SUT"; echo $?)"
 expect "and names the three marker regions somebody else owns" 3 "$(grep -o 'plugin-catalogue\|component-index\|plugin-groups' "$SUT" | sort -u | grep -c .)"
 
 echo "check-doc-drift tests: $pass passed, $fail failed"

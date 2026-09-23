@@ -24,6 +24,14 @@
 # 1b5c744 in this repository, which is this script's own motivating commit, is exactly such a
 # reflow. Narrower than the document-level failure, not eliminated.
 #
+# THE EXEMPTIONS HAVE THEIR OWN LIMITS, stated here beside the reflow one. An entry is keyed on a
+# SUBSTRING of a line, so it says nothing about WHY that line is exempt beyond the reason a human
+# wrote above it, and nothing checks that the reason is still true. An anchor can also go stale
+# silently in one direction only: if the line is edited so the anchor no longer matches, the entry
+# is reported stale on the next run, but if the line is edited so it stops being a mere mention and
+# becomes a real claim while still containing the anchor, the row stays suppressed and nothing says
+# so. That is the same shape as the reflow limit: the check sees text, not meaning.
+#
 # A GENERATED REGION IS SOMEBODY ELSE'S JOB. Claims inside the three marker regions are excluded by
 # MARKER and not by document, because update-component-index.py --check already owns them and a
 # second opinion on the same bytes is a duplicate failure. A path named both inside a region and in
@@ -45,6 +53,7 @@ set -uo pipefail
 RANGE=""
 DOCS=""
 ROOT=""
+ALLOW=""
 PROG="check-doc-drift"
 
 die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit 2; }
@@ -54,6 +63,7 @@ while [ $# -gt 0 ]; do
     --range) RANGE="${2-}"; shift 2 || die "--range needs a value" ;;
     --docs)  DOCS="${2-}";  shift 2 || die "--docs needs a value" ;;
     --root)  ROOT="${2-}";  shift 2 || die "--root needs a value" ;;
+    --allow-file) ALLOW="${2-}"; shift 2 || die "--allow-file needs a value" ;;
     -h|--help) sed -n '1,40p' "$0"; exit 0 ;;
     *) die "unknown argument '$1'" ;;
   esac
@@ -74,6 +84,61 @@ git rev-list --max-count=1 "$RANGE" >/dev/null 2>&1 || die "cannot resolve the r
 
 TMP="$(mktemp -d)" || die "cannot create a temporary directory"
 trap 'rm -rf "$TMP"' EXIT
+
+# --- the exemptions, keyed on the TEXT of a claim and never on its line number ------------------
+#
+# The noise this answers is a per-LINE property, so a per-PATH filter cannot express it: in this
+# repository's own README both noisy paths carry mentions AND claims. An in-document marker was the
+# first choice and is UNPLACEABLE here: it must sit on its own line, because an end-of-line marker
+# changes the claim line's content and `git blame` then re-dates it, suppressing the row for the
+# wrong reason; and every suppression site is a mid-sentence continuation line, where an HTML
+# comment interrupts the paragraph under CommonMark, or a table row where no marker can go.
+#
+# So an entry names a SUBSTRING of the claiming line. That survives the line moving, which a line
+# number does not: this check blames HEAD, so inserting any line renumbers every row below it.
+#
+#   # the reason, required, on one or more comment lines immediately above
+#   mention <document> <path> <anchor, the rest of the line>
+#
+# An anchor matching NO line in its document is STALE: reported, exit 0. That is a property of the
+# DOCUMENT and not of the range, deliberately, because a rule phrased as "matches no row" would
+# call a live entry stale on any range where its path did not change.
+# An anchor matching MORE THAN ONE line REFUSES: an ambiguous exemption is one nobody can reason
+# about. An unknown key, a missing field or an entry with no reason REFUSES for the same reason
+# every allow-file in this tree does.
+
+[ -n "$ALLOW" ] || ALLOW=".doc-drift-allow"
+: > "$TMP/suppress"
+if [ -f "$ALLOW" ]; then
+  _n=0; _reason=0
+  while IFS= read -r _ln || [ -n "$_ln" ]; do
+    _n=$((_n + 1))
+    case "$_ln" in
+      '') _reason=0; continue ;;
+      '#'*) _reason=1; continue ;;
+    esac
+    [ "$_reason" = 1 ] || die "$ALLOW line $_n: an entry needs a reason on a comment line above it"
+    _key="${_ln%% *}"
+    [ "$_key" = mention ] || die "$ALLOW line $_n: unknown key '$_key' (only 'mention' is defined)"
+    _rest="${_ln#* }"; [ "$_rest" != "$_ln" ] || die "$ALLOW line $_n: entry is missing its document"
+    _doc="${_rest%% *}"
+    _rest="${_rest#* }"; [ "$_rest" != "$_doc" ] || die "$ALLOW line $_n: entry is missing its path"
+    _path="${_rest%% *}"
+    _anchor="${_rest#* }"; [ "$_anchor" != "$_path" ] || die "$ALLOW line $_n: entry is missing its anchor"
+    if ! git cat-file -e "HEAD:$_doc" 2>/dev/null; then
+      printf '%s: %s line %d: stale, document %s is absent at HEAD\n' "$PROG" "$ALLOW" "$_n" "$_doc" >&2
+      continue
+    fi
+    _hits="$(git show "HEAD:$_doc" 2>/dev/null | LC_ALL=C grep -nF -- "$_anchor" | cut -d: -f1)"
+    _c="$(printf '%s\n' "$_hits" | grep -c . || true)"
+    if [ "$_c" = 0 ]; then
+      printf '%s: %s line %d: stale, no line of %s contains that anchor\n' "$PROG" "$ALLOW" "$_n" "$_doc" >&2
+      continue
+    fi
+    [ "$_c" = 1 ] || die "$ALLOW line $_n: the anchor matches more than one line of $_doc (lines $(printf '%s' "$_hits" | tr '\n' ' ')); lengthen it"
+    printf '%s\t%s\t%s\n' "$_doc" "$_hits" "$_path" >> "$TMP/suppress"
+  done < "$ALLOW"
+fi
 
 # --- what the range changed, and when ---------------------------------------------------------
 # git log is newest-first, so the FIRST commit a path appears under is its newest in this range.
@@ -125,10 +190,11 @@ for doc in $DOCS; do
       ' > "$TMP/blame" || die "cannot blame '$doc' at HEAD"
 
   rows="$(
-    awk -v doc="$doc" -v regions="$REGION_IDS" '
+    awk -v doc="$doc" -v regions="$REGION_IDS" -F'\t' '
       FILENAME == ARGV[1] { csha[$1] = $2; cct[$1] = $3; next }
       FILENAME == ARGV[2] { npath[$1] = $2; next }
       FILENAME == ARGV[3] { bsha[$1] = $2; bct[$1] = $3; next }
+      FILENAME == ARGV[4] { sup[$1 SUBSEP $2 SUBSEP $3] = 1; next }
       {
         line = FNR
         # A marker region is entered and left by its own comment, and both delimiter lines are
@@ -155,13 +221,14 @@ for doc in $DOCS; do
           # same-commit case as well. A separate equality branch looked like a second rule and
           # was unreachable by any input, which is the dead code this tree keeps finding.
           if (bct[line] + 0 >= cct[path] + 0) continue    # the line is no older than the change
+          if ((doc SUBSEP line SUBSEP path) in sup) continue
           key = line "\t" tok
           if (key in done) continue
           done[key] = 1
           printf "%s\t%d\t%s\t%s\n", doc, line, tok, csha[path]
         }
       }
-    ' "$TMP/changed" "$TMP/names" "$TMP/blame" "$TMP/text"
+    ' "$TMP/changed" "$TMP/names" "$TMP/blame" "$TMP/suppress" "$TMP/text"
   )"
 
   if [ -n "$rows" ]; then

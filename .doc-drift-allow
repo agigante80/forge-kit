@@ -1,0 +1,27 @@
+# check-doc-drift.sh exemptions (#258).
+#
+# An entry suppresses ONE row: the line of <document> containing <anchor> is not reported as a
+# stale claim about <path>. The anchor is a substring of the line, never a line number, because
+# this check blames HEAD and inserting any line renumbers every row below it.
+#
+#   # the reason, required, on one or more comment lines immediately above the entry
+#   mention <document> <path> <anchor>
+#
+# An anchor matching no line of its document is reported STALE and does not block. An anchor
+# matching more than one line REFUSES the run, because an ambiguous exemption is one nobody can
+# reason about. An unknown key, a missing field or a missing reason refuses for the same reason
+# every other allow-file in this tree does.
+#
+# The three entries below are the measured noise: docs/roadmap.md changes on every phase open and
+# close, so a line that merely NAMES it was reported on essentially every range this repository
+# will ever be asked about. Each of these names a path while the sentence is about something else.
+# The CLAIMS about those same two documents are deliberately not exempted and are still reported.
+
+# the sentence is about when the block-dashes hook is dormant; the path is incidental to it
+mention README.md docs/roadmap.md block-dashes` hook stays dormant
+
+# the sentence is about the roadmap group staying inert, not about what the roadmap contains
+mention README.md docs/roadmap.md the group stays inert
+
+# an instruction listing files to copy, which claims nothing about any of their contents
+mention README.md docs/guides/ticket-standards.md you copy the issue templates
