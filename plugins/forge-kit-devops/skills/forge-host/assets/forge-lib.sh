@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 22
+# forge-lib-version: 23
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -86,6 +86,17 @@
 #       changes. It is what lets a phase move happen on a self-hosted forge at all, and the
 #       clear form is host-specific (`null` on GitHub, the literal `0` on Forgejo, where a
 #       `null` is a silent no-op that returns success).
+#   v23 FORGE_DEBUG is NEW (#236): `FORGE_DEBUG=1` makes forge_api_paginate name its ORDINARY
+#       end-of-list condition on stderr; every other value, including unset and `0`, is quiet.
+#       v18 printed that line unconditionally on every list call, so `/phase` (which reaches
+#       the paginator through forge_milestone_list and does not redirect stderr) and a gate run
+#       filing a ticket both opened with lines of routine noise. Quiet is the new default and
+#       matches what every caller that was redirecting the line away already saw.
+#       THE ANOMALY LINES ARE NOT GATED and must not be: the identical-page stop says the server
+#       is ignoring `page`, and the two rc-2 lines say the walk could not continue. A caller
+#       needs all three whether or not it asked for debugging.
+#       The test is `= 1`, matching FORGE_DRY_RUN at six sites in this file; `!= 0` would have
+#       made `FORGE_DEBUG=no` turn debugging on.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -405,7 +416,14 @@ forge_api_paginate() {
         echo "forge-lib: paginate: non-array or empty response from ${path} page ${page}" >&2
         _forge_tmp_done "$tmp"; return 2 ;;
     esac
-    [ "$n" -gt 0 ] || { echo "forge-lib: paginate: empty page ${page}: end of ${path}" >&2; break; }
+    if [ "$n" -le 0 ]; then
+      # The ordinary end of a list, which is not news. Gated on FORGE_DEBUG (#236) because it
+      # printed once per list call and `/phase` reads a milestone's every ticket. The `break`
+      # is a statement of its own rather than the tail of an `&&`, so an off gate cannot become
+      # a non-zero status for the arm under `set -e`.
+      [ "${FORGE_DEBUG:-0}" = 1 ] && echo "forge-lib: paginate: empty page ${page}: end of ${path}" >&2
+      break
+    fi
     # #228: a host that IGNORES page= returns the same page for ever (Gitea's per-issue comments
     # endpoint has since before the Forgejo fork, go-gitea #6132), so no page is ever empty and
     # v16 spun to the cap: 500 requests, then rc 2. The stop compares each page's STABLE KEYS

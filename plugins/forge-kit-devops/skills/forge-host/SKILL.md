@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 25 -->
+<!-- forge-host-version: 26 -->
 
 # forge-host: host-aware forge operations
 
@@ -67,6 +67,14 @@ because callers read the body with `$(...)` and a variable set in that subshell 
 
 `FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them. Run
 `bash forge-lib.sh detect` for a one-line host/repo/api/ci diagnostic.
+
+**`FORGE_DEBUG=1` makes the one routine explanation speak, and nothing else changes (#236).**
+`forge_api_paginate` writes four kinds of line to stderr. Three are never gated: the identical-page
+stop, which says the server is ignoring `page`, and the two failures that end the walk with rc 2. A
+caller needs those whether or not it asked for them. The fourth, the ordinary end of a list, was
+unconditional in v18 and printed once per list call, so a `/phase` read of a milestone opened with a
+line per ticket before it said anything. It is quiet by default from v23 and returns under
+`FORGE_DEBUG=1`. The test is `= 1`, the same shape `FORGE_DRY_RUN` uses, so `FORGE_DEBUG=no` is off.
 
 **CI status degrades gracefully, and the vocabulary is honest (#193).** `not_configured` is
 RESERVED for "could not ask" (unparseable remote, API error), and only then does a caller fall back

@@ -262,13 +262,26 @@ esac
 )
 [ $? -eq 0 ] && ok "paginate treats a non-array body as an error (jq length on an object counts keys)"              || bad "paginate accepted a non-array body (object keys counted as items)"
 
+bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it.
+  # The leak-guard suites' helper, copied for the reason their header gives: stock macOS ships no
+  # GNU `timeout`, and a suite that dies on a contributor's laptop gets deleted rather than fixed.
+  local secs="$1"; shift
+  ( set -m
+    "$@" & pid=$!
+    ( sleep "$secs"; kill -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+    set +m
+    wait "$pid" 2>/dev/null; rc=$?
+    kill -- -"$w" 2>/dev/null
+    [ "$rc" -ge 128 ] && rc=124; exit "$rc" )
+}
+
 # --- pagination cap survives a NON-NUMERIC override (a junk cap must not mean no cap) ---
 (
   . "$LIB"
   export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=junk
   # non-empty forever, with a DISTINCT id per page so the #228 identical-page stop cannot end it:
   # only the cap can stop this
-  out=$(timeout 30 bash -c '
+  out=$(bounded 30 bash -c '
     . "'"$LIB"'"
     export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=junk
     forge_api() { printf "[{\"number\":%s}]" "${2##*page=}"; }
@@ -325,7 +338,10 @@ esac
 (
   . "$LIB"
   REQLOG="$T/clamp.log"; : > "$REQLOG"
-  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  # FORGE_DEBUG=1 because #236 gated the ordinary end-of-list line. The grep below is NOT
+  # removed: it is the only observable distinguishing an empty-page end from an identical-page
+  # stop, so deleting it would silently weaken the regression signal this case exists to be.
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DEBUG=1
   forge_api() { echo "$1 $2" >> "$REQLOG"; case "$2" in *page=1*) printf '[{"id":1},{"id":2}]';; *page=2*) printf '[{"id":3}]';; *) printf '[]';; esac; }
   out=$(forge_api_paginate /repos/o/r/x 2>"$T/clamp.err") || exit 9
   [ "$(printf '%s' "$out" | jq 'length')" = 3 ] || exit 1
@@ -341,6 +357,70 @@ case $? in
   3) bad "the ordinary empty-page end did not say so on stderr";;
   4) bad "an ordinary end was reported as an identical-page stop";;
   *) bad "clamp case errored";;
+esac
+
+# --- #236: the ORDINARY end of a list is silent by default and speaks under FORGE_DEBUG=1 -------
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { case "$2" in *page=1*) printf '[{"id":1}]';; *) printf '[]';; esac; }
+  out=$(forge_api_paginate /repos/o/r/x 2>"$T/quiet.err") || exit 9
+  [ "$(printf '%s' "$out" | jq 'length')" = 1 ] || exit 1
+  [ -s "$T/quiet.err" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "the ordinary end of a list says NOTHING by default, so a /phase read opens with no noise";;
+  1) bad "the quiet path returned the wrong rows";;
+  2) bad "the ordinary end-of-list line is still unconditional (FORGE_DEBUG did not gate it)";;
+  *) bad "the quiet case errored";;
+esac
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DEBUG=1
+  forge_api() { case "$2" in *page=1*) printf '[{"id":1}]';; *) printf '[]';; esac; }
+  out=$(forge_api_paginate /repos/o/r/x 2>"$T/loud.err") || exit 9
+  grep -q 'empty page 2: end of /repos/o/r/x' "$T/loud.err" || exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "and names the page and the path under FORGE_DEBUG=1" || bad "FORGE_DEBUG=1 did not bring the end-of-list line back"
+for v in 0 no "" 2; do
+  (
+    . "$LIB"
+    export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DEBUG="$v"
+    forge_api() { case "$2" in *page=1*) printf '[{"id":1}]';; *) printf '[]';; esac; }
+    forge_api_paginate /repos/o/r/x >/dev/null 2>"$T/v.err" || exit 9
+    [ -s "$T/v.err" ] && exit 1
+    exit 0
+  )
+  # `= 1` and not `!= 0`, the shape FORGE_DRY_RUN uses at six sites in the library: under `!= 0`
+  # the value `no` would turn debugging ON, which is the opposite of what typing it means.
+  [ $? -eq 0 ] && ok "FORGE_DEBUG=${v:-<empty>} is quiet, because the test is = 1 and not != 0" || bad "FORGE_DEBUG=${v:-<empty>} was treated as truthy"
+done
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DEBUG=1
+  forge_api() { printf '[{"id":1}]'; }
+  export FORGE_PAGINATE_MAX_PAGES=3
+  out=$(forge_api_paginate /repos/o/r/x 2>"$T/anom.err"); rc=$?
+  grep -q 'identical page' "$T/anom.err" || exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "the identical-page anomaly still speaks under FORGE_DEBUG=1: the flag adds lines, never removes one" || bad "FORGE_DEBUG changed the identical-page line"
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() { printf 'not-an-array'; }
+  forge_api_paginate /repos/o/r/x >/dev/null 2>"$T/rc2.err"; rc=$?
+  [ "$rc" = 2 ] || exit 1
+  grep -q 'non-array or empty response' "$T/rc2.err" || exit 2
+  exit 0
+)
+case $? in
+  0) ok "an rc-2 error line is NOT gated, because a walk that could not continue is never noise";;
+  1) bad "the non-array path stopped returning 2";;
+  2) bad "the rc-2 error line was gated behind FORGE_DEBUG as well";;
+  *) bad "the rc-2 case errored";;
 esac
 
 # --- #228: rows without a stable key fall back to bytes rather than stopping on nothing ----------
