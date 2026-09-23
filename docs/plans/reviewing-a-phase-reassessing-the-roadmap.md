@@ -12,10 +12,24 @@ components that write a ticket body cannot contend over one.
 
 ## Done looks like
 
-- **The write-authority contract is canonical and enforced (#248).** `docs/guides/ticket-standards.md`
-  says which component owns which region of a body, `check-restatements.sh` sees it the way it sees
-  every other rule, and the three writers point at it rather than restating it. This lands FIRST:
-  both reviews rewrite bodies, and writing either of them first means inventing the rule twice.
+- **The write-authority contract is enforced at the write, not stated in a doc (#248).** Four
+  `forge-lib.sh` primitives, `forge_body_region_get`, `_set`, `_clear` and
+  `forge_body_compose_preserving`, splice or compose a body while preserving every byte the caller
+  did not ask to change, and refuse a region whose name does not start with the caller's declared
+  prefix. All three writers call them instead of `forge_issue_edit`.
+
+  **This bullet named the wrong mechanism when the phase opened, and the correction is the phase's
+  first real finding.** The original plan was a rule in `docs/guides/ticket-standards.md` guarded by
+  `check-restatements.sh`. #248's gate found that fundamental: the phase review lands in
+  `plugins/forge-kit-roadmap/`, which that guard does not scan and cannot be made to scan, because
+  the roadmap group owns its own numbered rule vocabulary and because the guard's `[ -r "$f" ] ||
+  exit 2` would fail a core CI check in any checkout that declined the optional group. A governance
+  guard reaches governance components sideways and does not reach the roadmap group at all. The
+  contract therefore moved into `forge-kit-devops`, which BOTH groups already declare as a
+  dependency, so it travels down an edge that exists rather than one that would have to be invented.
+
+  This still lands FIRST: both reviews rewrite bodies, and writing either first means inventing the
+  rule twice.
 - **`/phase review` (#244)** reads the open phase, its plan, and every ticket in its milestone open
   AND closed INCLUDING THE COMMENTS; marks what has been implemented; rewrites a ticket that no
   longer describes the work rather than appending to it; closes, splits or creates tickets as the
