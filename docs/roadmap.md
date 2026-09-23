@@ -829,7 +829,7 @@ fourth round, which is the loop working; a phase that pays them the same night i
 "ticket it" from meaning "forget it".
 
 ## Phase: The primitives roadmap management needs
-state: open
+state: done
 plan: docs/plans/primitives-roadmap-management-needs.md
 
 Opened 2026-09-23 at the maintainer's request, who asked for roadmap and phase management to be the
@@ -847,8 +847,33 @@ every ticket's comments, so a per-call stderr line becomes a per-ticket one.
 This phase ships no user-facing workflow. That is deliberate: the two workflows are the next phase,
 and they are written against primitives that already exist rather than invented alongside them.
 
+**Closed 2026-09-23. Outcome: done.** All four tickets landed in the planned order, each gated,
+each reviewed under the bounded loop, each merged to `main` on its own commit. `forge-lib.sh` v23
+(`forge_issue_milestone`, and `FORGE_DEBUG` for the paginator), `roadmap-lib.sh` v4 (seven write
+primitives, not the five the plan named: `/phase review` needs to rewrite a phase's PROSE when
+scope changes, and a reassessment needs to write the reason for a refocus, so `set_plan` and
+`set_prose` were added), and `scripts/check-doc-drift.sh`.
+
+**Two of the premortem's five failures were live and were caught by review rather than by design.**
+"The roadmap writer reflowed the prose" nearly happened: round 2 found that `reorder` was not
+byte-reversible on a roadmap whose last phase runs to EOF, because a blank line between phases
+belongs to the POSITION and not to the block, and blank lines are not a parsed field, so the
+writer's own parse-back check could not see it. "The milestone writer was written against GitHub and
+stubbed for Forgejo" is half true and is the phase's one open debt: the Forgejo path is exercised
+only by a stub here, its review found two Mediums in exactly that area, and the live run is still
+owed by the session that holds a real Forgejo. #254 and #256 came out of the same ground.
+
+**What the plan did not expect is the eight tickets the work produced**, which is the close review's
+real content. Seven went to `backlog` (#254, #255, #256, #257, #259, #260, #261) and one to the next
+phase (#258), because it decides whether the check this phase shipped is usable by the reviews that
+consume it: a dry run over three ranges of this repository reported 3, 6 and 3 rows, and every row
+was a line that merely NAMES a churning path rather than claiming anything about it.
+
+**The discipline the plan asked for held.** "It grew" was the last premortem item, and the phase
+closed on exactly the four tickets it opened with; everything else was filed rather than absorbed.
+
 ## Phase: Reviewing a phase, reassessing the roadmap
-state: planned
+state: open
 plan: docs/plans/reviewing-a-phase-reassessing-the-roadmap.md
 
 A bucket while the primitives land. It holds the two workflows themselves, #244 and #249, the
