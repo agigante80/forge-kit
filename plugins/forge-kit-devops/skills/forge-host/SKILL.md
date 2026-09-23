@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 26 -->
+<!-- forge-host-version: 27 -->
 
 # forge-host: host-aware forge operations
 
@@ -53,6 +53,9 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_create <title> <body>` | open an issue (labels omitted, added with the next op) |
 | `forge_issue_label <n> <name…>` | add labels by name (Forgejo: resolves names→IDs against repo AND org labels, all pages; REFUSE-ALL contract: any unresolvable name fails the whole call non-zero and applies nothing, so check the exit and create missing labels first) |
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination, and a stop on a page whose ids repeat the last page's, since Gitea's per-issue comments endpoint ignores `page`, #228). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
+| `forge_body_region_get <n> <region>` | the current content of one marker-delimited region of an issue body, empty and rc 0 when absent. NO prefix check: reading another component's region is not a write |
+| `forge_body_region_set <n> <prefix> <region> <content>` / `forge_body_region_clear <n> <prefix> <region>` | splice exactly one region, preserving every other byte. Refuses a region not owned by `<prefix>` (101), a body that moved since it was read (102), and a malformed, unterminated or DUPLICATED marker pair (103) |
+| `forge_body_compose_preserving <n> <prefix> <new-body>` | a WHOLE-body write that re-threads every region the caller does not own, so a rewriting component cannot drop another's region by forgetting it |
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
 | `forge_issue_milestone_list <title>` | the open issues in a milestone, by title, PRs excluded |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
@@ -67,6 +70,23 @@ because callers read the body with `$(...)` and a variable set in that subshell 
 
 `FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them. Run
 `bash forge-lib.sh detect` for a one-line host/repo/api/ci diagnostic.
+
+**The body-region primitives are the write-authority contract, enforced rather than stated (#248).**
+Three components edit a ticket body, and `forge_issue_edit` replaces the whole thing. The rule that
+kept two of them apart was a sentence of prose, and a rule in a governance doc could not have
+reached the third at all, because it ships in an OPTIONAL group the governance guard neither scans
+nor can be made to scan. Every group that needs this already depends on this one, so the contract
+lives here and fires at the write.
+
+Two limits are stated rather than implied. It enforces DISJOINTNESS, not ownership: nothing stops a
+caller declaring a prefix it does not own, which is acceptable because the failure prevented is a
+full-body overwrite by a buggy component rather than impersonation by a hostile one. And
+last-writer-wins is structural, since GitHub offers no `If-Match` on an issue-body PATCH, so the
+re-read before the write narrows the window and cannot close it.
+
+`FORGE_DRY_RUN=1` decides BEFORE the fetch, not before the PATCH, and prints the byte count of the
+ARGUMENT. That placement is load-bearing: `forge_api` short-circuits every method including GET, so
+a guard placed later would splice against an empty string and report success.
 
 **`FORGE_DEBUG=1` makes the one routine explanation speak, and nothing else changes (#236).**
 `forge_api_paginate` writes four kinds of line to stderr. Three are never gated: the identical-page

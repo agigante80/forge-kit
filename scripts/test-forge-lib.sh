@@ -1251,6 +1251,263 @@ cmp -s "$LIB" "$MUT235" && bad "mutant ledger (#235): the sed did not apply" || 
 d="$(mktemp -d "$T/fr.XXXXXX")"; r="$( cd "$d" && git init -q . && git remote add origin 'x-access-token:TOKEN@host:o/r' && . "$MUT235" && forge_repo 2>/dev/null )"
 [ "$r" = 'TOKEN@host:o/r' ] && ok "mutant (#235): without the refusal the token is printed as a slug again" || bad "mutant (#235) did not misbehave (got '$r')"
 
+# --- #248: the body-region primitives, the contract that keeps three writers from contending -----
+#
+# The gate for #248 found that a rule in a governance doc CANNOT reach the third writer, because the
+# phase review lands in the optional forge-kit-roadmap group and check-restatements.sh neither scans
+# it nor can be made to. So the contract lives here, in devops, which both groups already declare as
+# a dependency, and it is enforced at the moment of the write rather than by a guard over prose.
+
+BODY_FIXTURE='Author text above.
+
+<!-- gate-verdict:start -->
+old verdict
+<!-- gate-verdict:end -->
+
+Author text between.
+
+<!-- brief-decision:start -->
+the brief owns this
+<!-- brief-decision:end -->
+
+Author text below.'
+
+# A stub that serves the fixture on GET and records what a PATCH would have sent.
+bodystub() {
+  forge_api() {
+    case "$1" in
+      GET)   printf '%s' "$BODY_FIXTURE" | jq -Rs '{body:.}' ;;
+      PATCH) printf '%s' "$3" > "$T/patch.json"; echo "{}" ;;
+    esac
+  }
+}
+patched() { jq -r '.body' < "$T/patch.json" 2>/dev/null; }
+
+echo "== #248: a region is spliced and nothing else moves =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_set 7 gate gate-verdict "new verdict" || exit 9
+  [ -f "$T/patch.json" ] || exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "set sends a PATCH" || bad "set did not send a PATCH"
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_set 7 gate gate-verdict "new verdict" >/dev/null 2>&1
+  out="$(patched)"
+  printf '%s' "$out" | grep -q 'new verdict' || exit 1
+  printf '%s' "$out" | grep -q 'old verdict' && exit 2
+  printf '%s' "$out" | grep -q 'the brief owns this' || exit 3
+  [ "$(printf '%s' "$out" | grep -c 'Author text')" = 3 ] || exit 4
+  exit 0
+)
+case $? in
+  0) ok "and the foreign region and every line of author text survive byte for byte";;
+  1) bad "the new content is not in the written body";;
+  2) bad "the old content of the region survived";;
+  3) bad "the foreign brief-decision region was destroyed";;
+  4) bad "author text was lost";;
+  *) bad "the splice case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_set 7 brief gate-verdict "hijack" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 101 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "a prefix that does not match the region refuses with 101 and sends nothing";;
+  1) bad "the prefix refusal did not return 101";;
+  2) bad "the prefix refusal still sent a PATCH";;
+  *) bad "the prefix case errored";;
+esac
+
+echo "== #248: set inserts when absent, replaces when present, never duplicates =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_set 7 gate gate-alternatives "fresh" >/dev/null 2>&1 || exit 9
+  out="$(patched)"
+  [ "$(printf '%s' "$out" | grep -c 'gate-alternatives:start')" = 1 ] || exit 1
+  [ "$(printf '%s' "$out" | grep -c 'gate-alternatives:end')" = 1 ] || exit 2
+  exit 0
+)
+[ $? -eq 0 ] && ok "inserting an absent region adds exactly one start and one end marker" || bad "insert produced the wrong marker count"
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_set 7 gate gate-verdict "twice" >/dev/null 2>&1 || exit 9
+  out="$(patched)"
+  [ "$(printf '%s' "$out" | grep -c 'gate-verdict:start')" = 1 ] || exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "replacing a present region leaves exactly ONE marker pair, not two" || bad "replace duplicated the region"
+
+echo "== #248: a body that moved under the writer is never overwritten =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  # The counter lives in a FILE: forge_api is called through $( ), so a shell variable
+  # incremented inside it is discarded with the subshell and every GET looks like the first.
+  rm -f "$T/getn"
+  forge_api() {
+    case "$1" in
+      GET) c=$(cat "$T/getn" 2>/dev/null || echo 0); c=$((c + 1)); echo "$c" > "$T/getn"
+           if [ "$c" = 1 ]; then printf '%s' "$BODY_FIXTURE" | jq -Rs '{body:.}'
+           else printf '%s' "$BODY_FIXTURE moved" | jq -Rs '{body:.}'; fi ;;
+      PATCH) printf '%s' "$3" > "$T/patch.json"; echo "{}" ;;
+    esac
+  }
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 102 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "a body that changed between the read and the write refuses with 102 and sends nothing";;
+  1) bad "the concurrency check did not return 102";;
+  2) bad "the concurrency check still sent a PATCH";;
+  *) bad "the concurrency case errored";;
+esac
+
+echo "== #248: a malformed marker pair refuses rather than guessing =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  BODY_FIXTURE='text
+<!-- gate-verdict:start -->
+no end marker follows'
+  bodystub
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 103 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "an unterminated region refuses with 103 and sends nothing";;
+  1) bad "the unterminated region did not return 103";;
+  2) bad "the unterminated region still sent a PATCH";;
+  *) bad "the unterminated case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  # TWO complete pairs. The unterminated case above is caught by the start-before-end guard as well,
+  # so it cannot tell whether the count guard is doing anything; this shape can only be caught by
+  # the count. A body with a region pasted twice is an ordinary hand edit, and splicing it on a
+  # guess would eat everything between the first start and the last end.
+  BODY_FIXTURE='one
+<!-- gate-verdict:start -->
+first
+<!-- gate-verdict:end -->
+middle
+<!-- gate-verdict:start -->
+second
+<!-- gate-verdict:end -->
+last'
+  bodystub
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 103 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "a region present TWICE refuses with 103 too, which only the marker COUNT can catch";;
+  1) bad "a duplicated region did not return 103";;
+  2) bad "a duplicated region still sent a PATCH, eating everything between the two pairs";;
+  *) bad "the duplicated-region case errored";;
+esac
+
+echo "== #248: clear removes both markers and leaves no scar =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_clear 7 gate gate-verdict >/dev/null 2>&1 || exit 9
+  out="$(patched)"
+  printf '%s' "$out" | grep -q 'gate-verdict' && exit 1
+  printf '%s' "$out" | grep -q 'the brief owns this' || exit 2
+  printf '%s\n' "$out" | awk 'prev == "" && $0 == "" { found = 1 } { prev = $0 } END { exit !found }' && exit 3
+  exit 0
+)
+case $? in
+  0) ok "clear removes both markers and their span, leaving the foreign region intact";;
+  1) bad "clear left a marker behind";;
+  2) bad "clear destroyed the foreign region";;
+  3) bad "clear left a double blank-line scar";;
+  *) bad "the clear case errored";;
+esac
+
+echo "== #248: the read side has no prefix check, because reading is not writing =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub
+  got="$(forge_body_region_get 7 brief-decision)" || exit 9
+  [ "$got" = "the brief owns this" ] || exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "get returns a region's content with no prefix argument at all" || bad "get did not return the region content"
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub
+  got="$(forge_body_region_get 7 gate-nonexistent)"; rc=$?
+  [ "$rc" = 0 ] || exit 1
+  [ -z "$got" ] || exit 2
+  exit 0
+)
+[ $? -eq 0 ] && ok "and an absent region is empty and rc 0, not an error" || bad "get on an absent region did not return empty with rc 0"
+
+echo "== #248: a whole-body write re-threads the regions it does not own =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_compose_preserving 7 phase "Entirely new body." >/dev/null 2>&1 || exit 9
+  out="$(patched)"
+  printf '%s' "$out" | grep -q 'Entirely new body' || exit 1
+  printf '%s' "$out" | grep -q 'old verdict' || exit 2
+  printf '%s' "$out" | grep -q 'the brief owns this' || exit 3
+  printf '%s' "$out" | grep -q 'Author text between' && exit 4
+  exit 0
+)
+case $? in
+  0) ok "compose keeps every FOREIGN region and drops the author text the caller replaced";;
+  1) bad "the composed body is not what was written";;
+  2) bad "the foreign gate-verdict region was not re-threaded";;
+  3) bad "the foreign brief-decision region was not re-threaded";;
+  4) bad "author text the caller replaced survived anyway";;
+  *) bad "the compose case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_compose_preserving 7 gate "Entirely new body." >/dev/null 2>&1 || exit 9
+  out="$(patched)"
+  printf '%s' "$out" | grep -q 'old verdict' && exit 1
+  printf '%s' "$out" | grep -q 'the brief owns this' || exit 2
+  exit 0
+)
+case $? in
+  0) ok "and the caller's OWN prefix is not re-threaded, which is what shows the prefix selects";;
+  1) bad "compose re-threaded the caller's own region, so it preserves unconditionally";;
+  2) bad "compose dropped a foreign region while dropping its own";;
+  *) bad "the compose-own-prefix case errored";;
+esac
+
+echo "== #248: a dry run decides BEFORE it would have fetched =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+  # A stub that FAILS the case if it is called at all, for any method including GET. forge_api
+  # short-circuits GET under dry-run and returns an empty body, so a guard placed after the fetch
+  # would splice against an empty string: open defect #254's exact shape, inside the primitive
+  # built to make writing safe.
+  forge_api() { echo "CALLED" > "$T/called"; }
+  rm -f "$T/called"
+  out="$(forge_body_region_set 7 gate gate-verdict "some new content" 2>&1)"; rc=$?
+  [ "$rc" = 0 ] || exit 1
+  [ -f "$T/called" ] && exit 2
+  printf '%s' "$out" | grep -q 'gate-verdict' || exit 3
+  printf '%s' "$out" | grep -q '16 bytes' || exit 4
+  exit 0
+)
+case $? in
+  0) ok "dry-run names the region and the ARGUMENT byte count, and makes no request at all";;
+  1) bad "dry-run did not return 0";;
+  2) bad "dry-run called forge_api, so the guard sits after the fetch (#254's shape)";;
+  3) bad "dry-run did not name the region";;
+  4) bad "dry-run did not print the argument byte count";;
+  *) bad "the dry-run case errored";;
+esac
+
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
