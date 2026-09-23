@@ -828,6 +828,39 @@ together because each is a finding the bounded review loop turned into a ticket 
 fourth round, which is the loop working; a phase that pays them the same night is what keeps
 "ticket it" from meaning "forget it".
 
+## Phase: The primitives roadmap management needs
+state: open
+plan: docs/plans/primitives-roadmap-management-needs.md
+
+Opened 2026-09-23 at the maintainer's request, who asked for roadmap and phase management to be the
+highest priority and to have its own phases. Two workflows he runs by hand, often, have no component
+in this kit: a mid-phase alignment review (#244) and a whole-roadmap reassessment (#249). Writing
+either first would have produced a component that cannot act, because two write halves are missing
+and the third piece is a check nobody has written: nothing in the kit can SET a ticket's milestone,
+so every phase move this repository has ever made went through `gh issue edit` and is GitHub-only
+(#245); `roadmap-lib.sh` is a parser with no writer, so reshaping the roadmap is a hand edit and a
+second component would be the format's second definition (#246); and the README question the
+maintainer keeps having to ask by hand is a comparison of two path sets and two timestamps, which is
+a check rather than a reading (#247). #236 joins them because the reviews amplify it: a review reads
+every ticket's comments, so a per-call stderr line becomes a per-ticket one.
+
+This phase ships no user-facing workflow. That is deliberate: the two workflows are the next phase,
+and they are written against primitives that already exist rather than invented alongside them.
+
+## Phase: Reviewing a phase, reassessing the roadmap
+state: planned
+plan: docs/plans/reviewing-a-phase-reassessing-the-roadmap.md
+
+A bucket while the primitives land. It holds the two workflows themselves, #244 and #249, the
+contract that keeps three components from contending over one ticket body (#248), and #196, which
+becomes load-bearing the moment a component rewrites bodies routinely rather than occasionally: a
+rewrite erases the `gate-verdict` block, and #192 made the comments the durable copy precisely so it
+could be restored from them.
+
+Its plan gets written when it opens, from this prose plus whatever has accumulated. The honest
+question it will have to answer is where the boundary between the two workflows actually falls,
+since a phase review that finds the phase itself wrong is already a reassessment.
+
 ## Phase: Backlog
 state: backlog
 
