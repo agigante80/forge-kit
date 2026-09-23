@@ -978,6 +978,99 @@ else
   ok "(skipped, no UTF-8 locale on this machine) the locale mutant"
 fi
 
+# --- #239: the tail walk is LINEAR, and the strip stays a strip ------------------------------
+# Rules A and B walk a punctuation tail through strip_tail and in_list_stripping. Per byte, both
+# were quadratic (bash parameter expansion is O(n) per operation), so a pathological tail took
+# minutes and a hook that stalls is a hook that gets --no-verify, which is how this guard gets
+# removed (#211 made rule C linear for exactly that reason). The walk is now one anchored match.
+echo "== #239: a punctuation tail is walked once, and the compare stays a strip =="
+DOTS="$WORK/dot-tail.txt"; printf '/home/alice%s\n' "$(head -c 65536 /dev/zero | tr '\0' .)" > "$DOTS"
+OUT="$(bounded 10 "$SCRIPT" "$DOTS" 2>/dev/null)"; rc=$?   # tree mode: the evidence is the raw match, and --show-evidence is a --history flag
+expect "a 64 KB punctuation tail after a user is reported within the bound" 1 "$rc"
+case "$OUT" in *"home-path: /home/alice."*) ok "and the evidence is the raw match, tail and all" ;; *) bad "evidence shape: ${OUT%%$'\n'*}" ;; esac
+# The mutant is the PER-BYTE LOOP the regex replaced, not a dropped `^`: in `^(.*[^C])[C]*$` the
+# leading `.*` already spans from the start, so removing the anchor changes neither the result nor
+# the cost (measured: 0.15 s either way at 64 KB). The loop is what the anchored match is faster
+# than, and it is what a future editor might reach for again.
+MUT239A="$WORK/mutant-byte-loop.sh"
+awk '
+  /^strip_tail\(\) \{$/ { print; print "  local s=\"$1\" c";
+    print "  while [ -n \"$s\" ]; do c=\"${s: -1}\"; case \"$TAIL_PUNCT\" in *\"$c\"*) s=\"${s%?}\" ;; *) break ;; esac; done";
+    print "  STRIPPED=\"$s\""; print "}"; skip = 1; next }
+  skip && /^\}$/ { skip = 0; next }
+  skip { next }
+  { print }' "$SCRIPT" > "$MUT239A"; chmod +x "$MUT239A"
+grep -qF '=~ $_TAIL_RE' "$SCRIPT" && ok "mutant ledger (#239): the scanner strips the tail with one anchored match" || bad "mutant ledger (#239): the tail regex is not used"
+grep -qF '=~ $_TAIL_RE' "$MUT239A" && bad "mutant ledger (#239): the mutant still uses the regex" || ok "mutant ledger (#239): the mutant walks byte by byte instead"
+bounded 10 "$MUT239A" "$DOTS" >/dev/null 2>&1
+expect "the byte-loop mutant is killed at the bound (exit 124), where the scanner takes under a second" 124 "$?"
+# Every TAIL_PUNCT byte is a tail, not only the dot.
+while IFS= read -r b; do
+  [ -n "$b" ] || continue
+  expect "a root ending in [$b] still trips" yes "$(trips "cloned into ~/acme-client$b")"
+  expect "a user ending in [$b] still trips" yes "$(trips "see /home/alice$b")"
+done <<TAILBYTES
+$(printf '%s\n' '.' ',' ';' ':' '!' '?' ')' ']' '}' '"' "'")
+TAILBYTES
+
+# THE LOWER BOUND IS THE RULE. in_list_stripping compares by entry length; without the bound
+# `${#e} -ge ${#STRIPPED}` it is a prefix match, and every allow entry widens into a suppressor
+# for every longer name starting with it. This repository's own allow-file carries two such
+# entries, and a false negative is this component's one security failure mode (#239 lens).
+printf 'root ~/forge-kit\n' > "$WORK/prefix-root"
+expect "an allow entry suppresses its own root" 0 "$(scan_line 'cloned into ~/forge-kit/x' --allow-file "$WORK/prefix-root")"
+expect "but NOT a longer root it is a prefix of" 1 "$(scan_line 'cloned into ~/forge-kit-private/x' --allow-file "$WORK/prefix-root")"
+MUT239B="$WORK/mutant-prefix-match.sh"
+sed 's|^    \[ "\$n" -ge "\$min" \] && \[ "\$n" -le "\${#s}" \] || continue$|    [ "$n" -le "${#s}" ] || continue|' "$SCRIPT" > "$MUT239B"; chmod +x "$MUT239B"
+grep -qF '[ "$n" -ge "$min" ]' "$SCRIPT" && ok "mutant ledger (#239): the lower bound exists" || bad "mutant ledger (#239): lower bound not found"
+grep -qF '[ "$n" -ge "$min" ]' "$MUT239B" && bad "mutant ledger (#239): the mutant kept the bound" || ok "mutant ledger (#239): the mutant drops the lower bound"
+printf 'cloned into ~/forge-kit-private/x\n' > "$WORK/pfx.txt"
+"$MUT239B" --allow-file "$WORK/prefix-root" "$WORK/pfx.txt" >/dev/null 2>&1
+expect "without the lower bound the entry suppresses the longer root (mutant exits 0)" 0 "$?"
+
+# The locale pin is load-bearing, not hygiene: under a UTF-8 locale a non-UTF-8 byte inside the
+# segment makes the anchored regex fail, which the design reads as "entirely punctuation" and
+# suppresses. The pin lands in BOTH helpers, so the mutant deletes both.
+if [ -n "$ANYUTF8" ]; then
+  ACC="$WORK/accented.txt"; printf 'see /home/jos\351. and ~/jos\351.\n' > "$ACC"
+  OUT="$(LC_ALL="$ANYUTF8" "$SCRIPT" "$ACC" 2>/dev/null)"; rc=$?
+  expect "a non-UTF-8 byte inside the segment is still reported under a UTF-8 locale" 1 "$rc"
+  case "$OUT" in *home-path:*) ok "the home-path row survives the locale" ;; *) bad "no home-path row: $OUT" ;; esac
+  case "$OUT" in *home-root:*) ok "the home-root row survives the locale" ;; *) bad "no home-root row: $OUT" ;; esac
+  MUT239C="$WORK/mutant-tail-locale.sh"
+  sed 's/^\(  local s="\$1"\) LC_ALL=C$/\1/; s/^\(  local s="\$1" e n min\) LC_ALL=C; shift$/\1; shift/' "$SCRIPT" > "$MUT239C"; chmod +x "$MUT239C"
+  expect "the scanner pins both tail helpers to the C locale" 2 "$(grep -c 'local s="$1".*LC_ALL=C' "$SCRIPT" | tr -d ' ')"
+  expect "the pin-drop mutant carries neither" 0 "$(grep -c 'local s="$1".*LC_ALL=C' "$MUT239C" | tr -d ' ')"
+  LC_ALL="$ANYUTF8" "$MUT239C" "$ACC" >/dev/null 2>&1
+  expect "without the pin the same leak is suppressed (mutant exits 0)" 0 "$?"
+else
+  ok "(skipped, no UTF-8 locale on this machine) the tail-helper locale pin"
+fi
+
+# --- #239 part 1: a root entry that could only ever match its own literal is refused ----------
+echo "== #239: a root ending in punctuation, or carrying what rule B cannot yield, is refused =="
+printf 'x\n' > "$WORK/sample.txt"
+for v in 'foo.' '~/foo.' 'acme)' 'name:'; do
+  printf 'root %s\n' "$v" > "$WORK/punct-end-root"
+  "$SCRIPT" --allow-file "$WORK/punct-end-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a root ending in punctuation ($v) refuses the run (#239)" 2 "$?"
+  contains "root cannot end in punctuation" "$(cat "$WORK/err.txt")" "and explains why ($v)"
+done
+for v in '[redacted]' '<redacted>' '***REMOVED***' "o'brien" '.codex' '~/forge-kit'; do
+  printf 'root %s\n' "$v" > "$WORK/ok-end-root"
+  "$SCRIPT" --allow-file "$WORK/ok-end-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "an accepted root ($v) still parses (#239)" 0 "$?"
+done
+printf "root o'brien\n" > "$WORK/quote-root"
+expect "and the single quote is a name byte: root o'brien suppresses its row" 0 "$(scan_line "cloned into ~/o'brien/x" --allow-file "$WORK/quote-root")"
+printf 'root [redacted]\n' > "$WORK/marker-root"
+expect "the one marker that ends in a TAIL_PUNCT byte is exempt and still suppresses" 0 "$(scan_line 'see ~/[redacted]/notes' --allow-file "$WORK/marker-root")"
+for v in '~/ foo' 'a b' 'say"hi' 'tick`x'; do
+  printf 'root %s\n' "$v" > "$WORK/ws-root"
+  "$SCRIPT" --allow-file "$WORK/ws-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a root carrying what rule B cannot yield ($v) refuses the run (#239)" 2 "$?"
+done
+
 echo "== the two shapes rule C deliberately misses, pinned so they are not rediscovered as bugs =="
 # Both are stated in the scanner's header. A limit with no case is a limit nobody knows about.
 printf 'see /home/alice/alice@corp.io here\n' > "$WORK/glue-path.txt"
