@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, close or triage a phase.
 argument-hint: status | plan <name> | review [name] | close <name> | triage
 ---
 
-<!-- phase-version: 5 -->
+<!-- phase-version: 6 -->
 
 # /phase
 
@@ -102,22 +102,25 @@ Resolve three more assets the same way and for the same reason:
 ```bash
 FL=$(resolve forge-lib.sh); RL=$(resolve roadmap-lib.sh); DD=$(resolve check-doc-drift.sh)
 echo "using ${FL:-none}, ${RL:-none}, ${DD:-none}" | sed "s|$HOME|~|g"
+grep -m1 -o 'forge-lib-version: [0-9]*' "$FL"
 . "$FL"; . "$RL"
 ```
 
-The two libraries are SOURCED, not run, and `forge-lib.sh` must be v25 or later. `check-doc-drift.sh`
-is forge-kit's own guard and no plugin group ships it, so `${DD:-none}` is often `none` and step 6
-is then asked by hand; that is not a reason to stop.
+The two libraries are SOURCED, not run, and the version that prints must be 25 or higher.
+`${DD:-none}` is often `none`, and the skill says what the review does then.
 
 1. Run `bash "$CP"` and report its verdict verbatim.
 2. Read the plan, the phase's roadmap prose, and EVERY ticket in the milestone, open and closed,
    including its comments through `forge_issue_comments`.
 3. Report each ticket against the tree: implemented (naming the commit), partly implemented
    (naming what is missing), not started, or superseded.
-4. Show every act you would perform, each with its reason, then act.
-5. If the scope moved, edit the plan file and set the phase's roadmap prose with `roadmap_set_prose`.
-6. Run `bash "$DD" --range <base>..HEAD --docs README.md`, adding the project's other standing
-   documents, and act on the rows. Both flags are required; the range is the phase's.
+4. Run `bash "$DD" --range <base>^..HEAD --docs <documents>` and read its rows. `<base>` is the
+   plan file's adding commit; `<documents>` are the project's standing documents, `README.md`
+   among them where it exists. Both flags are required.
+5. Report every act the review would perform, on the tickets, on the plan, on the roadmap prose and
+   on those documents, each with its reason. Nothing is written before this report exists.
+6. Act. The roadmap prose goes through `roadmap_set_prose`; the plan and the documents are ordinary
+   edits.
 7. If every ticket is implemented, hand over to `/phase close`. Do not close it here.
 
 ## `/phase triage`

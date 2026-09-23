@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 5 -->
+<!-- roadmap-phases-version: 6 -->
 
 # Roadmap phases
 
@@ -99,9 +99,8 @@ Never open a second phase while one is open. Finish or re-shape the first.
 ## Reviewing a phase in flight
 
 `close` asks whether a phase is FINISHED. `review` asks whether it is still the RIGHT phase, and
-may conclude that it is finished and hand over to `close`. It is the mid-phase alignment check a
-maintainer otherwise runs by hand, and every rule below exists because doing it by hand loses one
-of them.
+may conclude that it is finished and hand over to `close`. It is the alignment check a maintainer
+otherwise runs by hand, and every rule below exists because doing it by hand loses one.
 
 **It reviews the one `open` phase, and REFUSES otherwise**, naming every open phase or the absence
 of one rather than guessing. A name given explicitly overrides that.
@@ -117,26 +116,31 @@ the review names the commit, found with `git log --grep "#<N>"` over the phase's
 `git log -S` on the behaviour itself. Report each ticket as implemented (with the commit), partly
 implemented (with what is missing), not started, or superseded (with what replaced it).
 
-**The phase's range starts at the commit that ADDED its plan file**, and ends at `HEAD`. That is
-derived rather than judged, because a plan becomes required exactly at `planned` to `open` and so
-dates the phase's start: `git log --diff-filter=A --format=%H -- <plan>`. Where the plan file
-predates the phase opening, say so and take the range from the user.
+**The phase's range starts at the commit that ADDED its plan file and INCLUDES it**, ending at
+`HEAD`: take the sha from `git log --diff-filter=A --format=%H -- <plan> | tail -1` and use
+`<sha>^..HEAD`, since `<sha>..HEAD` excludes it. That commit is usually substantive
+rather than a bare plan file, so excluding it reads its own ticket as not started. It is derived
+rather than judged: a plan becomes required exactly at `planned` to `open`, which dates the start. Where the plan file predates the phase opening, or is the
+repository's first commit, say so and take the range from the user.
 
-**It SHOWS before it acts.** The first pass writes nothing and reports every act it would perform
-with its reason. `FORGE_DRY_RUN=1` makes the write primitives print instead of send.
+**It SHOWS before it acts.** The first pass writes nothing anywhere and reports every act it would
+perform with its reason. `FORGE_DRY_RUN=1` covers the forge half only: `roadmap-lib.sh` has no dry
+run, so the roadmap and plan edits are held by the pass itself rather than by a variable.
 
 **It then acts without asking, on TICKETS**: close, rewrite, split, create, one line each with its
 reason. The roadmap and the host keep the standing gates the rest of this skill defines, so a
 milestone change is still shown under `--check` first, and the review hands over to `close` rather
 than performing one.
 
-**A rewrite REPLACES the body and destroys nothing, because it posts the previous body as a
-comment first.** An append leaves the wrong text standing above the right text and a later reader
-cannot tell which is current; a replacement with no copy leaves the author's words nowhere. What a
-rewrite may destroy has to be answered by a rule, never by the model's judgement of what reads
-stale. A rewrite carries the `template-version` marker and the template's own sections forward, or
-the next gate run re-synthesises the whole ticket. A split closes the original naming its
-successors, or the trail is lost.
+**A rewrite REPLACES the body and destroys nothing, because it posts the previous body as a comment
+first.** What a rewrite may destroy has to be answered by a rule, never by the model's judgement
+of what reads stale. That comment's
+first line is `## Superseded body (phase review)`, and a review SKIPS a comment carrying it:
+unmarked, the next run reads the scope this one replaced as part of what happened and re-opens the
+question it settled. Where the rewrite then refuses, the comment stands and the review says the
+body is unchanged. A rewrite carries the `template-version` marker and the template's own sections
+forward, or the next gate run re-synthesises the whole ticket. A split closes the original naming
+its successors, or the trail is lost.
 
 **A rewrite obeys the write-authority contract.** The review's own region goes through
 `forge_body_region_set` with prefix `phase`; a whole-body rewrite goes through
@@ -153,16 +157,15 @@ the ticket needs one rather than performing it.
 **If the scope moved, the plan and the roadmap prose move with it**, and the review says what
 changed and why. The plan file is an ordinary edit; the phase's roadmap prose goes through
 `roadmap_set_prose`, never by hand. A plan describing a phase nobody is running is worse than no
-plan, because it is believed. This is not hypothetical: the plan for the phase that built this
-component named a mechanism its own first gate round rejected, and the correction was a separate
-commit.
+plan, because it is believed.
 
 **The README question is asked on EVERY run, not only at close.** It is the step the maintainer
 says is forgotten, so it is mechanical rather than remembered: run `check-doc-drift.sh` over the
-phase's range, naming the project's standing documents, and act on the rows. Exemptions live in
-`.doc-drift-allow`, so a row is a claim somebody has not already judged incidental. **That script
-is forge-kit's own guard and no plugin group ships it**, so where it cannot be resolved the review
-asks the question by hand and names what it compared.
+phase's range, naming the project's standing documents that EXIST at `HEAD`, since it refuses with
+2 on one that does not. Act on the rows; exemptions live in `.doc-drift-allow`, so a row is a claim
+somebody has not already judged incidental. **That script is forge-kit's own guard and no plugin
+group ships it**, so where it cannot be resolved the review asks the question by hand and names
+what it compared.
 
 **It is idempotent**, because it writes only where the text would actually change. Run twice with
 nothing in between and the second run writes nothing and says so. A review that always finds
