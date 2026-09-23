@@ -8,28 +8,39 @@
 #
 # Throwaway files only; nothing here touches a forge, and the library has no host dependency.
 #
-# MUTANTS KILLED, all twenty-one run by hand on 2026-09-23 and each shown to fail this suite: the
-# parse-back comparison removed; the one-open rule removed from both sites; the state and the plan
-# ambiguity checks removed, one each; the prose section guard removed, and separately its
-# first-line arm removed; the --milestone-empty assertion no longer required; the writer's extent
-# widened to the parser's; rename's host-consequence report silenced; the duplicate-name verdict
-# dropped from _rm_block; _rm_block restored to printing a block line AND then DUPLICATE; insert's
-# duplicate-name check removed; the temp file moved into TMPDIR; `cp -p` dropped so the mode is not
-# preserved; the symlink walk skipped, and separately its depth bound raised past the fixture; the
-# arguments bound unguarded so `set -u` aborts the caller; set_state's arity check removed; the
-# plan path and the phase name each moved back onto `awk -v`; reorder's block put back through a
-# command substitution; and `--end` made to mean end of FILE.
+# MUTANTS KILLED, all thirty-one run by hand on 2026-09-23 and each shown to fail this suite.
+# From the first battery: the parse-back comparison removed; the one-open rule removed from both
+# sites; the state and the plan ambiguity checks removed; the prose section guard removed, and
+# separately its first-line arm; the --milestone-empty assertion no longer required; the writer's
+# extent widened to the parser's; rename's host-consequence report silenced; the duplicate-name
+# verdict dropped from _rm_block; insert's duplicate-name check removed; the temp file moved into
+# TMPDIR; `cp -p` dropped; the symlink walk skipped, and separately its bound raised past the
+# fixture; the arguments bound unguarded so `set -u` aborts the caller; set_state's arity check
+# removed; the plan path and the phase name each moved back onto `awk -v`; and `--end` made to
+# mean end of FILE. From the second: the body keeping its trailing blank lines; the strip keeping
+# the EOF separator blank; the insertion emitting no separator; insert_at's block regrowing its
+# trailing blank; set_prose's arity back to an emptiness test; set_plan refusing an empty plan
+# again; an empty plan written as `plan: ` with a trailing space; remove going back to its own
+# asymmetric strip; the bounded walk severing a link mid-chain; and the read-only refusal made
+# silent.
 #
-# Three of those are the suite's own history rather than hypotheticals. The ambiguity cases and the
-# repeated-name case were added BECAUSE a first battery left three mutants alive: the
-# state-ambiguity case had been written against `open`, so the one-open rule refused before the
-# check under test could run, and nothing covered a repeated name at all, which is how _rm_block
-# printing a block line AND then DUPLICATE survived to be found. The `awk -v` and `set -u` cases
-# came from a review round, which found both defects live in the first implementation.
+# FIVE OF THOSE ARE THIS SUITE'S OWN HISTORY rather than hypotheticals, and they are the reason the
+# ledger is worth keeping. A first battery left three mutants alive: one ambiguity case had been
+# written against `open`, so the one-open rule refused before the check under test could run, and
+# nothing covered a repeated phase name at all, which is how `_rm_block` printing a block line AND
+# then `DUPLICATE` survived to be found. A first review round found the `set -u` and the `awk -v`
+# defects live in the implementation. A second round found three more IN THOSE FIXES: the
+# byte-reversibility claim was false for a roadmap with no trailing section, because every fixture
+# here had one and the EOF branch never ran; a two-argument set_prose passed the new emptiness
+# check and ERASED the phase prose with rc 0; and the new symlink assertion named the wrong link in
+# the chain, so it could not fail for the property it was written for.
 #
-# One mutant is deliberately absent. A sha-equality branch was considered for the parse-back check
-# and never written, because the age of a line and the identity of its commit answer the same
-# question here; see check-doc-drift.sh, where the same branch WAS written and had to be removed.
+# TWO ASSERTIONS HERE WERE ROTTEN GREEN and are recorded rather than quietly repaired. The ENVIRON
+# portability check required the shell variable to be named `prose` when the library calls it
+# RM_PROSE, so its count was zero whatever the file said. And both atomic-write cases asserted only
+# the resulting MODE: on a read-only roadmap the write genuinely fails, the file is untouched, and
+# its mode is therefore still what the test expected, so the case passed by describing a refusal as
+# a round trip.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -184,12 +195,20 @@ expect "a keyed line the writer's extent cannot see but the parser can refuses w
 expect "and writes nothing" "" "$(diff "$T/seambefore.md" "$T/seam.md")"
 
 echo "== the atomic write, in the shape forge-adapt-agent-skills.sh already tests =="
+mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 fixture "$T/r.md"; chmod 600 "$T/r.md"
 run roadmap_set_state "$T/r.md" Alpha planned
-expect "a 600 file keeps its mode" 600 "$(stat -c '%a' "$T/r.md" 2>/dev/null || stat -f '%Lp' "$T/r.md")"
-fixture "$T/r.md"; chmod 444 "$T/r.md"
+expect "a 600 file is written" 0 "$RC"
+expect "and keeps its mode" 600 "$(mode "$T/r.md")"
+contains "state: planned" "$(sed -n '/^## Phase: Alpha/,/^## /p' "$T/r.md")" "and the edit actually landed"
+# Asserting the MODE alone was rotten green here: on a read-only file the write fails, the file is
+# untouched, and its mode is therefore still what the test expected. The real behaviour is a
+# refusal, which is a limitation worth pinning rather than a mode worth re-reading.
+fixture "$T/r.md"; cp "$T/r.md" "$T/robefore.md"; chmod 444 "$T/r.md"
 run roadmap_set_state "$T/r.md" Alpha planned
-expect "a read-only file round-trips" 444 "$(stat -c '%a' "$T/r.md" 2>/dev/null || stat -f '%Lp' "$T/r.md")"
+expect "a read-only roadmap REFUSES with 2 rather than appearing to succeed" 2 "$RC"
+expect "and is left byte-identical" "" "$(diff "$T/robefore.md" "$T/r.md")"
+expect "and keeps its mode" 444 "$(mode "$T/r.md")"
 chmod 644 "$T/r.md"
 fixture "$T/r.md"
 RC=$( ( . "$LIB"; TMPDIR=/nonexistent roadmap_set_state "$T/r.md" Alpha planned >/dev/null 2>&1; echo $? ) )
@@ -279,6 +298,62 @@ run roadmap_reorder "$T/rt.md" Gamma --end
 expect "and the inverse move succeeds" 0 "$RC"
 expect "leaving the file byte-identical to where it started" "" "$(diff "$T/rtbefore.md" "$T/rt.md")"
 
+echo "== an argument that is empty is a VALUE; an argument that is absent is a short call =="
+# The two were conflated by the first fix for the short-call defect, and for set_prose that meant a
+# two-argument call passed the emptiness check and ERASED the phase prose with rc 0.
+fixture "$T/arity.md"; cp "$T/arity.md" "$T/aritybefore.md"
+out="$(bash -c "set -uo pipefail; . '$LIB'; roadmap_set_prose '$T/arity.md' Beta 2>'$T/uerr' >/dev/null; echo \"rc=\$?\"" 2>/dev/null)"
+expect "set_prose with no text at all is a short call, refused with 2" "rc=2" "$out"
+expect "and the prose is still there" "" "$(diff "$T/aritybefore.md" "$T/arity.md")"
+run roadmap_set_prose "$T/arity.md" Beta ""
+expect "set_prose with an explicitly EMPTY text is a value, and succeeds" 0 "$RC"
+expect "and the keyed lines survive it" 1 "$(sed -n '/^## Phase: Beta/,/^## Phase: Gamma/p' "$T/arity.md" | grep -c '^state: planned')"
+lacks "A bucket. Its prose mentions" "$(cat "$T/arity.md")" "and the old prose is gone, which is what was asked for"
+fixture "$T/arity2.md"
+run roadmap_set_plan "$T/arity2.md" Beta ""
+expect "set_plan can CLEAR a plan, because rule 2 only requires one for open and done" 0 "$RC"
+expect "leaving an empty keyed line rather than removing it" 1 "$(sed -n '/^## Phase: Beta/,/^## Phase: Gamma/p' "$T/arity2.md" | grep -cx 'plan:')"
+
+echo "== a blank line between phases belongs to the POSITION, not to the block =="
+# The fixture everywhere else ends with a trailing `## Notes` section, so every insertion took the
+# `NR == at` branch and the EOF branch was never executed. A roadmap whose last phase runs to EOF
+# is the shape this library actually reshapes, and it is where a move used to gain a line.
+cat > "$T/noend.md" <<'ROADMAP'
+# forge-kit roadmap
+
+## Phase: Alpha
+state: done
+plan: docs/plans/alpha.md
+
+Alpha prose.
+
+## Phase: Beta
+state: planned
+plan: docs/plans/beta.md
+
+Beta prose.
+
+## Phase: Gamma
+state: backlog
+plan: docs/plans/gamma.md
+
+Gamma prose, and this file ends here with no trailing section.
+ROADMAP
+cp "$T/noend.md" "$T/noendbefore.md"
+run roadmap_reorder "$T/noend.md" Alpha --end
+expect "moving the first phase to the end succeeds" 0 "$RC"
+expect "and the order is the new one" "Beta Gamma Alpha" "$(grep '^## Phase:' "$T/noend.md" | sed 's/^## Phase: //' | tr '\n' ' ' | sed 's/ $//')"
+run roadmap_reorder "$T/noend.md" Alpha --before Beta
+expect "and the inverse move succeeds" 0 "$RC"
+expect "leaving the file byte-identical, with no line gained at EOF" "" "$(diff "$T/noendbefore.md" "$T/noend.md")"
+cp "$T/noend.md" "$T/noendbefore.md"
+run roadmap_insert_at "$T/noend.md" --end "Delta" planned docs/plans/delta.md "Why Delta exists."
+expect "inserting at the end of a section-less roadmap succeeds" 0 "$RC"
+expect "and adds no trailing blank line" "Why Delta exists." "$(tail -1 "$T/noend.md")"
+run roadmap_remove "$T/noend.md" Delta --milestone-empty
+expect "and removing it again succeeds" 0 "$RC"
+expect "restoring the file byte for byte" "" "$(diff "$T/noendbefore.md" "$T/noend.md")"
+
 echo "== a symlink chain deeper than the bound REFUSES rather than severing the link =="
 fixture "$T/deep-real.md"
 prev="$T/deep-real.md"
@@ -287,7 +362,11 @@ cp "$T/deep-real.md" "$T/deep-before.md"
 run roadmap_set_state "$T/deep-12.md" Alpha planned
 expect "a 12-deep chain is refused with 2" 2 "$RC"
 expect "and the real file is untouched" "" "$(diff "$T/deep-before.md" "$T/deep-real.md")"
-[ -L "$T/deep-10.md" ] && ok "and no link in the chain was replaced by a regular file" || bad "a link in the chain became a regular file"
+# Every link, not one chosen link. The first version of this assertion named deep-10.md, and the
+# bounded walk severs deep-2.md, so it could not fail for the defect it was written for.
+severed=""
+i=1; while [ "$i" -le 12 ]; do [ -L "$T/deep-$i.md" ] || severed="$severed deep-$i.md"; i=$((i + 1)); done
+expect "and NO link in the chain was replaced by a regular file" "" "$severed"
 
 echo "== portability: this library installs onto a bash 3.2 laptop =="
 # Scoped to the WRITE half. The parser's `set_lower` uses `${x,,}` on purpose, inside a
@@ -305,7 +384,7 @@ expect "no GNU readlink -f" 0 "$(grep -c 'readlink -f' "$LIB")"
 # CODE lines only: the header names the banned `awk -v x="$v"` shape on purpose, to say why it is
 # banned, and a flat grep would fail the library for documenting its own rule.
 expect "no awk -v carries anything but a number, a literal key or OFS" 0 \
-  "$(grep -v '^[[:space:]]*#' "$LIB" | grep -oE '\-v [A-Za-z_]+=' | sed 's/-v //; s/=//' | grep -vxE 's|e|k|at|bf|OFS' | grep -c .)"
+  "$(grep -v '^[[:space:]]*#' "$LIB" | grep -oE '\-v [A-Za-z_]+=' | sed 's/-v //; s/=//' | grep -vxE 's|e|k|at|OFS' | grep -c .)"
 expect "and every primitive that writes prose reads it from ENVIRON" 3 "$(grep -c 'ENVIRON\["RM_PROSE"\]' "$LIB")"
 
 echo ""

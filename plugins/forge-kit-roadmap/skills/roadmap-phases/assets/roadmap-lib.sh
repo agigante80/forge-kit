@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 3
+# roadmap-lib-version: 4
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -28,6 +28,15 @@
 # caller text travelled to awk through `-v`, which processes backslash escapes, so a plan
 # path or a phase name carrying \t was written with a literal tab; the intent and the write
 # were computed through the same mangling, so they agreed and the seam check passed it.
+#
+# v4 (#246 review round 2) fixed three defects IN v3's fixes. A blank line between phases
+# belongs to the position rather than to the block, so a move between a heading-terminated
+# position and EOF gained or lost a line; blank lines are not a parsed field, so the seam
+# check could not see that either. Arity was inferred from emptiness, which is right for
+# five primitives and wrong for the two whose argument may legitimately be empty: a
+# two-argument set_prose passed the check and ERASED the phase prose with rc 0, and
+# set_plan could not clear a plan that rule 2 does not require. And the bounded symlink
+# walk stopped at the tenth hop and wrote there, severing a link mid-chain; it now refuses.
 
 # --- portability ------------------------------------------------------------
 # macOS still ships bash 3.2 and a BSD readlink with no -f, and this is installed into other
@@ -104,6 +113,10 @@ parse_roadmap() {
 # therefore agree. Apple's awk additionally refuses a -v value containing a newline outright, which
 # is #205's finding. The form used here is a COMMAND-PREFIX assignment, `RM_X="$v" awk ...`, which
 # puts the value in that one command's environment and leaves nothing behind in the caller's.
+# The rule covers DERIVED text too, not only what a caller typed: a temp path built from the
+# roadmap's own directory carries whatever that directory is named, so the three sites that pass a
+# filename to awk pass it the same way. What `-v` may still carry is a line number, this library's
+# own `state`/`plan` literal, and awk's `OFS`; the suite allow-lists exactly those names.
 #
 # THE WRITER'S EXTENT IS NARROWER THAN THE PARSER'S, on purpose: a block runs to the next `## `
 # line, not the next `## Phase:`, so a trailing `## Notes` section is never absorbed into the prose
@@ -159,6 +172,34 @@ _rm_end_point() {
       next
     }
     END { if (instart) print NR + 1; else if (endp) print endp; else print NR + 1 }
+  ' "$1"
+}
+
+# _rm_split <file> <start> <end> <body-out> <strip-out>
+#
+# A BLANK LINE BETWEEN TWO PHASES BELONGS TO THE POSITION, NOT TO THE BLOCK, and getting that
+# wrong is what made reorder not byte-reversible. A block terminated by a heading carries a
+# trailing blank; the LAST block in a file is terminated by EOF and carries none. Move one to the
+# other position and the file gains or loses a line, which the parse-back check cannot see because
+# blank lines are not a parsed field. So the body is written canonically, with its trailing blanks
+# removed, and the separator is emitted by whoever does the inserting. Symmetrically, removing a
+# block that reached EOF also removes the blanks immediately BEFORE it, which were its separator
+# and have nothing left to separate.
+_rm_split() {
+  : > "$4"; : > "$5"
+  RM_BO="$4" RM_SO="$5" awk -v s="$2" -v e="$3" '
+    BEGIN { bo = ENVIRON["RM_BO"]; so = ENVIRON["RM_SO"] }
+    { lines[NR] = $0 }
+    END {
+      last = e - 1
+      while (last >= s && lines[last] ~ /^[ \t]*$/) last--
+      for (i = s; i <= last; i++) print lines[i] > bo
+      st = s
+      if (e > NR) { while (st > 1 && lines[st - 1] ~ /^[ \t]*$/) st-- }
+      for (i = 1; i < st; i++)  print lines[i] > so
+      for (i = e; i <= NR; i++) print lines[i] > so
+      close(bo); close(so)
+    }
   ' "$1"
 }
 
@@ -280,21 +321,31 @@ roadmap_set_state() {
 
 # roadmap_set_plan <file> <phase> <path>
 roadmap_set_plan() {
+  # Arity is counted, never inferred from emptiness. An EMPTY plan path is a legal value, not a
+  # short call: check-phases.sh rule 2 requires a plan only for `open` and `done`, so a phase going
+  # back to `backlog` legitimately clears its plan, and a library that cannot express that edit
+  # forces the hand edit it exists to replace.
+  [ "$#" -ge 3 ] || { _rm_die "usage: roadmap_set_plan <file> <phase> <path>"; return 2; }
   local f="${1-}" phase="${2-}" path="${3-}" cand rc
-  [ -n "$f" ] && [ -n "$phase" ] && [ -n "$path" ] || { _rm_die "usage: roadmap_set_plan <file> <phase> <path>"; return 2; }
+  [ -n "$f" ] && [ -n "$phase" ] || { _rm_die "usage: roadmap_set_plan <file> <phase> <path>"; return 2; }
   _rm_prepare "$f" "$phase" || return $?
   [ "$(_rm_keyed "$f" "$RM_START" "$RM_END" plan)" = 1 ] || {
     _rm_die "the '$phase' block carries no single column-0 plan line; a writer cannot act on it" 5; return 5; }
   RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" RM_V="$path" awk -F'\t' -v OFS='\t' '$1 == ENVIRON["RM_P"] { $3 = ENVIRON["RM_V"] } { print }')"
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
   RM_V="$path" awk -v s="$RM_START" -v e="$RM_END" '
-    NR > s && NR < e && index($0, "plan:") == 1 { print "plan: " ENVIRON["RM_V"]; next } { print }
+    NR > s && NR < e && index($0, "plan:") == 1 {
+      v = ENVIRON["RM_V"]; print (v == "" ? "plan:" : "plan: " v); next
+    } { print }
   ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
 
 # roadmap_set_prose <file> <phase> <text>   replace a phase's prose, keeping its keyed lines.
 roadmap_set_prose() {
+  # Same split as set_plan, and here it is the difference between a refusal and SILENT DATA LOSS:
+  # a two-argument call used to pass the emptiness check and erase the phase prose with rc 0.
+  [ "$#" -ge 3 ] || { _rm_die "usage: roadmap_set_prose <file> <phase> <text>"; return 2; }
   local f="${1-}" phase="${2-}" prose="${3-}" cand rc
   [ -n "$f" ] && [ -n "$phase" ] || { _rm_die "usage: roadmap_set_prose <file> <phase> <text>"; return 2; }
   _rm_prose_ok "$prose" || return 5
@@ -349,10 +400,10 @@ roadmap_insert_at() {
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
   RM_NAME="$name" RM_STATE="$st" RM_PLAN="$plan" RM_PROSE="$prose" awk -v at="$at" '
     function block() {
-      printf "## Phase: %s\nstate: %s\nplan: %s\n\n%s\n\n",
+      printf "## Phase: %s\nstate: %s\nplan: %s\n\n%s\n",
              ENVIRON["RM_NAME"], ENVIRON["RM_STATE"], ENVIRON["RM_PLAN"], ENVIRON["RM_PROSE"]
     }
-    NR == at { block(); done = 1 }
+    NR == at { block(); print ""; done = 1 }
     { prev = $0; print }
     END { if (!done) { if (prev != "") print ""; block() } }
   ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
@@ -388,8 +439,8 @@ roadmap_reorder() {
       RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" awk -F'\t' '$1 != ENVIRON["RM_P"]'; printf '%s\n' "$row")" ;;
   esac
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  awk -v s="$RM_START" -v e="$RM_END" 'NR >= s && NR < e' "$f" > "$cand.body" || { rm -f "$cand" "$cand.body"; return 2; }
-  awk -v s="$RM_START" -v e="$RM_END" 'NR < s || NR >= e' "$f" > "$cand.strip" || { rm -f "$cand" "$cand.body" "$cand.strip"; return 2; }
+  _rm_split "$f" "$RM_START" "$RM_END" "$cand.body" "$cand.strip" \
+    || { rm -f "$cand" "$cand.body" "$cand.strip"; _rm_die "cannot split '$f' around '$phase'"; return 2; }
   case "$where" in
     --before)
       at="$(_rm_block "$cand.strip" "$ref")"
@@ -400,8 +451,9 @@ roadmap_reorder() {
     --end)
       at="$(_rm_end_point "$cand.strip")" ;;
   esac
-  awk -v at="$at" -v bf="$cand.body" '
-    NR == at { while ((getline l < bf) > 0) print l; done = 1 }
+  RM_BF="$cand.body" awk -v at="$at" '
+    BEGIN { bf = ENVIRON["RM_BF"] }
+    NR == at { while ((getline l < bf) > 0) print l; print ""; done = 1 }
     { prev = $0; print }
     END { if (!done) { if (prev != "") print ""; while ((getline l < bf) > 0) print l } }
   ' "$cand.strip" > "$cand" || { rm -f "$cand" "$cand.body" "$cand.strip"; _rm_die "cannot build the new content"; return 2; }
@@ -423,7 +475,9 @@ roadmap_remove() {
   _rm_prepare "$f" "$phase" || return $?
   RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" awk -F'\t' '$1 != ENVIRON["RM_P"]')"
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  awk -v s="$RM_START" -v e="$RM_END" 'NR < s || NR >= e' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
+  _rm_split "$f" "$RM_START" "$RM_END" "$cand.body" "$cand" \
+    || { rm -f "$cand" "$cand.body"; _rm_die "cannot split '$f' around '$phase'"; return 2; }
+  rm -f "$cand.body"
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
 
