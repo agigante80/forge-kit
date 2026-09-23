@@ -5,8 +5,8 @@ starts and after it lands, enforced by a build failure rather than a note asking
 
 forge-kit is not a collection of clever agents. It started as one, and the agents turned out to be
 the least distinctive thing in it: the tree today carries more guard scripts and contract test
-suites than prose components, and the last six phases of work produced guards, versioning
-discipline, install scope and measurement rather than new capability. What is left that nobody else
+suites than prose components, and thirty closed phases of work produced guards, versioning
+discipline, install scope, measurement and a leak guard rather than new capability. What is left that nobody else
 ships is the outer loop, and that is what this is for.
 
 ## What forge-kit answers, and what its neighbours answer
@@ -296,7 +296,7 @@ Hand-written on purpose: this is sequencing guidance, not inventory.
 | Periodically | "audit dependencies", "health check" | `dep-auditor` and `health-check` are agents, not slash commands: mention them in conversation. |
 | Before a session ends | `closing-sessions` | Persists durable facts and resume state; without it the next session starts cold. |
 | When a ticket is stalled on a decision | `decision-brief` | Re-gates it, costs the options, and rewrites the body so the decision can be made from it. |
-| Opening or closing a phase | `/phase` | Only with `forge-kit-roadmap` installed. Inert in a project with no roadmap. |
+| Opening, reviewing or closing a phase | `/phase` | Only with `forge-kit-roadmap` installed. Inert in a project with no roadmap. Reviewing a phase mid-flight and reassessing the whole roadmap are the next two components, not shipped yet. |
 | Every few months | `forge-adapt drift` | Reports what lags forge-kit and whether the marketplace copy itself is stale. Writes nothing. |
 
 Overnight work is its own mode: `working-overnight` runs governed unattended cycles that ship
