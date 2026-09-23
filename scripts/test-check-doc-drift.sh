@@ -234,6 +234,17 @@ expect "and exit 0, which is the same code a finding produces" 0 "$RC"
 # what broke round 1's acceptance criteria: they named line numbers, and the check blames HEAD, so
 # inserting any line moved every row and a no-op satisfied them.
 
+row_text() {  # the text of the lines $OUT names, and EMPTY when it names none.
+  # `sed -n "p"` with no address prints the WHOLE file, so building this inline made every needle
+  # match whenever $OUT was empty. The guard is the point, not the convenience.
+  local ln acc=""
+  for ln in $(printf '%s' "$OUT" | cut -f2); do
+    case "$ln" in ''|*[!0-9]*) continue ;; esac
+    acc="$acc$(git -C "$R" show HEAD:README.md | sed -n "${ln}p")"
+  done
+  printf '%s' "$acc"
+}
+
 allowrepo() {  # a repo whose README names the guard twice, once to be suppressed
   mkrepo "$1"
   printf 'guard\n' > "$R/scripts/guard.sh"
@@ -249,7 +260,7 @@ allowrepo allow1
 allow '# names the path in passing and claims nothing about it' 'mention README.md scripts/guard.sh In passing,'
 run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "an anchored line is suppressed" 1 "$(printf '%s' "$OUT" | grep -c .)"
-contains "does exactly three things" "$(git -C "$R" show HEAD:README.md | sed -n "$(printf '%s' "$OUT" | cut -f2)p")" "and the surviving row is the CLAIM, not the mention"
+contains "does exactly three things" "$(row_text)" "and the surviving row is the CLAIM, not the mention"
 expect "and it exits 0" 0 "$RC"
 rm -f "$R/.doc-drift-allow"
 run --range "$BASE..$(sha HEAD)" --docs README.md
@@ -263,7 +274,7 @@ printf '%s\n' "prepended one" "prepended two" "prepended three" > "$R/pre.txt"
 snap "$T2" "prepend three lines, moving every line below"
 run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "the anchored line is still suppressed after three lines were inserted above it" 1 "$(printf '%s' "$OUT" | grep -c .)"
-contains "does exactly three things" "$(git -C "$R" show HEAD:README.md | sed -n "$(printf '%s' "$OUT" | cut -f2)p")" "and the row that survives is still the claim"
+contains "does exactly three things" "$(row_text)" "and the row that survives is still the claim"
 
 echo "== #258: an anchor matching nothing is STALE, and does not block =="
 allowrepo allow3
@@ -366,18 +377,100 @@ expect "and is not read as suppress-everything" 0 "$RC"
 echo "== #258: this repository's own three ranges, asserted on TEXT and never on a line number =="
 # Round 1's criteria named line numbers. check-doc-drift blames HEAD, so inserting any line moves
 # every row below it, and a no-op satisfied them.
-for r in f15dd74e..106a4531 106a4531..9416a77b 9416a77b..c15150c4; do
-  got="$(cd "$ROOT" && bash "$SUT" --range "$r" --docs README.md 2>/dev/null | cut -f2)"
-  txt=""; for ln in $got; do txt="$txt$(git -C "$ROOT" show HEAD:README.md | sed -n "${ln}p")"; done
-  for a in 'block-dashes` hook stays dormant' 'the group stays inert' 'you copy the issue templates'; do
-    case "$txt" in *"$a"*) bad "range $r still reports the mention anchored by '$a'" ;; *) ok "range $r no longer reports '$a'" ;; esac
+#
+# EVERY RANGE CARRIES A POSITIVE CONTROL, which the first version of this block did not. It checked
+# only that certain texts were ABSENT, discarded the exit status and stderr, and looked at nothing
+# else, so a script that printed nothing at all scored ok on every assertion. A review mutant that
+# broke the script outright kept six of nine green. An absence assertion with no matching presence
+# assertion beside it is not a test.
+ranges_expect() {  # ranges_expect <range> <expected-row-count> <claim-anchor-that-must-survive>
+  local r="$1" n="$2" keep="$3" out rc txt ln
+  out="$(cd "$ROOT" && bash "$SUT" --range "$r" --docs README.md 2>/dev/null)"; rc=$?
+  expect "range ${r%%..*} exits 0" 0 "$rc"
+  expect "range ${r%%..*} reports exactly $n row(s)" "$n" "$(printf '%s' "$out" | grep -c .)"
+  txt=""
+  for ln in $(printf '%s' "$out" | cut -f2); do
+    txt="$txt$(git -C "$ROOT" show HEAD:README.md | sed -n "${ln}p")"
+  done
+  case "$txt" in *"$keep"*) ok "range ${r%%..*} still reports the claim '$keep'" ;;
+                 *) bad "range ${r%%..*} lost the claim '$keep'" ;; esac
+  RANGE_TXT="$txt"
+}
+ranges_expect f15dd74e..106a4531 3 'The canonical rules'
+for a in 'canonical ready-ticket rules' 'what is being worked on now'; do
+  case "$RANGE_TXT" in *"$a"*) ok "range 1 still reports the claim '$a'" ;; *) bad "range 1 lost the claim '$a'" ;; esac
+done
+for a in 'block-dashes` hook stays dormant' 'the group stays inert' 'you copy the issue templates'; do
+  case "$RANGE_TXT" in *"$a"*) bad "range 1 still reports the mention anchored by '$a'" ;; *) ok "range 1 no longer reports '$a'" ;; esac
+done
+for r in 106a4531..9416a77b 9416a77b..c15150c4; do
+  ranges_expect "$r" 1 'what is being worked on now'
+  # Only the two roadmap mentions exist in these ranges; the ticket-standards one does not, so
+  # asserting its absence here would pass whatever the code did.
+  for a in 'block-dashes` hook stays dormant' 'the group stays inert'; do
+    case "$RANGE_TXT" in *"$a"*) bad "range ${r%%..*} still reports the mention anchored by '$a'" ;;
+                         *) ok "range ${r%%..*} no longer reports '$a'" ;; esac
   done
 done
-got="$(cd "$ROOT" && bash "$SUT" --range f15dd74e..106a4531 --docs README.md 2>/dev/null | cut -f2)"
-txt=""; for ln in $got; do txt="$txt$(git -C "$ROOT" show HEAD:README.md | sed -n "${ln}p")"; done
-for a in 'The canonical rules' 'canonical ready-ticket rules' 'what is being worked on now'; do
-  case "$txt" in *"$a"*) ok "range 1 still reports the claim '$a'" ;; *) bad "range 1 lost the claim '$a'" ;; esac
-done
+
+echo "== #258: the reason is required PER ENTRY, not once per block =="
+allowrepo reason2
+allow '# one reason' 'mention README.md scripts/guard.sh In passing,' 'mention README.md scripts/guard.sh does exactly three things'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a second entry cannot inherit the first entry's reason" 2 "$RC"
+contains "needs a reason" "$ERR" "and says a reason is needed"
+allow '# one reason' 'mention README.md scripts/guard.sh In passing,' '' '# another reason' 'mention README.md scripts/guard.sh does exactly three things'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "two entries each with their own reason are both accepted" 0 "$RC"
+expect "and both rows are suppressed" "" "$OUT"
+
+echo "== #258: an EMPTY field refuses, and an empty anchor never suppresses everything =="
+allowrepo empties
+allow '# r' 'mention README.md scripts/guard.sh '
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a trailing space leaves an empty anchor, which refuses" 2 "$RC"
+contains "missing its anchor" "$ERR" "naming what is missing"
+allow '# r' 'mention  README.md scripts/guard.sh In passing,'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an empty document field refuses" 2 "$RC"
+allow '# r' 'mention README.md  scripts/guard.sh In passing,'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an empty path field refuses" 2 "$RC"
+(
+  # The dangerous shape: an empty anchor matches EVERY line under grep -F, so on a one-line
+  # document it silently suppressed the row instead of refusing.
+  mkrepo oneline
+  printf 'guard\n' > "$R/scripts/guard.sh"
+  printf 'Only this one line names `scripts/guard.sh` here.\n' > "$R/README.md"
+  snap "$T1" "base"; BASE=$(sha HEAD)
+  printf 'guard2\n' > "$R/scripts/guard.sh"; snap "$T2" "change"
+  printf '%s\n' '# r' 'mention README.md scripts/guard.sh ' > "$R/.doc-drift-allow"
+  out="$(cd "$R" && bash "$SUT" --range "$BASE..$(sha HEAD)" --docs README.md 2>/dev/null)"; rc=$?
+  [ "$rc" = 2 ] || exit 1
+  [ -z "$out" ] || exit 2
+  exit 0
+)
+case $? in
+  0) ok "an empty anchor refuses on a ONE-LINE document too, where it used to suppress silently";;
+  1) bad "the one-line document did not refuse";;
+  2) bad "the one-line document printed rows";;
+  *) bad "the one-line case errored";;
+esac
+
+echo "== #258: an explicitly named allow-file that cannot be read REFUSES =="
+allowrepo explicit
+run --range "$BASE..$(sha HEAD)" --docs README.md --allow-file no/such/file
+expect "a missing explicit allow-file exits 2" 2 "$RC"
+expect "with nothing on stdout" "" "$OUT"
+contains "no such allow-file" "$ERR" "naming the path it could not read"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "while an ABSENT default is still skipped in silence" 0 "$RC"
+expect "and reports every row" 2 "$(printf '%s' "$OUT" | grep -c .)"
+
+echo "== #258: --help reaches the usage line =="
+helpout="$(cd "$ROOT" && bash "$SUT" --help 2>&1)"
+contains "Usage: check-doc-drift.sh" "$helpout" "--help prints the usage line the header grew past"
+contains "--allow-file" "$helpout" "and documents the flag this ticket added"
 
 echo "== portability: this runs on a bash 3.2 laptop with BSD tools =="
 # CODE lines only. The header names every banned tool on purpose, to say it is not used, and a flat

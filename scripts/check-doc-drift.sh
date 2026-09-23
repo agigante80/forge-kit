@@ -45,7 +45,12 @@
 # `readlink -f`, no `grep -P`, no GNU `timeout`, and no `date -d`, since every time comparison here
 # is on the integer seconds git already reports.
 #
-# Usage: check-doc-drift.sh --range <base>..<head> --docs <doc>[,<doc>...] [--root <dir>]
+# Usage: check-doc-drift.sh --range <base>..<head> --docs <doc>[,<doc>...]
+#            [--root <dir>] [--allow-file <file>]
+#
+# The allow-file defaults to .doc-drift-allow at the repository root and is optional there. Given
+# explicitly and unreadable, it REFUSES. Its entries are validated whatever --docs names, so one
+# cannot rot invisibly in a document this run was not asked about.
 # Rows:  <document><TAB><line><TAB><claim><TAB><sha>
 
 set -uo pipefail
@@ -64,7 +69,7 @@ while [ $# -gt 0 ]; do
     --docs)  DOCS="${2-}";  shift 2 || die "--docs needs a value" ;;
     --root)  ROOT="${2-}";  shift 2 || die "--root needs a value" ;;
     --allow-file) ALLOW="${2-}"; shift 2 || die "--allow-file needs a value" ;;
-    -h|--help) sed -n '1,40p' "$0"; exit 0 ;;
+    -h|--help) sed -n '1,/^# Rows:/p' "$0"; exit 0 ;;
     *) die "unknown argument '$1'" ;;
   esac
 done
@@ -107,7 +112,15 @@ trap 'rm -rf "$TMP"' EXIT
 # about. An unknown key, a missing field or an entry with no reason REFUSES for the same reason
 # every allow-file in this tree does.
 
-[ -n "$ALLOW" ] || ALLOW=".doc-drift-allow"
+if [ -n "$ALLOW" ]; then
+  # An explicitly given path that is not readable REFUSES. Only the unset default may be skipped in
+  # silence: a caller who typed a path, or wired a relative one and ran from a subdirectory, would
+  # otherwise get the full noise count and exit 0, which is the answer this whole file exists to
+  # stop anyone acting on.
+  [ -f "$ALLOW" ] || die "no such allow-file: $ALLOW"
+else
+  ALLOW=".doc-drift-allow"
+fi
 : > "$TMP/suppress"
 if [ -f "$ALLOW" ]; then
   _n=0; _reason=0
@@ -118,13 +131,21 @@ if [ -f "$ALLOW" ]; then
       '#'*) _reason=1; continue ;;
     esac
     [ "$_reason" = 1 ] || die "$ALLOW line $_n: an entry needs a reason on a comment line above it"
+    # PER ENTRY, not per block. Cleared here so a second entry cannot inherit the first one's
+    # reason: an exemption whose reason belongs to a different exemption is not auditable, and
+    # being auditable is the whole of what this file buys over a command-line flag.
+    _reason=0
     _key="${_ln%% *}"
     [ "$_key" = mention ] || die "$ALLOW line $_n: unknown key '$_key' (only 'mention' is defined)"
+    # Presence is EMPTINESS, not inequality. Testing `"$_rest" != "$_doc"` passes an empty field,
+    # and an empty anchor is the dangerous one: grep -F matches it on every line, so on a one-line
+    # document it silently suppressed the row instead of refusing.
     _rest="${_ln#* }"; [ "$_rest" != "$_ln" ] || die "$ALLOW line $_n: entry is missing its document"
-    _doc="${_rest%% *}"
-    _rest="${_rest#* }"; [ "$_rest" != "$_doc" ] || die "$ALLOW line $_n: entry is missing its path"
-    _path="${_rest%% *}"
-    _anchor="${_rest#* }"; [ "$_anchor" != "$_path" ] || die "$ALLOW line $_n: entry is missing its anchor"
+    _doc="${_rest%% *}"; [ -n "$_doc" ] || die "$ALLOW line $_n: entry is missing its document"
+    _rest="${_rest#* }"
+    _path="${_rest%% *}"; [ -n "$_path" ] || die "$ALLOW line $_n: entry is missing its path"
+    _anchor="${_rest#* }"
+    [ "$_anchor" != "$_path" ] && [ -n "$_anchor" ] || die "$ALLOW line $_n: entry is missing its anchor"
     if ! git cat-file -e "HEAD:$_doc" 2>/dev/null; then
       printf '%s: %s line %d: stale, document %s is absent at HEAD\n' "$PROG" "$ALLOW" "$_n" "$_doc" >&2
       continue
