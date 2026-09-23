@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, close or triage a phase.
 argument-hint: status | plan <name> | close <name> | triage
 ---
 
-<!-- phase-version: 3 -->
+<!-- phase-version: 4 -->
 
 # /phase
 
@@ -90,6 +90,31 @@ Record which of the three outcomes it was, in the roadmap prose:
 months later, like a phase nobody considered.
 
 Finish by running `bash "$CP"` and reporting the result. If it refuses, the phase is not closed.
+
+## `/phase review [name]`
+
+The mid-phase alignment review. Defaults to the one `open` phase, and REFUSES, naming every open
+phase or the absence of one, rather than guessing which to review.
+
+The `roadmap-phases` skill is canonical for every rule; this is the order of work.
+
+1. Run `bash "$CP"` and report its verdict verbatim.
+2. Read the plan, the phase's roadmap prose, and EVERY ticket in the milestone, open and closed,
+   **including its comments**. `forge_issue_comments` is the primitive; `count-gate-rounds.sh`
+   gives a ticket's gate history.
+3. Report each ticket as implemented (naming the commit), partly implemented (naming what is
+   missing), not started, or superseded. Judge against the TREE, never against the ticket.
+4. Act: close, rewrite, split, create. One line per act, with its reason.
+5. If the scope moved, update the plan's five sections and the phase's roadmap prose through
+   `roadmap-lib.sh`'s writers, never by hand.
+6. Run `bash scripts/check-doc-drift.sh` over the phase's commits and act on the rows.
+7. If every ticket is implemented, run the close review rather than repeating it here.
+
+**Writes go through the body-region primitives with prefix `phase`**, so the gate's and the brief's
+regions survive, and a materially rewritten ticket is re-gated.
+
+**Stop if the answer is that the phase itself is wrong.** Altering which phases exist or their
+order is a reassessment, not a review.
 
 ## `/phase triage`
 

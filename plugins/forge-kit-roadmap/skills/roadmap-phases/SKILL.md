@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 3 -->
+<!-- roadmap-phases-version: 4 -->
 
 # Roadmap phases
 
@@ -95,6 +95,51 @@ Never open a second phase while one is open. Finish or re-shape the first.
    dropped is the thing this review exists to catch.
 3. Close the milestone **and** set the roadmap entry to `done`. Both, or the phase is not closed.
 4. Record which of the three outcomes it was.
+
+## Reviewing a phase in flight
+
+`close` asks whether a phase is FINISHED. `review` asks whether it is still the RIGHT phase, and
+may conclude that it is finished and hand over to `close`. It is the mid-phase alignment check a
+maintainer otherwise runs by hand, and every rule below exists because doing it by hand loses one
+of them.
+
+**It reads the COMMENTS, not only the bodies.** A body is what someone intended; the comments are
+what happened. A gate verdict, a decision, a correction, and an approach abandoned for a better one
+all live there. A review that reads bodies alone re-states the intent it was supposed to check.
+
+**Implementation is judged against the TREE, never against the ticket.** A ticket that says "done"
+over a tree that does not carry the change is the exact state this review exists to find. So
+implemented means a named file carries the named behaviour, or a suite carries the named case, and
+the review says which commit. Report each ticket as implemented (with the commit), partly
+implemented (with what is missing), not started, or superseded (with what replaced it).
+
+**It acts without asking, and reports every act in one line with its reason.** Close, rewrite,
+split, create. A rewrite REPLACES the body: an append leaves the wrong text standing above the
+right text, and a later reader has no way to tell which is current. A split closes the original
+naming its successors, or the trail is lost.
+
+**A rewrite obeys the write-authority contract.** Write through `forge_body_region_set` and
+`forge_body_compose_preserving` with prefix `phase`, never `forge_issue_edit`, so the gate's and
+the brief's regions survive. **A materially rewritten ticket is RE-GATED**, not assumed still
+ready: a verdict describes the body it was given, and that body no longer exists.
+
+**If the scope moved, the plan and the roadmap prose move with it**, and the review says what
+changed and why. A plan describing a phase nobody is running is worse than no plan, because it is
+believed. This is not hypothetical: the plan for the phase that built this component named a
+mechanism its own first gate round rejected, and the correction was a separate commit.
+
+**The README question is asked on EVERY run, not only at close.** It is the step the maintainer
+says is forgotten, so it is mechanical rather than remembered: run `check-doc-drift.sh` over the
+phase's commits and act on the rows. Exemptions live in `.doc-drift-allow`, so a row is a claim
+somebody has not already judged incidental.
+
+**It is idempotent.** Run twice with nothing in between and the second run writes nothing and says
+so. A review that always finds something to change cannot be believed when it does.
+
+**It may NOT reshape the roadmap.** One sentence decides the boundary: if the change would alter
+which phases exist or their order, it is a REASSESSMENT, and the review stops and says so rather
+than doing it. A phase review that finds the phase itself wrong has found something real and is the
+wrong tool to fix it.
 
 ## When a phase does not finish: re-shape, never extend
 
