@@ -312,6 +312,11 @@ jobs:
       - name: Dispatch-cost measurement tests
         run: bash scripts/test-measure-dispatch-cost.sh
 
+      # Issue #281: refresh copies this script's lines into its report verbatim, so the line shape,
+      # the key order and an empty stdout on refusal are a contract.
+      - name: Tier-diff tests
+        run: bash scripts/test-forge-adapt-tier-diff.sh
+
       # Issue #172: a registered component's freshness belongs to the marketplace checkout, which
       # nothing here could see. The guard itself is not run against CI's own machine (there is no
       # marketplace there); only its contract is held down.

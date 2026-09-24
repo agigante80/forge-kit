@@ -360,6 +360,53 @@ bash "$SCRIPT" --rewrite "$T/m.md" >/dev/null 2>&1
 [ "$?" -eq 2 ] && ok "a mapping list item is refused with exit 2" || bad "a mapping list item was not refused"
 [ "$before" = "$(cat "$T/m.md")" ] && ok "and the file is left untouched" || bad "the file was corrupted"
 
+# --- #281: --rewrite never touches a tier key -----------------------------------------------------
+# A copied agent keeps the tier forge-kit decided for it, so --rewrite must pass model, effort and
+# context through byte-identical: before AND after a block-list skills: (which pins the inlist
+# reset), under CRLF, and on the refuse path. This pins behaviour the script already has.
+tiers() { grep -E '^(model|effort|context):' "$1"; }
+agent "$T/tier.md" <<'M'
+---
+name: demo
+model: sonnet
+effort: low
+skills:
+  - forge-kit-governance:ticket-gate-reference
+context: fork
+---
+body
+M
+want=$(tiers "$T/tier.md")
+bash "$SCRIPT" --rewrite "$T/tier.md"
+eq "--rewrite rewrites the skills item beside tier keys" \
+   "$(bash "$SCRIPT" "$T/tier.md")" "ticket-gate-reference"
+for k in model effort context; do
+  eq "--rewrite keeps $k: byte-identical" "$(grep "^$k:" "$T/tier.md")" "$(printf '%s\n' "$want" | grep "^$k:")"
+done
+eq "a tier key after the skills list is not taken as a list item" "$(tiers "$T/tier.md" | wc -l | tr -d ' ')" "3"
+printf -- '---\r\nname: demo\r\nmodel: opus\r\nskills:\r\n  - forge-kit-governance:x\r\neffort: high\r\ncontext: fork\r\n---\r\nbody\r\n' > "$T/tier-crlf.md"
+bash "$SCRIPT" --rewrite "$T/tier-crlf.md"
+eq "--rewrite keeps CRLF tier lines byte-identical" \
+   "$(grep -E '^(model|effort|context):' "$T/tier-crlf.md" | od -c | tr -s ' ')" \
+   "$(printf 'model: opus\r\neffort: high\r\ncontext: fork\r\n' | od -c | tr -s ' ')"
+agent "$T/tier-refuse.md" <<'M'
+---
+name: demo
+model: sonnet
+effort: low
+context: fork
+skills: [
+  forge-kit-governance:ticket-gate-reference]
+---
+body
+M
+cp "$T/tier-refuse.md" "$T/tier-refuse.orig"
+err=$(bash "$SCRIPT" --rewrite "$T/tier-refuse.md" 2>&1 >/dev/null); rc=$?
+eq "a refused rewrite with tier keys exits 2" "$rc" "2"
+case "$err" in *"unsupported 'skills:' shape"*) ok "and says the shape is unsupported" ;; *) bad "refusal message was: $err" ;; esac
+cmp -s "$T/tier-refuse.md" "$T/tier-refuse.orig" && ok "and leaves the file, tier keys included, byte-identical" \
+  || bad "the refused file changed"
+
 echo ""
 echo "forge-adapt-agent-skills tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -221,6 +221,10 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-09-24: adapt 7209 to 7206 (#281). Step 3 now keeps the tier keys verbatim and
+# refresh runs forge-adapt-tier-diff.sh; paid for by a shorter marker rationale and by dropping
+# refresh's restated examples of adaptation, which the tier line now carries one of.
+#
 # LOWERED 2026-09-10: adapt 7300 to 7209 (#179). The coexistence table became
 # forge-adapt-neighbour-disposition.sh, which is the #149 lever for the fourth time on this file
 # and the reason the second half of the boundary (the neighbouring marketplaces) could be added at
@@ -337,7 +341,7 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7209 ;;
+    adapt)       echo 7206 ;;
     ticket-gate) echo 5754 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;

@@ -41,6 +41,13 @@ body:
       description: GitHub repo this came from, or "private".
       placeholder: "owner/repo"
 
+  - type: input
+    id: tier
+    attributes:
+      label: Model tier and reason
+      description: "For an agent, skill or command: its `model:` (or `inherit` if it has none) and why that tier fits the role. See docs/guides/model-tiers.md. Leave empty for an issue template."
+      placeholder: "e.g. sonnet: a checklist review, no architecture judgment"
+
   - type: textarea
     id: content
     attributes:

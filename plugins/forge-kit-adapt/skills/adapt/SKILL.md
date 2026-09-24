@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 67 -->
+<!-- forge-adapt-version: 68 -->
 
 # forge-adapt
 
@@ -431,10 +431,10 @@ Rules for this step:
      present: code-simplifier's loop-accounting caveat, closing-sessions' canon-vs-journal
      split, the review agents' dispatch-shape note. These are Step-1-signal-traced additions
      (the signal is superpowers presence), not padding.
-   - **Preserve the `<!-- <name>-version: N -->` marker from the template verbatim.** This is what
-     makes the adapted copy detectable next run - an adaptation that drops the marker resets the
-     component to "unversioned" and defeats drift detection forever. If the template somehow lacks a
-     marker, add one matching the catalogue version.
+   - **Preserve the `<!-- <name>-version: N -->` marker and the `model:`, `effort:`, `context:`,
+     `agent:` and `background:` frontmatter lines verbatim.** The marker keeps the copy detectable;
+     a tier changes only on purpose. If the template lacks a marker, add one matching the catalogue
+     version.
 3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`, plus
    its `assets/*.sh` VERBATIM to `scripts/` (uninstalled, it degrades silently); command -> `.claude/commands/<name>.md`.
 4. **Dependencies the component needs installed alongside it.** Both preserve their markers, per
@@ -609,16 +609,16 @@ with local additions -> do NOT overwrite and do NOT merge: report the diff and p
 a contribution candidate, not an adaptation (decided in issue #64).
 
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
-This is the only place a full content diff is justified, and it must NEVER blind-overwrite (that
-would clobber intentional adaptation). Steps:
+The only full content diff here, and it must NEVER blind-overwrite adaptation. Steps:
 
 1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy.
-2. **Classify every difference** into two buckets:
-   - **Adaptation (keep):** project-specific stack/domain customisation - stack references, added
-     scoring criteria, local agent-type names, injected invariants, and `<!-- adapt-dropped: <name> -->`
+2. **Classify every difference:**
+   - **Adaptation (keep):** project-specific stack/domain customisation, and `<!-- adapt-dropped: <name> -->`
      tombstones (a deliberately dropped conditional paragraph; never re-offer the clause).
    - **Behind forge-kit (offer to apply):** structural/behavioural improvements present in the
      catalogue copy but missing locally (new rules, new sections, the version bump).
+   - **Tier:** `"$FORGE_KIT_DIR"/scripts/forge-adapt-tier-diff.sh <installed> <catalogue>`; copy its
+     lines into the report verbatim. Keep the local tier; it never enters the merge.
 3. Print the report - what is adaptation, what is missing, and the proposed merge:
 
    ```
@@ -662,7 +662,7 @@ contribution issue first (open -> skip; closed -> ask; none -> create), then:
 
 ```bash
 gh issue create --repo agigante80/forge-kit --title "Contribution: <name> (<type>)" --label contribution \
-  --body "<category / what it does / why it generalises / source repo / full file content / checklist>"
+  --body "<category / what it does / why it generalises / tier + reason (inherit if no model:) / source repo / full file content / checklist>"
 ```
 
 Never auto-create - always confirm. Print each issue URL.
