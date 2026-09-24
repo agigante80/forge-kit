@@ -36,7 +36,27 @@ tree() {
     { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "a" },
     { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "b" } ] }
 M
+  # Check 7 (#253) needs the tiers doc. The default carries every role a case uses and no
+  # components; a case adds the rows its components need with row().
+  mkdir -p "$T/tree/docs/guides"
+  cat > "$T/tree/docs/guides/model-tiers.md" <<'D'
+# Model tiers
+
+### Roles
+
+| Role | Models | Effort | Reason |
+|---|---|---|---|
+| judgment | inherit, sonnet, opus | high..xhigh | r |
+| bounded-analysis | sonnet | low..medium | r |
+| knowledge | none | none | r |
+
+### Components
+
+| Component | Role | Reason |
+|---|---|---|
+D
 }
+row() { printf '| %s | %s | r |\n' "$1" "$2" >> "$T/tree/docs/guides/model-tiers.md"; }
 plugin() {  # plugin <group> <extra-json-fields-or-empty>
   mkdir -p "$T/tree/plugins/$1/.claude-plugin"
   printf '{ "name": "%s", "version": "0.1.0", "description": "d", "author": { "name": "someone" }%s }\n' \
@@ -147,8 +167,9 @@ echo "== a dispatch to an agent that does not exist fails (#180) =="
 # RUNTIME, silently, which is #124's class of bug.
 tree; plugin forge-kit-alpha; plugin forge-kit-beta
 mkdir -p "$T/tree/plugins/forge-kit-alpha/agents" "$T/tree/plugins/forge-kit-alpha/commands"
-printf -- '---\nname: real-agent\ndescription: d\n---\n<!-- real-agent-version: 1 -->\n' \
+printf -- '---\nname: real-agent\ndescription: d\nmodel: inherit\n---\n<!-- real-agent-version: 1 -->\n' \
   > "$T/tree/plugins/forge-kit-alpha/agents/real-agent.md"
+row real-agent judgment; row runner knowledge
 printf -- '<!-- runner-version: 1 -->\nDispatch with subagent_type: "real-agent" when reviewing.\n' \
   > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"
 run
@@ -176,6 +197,7 @@ mkdir -p "$T/tree/plugins/forge-kit-alpha/skills/guard/assets" "$T/tree/scripts"
 printf -- '#!/usr/bin/env bash\n# check-thing-version: 3\necho ok\n' > "$T/tree/plugins/forge-kit-alpha/skills/guard/assets/check-thing.sh"
 printf -- '---\nname: guard\ndescription: d\n---\n<!-- guard-version: 1 -->\n' > "$T/tree/plugins/forge-kit-alpha/skills/guard/SKILL.md"
 printf -- '#!/usr/bin/env bash\n# unrelated-version: 9\necho ok\n' > "$T/tree/scripts/unrelated.sh"
+row guard knowledge
 run
 expect "a scripts/*.sh whose marker name matches no shipped asset passes" 0 "$rc"
 
@@ -189,6 +211,166 @@ rm -f "$T/tree/scripts/check-thing.sh"
 printf -- '#!/usr/bin/env bash\ncat <<EOF\n# check-thing-version: 1\nEOF\n' > "$T/tree/scripts/test-check-thing.sh"
 run
 expect "a scripts/test-*.sh whose heredoc fixture carries the marker line passes (near miss)" 0 "$rc"
+
+echo "== check 7: every component has a row in the tiers doc (#253) =="
+# The Roles and Components tables in docs/guides/model-tiers.md are the ONE definition of what a
+# component may run on. Each case below builds a fresh tree, so only the rule under test can fail.
+A="$T/tree/plugins/forge-kit-alpha"
+skill() {  # skill <name> [frontmatter lines]
+  mkdir -p "$A/skills/$1"
+  printf -- '---\nname: %s\ndescription: d\n%b---\n<!-- %s-version: 1 -->\n' "$1" "${2:-}" "$1" > "$A/skills/$1/SKILL.md"
+}
+agent() {  # agent <name> [frontmatter lines]
+  mkdir -p "$A/agents"
+  printf -- '---\nname: %s\ndescription: d\n%b---\n<!-- %s-version: 1 -->\n' "$1" "${2:-}" "$1" > "$A/agents/$1.md"
+}
+cmd() {  # cmd <name> <body>: a command with no frontmatter, as three of the kit's are
+  mkdir -p "$A/commands"
+  printf -- '<!-- %s-version: 1 -->\n\n%s\n' "$1" "$2" > "$A/commands/$1.md"
+}
+base7() { tree; plugin forge-kit-alpha; plugin forge-kit-beta; }
+
+base7; skill demo; row demo knowledge
+run
+expect "a skill with a row and no declared keys passes" 0 "$rc"
+skill newskill
+run
+expect "a skill with no row fails" 1 "$rc"
+contains "newskill: no row in docs/guides/model-tiers.md" "$out" "and names the skill and the doc"
+
+base7; cmd runner 'Nothing to dispatch here.'
+run
+expect "a command with no row fails too, so rule 2 is not only about agents" 1 "$rc"
+contains "runner: no row" "$out" "and names the command"
+
+base7; row ghost knowledge
+run
+expect "a Components row naming no component fails" 1 "$rc"
+contains "row 'ghost' names no component" "$out" "and names the stale row"
+
+base7; skill demo; row demo nonesuch
+run
+expect "a row naming an undefined role fails" 1 "$rc"
+contains "role 'nonesuch' is not defined" "$out" "and names the role"
+
+echo "== check 7: a declared model and effort sit inside the role's range =="
+base7; agent auditor 'model: sonnet\n'; row auditor bounded-analysis
+run
+expect "a model inside the range passes" 0 "$rc"
+agent auditor 'model: opus\n'
+run
+expect "a model outside the range fails" 1 "$rc"
+contains "model 'opus' outside role 'bounded-analysis' (allowed: sonnet)" "$out" "and names the value, role and range"
+
+base7; agent auditor 'model: sonnet\neffort: medium\n'; row auditor bounded-analysis
+run
+expect "an effort inside the range passes" 0 "$rc"
+agent auditor 'model: sonnet\neffort: max\n'
+run
+# Compared as strings, "max" sorts between "low" and "medium" and would pass: this is the case
+# that makes the level ORDER load-bearing rather than decorative.
+expect "an effort above the range fails, by level order and not by spelling" 1 "$rc"
+contains "effort 'max' outside role 'bounded-analysis' (allowed: low..medium)" "$out" "and names the value, role and range"
+
+base7; skill demo 'effort: low\n'; row demo knowledge
+run
+expect "a none row whose component declares an effort fails" 1 "$rc"
+contains "effort 'low' outside role 'knowledge' (allowed: none)" "$out" "and says the role allows none"
+
+base7; agent judge 'model: inherit\n'; row judge judgment
+run
+expect "an agent declaring model: inherit inside its range passes" 0 "$rc"
+agent judge
+run
+expect "an agent declaring no model fails" 1 "$rc"
+contains "judge: agents must declare model" "$out" "and names the agent"
+
+echo "== check 7: the doc itself =="
+base7; rm "$T/tree/docs/guides/model-tiers.md"
+run
+expect "a tree with no tiers doc fails" 1 "$rc"
+contains "docs/guides/model-tiers.md not found" "$out" "and names the missing doc"
+
+base7; sed -i 's/| low..medium |/| medium..low |/' "$T/tree/docs/guides/model-tiers.md"
+run
+expect "an Effort cell running backwards fails as unparseable" 1 "$rc"
+contains "unparseable Effort 'medium..low'" "$out" "and quotes the cell"
+
+echo "== check 7: a dispatch with no frontmatter behind it names a model =="
+base7; row runner knowledge
+cmd runner 'Launch a `general-purpose` sub-agent (`model: sonnet`) with the diff.'
+run
+expect "a general-purpose dispatch naming a model passes" 0 "$rc"
+cmd runner 'Launch a `general-purpose` sub-agent with the diff.'
+run
+expect "a general-purpose dispatch naming no model fails" 1 "$rc"
+contains "commands/runner.md:3: general-purpose dispatch names no model" "$out" "and names the file and line"
+
+cmd runner 'Launch Explore agent (`model: haiku`) to map the callers.'
+run
+expect "an Explore dispatch naming a model passes" 0 "$rc"
+cmd runner 'Launch Explore agent to map the callers.'
+run
+expect "an Explore dispatch naming no model fails" 1 "$rc"
+contains "commands/runner.md:3: Explore dispatch names no model" "$out" "and names the type"
+
+cmd runner 'If any item is fundamental, launch a `general-purpose`
+sub-agent NOW to generate alternatives.'
+run
+expect "a dispatch wrapped across two lines is one paragraph, and fails with no model" 1 "$rc"
+
+cmd runner '| Signal | Action |
+|---|---|
+| Wide change | Launch Explore agent (`model: sonnet`) to map it |
+| Architecture | Launch Explore agent to verify patterns |'
+run
+# A joined table would let the first row's model cover the second: each row is its own unit.
+expect "a table row with no model fails even when another row names one" 1 "$rc"
+contains "commands/runner.md:6: Explore dispatch names no model" "$out" "and names that row's line"
+
+echo "== check 7: near misses that are not dispatches =="
+cmd runner '5. **Use only local agents.** All `subagent_type` references use agents bundled with this plugin or `general-purpose`.'
+run
+# `subagent_type` is not the WORD subagent; matching it as a substring would flag a policy sentence.
+expect "full-review's policy sentence naming general-purpose is not a dispatch" 0 "$rc"
+cmd runner 'Delegate the heavy work to subagents so their output does not fill this context.'
+run
+expect "delegation naming no agent type is guidance, not a dispatch" 0 "$rc"
+
+echo "== check 7: a named-agent dispatch follows the Agent tool's precedence =="
+# Probed on 2.1.281: a dispatch-site model wins over frontmatter, and with none the frontmatter
+# governs. So naming nothing is correct here; naming a model outside the agent's range is not.
+base7; agent code-reviewer 'model: inherit\n'; row code-reviewer judgment; row runner knowledge
+cmd runner 'Use the Agent tool with `subagent_type: code-reviewer`, passing the diff.'
+run
+expect "a named-agent dispatch naming no model passes" 0 "$rc"
+cmd runner 'Use the Agent tool with `subagent_type: code-reviewer` (`model: haiku`), passing the diff.'
+run
+expect "a named-agent dispatch naming a model outside the agent's range fails" 1 "$rc"
+contains "commands/runner.md:3: dispatch of 'code-reviewer' names model 'haiku' outside role 'judgment' (allowed: inherit, sonnet, opus)" "$out" "and names the site, agent, model and range"
+
+echo "== check 7: a YAML dispatch block reads its model at key indentation only =="
+base7; row runner knowledge
+cmd runner '```
+Task:
+  subagent_type: "general-purpose"
+  description: "x"
+  prompt: |
+    Review it.
+  model: "sonnet"
+```'
+run
+expect "a model key after the prompt text, at key indentation, is seen" 0 "$rc"
+cmd runner '```
+Task:
+  subagent_type: "general-purpose"
+  prompt: |
+    Review it.
+    model: sonnet
+```'
+run
+expect "a model line inside the prompt text is prompt content, so the block names no model" 1 "$rc"
+contains "commands/runner.md:4: general-purpose dispatch names no model" "$out" "and names the Task line"
 
 echo "== this repository's own manifests satisfy every rule above =="
 # The regression test that keeps the eight real manifests honest, and the one case that would have

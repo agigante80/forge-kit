@@ -7,6 +7,8 @@
 #   4. every declared `dependencies` entry is well shaped and names a plugin this marketplace has
 #   5. every subagent_type dispatched by a component names an agent that exists
 #   6. no scripts/*.sh carries the marker name of a shipped shell asset (a second copy, #231)
+#   7. each component's model and effort, and each dispatch's model, sit inside its role's range
+#      in docs/guides/model-tiers.md (#253; its blind spots are listed at the check)
 # Exit 1 on any violation, with every violation on stderr. This is the forge-kit analogue of
 # `claude plugin validate`, and check 4 is the half that analogue does NOT cover (see below).
 # Contract test: scripts/test-validate-plugins.sh.
@@ -167,6 +169,176 @@ for sc in scripts/*.sh; do
     fail "$sc carries the marker '$mname-version', which the shipped asset $asset also carries: a second copy of a shipped asset drifts the moment the asset is bumped; run the asset instead"
   done <<< "$assets"
 done
+
+# 7. every component's model and effort sit inside its role's range (#253)
+#
+# ONE DEFINITION. docs/guides/model-tiers.md holds a Roles table (the allowed Models and Effort per
+# role) and a Components table (each component's role). No component file declares its role: a
+# `role:` key would have touched all 28 files and relied on the CLI tolerating an unknown key on
+# skills and commands. The values themselves stay in each component's frontmatter, so the table
+# states RANGES and cannot drift from a value it never copied. Read by the same heading-anchored,
+# first-table-after-the-heading shape check-label-taxonomy.sh uses on labels.md.
+#
+# DISPATCHES FOLLOW THE AGENT TOOL'S PRECEDENCE (probed on 2.1.281, model-tiers.md Q5): a model
+# named at the dispatch site wins over the agent's frontmatter, and with none the frontmatter
+# governs. So a NAMED-agent dispatch may name nothing, and one that does must stay inside that
+# agent's range. `general-purpose` and `Explore` have no frontmatter in this tree, so a dispatch of
+# either that names no model runs on whatever session called it, and it fails.
+#
+# WHAT A DISPATCH IS, in two shapes. A YAML block: inside a fence, a `Task:` line and an indented
+# `subagent_type:` key; its model is a `model:` key at the SAME indentation, so a `model:` inside
+# the `prompt: |` text is prompt content and is never read. A prose dispatch: a paragraph outside a
+# fence (a table row is its own unit, so one model cannot cover a whole table) naming a backticked
+# `general-purpose`, a bare `Explore agent` or a backticked `subagent_type: <name>`, AND carrying
+# `subagent`, `sub-agent` or their plurals as a WHOLE word, `Agent tool`, `launch` or `spawn`.
+# Whole word is what keeps full-review.md's "All `subagent_type` references use ... `general-purpose`"
+# out: it is a policy sentence, and `subagent_type` is not the word `subagent`.
+#
+# BLIND SPOTS, stated. A dispatch whose agent type is named only in an earlier paragraph; a verb
+# outside the list above (ci-health.md's "Run the ticket-gate agent", ticket-gate.md's security
+# lens dispatch, decision-brief's "run the gate"); a named agent dispatched in prose without the
+# `subagent_type:` form; anything under a skill's references/, which is not scanned; and delegation
+# naming no agent type at all, which is guidance rather than a dispatch. It also cannot say whether
+# a tier was RIGHT for a run: that is #250's measurement, the line #174 drew for the always-on cost.
+TIERS=docs/guides/model-tiers.md
+tier_table() {  # tier_table <heading>: the rows of the first table after it, cells trimmed, TSV
+  awk -v h="$1" '
+    $0 == h { inside = 1; next }
+    inside && /^#/ { exit }
+    inside && /^[ \t]*\|/ {
+      if ($0 ~ /^[ \t]*\|[- \t|:]*$/) { seen = 1; next }   # the separator row
+      if (!seen) next                                     # the header row
+      n = split($0, c, "|"); out = ""
+      for (i = 2; i < n; i++) { v = c[i]; gsub(/`/, "", v); gsub(/^[ \t]+|[ \t]+$/, "", v)
+        out = out (i > 2 ? "\t" : "") v }
+      print out; rows = 1
+    }
+    inside && rows && !/^[ \t]*\|/ && NF { exit }
+  ' "$TIERS"
+}
+effort_rank() { case "$1" in low) echo 1;; medium) echo 2;; high) echo 3;; xhigh) echo 4;; max) echo 5;; *) echo 0;; esac; }
+in_models() {  # in_models <value> <models-cell>
+  printf '%s\n' "$2" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -qxF "$1"
+}
+in_effort() {  # in_effort <value> <effort-cell>, the cell already validated
+  local v lo hi
+  v=$(effort_rank "$1"); [ "$v" -gt 0 ] || return 1
+  lo=$(effort_rank "${2%%..*}"); hi=$(effort_rank "${2##*..}")
+  [ "$v" -ge "$lo" ] && [ "$v" -le "$hi" ]
+}
+fm_key() {  # fm_key <file> <key>: the value in the leading frontmatter only, unquoted
+  awk -v k="$2" '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    NR > 1 && index($0, k ":") == 1 { v = substr($0, length(k) + 2)
+      sub(/[ \t]+#.*/, "", v); gsub(/^[ \t"'"'"']+|[ \t"'"'"']+$/, "", v); print v; exit }
+  ' "$1"
+}
+
+if [ ! -f "$TIERS" ]; then
+  fail "$TIERS not found: it is the one definition of each component's allowed model and effort"
+else
+  roles=$(tier_table '### Roles'); comps=$(tier_table '### Components')
+  [ -n "$roles" ] || fail "$TIERS: no parseable Roles table under '### Roles'"
+  # An EMPTY Components table is a tree with no components, not a parse failure; a missing one is.
+  awk '$0 == "### Components" { h = 1; next } h && /^#/ { exit } h && /^[ \t]*\|/ { f = 1; exit } END { exit !f }' "$TIERS" \
+    || fail "$TIERS: no parseable Components table under '### Components'"
+  while IFS=$'\t' read -r r m e _; do
+    [ -n "$r" ] || continue
+    if [ "$m" != none ]; then
+      for t in $(printf '%s' "$m" | tr ',' ' '); do
+        case "$t" in inherit|haiku|sonnet|opus|fable) ;; *) fail "$TIERS: role '$r' has unparseable Models '$m' (each of inherit, haiku, sonnet, opus, fable, or none alone)" ;; esac
+      done
+    fi
+    if [ "$e" != none ]; then
+      lo="${e%%..*}"; hi="${e##*..}"
+      if [ "$(effort_rank "$lo")" -eq 0 ] || [ "$(effort_rank "$hi")" -eq 0 ] \
+         || [ "$(effort_rank "$lo")" -gt "$(effort_rank "$hi")" ]; then
+        fail "$TIERS: role '$r' has unparseable Effort '$e' (none, one level, or lo..hi over low < medium < high < xhigh < max)"
+      fi
+    fi
+  done <<< "$roles"
+  role_of()   { printf '%s\n' "$comps" | awk -F'\t' -v n="$1" '$1 == n { print $2; exit }'; }
+  role_cell() { printf '%s\n' "$roles" | awk -F'\t' -v r="$1" -v c="$2" '$1 == r { print $c; exit }'; }
+
+  names=""
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    case "$f" in */SKILL.md) n=$(basename "$(dirname "$f")") ;; *) n=$(basename "$f" .md) ;; esac
+    names="$names$n"$'\n'
+    r=$(role_of "$n")
+    if [ -z "$r" ]; then fail "$n: no row in $TIERS"; continue; fi
+    rm_=$(role_cell "$r" 2); re_=$(role_cell "$r" 3)
+    if [ -z "$rm_" ]; then fail "$n: role '$r' is not defined in the Roles table of $TIERS"; continue; fi
+    fmm=$(fm_key "$f" model); fme=$(fm_key "$f" effort)
+    case "$f" in */agents/*) [ -n "$fmm" ] || fail "$n: agents must declare model (an omitted one silently becomes the session's)" ;; esac
+    if [ -n "$fmm" ] && { [ "$rm_" = none ] || ! in_models "$fmm" "$rm_"; }; then
+      fail "$n: model '$fmm' outside role '$r' (allowed: $rm_)"
+    fi
+    if [ -n "$fme" ] && { [ "$re_" = none ] || ! in_effort "$fme" "$re_"; }; then
+      fail "$n: effort '$fme' outside role '$r' (allowed: $re_)"
+    fi
+  done < <(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$' | sort)
+  while IFS=$'\t' read -r n _; do
+    [ -n "$n" ] || continue
+    printf '%s' "$names" | grep -qxF "$n" || fail "$TIERS: Components row '$n' names no component in this tree"
+  done <<< "$comps"
+
+  # The dispatch scanner: one TSV row per dispatch, <file> <line> <type> <model-or-empty>.
+  while IFS=$'\t' read -r file line type model; do
+    [ -n "$type" ] || continue
+    case "$type" in
+      general-purpose|Explore)
+        [ -n "$model" ] || fail "$file:$line: $type dispatch names no model" ;;
+      *)
+        [ -n "$model" ] || continue
+        a="${type##*:}"; r=$(role_of "$a"); [ -n "$r" ] || continue   # the row check above reports it
+        rm_=$(role_cell "$r" 2)
+        { [ "$rm_" != none ] && in_models "$model" "$rm_"; } \
+          || fail "$file:$line: dispatch of '$a' names model '$model' outside role '$r' (allowed: $rm_)" ;;
+    esac
+  done < <(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$' | sort \
+    | xargs -r awk '
+      function modelin(t,   s) {
+        if (match(t, /model:[ \t]*"?[A-Za-z0-9._-]+/)) { s = substr(t, RSTART + 6, RLENGTH - 6); gsub(/[ \t"]/, "", s); return s }
+        if (match(t, /`(haiku|sonnet|opus|fable|inherit)`/)) return substr(t, RSTART + 1, RLENGTH - 2)
+        return ""
+      }
+      function judge(t, ln,   low, ty, s) {
+        low = tolower(t)
+        if (!(low ~ /(^|[^a-z0-9_-])sub-?agents?([^a-z0-9_-]|$)/ || low ~ /agent tool/ \
+              || low ~ /(^|[^a-z])(launch|spawn)([^a-z]|$)/)) return
+        ty = ""
+        if (t ~ /`general-purpose`/) ty = "general-purpose"
+        else if (t ~ /(^|[^A-Za-z])Explore agent/) ty = "Explore"
+        else if (match(t, /`subagent_type:[ \t]*"?[a-z][a-z0-9:-]*/)) {
+          s = substr(t, RSTART, RLENGTH); sub(/^`subagent_type:[ \t]*"?/, "", s); ty = s }
+        if (ty != "") print FILENAME "\t" ln "\t" ty "\t" modelin(t)
+      }
+      function flush() { if (buf != "") judge(buf, start); buf = "" }
+      function task_end() { if (intask && ttype != "") print FILENAME "\t" tline "\t" ttype "\t" tmodel; intask = 0 }
+      function yval(l) { sub(/^[ \t]*[a-z_]+:[ \t]*/, "", l); sub(/[ \t]+#.*/, "", l); gsub(/["'"'"' \t]/, "", l); return l }
+      FNR == 1 { flush(); task_end(); fence = 0; front = ($0 == "---"); if (front) next }
+      front { if ($0 == "---") front = 0; next }
+      /^[ \t]*```/ { flush(); if (fence) task_end(); fence = !fence; next }
+      fence {
+        if ($0 ~ /^[ \t]*Task:[ \t]*$/) { task_end(); intask = 1; ttype = ""; tmodel = ""; tline = FNR; kind = -1; next }
+        if (intask && $0 ~ /[^ \t]/) {
+          match($0, /^[ \t]*/); ind = RLENGTH
+          if (kind < 0) kind = ind
+          if (ind == kind && ind > 0) {
+            if ($0 ~ /^[ \t]*subagent_type:/) ttype = yval($0)
+            else if ($0 ~ /^[ \t]*model:/) tmodel = yval($0)
+          }
+        }
+        next
+      }
+      /^[ \t]*$/ || /^#/ { flush(); next }
+      /^[ \t]*\|/ { flush(); judge($0, FNR); next }
+      { if (buf == "") start = FNR; buf = buf " " $0 }
+      END { flush(); task_end() }
+    ')
+fi
 
 if [ "$err" -ne 0 ]; then echo ""; echo "forge-kit: plugin validation FAILED."; exit 1; fi
 echo "forge-kit: plugin validation passed."

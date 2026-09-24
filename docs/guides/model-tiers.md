@@ -108,17 +108,66 @@ a role moves to a named cheaper tier only where a measurement on a fixed input s
 doing the same job. `inherit` alone is not a saving (it passes the session's model on), so the saving is
 the named tiers and the lower efforts.
 
-| Agent | Role kind | Model | Effort | Reason |
-|---|---|---|---|---|
-| `ticket-gate` | judgment | `inherit` | `high` | the only thing between a bad spec and the work; a pinned `opus` would override a user who deliberately runs a cheaper session |
-| `architect-review` | judgment | `inherit` | `high` | judgment, not measured, keeps today's behaviour by construction |
-| `code-reviewer` | judgment | `inherit` | `high` | as above |
-| `security-auditor` | security | `inherit` | `high` | Sonnet passed the criterion and still dropped medium findings (below) |
-| `api-security-tester` | security | `inherit` | `high` | as above |
-| `coding-standards-auditor` | bounded analysis | `inherit` | `medium` | Sonnet FAILED its criterion: it missed findings Opus rated high |
-| `code-simplifier` | bounded analysis | `sonnet` | `medium` | passed; a weak pass, since neither tier found anything at medium or above |
-| `dep-auditor` | bounded analysis | `sonnet` | `medium` | passed; a weak pass, since the input has no manifests and neither tier found anything |
-| `health-check` | mechanical | `sonnet` | `low` | passed at `low`; Haiku failed and cost more |
+These two tables are the ONE definition of what each component may run on (#253), and
+`scripts/validate-plugins.sh` check 7 reads them: a component with no row fails, a declared `model:` or
+`effort:` outside its role's range fails, an agent declaring no `model:` fails, and a dispatch site naming
+a model outside the dispatched agent's range fails. Each component's actual values live in its own
+frontmatter and nowhere else, so nothing here can drift from them. A range is a floor and a ceiling, not a
+recommendation: the Components reasons say why each agent sits where it does inside its range.
+
+### Roles
+
+| Role | Models | Effort | Reason |
+|---|---|---|---|
+| judgment | inherit, sonnet | high..xhigh | the session's model, since a pinned `opus` would override a user who deliberately runs a cheaper session; `sonnet` is allowed only because a dispatch site may scale a re-review of a fix diff down (`full-review` rule 8) |
+| security | inherit | high..max | a floor with no pin: Sonnet passed the criterion and still dropped medium findings, so no cheaper tier is allowed, and a pinned `opus` would override the session as above |
+| bounded-analysis | inherit, sonnet | medium..high | bounded work where a named cheaper tier was measured; Haiku is excluded, since it cost more on multi-step work |
+| mechanical | sonnet | low..medium | passed at `low`; Haiku failed and cost more |
+| session | none | none | a skill or command runs in its caller's session; a `model:` or `effort:` on one binds only on a slash invocation, for one turn (Q2, Q3), and #279 decides whether any should |
+
+Models are drawn from `inherit`, `haiku`, `sonnet`, `opus` and `fable`, or are `none` alone, meaning the
+component declares no `model:`. Effort is `none`, one level, or `lo..hi` over `low < medium < high <
+xhigh < max`.
+
+### Components
+
+| Component | Role | Reason |
+|---|---|---|
+| ticket-gate | judgment | the only thing between a bad spec and the work; a pinned `opus` would override a user who deliberately runs a cheaper session |
+| architect-review | judgment | judgment, not measured, keeps today's behaviour by construction |
+| code-reviewer | judgment | as above |
+| security-auditor | security | Sonnet passed the criterion and still dropped medium findings (below) |
+| api-security-tester | security | as above |
+| coding-standards-auditor | bounded-analysis | declares `inherit`: Sonnet FAILED its criterion, missing findings Opus rated high |
+| code-simplifier | bounded-analysis | declares `sonnet`: passed, weakly, since neither tier found anything at medium or above |
+| dep-auditor | bounded-analysis | declares `sonnet`: passed, weakly, since the input has no manifests and neither tier found anything |
+| health-check | mechanical | declares `sonnet` at `low` |
+| adapt | session | |
+| find-dead-code | session | |
+| forge-host | session | |
+| github-to-forgejo | session | |
+| release-automation | session | |
+| release | session | |
+| closing-sessions | session | |
+| decision-brief | session | |
+| ticket-gate-reference | session | preloaded into `ticket-gate`, so it runs on that agent's model |
+| working-overnight | session | |
+| roadmap-phases | session | |
+| leak-guard | session | |
+| owasp-api-security | session | |
+| privacy-regime | session | |
+| mutation-sweep | session | |
+| ci-health | session | |
+| gate-ticket | session | |
+| full-review | session | |
+| phase | session | |
+
+### What the user still controls
+
+These ranges bind the kit, never the person running it. Read from the 2.1.281 settings schema:
+`maxEffortLevel` clamps every effort above it, frontmatter included; across settings files the lowest
+value wins, and `modelSettings.<model>.maxEffortLevel` replaces it for one model. The advisor tool's
+model is `advisorModel`, a separate setting none of this touches.
 
 ### Dispatch sites (#251)
 
@@ -145,7 +194,7 @@ one exception applies a scaling condition stated once in the dispatching file's 
 | `full-review` `code-reviewer` in a round-2+ run | `sonnet` | a scoped re-review of a fix diff; round 1 keeps the frontmatter |
 | `working-overnight` implementer | `sonnet` | review goes to `code-reviewer`, whose frontmatter decides |
 
-Nothing mechanical catches a site that stops naming its model until #253.
+`scripts/validate-plugins.sh` check 7 fails a `general-purpose` or `Explore` dispatch that names no model (#253).
 
 ### The measurement
 

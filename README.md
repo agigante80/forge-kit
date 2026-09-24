@@ -353,6 +353,7 @@ the generated, CI-verified index (#96) and the version-bump gate this repo now r
 - `docs/guides/template-versioning.md`: template versioning and auto-synthesis
 - `docs/guides/labels.md`: label taxonomy and agent routing
 - `docs/guides/versioning.md`: the three version levels and which guard enforces each
+- `docs/guides/model-tiers.md`: what each component may run on and how hard it thinks, by role, with the probes and the measurement behind it
 - `scripts/check-doc-drift.sh`: which documents a range of commits made stale, reported per line and never as a build failure
 - `docs/roadmap.md`: what is being worked on now, and what each closed phase concluded
 - `CHANGELOG.md`: umbrella release history
