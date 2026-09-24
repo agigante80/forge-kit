@@ -917,6 +917,16 @@ on this repository's own runs means Opus for a step whose whole job is to call a
 Beside them: an `effort:` key Anthropic ships on eight of its own agents and documents nowhere, worth
 a probe before an adoption (#252), and the guard without which all of it goes stale again (#253).
 
+Planned 2026-09-24, and reshaped by what the installed CLI and Anthropic's `claude-security` showed.
+`inherit` is not a cost fix, since it passes on the session's model, so #250 became a split by role;
+`effort:` is real on agents, skills and commands, so it became a second axis; and the probe (#252)
+moved from last to first, because every other ticket depends on which keys take effect. Four tickets
+joined: `/full-review` sizing its pipeline to the diff, the largest single saving because the cost
+was the number of agents rather than their tier (#278); skills and commands, where a tier can
+downgrade the user's own session (#279); a measurement in turns as well as tokens (#280); and
+forge-adapt carrying the decisions into installed copies (#281). Per-dispatch effort through Workflow
+scripts was considered and deferred to Backlog (#282).
+
 ## Phase: Backlog
 state: backlog
 
