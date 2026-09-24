@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 9 -->
+<!-- roadmap-phases-version: 10 -->
 
 # Roadmap phases
 
@@ -230,12 +230,54 @@ phase" is true of the set the rule actually governs, so say it that way rather t
 Adoption is therefore cheap: write the roadmap, assign the OPEN tickets, and start. There is no
 migration.
 
-## Splitting, reordering and deleting
+## Reshaping the roadmap: `reassess-phases.sh` (#249)
 
-All three are ordinary edits to `roadmap.md`, then `sync-phases.sh`. Splitting a phase means adding
-a phase and moving tickets between milestones. Reordering means moving the `##` blocks. Deleting
-means removing the block and moving its tickets; the milestone is left on the host, because nothing
-here ever deletes one.
+A plan review (above) asks whether ONE phase is still aligned. Reshaping asks whether the PLAN OF
+PHASES itself is still right: too many small ones, two that turned out to be one thing, a phase
+whose name no longer matches what accumulated in it. `reassess-phases.sh` is the mechanism, invoked
+through `/phase reassess`; `--help` is the synopsis and this section is the rules behind it.
+
+Seven ops, each an atomic reshape of `roadmap.md` plus the milestones behind it:
+
+- **`reorder <name> --before|--after <other>|--end`**: moves the `##` block. No policy involved.
+- **`refocus <name> --prose "..."`**: rewrites a phase's prose without moving tickets.
+- **`rename <old> <new>`**: renames the heading and moves every ticket to a milestone under the new
+  title. The old milestone is left on the host, **emptied, not deleted**.
+- **`split <name> --into <new> --move <n...> --before|--after|--end`**: adds a phase and moves the
+  named tickets into its milestone; everything left behind stays in the original.
+- **`merge <a> --into <b> --reason "..."`**: removes `a`, moves its tickets into `b`'s milestone,
+  and appends the reason to `b`'s prose. `--reason` is not optional: it is the only record of why
+  two phases became one, and it is what a future reader has instead of the deleted phase.
+- **`delete <name> [--to <dest>]`**: removes the block. A phase with open tickets and no `--to`
+  refuses; `--to` may name a phase or a STATE (`backlog` resolves to whichever phase carries that
+  state), and the tickets move there first.
+- **`insert <name> --before|--after|--end --state <state> [--plan <path>] --prose "..."`**: adds a
+  new phase. `--state open` requires `--plan`, the same gate opening a phase always enforces (rule
+  2), and refuses if another phase is already `open` (rule 3's at-most-one).
+
+**Every op that would touch a `done` phase refuses**, on either side of a merge, as the loser of a
+split, as the target of a refocus or delete. A closed phase is history; reshaping it would rewrite
+what already happened rather than what happens next. **`--check` runs the same validation and prints
+the same plan without writing anything**, on the file or the host, and is not optional to skip: run
+it first, always, and show the result before running for real.
+
+Five exit codes, and each means something specific: `0` done, ending with `check-phases.sh`'s own
+verdict; `2` a usage or environment error, nothing written; `3` the roadmap was already malformed,
+nothing written; `4` a ticket move failed partway, the roadmap **file** untouched and the report
+naming what moved and what did not, so the identical command re-run resumes rather than repeating
+what already succeeded; `5` a policy refusal on an otherwise well-formed request, nothing written,
+message quoted rather than paraphrased.
+
+A milestone a reshape empties (rename, merge, or delete moving every ticket out) is **never
+deleted**, the same rule the plain edits below already follow: it stays on the host under its old
+title, reported as emptied so nobody goes looking for it and reads its absence as a bug.
+
+## Splitting, reordering and deleting by hand
+
+For a change simple enough not to need the script above: ordinary edits to `roadmap.md`, then
+`sync-phases.sh`. Splitting a phase means adding a phase and moving tickets between milestones by
+hand. Reordering means moving the `##` blocks. Deleting means removing the block and moving its
+tickets; the milestone is left on the host, because nothing here ever deletes one.
 
 ## The four rules `check-phases.sh` enforces
 

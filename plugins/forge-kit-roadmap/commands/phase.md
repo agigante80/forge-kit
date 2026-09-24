@@ -1,9 +1,9 @@
 ---
-description: Work the roadmap. status, plan, review, close or triage a phase.
-argument-hint: status | plan <name> | review [name] | close <name> | triage
+description: Work the roadmap. status, plan, review, reassess, close or triage a phase.
+argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 8 -->
+<!-- phase-version: 9 -->
 
 # /phase
 
@@ -131,6 +131,41 @@ The two libraries are SOURCED, not run, and the version that prints must be 25 o
 6. Act. The roadmap prose goes through `roadmap_set_prose`; the plan and the documents are ordinary
    edits.
 7. If every ticket is implemented, hand over to `/phase close`. Do not close it here.
+
+## `/phase reassess`
+
+Reshapes the roadmap itself: reorder, split, merge, rename, refocus, delete or insert a phase. One
+level above `/phase review`, which asks whether a single phase is still aligned; this asks whether
+the plan of phases is still the right one. The `roadmap-phases` skill is canonical for every rule
+and refusal; this is the mechanism only.
+
+Resolve the script the same way:
+
+```bash
+RP=$(resolve reassess-phases.sh); echo "using ${RP:-none}" | sed "s|$HOME|~|g"
+```
+
+If empty, say so and stop.
+
+1. Ask the user which op and its arguments; do not guess. `bash "$RP" --help` prints the full
+   synopsis of all seven ops (`reorder`, `split`, `merge`, `rename`, `refocus`, `delete`, `insert`)
+   and their flags.
+2. Run it **with `--check` first**, always, and show the user exactly what it would do before
+   running it for real. `--check` writes nothing, on the file or the host.
+3. Once the user agrees, run it without `--check`. Its exit code decides what happens next:
+   - `0`: done. It ends by running `check-phases.sh` itself and reports that verdict.
+   - `4`: a ticket move failed partway through. Nothing on the roadmap file was touched, and the
+     report names what moved and what is still to move. Fix the underlying problem and re-run the
+     identical command; it resumes rather than repeating what already moved.
+   - `5`: refused. A rule this reshape would have broken, most often rewriting a `done` phase or
+     leaving a phase with nowhere for its open tickets to go. Nothing was written. Quote the
+     message; either change the request or stand down.
+   - anything else: a usage or environment error; quote it.
+4. Never omit `--reason` on a `merge`: it lands in the surviving phase's prose and is the only
+   record of why two phases became one.
+5. A merge, rename, or delete that empties a milestone reports it **emptied, not deleted**: the
+   milestone stays on the host under its old title. Never try to delete or reopen a milestone by
+   hand to "clean up" afterward.
 
 ## `/phase triage`
 
