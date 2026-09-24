@@ -898,8 +898,19 @@ own acceptance criteria rather than treating them as separate work, since both w
 satisfied by the shipped `reassess-phases.sh`.
 
 ## Phase: Choosing a model and an effort on purpose
-state: open
+state: done
 plan: docs/plans/choosing-a-model-and-an-effort.md
+
+Closed 2026-09-24, outcome **done**. All eight planned tickets landed in the planned order (#252,
+#280, #250, #251, #278, #253, #279, #281), and two appeared: #288, the audit #287's live-forge leak
+asked for, and #289, the re-measurement #250 left open for the security roles. None of the
+premortem's clauses fired. Bounded and mechanical agents moved to a named `sonnet` rather than to
+`inherit`, Haiku was measured and refused on turns, `/full-review` dispatches `code-reviewer` alone for
+a small safe range, every adopted key was probed on the installed CLI, and no skill or command sets a
+tier. #289 kept both security roles on `inherit` by its cost rule: Sonnet found every planted issue
+and cost more. The rule could not judge the tester, because no run of either tier wrote a test for the
+hard-coded secret, so the criterion itself goes to `backlog` (#292) along with the reviews' lows
+(#293). #282 stays in `backlog` as planned.
 
 Opened as a bucket 2026-09-23, when the maintainer adopted superpowers' and Anthropic's guidance on
 model selection as guidelines this kit follows rather than references. Both say the same thing from
