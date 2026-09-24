@@ -123,7 +123,7 @@ recommendation: the Components reasons say why each agent sits where it does ins
 | security | inherit | high..max | a floor with no pin: Sonnet passed the criterion and still dropped medium findings, so no cheaper tier is allowed, and a pinned `opus` would override the session as above |
 | bounded-analysis | inherit, sonnet | medium..high | bounded work where a named cheaper tier was measured; Haiku is excluded, since it cost more on multi-step work |
 | mechanical | sonnet | low..medium | passed at `low`; Haiku failed and cost more |
-| session | none | none | a skill or command runs in its caller's session; a `model:` or `effort:` on one binds only on a slash invocation, for one turn (Q2, Q3), and #279 decides whether any should |
+| session | none | none | a skill or command runs in its caller's session; a `model:` or `effort:` on one binds only on a slash invocation, for one turn (Q2, Q3), and #279 found none should: no file is wholly mechanical, so none can fork without a split, and a component that needs the conversation or the user never forks |
 
 Models are drawn from `inherit`, `haiku`, `sonnet`, `opus` and `fable`, or are `none` alone, meaning the
 component declares no `model:`. Effort is `none`, one level, or `lo..hi` over `low < medium < high <
@@ -142,25 +142,25 @@ xhigh < max`.
 | code-simplifier | bounded-analysis | declares `sonnet`: passed, weakly, since neither tier found anything at medium or above |
 | dep-auditor | bounded-analysis | declares `sonnet`: passed, weakly, since the input has no manifests and neither tier found anything |
 | health-check | mechanical | declares `sonnet` at `low` |
-| adapt | session | |
-| find-dead-code | session | |
-| forge-host | session | |
-| github-to-forgejo | session | |
-| release-automation | session | |
-| release | session | |
-| closing-sessions | session | |
-| decision-brief | session | |
+| adapt | session | judgment: what to recommend for this project is the work |
+| find-dead-code | session | runs a tool then judges its output in one file; only a split could fork the run step |
+| forge-host | session | knowledge: inert text, the reader's model governs |
+| github-to-forgejo | session | judgment: a migration playbook the user steers |
+| release-automation | session | knowledge: inert text, the reader's model governs |
+| release | session | needs the user: the bump level is a human judgement and it STOPs on divergence, so it cannot fork, and its irreversible host writes do not move to a cheaper tier |
+| closing-sessions | session | reads the current conversation, which a fork cannot see |
+| decision-brief | session | judgment: costing the options is the work |
 | ticket-gate-reference | session | preloaded into `ticket-gate`, so it runs on that agent's model |
-| working-overnight | session | |
-| roadmap-phases | session | |
-| leak-guard | session | |
-| owasp-api-security | session | |
-| privacy-regime | session | |
-| mutation-sweep | session | |
-| ci-health | session | |
-| gate-ticket | session | |
-| full-review | session | |
-| phase | session | |
+| working-overnight | session | judgment: governs an unattended run |
+| roadmap-phases | session | knowledge: inert text, the reader's model governs |
+| leak-guard | session | knowledge and remediation advice; the scans run from hooks and CI, not from the skill |
+| owasp-api-security | session | knowledge: inert text, the reader's model governs |
+| privacy-regime | session | knowledge: inert text, the reader's model governs |
+| mutation-sweep | session | runs a tool then judges its output in one file; only a split could fork the run step |
+| ci-health | session | one file, mixed roles: reads, gates tickets and implements fixes |
+| gate-ticket | session | a wrapper whose only step dispatches `ticket-gate`, whose own tier governs the work |
+| full-review | session | an orchestrator; its dispatch sites carry the tiers (#251) |
+| phase | session | one file, mixed roles: review, reassess and triage are judgment, and status step 4 is one too |
 
 ### What the user still controls
 

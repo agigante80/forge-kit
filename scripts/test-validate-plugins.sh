@@ -187,6 +187,46 @@ printf -- '<!-- runner-version: 1 -->\nDispatch with subagent_type: "general-pur
 run
 expect "general-purpose is Claude Code's own and is not ours to provide" 0 "$rc"
 
+echo "== a skill or command frontmatter agent: must name a real agent (#279) =="
+# context: fork runs a skill as the agent its agent: key names, and a missing one fails silently,
+# the #180 class. Frontmatter only: a body example is not a dispatch.
+SK="$T/tree/plugins/forge-kit-alpha/skills/sk/SKILL.md"
+mkdir -p "$(dirname "$SK")"; row sk knowledge
+skfm() { printf -- '---\nname: sk\ndescription: d\n%b---\n<!-- sk-version: 1 -->\n%b' "$1" "${2:-}" > "$SK"; }
+skfm 'context: fork\nagent: real-agent\n'; run
+expect "a skill agent: naming an agent that exists passes" 0 "$rc"
+skfm 'agent: forge-kit-alpha:real-agent\n'; run
+expect "a plugin-prefixed agent: is resolved without its prefix" 0 "$rc"
+skfm 'agent: "real-agent"\n'; run
+expect "a quoted agent: is resolved without its quotes" 0 "$rc"
+skfm 'agent: general-purpose\n'; run
+expect "agent: general-purpose is Claude Code's own" 0 "$rc"
+skfm 'agent: no-such-agent\n'; run
+expect "a skill agent: naming no agent fails" 1 "$rc"
+contains "skills/sk/SKILL.md" "$out" "and names the skill's path"
+contains "no-such-agent" "$out" "and names the missing agent"
+skfm '' 'Example frontmatter:\nagent: no-such-agent\n'; run
+expect "an agent: in a skill's body is an example, not a dispatch" 0 "$rc"
+printf -- '---\nname: sk\n<!-- sk-version: 1 -->\nagent: no-such-agent\n' > "$SK"; run
+expect "a file opening --- with no closing --- has no frontmatter" 0 "$rc"
+skfm ''
+printf -- '<!-- runner-version: 1 -->\n---\nname: runner\nagent: no-such-agent\n---\n' \
+  > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"; run
+expect "a command opening with its marker has no frontmatter, whatever --- follows (ci-health.md)" 0 "$rc"
+printf -- '---\nagent: no-such-agent\n---\n<!-- runner-version: 1 -->\n' \
+  > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"; run
+expect "a command frontmatter agent: naming no agent fails" 1 "$rc"
+contains "commands/runner.md" "$out" "and names the command's path"
+
+echo "== check 7 reads a forked skill's model against its row (#279) =="
+printf -- '<!-- runner-version: 1 -->\n' > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"
+sed -i '/^| sk |/d' "$T/tree/docs/guides/model-tiers.md"; row sk bounded-analysis
+skfm 'context: fork\nagent: real-agent\nmodel: sonnet\n'; run
+expect "a forked skill's model inside its row's range passes" 0 "$rc"
+sed -i '/^| sk |/d' "$T/tree/docs/guides/model-tiers.md"; row sk knowledge; run
+expect "the same keys on a knowledge row fail" 1 "$rc"
+contains "sk: model 'sonnet' outside role 'knowledge'" "$out" "and name the component and its range"
+
 echo "== a scripts/ copy of a shipped asset fails (#231) =="
 # The leak guard was installed into this repository the way it is installed into any other, as a
 # scripts/ copy, in the one tree that ships the same file as an asset. The copy drifted the first

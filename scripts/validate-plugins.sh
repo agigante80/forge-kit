@@ -5,7 +5,8 @@
 #   2. marketplace.json is valid JSON and every plugin source resolves to a plugin.json
 #   3. every component (agent/command/skill/hook/shell asset) carries a <name>-version marker
 #   4. every declared `dependencies` entry is well shaped and names a plugin this marketplace has
-#   5. every subagent_type dispatched by a component names an agent that exists
+#   5. every subagent_type dispatched by a component, and every skill or command frontmatter
+#      `agent:`, names an agent that exists
 #   6. no scripts/*.sh carries the marker name of a shipped shell asset (a second copy, #231)
 #   7. each component's model and effort, and each dispatch's model, sit inside its role's range
 #      in docs/guides/model-tiers.md (#253; its blind spots are listed at the check)
@@ -13,6 +14,8 @@
 # `claude plugin validate`, and check 4 is the half that analogue does NOT cover (see below).
 # Contract test: scripts/test-validate-plugins.sh.
 set -uo pipefail
+# Resolved before the cd: $0 may be relative. Sourced for component_frontmatter_field (check 5).
+. "$(cd "$(dirname "$0")" && pwd)/guard-lib.sh"
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
 err=0
@@ -146,6 +149,20 @@ while IFS= read -r target; do
     fail "${where:-plugins/} dispatches subagent_type '$target', which no agent in this tree provides (it would fail silently at runtime)"
   }
 done < <(grep -rhoP 'subagent_type[\":[:space:]=]+\K[a-z][a-z0-9-]*' plugins/ 2>/dev/null | sort -u)
+
+# A skill or command can dispatch too: `context: fork` runs it as the agent its `agent:` key names,
+# and a missing one fails silently the same way (#279). Read from FRONTMATTER only, through the
+# helper check-component-scope.sh already uses (line 1 exactly `---`, closed by a later `---`), so
+# an `agent:` in a body example is not a dispatch and ci-health.md's body `---` rule is never
+# mistaken for frontmatter. The value may carry quotes and a `<plugin>:` prefix; both are stripped.
+while IFS= read -r f; do
+  a=$(component_frontmatter_field "$f" agent)
+  a=${a#\"}; a=${a%\"}; a=${a#\'}; a=${a%\'}; a=${a##*:}
+  [ -n "$a" ] && [ "$a" != general-purpose ] || continue
+  printf '%s\n' "$agents" | grep -qxF "$a" ||
+    fail "$f declares agent: '$a', which no agent in this tree provides (it would fail silently at runtime)"
+done < <(find plugins -type f -regextype posix-extended \
+           -regex '^plugins/[^/]+/commands/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$' 2>/dev/null | sort)
 
 # 6. no scripts/ copy of a shipped shell asset (#231)
 #
