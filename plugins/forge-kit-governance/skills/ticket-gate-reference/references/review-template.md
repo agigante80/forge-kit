@@ -50,5 +50,13 @@ Step 4 composes this. Never a numeric scorecard.
 
 
 ### Required changes (when NEEDS-WORK)
+<!-- gate-items:start -->
 - [ ] <blocking change, specific>
+<!-- gate-items:end -->
 ```
+
+The `gate-items` pair (#196) is what `count-gate-rounds.sh --memory` reads to restore prior
+blocking items when the `gate-required-changes` body region is absent. Emit it on every round,
+empty on a PASS: `<!-- gate-items:start -->\n<!-- gate-items:end -->` with nothing between. The
+scan is not fence-aware, so never quote a `gate-items` marker line as example text anywhere else
+in the same comment.

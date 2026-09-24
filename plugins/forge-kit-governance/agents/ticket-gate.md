@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 58 -->
+<!-- ticket-gate-version: 59 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -618,11 +618,10 @@ where it is read; this section is for rules that span steps or the whole run (#1
   | 2.7 research | only a technology, dependency or regulation the delta newly introduces; the gate's own edits never qualify |
   | 2.9 codebase context | reuses its cached region per Step 2.9's own skip test; a fundamental round VOIDS it |
   | 3A mechanical | ALWAYS full: near-free, and the body always changed |
-  | 3B critic | prior blocking items plus changed sections, from the `gate-verdict` block; a fresh run has no memory |
-  | 3C lenses | one that already ran: its own prior blocking items plus changed sections touching its brief. One triggering for the FIRST time in round 2 runs FULL |
+  | 3B critic | prior blocking items from `gate-required-changes`; absent, fall back to `count-gate-rounds.sh <N> --memory` (exit 3: no memory, run FULL); a fresh run has none |
+  | 3C lenses | one that already ran: its own prior items (same source and fallback as 3B) plus changed sections touching its brief. One triggering for the FIRST time in round 2 runs FULL |
 
   Delta scope on a first run reviews nothing and reports clean, which is why the last row is not
-  delta. Likewise when `<ROUND>` is above 1 with no `gate-verdict` block (erased, or cleared by
-  0c-iv): 3B and 3C run FULL. A 0c-voided round counts (its comment exists) but carries no
-  memory; a deleted review comment lowers the count. The target must not grow between rounds;
-  state what was re-checked and what carries forward.
+  delta. A 0c-voided round counts (its comment exists) but carries no memory; a deleted review
+  comment lowers the count. The target must not grow between rounds; state what was re-checked
+  and what carries forward.

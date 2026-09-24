@@ -10,6 +10,13 @@
 # synthesis-void comment, a heading quoted on a later line, a sibling ticket's review), and the two
 # refusals: a listing that cannot run must never print `1`.
 #
+# v2 (#196) adds `--memory`, which restores the prior blocking items from the LATEST such comment
+# by reading a `gate-items` marker pair the gate itself wraps the checklist in. These cases pin
+# down the five-row contract (items restored, an empty pair meaning PASS, no marker at all, a
+# malformed pair, transport failure) and that the scan is not fence-aware, plus the argument-order
+# refusal: the issue number must come first, so a stale caller reaching a stale v1 copy always
+# fails the same way regardless of which script it actually hits.
+#
 # Driven with a STUB forge-lib.sh placed beside a copy of the script, the shape
 # test-forge-gate-mechanics.sh uses, so no network and no token are involved.
 set -uo pipefail
@@ -50,6 +57,16 @@ comments() {
   export FIXTURE_COMMENTS
 }
 review() { printf '## Ticket Readiness Review - #%s\n\n**Verdict: NEEDS-WORK**' "$1"; }
+
+# reviewItems <issue> <item>...  a review comment wrapping a non-empty gate-items pair.
+reviewItems() {
+  issue="$1"; shift
+  printf '## Ticket Readiness Review - #%s\n\n**Verdict: NEEDS-WORK**\n\n<!-- gate-items:start -->\n' "$issue"
+  for i in "$@"; do printf -- '- [ ] %s\n' "$i"; done
+  printf '<!-- gate-items:end -->\n'
+}
+# reviewPass <issue>  a review comment wrapping an empty gate-items pair.
+reviewPass() { printf '## Ticket Readiness Review - #%s\n\n**Verdict: PASS**\n\n<!-- gate-items:start -->\n<!-- gate-items:end -->\n' "$1"; }
 
 # run <args...>: out on stdout, err on stderr, rc.
 run() { out=$(cd "$BIN" && bash ./count-gate-rounds.sh "$@" 2>"$T/err"); rc=$?; err=$(cat "$T/err"); }
@@ -128,6 +145,98 @@ mv "$BIN/forge-lib.hidden" "$BIN/forge-lib.sh"
 run
 expect "no issue number: exits 2" 2 "$rc"
 expect "and prints nothing on stdout" "" "$out"
+
+echo "== --memory restores prior blocking items =="
+comments "$(review 42)" "$(reviewItems 42 "fix A" "fix B")"
+run 42 --memory
+expect "two items restored, one per line" 0 "$rc"
+expect "and the answer is the checklist text" "fix A
+fix B" "$out"
+
+comments "$(review 42)" "$(reviewPass 42)"
+run 42 --memory
+expect "an empty gate-items pair (PASS) exits 0" 0 "$rc"
+expect "and prints nothing" "" "$out"
+contains "latest review was a PASS" "$err" "and stderr says so"
+
+comments "$(reviewItems 42 'a backtick item using `code`' 'an issue reference to #248')"
+run 42 --memory
+expect "item order preserved, a backtick and an issue reference pass through unchanged" 0 "$rc"
+expect "and both lines are printed verbatim" 'a backtick item using `code`
+an issue reference to #248' "$out"
+
+comments "$(reviewItems 42 "an earlier item")" "$(review 42)"
+run 42 --memory
+expect "a gate-items pair in an EARLIER comment but not the latest: only the latest is read" 3 "$rc"
+expect "and prints nothing" "" "$out"
+
+comments "$(printf '## Ticket Readiness Review - #42\n\nQuoted for reference:\n```\n- [ ] not a real item\n- [ ] another quoted line\n```\n\n<!-- gate-items:start -->\n- [ ] the real item\n<!-- gate-items:end -->')"
+run 42 --memory
+expect "a fenced checklist outside the marker pair is not read as memory" 0 "$rc"
+expect "only the item inside the pair is printed" "the real item" "$out"
+
+echo "== --memory refuses what it cannot read as a list =="
+comments "$(review 42)"
+run 42 --memory
+expect "no gate-items marker at all: refuses" 3 "$rc"
+expect "and prints nothing" "" "$out"
+contains "no gate-items marker" "$err" "and stderr says so, naming the raw line count"
+
+comments "$(review 41)"
+run 42 --memory
+expect "no review comment for THIS issue at all: refuses" 3 "$rc"
+expect "and prints nothing" "" "$out"
+contains "no '## Ticket Readiness Review - #42' comment found" "$err" "and stderr names the issue"
+
+comments "$(printf '## Ticket Readiness Review - #42\n\n<!-- gate-items:start -->\n- [ ] a\n<!-- gate-items:start -->\n- [ ] b\n<!-- gate-items:end -->')"
+run 42 --memory
+expect "two start markers is malformed: refuses" 3 "$rc"
+expect "and prints nothing" "" "$out"
+contains "2 gate-items start markers" "$err" "and stderr names the count"
+lacks "sentinel-author" "$err" "and names no comment author"
+
+comments "$(printf '## Ticket Readiness Review - #42\n\n<!-- gate-items:start -->\n- [ ] a')"
+run 42 --memory
+expect "an unterminated pair is malformed: refuses" 3 "$rc"
+contains "unterminated" "$err" "and stderr says so"
+
+comments "$(printf '## Ticket Readiness Review - #42\n\n<!-- gate-items:end -->\n- [ ] a\n<!-- gate-items:start -->')"
+run 42 --memory
+expect "an end marker before its start is malformed: refuses" 3 "$rc"
+contains "reversed order" "$err" "and stderr says so"
+
+comments "$(printf '## Ticket Readiness Review - #42\n\n<!-- gate-items:start -->\n- [ ] real item\n<!-- gate-items:end -->\n\nExample of the marker syntax:\n\n```\n<!-- gate-items:start -->\n```')"
+run 42 --memory
+expect "a fenced quote of the marker is read as a second start (not fence-aware): refuses" 3 "$rc"
+contains "2 gate-items start markers" "$err" "and the quoted line counts exactly like a real one"
+
+echo "== --memory and the plain count share the same transport failure =="
+comments "$(review 42)" "$(reviewItems 42 "fix A")"
+FIXTURE_FAIL=1 run 42 --memory
+expect "a transport failure exits 2" 2 "$rc"
+expect "and prints nothing" "" "$out"
+contains "forge_issue_comments" "$err" "and stderr names the call that failed"
+unset FIXTURE_FAIL
+
+echo "== the issue number must come first =="
+comments "$(review 42)" "$(reviewItems 42 "fix A")"
+run 42 --memory
+expect "issue first: succeeds" 0 "$rc"
+expect "and restores the item" "fix A" "$out"
+
+run --memory 42
+expect "flag first is a usage error, not read as the issue number" 2 "$rc"
+expect "and prints nothing" "" "$out"
+contains "usage" "$err" "and stderr carries the usage line"
+
+run 42 --bogus
+expect "an unrecognised option is a usage error" 2 "$rc"
+expect "and prints nothing" "" "$out"
+contains "unrecognised option" "$err" "and stderr names the option"
+
+run 42 43
+expect "a second positional argument is a usage error" 2 "$rc"
+contains "unexpected argument" "$err" "and stderr names it"
 
 echo "== portability =="
 code() { grep -v '^[[:space:]]*#' "$1"; }

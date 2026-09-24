@@ -121,6 +121,11 @@ and never reads the issue body for it, because an ordinary body edit erases what
 there. If the body's block disagrees, one stderr line says so and the comments win. A count that
 cannot run exits 2 and prints nothing, so it can never be mistaken for round 1.
 
+`bash scripts/count-gate-rounds.sh 182 --memory` restores the latest review's blocking items
+instead, for when the gate's own tracking region is gone. It exits 0 with one item per line
+(memory restored, empty stdout on a PASS round) or exits 3 with nothing on stdout when no
+machine-readable checklist can be found.
+
 `FORGE_TOKEN` or `GH_TOKEN` is read from the environment by `forge-lib.sh`. It is never written to a
 file by any of these scripts, and you should not put it in one.
 
