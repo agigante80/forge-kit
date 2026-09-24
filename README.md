@@ -57,7 +57,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 |---|---|---|---|
 | `forge-kit-adapt` | 0.7.2 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.16.0 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.20.0 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
+| `forge-kit-governance` | 0.20.1 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
 | `forge-kit-review` | 0.4.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.11.0 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.11.9 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
@@ -263,7 +263,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v10 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
 | `forge-kit-governance` | shell asset | `count-gate-rounds` | v2 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
 | `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v4 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
-| `forge-kit-governance` | shell asset | `gate-status` | v1 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
+| `forge-kit-governance` | shell asset | `gate-status` | v2 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
 | `forge-kit-review` | agent | `architect-review` | v2 | 1034 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
 | `forge-kit-review` | agent | `code-reviewer` | v13 | 1785 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v2 | 426 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |

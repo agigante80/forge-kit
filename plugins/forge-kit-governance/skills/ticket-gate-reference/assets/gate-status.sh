@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 1
+# gate-status-version: 2
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -121,8 +121,11 @@ write_retry() {  # write_retry <region> <content> [top]
   return "$rc"
 }
 
-strip_stamp() {  # verdict content on stdin: drop the Judged and Stale lines and the STALE mark
-  awk '/^Judged body: sha256:/ { next } /^\*\*Stale:\*\*/ { next }
+# A bare `Full review:` line is the pre-v60 pointer (#285): a gate agent copying an old block keeps
+# it and the stamp would add a second. Anchored, so an item that MENTIONS it mid-line survives; the
+# required-changes and alternatives regions never carry one, so the clause is inert there.
+strip_stamp() {  # verdict content on stdin: drop the Judged, Stale and bare pointer lines and the STALE mark
+  awk '/^Judged body: sha256:/ { next } /^\*\*Stale:\*\*/ { next } /^Full review: / { next }
        /^### / { sub(/: STALE[ \t]*$/, "") } { print }'
 }
 
