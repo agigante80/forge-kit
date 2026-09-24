@@ -916,6 +916,8 @@ a model at all, so every critic, thin-check and lens runs on whatever the caller
 on this repository's own runs means Opus for a step whose whole job is to call a shell script (#251).
 Beside them: an `effort:` key Anthropic ships on eight of its own agents and documents nowhere, worth
 a probe before an adoption (#252), and the guard without which all of it goes stale again (#253).
+The probe's answers are in `docs/guides/model-tiers.md`: `effort:` is honoured on agents, a dispatch
+site's model beats the agent's, and a skill or command tier binds only on a slash invocation.
 
 Planned 2026-09-24, and reshaped by what the installed CLI and Anthropic's `claude-security` showed.
 `inherit` is not a cost fix, since it passes on the session's model, so #250 became a split by role;
