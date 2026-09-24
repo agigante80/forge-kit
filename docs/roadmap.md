@@ -898,7 +898,7 @@ own acceptance criteria rather than treating them as separate work, since both w
 satisfied by the shipped `reassess-phases.sh`.
 
 ## Phase: Choosing a model and an effort on purpose
-state: planned
+state: open
 plan: docs/plans/choosing-a-model-and-an-effort.md
 
 Opened as a bucket 2026-09-23, when the maintainer adopted superpowers' and Anthropic's guidance on
