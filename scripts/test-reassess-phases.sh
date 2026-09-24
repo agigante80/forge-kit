@@ -10,7 +10,10 @@
 set -uo pipefail
 # #287: an inherited environment must not steer resolution. FORGE_LIB is consulted before anything
 # else, and GIT_DIR/GIT_WORK_TREE (which git exports into hooks, and pre-push runs this suite) override
-# the ceiling below.
+# the ceiling below. The set is complete for `rev-parse --show-toplevel` (git(1) and git-config(1)
+# ENVIRONMENT, 2.43, #288): GIT_DISCOVERY_ACROSS_FILESYSTEM only lets a search cross a mount the
+# ceiling still stops, GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS act on a repository already found,
+# which the ceiling prevents, and GIT_NAMESPACE scopes refs only. All three are ruled out, not missed.
 unset FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -34,8 +37,12 @@ absent()   { if printf '%s' "$2" | grep -qiF -- "$1"; then bad "$3"; else ok "$3
 # relative path), the ceiling is its parent, and gh/curl are shims that log and fail; the last
 # assertion requires their log to be empty. Two steps, not `cd "$(mktemp -d)"`: a failed mktemp would
 # make that `cd ""`, a no-op, and the EXIT trap would then remove the working directory.
-T=$(mktemp -d) && T=$(cd "$T" && pwd -P) || { echo "cannot make a temp dir"; exit 1; }
+# #288: three statements, trap before the cd, so a cd that fails after mktemp succeeded still
+# removes the directory; the absolute path goes through T_ABS since a failed `T=$(...)` empties $T.
+T=$(mktemp -d) || { echo "cannot make a temp dir"; exit 1; }
 trap 'rm -rf "$T"' EXIT
+T_ABS=$(cd "$T" && pwd -P) || { echo "cannot resolve the temp dir"; exit 1; }
+T=$T_ABS
 export GIT_CEILING_DIRECTORIES="$(dirname "$T")"
 mkdir -p "$T/shim"
 for c in gh curl; do

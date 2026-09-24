@@ -16,6 +16,12 @@
 #     removed on the normal path)
 # The github branches shell out to `gh` and are unchanged by #62/#63; they are exercised by
 # real use, not stubbed here.
+#
+# NOT REACHABLE (#288), so no #287 isolation block: _forge_root's git-root search only finds a
+# config file to READ, never a library to load, and every case that runs the real forge_api puts
+# its own gh or curl stub first on PATH inside a subshell.
+# Audited with TMPDIR inside this checkout and a failing, logging gh/curl shim first on PATH:
+# 0 live calls.
 set -uo pipefail
 
 # Every case that wants one of these EXPORTS it inside its own subshell, so the suite must start

@@ -5,6 +5,13 @@
 # stub instead of the real transport. Nothing here touches a network or a real forge. This is the
 # same shape as test-forge-lib.sh's stubbed `forge_api`, one level out: there the library was under
 # test, here the library IS the seam.
+#
+# NOT REACHABLE (#288), so this suite carries no #287 isolation block: sync-labels.sh sources
+# forge-lib.sh ONLY from its own directory and exits 2 when it is absent, with no git-root
+# fallback, and the stub always sits there; its one `git rev-parse` locates labels.yml, not a
+# transport.
+# Audited with TMPDIR inside this checkout and a failing, logging gh/curl shim first on PATH:
+# 0 live calls.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"

@@ -23,6 +23,11 @@
 #
 # Hermetic: forge_api, forge_host and forge_repo are stubbed after sourcing, and every call runs
 # from a directory that is not a git repository so the ref cannot resolve to a real commit.
+#
+# NOT REACHABLE (#288), so no #287 isolation block: forge_api is shadowed right after sourcing, so
+# _forge_root's git-root search can pick a config but never a transport.
+# Audited with TMPDIR inside this checkout and a failing, logging gh/curl shim first on PATH:
+# 0 live calls.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
