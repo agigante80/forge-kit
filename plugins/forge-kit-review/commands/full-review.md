@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
 ---
 
-<!-- full-review-version: 10 -->
+<!-- full-review-version: 11 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -59,6 +59,9 @@ You MUST follow these rules exactly. Violating any of them is a failure.
    conflating it with delta membership would fire the trip wire on every in-target finding
    and make rounds 3 and 4 unreachable. Round 1 has no `previous_ref`; the field is omitted
    and no finding carries the tag.
+8. **Every dispatch prompt carries** `## Review Scope` and `.full-review/00-scope.md`'s contents.
+   A named agent runs on its frontmatter model, except `code-reviewer` in a rule-7 round:
+   re-reviewing a fix diff takes the standard tier (Step 1A).
 
 ## Pre-flight Checks
 
@@ -176,12 +179,10 @@ Run both agents in parallel using multiple Task tool calls in a single response.
 ```
 Task:
   subagent_type: "code-reviewer"
+  model: "sonnet"  # only where rule 8 says
   description: "Code quality analysis for $ARGUMENTS"
   prompt: |
     Perform a comprehensive code quality review.
-
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
 
     ## Instructions
     Analyze the target code for:
@@ -209,9 +210,6 @@ Task:
   description: "Architecture review for $ARGUMENTS"
   prompt: |
     Review the architectural design and structural integrity of the target code.
-
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
 
     ## Instructions
     Evaluate the code for:
@@ -267,9 +265,6 @@ Task:
   prompt: |
     Execute a comprehensive security audit on the target code.
 
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
-
     ## Phase 1 Context
     [Insert contents of .full-review/01-quality-architecture.md -- focus on the "Critical Issues for Phase 2 Context" section]
 
@@ -297,12 +292,10 @@ Task:
 ```
 Task:
   subagent_type: "general-purpose"
+  model: "sonnet"
   description: "Performance analysis for $ARGUMENTS"
   prompt: |
     You are a performance engineer. Conduct a performance and scalability analysis of the target code.
-
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
 
     ## Phase 1 Context
     [Insert contents of .full-review/01-quality-architecture.md -- focus on the "Critical Issues for Phase 2 Context" section]
@@ -395,12 +388,10 @@ Run both agents in parallel using multiple Task tool calls in a single response.
 ```
 Task:
   subagent_type: "general-purpose"
+  model: "sonnet"
   description: "Test coverage analysis for $ARGUMENTS"
   prompt: |
     You are a test automation engineer. Evaluate the testing strategy and coverage for the target code.
-
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
 
     ## Prior Phase Context
     [Insert security and performance findings from .full-review/02-security-performance.md that affect testing requirements]
@@ -432,12 +423,10 @@ Task:
 ```
 Task:
   subagent_type: "general-purpose"
+  model: "sonnet"
   description: "Documentation review for $ARGUMENTS"
   prompt: |
     You are a technical documentation architect. Review documentation completeness and accuracy.
-
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
 
     ## Prior Phase Context
     [Insert key findings from .full-review/01-quality-architecture.md and .full-review/02-security-performance.md]
@@ -488,12 +477,10 @@ Run both agents in parallel using multiple Task tool calls in a single response.
 ```
 Task:
   subagent_type: "general-purpose"
+  model: "sonnet"
   description: "Framework best practices review for $ARGUMENTS"
   prompt: |
     You are an expert in modern framework and language best practices. Verify adherence to current standards.
-
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
 
     ## All Prior Findings
     [Insert a concise summary of critical/high findings from all prior phases]
@@ -520,12 +507,10 @@ Task:
 ```
 Task:
   subagent_type: "general-purpose"
+  model: "sonnet"
   description: "CI/CD and DevOps practices review for $ARGUMENTS"
   prompt: |
     You are a DevOps engineer. Review CI/CD pipeline and operational practices.
-
-    ## Review Scope
-    [Insert contents of .full-review/00-scope.md]
 
     ## Critical Issues from Prior Phases
     [Insert critical/high findings from all prior phases that impact deployment or operations]

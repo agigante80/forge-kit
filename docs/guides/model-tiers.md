@@ -120,6 +120,33 @@ the named tiers and the lower efforts.
 | `dep-auditor` | bounded analysis | `sonnet` | `medium` | passed; a weak pass, since the input has no manifests and neither tier found anything |
 | `health-check` | mechanical | `sonnet` | `low` | passed at `low`; Haiku failed and cost more |
 
+### Dispatch sites (#251)
+
+A dispatch with no frontmatter behind it (`general-purpose`, `Explore`) always names a model, because
+otherwise it inherits the caller's session. A dispatch of a NAMED agent names nothing, since the
+agent's frontmatter above is already an explicit choice and a site value would override it (Q5); the
+one exception applies a scaling condition stated once in the dispatching file's rules.
+
+| Tier word | Model value at a dispatch site |
+|---|---|
+| cheap | `haiku` |
+| standard | `sonnet` |
+| most capable | `opus` |
+
+`fable` is not used at any site until a probe shows what a dispatch `model` of `fable` resolves to, and
+`inherit` is not a dispatch value. Where each site landed:
+
+| Site | Model | Why |
+|---|---|---|
+| `ticket-gate` 0c synthesis, 1.5 thin check, 2.7 research, 2.9 exploration | `sonnet` | bounded work on one ticket; Haiku cost more on multi-step work (below) |
+| `ticket-gate` 3B critic | `sonnet`; `opus` when labelled `critical` or re-reviewing a fundamental item | the round table carries the condition |
+| `ticket-gate` Step 4 alternatives | `opus` | architecture, the tier superpowers reserves the most capable model for |
+| `full-review` general-purpose phases | `sonnet` | specialist passes beside the named reviewers |
+| `full-review` `code-reviewer` in a round-2+ run | `sonnet` | a scoped re-review of a fix diff; round 1 keeps the frontmatter |
+| `working-overnight` implementer | `sonnet` | review goes to `code-reviewer`, whose frontmatter decides |
+
+Nothing mechanical catches a site that stops naming its model until #253.
+
 ### The measurement
 
 Each run was a fresh headless session whose parent dispatched the agent once with the `Agent` tool's

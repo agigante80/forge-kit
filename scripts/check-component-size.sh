@@ -284,6 +284,12 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# RAISED 2026-09-24, by maintainer decision: ticket-gate 5718 to 5754 (#251). Seven dispatch sites
+# had to name a model (an omitted one inherits the caller's session, which is the silent default the
+# phase exists to end) and the round table gained the critic's opus condition, 36 words together.
+# A shingle scan of the edited steps found no duplication; the remaining candidates were reasons
+# rather than restatements, and deleting a reason invites the next edit to re-litigate it.
+# full-review paid for its own half out of its eight repeated scope blocks: 3998 to 3995.
 # LOWERED 2026-09-24 (third): ticket-gate 5719 to 5718 (#250). Its new `effort: high` line (2 words)
 # was paid for by Step 0c-iii's "(no sub-agent spawn)", which restated the word "inline" before it.
 # LOWERED 2026-09-24 (again): ticket-gate 5721 to 5719 (#284). Step 1 gained the unstamp call and
@@ -329,8 +335,8 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5718 ;;
-    full-review) echo 3998 ;;
+    ticket-gate) echo 5754 ;;
+    full-review) echo 3995 ;;
     *)           echo 0 ;;
   esac
 }

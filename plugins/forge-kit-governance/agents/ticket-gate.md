@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 61 -->
+<!-- ticket-gate-version: 62 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -125,7 +125,7 @@ Fast path: when the ONLY gap is `docs_impact`, synthesise that one paragraph inl
 ticket's own file list and continue to 0c-iv; a batch of pre-v5 tickets
 must not burn one sub-agent context each for a single self-derivable paragraph.
 
-Spawn a `general-purpose` sub-agent with:
+Spawn a `general-purpose` sub-agent (`model: sonnet`) with:
 - The full issue body
 - The list of gaps identified in 0c-ii
 - Any external URLs referenced in the issue body (the sub-agent may WebFetch these)
@@ -206,7 +206,7 @@ against, so that trigger is #147 rather than an unexecutable rule here. Nothing 
 that would fail purely for missing information is better halted now with targeted questions than
 pushed through a full critique.
 
-Launch a `general-purpose` sub-agent with the issue title and full body. Ask it to evaluate:
+Launch a `general-purpose` sub-agent (`model: sonnet`) with the issue title and full body. Ask it to evaluate:
 1. Does the ticket have specific acceptance criteria (not just a description)?
 2. Is there enough implementation detail for a developer to start without asking questions?
 3. Are there obvious missing constraints, edge cases, or open questions that would materially
@@ -279,7 +279,7 @@ element 5 is re-derived by the critic rather than re-sourced.
 | External service integration | WebSearch for latest API docs, breaking changes, pricing |
 | New dependency proposed | `npm view <pkg>` for downloads, last publish, vulnerabilities |
 | Legal/compliance reference | WebSearch for the specific regulation to verify ticket's claims |
-| Architecture decision | Launch Explore agent to verify existing patterns and conflicts |
+| Architecture decision | Launch Explore agent (`model: sonnet`) to verify existing patterns and conflicts |
 | Unfamiliar technology | WebSearch for best practices, pitfalls, compatibility |
 
 **Using research results:**
@@ -304,7 +304,7 @@ in Step 1 (never a fresh forge call):
 - Otherwise run the exploration sub-agent below. After a fundamental round the cache is VOID,
   since an adopted alternative can target different code.
 
-**2. Launch a `general-purpose` sub-agent** with:
+**2. Launch a `general-purpose` sub-agent** (`model: sonnet`) with:
 - The ticket title and key domain nouns extracted from the title, labels, and body
 - The CLAUDE.md project context from Step 2
 
@@ -368,7 +368,7 @@ ticket may claim no E2E specs, and whether a "none" reason holds.
 
 ### Step 3B: The critic (one agent)
 
-Launch ONE `general-purpose` sub-agent: the critic. It receives the **review packet**: the
+Launch ONE `general-purpose` sub-agent (`model: sonnet`; `opus` per the round table): the critic. It receives the **review packet**: the
 issue title + body, the project context from Step 2, the research from Step 2.7, the
 `Codebase Context` from Step 2.9, and the Step 3A results. Its output contract has exactly six elements (the shape of
 the 2026-08-27 backlog reviews this design was validated on):
@@ -434,7 +434,7 @@ The `class` field is the JUDGING AGENT's call (critic or lens, each for its own 
 fundamental = the approach itself is rejected, not its details). The orchestrator keys the
 alternatives generation and the no-override rule on the classes from BOTH sources; it never
 re-derives severity from prose. A critic OR lens result missing `class` fields is a malformed
-run: first re-ask CLASSIFICATION ONLY (hand the agent back its own item list and request
+run: first re-ask CLASSIFICATION ONLY, on the same model (hand the agent back its own item list and request
 the class values; no re-analysis). If still malformed, the orchestrator WRITES
 `"class": "fundamental"` onto each of those items itself (fail safe, never guess
 downward), so everything keyed on the class field, the Step 4 alternatives and the
@@ -459,7 +459,7 @@ merged, what a re-run rescopes) stays in this file.
 ### Step 4: Compile the review
 
 If any blocking item (critic or lens) is classed fundamental, launch a `general-purpose`
-sub-agent NOW, before compiling, to generate 2 to 3 architecture alternatives, EACH with
+sub-agent (`model: opus`) NOW, before compiling, to generate 2 to 3 architecture alternatives, EACH with
 why it resolves the specific objection; include them in the review under the template's
 `### Architecture alternatives` slot. This is the CANONICAL alternatives instruction;
 every other mention points here. The posted comment must be complete, since editing a
@@ -619,6 +619,7 @@ where it is read; this section is for rules that span steps or the whole run (#1
   | 2.7 research | only a technology, dependency or regulation the delta newly introduces; the gate's own edits never qualify |
   | 2.9 codebase context | reuses its cached region per Step 2.9's own skip test; a fundamental round VOIDS it |
   | 3A mechanical | ALWAYS full: near-free, and the body always changed |
+  | 3B critic model | `opus` when labelled `critical` or re-reviewing a fundamental item |
   | 3B critic | prior blocking items from `gate-required-changes`; absent, fall back to `count-gate-rounds.sh <N> --memory` (exit 3: no memory, run FULL); a fresh run has none |
   | 3C lenses | one that already ran: its own prior items (same source and fallback as 3B) plus changed sections touching its brief. One triggering for the FIRST time in round 2 runs FULL |
 
