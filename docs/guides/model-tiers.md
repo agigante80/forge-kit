@@ -4,7 +4,7 @@ Which model a component runs on, and how hard it thinks, are two separate settin
 what the installed Claude Code actually DOES with them, measured rather than read from the docs, because
 the `effort:` key has no official documentation at all and the `model:` keys behave differently depending on
 how a component was reached. The phase "Choosing a model and an effort on purpose" (#250 to #253,
-#278 to #281) builds its policy on these results; the policy itself belongs to those tickets, not here.
+#278 to #281) builds its policy on these results, and the policy #250 set is recorded under Decisions by role.
 
 ## Probe results
 
@@ -99,3 +99,83 @@ it (Q1).
 Interactive sessions were not probed, only headless ones; Workflow scripts' per-dispatch settings were
 not probed (#282); and the effort-to-quality relation was measured on one easy task, which shows the key
 works and says nothing about where the higher levels pay for themselves.
+
+## Decisions by role
+
+**Decided 2026-09-24 on Claude Code 2.1.281** (#250). Judgment roles take the session's model, so a user
+who chose a strong session keeps it where it matters and one who chose a cheap session is not overridden;
+a role moves to a named cheaper tier only where a measurement on a fixed input showed the cheaper tier
+doing the same job. `inherit` alone is not a saving (it passes the session's model on), so the saving is
+the named tiers and the lower efforts.
+
+| Agent | Role kind | Model | Effort | Reason |
+|---|---|---|---|---|
+| `ticket-gate` | judgment | `inherit` | `high` | the only thing between a bad spec and the work; a pinned `opus` would override a user who deliberately runs a cheaper session |
+| `architect-review` | judgment | `inherit` | `high` | judgment, not measured, keeps today's behaviour by construction |
+| `code-reviewer` | judgment | `inherit` | `high` | as above |
+| `security-auditor` | security | `inherit` | `high` | Sonnet passed the criterion and still dropped medium findings (below) |
+| `api-security-tester` | security | `inherit` | `high` | as above |
+| `coding-standards-auditor` | bounded analysis | `inherit` | `medium` | Sonnet FAILED its criterion: it missed findings Opus rated high |
+| `code-simplifier` | bounded analysis | `sonnet` | `medium` | passed; a weak pass, since neither tier found anything at medium or above |
+| `dep-auditor` | bounded analysis | `sonnet` | `medium` | passed; a weak pass, since the input has no manifests and neither tier found anything |
+| `health-check` | mechanical | `sonnet` | `low` | passed at `low`; Haiku failed and cost more |
+
+### The measurement
+
+Each run was a fresh headless session whose parent dispatched the agent once with the `Agent` tool's
+`model` parameter (which wins over frontmatter, Q5) on the same input, at the effort the row proposes (the
+agent inherits the session's effort, Q1). The input was a clone of this repository at `9ba6a55` plus one
+seeded commit adding a small HTTP JSON API with an f-string SQL injection at `tools/label_api.py:19`. Every
+number is read from the subagent transcript, by hand, because the dispatch-cost harness (#280) has not
+landed. Tokens are output tokens and cache reads; the input and cache-write columns barely vary between
+tiers and are omitted.
+
+| Agent | Input | Model | Effort | Turns | Output | Cache reads | Wall | Criterion |
+|---|---|---|---|---|---|---|---|---|
+| `health-check` | the clone | `claude-sonnet-5` | `low` | 4 | 2401 | 176k | 25 s | reference (three items) |
+| `health-check` | the clone | `claude-haiku-4-5` | none reported | 14 | 4906 | 664k | 61 s | FAIL: one of three items |
+| `code-simplifier` | `4627783..5a8d9d3` | `claude-opus-5-5` | `medium` | 4 | 1969 | 159k | 21 s | reference (none at medium+) |
+| `code-simplifier` | `4627783..5a8d9d3` | `claude-sonnet-5` | `medium` | 4 | 888 | 172k | 11 s | pass (weak) |
+| `dep-auditor` | the clone | `claude-opus-5-5` | `medium` | 5 | 2851 | 215k | 30 s | reference (no findings) |
+| `dep-auditor` | the clone | `claude-sonnet-5` | `medium` | 3 | 1402 | 114k | 15 s | pass (weak) |
+| `coding-standards-auditor` | the clone | `claude-opus-5-5` | `medium` | 5 | 6697 | 222k | 64 s | reference (two high, one medium) |
+| `coding-standards-auditor` | the clone | `claude-sonnet-5` | `medium` | 4 | 3830 | 175k | 39 s | FAIL: missed a high and the medium |
+| `security-auditor` | `9ba6a55..c609818` | `claude-opus-5-5` | `high` | 3, 4 | 4384, 4559 | 138k, 209k | 48, 49 s | reference |
+| `security-auditor` | `9ba6a55..c609818` | `claude-sonnet-5` | `high` | 3, 3 | 4057, 3235 | 148k, 148k | 47, 38 s | pass |
+| `api-security-tester` | `9ba6a55..c609818` | `claude-opus-5-5` | `high` | 4, 4 | 5231, 3612 | 212k, 203k | 57, 39 s | reference |
+| `api-security-tester` | `9ba6a55..c609818` | `claude-sonnet-5` | `high` | 3, 4 | 940, 2304 | 143k, 231k | 18, 33 s | pass |
+
+The criteria were fixed before any run. Mechanical: the same list of missing or broken items as the
+stronger tier. Bounded analysis: every finding the stronger tier rated medium or above is also reported.
+Security: the seeded finding on both runs, and no finding the stronger tier rated high missed on either.
+
+**Why the security roles stay on `inherit` although Sonnet passed.** Every one of the eight runs reported
+the seeded injection (Opus rated it high every time, Sonnet critical three times and high once), and no
+Opus run rated anything else high, so the criterion as written was met. It was written too narrowly.
+Every Opus run also reported a missing `Host` check that lets a web page reach the loopback server
+through DNS rebinding, and a single-threaded server one injected query can freeze: both medium in three
+of the four runs, while the fourth rated the `Host` check low and folded the freeze into the injection
+finding. On each agent, one of the two Sonnet runs listed the injection as its ONLY finding. For a role
+whose output is the finding list and whose one real failure is a missed finding, a pass on the high
+findings does not outweigh that. Re-measuring with a criterion that counts medium findings, and more
+runs, is the way to move these roles.
+
+**Why not Haiku.** It took 14 turns to Sonnet's 4 and read 3.8 times the cached context, so it cost more
+while finding less: the turn-count warning from superpowers, observed.
+
+### Limits of this measurement
+
+- **One or two runs per cell.** One stronger-tier run is a reference, not a distribution. It is enough to
+  refuse a move (a missed high finding is a missed high finding) and weak evidence for making one, which
+  is why the two bounded-analysis passes are called weak and the security passes were not acted on.
+- **Two passes are vacuous.** `code-simplifier` and `dep-auditor` passed because neither tier found
+  anything to report; they say the cheaper tier runs the role correctly, not that it finds what Opus finds.
+- **The first two `health-check` runs were contaminated and discarded.** The clones sat inside this
+  checkout, so the checkout's own `CLAUDE.md` loaded and the agent inspected the real repository instead of
+  the clone. The clean runs exclude it with the `claudeMdExcludes` setting and copy it into each clone.
+- **A reversed range.** The first `code-simplifier` pair was given `5a8d9d3..3749afa`, newest first. Opus
+  noticed and reviewed the intended commits; Sonnet reviewed the reversed diff and reported two findings
+  (one high, one medium) that do not exist. The pair was re-run on the correct range, which is the one in
+  the table, but the observation stands: the stronger tier recovered from a malformed input and the weaker
+  one did not.
+- Headless sessions only, and one repository.

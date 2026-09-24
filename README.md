@@ -56,11 +56,11 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
 | `forge-kit-adapt` | 0.7.2 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.16.0 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.20.1 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
-| `forge-kit-review` | 0.4.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
+| `forge-kit-devops` | 0.17.0 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
+| `forge-kit-governance` | 0.21.0 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
+| `forge-kit-review` | 0.5.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.11.0 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
-| `forge-kit-security` | 0.11.9 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
+| `forge-kit-security` | 0.12.0 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
 
@@ -238,8 +238,8 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
 | `forge-kit-adapt` | skill | `adapt` | v67 | 7209 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
-| `forge-kit-devops` | agent | `dep-auditor` | v10 | 1321 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
-| `forge-kit-devops` | agent | `health-check` | v5 | 1008 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
+| `forge-kit-devops` | agent | `dep-auditor` | v11 | 1345 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
+| `forge-kit-devops` | agent | `health-check` | v6 | 1037 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
 | `forge-kit-devops` | command | `ci-health` | v6 | 730 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
 | `forge-kit-devops` | skill | `find-dead-code` | v3 | 1123 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
 | `forge-kit-devops` | skill | `forge-host` | v30 | 2119 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
@@ -251,7 +251,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | shell asset | `release-run` | v1 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v9 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v60 | 5205 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
+| `forge-kit-governance` | agent | `ticket-gate` | v61 | 5204 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v6 | 197 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate agent detects the… |
 | `forge-kit-governance` | skill | `closing-sessions` | v2 | 671 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `decision-brief` | v5 | 1451 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
@@ -264,10 +264,10 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | shell asset | `count-gate-rounds` | v2 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
 | `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v4 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
 | `forge-kit-governance` | shell asset | `gate-status` | v2 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
-| `forge-kit-review` | agent | `architect-review` | v2 | 1034 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
-| `forge-kit-review` | agent | `code-reviewer` | v13 | 1785 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
-| `forge-kit-review` | agent | `code-simplifier` | v2 | 426 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
-| `forge-kit-review` | agent | `coding-standards-auditor` | v3 | 1285 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
+| `forge-kit-review` | agent | `architect-review` | v3 | 1059 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
+| `forge-kit-review` | agent | `code-reviewer` | v14 | 1810 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
+| `forge-kit-review` | agent | `code-simplifier` | v3 | 450 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
+| `forge-kit-review` | agent | `coding-standards-auditor` | v4 | 1310 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
 | `forge-kit-review` | command | `full-review` | v10 | 3998 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
 | `forge-kit-roadmap` | command | `phase` | v9 | 1569 | Work the roadmap. |
 | `forge-kit-roadmap` | skill | `roadmap-phases` | v10 | 3268 | Rolling wave planning made mechanical. |
@@ -275,8 +275,8 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-roadmap` | shell asset | `reassess-phases` | v1 |  | Reshapes docs/roadmap.md itself: the level above /phase review (#244), which asks whether ONE |
 | `forge-kit-roadmap` | shell asset | `roadmap-lib` | v5 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v5 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
-| `forge-kit-security` | agent | `api-security-tester` | v1 | 640 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
-| `forge-kit-security` | agent | `security-auditor` | v5 | 1313 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
+| `forge-kit-security` | agent | `api-security-tester` | v2 | 674 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
+| `forge-kit-security` | agent | `security-auditor` | v6 | 1347 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
 | `forge-kit-security` | skill | `leak-guard` | v19 | 3011 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v2 | 764 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |

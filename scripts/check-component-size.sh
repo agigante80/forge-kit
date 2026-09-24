@@ -284,6 +284,8 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# LOWERED 2026-09-24 (third): ticket-gate 5719 to 5718 (#250). Its new `effort: high` line (2 words)
+# was paid for by Step 0c-iii's "(no sub-agent spawn)", which restated the word "inline" before it.
 # LOWERED 2026-09-24 (again): ticket-gate 5721 to 5719 (#284). Step 1 gained the unstamp call and
 # Step 6 the stamp call and advisories in the verdict template; paid for by the template's "Full
 # review" line (the stamp writes the pointer now), Step 5's restated two-artifacts lead, and the
@@ -327,7 +329,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5719 ;;
+    ticket-gate) echo 5718 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

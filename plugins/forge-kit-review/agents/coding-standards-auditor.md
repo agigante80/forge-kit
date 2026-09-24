@@ -6,11 +6,14 @@ description: >
   Invoke when: "audit my coding standards", "set up coding standards",
   "fix my coding standards", "are my coding standards complete",
   "I don't have coding standards".
-model: opus
+model: inherit
+effort: medium
 tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob"]
 ---
 
-<!-- coding-standards-auditor-version: 3 -->
+<!-- coding-standards-auditor-version: 4 -->
+
+Tier: a bounded-analysis role that takes the session's model at medium effort, because Sonnet missed findings a stronger tier rated high in measurement.
 
 You are a coding standards specialist. Your job is to detect all existing
 standards in the project, consolidate them into a single canonical file at

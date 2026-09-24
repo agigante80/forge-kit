@@ -17,14 +17,15 @@ description: |
   user: "/gate-ticket 44"
   assistant: "Running the readiness gate on issue #44..."
   </example>
-model: opus
+model: inherit
+effort: high
 color: red
 skills:
   - forge-kit-governance:ticket-gate-reference
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 60 -->
+<!-- ticket-gate-version: 61 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -121,7 +122,7 @@ Target sections for synthesis (always check these):
 **0c-iii. Synthesise real content**
 
 Fast path: when the ONLY gap is `docs_impact`, synthesise that one paragraph inline from the
-ticket's own file list (no sub-agent spawn) and continue to 0c-iv; a batch of pre-v5 tickets
+ticket's own file list and continue to 0c-iv; a batch of pre-v5 tickets
 must not burn one sub-agent context each for a single self-derivable paragraph.
 
 Spawn a `general-purpose` sub-agent with:
