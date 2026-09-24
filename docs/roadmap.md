@@ -909,8 +909,8 @@ model that can handle each role, warns that an omitted model at a dispatch silen
 session's most expensive one, and warns in the other direction that turn count beats token price, so
 the cheapest tier is not the cheap answer.
 
-Measured against that, this kit is wrong twice. Nine agents declare `model: opus` and none declares
-`inherit`, and those lines are a fork artefact rather than a decision: `architect-review` is a
+Measured against that, this kit is wrong twice. Eight agents declare `model: opus`, one declares `model: sonnet`, and none
+declares `inherit`, and those lines are a fork artefact rather than a decision: `architect-review` is a
 verified duplicate of an upstream file that declares it (#250). And no dispatch site in the kit names
 a model at all, so every critic, thin-check and lens runs on whatever the caller happens to be, which
 on this repository's own runs means Opus for a step whose whole job is to call a shell script (#251).
