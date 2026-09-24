@@ -120,7 +120,7 @@ recommendation: the Components reasons say why each agent sits where it does ins
 | Role | Models | Effort | Reason |
 |---|---|---|---|
 | judgment | inherit, sonnet | high..xhigh | the session's model, since a pinned `opus` would override a user who deliberately runs a cheaper session; `sonnet` is allowed only because a dispatch site may scale a re-review of a fix diff down (`full-review` rule 8) |
-| security | inherit | high..max | a floor with no pin: Sonnet passed the criterion and still dropped medium findings, so no cheaper tier is allowed, and a pinned `opus` would override the session as above |
+| security | inherit | high..max | a floor with no pin: Sonnet dropped medium findings (#250), then passed three planted issues at a higher cost than Opus (#289), so no cheaper tier is allowed, and a pinned `opus` would override the session as above |
 | bounded-analysis | inherit, sonnet | medium..high | bounded work where a named cheaper tier was measured; Haiku is excluded, since it cost more on multi-step work |
 | mechanical | sonnet | low..medium | passed at `low`; Haiku failed and cost more |
 | session | none | none | a skill or command runs in its caller's session; a `model:` or `effort:` on one binds only on a slash invocation, for one turn (Q2, Q3), and #279 found none should: no file is wholly mechanical, so none can fork without a split, and a component that needs the conversation or the user never forks |
@@ -136,8 +136,8 @@ xhigh < max`.
 | ticket-gate | judgment | the only thing between a bad spec and the work; a pinned `opus` would override a user who deliberately runs a cheaper session |
 | architect-review | judgment | judgment, not measured, keeps today's behaviour by construction |
 | code-reviewer | judgment | as above |
-| security-auditor | security | Sonnet passed the criterion and still dropped medium findings (below) |
-| api-security-tester | security | as above |
+| security-auditor | security | Sonnet passed 3/3 on the planted issues and cost more than Opus (#289, below) |
+| api-security-tester | security | #289 could not judge it, since no run of either tier tested the hard-coded secret, and Sonnet cost more |
 | coding-standards-auditor | bounded-analysis | declares `inherit`: Sonnet FAILED its criterion, missing findings Opus rated high |
 | code-simplifier | bounded-analysis | declares `sonnet`: passed, weakly, since neither tier found anything at medium or above |
 | dep-auditor | bounded-analysis | declares `sonnet`: passed, weakly, since the input has no manifests and neither tier found anything |
@@ -240,11 +240,66 @@ runs, is the way to move these roles.
 **Why not Haiku.** It took 14 turns to Sonnet's 4 and read 3.8 times the cached context, so it cost more
 while finding less: the turn-count warning from superpowers, observed.
 
+### The re-measurement (#289)
+
+The paragraph above ends by naming what would move the security roles. #289 did that: a seed written for
+the question, a criterion fixed before any run, and three runs per cell. The seed is
+`scripts/fixtures/tier-probe-security/`, a 58-line loopback HTTP service with three planted issues (P1 an
+SQL injection, P2 a broken object-level authorization, P3 a hard-coded admin secret), plus a variant with
+exactly those three fixed; its README carries the planted list, the severity floors and the criterion. The
+harness was the one above, run headless with the tree's `forge-kit-security` group loaded through
+`--plugin-dir` and the installed copy disabled, each run in a fresh directory outside this checkout holding
+`server.py` alone. Costs are from `scripts/measure-dispatch-cost.py`. Every run is at effort `high`.
+
+| Agent | Model | Run | Turns | Output | Cache reads | Wall | P1 | P2 | P3 |
+|---|---|---|---|---|---|---|---|---|---|
+| `security-auditor` | `claude-opus-5-5` | 1 | 3 | 5210 | 55k | 50 s | critical | high | medium |
+| `security-auditor` | `claude-opus-5-5` | 2 | 4 | 4585 | 84k | 45 s | critical | high | high |
+| `security-auditor` | `claude-opus-5-5` | 3 | 3 | 4784 | 55k | 47 s | critical | high | high |
+| `security-auditor` | `claude-sonnet-5` | 1 | 5 | 10001 | 133k | 120 s | critical | high | high |
+| `security-auditor` | `claude-sonnet-5` | 2 | 3 | 7648 | 77k | 87 s | critical | high | medium |
+| `security-auditor` | `claude-sonnet-5` | 3 | 3 | 6092 | 77k | 60 s | critical | high | medium |
+| `api-security-tester` | `claude-opus-5-5` | 1 | 14 | 13198 | 414k | 195 s | 2 tests | 3 tests | none |
+| `api-security-tester` | `claude-opus-5-5` | 2 | 24 | 19224 | 825k | 261 s | 4 tests | 2 tests | none |
+| `api-security-tester` | `claude-opus-5-5` | 3 | 20 | 14163 | 614k | 202 s | 4 tests | 3 tests | none |
+| `api-security-tester` | `claude-sonnet-5` | 1 | 33 | 30322 | 1877k | 316 s | 5 tests | 4 tests | none |
+| `api-security-tester` | `claude-sonnet-5` | 2 | 18 | 28856 | 921k | 270 s | 5 tests | 3 tests | none |
+| `api-security-tester` | `claude-sonnet-5` | 3 | 31 | 38061 | 1862k | 428 s | 5 tests | 3 tests | none |
+
+For the auditor a cell is the severity the run gave the planted issue; for the tester it is the number of
+generated tests that fail against `server.py` and pass against `server_fixed.py`. The tester's suites
+held 23, 35 and 22 tests on Opus and 46, 35 and 78 on Sonnet, and 2, 0, 0 and 7, 8, 11 of them failed
+against both servers (rate limiting, error-body shape, the optional `Bearer` prefix), which decides
+nothing. The three Opus tester sessions also report some turns on `claude-opus-4-8`, which
+`measure-dispatch-cost.py` lists beside the dispatched model; they are counted in the row.
+
+**`security-auditor`: Sonnet passed 3/3 and the role stays on `inherit` by the cost rule.** Every run of
+both tiers found all three planted issues at or above their floors. The pre-registered rule moves a role
+only when Sonnet's median output AND median cache reads are both no higher than Opus's, and neither is:
+7648 against 4784 output, 77k against 55k cache reads. Comparing raw tokens across tiers is deliberately
+conservative, since a Sonnet token is priced below an Opus one; the rule was written that way because a
+tier that needs 60% more output to reach the same list is spending turns the price difference was meant
+to save. The unplanted findings repeat #250's shape: all three Opus runs reported plaintext token storage
+(high once, medium twice) and the loopback boundary's weakness to DNS rebinding, where one Sonnet run
+reported the storage and none the boundary. The `ticket-gate` security lens is this agent, so it keeps
+its tier too.
+
+**`api-security-tester`: the criterion failed on Opus, so the role stays and nothing is concluded.** P1
+and P2 were covered in all six runs. P3 was covered in none: each suite's only admin test sends the
+literal token as the VALID credential, so it passes on the seed and fails on the fixed server, which
+refuses every token while `ADMIN_TOKEN` is unset. A hard-coded secret is a property of the source, and
+the only black-box witness to it is "the token in the file works", which a tester reading that file takes
+for the fixture's credential rather than the defect. The rule fixed in advance says an Opus failure
+faults the seed or the criterion, not the cheaper tier. The cost rule would have kept the role anyway:
+Sonnet's medians were 30322 output and 1862k cache reads against Opus's 14163 and 614k.
+
 ### Limits of this measurement
 
-- **One or two runs per cell.** One stronger-tier run is a reference, not a distribution. It is enough to
-  refuse a move (a missed high finding is a missed high finding) and weak evidence for making one, which
-  is why the two bounded-analysis passes are called weak and the security passes were not acted on.
+- **One or two runs per cell, three for the security roles.** One stronger-tier run is a reference, not a
+  distribution. It is enough to refuse a move (a missed high finding is a missed high finding) and weak
+  evidence for making one, which is why the two bounded-analysis passes are called weak. #289 ran three
+  per cell for the security roles; three is enough for a 3/3 rule and still too few to call a median
+  stable, which is why its cost comparison is read only where the gap is wide.
 - **Two passes are vacuous.** `code-simplifier` and `dep-auditor` passed because neither tier found
   anything to report; they say the cheaper tier runs the role correctly, not that it finds what Opus finds.
 - **The first two `health-check` runs were contaminated and discarded.** The clones sat inside this
