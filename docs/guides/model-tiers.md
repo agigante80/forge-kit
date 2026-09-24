@@ -203,8 +203,8 @@ Each run was a fresh headless session whose parent dispatched the agent once wit
 `model` parameter (which wins over frontmatter, Q5) on the same input, at the effort the row proposes (the
 agent inherits the session's effort, Q1). The input was a clone of this repository at `9ba6a55` plus one
 seeded commit adding a small HTTP JSON API with an f-string SQL injection at `tools/label_api.py:19`. Every
-number is read from the subagent transcript, by hand, because the dispatch-cost harness (#280) has not
-landed. Tokens are output tokens and cache reads; the input and cache-write columns barely vary between
+number was read from the subagent transcript by hand, before the dispatch-cost harness (#280)
+landed; "Measuring a dispatch" below re-reads the `health-check` pair with it. Tokens are output tokens and cache reads; the input and cache-write columns barely vary between
 tiers and are omitted.
 
 | Agent | Input | Model | Effort | Turns | Output | Cache reads | Wall | Criterion |
@@ -256,3 +256,31 @@ while finding less: the turn-count warning from superpowers, observed.
   the table, but the observation stands: the stronger tier recovered from a malformed input and the weaker
   one did not.
 - Headless sessions only, and one repository.
+
+## Measuring a dispatch
+
+`scripts/measure-dispatch-cost.py <session.jsonl>` prints one row per subagent a session dispatched,
+grandchildren included, with the agent type, the model or models it actually ran on, its effort, turns,
+input, output, cache-read and cache-write tokens, and wall time. `--compare A B` prints both runs and one
+B-minus-A row per agent type over summed columns. It reads the transcripts Claude Code already writes
+under `~/.claude/projects/`, so a tier decision can be checked when it is made and again when the CLI or
+a model changes. It reports and never judges: the criterion is the reader's, fixed before the run.
+
+Turns decide cost more often than price per token does, and turns are what the counting rule is careful
+about: one API response is written as several transcript lines that each repeat its usage, so a turn is
+one distinct `message.id`, its usage the last of those lines, and a CLI-generated `<synthetic>` record is
+not a turn. Summing lines instead doubles the result. The script's header states the rule and its test
+kills each wrong method as a mutant.
+
+The `health-check` pair from the table above, re-read with it (CLI 2.1.281, `claude-sonnet-5` against
+`claude-haiku-4-5-20251001`; both sessions are trimmed into `scripts/fixtures/measure-dispatch-cost/`):
+
+| Run | Model | Effort | Turns | Input | Output | Cache reads | Cache writes | Wall |
+|---|---|---|---|---|---|---|---|---|
+| A | `claude-sonnet-5` | `low` | 4 | 8 | 2401 | 176,384 | 47,305 | 23.2 s |
+| B | `claude-haiku-4-5-20251001` | none | 14 | 114 | 4906 | 663,832 | 52,065 | 57.8 s |
+| B-A | | | +10 | +106 | +2505 | +487,448 | +4,760 | +34.6 s |
+
+Turns and tokens agree with the hand count exactly. Wall time reads about two seconds shorter per run,
+because the script measures from the dispatch's first assistant record to its last, which leaves out the
+spawn before the first response and the handover after the last.

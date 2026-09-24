@@ -307,6 +307,11 @@ jobs:
       - name: Review-sizing tests
         run: bash scripts/test-size-review.sh
 
+      # Issue #280: the dispatch-cost measurement reads Claude Code transcripts, whose one response
+      # spans several lines repeating its usage, so the counting rule is the contract.
+      - name: Dispatch-cost measurement tests
+        run: bash scripts/test-measure-dispatch-cost.sh
+
       # Issue #172: a registered component's freshness belongs to the marketplace checkout, which
       # nothing here could see. The guard itself is not run against CI's own machine (there is no
       # marketplace there); only its contract is held down.
