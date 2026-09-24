@@ -162,14 +162,15 @@ expect "re-stamping an unchanged ticket is a fixed point" "$before" "$(cat "$S/b
 echo "== --stamp drops a pre-v60 bare pointer line (#285) =="
 OLDV="${VERDICT/- significant: fix the scenarios/- significant: fix the scenarios
 - advisory: see the Full review: section
-Full review: the latest `## Ticket Readiness Review` comment on this issue.}"
+Full review: the latest \`## Ticket Readiness Review\` comment on this issue.}"
 setbody "$AUTHOR
 $CTX
 
 $REQ
 
 $OLDV
-"; GS 7 --stamp; expect "stamping an inherited pointer exits 0" 0 "$?"
+"; contains 'Full review: the latest `## Ticket Readiness Review` comment on this issue.' "$(cat "$S/body")" "the fixture is the literal pre-v60 pointer"
+GS 7 --stamp; expect "stamping an inherited pointer exits 0" 0 "$?"
 expect "one line starts with Full review: none, the bare pointer is gone" 0 "$(grep -c '^Full review:' "$S/body")"
 expect "two mentions left: the Judged line and the mid-line item" 2 "$(grep -c 'Full review:' "$S/body")"
 contains "- advisory: see the Full review: section" "$(cat "$S/body")" "an item mentioning Full review: mid-line is kept"
