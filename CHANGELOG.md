@@ -7,6 +7,72 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
+## v0.7.0 (2026-09-24)
+
+Five phases since v0.6.0: the leak guard's edge cases closed one by one, the forge adapter and the
+roadmap gained the write halves they lacked, the gate verdict moved to where readers look, and every
+model tier and thinking effort in the kit became a decision with a reason and a check. The
+AI-assistant files stopped being published, and the repository history was rewritten to purge
+them; the commit shas cited in plans were re-pointed (#232).
+
+### Added
+
+- **Model and effort by role** (#250, #251, #253, #279). Every agent declares a model and an effort
+  for its role: judgment and security roles `inherit`, bounded analysis and mechanical roles a named
+  `sonnet` at a lower effort. Every dispatch with no frontmatter behind it names its model.
+  `docs/guides/model-tiers.md` holds the one table of allowed ranges, and `validate-plugins.sh`
+  check 7 fails a component or a dispatch outside it. Grounded in a probe of the installed CLI
+  (#252): `effort:` is honoured on agents, a dispatch site's model beats the agent's, and a skill or
+  command tier binds only on a slash invocation.
+- **`/full-review` sizes each round** (#278, `review-sizing`). A small range touching no sensitive
+  path runs `code-reviewer` alone instead of five phases; `--full` overrides.
+- **`scripts/measure-dispatch-cost.py`** (#280). What each subagent dispatch cost, in turns as well
+  as tokens, read from Claude Code's own transcripts. #289 used it to re-measure the security roles
+  on a planted seed (`scripts/fixtures/tier-probe-security/`). Neither role moved: Sonnet found
+  every planted issue and cost more.
+- **forge-adapt keeps the tier on copy** (#281). `refresh <name>` reports each tier key an
+  installed copy holds differently, and keeps the project's value.
+- **The gate verdict sits at the top of the body, stamped** (#284, #285). `gate-status.sh --stamp`
+  records a fingerprint of the author's text, and `--mark-stale` flags a verdict the author has since
+  edited past. `count-gate-rounds.sh --memory` restores the blocking items (#196).
+- **Write halves for the forge and the roadmap.** Body-region primitives let three writers share
+  one ticket body without clobbering each other (#248, #262). `forge_issue_milestone` (#245).
+  `roadmap-lib.sh`'s write primitives (#246), and on top of them `/phase review` (#244) and
+  `/phase reassess` (#249).
+- **`scripts/check-doc-drift.sh`** (#247, #258). Reports which documents a range of commits made
+  stale; it never fails. Exemptions are anchored on text, not line numbers.
+- **The leak guard's private half can skip paths**, in the tree modes and under `--history`
+  (#225).
+
+### Changed
+
+- **The AI-assistant files are local**, not published. The suite counts CI can no longer see are
+  checked by the pre-push hook instead of by a CI step that could not fail (#218).
+- `/phase` and the forge adapter keep the ordinary end of a list quiet unless `FORGE_DEBUG=1`
+  (#236). The leak guard's own examples are placeholder shapes, so a host project's guard does not
+  fire on them (#223).
+
+### Fixed
+
+- **The leak guard**:
+  - `--history` reads every ref a mirror push sends, `refs/original` and `refs/notes` included
+    (#210).
+  - Rule C is linear in the line length (#211).
+  - Each of these false positives and allow-file gaps is closed: #224, #227, #230, #238, #239 and
+    #240.
+  - The guard runs once here, from the asset, and a `scripts/` copy of a shipped asset fails the
+    build (#231).
+- **The forge adapter**:
+  - Pagination stops on a repeated page (#228).
+  - A write to a missing issue says so (#229), and the message survives a `set -e` caller (#237).
+  - `forge_repo` parses the slug after the host (#216) and refuses an scp remote whose path
+    carries an `@` (#235).
+  - `FORGE_DRY_RUN=1` fakes writes only, never reads (#268).
+- **Ticket mechanics**: check 4 refers a one-line scenario and a reasoned N/A rather than failing
+  them (#233, #241).
+- **Test isolation**: no roadmap or forge-adapter suite can reach the live forge, and their temp
+  directories cannot leak (#287, #288).
+
 ## v0.6.0 (2026-09-16)
 
 Five overnight and daytime phases from the #191 decision brief onward: the leak guard reads
