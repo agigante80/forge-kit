@@ -290,6 +290,9 @@ budget_for() {
 # A shingle scan of the edited steps found no duplication; the remaining candidates were reasons
 # rather than restatements, and deleting a reason invites the next edit to re-litigate it.
 # full-review paid for its own half out of its eight repeated scope blocks: 3998 to 3995.
+# LOWERED 2026-09-24: full-review 3995 to 3990 (#278). Step 2.5 (size the round) was paid for by
+# folding the eight per-dispatch "Write your findings as a structured markdown document." lines into
+# rule 8, which every dispatch prompt already obeys, and the four parallel-dispatch sentences.
 # LOWERED 2026-09-24 (third): ticket-gate 5719 to 5718 (#250). Its new `effort: high` line (2 words)
 # was paid for by Step 0c-iii's "(no sub-agent spawn)", which restated the word "inline" before it.
 # LOWERED 2026-09-24 (again): ticket-gate 5721 to 5719 (#284). Step 1 gained the unstamp call and
@@ -336,7 +339,7 @@ baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
     ticket-gate) echo 5754 ;;
-    full-review) echo 3995 ;;
+    full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac
 }

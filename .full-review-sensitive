@@ -1,0 +1,8 @@
+# Paths whose change always gets /full-review's full five phases, whatever the size (#278).
+# One bash glob per line; `*` crosses `/`. Read by review-sizing/assets/size-review.sh.
+plugins/*/hooks/*
+plugins/forge-kit-security/*
+.githooks/*
+scripts/check-*
+.github/workflows/*
+plugins/*/skills/*/assets/*.sh

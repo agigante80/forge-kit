@@ -302,6 +302,11 @@ jobs:
       - name: Lens-contract lockstep tests
         run: bash scripts/test-check-lens-contract.sh
 
+      # Issue #278: size-review.sh decides whether a /full-review round skips the security phase, so
+      # a wrong answer in one direction reviews a sensitive change without it.
+      - name: Review-sizing tests
+        run: bash scripts/test-size-review.sh
+
       # Issue #172: a registered component's freshness belongs to the marketplace checkout, which
       # nothing here could see. The guard itself is not run against CI's own machine (there is no
       # marketplace there); only its contract is held down.

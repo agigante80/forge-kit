@@ -160,6 +160,7 @@ xhigh < max`.
 | ci-health | session | one file, mixed roles: reads, gates tickets and implements fixes |
 | gate-ticket | session | a wrapper whose only step dispatches `ticket-gate`, whose own tier governs the work |
 | full-review | session | an orchestrator; its dispatch sites carry the tiers (#251) |
+| review-sizing | session | knowledge: inert text, the reader's model governs; its script decides |
 | phase | session | one file, mixed roles: review, reassess and triage are judgment, and status step 4 is one too |
 
 ### What the user still controls

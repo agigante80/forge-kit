@@ -1,9 +1,9 @@
 ---
 description: "Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bounded review loop or become tickets. Not the per-task reviewer."
-argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails]"
+argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails] [--full]"
 ---
 
-<!-- full-review-version: 11 -->
+<!-- full-review-version: 12 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -13,10 +13,10 @@ This is a **pre-merge or periodic multi-lens AUDIT** (architecture, security, pe
 testing, standards): run it before a merge to main, before a release, or on an interval.
 It is NOT the per-task reviewer: multi-agent review earns its cost on independent
 cross-cutting lenses over one change, and loses to a single strong reviewer inside the
-edit-review loop (forge-kit #71: consensus across many reviewers of one task underperforms
-the best single reviewer; multi-agent pays only where lenses are independent). For
-per-task review, dispatch
-`code-reviewer` alone and drive the rounds with the Iteration contract below.
+edit-review loop (#71: consensus across reviewers of one task underperforms the best
+single reviewer). For per-task review, dispatch `code-reviewer` alone under the Iteration
+contract below. A `scoped` round (step 2.5) does not reverse this: it is round N+1 of an
+audit, re-checking a small fix with the reviewer round 1 used for correctness.
 
 **Where the findings go (the handoff):** the audit run IS round 1 of the Iteration
 contract below (that section is canonical; this paragraph only summarises it). Its
@@ -28,7 +28,7 @@ finding is ever left with neither a fix round nor a ticket.
 this file resolves without asking. Checkpoints auto-select option 1; a pre-flight
 `in_progress` session resumes; a `complete` session archives and starts a FRESH audit
 (never auto-selecting verify-fixes: an unattended periodic audit means full coverage);
-scope is confirmed by proceeding; the step-0 off-ramp is skipped. Ticket filing honours
+the step-0 off-ramp is skipped. Ticket filing honours
 the caller's declared cap (for working-overnight, the manifest's investigation-depth cap,
 declared in `.claude/overnight/active.md` at kickoff); findings beyond it are listed in
 the report as unfiled, which is NOT a Completion failure when such a cap applies.
@@ -37,9 +37,9 @@ the report as unfiled, which is NOT a Completion failure when such a cap applies
 
 You MUST follow these rules exactly. Violating any of them is a failure.
 
-1. **Execute phases in order.** Do NOT skip ahead, reorder, or merge phases. ONE exception:
-   checkpoint option 2 (early close-out) jumps straight to Phase 5; Phase 5 and rule 4 then
-   treat the skipped phases' missing output files as expected, not as a halt.
+1. **Execute phases in order.** Do NOT skip ahead, reorder, or merge phases. TWO exceptions
+   jump to Phase 5: checkpoint option 2 (early close-out), and a `scoped` step 2.5 after
+   step 1A. Phase 5 and rule 4 then treat the skipped phases' missing output files as expected.
 2. **Write output files.** Each phase MUST produce its output file in `.full-review/` before the next phase begins. Read from prior phase files -- do NOT rely on context window memory.
 3. **Stop at checkpoints.** When you reach a `PHASE CHECKPOINT`, you MUST stop and wait for explicit user approval before continuing. Use the AskUserQuestion tool with clear options. Unattended runs are the exception, per the Unattended callers paragraph above: no prompt is ever issued.
 4. **Halt on failure.** If any step fails (agent error, missing files, access issues), STOP immediately. Present the error and ask the user how to proceed. Do NOT silently continue.
@@ -59,7 +59,8 @@ You MUST follow these rules exactly. Violating any of them is a failure.
    conflating it with delta membership would fire the trip wire on every in-target finding
    and make rounds 3 and 4 unreachable. Round 1 has no `previous_ref`; the field is omitted
    and no finding carries the tag.
-8. **Every dispatch prompt carries** `## Review Scope` and `.full-review/00-scope.md`'s contents.
+8. **Every dispatch prompt carries** `## Review Scope` and `.full-review/00-scope.md`'s contents,
+   and ends: "Write your findings as a structured markdown document."
    A named agent runs on its frontmatter model, except `code-reviewer` in a rule-7 round:
    re-reviewing a fix diff takes the standard tier (Step 1A).
 
@@ -89,12 +90,9 @@ Check if `.full-review/state.json` exists:
 
 ### 1.5 Task-sized off-ramp (after the session check, before ANY state is created)
 
-If the target is a SINGLE FILE, or the user says this is one task's in-progress work,
-offer the per-task path first: dispatch `code-reviewer` alone under the Iteration
-contract. A branch or pre-merge diff is NOT task-sized (pre-merge audits are this
-command's headline use). Only on explicit confirmation to proceed does the pipeline
-initialize; an accepted redirect ends here with nothing NEW written (a session found in
-step 1 was already dealt with there), so no phantom `in_progress` state is left behind.
+If the target is a SINGLE FILE or one task's in-progress work (never a branch or
+pre-merge diff), offer the per-task path: `code-reviewer` alone under the Iteration
+contract. An accepted redirect ends here with nothing new written.
 
 ### 2. Initialize state
 
@@ -123,11 +121,27 @@ Create `.full-review/` directory and `state.json`:
 ```
 
 Parse `$ARGUMENTS` for `--security-focus`, `--performance-critical`, `--strict-mode`,
-`--framework`, and `--since <ref>` flags; strip every parsed flag OUT of the free-text
+`--framework`, `--full` and `--since <ref>` flags; strip every parsed flag OUT of the free-text
 target. `--since` does not live in the flags object: it sets `previous_ref` to the given
 ref (verify it resolves: `git rev-parse --verify <ref>`; a bad ref is a rule-4 halt, never
 a silent round-1 fallback) and `round` to 2 (or prior `round`+1 when state records one),
 engaging rule 7.
+
+### 2.5 Size the round
+
+Resolve the sizing script (the `review-sizing` skill documents it), print the pick, then run it:
+
+```bash
+SR=$(ls scripts/size-review.sh "$(git rev-parse --show-toplevel)"/plugins/*/skills/review-sizing/assets/size-review.sh 2>/dev/null | head -1)
+[ -n "$SR" ] || SR=$(find ~/.claude/plugins -name size-review.sh -exec grep -m1 -Ho 'size-review-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
+echo "using ${SR:-none}" | sed "s|$HOME|~|g"
+```
+
+Pass `--sensitive-file .full-review-sensitive`; `--full` if given; `--unattended` if
+`.claude/overnight/active.md` exists; under rule 7, `--base <previous_ref>` and
+`--prior-finders` (step ids behind the prior report's Critical/High/Medium findings, or
+`unknown`). Print its line BEFORE any dispatch; record `shape` and `shape_reason` in
+`state.json`. `scoped` runs step 1A, then Phase 5. No script, or exit 2, is a rule-4 halt.
 
 ### 3. Identify review target
 
@@ -156,14 +170,6 @@ Determine what code to review from `$ARGUMENTS`:
 - Performance Critical: [yes/no]
 - Strict Mode: [yes/no]
 - Framework: [name or auto-detected]
-
-## Review Phases
-
-1. Code Quality & Architecture
-2. Security & Performance
-3. Testing & Documentation
-4. Best Practices & Standards
-5. Consolidated Report
 ```
 
 Update `state.json`: add `"00-scope.md"` to `files_created`, add step 0 to `completed_steps`.
@@ -172,7 +178,7 @@ Update `state.json`: add `"00-scope.md"` to `files_created`, add step 0 to `comp
 
 ## Phase 1: Code Quality & Architecture Review (Steps 1A-1B)
 
-Run both agents in parallel using multiple Task tool calls in a single response.
+Run both agents in parallel, in one response.
 
 ### Step 1A: Code Quality Analysis
 
@@ -198,8 +204,6 @@ Task:
     - File and line location
     - Description of the issue
     - Specific fix recommendation with code example
-
-    Write your findings as a structured markdown document.
 ```
 
 ### Step 1B: Architecture & Design Review
@@ -224,8 +228,6 @@ Task:
     - Severity (Critical / High / Medium / Low)
     - Architectural impact assessment
     - Specific improvement recommendation
-
-    Write your findings as a structured markdown document.
 ```
 
 After both complete, consolidate into `.full-review/01-quality-architecture.md`:
@@ -254,7 +256,7 @@ Update `state.json`: set `current_step` to 2, `current_phase` to 2, add steps 1A
 
 Read `.full-review/01-quality-architecture.md` for context from Phase 1.
 
-Run both agents in parallel using multiple Task tool calls in a single response.
+Run both agents in parallel, in one response.
 
 ### Step 2A: Security Vulnerability Assessment
 
@@ -283,8 +285,6 @@ Task:
     - File and line location
     - Proof of concept or attack scenario
     - Specific remediation steps with code example
-
-    Write your findings as a structured markdown document.
 ```
 
 ### Step 2B: Performance & Scalability Analysis
@@ -314,8 +314,6 @@ Task:
     - Severity (Critical / High / Medium / Low)
     - Estimated performance impact
     - Specific optimization recommendation with code example
-
-    Write your findings as a structured markdown document.
 ```
 
 After both complete, consolidate into `.full-review/02-security-performance.md`:
@@ -381,7 +379,7 @@ Do NOT proceed to Phase 3 until the user approves.
 
 Read `.full-review/01-quality-architecture.md` and `.full-review/02-security-performance.md` for context.
 
-Run both agents in parallel using multiple Task tool calls in a single response.
+Run both agents in parallel, in one response.
 
 ### Step 3A: Test Coverage & Quality Analysis
 
@@ -414,8 +412,6 @@ Task:
     - Severity (Critical / High / Medium / Low)
     - What is untested or poorly tested
     - Specific test recommendations with example test code
-
-    Write your findings as a structured markdown document.
 ```
 
 ### Step 3B: Documentation & API Review
@@ -444,8 +440,6 @@ Task:
     - Severity (Critical / High / Medium / Low)
     - What is missing or inaccurate
     - Specific documentation recommendation
-
-    Write your findings as a structured markdown document.
 ```
 
 After both complete, consolidate into `.full-review/03-testing-documentation.md`:
@@ -470,7 +464,7 @@ Update `state.json`: set `current_step` to 4, `current_phase` to 4, add steps 3A
 
 Read all previous `.full-review/*.md` files for full context.
 
-Run both agents in parallel using multiple Task tool calls in a single response.
+Run both agents in parallel, in one response.
 
 ### Step 4A: Framework & Language Best Practices
 
@@ -498,8 +492,6 @@ Task:
     - Severity (Critical / High / Medium / Low)
     - Current pattern vs recommended pattern
     - Migration/fix recommendation with code example
-
-    Write your findings as a structured markdown document.
 ```
 
 ### Step 4B: CI/CD & DevOps Practices Review
@@ -528,8 +520,6 @@ Task:
     - Severity (Critical / High / Medium / Low)
     - Operational risk assessment
     - Specific improvement recommendation
-
-    Write your findings as a structured markdown document.
 ```
 
 After both complete, consolidate into `.full-review/04-best-practices.md`:
@@ -629,7 +619,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Stopping reason: [loop continues: fixes pending / clean round / hard stop / trip wire / round-gate not met]
 - Rounds that found in-prior-fix defects: [count]
 - Phases completed: [list]
-- Phases skipped (early close-out): [list or none]
+- Phases skipped: [list with reason (early close-out, or `scoped: <reason>`), or none]
 - Flags applied: [list active flags]
 ```
 
