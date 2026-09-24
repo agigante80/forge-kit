@@ -126,6 +126,20 @@ instead, for when the gate's own tracking region is gone. It exits 0 with one it
 (memory restored, empty stdout on a PASS round) or exits 3 with nothing on stdout when no
 machine-readable checklist can be found.
 
+**Ask whether a ticket's gate verdict still describes it** (#284):
+
+```bash
+cp /tmp/forge-kit/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/gate-status.sh scripts/
+bash scripts/gate-status.sh 182
+```
+
+It prints `ungated`, `unrecorded round <R>`, `current round <R> <VERDICT>` or
+`stale round <R> <VERDICT>`. The gate records a fingerprint of the body outside every marker
+region when it writes its verdict, so an edit to any author section afterwards reads as `stale`.
+`--mark-stale` writes that into the verdict's heading, which is what this repository's
+`gate-staleness.yml` workflow runs on every issue edit. The block is a display: the fingerprint is
+a hash of public text, not a signature, so treat the review comment as the record.
+
 `FORGE_TOKEN` or `GH_TOKEN` is read from the environment by `forge-lib.sh`. It is never written to a
 file by any of these scripts, and you should not put it in one.
 

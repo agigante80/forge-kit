@@ -284,6 +284,10 @@ budget_for() {
 # name, which was already missing a fifth; naming the catalogue's `asset:` rows instead is shorter
 # AND cannot go stale again. That is what paying for a change out of duplication looks like.
 #
+# LOWERED 2026-09-24 (again): ticket-gate 5721 to 5719 (#284). Step 1 gained the unstamp call and
+# Step 6 the stamp call and advisories in the verdict template; paid for by the template's "Full
+# review" line (the stamp writes the pointer now), Step 5's restated two-artifacts lead, and the
+# "computed fields only" clause, which the recorded fingerprint now makes checkable rather than claimed.
 # LOWERED 2026-09-24: ticket-gate 5729 to 5721 (#196). Rows 3B/3C had to start naming
 # `gate-required-changes` instead of the erased `gate-verdict` block and add the
 # `count-gate-rounds.sh --memory` fallback; paid for by folding the now-obsolete
@@ -323,7 +327,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7209 ;;
-    ticket-gate) echo 5721 ;;
+    ticket-gate) echo 5719 ;;
     full-review) echo 3998 ;;
     *)           echo 0 ;;
   esac

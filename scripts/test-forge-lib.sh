@@ -1688,6 +1688,103 @@ case $? in
   *) bad "the dry-run case errored";;
 esac
 
+# --- #284: `top` places a region at the top of the body, and MOVES one that exists ---------------
+#
+# The gate's verdict was appended below every author section, so a reader acted on the sections
+# before reaching it. Without `top` nothing changes, which the #248 cases above already pin.
+
+topstub() {  # topstub <body>: serve <body> on GET, record the PATCH
+  TOP_BODY="$1"
+  forge_api() {
+    case "$1" in
+      GET)   printf '%s' "$TOP_BODY" | jq -Rs '{body:.}' ;;
+      PATCH) printf '%s' "$3" > "$T/patch.json"; echo "{}" ;;
+    esac
+  }
+}
+
+echo "== #284: top moves an existing region below the template marker =="
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  topstub '<!-- template-version: 6 -->
+
+## Summary
+text
+
+<!-- gate-verdict:start -->
+old
+<!-- gate-verdict:end -->'
+  forge_body_region_set 7 gate gate-verdict "new" top >/dev/null 2>&1 || exit 9
+  want='<!-- template-version: 6 -->
+
+<!-- gate-verdict:start -->
+new
+<!-- gate-verdict:end -->
+
+## Summary
+text'
+  # Exact bytes, not $(patched): command substitution strips trailing newlines, so a blank line
+  # left behind where the region used to be would be invisible (a mutant that kept it survived).
+  jq -e --arg w "$want"$'\n' '.body == $w' "$T/patch.json" >/dev/null || { patched > "$T/top.got"; exit 1; }
+  exit 0
+)
+case $? in
+  0) ok "top: marker, blank, region, blank, author text, and the old copy is gone";;
+  1) bad "top produced the wrong body (see $T/top.got)";;
+  *) bad "the top-move case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  topstub '## Summary
+text'
+  forge_body_region_set 7 gate gate-verdict "new" top >/dev/null 2>&1 || exit 9
+  [ "$(patched | head -1)" = '<!-- gate-verdict:start -->' ] || exit 1
+  [ "$(patched | sed -n 4,5p)" = '
+## Summary' ] || exit 2
+  exit 0
+)
+case $? in
+  0) ok "top with no template marker: the start marker is the first line, one blank, then the text";;
+  1) bad "top with no marker did not put the region first";;
+  2) bad "top with no marker did not separate the text by exactly one blank line";;
+  *) bad "the no-marker case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  already='<!-- template-version: 6 -->
+
+<!-- gate-verdict:start -->
+new
+<!-- gate-verdict:end -->
+
+## Summary
+text
+
+<!-- gate-context:start -->
+ctx
+<!-- gate-context:end -->'
+  topstub "$already"
+  forge_body_region_set 7 gate gate-verdict "new" top >/dev/null 2>&1 || exit 9
+  [ "$(patched)" = "$already" ] || exit 1
+  exit 0
+)
+[ $? -eq 0 ] && ok "top is a fixed point: a region already at the top, rewritten unchanged, changes no byte" \
+  || bad "top on a body already in place changed it"
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/patch.json"
+  topstub 'text'
+  forge_body_region_set 7 gate gate-verdict "new" bottom >/dev/null 2>&1; rc=$?
+  [ "$rc" = 2 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "an unknown fifth argument exits 2 and sends nothing";;
+  1) bad "an unknown fifth argument did not exit 2";;
+  2) bad "an unknown fifth argument still sent a PATCH";;
+  *) bad "the unknown-position case errored";;
+esac
+
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

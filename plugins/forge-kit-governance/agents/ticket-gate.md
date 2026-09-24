@@ -24,7 +24,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 59 -->
+<!-- ticket-gate-version: 60 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -191,6 +191,7 @@ MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
 [ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
 P=${MECH/#$HOME/\~}; echo "mechanics: ${P:-none}${MECH:+ ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))}"   # quote in the review
 [ -n "$MECH" ] && ROUND=$("$(dirname "$MECH")/count-gate-rounds.sh" <NUMBER> --body "$D/body.md") || ROUND=unknown
+GS="$(dirname "$MECH")/gate-status.sh"; "$GS" <NUMBER> --unstamp   # unrecorded until Step 6 stamps (#284)
 ```
 
 `<ROUND>` counts posted reviews, never the body, which any edit erases (#192); a disagreeing block
@@ -476,8 +477,7 @@ the optional `### Security lens` and `### Architecture alternatives` slots.
 
 ### Step 5: Post to GitHub
 
-**Two artifacts, one writer each.** The review is a COMMENT, never edited: the audit trail,
-leaving the author's text alone. Its summary goes in the BODY at Step 6.
+The review is a COMMENT, never edited: the audit trail. Its summary goes in the BODY at Step 6.
 
 ```bash
 gh issue comment <NUMBER> --repo "$REPO" --body "<review>"
@@ -492,8 +492,7 @@ and it is a projection of Step 1's count, never its source.
 <!-- gate-verdict:start -->
 ### Gate verdict (round <ROUND>)
 **Verdict:** <PASS or NEEDS-WORK>
-- <class>: <blocking item, one line each; omit on PASS>
-Full review: the latest `## Ticket Readiness Review` comment on this issue.
+- <class>: <one line per blocking item, then per advisory (class `advisory`)>
 <!-- gate-verdict:end -->
 ```
 
@@ -501,10 +500,11 @@ Full review: the latest `## Ticket Readiness Review` comment on this issue.
 forge_body_region_set <NUMBER> gate <region> "<content>"
 forge_body_region_clear <NUMBER> gate <region>
 forge_body_compose_preserving <NUMBER> "<whole body>"
+"$GS" <NUMBER> --stamp   # LAST: after every write and any prompt-mode choice
 ```
 
-`<ROUND>` is Step 1's count (`<N>` stays the issue number). Computed fields only, so nothing
-drifts; BLOCKED never appears, those paths returning earlier.
+`<ROUND>` is Step 1's count (`<N>` stays the issue number). BLOCKED never
+appears: those paths return earlier.
 
 **Every region the gate writes obeys one lifecycle**; per-region answers are how this drifted.
 The regions are `gate-verdict`, `gate-required-changes` and `gate-alternatives`, written here,

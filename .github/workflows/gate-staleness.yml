@@ -1,0 +1,36 @@
+name: Gate staleness
+
+# Marks a ticket's body verdict STALE when an author section changes after the gate judged it
+# (#284). Later sessions read the body rather than the comments, so a verdict that no longer
+# describes the body is actively believed. This repository's dogfood; installing it into other
+# projects is a forge-adapt follow-up.
+#
+# The issue body is DATA: gate-status.sh hashes it and writes only `gate-*` regions through
+# forge-lib.sh's prefix-checked primitives, and nothing from the event is interpolated into a
+# command. The script runs from the checked-out default branch, never from the issue.
+#
+# It cannot loop: an edit made with GITHUB_TOKEN triggers no workflow, and an edit confined to
+# regions does not change the fingerprint in any case. The per-issue group may cancel a PENDING
+# run when another queues; that loses nothing, since the run left standing reads the newest body.
+on:
+  issues:
+    types: [edited]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: gate-staleness-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  mark-stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Mark a stale gate verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: bash plugins/forge-kit-governance/skills/ticket-gate-reference/assets/gate-status.sh "$ISSUE" --mark-stale

@@ -96,6 +96,11 @@ jobs:
       - name: Gate round-count tests
         run: bash scripts/test-count-gate-rounds.sh
 
+      # A body verdict that no longer describes the body is believed, which is worse than none
+      # (#284). Driven through the real forge-lib.sh with only the transport replaced.
+      - name: Gate staleness tests
+        run: bash scripts/test-gate-status.sh
+
       # The area set was stated in four places and three disagreed, found by the ticket gate
       # blocking on the first ticket it was ever pointed at here (#188).
       - name: Label taxonomy guard tests

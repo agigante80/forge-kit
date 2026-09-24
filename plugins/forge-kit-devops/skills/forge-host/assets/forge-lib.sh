@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 26
+# forge-lib-version: 27
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -122,6 +122,10 @@
 #       region permanently; content travels by FILE, removing the MAX_ARG_STRLEN ceiling; a non-2xx
 #       or non-issue response no longer reads as an empty body; a fetch failure in the region
 #       reader is no longer indistinguishable from an absent region.
+#   v27 forge_body_region_set takes an optional FIFTH argument, `top` (#284): the region is placed
+#       at the top of the body (after a leading template-version marker line), and an existing one
+#       is MOVED there. Additive: without it the output is byte-identical to v26. Any other fifth
+#       argument exits 2, since a typo that silently appended would hide the region it was moving.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -592,8 +596,13 @@ _FORGE_AWK_MARKER='
   function mkind(l) { return (l ~ /:start -->$/) ? "start" : "end" }
 '
 
-# _forge_splice: body on stdin, new body on stdout. FL_REGION, FL_MODE (set|clear); content in the
-# file named by FL_CONTENT_FILE. Exit 103 on any malformed marker shape.
+# _forge_splice: body on stdin, new body on stdout. FL_REGION, FL_MODE (set|clear), FL_POS (empty or
+# top); content in the file named by FL_CONTENT_FILE. Exit 103 on any malformed marker shape.
+# TOP (#284) is its own branch rather than a tweak to the two below, so the v26 paths every existing
+# caller relies on are untouched: remove any existing copy (and the blank line that separated it
+# from what came before, when nothing but blank lines follows it or it sat between two blanks),
+# then emit the leading template-version line if the body has one, the region, and the rest with
+# its leading blank lines dropped.
 _forge_splice() {
   awk "$_FORGE_AWK_MARKER"'
     BEGIN {
@@ -611,6 +620,23 @@ _forge_splice() {
     END {
       if (bad || nstart != nend || nstart > 1) exit 103
       if (nstart == 1 && si > ei) exit 103
+      if (mode == "set" && ENVIRON["FL_POS"] == "top") {
+        nk = 0
+        for (i = 1; i <= NR; i++) {
+          if (nstart == 1 && i >= si && i <= ei) continue
+          if (nstart == 1 && i == si - 1 && norm(line[i]) == "" && (ei == NR || norm(line[ei + 1]) == "")) continue
+          keep[++nk] = line[i]
+        }
+        k = 1
+        if (nk >= 1 && norm(keep[1]) ~ /^<!-- template-version: [0-9]+ -->$/) { print keep[1]; print ""; k = 2 }
+        while (k <= nk && norm(keep[k]) == "") k++
+        print s
+        while ((getline c < ENVIRON["FL_CONTENT_FILE"]) > 0) print c
+        print e
+        if (k <= nk) print ""
+        for (; k <= nk; k++) print keep[k]
+        exit 0
+      }
       if (nstart == 0) {
         for (i = 1; i <= NR; i++) print line[i]
         if (mode == "set") {
@@ -663,13 +689,13 @@ forge_body_region_get() {
   '
 }
 
-forge_body_region_set()   { _forge_region_write set   "${1-}" "${2-}" "${3-}" "${4-}"; }
-forge_body_region_clear() { _forge_region_write clear "${1-}" "${2-}" "${3-}" ""; }
+forge_body_region_set()   { _forge_region_write set   "${1-}" "${2-}" "${3-}" "${4-}" "${5-}"; }
+forge_body_region_clear() { _forge_region_write clear "${1-}" "${2-}" "${3-}" "" ""; }
 
 _forge_region_write() {
-  local mode="$1" n="${2-}" prefix="${3-}" region="${4-}" content="${5-}" body tmp out rc=0
-  [ -n "$n" ] && [ -n "$prefix" ] && [ -n "$region" ] || {
-    echo "forge-lib: usage: forge_body_region_$mode <issue> <prefix> <region> [content]" >&2; return 2; }
+  local mode="$1" n="${2-}" prefix="${3-}" region="${4-}" content="${5-}" pos="${6-}" body tmp out rc=0
+  [ -n "$n" ] && [ -n "$prefix" ] && [ -n "$region" ] && { [ -z "$pos" ] || [ "$pos" = top ]; } || {
+    echo "forge-lib: usage: forge_body_region_$mode <issue> <prefix> <region> [content] [top]" >&2; return 2; }
   case "$region" in
     "$prefix"-*|"$prefix") ;;
     *) echo "forge-lib: region '$region' is not owned by prefix '$prefix'; refusing" >&2; return 101 ;;
@@ -695,7 +721,7 @@ _forge_region_write() {
   tmp="$_FORGE_TMPDIR/region.$$"; out="$_FORGE_TMPDIR/out.$$"
   printf '%s\n' "$content" > "$tmp" || { _forge_tmp_done "$tmp"; return 2; }
   rc=0
-  printf '%s\n' "$body" | FL_REGION="$region" FL_MODE="$mode" FL_CONTENT_FILE="$tmp" _forge_splice > "$out" || rc=$?
+  printf '%s\n' "$body" | FL_REGION="$region" FL_MODE="$mode" FL_POS="$pos" FL_CONTENT_FILE="$tmp" _forge_splice > "$out" || rc=$?
   _forge_tmp_done "$tmp"
   case "$rc" in
     0) ;;
