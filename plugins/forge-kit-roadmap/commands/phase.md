@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, close or triage a phase.
 argument-hint: status | plan <name> | review [name] | close <name> | triage
 ---
 
-<!-- phase-version: 6 -->
+<!-- phase-version: 8 -->
 
 # /phase
 
@@ -102,6 +102,12 @@ Resolve three more assets the same way and for the same reason:
 ```bash
 FL=$(resolve forge-lib.sh); RL=$(resolve roadmap-lib.sh); DD=$(resolve check-doc-drift.sh)
 echo "using ${FL:-none}, ${RL:-none}, ${DD:-none}" | sed "s|$HOME|~|g"
+```
+
+If `FL` or `RL` is empty, say which and stop before the next block: sourcing an empty path fails
+with a shell error rather than the missing-asset message the resolve above already printed.
+
+```bash
 grep -m1 -o 'forge-lib-version: [0-9]*' "$FL"
 . "$FL"; . "$RL"
 ```
@@ -111,12 +117,15 @@ The two libraries are SOURCED, not run, and the version that prints must be 25 o
 
 1. Run `bash "$CP"` and report its verdict verbatim.
 2. Read the plan, the phase's roadmap prose, and EVERY ticket in the milestone, open and closed,
-   including its comments through `forge_issue_comments`.
-3. Report each ticket against the tree: implemented (naming the commit), partly implemented
-   (naming what is missing), not started, or superseded.
-4. Run `bash "$DD" --range <base>^..HEAD --docs <documents>` and read its rows. `<base>` is the
-   plan file's adding commit; `<documents>` are the project's standing documents, `README.md`
-   among them where it exists. Both flags are required.
+   including its comments through `forge_issue_comments`, excluding any comment whose first line is
+   exactly `## Superseded body (phase review)`: that is a body a past rewrite replaced, not
+   something that happened during this phase.
+3. Report each ticket against the tree: implemented, naming the commit or commits under the
+   skill's rule above, partly implemented (naming what is missing), not started, or superseded.
+4. Run `bash "$DD" --range <base>^..HEAD --docs <documents>` and read its rows. `<base>` is derived
+   by the skill's range rule, never restated here. `<documents>` is a comma-separated list
+   (`--docs <doc>[,<doc>...]`), the project's standing documents for which `git cat-file -e
+   HEAD:<doc>` succeeds. Both flags are required.
 5. Report every act the review would perform, on the tickets, on the plan, on the roadmap prose and
    on those documents, each with its reason. Nothing is written before this report exists.
 6. Act. The roadmap prose goes through `roadmap_set_prose`; the plan and the documents are ordinary

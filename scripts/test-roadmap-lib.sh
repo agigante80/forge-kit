@@ -8,7 +8,8 @@
 #
 # Throwaway files only; nothing here touches a forge, and the library has no host dependency.
 #
-# MUTANTS KILLED, all thirty-one run by hand on 2026-09-23 and each shown to fail this suite.
+# MUTANTS KILLED, thirty-one run by hand on 2026-09-23 and a thirty-second on 2026-09-24 (#266 L3),
+# each shown to fail this suite.
 # From the first battery: the parse-back comparison removed; the one-open rule removed from both
 # sites; the state and the plan ambiguity checks removed; the prose section guard removed, and
 # separately its first-line arm; the --milestone-empty assertion no longer required; the writer's
@@ -22,7 +23,8 @@
 # trailing blank; set_prose's arity back to an emptiness test; set_plan refusing an empty plan
 # again; an empty plan written as `plan: ` with a trailing space; remove going back to its own
 # asymmetric strip; the bounded walk severing a link mid-chain; and the read-only refusal made
-# silent.
+# silent. From #266's fix: `_rm_commit`'s byte-identical no-op check (`cmp -s "$real" "$cand"`)
+# removed, which the same-inode case and the mode-444-file case both catch.
 #
 # FIVE OF THOSE ARE THIS SUITE'S OWN HISTORY rather than hypotheticals, and they are the reason the
 # ledger is worth keeping. A first battery left three mutants alive: one ambiguity case had been
@@ -51,6 +53,7 @@ ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
 contains() { if printf '%s' "$2" | grep -qF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+lacks() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1' in output)"; else ok "$3"; fi; }
 
 [ -f "$LIB" ] || { echo "missing library: $LIB"; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -196,6 +199,7 @@ expect "and writes nothing" "" "$(diff "$T/seambefore.md" "$T/seam.md")"
 
 echo "== the atomic write, in the shape forge-adapt-agent-skills.sh already tests =="
 mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+inode() { stat -c '%i' "$1" 2>/dev/null || stat -f '%i' "$1"; }
 fixture "$T/r.md"; chmod 600 "$T/r.md"
 run roadmap_set_state "$T/r.md" Alpha planned
 expect "a 600 file is written" 0 "$RC"
@@ -217,6 +221,74 @@ fixture "$T/real.md"; ln -sf "$T/real.md" "$T/link.md"
 run roadmap_set_state "$T/link.md" Alpha planned
 expect "a symlinked roadmap is written through" 0 "$RC"
 [ -L "$T/link.md" ] && ok "and survives as a symlink" || bad "the symlink was replaced by a regular file"
+
+echo "== a byte-identical set_prose is a no-op: no write, no inode change, no mode risked (#266 L3) =="
+# _rm_commit used to cp+cat+mv unconditionally, even when the candidate it built was byte-identical
+# to the target, which is the common case for a re-run that changed nothing. The mode-444 case below
+# is what a directory-level read-only test cannot exercise: _rm_tmp builds the CANDIDATE in the same
+# directory as the target, so a read-only DIRECTORY refuses there, before _rm_commit's short-circuit
+# is ever reached, and every prose write would then read as "no write is attempted" whether or not
+# the fix exists. A read-only FILE in a writable directory is the shape that actually distinguishes
+# the fixed behaviour (rc 0, nothing touched) from the old one (rc 2, from the write step downstream).
+BETA_PROSE=$'A bucket. Its prose mentions state: done inside a sentence, which is not a keyed line and must\nsurvive every edit untouched.'
+fixture "$T/nop.md"; cp "$T/nop.md" "$T/nopbefore.md"; before_i="$(inode "$T/nop.md")"
+run roadmap_set_prose "$T/nop.md" Beta "$BETA_PROSE"
+expect "an unchanged prose write returns 0" 0 "$RC"
+expect "and the inode is unchanged" "$before_i" "$(inode "$T/nop.md")"
+expect "and the bytes are unchanged" "" "$(diff "$T/nopbefore.md" "$T/nop.md")"
+fixture "$T/ro.md"; cp "$T/ro.md" "$T/robefore2.md"; chmod 444 "$T/ro.md"
+run roadmap_set_prose "$T/ro.md" Beta "$BETA_PROSE"
+expect "the same call against a mode-444 FILE in a writable directory also returns 0" 0 "$RC"
+expect "because no write is attempted, so the read-only file is never opened for writing" "" "$(diff "$T/robefore2.md" "$T/ro.md")"
+expect "and its mode is untouched" 444 "$(mode "$T/ro.md")"
+chmod 644 "$T/ro.md"
+fixture "$T/chg.md"; before_i2="$(inode "$T/chg.md")"
+run roadmap_set_prose "$T/chg.md" Beta "Different text entirely."
+expect "a genuinely different prose still succeeds" 0 "$RC"
+contains "Different text entirely." "$(cat "$T/chg.md")" "and the new text is present"
+if [ "$before_i2" != "$(inode "$T/chg.md")" ]; then ok "and the inode changed, so the no-op path did not swallow a real edit"
+else bad "the inode did not change for a real edit"; fi
+# Two column-0 state: lines is NOT a shape _rm_check refuses (only set_state/set_plan count keyed
+# lines via _rm_keyed; parse_roadmap itself just lets the last state: line win). An unknown state
+# value is the shape that is actually malformed, and it is refused before the no-op check ever runs.
+fixture "$T/mal.md"; sed -i 's/^state: planned$/state: whatever/' "$T/mal.md"; cp "$T/mal.md" "$T/malbefore.md"
+run roadmap_set_prose "$T/mal.md" Beta "$BETA_PROSE"
+expect "identical prose against a malformed roadmap still refuses with 3, via _rm_prepare" 3 "$RC"
+expect "and writes nothing" "" "$(diff "$T/malbefore.md" "$T/mal.md")"
+# Every other case above uses the everywhere-else fixture, whose last phase runs into a trailing
+# `## Notes` section: the no-op path never has to handle EOF. The noend.md shape (no trailing
+# section, last phase's prose runs to the file's last byte) is the other structural position the
+# emitter fix has to hold at, since that is the branch #266's original leading-blank-line bug hit.
+cat > "$T/nopeof.md" <<'ROADMAP'
+# forge-kit roadmap
+
+## Phase: Alpha
+state: done
+plan: docs/plans/alpha.md
+
+Alpha prose.
+
+## Phase: Beta
+state: planned
+plan: docs/plans/beta.md
+
+Beta prose.
+
+## Phase: Gamma
+state: backlog
+plan: docs/plans/gamma.md
+
+Gamma prose, and this file ends here with no trailing section.
+ROADMAP
+cp "$T/nopeof.md" "$T/nopeofbefore.md"; before_ieof="$(inode "$T/nopeof.md")"
+run roadmap_set_prose "$T/nopeof.md" Gamma "Gamma prose, and this file ends here with no trailing section."
+expect "an unchanged prose write on the last phase at EOF returns 0" 0 "$RC"
+expect "and the inode is unchanged" "$before_ieof" "$(inode "$T/nopeof.md")"
+expect "and the bytes are unchanged" "" "$(diff "$T/nopeofbefore.md" "$T/nopeof.md")"
+fixture "$T/nopreal.md"; ln -sf "$T/nopreal.md" "$T/noplink.md"
+run roadmap_set_prose "$T/noplink.md" Beta "$BETA_PROSE"
+expect "an unchanged prose write through a symlink also returns 0" 0 "$RC"
+[ -L "$T/noplink.md" ] && ok "and the symlink survives, unreplaced" || bad "the symlink was replaced by a regular file"
 
 echo "== a short call RETURNS, it does not kill the caller (the header promises this) =="
 # NOT through run(), which wraps every call in a subshell and would hide exactly this. Both

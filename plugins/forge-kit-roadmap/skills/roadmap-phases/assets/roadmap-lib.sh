@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 4
+# roadmap-lib-version: 5
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -267,6 +267,7 @@ _rm_commit() {
   got="$(parse_roadmap "$cand")"
   [ "$got" = "${RM_EXPECT-}" ] || {
     _rm_die "the parser reads the result differently from what that edit meant to write; nothing changed" 3; return 3; }
+  cmp -s "$real" "$cand" && return 0   # byte-identical candidate: no write, no inode change, no mode risked
   tmp="$(_rm_tmp "$real")"
   [ -n "$tmp" ] || { _rm_die "cannot create a temporary file beside '$real'"; return 2; }
   cp -p "$real" "$tmp" 2>/dev/null || cp "$real" "$tmp" || { rm -f "$tmp"; _rm_die "cannot copy '$real'"; return 2; }
@@ -352,12 +353,15 @@ roadmap_set_prose() {
   _rm_prepare "$f" "$phase" || return $?
   RM_EXPECT="$(parse_roadmap "$f")"   # prose is not a parsed field: the rows must come back identical
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
+  # The hand-written format puts one blank line between the last keyed line and the prose, and
+  # one between the prose and the next heading (or none at EOF): the leading "\n" below is what
+  # makes an unchanged prose round-trip byte-identical on the FIRST call rather than only the second.
   RM_PROSE="$prose" awk -v s="$RM_START" -v e="$RM_END" '
     NR <= s { print; next }
-    NR >= e { if (!done) { printf "%s\n\n", ENVIRON["RM_PROSE"]; done = 1 } print; next }
+    NR >= e { if (!done) { printf "\n%s\n\n", ENVIRON["RM_PROSE"]; done = 1 } print; next }
     index($0, "state:") == 1 || index($0, "plan:") == 1 { print; next }
     { next }
-    END { if (!done) printf "%s\n", ENVIRON["RM_PROSE"] }
+    END { if (!done) printf "\n%s\n", ENVIRON["RM_PROSE"] }
   ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }

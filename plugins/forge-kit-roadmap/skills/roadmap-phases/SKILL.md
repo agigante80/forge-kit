@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 7 -->
+<!-- roadmap-phases-version: 9 -->
 
 # Roadmap phases
 
@@ -112,9 +112,13 @@ all live there. A review that reads bodies alone re-states the intent it was sup
 **Implementation is judged against the TREE, never against the ticket.** A ticket that says "done"
 over a tree that does not carry the change is the exact state this review exists to find. So
 implemented means a named file carries the named behaviour, or a suite carries the named case, and
-the review names the commit, found with `git log --grep "#<N>"` over the phase's range and then
-`git log -S` on the behaviour itself. Report each ticket as implemented (with the commit), partly
-implemented (with what is missing), not started, or superseded (with what replaced it).
+the review names the commit or commits, found with `git log --grep "#<N>"` over the phase's range
+and then `git log -S` on the behaviour itself. **Where either search returns more than one commit
+touching the named file, list them oldest first and mark the one after which the tree carries the
+whole behaviour** ("complete at `<sha>`"); if no single commit completes it, report partly
+implemented, naming what is missing, rather than picking one. A single match keeps today's wording.
+Report each ticket as implemented (with the commit or commits), partly implemented (with what is
+missing), not started, or superseded (with what replaced it).
 
 **The phase's range starts at the commit that ADDED its plan file and INCLUDES it**, ending at
 `HEAD`: take the sha from `git log --diff-filter=A --format=%H -- <plan> | tail -1` and use
@@ -137,11 +141,21 @@ than performing one.
 
 **A rewrite REPLACES the body and destroys nothing, because it posts the previous body as a comment
 first.** What a rewrite may destroy has to be answered by a rule, never by the model's judgement
-of what reads stale. That comment's
-first line is `## Superseded body (phase review)`, and a review SKIPS a comment carrying it:
-unmarked, the next run reads the scope this one replaced as part of what happened and re-opens the
-question it settled. Where the rewrite then refuses, the comment stands and the review says the
-body is unchanged. A rewrite carries the `template-version` marker and the template's own sections
+of what reads stale. That comment's first line is EXACTLY `## Superseded body (phase review)`, one
+test used both ways: a comment whose first line matches it is what a rewrite posts, and it is
+exactly what Step 2's history read skips, since an unmarked comment, or one that merely quotes the
+marker below its first line, is ordinary history and not a preserved body.
+
+**A rewrite is a NO-OP when a marked comment already preserves the current body.** Before posting a
+new one, compare the ticket's current body against the text AFTER the first line of every existing
+`## Superseded body (phase review)` comment. A byte-for-byte match means this exact body was already
+preserved: post nothing, and report "previous body already preserved", naming that comment. This is
+what makes a retry idempotent; without it, a rewrite that fails or re-runs posts the same bytes
+again, since the skip rule above hides the first comment from the read that would have noticed. Where
+the body was edited since the last marked comment, post a new one before replacing it, exactly as a
+first rewrite does.
+
+Where the rewrite then refuses, the comment stands and the review says the body is unchanged. A rewrite carries the `template-version` marker and the template's own sections
 forward, or the next gate run re-synthesises the whole ticket. A split closes the original naming
 its successors, or the trail is lost.
 
@@ -164,14 +178,17 @@ plan, because it is believed.
 
 **The README question is asked on EVERY run, not only at close.** It is the step the maintainer
 says is forgotten, so it is mechanical rather than remembered: run `check-doc-drift.sh` over the
-phase's range, naming the project's standing documents that EXIST at `HEAD`, since it refuses with
-2 on one that does not. Act on the rows; exemptions live in `.doc-drift-allow`, so a row is a claim
-somebody has not already judged incidental. **That script is forge-kit's own guard and no plugin
-group ships it**, so where it cannot be resolved the review asks the question by hand and names
+phase's range, naming the project's standing documents for which `git cat-file -e HEAD:<doc>`
+succeeds. It validates every named document before printing anything, so a non-zero exit means
+nothing was reported, never that the rows printed are incomplete. Act on the rows; exemptions live
+in `.doc-drift-allow`, so a row is a claim somebody has not already judged incidental. **That
+script is forge-kit's own guard and no plugin group ships it**, so where it cannot be resolved the
+review asks the question by hand and names
 what it compared.
 
-**It is idempotent**, because it writes only where the text would actually change. Run twice with
-nothing in between and the second run writes nothing and says so. A review that always finds
+**A second run with nothing changed in between PROVES it wrote nothing, rather than asserting it.**
+Step 5's act list is empty, no write primitive runs, and the run prints `git status --porcelain --
+docs/roadmap.md <plan> <documents>`, which must itself be empty. A review that always finds
 something to change cannot be believed when it does.
 
 **It may NOT reshape the roadmap.** One sentence decides the boundary: if the change would alter

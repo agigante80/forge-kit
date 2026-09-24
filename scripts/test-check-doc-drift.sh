@@ -181,6 +181,26 @@ expect "a missing --range is a usage error, exit 2" 2 "$RC"
 run --range "$BASE..HEAD"
 expect "a missing --docs is a usage error, exit 2" 2 "$RC"
 
+echo "== every --docs entry is validated before any row is printed (#267 F2) =="
+# README.md carries a stale claim on its own (as pinned by the drift case above), and would print a
+# row for it if this document alone were asked about. Pairing it with the untracked NOTES.md must
+# still exit 2 with NOTHING on stdout: validating inside the emit loop would let README.md's row out
+# before NOTES.md was reached, which is the exact partial-output defect this case pins.
+printf 'guard, changed\n' > "$R/scripts/guard.sh"
+# Committed by path, not via snap's `add -A`: NOTES.md must stay untracked for this case.
+git -C "$R" add scripts/guard.sh
+GIT_AUTHOR_DATE="$T2" GIT_COMMITTER_DATE="$T2" git -C "$R" commit -q -m "change the guard, so README.md now carries a stale claim"
+run --range "$BASE..$(sha HEAD)" --docs README.md,NOTES.md
+expect "the run exits 2" 2 "$RC"
+expect "and stdout is empty, not README.md's row followed by the refusal" "" "$OUT"
+contains "NOTES.md" "$ERR" "and stderr names the untracked document that made it refuse"
+
+echo "== --docs takes a comma-separated list, not a space-separated one (#267 F3) =="
+run --range "$BASE..HEAD" --docs "README.md NOTES.md"
+expect "a space-separated list exits 2" 2 "$RC"
+expect "with nothing on stdout" "" "$OUT"
+contains "README.md NOTES.md" "$ERR" "and the whole space-joined string is reported as one absent document"
+
 echo "== the sha reported is the NEWEST in-range commit touching the path =="
 # A path changed twice in one range has two candidate shas, and the row must name the later one:
 # the earlier one was already superseded inside the very range being reported on.

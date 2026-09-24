@@ -179,6 +179,29 @@ if [ -f "$CAT" ] && [ -d plugins ]; then
     > "$TMP/names" || : > "$TMP/names"
 fi
 
+# --- every document is validated before any row is emitted (#267 F2) ---------------------------
+# rc 2 means "could not run", never "ran partway": validating inside the emit loop below printed
+# earlier documents' rows before dying on a later untracked one, which pinned the defect the
+# script's own header disclaims. All of --docs is checked here, first, with nothing printed yet.
+OLDIFS=$IFS
+IFS=,
+set -f
+for doc in $DOCS; do
+  set +f
+  IFS=$OLDIFS
+  [ -n "$doc" ] || continue
+  if ! git cat-file -e "HEAD:$doc" 2>/dev/null; then
+    if [ -e "$doc" ]; then
+      die "'$doc' is untracked, so it has no commit history and staleness has no meaning for it"
+    fi
+    die "'$doc' is absent from the repository at HEAD"
+  fi
+  IFS=,
+  set -f
+done
+set +f
+IFS=$OLDIFS
+
 # --- the marker regions somebody else owns ------------------------------------------------------
 REGION_IDS="plugin-catalogue component-index plugin-groups"
 
@@ -190,13 +213,6 @@ for doc in $DOCS; do
   set +f
   IFS=$OLDIFS
   [ -n "$doc" ] || continue
-
-  if ! git cat-file -e "HEAD:$doc" 2>/dev/null; then
-    if [ -e "$doc" ]; then
-      die "'$doc' is untracked, so it has no commit history and staleness has no meaning for it"
-    fi
-    die "'$doc' is absent from the repository at HEAD"
-  fi
 
   git show "HEAD:$doc" > "$TMP/text" 2>/dev/null || die "cannot read '$doc' at HEAD"
 
