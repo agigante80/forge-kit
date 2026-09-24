@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 6 -->
+<!-- roadmap-phases-version: 7 -->
 
 # Roadmap phases
 
@@ -124,8 +124,11 @@ rather than judged: a plan becomes required exactly at `planned` to `open`, whic
 repository's first commit, say so and take the range from the user.
 
 **It SHOWS before it acts.** The first pass writes nothing anywhere and reports every act it would
-perform with its reason. `FORGE_DRY_RUN=1` covers the forge half only: `roadmap-lib.sh` has no dry
-run, so the roadmap and plan edits are held by the pass itself rather than by a variable.
+perform with its reason. `FORGE_DRY_RUN=1` cannot hold that pass: `forge_api` short-circuits on it
+for every method, GET included, so exporting it across the review fakes step 2 and step 4's reads
+too, reporting an empty phase with rc 0 and no sign anything was suppressed. Scope it to step 6's
+writes alone; `roadmap-lib.sh` has no dry run, so its edits are held by the pass itself, not by a
+variable.
 
 **It then acts without asking, on TICKETS**: close, rewrite, split, create, one line each with its
 reason. The roadmap and the host keep the standing gates the rest of this skill defines, so a
