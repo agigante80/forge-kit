@@ -8,6 +8,10 @@
 # one that rejects a legitimate roadmap gets deleted rather than fixed. The near-misses here are the
 # states that must NOT require a plan (planned, backlog) and the roadmap that does not exist at all.
 set -uo pipefail
+# #287: an inherited environment must not steer resolution. FORGE_LIB is consulted before anything
+# else, and GIT_DIR/GIT_WORK_TREE (which git exports into hooks, and pre-push runs this suite) override
+# the ceiling below.
+unset FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
 SRC="$ROOT/plugins/forge-kit-roadmap/skills/roadmap-phases/assets/check-phases.sh"
@@ -20,7 +24,22 @@ contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+# #287: the script under test resolves forge-lib.sh from $FORGE_LIB, beside itself, then the git root
+# of its working directory. A case that hides the stub must find NO repository there, or it loads the
+# real library and writes to the live host, which once created four milestones on this repository.
+# $T is made ABSOLUTE (git ignores a relative ceiling, and mktemp under a relative TMPDIR returns a
+# relative path), the ceiling is its parent, and gh/curl are shims that log and fail; the last
+# assertion requires their log to be empty. Two steps, not `cd "$(mktemp -d)"`: a failed mktemp would
+# make that `cd ""`, a no-op, and the EXIT trap would then remove the working directory.
+T=$(mktemp -d) && T=$(cd "$T" && pwd -P) || { echo "cannot make a temp dir"; exit 1; }
+trap 'rm -rf "$T"' EXIT
+export GIT_CEILING_DIRECTORIES="$(dirname "$T")"
+mkdir -p "$T/shim"
+for c in gh curl; do
+  printf '#!/bin/sh\necho "%s $*" >> "%s/shim/live.log"\nexit 1\n' "$c" "$T" > "$T/shim/$c"
+  chmod +x "$T/shim/$c"
+done
+PATH="$T/shim:$PATH"
 mkdir -p "$T/docs/plans"
 cp "$SRC" "$T/check-phases.sh"
 cp "$(dirname "$SRC")/roadmap-lib.sh" "$T/roadmap-lib.sh" 2>/dev/null || true
@@ -387,6 +406,12 @@ code "$SRC" | grep -q 'readlink -f' \
 echo "== the shipped asset is a component =="
 grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SRC" \
   && ok "carries a version marker" || bad "carries a version marker"
+
+if [ -s "$T/shim/live.log" ]; then
+  bad "a suite case reached a live forge: $(head -3 "$T/shim/live.log" | tr '\n' ';')"
+else
+  ok "no live forge call (the gh/curl shim log is empty)"
+fi
 
 echo ""
 echo "check-phases tests: $pass passed, $fail failed"

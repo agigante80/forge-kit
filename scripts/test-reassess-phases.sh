@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 1
+# test-reassess-phases-version: 2
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.
@@ -8,6 +8,10 @@
 # move-then-reread sequence is exercised for real rather than assumed.
 
 set -uo pipefail
+# #287: an inherited environment must not steer resolution. FORGE_LIB is consulted before anything
+# else, and GIT_DIR/GIT_WORK_TREE (which git exports into hooks, and pre-push runs this suite) override
+# the ceiling below.
+unset FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -23,7 +27,22 @@ absent()   { if printf '%s' "$2" | grep -qiF -- "$1"; then bad "$3"; else ok "$3
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+# #287: the script under test resolves forge-lib.sh from $FORGE_LIB, beside itself, then the git root
+# of its working directory. A case that hides the stub must find NO repository there, or it loads the
+# real library and writes to the live host, which once created four milestones on this repository.
+# $T is made ABSOLUTE (git ignores a relative ceiling, and mktemp under a relative TMPDIR returns a
+# relative path), the ceiling is its parent, and gh/curl are shims that log and fail; the last
+# assertion requires their log to be empty. Two steps, not `cd "$(mktemp -d)"`: a failed mktemp would
+# make that `cd ""`, a no-op, and the EXIT trap would then remove the working directory.
+T=$(mktemp -d) && T=$(cd "$T" && pwd -P) || { echo "cannot make a temp dir"; exit 1; }
+trap 'rm -rf "$T"' EXIT
+export GIT_CEILING_DIRECTORIES="$(dirname "$T")"
+mkdir -p "$T/shim"
+for c in gh curl; do
+  printf '#!/bin/sh\necho "%s $*" >> "%s/shim/live.log"\nexit 1\n' "$c" "$T" > "$T/shim/$c"
+  chmod +x "$T/shim/$c"
+done
+PATH="$T/shim:$PATH"
 mkdir -p "$T/docs/plans"
 cp "$SRC" "$T/reassess-phases.sh"
 cp "$ASSETS/roadmap-lib.sh" "$T/roadmap-lib.sh"
@@ -300,6 +319,12 @@ code "$SRC" | grep -q 'readlink -f' \
   && bad "avoids GNU-only readlink -f" || ok "avoids GNU-only readlink -f"
 grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SRC" \
   && ok "carries a version marker" || bad "carries a version marker"
+
+if [ -s "$T/shim/live.log" ]; then
+  bad "a suite case reached a live forge: $(head -3 "$T/shim/live.log" | tr '\n' ';')"
+else
+  ok "no live forge call (the gh/curl shim log is empty)"
+fi
 
 echo ""
 echo "reassess-phases tests: $pass passed, $fail failed"
