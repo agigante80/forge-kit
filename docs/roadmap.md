@@ -873,7 +873,7 @@ was a line that merely NAMES a churning path rather than claiming anything about
 closed on exactly the four tickets it opened with; everything else was filed rather than absorbed.
 
 ## Phase: Reviewing a phase, reassessing the roadmap
-state: open
+state: done
 plan: docs/plans/reviewing-a-phase-reassessing-the-roadmap.md
 
 A bucket while the primitives land. It holds the two workflows themselves, #244 and #249, the
@@ -885,6 +885,17 @@ could be restored from them.
 Its plan gets written when it opens, from this prose plus whatever has accumulated. The honest
 question it will have to answer is where the boundary between the two workflows actually falls,
 since a phase review that finds the phase itself wrong is already a reassessment.
+
+**Done, 2026-09-24.** The two workflows turned out to be genuinely separate, so the boundary
+question above answered itself in practice: `/phase review` (#244) rewrites and re-gates tickets
+inside one phase, `/roadmap reassess` (#249) reshapes the roadmap itself, and neither grew into the
+other's job. #248's write-authority contract landed first as planned, followed by #258 (a mention is
+no longer a claim), #244, #249, and #196's memory fallback. `/phase review`'s own first two runs
+against this repository (#262, #266, #267, #268) found and fixed real defects in the shipped
+mechanism, which is the dogfooding this phase existed to force. This first `/phase review` closed
+by running itself: it found #249 implemented but unclosed, and folded #275 and #276 back into #249's
+own acceptance criteria rather than treating them as separate work, since both were already
+satisfied by the shipped `reassess-phases.sh`.
 
 ## Phase: Choosing a model and an effort on purpose
 state: planned
