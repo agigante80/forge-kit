@@ -3,7 +3,7 @@ name: decision-brief
 description: Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and rewrite the ticket body so the decision can be made from it. Use when a ticket is waiting on a human decision, when asked for a decision brief on an issue, when a ticket has stalled through several nudges, or when someone asks which option to pick on a ticket.
 ---
 
-<!-- decision-brief-version: 4 -->
+<!-- decision-brief-version: 5 -->
 
 # Decision brief
 
@@ -35,8 +35,9 @@ nothing in devops knows what a decision brief is. Install it alongside.
 
 Read and write through the `forge_*` functions, never `gh` directly, so a brief works on GitHub and
 Forgejo alike: `forge_issue_view <n>` to read, `forge_issue_comment <n> <body>` for a correction
-comment, and the body-region primitives for every write (see Step 7). Set `FORGE_DRY_RUN=1` while
-drafting.
+comment, and the body-region primitives for every write (see Step 7). `forge_api` short-circuits on
+`FORGE_DRY_RUN=1` for every method, GET included, so exporting it before Step 1 drafts against an
+empty ticket rather than the real one. Export it only around Step 7's writes.
 
 **Never `forge_issue_edit`.** It REPLACES the whole body, and the host's edit history is the only
 other copy. It is what this skill used before v24, and the primitives exist because three

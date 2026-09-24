@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 25
+# forge-lib-version: 26
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -16,7 +16,8 @@
 #                                                Forgejo API URL is configured, else github)
 #
 # Requires: git, jq. GitHub backend uses `gh` (its existing auth); Forgejo backend uses `curl` + a
-# token. Set FORGE_DRY_RUN=1 to print would-be API requests instead of sending them.
+# token. Set FORGE_DRY_RUN=1 to print would-be API requests instead of sending them; this also
+# short-circuits every GET, so a read under the flag returns empty stdout with rc 0, not real data.
 # CONTRACT CHANGES (read this before `forge-adapt refresh forge-lib` lands a new copy).
 # `refresh` is report-first for assets, so a human sees the diff; this list is what makes that
 # diff mean something, because a byte diff does not say whether a CALLER has to change.

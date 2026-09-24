@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 28 -->
+<!-- forge-host-version: 29 -->
 
 # forge-host: host-aware forge operations
 
@@ -68,8 +68,11 @@ caller that treats every non-zero as fatal will now reject the ordinary "this ow
 so it has no org labels" case; branch on 44. The status is NOT published as a variable,
 because callers read the body with `$(...)` and a variable set in that subshell is discarded.
 
-`FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them. Run
-`bash forge-lib.sh detect` for a one-line host/repo/api/ci diagnostic.
+`FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them, and that includes
+GET: `forge_api` short-circuits on every method, so a read under the flag returns empty stdout with
+rc 0 rather than the real body, not only a suppressed write. Scope it to the write step alone, or
+clear it around a read that must see the host. Run `bash forge-lib.sh detect` for a one-line
+host/repo/api/ci diagnostic.
 
 **The body-region primitives are the write-authority contract, enforced rather than stated (#248).**
 Three components edit a ticket body, and `forge_issue_edit` replaces the whole thing. The rule that

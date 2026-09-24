@@ -499,6 +499,88 @@ case $? in
   *) bad "dry-run case (rc=$?)";;
 esac
 
+# --- #268: the REAL forge_api (not the stub) short-circuits a GET too, on both hosts -----------
+# Docs described FORGE_DRY_RUN=1 as a send-side switch; forge_issue_view under it must return
+# empty stdout with rc 0 and never invoke gh or curl. A mutant moving the check in forge_api
+# below the host `case`, or restricting it to non-GET methods, must fail this case.
+BIN="$T/dry-run-bin"; mkdir -p "$BIN"
+cat > "$BIN/gh"   <<'EOF'
+#!/bin/sh
+echo "gh should not run under FORGE_DRY_RUN=1: $*" >&2
+exit 99
+EOF
+cat > "$BIN/curl" <<'EOF'
+#!/bin/sh
+echo "curl should not run under FORGE_DRY_RUN=1: $*" >&2
+exit 99
+EOF
+chmod +x "$BIN/gh" "$BIN/curl"
+(
+  . "$LIB"
+  export PATH="$BIN:$PATH" FORGE_HOST=github FORGE_REPO=o/r FORGE_DRY_RUN=1
+  out=$(forge_issue_view 268 2>"$T/gh-dry.err"); rc=$?
+  [ "$rc" -eq 0 ] || exit 1
+  [ -z "$out" ] || exit 2
+  grep -qx '\[dry-run\] GET https://api.github.com/repos/o/r/issues/268' "$T/gh-dry.err" || exit 3
+)
+case $? in
+  0) ok "real forge_api: a GET under dry-run (github) returns empty stdout, rc 0, and never calls gh";;
+  1) bad "real forge_api: github dry-run GET did not return rc 0";;
+  2) bad "real forge_api: github dry-run GET returned non-empty stdout";;
+  *) bad "real forge_api: github dry-run GET stderr did not match (gh may have been invoked)";;
+esac
+(
+  . "$LIB"
+  export PATH="$BIN:$PATH" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
+  out=$(forge_issue_view 268 2>"$T/fj-dry.err"); rc=$?
+  [ "$rc" -eq 0 ] || exit 1
+  [ -z "$out" ] || exit 2
+  grep -qx '\[dry-run\] GET https://forge.example/api/v1/repos/o/r/issues/268' "$T/fj-dry.err" || exit 3
+)
+case $? in
+  0) ok "real forge_api: a GET under dry-run (forgejo) returns empty stdout, rc 0, and never calls curl";;
+  1) bad "real forge_api: forgejo dry-run GET did not return rc 0";;
+  2) bad "real forge_api: forgejo dry-run GET returned non-empty stdout";;
+  *) bad "real forge_api: forgejo dry-run GET stderr did not match (curl may have been invoked)";;
+esac
+(
+  . "$LIB"
+  REALBIN="$T/real-gh-bin"; mkdir -p "$REALBIN"
+  export PATH="$REALBIN:$PATH" FORGE_HOST=github FORGE_REPO=o/r FORGE_DRY_RUN=0
+  cat > "$REALBIN/gh" <<'EOF'
+#!/bin/sh
+printf '{"number":268,"body":"x"}'
+EOF
+  chmod +x "$REALBIN/gh"
+  out=$(forge_issue_view 268 2>"$T/gh-real.err"); rc=$?
+  [ "$rc" -eq 0 ] || exit 1
+  [ "$out" = '{"number":268,"body":"x"}' ] || exit 2
+  ! [ -s "$T/gh-real.err" ] || exit 3
+)
+case $? in
+  0) ok "real forge_api: FORGE_DRY_RUN=0 reaches gh and returns the real body, proving the suppression is the flag's doing";;
+  1) bad "real forge_api: FORGE_DRY_RUN=0 GET did not return rc 0";;
+  2) bad "real forge_api: FORGE_DRY_RUN=0 GET did not return the stubbed body";;
+  *) bad "real forge_api: FORGE_DRY_RUN=0 GET printed an unexpected [dry-run] line";;
+esac
+# The GET cases above are the ticket's documented fact; a POST case is added too (gate round 1
+# advisory), since forge_api's early return sits before its host `case` for every method, not GET
+# alone, and the existing "sends no writes" case above stubs forge_api itself rather than exercising it.
+(
+  . "$LIB"
+  export PATH="$BIN:$PATH" FORGE_HOST=github FORGE_REPO=o/r FORGE_DRY_RUN=1
+  out=$(forge_issue_comment 268 "hi" 2>"$T/gh-post-dry.err"); rc=$?
+  [ "$rc" -eq 0 ] || exit 1
+  [ -z "$out" ] || exit 2
+  grep -q '^\[dry-run\] POST https://api.github.com/repos/o/r/issues/268/comments' "$T/gh-post-dry.err" || exit 3
+)
+case $? in
+  0) ok "real forge_api: a POST under dry-run (github) is also short-circuited, and never calls gh";;
+  1) bad "real forge_api: github dry-run POST did not return rc 0";;
+  2) bad "real forge_api: github dry-run POST returned non-empty stdout";;
+  *) bad "real forge_api: github dry-run POST stderr did not match (gh may have been invoked)";;
+esac
+
 # --- #78.1: the config is resolved ONCE per process, not once per call -------------------------
 # Every page used to re-run _forge_load_conf about four times (forge_host, forge_api_base,
 # _forge_token), each a `git rev-parse` plus a fork per config line.
