@@ -56,9 +56,14 @@ printf '{ "name": "g", "version": "1.0.0", "description": "fixture", "author": {
   > "$FIX/plugins/g/.claude-plugin/plugin.json"
 printf '{ "plugins": [ { "name": "g", "source": "./plugins/g" } ] }\n' \
   > "$FIX/.claude-plugin/marketplace.json"
+# Check 7 (#253) needs a row per component. Only the three one-level components get one, so a
+# nested decoy counted as a component would also fail with "no row", on the same path rule.
+mkdir -p "$FIX/docs/guides"
+printf '### Roles\n\n| Role | Models | Effort | Reason |\n|---|---|---|---|\n| r | inherit | none | x |\n\n### Components\n\n| Component | Role |\n|---|---|\n| a | r |\n| c | r |\n| s | r |\n' \
+  > "$FIX/docs/guides/model-tiers.md"
 
 # real components (one level, each with a marker)
-printf '<!-- a-version: 1 -->\n'      > "$FIX/plugins/g/agents/a.md"
+printf -- '---\nname: a\nmodel: inherit\n---\n<!-- a-version: 1 -->\n' > "$FIX/plugins/g/agents/a.md"
 printf '<!-- c-version: 1 -->\n'      > "$FIX/plugins/g/commands/c.md"
 printf '<!-- s-version: 1 -->\n'      > "$FIX/plugins/g/skills/s/SKILL.md"
 printf '# h-version: 1\n'             > "$FIX/plugins/g/hooks/h.py"
