@@ -302,6 +302,11 @@ jobs:
       - name: Lens-contract lockstep tests
         run: bash scripts/test-check-lens-contract.sh
 
+      # Issue #294: check-contributor-docs.sh decides whether a contributor doc names a script, a
+      # target or a link that a clone does not have; a wrong fail rejects a correct doc.
+      - name: Contributor-docs check tests
+        run: bash scripts/test-check-contributor-docs.sh
+
       # Issue #278: size-review.sh decides whether a /full-review round skips the security phase, so
       # a wrong answer in one direction reviews a sensitive change without it.
       - name: Review-sizing tests

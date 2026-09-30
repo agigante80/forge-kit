@@ -13,6 +13,7 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | Ships releases / has a VERSION or package.json version | `release` | devops | semver bump + sync + tag + close shipped tickets | P2 |
 | Merges to main as a release; bump/tag is manual (easily forgotten) | `release-automation` | devops | CI gate: block a merge that did not bump the version | P1 |
 | Long Claude Code sessions; decisions/context lost between them | `closing-sessions` | governance | persist session facts to memory + handoff notes | P2 |
+| Public origin with AGENTS.md ignored or absent, a tracked CONTRIBUTING.md, or several commit authors | `contributor-docs` | governance | contributor docs a clone can trust; CI check | P2 |
 
 Note: the backend skills are injected knowledge, not actions, so recommend them when the project's
 domain matches, not by default. `find-dead-code` is the source-code counterpart to the `dep-auditor`

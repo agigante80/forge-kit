@@ -150,6 +150,7 @@ xhigh < max`.
 | release | session | needs the user: the bump level is a human judgement and it STOPs on divergence, so it cannot fork, and its irreversible host writes do not move to a cheaper tier |
 | closing-sessions | session | reads the current conversation, which a fork cannot see |
 | decision-brief | session | judgment: costing the options is the work |
+| contributor-docs | session | knowledge plus a script that decides; the reader's model governs |
 | ticket-gate-reference | session | preloaded into `ticket-gate`, so it runs on that agent's model |
 | working-overnight | session | judgment: governs an unattended run |
 | roadmap-phases | session | knowledge: inert text, the reader's model governs |

@@ -1,0 +1,122 @@
+---
+name: contributor-docs
+description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
+---
+
+<!-- contributor-docs-version: 1 -->
+
+# Contributor docs
+
+A project with several contributors, each working through a different agent or none, has three
+entry points: `AGENTS.md` for an agent, `CONTRIBUTING.md` for a person, and the PR template for
+both. Each names commands and links other docs, and each rots without anyone noticing, because
+the author's machine keeps working. The case this skill was built from is
+agigante80/actual-mcp-server#496: `CONTRIBUTING.md` named three `npm run` scripts that did not
+exist, and `AGENTS.md` was gitignored, so it existed on the maintainer's disk and nowhere else.
+
+**The rule underneath everything here: a contributor doc is judged by what a CLONE gets.** A file
+that is ignored, untracked, or only on one machine does not exist for the reader it was written for.
+
+## Writing AGENTS.md: a map, not a copy
+
+`AGENTS.md` is the open, agent-agnostic instruction file ([agents.md](https://agents.md)); Codex,
+Cursor, Gemini CLI and others read it, and Claude Code reads it through an import (below). Write it
+as a MAP to tracked docs, never as a second copy of them. A copy drifts from the original, and
+the original is the one the humans maintain.
+
+Keep only what an agent would otherwise get wrong:
+
+- **Setup and validation commands**, exactly as they run from the root: the install, the build,
+  the one command that must pass before a commit. Each must exist; the check below proves it.
+- **The rules whose omission breaks things**: generated files not to edit, the branch work goes
+  to, how a change is integrated (PR, merge, squash), anything CI rejects.
+- **Where tests go** and how to run one test rather than the suite.
+- **A precedence order** when two docs disagree, so the agent does not pick one.
+- **A documentation map**: one line per tracked doc saying when to read it.
+
+Leave out what the code already says, style an auto-formatter enforces, and anything true only on
+the maintainer's machine. Keep it short: the check's default budget is 150 lines and 32 KiB, since
+Codex truncates the file at 32 KiB, and a file that long is a copy rather than a map.
+
+## Aligning the other two entry points
+
+- `CONTRIBUTING.md` (at the root, `.github/` or `docs/`) keeps the human process and links
+  `AGENTS.md` for the commands, rather than restating them.
+- **The PR template needs ABSOLUTE links.** GitHub copies it verbatim into the PR body, where a
+  relative link resolves against the PR URL and breaks. Link
+  `https://github.com/<owner>/<repo>/blob/<branch>/AGENTS.md`, not `../AGENTS.md`.
+- **One source for Claude Code.** A local `CLAUDE.md` that restates `AGENTS.md` forks the shared
+  facts. Put `@AGENTS.md` on its own line in `CLAUDE.md` so Claude Code imports it, and keep only
+  Claude-specific additions beside the import.
+
+## Before the first commit of AGENTS.md
+
+A doc written from a local instruction file carries local things: home paths, private project
+names, an email address. Run the `leak-guard` skill's scanners on it before it is committed,
+because a public history cannot be recalled.
+
+## The check
+
+`assets/check-contributor-docs.sh` needs git, plus `jq` only when a command reaches resolution
+against `package.json`. It runs under bash 3.2 and any POSIX awk, and prints one TSV row per
+finding: `status<TAB>check<TAB>location<TAB>detail`, status `pass`, `fail` or `referred`.
+
+```bash
+bash check-contributor-docs.sh                        # the default doc set
+bash check-contributor-docs.sh --docs AGENTS.md docs/HACKING.md --max-lines 200
+```
+
+Exit 0 when no row fails, 1 when one does, 2 when it could not run, with nothing on stdout. The
+default set is `AGENTS.md`, `CONTRIBUTING.md` at its three locations, and every PR template GitHub
+reads (`.md`, `.txt` or extensionless, plus files inside a `PULL_REQUEST_TEMPLATE/` directory),
+each scanned only if tracked. `--docs` replaces the set; `AGENTS.md` is required regardless.
+
+What it checks, all resolved against the git INDEX, never the disk:
+
+- **required**: `AGENTS.md` is tracked and no ignore rule matches it. A tracked symlink is judged
+  by its target, so `AGENTS.md -> CLAUDE.md` fails when `CLAUDE.md` is local only.
+- **max-lines**, **max-bytes**: the budget above.
+- **command**: inside code spans and fenced blocks only, since prose naming a command is not an
+  instruction. Only two shapes can FAIL, `npm run X` and `pnpm run X`, run from the root, with a
+  literal name missing from the tracked `package.json`. Make and just targets fail when the file
+  plainly lacks them, and are read as text, never by invoking `make`, which can run recipes while
+  remaking its makefiles.
+- **script-path**: `node`, `sh` or `bash` naming a tracked script passes; an untracked one is
+  referred, since `node dist/index.js` is correct after a build.
+- **link**: a relative link or reference definition resolves to a tracked file, or a directory
+  holding one. `/x` means the repository root, as GitHub renders it. A link leaving the
+  repository fails and is never read.
+
+**`referred` means "a person must look", and it never fails the run.** Everything the check cannot
+settle is referred rather than guessed: bare `yarn X` and `pnpm X` (a script, a built-in or a
+binary), `yarn run X`, workspace, prefix and filter flags, a placeholder like `npm run <script>`, a
+Makefile using `include`, every relative link in a PR template. **A directory change makes the
+next command referred even when the root defines it**, because what then runs is not the root's
+script. Its scope is the fenced block, or for a code span the paragraph, so "Run `cd client`, then
+`npm run dev`." is referred and a `cd` in an earlier block reaches nothing. An assignment in front of the
+runner refers its own row the same way, since `npm_config_workspace=client npm run dev` runs a
+workspace's script.
+
+The limits, stated so they are not mistaken for coverage: spans and links are found within one
+line; indented code blocks are prose; the paragraph rule is order-dependent, and list items with
+no blank line between them form one paragraph; make's built-in implicit rules are not modelled; a
+percent-encoded non-ASCII target is referred. It checks that what is named EXISTS, never that the
+prose is right.
+
+## In the project's CI
+
+The check belongs where contributors' PRs run, not in a hook. Copy the asset into the project
+(`scripts/check-contributor-docs.sh`) and add one step:
+
+```yaml
+- run: bash scripts/check-contributor-docs.sh
+```
+
+Fetch depth does not matter, since it reads the index of the checkout. Install `jq` on a runner
+that lacks it, or the first npm command it resolves stops the run with exit 2.
+
+## Boundary with coding-standards-auditor
+
+`coding-standards-auditor` owns WHAT the standards are and writes them to
+`docs/coding-standards.md`. This skill owns whether the entry points are TRUE and point there.
+`AGENTS.md` links `docs/coding-standards.md` rather than restating it, which is the map rule again.
