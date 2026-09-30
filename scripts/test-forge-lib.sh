@@ -14,6 +14,7 @@
 #     forgejo arm of forge_api behaviourally (200/404/401/500/transport/empty/multiline via a
 #     stubbed curl), and the temp dir (created once, trapped when the caller has no trap,
 #     removed on the normal path)
+#   - #291: the suite points TMPDIR at its own scratch folder and asserts it is empty at the end
 # The github branches shell out to `gh` and are unchanged by #62/#63; they are exercised by
 # real use, not stubbed here.
 #
@@ -33,6 +34,11 @@ unset FORGE_DEBUG FORGE_DRY_RUN FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+# A dedicated TMPDIR inside $T (#291): every library temp dir lands here, so the final check can
+# assert the suite removed what it made. $T's trap would hide a leak from an outside observer,
+# which is why that check is load-bearing and must stay. It sees only temp dirs that honour
+# TMPDIR: a hardcoded /tmp path in the library would leak past it.
+mkdir "$T/tmp"; export TMPDIR="$T/tmp"
 pass=0; fail=0
 ok()   { echo "  ok: $1"; pass=$((pass+1)); }
 bad()  { echo "  FAIL: $1"; fail=$((fail+1)); }
@@ -1006,7 +1012,9 @@ esac
   _forge_tmp_init || exit 9
   rm -rf "$_FORGE_TMPDIR"                          # a finished subshell removed the shared dir
   _forge_tmp_init || exit 1                        # must notice and make a new one
-  [ -d "$_FORGE_TMPDIR" ]
+  [ -d "$_FORGE_TMPDIR" ]; rc=$?
+  rm -rf "$_FORGE_TMPDIR"                          # the second dir leaked before #291
+  exit "$rc"
 )
 [ $? -eq 0 ] && ok "a stale _FORGE_TMPDIR is re-created without going through the page cap" \
              || bad "the -d check is not independently exercised (#131.2)"
@@ -1790,6 +1798,10 @@ case $? in
   2) bad "an unknown fifth argument still sent a PATCH";;
   *) bad "the unknown-position case errored";;
 esac
+
+# #291: every case removes the temp dirs it creates; the ls -A runs in the parent, after all cases.
+# 2>&1 so a vanished TMPDIR shows up as output and fails, rather than passing as empty.
+expect "the suite leaves its dedicated TMPDIR empty" "" "$(ls -A "$T/tmp" 2>&1)"
 
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
