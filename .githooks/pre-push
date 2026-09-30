@@ -7,8 +7,8 @@
 # pushing. Running it at commit time either asks a narrower question or pays for a range diff on
 # every commit.
 #
-# It is also the only local gate on one path. Both range guards run in CI on `pull_request` ONLY,
-# so a direct push to main is otherwise checked by nothing.
+# It gives the answer BEFORE the push. Both range guards also run in CI, on `pull_request` AND on
+# `push` (#158), so this hook duplicates CI rather than substituting for it.
 #
 # Option (a) from the ticket: a committed hook, no framework. Adopting `pre-commit` (the tool)
 # would give a one-command two-stage install and would be the first package-manager dependency in
@@ -160,8 +160,14 @@ if command -v python3 >/dev/null 2>&1; then
     fi
   fi
   cnt_="$ROOT/scripts/update-suite-counts.py"
+  # WHY THESE TWO SKIPS ARE LOUD WHEN scan()'S AND THE VERSION-BUMP GUARD'S ARE NOT (#221). Those
+  # are opt-in guards: an absent one means the project has not adopted them, which is a choice and
+  # needs no announcement. These two generators are owned by THIS repository, so an absent one is a
+  # checkout missing part of the kit, and the claims it owns go unchecked with nothing else to ask.
+  # Do not "fix" scan() to match, and do not revert these to silence. Neither touches
+  # doc_problems: a skip never blocks the push.
   if [ ! -f "$cnt_" ]; then
-    :
+    echo "  ! pre-push: scripts/update-suite-counts.py is missing; the suite-count claims were NOT checked." >&2
   elif [ "$changed_files" = "__unknown__" ]; then
     echo "  ! pre-push: no range (neither the pushed ref's remote tip nor '$remote/main' is here);" >&2
     echo "  !           the suite-count claims were NOT checked. 'git fetch $remote' enables them." >&2
@@ -181,6 +187,8 @@ if command -v python3 >/dev/null 2>&1; then
   idx_="$ROOT/scripts/update-component-index.py"
   if [ -f "$idx_" ]; then
     python3 "$idx_" --check >/dev/null || doc_problems=$((doc_problems + 1))
+  else
+    echo "  ! pre-push: scripts/update-component-index.py is missing; the generated regions were NOT checked." >&2
   fi
 else
   echo "  ! pre-push: python3 not found; the local-doc claims were NOT checked (CI cannot check" >&2
@@ -206,13 +214,11 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   # Loud skip, never silent, and never a blocked push: the same posture the pre-commit hook takes
   # for a missing jq.
   #
-  # It used to add "CI still enforces", which stopped being true on 2026-09-08: both range guards
-  # are `pull_request`-only and work now lands on develop with no pull requests, so NOTHING
-  # server-side checks them. Saying otherwise is the same wrong-message defect this hook's leak
-  # half was fixed for. #158 restores the server-side half.
+  # Between 2026-09-08 and #158 the range guards were `pull_request`-only and nothing server-side
+  # checked them, so this message said so. Since #158 they also run on `push`, so it says that.
   echo "  ! pre-push: base ref '$base' not found locally; range checks SKIPPED." >&2
-  echo "  !           NOTHING else checks them: both range guards are pull_request-only and this" >&2
-  echo "  !           repo no longer uses pull requests (see #158)." >&2
+  echo "  !           CI runs both range guards on pull_request AND push (see #158), so the push" >&2
+  echo "  !           is still checked there, after the fact." >&2
   echo "  !           run 'git fetch $remote' to enable them locally." >&2
   exit 0
 fi
@@ -231,8 +237,8 @@ done
 if [ "$violations" -gt 0 ]; then
   echo ""
   echo "forge-kit: $violations range check(s) failed against $base."
-  echo "This is the LAST check on these: both range guards are pull_request-only and this repo"
-  echo "no longer uses pull requests, so nothing server-side repeats it (see #158)."
+  echo "CI runs both range guards on pull_request AND push (see #158), so pushing anyway will"
+  echo "fail there too; this hook gives the same answer before the push."
   echo "Fix it, or push anyway with: git push --no-verify"
   exit 1
 fi

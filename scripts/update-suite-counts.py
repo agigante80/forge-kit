@@ -30,11 +30,12 @@ Usage:
 
   default   run each named suite and rewrite its number in place, reporting what changed
   --check   run each named suite; exit 1 naming every stale claim, write nothing (for CI)
-  --list    parse and print the claims (path, line, stated N); run nothing
+  --list    parse and print the claims (path, line, stated N); run nothing. Stdout carries claim
+            rows only, so a caller can parse it: every notice and error goes to stderr
   --changed PATH...  narrow whichever of the above ran to the claims whose suite is in PATH...
 
 --changed is a FILTER, not a third mode, and it exists because the full run is expensive: every
-claim is checked by RUNNING its suite, which is 93 s for the twelve here, so a git hook can only
+claim is checked by RUNNING its suite, which is 93 s across every counted suite, so a git hook can only
 afford the suites the push actually touched (#218). Paths are compared after normalising to the
 repo-relative form, so `scripts/test-x.sh`, `./scripts/test-x.sh` and an absolute path under the
 root all match the same claim.
@@ -128,7 +129,7 @@ def main():
         return 2
     if args.doc is None and not os.path.isfile(doc):
         print("update-suite-counts: %s is not in this checkout, so no claim was checked."
-              % os.path.relpath(doc, root))
+              % os.path.relpath(doc, root), file=sys.stderr)
         return 0
     with open(doc, encoding="utf-8") as fh:
         text = fh.read()
@@ -144,7 +145,8 @@ def main():
             wanted.add(rel)
         narrowed = [c for c in found if c[0] in wanted]
         if not narrowed:
-            print("update-suite-counts: no counted suite changed (%d claim(s) skipped)" % len(found))
+            print("update-suite-counts: no counted suite changed (%d claim(s) skipped)" % len(found),
+                  file=sys.stderr)
             return 0
         found = narrowed
 

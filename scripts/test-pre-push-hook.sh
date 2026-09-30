@@ -277,6 +277,65 @@ out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$base"
 [ "$rc" -eq 0 ] && ok "no python3 does not block the push" || bad "no python3 does not block the push (rc $rc, $out)"
 printf '%s' "$out" | grep -q 'python3 not found' && ok "and says so loudly" || bad "and says so loudly"
 
+# A MISSING GENERATOR IS A LOUD SKIP (#221), one condition per generator. Both are repo-owned
+# scripts, not opt-in guards, so an absent one means a checkout that is missing part of the kit,
+# and the claims it owns go unchecked. Each case captures STDERR ALONE (stdout discarded), because
+# the contract is that the notice is on stderr: a merged stream would pass a notice sent to stdout.
+push_range_err() {  # push_range_err <base-sha>: the hook's stderr only
+  local sha; sha=$(git rev-parse HEAD)
+  printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1" \
+    | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1 >/dev/null
+}
+# The exit code needs its own run, since a command substitution of the stderr-only capture above
+# reports the pipeline's status and the two must not be conflated.
+push_range_rc() {
+  local sha; sha=$(git rev-parse HEAD)
+  printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1" \
+    | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" >/dev/null 2>&1
+}
+base=$(git rev-parse HEAD)
+printf 'prose two\n' > notes.md; git add -A >/dev/null; git commit --quiet -m "prose for the generator cases"
+cp scripts/update-suite-counts.py "$TMP/cnt.bak"
+cp scripts/update-component-index.py "$TMP/idx.bak"
+
+rm scripts/update-suite-counts.py
+err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+[ "$rc" -eq 0 ] && ok "a missing update-suite-counts.py does not block the push" || bad "a missing update-suite-counts.py does not block the push (rc $rc)"
+printf '%s' "$err" | grep -q '^  ! pre-push: .*update-suite-counts.py' && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
+printf '%s' "$err" | grep 'update-suite-counts.py' | grep -q 'NOT checked' && ok "that says the suite-count claims were NOT checked" || bad "that says the suite-count claims were NOT checked"
+printf '%s' "$err" | grep -q 'update-component-index.py' && bad "and does not name the other generator" || ok "and does not name the other generator"
+cp "$TMP/cnt.bak" scripts/update-suite-counts.py
+
+rm scripts/update-component-index.py
+err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+[ "$rc" -eq 0 ] && ok "a missing update-component-index.py does not block the push" || bad "a missing update-component-index.py does not block the push (rc $rc)"
+printf '%s' "$err" | grep -q '^  ! pre-push: .*update-component-index.py' && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
+printf '%s' "$err" | grep 'update-component-index.py' | grep -q 'NOT checked' && ok "that says the generated regions were NOT checked" || bad "that says the generated regions were NOT checked"
+printf '%s' "$err" | grep -q 'update-suite-counts.py' && bad "and does not name the other generator" || ok "and does not name the other generator"
+cp "$TMP/idx.bak" scripts/update-component-index.py
+
+rm scripts/update-suite-counts.py scripts/update-component-index.py
+err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+[ "$rc" -eq 0 ] && ok "both generators missing does not block the push" || bad "both generators missing does not block the push (rc $rc)"
+if printf '%s' "$err" | grep -q '^  ! pre-push: .*update-suite-counts.py' && printf '%s' "$err" | grep -q '^  ! pre-push: .*update-component-index.py'; then
+  ok "and two skips are named, one per generator"; else bad "and two skips are named, one per generator ($err)"; fi
+cp "$TMP/cnt.bak" scripts/update-suite-counts.py
+cp "$TMP/idx.bak" scripts/update-component-index.py
+
+err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+[ "$rc" -eq 0 ] && ok "with both generators present the push passes" || bad "with both generators present the push passes (rc $rc)"
+if printf '%s' "$err" | grep -q 'update-suite-counts.py\|update-component-index.py'; then
+  bad "and stderr carries no generator skip line ($err)"; else ok "and stderr carries no generator skip line"; fi
+
+# The skip covers only an ABSENT script; it never replaces the real check.
+sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/' README.md
+git add -A >/dev/null; git commit --quiet -m "hand-edit a generated region again"
+out="$(push_range "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "a present index generator still blocks a hand-edited region" || bad "a present index generator still blocks a hand-edited region (rc $rc)"
+printf '%s' "$out" | grep -q 'a generated claim in a LOCAL doc is stale or could not be checked' && ok "with the stale-claim message" || bad "with the stale-claim message"
+python3 scripts/update-component-index.py >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "regenerate the region again"
+
 # THE PLACEMENT ITSELF (review round 1 on #218). Every case above runs with origin/main intact, so
 # moving the whole block below the base-ref exit at the end of this hook left the suite green. The
 # defect that mutation reintroduces is the one gate round 2 blocked this ticket on: with no

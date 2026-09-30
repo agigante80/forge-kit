@@ -203,6 +203,30 @@ contains "test-sent-a.sh" "$out" "naming it"
 out="$(SENTDIR="$SENT" run --check --changed scripts/test-sent-b.sh 2>&1)"; rc=$?
 expect "and ignores a stale claim it does not cover, which is the point of the filter" 0 "$rc"
 
+echo "== --list keeps stdout to claim rows; notices go to stderr (#221) =="
+# Stdout and stderr are captured SEPARATELY here: a merged stream cannot tell a notice on stdout
+# (which breaks a caller parsing rows) from one on stderr.
+printf -- '- `scripts/test-a.sh`, 7 tests.\n- `scripts/test-b.sh`, 45 tests.\n' > "$DOC"
+so="$(run --list --changed docs/roadmap.md 2>/dev/null)"; rc=$?
+expect "--list --changed with no matching claim exits 0" 0 "$rc"
+expect "and stdout is empty" "" "$so"
+se="$(run --list --changed docs/roadmap.md 2>&1 >/dev/null)"
+contains "no counted suite changed (2 claim(s) skipped)" "$se" "and the notice is on stderr"
+so="$(run --list --changed scripts/test-a.sh 2>/dev/null)"; rc=$?
+expect "--list --changed with a matching claim exits 0" 0 "$rc"
+expect "and stdout is exactly one tab-separated row" "$(printf 'scripts/test-a.sh\t1\t7')" "$so"
+lacks "no counted suite changed" "$so" "and stdout carries no notice"
+so="$(python3 "$GEN" --root "$NODOC" --list 2>/dev/null)"; rc=$?
+expect "--list with an absent default doc exits 0" 0 "$rc"
+expect "and stdout is empty" "" "$so"
+se="$(python3 "$GEN" --root "$NODOC" --list 2>&1 >/dev/null)"
+contains "is not in this checkout" "$se" "and the notice is on stderr"
+so="$(python3 "$GEN" --root "$NODOC" --list --doc "$NODOC/missing.md" 2>/dev/null)"; rc=$?
+expect "--list with a named doc that is missing exits 2" 2 "$rc"
+expect "and stdout is empty" "" "$so"
+se="$(python3 "$GEN" --root "$NODOC" --list --doc "$NODOC/missing.md" 2>&1 >/dev/null)"
+contains "no such doc" "$se" "and the error is on stderr"
+
 echo "== a doc shaped like this repository's own: every claim is seen, and nothing is run =="
 # This used to read $ROOT/CLAUDE.md and skip when it was absent, which made the suite's OWN total
 # environment-dependent: 48 cases in a CI checkout, 52 on a machine that has the doc (#218). A
