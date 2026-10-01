@@ -600,6 +600,40 @@ c_export_span_comment_neg() { exp 'Run `export NODE_ENV=dev # not npm_config_x`,
   rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
 c_export_quoted_value_neg() { exp '```\nexport MSG="set npm_config_workspace"\nnpm run nope\n```\n'
   rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+# #387: the export guards parse quotes (two kinds, backslash escapes), -n un-exports only under
+# export, and a leading +x un-exports a declare.
+c_export_quoted_hash() { exp '```\nexport A="x # y" npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_quoted_dash_n() { exp '```\nexport A="a -n" npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_quoted_word_hash() { exp '```\nexport "a # b" npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_quoted_word_dash_n() { exp '```\nexport "a -n" npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_declare_nx() { exp '```\ndeclare -nx npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_declare_x_n() { exp '```\ndeclare -x -n npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_mixed_quotes() { exp '```\nexport A="it\047s" npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_sq_holds_dq() { exp '```\nexport \047a"b\047 npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_escaped_quote() { exp '```\nexport A=\\" npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_bare_escaped_quote() { exp '```\nexport \\" npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_sq_backslash() { exp '```\nexport A=\047a\\\047 npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_declare_x_trailing_plus() { exp '```\ndeclare -x npm_config_workspace=c +x\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_apostrophe_value_neg() { exp '```\nexport A="it\047s npm_config_workspace=c"\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_export_escaped_in_dq_neg() { exp '```\nexport A="\\" npm_config_workspace=c"\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_declare_plus_x_neg() { exp '```\ndeclare -x +x npm_config_workspace=c\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_declare_plus_first_neg() { exp '```\ndeclare +x -x npm_config_workspace=c\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
 c_export_n_neg() { exp '```\nexport -n npm_config_workspace\nnpm run nope\n```\n'
   rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
 
@@ -659,6 +693,22 @@ case_ c_export_bare_other_neg "export of other bare or quoted names rescopes not
 case_ c_export_comment_neg "a name in a trailing comment of an export line rescopes nothing"
 case_ c_export_span_comment_neg "a name in a trailing comment of a code-span export rescopes nothing"
 case_ c_export_quoted_value_neg "a name inside a quoted export value rescopes nothing"
+case_ c_export_quoted_hash "a # inside a quoted export value does not end the line (#387)"
+case_ c_export_quoted_dash_n "a -n inside a quoted export value does not un-export (#387)"
+case_ c_export_quoted_word_hash "a # inside a quoted export WORD does not end the line (#387)"
+case_ c_export_quoted_word_dash_n "a -n inside a quoted export WORD does not un-export (#387)"
+case_ c_export_declare_nx "declare -nx carries: for declare -n is nameref (#387)"
+case_ c_declare_x_n "declare -x -n carries (#387)"
+case_ c_export_mixed_quotes "an apostrophe inside a double-quoted value is not a quote (#387)"
+case_ c_export_sq_holds_dq "a double quote inside single quotes is not a quote (#387)"
+case_ c_export_escaped_quote "an escaped quote in a value does not open a quote (#387)"
+case_ c_export_bare_escaped_quote "an escaped quote as its own word does not open a quote (#387)"
+case_ c_export_sq_backslash "a backslash inside single quotes escapes nothing (#387)"
+case_ c_declare_x_trailing_plus "a +x after a name does not un-export (#387)"
+case_ c_export_apostrophe_value_neg "a name inside a double-quoted value holding an apostrophe rescopes nothing (#387)"
+case_ c_export_escaped_in_dq_neg "a name after an escaped quote inside a double-quoted value rescopes nothing (#387)"
+case_ c_declare_plus_x_neg "declare -x +x un-exports (#387)"
+case_ c_declare_plus_first_neg "declare +x -x un-exports (#387)"
 case_ c_export_n_neg "export -n of the name un-exports it and rescopes nothing"
 case_ c_subst_hostile_linear "24000 NAME=\$(..) words are rewritten within the bound"
 case_ c_subst_hostile_arg_neg "24000 separate NAME=\$(..); commands still leave a failing runner failing, within the bound"
@@ -1629,12 +1679,12 @@ NR == 1 {' 'EXTRACT='\''
   mutant "second substitution of a value not rewritten" c_subst_double_value '|\\.)+/, "X", text)' '|\\.)/, "X", text)'
   mutant "assignment value stops at a backtick" c_subst_backtick_nospace '=[^ \t]*[ \t]+)+/' '=[^ \t`]*[ \t]+)+/' '|`[^`]*`|' '|'
   mutant "backtick run not rewritten as a value" c_subst_backtick_space '|`[^`]*`|' '|'
-  mutant "double-quoted run not rewritten as a value" c_quoted_space_nosubst '|"[^"]*"|' '|'
+  mutant "double-quoted run not rewritten as a value" c_quoted_space_nosubst '|"([^"\\]|\\.)*"|' '|'
   mutant "single-quoted run not rewritten as a value" c_single_quoted_space '|\047[^\047]*\047|' '|'
   mutant "escaped byte not rewritten as a value" c_escaped_space '|\\.)+/, "X", text)' ')+/, "X", text)'
   mutant "value rewrite only where a substitution is" c_swallowed_cd '  if (index(text, "=")) {' '  if (index(text, "$(")) {'
   mutant "declare -x flag test is exactly -x" c_export_declare_gx '/^-[A-Za-z]*x/' '/^-x$/'
-  mutant "declare checks only the first dash word" c_export_declare_g_x 'j <= nw && ws[j] ~ /^-/' 'j <= 2 && ws[j] ~ /^-/'
+  mutant "declare checks only the first dash word" c_export_declare_g_x 'j <= nw && ws[j] ~ /^[-+]/' 'j <= 2 && ws[j] ~ /^[-+]/'
   mutant "declare carries on any dash word" c_declare_g_plain_neg '/^-[A-Za-z]*x/' '/^-/'
   mutant "double-quoted export argument not accepted" c_export_quoted_dq 'ws[j] ~ /^["\047]?[Nn]' 'ws[j] ~ /^[\047]?[Nn]'
   mutant "single-quoted export argument not accepted" c_export_quoted_sq 'ws[j] ~ /^["\047]?[Nn]' 'ws[j] ~ /^["]?[Nn]'
@@ -1642,14 +1692,23 @@ NR == 1 {' 'EXTRACT='\''
   mutant "bare export name not accepted (two lines)" c_export_bare_name_lines '_[A-Za-z0-9_]*(=|["\047]?$)/' '_[A-Za-z0-9_]*(=)/'
   mutant "closing quote of a bare name not accepted" c_export_bare_quoted '(=|["\047]?$)/' '(=|$)/'
   mutant "export of any bare name carried" c_export_bare_other_neg "$XRE" 'ws[j] ~ /^["\047]?[A-Za-z0-9_]*(=|["\047]?$)/'
-  mutant "export comment guard removed" c_export_comment_neg '        if (ws[j] ~ /^#/) break
+  mutant "export comment guard removed" c_export_comment_neg '        if (out && ws[j] ~ /^#/) break
 ' ''
-  mutant "export comment guard removed (code span)" c_export_span_comment_neg '        if (ws[j] ~ /^#/) break
+  mutant "export comment guard removed (code span)" c_export_span_comment_neg '        if (out && ws[j] ~ /^#/) break
 ' ''
   # Since #386 a balanced quoted value is rewritten to X before this guard runs, so only an
   # unbalanced quote reaches it.
-  mutant "export quote-parity guard removed" c_export_unbalanced_quote_neg 'qn % 2 == 0 && ' ''
-  mutant "export -n guard removed" c_export_n_neg '        if (ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
+  mutant "export quote-parity guard removed" c_export_unbalanced_quote_neg 'if (out && ws[j] ~ /^["' 'if (ws[j] ~ /^["'
+  mutant "export comment test ignores quote state" c_export_quoted_word_hash 'if (out && ws[j] ~ /^#/)' 'if (ws[j] ~ /^#/)'
+  mutant "export -n test ignores quote state" c_export_quoted_word_dash_n 'if (out && w == "export" && ' 'if (w == "export" && '
+  mutant "-n un-exports under declare too" c_export_declare_nx 'out && w == "export" && ws[j] ~ /^-[A-Za-z]*n/' 'out && ws[j] ~ /^-[A-Za-z]*n/'
+  mutant "quote kinds merged" c_export_sq_holds_dq 'else if (c == "\047") sq = 1' 'else if (c == "\047") dq = 1'
+  mutant "escape handling dropped" c_export_bare_escaped_quote 'else if (c == "\\") k++' 'else if (0) k++'
+  mutant "+x un-export dropped" c_declare_plus_x_neg '    if (unx) isx = 0
+' ''
+  mutant "+x read beyond the leading option words" c_declare_x_trailing_plus 'j <= nw && ws[j] ~ /^[-+]/; j++)' 'j <= nw; j++)'
+  mutant "escaped quote inside a double-quoted value ends it" c_export_escaped_in_dq_neg '|"([^"\\]|\\.)*"|' '|"[^"]*"|'
+  mutant "export -n guard removed" c_export_n_neg '        if (out && w == "export" && ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
 ' ''
   mutant "restart-from-start rewrite loop" c_subst_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "=")) {'
   mutant "restart-from-start rewrite loop (quoted values)" c_quoted_space_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /[A-Za-z_][A-Za-z0-9_]*="[^"]*"/)) text = substr(text, 1, RSTART - 1) "X" substr(text, RSTART + RLENGTH)\n  if (index(text, "=")) {'

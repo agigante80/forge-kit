@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 10 -->
+<!-- contributor-docs-version: 11 -->
 
 # Contributor docs
 
@@ -115,9 +115,10 @@ code-span paragraph, and a later segment of its own line, never an earlier one. 
 target or `just` recipe stays a `fail`. `export FOO=1`, `export NODE_ENV=production` and
 `declare -g npm_config_x=y` (no `x`) rescope nothing and still fail. Only the listed spellings
 carry: an `npm_config_` word after a word starting with `#` (a comment) or inside a quoted value
-carries nothing, and a dash word holding an `n` anywhere on the line (`export -n` un-exports)
-voids the whole line. The guards count quotes rather than parse them, so a `#` or `-n` inside a
-quoted value, mixed quote kinds and an escaped quote can misjudge a line. Still a false `fail`: `$VAR` or
+carries nothing, and under `export` a dash word holding an `n` anywhere on the line (`export -n`
+un-exports) voids the whole line; for `declare`, `-n` means nameref and still carries, and a leading
+`+x` un-exports. Quotes are parsed (two kinds, backslash escapes), so a `#` or `-n` inside quotes is
+text. Still a false `fail`: `$VAR` or
 `${...}` before a substitution (`npm_config_workspace=$HOME$(echo c) npm run dev`), and
 `export "npm_config_x"=y`, whose quote closes before the `=`.
 A tracked root `.npmrc` refers every `npm run X`, whether or not the root defines X, because npm then

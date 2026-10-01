@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 14
+# check-contributor-docs-version: 15
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -62,11 +62,13 @@
 # read the variable, so a failing make target or just recipe stays a fail. Also carried: declare or
 # typeset with any dash word holding an x (-gx, -g -x), a quoted argument (export "npm_config_x=y")
 # and a bare name (npm_config_x=y; export npm_config_x). Only those spellings carry. An npm_config_
-# word (a bare name or a NAME=value) after a word starting with # (a comment) or after an odd
-# number of quote characters (inside a quoted value) carries nothing, and a dash word holding an n
-# anywhere on the line (export -n un-exports) makes the whole line carry nothing. These guards
-# count quotes, they do not parse them, so a # or -n inside a quoted value, mixed quote kinds and
-# an escaped quote can still misjudge a line. `export FOO=1` and `declare -g npm_config_x=y`
+# word (a bare name or a NAME=value) after a word starting with # (a comment) or inside a quoted
+# value carries nothing, and under export (not declare, where -n means nameref) a dash word holding
+# an n anywhere on the line makes the whole line carry nothing; a leading +x option word un-exports
+# a declare or typeset in either order with -x. The quote state is parsed, not counted (#387): two
+# kinds, a backslash outside single quotes escaping the next byte, so a # or -n inside quotes is
+# text. Still limits: a -n after a name under export voids the line (bash would reject it anyway),
+# and a quoted ;&|() in a word that is not an assignment value still splits the line. `export FOO=1` and `declare -g npm_config_x=y`
 # rescope nothing and still fail. A NAME=value assignment whose value is any mix of plain bytes,
 # non-nested $(...) groups, double- or single-quoted runs, backtick runs and backslash-escaped bytes
 # (so a value holding a space, or a ;&|() inside quotes) is read as a plain assignment, in one linear
@@ -233,7 +235,7 @@ is_template() {
 EXTRACT='
 NR == 1 { sub(/^\357\273\277/, "") }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, isx) {
+function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, isx, unx, hit, unexp, dq, sq, qw, c, out) {
   # A command substitution in an assignment VALUE rescopes npm like any other value
   # (npm_config_workspace=$(echo client) npm run dev, #296), but the split below would cut it at
   # its parentheses and leave a bare runner. Rewrite the value of a NAME=value WORD to X when it
@@ -254,7 +256,7 @@ function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, is
   if (index(text, "=")) {
     gsub(/\001/, "", text)
     gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)
-    gsub(/\001([^ \t;&|()$"\047`\\\001]|\$\([^()]*\)|"[^"]*"|\047[^\047]*\047|`[^`]*`|\\.)+/, "X", text)
+    gsub(/\001([^ \t;&|()$"\047`\\\001]|\$\([^()]*\)|"([^"\\]|\\.)*"|\047[^\047]*\047|`[^`]*`|\\.)+/, "X", text)
     gsub(/\001/, "", text)
   }
   gsub(/&&|\|\||[;|()]/, "\n", text)
@@ -278,18 +280,34 @@ function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, is
     # name ("npm_config_x=y"), and a bare name (npm_config_x, which exports an earlier assignment).
     # The quote class is \047 because this program sits inside a single-quoted shell variable.
     nw = split(seg, ws, /[ \t]+/)
-    isx = (w == "export")
-    if (w == "declare" || w == "typeset") for (j = 2; j <= nw && ws[j] ~ /^-/; j++) if (ws[j] ~ /^-[A-Za-z]*x/) isx = 1
+    # A leading option word starting with + and holding an x (declare +x, in either order with -x)
+    # un-exports the line, as bash does (#387).
+    isx = (w == "export"); unx = 0
+    if (w == "declare" || w == "typeset") for (j = 2; j <= nw && ws[j] ~ /^[-+]/; j++) { if (ws[j] ~ /^-[A-Za-z]*x/) isx = 1; if (ws[j] ~ /^[+][A-Za-z]*x/) unx = 1 }
+    if (unx) isx = 0
     if (isx) {
-      # Three guards keep an npm_config_ match honest: a word starting with # ends the command (a
-      # comment), a word after an odd number of quote characters sits inside a quoted value, and a
-      # dash word holding an n anywhere on the line (export -n) un-exports the whole line.
-      hit = 0; unexp = 0; qn = 0
+      # Three guards keep an npm_config_ match honest, each applied only to a word that STARTS
+      # outside any quote: a word starting with # ends the command (a comment), a word inside a
+      # quoted value is not a name, and under export (only: for declare, -n means nameref and the
+      # line still exports) a dash word holding an n anywhere on the line un-exports it. The quote
+      # state is PARSED in one left-to-right pass (#387), double and single quotes as separate
+      # kinds, a backslash outside single quotes escaping the next byte; it used to count quote
+      # characters of either kind, so `export "a # b" npm_config_workspace=c` carried nothing.
+      hit = 0; unexp = 0; dq = 0; sq = 0
       for (j = 2; j <= nw; j++) {
-        if (ws[j] ~ /^#/) break
-        if (ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
-        if (qn % 2 == 0 && ws[j] ~ /^["\047]?[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=|["\047]?$)/) hit = 1
-        qw = ws[j]; qn += gsub(/["\047]/, "", qw)
+        out = !dq && !sq
+        if (out && ws[j] ~ /^#/) break
+        if (out && w == "export" && ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
+        if (out && ws[j] ~ /^["\047]?[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=|["\047]?$)/) hit = 1
+        qw = ws[j]
+        for (k = 1; k <= length(qw); k++) {
+          c = substr(qw, k, 1)
+          if (sq) { if (c == "\047") sq = 0 }
+          else if (c == "\\") k++
+          else if (dq) { if (c == "\"") dq = 0 }
+          else if (c == "\"") dq = 1
+          else if (c == "\047") sq = 1
+        }
       }
       if (hit && !unexp) { if (infence) fenv = 1; else penv = 1 }
       continue
