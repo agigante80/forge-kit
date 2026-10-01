@@ -286,17 +286,28 @@ esac
 [ $? -eq 0 ] && ok "paginate treats a non-array body as an error (jq length on an object counts keys)"              || bad "paginate accepted a non-array body (object keys counted as items)"
 
 bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it.
-  # The leak-guard suites' helper, copied for the reason their header gives: stock macOS ships no
+  # The leak-guard suite's helper, copied for the reason its header gives: stock macOS ships no
   # GNU `timeout`, and a suite that dies on a contributor's laptop gets deleted rather than fixed.
+  # The bound kills with SIGALRM and only status 142 (128 + 14) reads as 124, so a command that dies
+  # of any OTHER signal keeps its own status (143 TERM, 138 USR1, 137 KILL; Linux numbering): a
+  # crash must not masquerade as "killed at the bound" (#315). A bound kill and a self-SIGTERM both arrive as raw
+  # 143 (measured on bash 5.2.21), so mapping 143 would not discriminate; SIGALRM does, with no
+  # state and no bash-4 feature (bash 3.2 behaviour is unmeasured). RESIDUAL: a command that dies
+  # of its own SIGALRM also reads 124.
   local secs="$1"; shift
   ( set -m
     "$@" & pid=$!
-    ( sleep "$secs"; kill -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+    ( sleep "$secs"; kill -s ALRM -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
     set +m
     wait "$pid" 2>/dev/null; rc=$?
     kill -- -"$w" 2>/dev/null
-    [ "$rc" -ge 128 ] && rc=124; exit "$rc" )
+    [ "$rc" -eq 142 ] && rc=124; exit "$rc" )
 }
+
+# --- #315: bounded() keeps another signal's status instead of reading it as the bound's 124 ---
+bounded 10 sh -c 'kill -USR1 $$' >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq $((128 + $(kill -l USR1))) ] && ok "bounded keeps a self-SIGUSR1 at 128 + USR1 rather than reading it as 124" || bad "bounded mapped a self-SIGUSR1 to $rc (expected 128 + USR1, not the bound's 124)"
 
 # --- pagination cap survives a NON-NUMERIC override (a junk cap must not mean no cap) ---
 (
@@ -310,9 +321,10 @@ bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the
     forge_api() { printf "[{\"number\":%s}]" "${2##*page=}"; }
     forge_issue_list 2>/dev/null
   '); rc=$?
-  [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]
+  exit "$rc"   # 2 is a `return 2`, as the page cap gives (not unique, accepted in #315)
 )
-[ $? -eq 0 ] && ok "a non-numeric FORGE_PAGINATE_MAX_PAGES falls back to the default cap (errors, no spin)"              || bad "a non-numeric page cap disabled the spin guard (timed out or exited 0)"
+rc=$?
+[ "$rc" -eq 2 ] && ok "a non-numeric FORGE_PAGINATE_MAX_PAGES falls back to the default cap (errors, no spin)"              || bad "a non-numeric page cap disabled the spin guard (rc $rc; expected 2, 124 means timed out, 128+n means died of signal n)"
 
 # --- #228: a host that IGNORES page returns the same page for ever; stop on the same KEYS -------
 # Forgejo's per-issue comments endpoint returns the whole list whatever page= says (go-gitea

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 24
+# check-public-leaks-version: 25
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -64,15 +64,16 @@
 #
 # COST AND ITS LIMITS (#211, #239). Rules A and B are linear in the line length in TREE mode and
 # under `--history --show-evidence`: the tail walk is one anchored match rather than a per-byte
-# loop, the segment is cut with a shortest-match strip (`${raw#/*/}`) rather than `${raw##*/}`, which
-# a 262144-byte dot-tail case in the suite pins with a mutant, and a trailing
-# slash is tested before it is stripped rather than through `${m%/}`, which tries every suffix when
-# the string does not end in one. A 64 KB punctuation tail cost 40 s and now costs 0.15 s; 1 MB took
-# 2 s unloaded and 3.7 s under load. The REDACTED `--history` report is still quadratic in the match, which is #217 and is not
-# claimed here. Measured on bash 5.2.21 and glibc; this repository's stated floor is bash 3.2.57,
-# where the COST is unmeasured. Correctness does not rest on that floor behaving: a failed tail
-# match falls back to the byte loop, so an engine that does not reload the locale the way
-# `local LC_ALL=C` expects reports a finding slowly rather than missing it (review of #239).
+# loop, the segment is cut with a shortest-match strip (`${raw#/*/}`) rather than `${raw##*/}`,
+# which a 262144-byte dot-tail case in the suite pins with a mutant, and a trailing slash is
+# tested before it is stripped rather than through `${m%/}`, which tries every suffix when the
+# string does not end in one. A 64 KB punctuation tail cost 40 s and now costs 0.15 s; 1 MB took
+# 2 s unloaded and 3.7 s under load. The REDACTED `--history` report is still quadratic in the
+# match, which is #217 and is not claimed here. Measured on bash 5.2.21 and glibc; this
+# repository's stated floor is bash 3.2.57, where the COST is unmeasured. Correctness does not
+# rest on that floor behaving: a failed tail match falls back to the byte loop, so an engine that
+# does not reload the locale the way `local LC_ALL=C` expects reports a finding slowly rather
+# than missing it (review of #239).
 # Rule C is linear in the line length in both modes: the anchored
 # RE_MAIL keeps grep on its DFA, LC_ALL=C on the tree-mode grep keeps it there under any locale,
 # and judge() splits the address with `IFS=@ read` rather than `${addr#*@}`. A 1 MB token followed
@@ -571,9 +572,12 @@ judge() {
       # NOT `seg="${raw##*/}"` (#239): a longest-match strip tries every prefix, so it is quadratic
       # in the segment and a 64 KB punctuation tail cost 3.3 s of the 3.5 s a scan took. RE_HOME
       # matches `(/home|/Users)/` followed by a class that excludes `/`, so the segment is exactly
-      # the text after the first two slashes. A shortest-match strip, linear because the segment
-      # excludes `/`; not `##` (#239, #243). It holds for any single-segment root, so a third root
-      # needs no new arm.
+      # the text after the first two slashes. A shortest-match `#` strip stops at the first
+      # matching prefix (the root), whatever the segment holds, so it is linear where `##` tries
+      # every prefix. Excluding `/` from the class is not what makes it fast: it is what makes
+      # the result equal the old per-root `case`. The speed relies on RE_HOME guaranteeing that
+      # early match (a `#` strip that never matches tests every prefix too). It holds for any
+      # single-segment root, so a third root needs no new arm (#239, #243).
       # `${m%/}` is quadratic when the string does NOT end in `/`: bash tries every suffix and the
       # match fails at each (2.5 s at 256 KB, #239). Test the last byte first, then strip one.
       case "$m" in */) raw="${m%?}" ;; *) raw="$m" ;; esac

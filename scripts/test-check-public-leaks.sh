@@ -1226,20 +1226,46 @@ echo "== rule C is linear in the line length, in both modes and both locales (#2
 # replaced by ${addr#*@}. All three killed. The bound is this suite's own helper, never GNU
 # `timeout`, which stock macOS does not ship.
 bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it
+  # The bound kills with SIGALRM and only status 142 (128 + 14) reads as 124, so a command that dies
+  # of any OTHER signal keeps its own status (143 TERM, 138 USR1, 137 KILL; Linux numbering): a
+  # crash must not masquerade as "killed at the bound" (#315). A bound kill and a self-SIGTERM both arrive as raw
+  # 143 (measured on bash 5.2.21), so mapping 143 would not discriminate; SIGALRM does, with no
+  # state and no bash-4 feature (bash 3.2 behaviour is unmeasured). RESIDUAL: a command that dies
+  # of its own SIGALRM also reads 124.
   local secs="$1"; shift
   ( set -m
     "$@" & pid=$!
-    ( sleep "$secs"; kill -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+    ( sleep "$secs"; kill -s ALRM -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
     set +m
     wait "$pid" 2>/dev/null; rc=$?
     kill -- -"$w" 2>/dev/null
-    [ "$rc" -ge 128 ] && rc=124; exit "$rc" )
+    [ "$rc" -eq 142 ] && rc=124; exit "$rc" )
 }
 # The watcher is spawned while set -m is still on, so it is its own group and the kill reaches its
 # sleep, and its stdio is detached so that sleep cannot hold a capture pipe open: written the naive
 # way, OUT="$(bounded 10 ...)" blocks for the whole bound even when the command returns at once.
-# On bash 3.2 a killed mutant's WALL time overshoots the bound (a fatal signal waits for the
-# expansion it is inside to finish); the exit code is still 124. The three mutants cost about 40 s.
+# A killed mutant's WALL time can overshoot the bound, late under load: on bash 3.2 a fatal signal
+# waits for the expansion it is inside to finish, and a late kill was also seen on bash 5.2 at load
+# 35 on 8 cores (not reproduced at load 14 on bash 5.2.21); the exit code is still 124. The three
+# mutants cost about 40 s.
+echo "== #315: bounded() maps only its own SIGALRM kill to 124 =="
+bounded 1 sleep 30 >/dev/null 2>&1
+expect "bounded: a command that outlives the bound reads 124" 124 "$?"
+bounded 10 sh -c 'exit 3' >/dev/null 2>&1
+expect "bounded: a normal exit keeps its status (3)" 3 "$?"
+bounded 10 true >/dev/null 2>&1
+expect "bounded: a command that succeeds reads 0" 0 "$?"
+bounded 10 sh -c 'kill -USR1 $$' >/dev/null 2>&1; rc=$?
+expect "bounded: a self-SIGUSR1 keeps 128 + USR1, not 124" $((128 + $(kill -l USR1))) "$rc"
+bounded 10 sh -c 'kill -KILL $$' >/dev/null 2>&1; rc=$?
+expect "bounded: a self-SIGKILL keeps 128 + KILL, not 124" $((128 + $(kill -l KILL))) "$rc"
+bounded 10 sh -c 'kill -TERM $$' >/dev/null 2>&1; rc=$?
+expect "bounded: a self-SIGTERM keeps 128 + TERM, not 124 (the watcher did not fire)" $((128 + $(kill -l TERM))) "$rc"
+bounded 10 sh -c 'kill -ALRM $$' >/dev/null 2>&1
+expect "bounded: the residual, a command's own SIGALRM reads 124 (recorded above, pinned here)" 124 "$?"
+T315="$(date +%s)"; OUT="$(bounded 5 true)"; rc=$?; T315="$(( $(date +%s) - T315 ))"
+expect "bounded: a command that returns at once is captured with status 0" 0 "$rc"
+[ "$T315" -lt 5 ] && ok "and the capture returns well inside the 5 s bound (${T315} s)" || bad "capture blocked for the bound (${T315} s)"
 LONG="$WORK/long-spaced.md"; { head -c 1048576 /dev/zero | tr '\0' a; printf ' alice@corp.io\n'; } > "$LONG"
 GLUED="$WORK/long-glued.md"; { head -c 262144 /dev/zero | tr '\0' a; printf '@corp.io\n'; } > "$GLUED"
 # 1 MB spaced, 256 KB glued: the glued shape is the one that reaches bash, and at 1 MB the FIXED
@@ -1336,10 +1362,11 @@ expect "and killed on the entirely-punctuation shape too" 124 "$?"
 # --- #243: the segment strip is pinned too ---------------------------------------------------
 # `seg="${raw##*/}"` is quadratic in the segment: 6.3 s at 64 KB, 21.6 s at 128 KB, 119 s at 256 KB.
 # The 64 KB DOTS fixture above lets it finish inside the bound, so it survived. 262144 bytes under
-# `bounded 10` is the size where the mutant is killed and the scanner (about 1 s) is far inside.
-# NOT 1 MB: the mutant would run for tens of minutes, and a killed mutant on bash 3.2 overshoots
-# the bound because a fatal signal waits for the expansion it is inside (see above). The assertion
-# is on exit 124, not on wall time, which keeps it clear of load flakes (#219).
+# `bounded 10` is the size where the mutant is killed and the scanner (about 1 s unloaded, under
+# 3 s at load 35 on 8 cores) is inside it.
+# NOT 1 MB: the mutant would run for tens of minutes, and a killed mutant's kill can land several
+# seconds late under load on bash 5.2 as well as on 3.2 (see above), so the case costs about 20 s.
+# The assertion is on exit 124, not on wall time, which keeps it clear of load flakes (#219).
 echo "== #243: a 256 KB dot tail after a user, and the strip mutant =="
 DOTS256="$WORK/dot-tail-256k.txt"; printf '/home/alice%s\n' "$(head -c 262144 /dev/zero | tr '\0' .)" > "$DOTS256"
 OUT="$(bounded 10 "$SCRIPT" "$DOTS256" 2>/dev/null)"; rc=$?
