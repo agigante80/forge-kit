@@ -72,7 +72,7 @@ printf '%s' "$out" | grep -q 'bump the <name>-version marker' \
 so="$(run_hook_stdout unbumped)"
 printf '%s' "$so" | grep -q 'range check(s) failed' \
   && ok "the violation summary is on stdout" || bad "the violation summary is on stdout"
-for frag in 'pull requests' "PR's target branch" 'pushes to main and develop' 'previous tip' 'can differ' 'new ref or a force push' 'triggers no'; do
+for frag in 'pull requests' "PR's target branch" 'pushes to main and develop' 'previous tip' 'can differ' 'new ref or a force push' 'triggers no' 'though an open PR for it still triggers one'; do
   printf '%s' "$so" | grep -q "$frag" \
     && ok "stdout states the real CI behaviour: $frag" || bad "stdout states the real CI behaviour: $frag"
 done
@@ -184,7 +184,8 @@ printf 'the log said %s/alice/secret/build.log\n' /home > docs-leak.md
 git add -A >/dev/null; git commit --quiet -m "a leak, no marker bump needed"
 # Base ref still deleted from the case above, so the range guards cannot run at all.
 out=$(run_hook leakcheck); rc=$?
-# Exactly 1: the leak block exits 1, and so does the leak_errors branch, so -ne 0 proved little.
+# Exactly 1: a crash or exit 2 must not pass as a block;
+# which branch fired is pinned by the wording below.
 [ "$rc" -eq 1 ] && ok "a leak blocks the push even with no base ref" \
   || bad "a leak blocks the push even with no base ref (rc=$rc)"
 printf '%s' "$out" | grep -q 'home-path' \
@@ -198,7 +199,10 @@ printf '%s' "$so" | grep -qi 'NOT one of the CI checks' \
 printf '%s' "$so" | grep -q 'nothing server-side will catch it for you' \
   && bad "the message no longer says nothing server-side catches it" \
   || ok "the message no longer says nothing server-side catches it"
-for frag in 'CI also runs' 'pushes to main and develop' 'triggers no CI scan' 'runs only on this machine' '--no-verify publishes it'; do
+printf '%s' "$so" | grep -q 'this push has published it' \
+  && bad "the message no longer says this push has published it" \
+  || ok "the message no longer says this push has published it"
+for frag in 'CI also runs' 'pushes to main and develop' 'triggers no CI scan' 'runs only on this machine' '--no-verify can publish it' 'once it is published' 'with no pull request triggers no CI scan'; do
   printf '%s' "$so" | grep -q -e "$frag" \
     && ok "leak message states: $frag" || bad "leak message states: $frag"
 done

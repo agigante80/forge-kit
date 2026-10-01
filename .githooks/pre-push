@@ -69,6 +69,14 @@ done
 # scanners: the hook cannot tell which one fired. The public scan is repeated by CI, but only on
 # pull requests and pushes to main and develop and only after publication; the private-name scan
 # runs nowhere else. Do not collapse this back to one static claim either way (#313).
+#
+# "Once it is published", never "this push has published it" (#368): --all scans the WORKING TREE,
+# so a leak that exists only in an uncommitted edit is blocked here but never published by this
+# push; the --no-verify line says "can publish" for the same reason. Declined on purpose (#368):
+# "when the run reaches that step" (an earlier red step already reddens the run, and the clause
+# would couple this text to validate.yml's step order) and the scanner labels home-path,
+# home-root, email (the findings above the message already print them, and pinning them fails
+# this suite on a scanner rename).
 lg="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets"
 allow_args=()
 [ -f "$ROOT/.leak-guard-allow" ] && allow_args=(--allow-file "$ROOT/.leak-guard-allow")
@@ -130,10 +138,10 @@ if [ "$leaks" -gt 0 ]; then
   echo "forge-kit: the tree carries something from this machine (see above)."
   echo "A private-name finding comes from a scan that runs only on this machine: no CI run repeats it."
   echo "A home path, root or address finding comes from the public scan, which CI also runs on pull"
-  echo "requests and on pushes to main and develop, but only after this push has published it."
+  echo "requests and on pushes to main and develop, but only once it is published."
   echo "A push to another branch with no pull request triggers no CI scan at all."
   echo "A private-name hit prints a redacted name; re-run that scanner with --show-names."
-  echo "Pushing past this with --no-verify publishes it. A push is not undone by a later commit."
+  echo "Pushing past this with --no-verify can publish it. A push is not undone by a later commit."
   exit 1
 fi
 
