@@ -11,6 +11,11 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **sync-labels' dry run says what it would do, not what it did** (#323, sync-labels v10). Under
+  `FORGE_DRY_RUN=1` the final line claimed `synced from ... (N created, M updated)` although nothing
+  was sent. It now reads `dry run, nothing sent to <repo>; would create N, would update M (from
+  <labels file>).` Only the exact value `1` is a dry run, as everywhere else in forge-lib; a real run
+  prints the same line as before.
 - **The tier-probe fixture no longer overclaims** (#318, fixture files only, no component or
   plugin version change). `server_fixed.py`'s docstring said "nothing else changed", which was
   false (the fix also adds the `hmac` and `os` imports); it now says "see README for what

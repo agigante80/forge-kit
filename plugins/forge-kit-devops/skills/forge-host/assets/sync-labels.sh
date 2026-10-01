@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-labels-version: 9
+# sync-labels-version: 10
 # sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not.
 #
 # WHY THIS EXISTS (issue #104). forge-kit shipped a label taxonomy, documented that labels drive
@@ -16,7 +16,9 @@
 #   sync-labels.sh [--check] [--labels FILE] [--repo OWNER/NAME]
 #     default   create missing labels and update drifted ones
 #     --check   change nothing; list what is missing or drifted
-#   FORGE_DRY_RUN=1  print what would be written and send nothing
+#   FORGE_DRY_RUN=1  print what would be written and send nothing; the summary then reads
+#                    `dry run, nothing sent to <repo>; would create N, would update M (from <file>).`
+#                    Only the exact value 1 is a dry run (`true` is a real run), as in forge-lib.
 #
 # Exit codes are distinguishable, because this runs from automation:
 #   0  in sync (or synced successfully)
@@ -311,5 +313,11 @@ if [ "$MODE" = check ]; then
   exit 0
 fi
 
-echo "sync-labels: $REPO synced from $LABELS_FILE ($created created, $updated updated)."
+# Under a dry run the counters count what WOULD be written (#323): they are incremented on the
+# preview branches too, so the summary must not claim anything was created or updated.
+if [ "$_dry" = 1 ]; then
+  echo "sync-labels: dry run, nothing sent to $REPO; would create $created, would update $updated (from $LABELS_FILE)."
+else
+  echo "sync-labels: $REPO synced from $LABELS_FILE ($created created, $updated updated)."
+fi
 exit 0
