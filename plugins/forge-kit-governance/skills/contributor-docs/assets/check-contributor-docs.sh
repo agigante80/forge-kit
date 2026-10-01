@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 4
+# check-contributor-docs-version: 5
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -56,7 +56,18 @@
 # fails. A NAME=$(...) assignment value whose parentheses do not nest is read as a plain assignment.
 # Limits: an export in a prose code span does not carry into a following fence (the carry resets at
 # a fence open, as a cd does); nested-paren and backtick substitution values; pnpm_config_*;
-# JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a; `env VAR=... cmd`; a .npmrc (#339).
+# JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a; `env VAR=... cmd`.
+#
+# A TRACKED ROOT .npmrc (#339). npm rescopes `npm run X` when that file sets `workspace` (any value,
+# `workspace[]=` and spaces around `=` included) or `workspaces` with any value but exactly `false`,
+# so such an `npm run X` is referred whether or not the root defines X. Only npm: pnpm and yarn
+# ignore those keys, and an explicit -w or --workspace replaces the rc value. The file is read from
+# the INDEX as data (never executed or expanded) and none of its text is ever printed: the detail
+# names only the fixed key. Parsed as npm's ini does: a trailing CR is stripped, `;` and `#` lines
+# skipped, the scan stops at a [section] header, the key is case-sensitive. Limits: user and global
+# .npmrc, NPM_CONFIG_USERCONFIG and a non-root .npmrc are never read (a clone does not receive
+# them); safe-side referrals where npm would run the root: `workspaces=0`, an inline comment after
+# `false`, `true` then `false`, and `workspace` with no root `workspaces` field.
 #
 # Deliberate limits: code spans and links are found within one line; indented code blocks are
 # prose; the paragraph rule is order-dependent ("Run `npm run dev` (after `cd client`)." judges dev
@@ -393,6 +404,31 @@ trim_punct() { TP=$1; while :; do case "$TP" in *[.,\;:!?]) TP=${TP%?} ;; *) bre
 # first_file <candidates...>: the first one that is tracked.
 first_file() { local f; for f in "$@"; do tracked "$f" && { printf '%s' "$f"; return 0; }; done; return 1; }
 
+# npmrc_scan: sets NPMRC_KEY to `workspace`, `workspaces` or empty, once (#339). Called DIRECTLY,
+# never through $(...), so the memo survives. The awk prints only a fixed literal, never file text,
+# and its stderr is discarded, so no .npmrc content can reach either stream.
+NPMRC_DONE="" NPMRC_KEY=""
+npmrc_scan() {
+  [ -n "$NPMRC_DONE" ] && return
+  NPMRC_DONE=1
+  tracked .npmrc || return
+  # npm splits on a lone CR too and trims a leading byte-order mark, and only a `[` that starts the
+  # line opens a section, so the header test runs before the indentation trim (#339 review M1).
+  NPMRC_KEY=$(git show :.npmrc 2>/dev/null | tr '\r' '\n' | LC_ALL=C awk '
+    NR == 1 { sub(/^\357\273\277/, "") }
+    /^\[[^]]*\][ \t]*$/ { exit }
+    { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
+    $0 == "" || /^[;#]/ { next }
+    {
+      eq = index($0, "="); key = eq ? substr($0, 1, eq - 1) : $0; val = eq ? substr($0, eq + 1) : ""
+      sub(/[ \t]+$/, "", key); sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)
+      sub(/^[ \t]+/, "", val); n = length(val); c = substr(val, 1, 1)
+      if (n > 1 && (c == "\"" || c == "\047") && substr(val, n, 1) == c) val = substr(val, 2, n - 2)
+      if (key == "workspace") { print "workspace"; exit }
+      if (key == "workspaces" && val != "false") { print "workspaces"; exit }
+    }' 2>/dev/null)
+}
+
 judge_pm() {   # <loc> <cd> <pm> <args...>
   local loc=$1 cd=$2 pm=$3 w name="" flag="" extra wsv="" wsn=0
   shift 3
@@ -437,6 +473,10 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
   local re='^[A-Za-z0-9][A-Za-z0-9:_.-]*$'
   [[ $name =~ $re ]] || { row referred command "$loc" "$pm run $name: not a literal script name"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$pm run $name: $(why_cd "$cd")"; return; }
+  if [ "$pm" = npm ]; then
+    npmrc_scan
+    [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm run $name: a tracked .npmrc sets $NPMRC_KEY"; return; }
+  fi
   tracked package.json || { row referred command "$loc" "$pm run $name: no root package.json is tracked"; return; }
   if resolve_script "$name"; then row pass command "$loc" "$pm run $name: defined in package.json"
   else row fail command "$loc" "$pm run $name: no such script in package.json"; fi
