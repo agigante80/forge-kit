@@ -77,13 +77,19 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
 5. **Posts a comment** explaining what was synthesised and voiding the prior verdict
 6. **Re-runs the full review** against the enriched body (nothing carries forward)
 
-An author section written under a variant heading ("Problem" for "Bug description") is handled
-only OUTSIDE Step 0c's target set (`scenarios`, `unit_tests`, `e2e_tests`, `docs_impact`,
-`personal_data`). The gate counts it as present when exactly one template label fits it by meaning
-(an empty one is Missing, so is an ambiguous one), and adds the template heading above it with the
-single line `See "<variant heading>" below.`, leaving the author's text untouched. A target section
-under another heading is classified Missing and synthesised under the template label with no
-pointer, because the mechanical checks on those sections read only the text under the label.
+An author section written under a variant heading ("Problem" for "Bug description") gets the
+template heading above it with the single line `See "<variant heading>" below.`, leaving the
+author's text untouched, when exactly one template label fits it by meaning (an empty one is
+Missing, so is an ambiguous one). The one exception is the four target sections `scenarios`,
+`unit_tests`, `e2e_tests` and `docs_impact`: a target section under another heading is classified
+Missing and synthesised under the template label with no pointer, because the mechanical checks on
+those sections read only the text under the label. `personal_data` is not in that no-pointer list:
+its target heading is matched case-insensitively on GDPR, so a GDPR-headed section is the author's
+`personal_data` and gets the label plus the pointer, which is what lets check 3 find the heading.
+A `personal_data` section under any other heading ("Privacy", say) is Missing and is synthesised
+under the template label with no pointer.
+A GDPR-headed section with fewer than seven facts is thin, so the pointer is added and what the
+template requires is appended under the author's section.
 
 The synthesised content is real and concrete - not placeholder text. The sub-agent reads the
 full issue body and any linked external URLs to derive specific test cases.

@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 64 -->
+<!-- ticket-gate-version: 65 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -115,8 +115,9 @@ Target sections (always check):
   (`personal_data` is the seven facts, and on a pre-v6 ticket lives under a heading
   containing GDPR, matched case-insensitively)
 
-A non-target section under a variant heading counts as present when, by meaning (the orchestrator's call, not the sub-agent's), exactly one
-template label fits; an empty one, or a target section under another heading (bar `personal_data`'s GDPR match), is Missing.
+A non-target section under a variant heading counts as present when, by meaning (the
+orchestrator's call, not the sub-agent's), exactly one template label fits; an empty one, or a
+target section under another heading (bar `personal_data`'s GDPR match), is Missing.
 
 **0c-iii. Synthesise real content**
 
@@ -146,9 +147,10 @@ Synthesis rules per section:
 **0c-iv. Build updated body**
 
 Merge synthesised content into the issue body, preserving all prior AUTHOR text
-verbatim, and clear the gate's regions (Step 6's lifecycle). Only outside Step 0c's target set
-(checks 4 to 7 read just the text under a label), add `## <label>` above a mapped author section
-with the one line `See "<variant>" below.` (new, so WRITE ONCE allows it). Replace or add
+verbatim, and clear the gate's regions (Step 6's lifecycle).
+Except for `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact` (checks 4 to 7 read just the
+text under a label), add `## <label>` above a mapped author section with the one line
+`See "<variant>" below.` (new, so WRITE ONCE allows it). Replace or add
 `template-version: $CURRENT_TPL_VER` (0a's value; never a hardcoded literal).
 
 Write it with Step 6's primitives, minus the verdict block.

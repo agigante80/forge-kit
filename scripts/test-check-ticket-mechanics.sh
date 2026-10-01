@@ -555,6 +555,17 @@ ph_gwt() {
   local b; b="$(mkbody "$tag" "ph-$tag-$variant.md" "$ph")"
   run "$b" "$tag" | awk -F'\t' '$1 == "gwt" { print $2 "\t" $3 }'
 }
+# label_ok <template-name> <ph-script>: the first non-blank line under "### <label>" in the body
+# ph_gwt generated (<label> as <ph-script> reports it) is the first line of the placeholder
+# <ph-script> reports. Needs ph_gwt to have run for the template; label_ok re-runs
+# <ph-script> itself and reads only the generated .md body.
+label_ok() {
+  local tpl="$1" script="$2" lbl first got
+  lbl="$(python3 "$script" "$TPLDIR/$tpl.yml" | sed -n 1p)"
+  first="$(python3 "$script" "$TPLDIR/$tpl.yml" | sed -n 2p)"
+  got="$(awk -v h="### $lbl" '$0 == h { f = 1; next } f && NF { print; exit }' "$WORK/ph-$tpl-quoted.md")"
+  [ -n "$got" ] && [ "$got" = "$first" ]
+}
 for tpl in bug feature security infrastructure design; do
   r="$(ph_gwt "$tpl" quoted)"
   expect "#361: $tpl: the placeholder with a quoted negative message passes" pass "${r%%$'\t'*}"
@@ -566,9 +577,21 @@ for tpl in bug feature security infrastructure design; do
   expect "#361: $tpl: a second When in the Positive block fails" fail "${r%%$'\t'*}"
   case "$r" in *"each scenario block needs exactly one When (Positive: 2 When lines)"*) ok "#361: $tpl: and says the Positive block has 2 When lines" ;; *) bad "#361: $tpl: evidence: $r" ;; esac
   # The label ph.py read from the template is the heading gen.py wrote, so the two cannot diverge.
-  grep -qxF "### $(head -n 1 "$WORK/ph-$tpl.txt")" "$WORK/ph-$tpl-quoted.md" \
-    && ok "#361: $tpl: the template's scenarios label is the heading the body carries" \
-    || bad "#361: $tpl: label '$(head -n 1 "$WORK/ph-$tpl.txt")' is not a heading in the generated body"
+  label_ok "$tpl" "$WORK/ph.py" \
+    && ok "#361: $tpl: the template's scenarios label heads the placeholder's own first line in the body" \
+    || bad "#361: $tpl: label '$(head -n 1 "$WORK/ph-$tpl.txt")' does not head the placeholder in the generated body"
+done
+# MUTANT (#383): a ph.py that always reports the label "Unit tests". The old `grep -qxF "### <label>"`
+# passed it for bug, feature and security, because those three templates really do carry a
+# `### Unit tests` heading. label_ok compares the first line under the heading with the
+# placeholder's first line, which only the real scenarios heading carries. This runs through the
+# function, never through bad(), so a surviving mutant is the failure and a killed one is an ok.
+sed 's/label = ln.split("label: ", 1)\[1\].rstrip()/label = "Unit tests"/' "$WORK/ph.py" > "$WORK/ph-mut.py"
+cmp -s "$WORK/ph.py" "$WORK/ph-mut.py" && bad "#383: the ph.py mutant did not apply (sed matched nothing)"
+for tpl in bug feature security infrastructure design; do
+  label_ok "$tpl" "$WORK/ph-mut.py" \
+    && bad "#383: $tpl: MUTANT survived: an always-Unit-tests ph.py still passes label_ok" \
+    || ok "#383: $tpl: MUTANT: an always-Unit-tests ph.py fails label_ok"
 done
 # MUTANT: a copy of bug.yml whose placeholder lost its Negative marker line must NOT pass, which
 # shows the loop above can fail (a mutation of the input, since the script is not under test here).
@@ -601,13 +624,62 @@ printf '\n### Tests\n\n- `scripts/test-foo.sh` with input x expects error E\n' >
 o="$(run "$B2" bug)"
 expect "#361: the synthesised section under the label passes with the author's Tests section left in place" pass "$(outcome "$o" unit_tests)"
 case "$(printf '%s\n' "$o" | awk -F'\t' '$1=="unit_tests"{print $3}')" in *"name no file path"*) bad "#361: a pass row still carries the failure evidence" ;; *) ok "#361: and the pass row carries no failure evidence" ;; esac
+# #383: a GDPR-headed personal_data. Step 0c-iv now writes `## Personal data handling` plus a
+# pointer above the author's GDPR section, because check 3 reads the template heading and the
+# label alone is absent otherwise. The agent's behaviour is prose; these two cases pin the body
+# SHAPE the checker accepts and rejects, and the live /gate-ticket check covers the behaviour.
+BG="$(mkbody bug gdpr-base.md)"
+sed 's/^### Personal data handling$/### GDPR considerations/' "$BG" > "$WORK/gdpr-renamed.md"
+cmp -s "$BG" "$WORK/gdpr-renamed.md" && bad "#383: the GDPR rename did not apply"
+o="$(run "$WORK/gdpr-renamed.md" bug)"
+sec_ev() { printf '%s\n' "$1" | awk -F'\t' '$1=="sections"{print $2 "\t" $3}'; }
+r="$(sec_ev "$o")"
+expect "#383: a GDPR-headed personal data section with no pointer fails the sections check" fail "${r%%$'\t'*}"
+case "$r" in *"heading absent (1): Personal data handling"*) ok "#383: and it names Personal data handling as the absent heading" ;; *) bad "#383: sections evidence: $r" ;; esac
+awk '/^### GDPR considerations$/ { print "## Personal data handling\n\nSee \"GDPR considerations\" below.\n" } { print }' "$WORK/gdpr-renamed.md" > "$WORK/gdpr-pointer.md"
+o="$(run "$WORK/gdpr-pointer.md" bug)"
+r="$(sec_ev "$o")"
+expect "#383: the pointer above the GDPR-headed section makes the sections check pass" pass "${r%%$'\t'*}"
+offenders="$(printf '%s\n' "$o" | awk -F'\t' '$2 == "fail" { printf "%s ", $1 }')"
+[ -z "$offenders" ] && ok "#383: and no other check fails on the pointered body" || bad "#383: pointered body fails: $offenders"
+# MUTANT: removing the inserted `## Personal data handling` heading (the pointer text left in
+# place) must flip pass to fail, so the positive above is carried by the heading the pointer sits
+# under and not by anything else in the body.
+grep -v '^## Personal data handling$' "$WORK/gdpr-pointer.md" > "$WORK/gdpr-nohead.md"
+cmp -s "$WORK/gdpr-pointer.md" "$WORK/gdpr-nohead.md" && bad "#383: the heading-strip mutant did not apply"
+r="$(sec_ev "$(run "$WORK/gdpr-nohead.md" bug)")"
+[ "${r%%$'\t'*}" = fail ] && ok "#383: MUTANT: a pointer line with no template heading fails again" || bad "#383: MUTANT survived: no template heading still passes ($r)"
+# The doc twin (docs/guides/template-versioning.md) restates the rule. The phrase is searched in
+# the whole file with newlines joined to spaces, so a re-wrap of the paragraph cannot hide it.
+DOC="$ROOT/docs/guides/template-versioning.md"
+DOC_PHRASE='The one exception is the four target sections `scenarios`, `unit_tests`, `e2e_tests` and `docs_impact`'
+doc_pin() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qF "$DOC_PHRASE"; }
+doc_pin "$DOC" && ok "#383: template-versioning.md names the four no-pointer sections" || bad "#383: template-versioning.md lost the four-section exception"
+sed 's/The one exception is the four target sections/The exception is every target section/' "$DOC" > "$WORK/doc-mut.md"
+cmp -s "$DOC" "$WORK/doc-mut.md" && bad "#383: the doc mutant did not apply"
+doc_pin "$WORK/doc-mut.md" && bad "#383: MUTANT survived: the doc pin passes with the exception reworded" || ok "#383: MUTANT: rewording the doc exception fails the pin"
+# Re-wrapping must not matter: the same words split over two lines still pass.
+sed 's/four target sections `scenarios`,/four target sections\n`scenarios`,/' "$DOC" > "$WORK/doc-wrap.md"
+cmp -s "$DOC" "$WORK/doc-wrap.md" && bad "#383: the wrap mutant did not apply"
+doc_pin "$WORK/doc-wrap.md" && ok "#383: the doc pin survives a re-wrap of the phrase" || bad "#383: the doc pin is wrap-sensitive"
 # The prose pins. The scope sentence must survive a rewrite, and the dispatch must stay a pointer
 # to the template: a literal copy of the format would be a second source (Condition 2).
 GATE="$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md"
-scope_pin() { grep -qF "outside Step 0c's target set" "$1"; }
-scope_pin "$GATE" && ok "#361: ticket-gate.md states the rule is outside Step 0c's target set" || bad "#361: ticket-gate.md lost the scope sentence"
-sed "s/outside Step 0c's target set/everywhere/" "$GATE" > "$WORK/gate-mut.md"
+# #383: the scope is now spelled as the four no-pointer sections, NOT "outside Step 0c's target set",
+# because that phrase put `personal_data` (whose GDPR-headed section needs the pointer for check 3)
+# in the no-pointer set. The pin moved with the wording; the absence pin keeps the old one out.
+SCOPE_PHRASE='Except for `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact`'
+scope_pin() { grep -qF "$SCOPE_PHRASE" "$1"; }
+old_scope_pin() { grep -qF "outside Step 0c's target set" "$1"; }
+scope_pin "$GATE" && ok "#361: ticket-gate.md names the four no-pointer sections on one line" || bad "#361: ticket-gate.md lost the scope sentence"
+sed "s/Except for \`scenarios\`, \`unit_tests\`, \`e2e_tests\`, \`docs_impact\`/everywhere/" "$GATE" > "$WORK/gate-mut.md"
+cmp -s "$GATE" "$WORK/gate-mut.md" && bad "#383: the scope mutant did not apply"
 scope_pin "$WORK/gate-mut.md" && bad "#361: MUTANT survived: the scope pin passes with the phrase removed" || ok "#361: MUTANT: removing the scope phrase fails the pin"
+old_scope_pin "$GATE" && bad "#383: ticket-gate.md still says the rule is outside Step 0c's target set (it puts personal_data in the no-pointer set)" || ok "#383: ticket-gate.md no longer says outside Step 0c's target set"
+sed "s/Except for \`scenarios\`, \`unit_tests\`, \`e2e_tests\`, \`docs_impact\`/Only outside Step 0c's target set/" "$GATE" > "$WORK/gate-mut-old.md"
+cmp -s "$GATE" "$WORK/gate-mut-old.md" && bad "#383: the restoring mutant did not apply"
+old_scope_pin "$WORK/gate-mut-old.md" && ok "#383: MUTANT: restoring the old wording trips the absence pin" || bad "#383: MUTANT survived: the absence pin passes with the old wording restored"
+scope_pin "$WORK/gate-mut-old.md" && bad "#383: MUTANT survived: the moved scope pin passes with the old wording restored" || ok "#383: MUTANT: restoring the old wording also fails the moved scope pin"
 # Fails loudly (prints MISSING, never a count) when a path or glob does not exist, so a moved
 # reference cannot make the "no copies" assertion pass vacuously.
 gwt_copies() {
