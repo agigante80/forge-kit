@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 19 -->
+<!-- doc-rules-version: 20 -->
 
 # Ticket standards (canonical)
 
@@ -59,11 +59,11 @@ N/A claim like any other.
 **Host-divergent conditions.** This applies only to a condition whose code path branches on
 the forge host. Such a branch is its own independent condition: it owns its own positive and
 its own failure negative, so the bar above is unchanged and no scenario fills the negative
-slot with the other host's success. A pure wire-form divergence adds no error of its own: the
-rejected write is the same event on both hosts, so its negative is that rejected write,
-asserted with the code each host's branch returns (on the Forgejo path `forge_api` returns
-rc 44 for an HTTP 404), and the differential value that is never sent belongs in the
-Positive's Then. Worked example, `forge_issue_milestone` in `forge-lib`:
+slot with the other host's success. A pure wire-form divergence adds no error of its own: when
+a host rejects the write its branch sends, that is the same event on both hosts, so the
+negative is that rejected write, asserted with the code each host's branch returns (on the
+Forgejo path `forge_api` returns rc 44 for an HTTP 404), and the differential value that is
+never sent belongs in the Positive's Then. Worked example, `forge_issue_milestone` in `forge-lib`:
 
 - set, GitHub: the PATCH carries the milestone `number`; Forgejo: it carries the `id`. Each
   Positive names which of the two is sent, and never the other. Each branch's negative is that
