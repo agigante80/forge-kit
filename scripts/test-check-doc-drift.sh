@@ -11,7 +11,7 @@
 # the ROWS on stdout and never on the exit status, which is the same for a clean run and a dirty
 # one. A suite that asserted on the status would pass against a script that found nothing, ever.
 #
-# MUTANTS KILLED, all ten run by hand on 2026-09-23 and each shown to fail this suite: the
+# MUTANTS KILLED, the first ten run by hand on 2026-09-23 and each shown to fail this suite: the
 # marker-region exclusion dropped; the line-level comparison relaxed to document level; the
 # newest-in-range selection changed to oldest; the age comparison inverted; the untracked-document
 # refusal turned into a skip; the absent-document refusal turned into a skip; the range validation
@@ -19,6 +19,13 @@
 # finding; and one apostrophe put back into the awk program, which is not a contrived mutant but
 # the defect this suite caught during the write: a single quote inside a single-quoted awk body
 # ends it, and the script then dies with a shell syntax error on every input.
+#
+# #265 ADDED FOUR MORE, run by hand on 2026-10-01, each shown to fail this suite (so fourteen in
+# all): the equal-anchor comparison reverted from $_rest to $_path (4 failures); the CR strip
+# deleted (12); the CR strip moved AFTER the blank/comment case, which only the blank-line fixtures
+# kill because a no-blank CRLF file never reaches a blank line (9, and the no-blank fixtures still
+# pass); and the anchor check loosened to emptiness alone, which accepts a missing fourth field
+# and is killed only by the L1 missing-anchor negative (4).
 #
 # One mutant is deliberately absent. A sha-equality branch for "the same commit addressed it" was
 # written, and no input could reach it: a line whose last commit IS the commit that changed the
@@ -476,6 +483,78 @@ case $? in
   2) bad "the one-line document printed rows";;
   *) bad "the one-line case errored";;
 esac
+
+echo "== #265: an anchor EQUAL to its path is accepted, a missing anchor still refuses =="
+# The equal-anchor entry and the missing-anchor entry look alike to ${_rest#* }: with no fourth
+# field nothing was consumed, so the expansion returns $_rest itself. The check therefore compares
+# the anchor with $_rest and not with $_path, which is also what the anchor IS when it equals the
+# path. This fixture names each path on exactly ONE README line, so the ambiguity refusal is not
+# what decides it; the suite's shared allowrepo README names scripts/guard.sh twice.
+mkrepo eqanchor
+printf 'guard\n' > "$R/scripts/guard.sh"; printf 'other\n' > "$R/scripts/other.sh"
+printf '# Doc\n\nOnly `scripts/guard.sh` is named here.\n\nAnd `scripts/other.sh` here.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+printf 'guard, changed\n' > "$R/scripts/guard.sh"; printf 'other, changed\n' > "$R/scripts/other.sh"
+snap "$T2" "change both"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "control: with no allow-file both rows are reported" 2 "$(printf '%s' "$OUT" | grep -c .)"
+allow '# the anchor is the path itself' 'mention README.md scripts/guard.sh scripts/guard.sh'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an anchor equal to its path exits 0" 0 "$RC"
+expect "and suppresses exactly that row, leaving the other" 1 "$(printf '%s' "$OUT" | grep -c .)"
+lacks "scripts/guard.sh" "$(printf '%s' "$OUT" | cut -f3)" "and the surviving row is not the suppressed path"
+lacks "missing its anchor" "$ERR" "and stderr does not call it a missing anchor"
+allow '# no fourth field at all' 'mention README.md scripts/guard.sh'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "no fourth field still exits 2" 2 "$RC"
+expect "with nothing on stdout" "" "$OUT"
+contains "line 2: entry is missing its anchor" "$ERR" "and names the line and the missing anchor"
+allowrepo eqambig
+allow '# equal anchor, but the path is named on two lines' 'mention README.md scripts/guard.sh scripts/guard.sh'
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an accepted equal anchor still goes through matching, so two lines refuse" 2 "$RC"
+contains "the anchor matches more than one line of README.md" "$ERR" "with the ambiguity message"
+
+echo "== #265: a CRLF allow-file behaves exactly like its LF twin =="
+# The BLANK-LINE shape is the required fixture: a blank CRLF line is a lone CR, which matches
+# neither '' nor '#'*, so a strip placed after that case still refuses the documented format.
+# Every negative is built from the blank-line fixture for the same reason.
+crlf_twin() {  # crlf_twin: run LF, then the same file with CRLF endings; set LFOUT LFERR LFRC
+  run --range "$BASE..$(sha HEAD)" --docs README.md
+  LFOUT="$OUT"; LFERR="$ERR"; LFRC=$RC
+  sed 's/$/\r/' "$R/.doc-drift-allow" > "$R/.crlf" && mv "$R/.crlf" "$R/.doc-drift-allow"
+  run --range "$BASE..$(sha HEAD)" --docs README.md
+}
+allowrepo crlf1
+allow '# r1' 'mention README.md scripts/guard.sh In passing,' '' '# r2' 'mention README.md scripts/guard.sh does exactly three things'
+crlf_twin
+expect "CRLF with blank separator lines exits 0" 0 "$RC"
+expect "control: the LF twin suppressed both rows" "" "$LFOUT"
+expect "CRLF stdout is byte-identical to the LF twin" "$LFOUT" "$OUT"
+expect "CRLF stderr is byte-identical to the LF twin" "$LFERR" "$ERR"
+lacks "unknown key" "$ERR" "and is not refused at the blank line"
+lacks ": stale, " "$ERR" "and no entry degrades to stale"
+allowrepo crlf2
+allow '# r1' 'mention README.md scripts/guard.sh In passing,' '# r2' 'mention README.md scripts/guard.sh does exactly three things'
+crlf_twin
+expect "CRLF with no blank lines exits 0" 0 "$RC"
+expect "and is byte-identical to its LF twin on stdout" "$LFOUT" "$OUT"
+expect "and on stderr" "$LFERR" "$ERR"
+expect "and both rows were suppressed, not merely unchanged" "" "$OUT"
+allowrepo crlf3
+allow '# r1' 'mention README.md scripts/guard.sh In passing,' '' '# r2' 'suppress README.md scripts/guard.sh does exactly three things'
+crlf_twin
+expect "a CRLF entry with an unknown key still exits 2" 2 "$RC"
+contains "unknown key 'suppress' (only 'mention' is defined)" "$ERR" "with the exact message, the strip does not turn malformed input into acceptance"
+expect "and the LF twin said the same" "$LFERR" "$ERR"
+allowrepo crlf4
+allow '# r1' 'mention README.md scripts/guard.sh In passing,' '' '# r2' 'mention README.md scripts/guard.sh no line says this'
+crlf_twin
+expect "a CRLF entry that is really stale exits 0" 0 "$RC"
+contains "stale, no line of README.md contains that anchor" "$ERR" "and says stale"
+expect "with the unmatched entry's row still printed" 1 "$(printf '%s' "$OUT" | grep -c .)"
+expect "and byte-identical to its LF twin on stdout" "$LFOUT" "$OUT"
+expect "and on stderr" "$LFERR" "$ERR"
 
 echo "== #258: an explicitly named allow-file that cannot be read REFUSES =="
 allowrepo explicit

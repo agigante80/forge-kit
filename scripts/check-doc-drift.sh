@@ -110,7 +110,7 @@ trap 'rm -rf "$TMP"' EXIT
 # call a live entry stale on any range where its path did not change.
 # An anchor matching MORE THAN ONE line REFUSES: an ambiguous exemption is one nobody can reason
 # about. An unknown key, a missing field or an entry with no reason REFUSES for the same reason
-# every allow-file in this tree does.
+# every allow-file in this tree does. The allow-file may carry CRLF line endings; they behave as LF.
 
 if [ -n "$ALLOW" ]; then
   # An explicitly given path that is not readable REFUSES. Only the unset default may be skipped in
@@ -126,6 +126,10 @@ if [ -f "$ALLOW" ]; then
   _n=0; _reason=0
   while IFS= read -r _ln || [ -n "$_ln" ]; do
     _n=$((_n + 1))
+    # CRLF tolerance (#265). FIRST, before the blank/comment case: a blank CRLF line is a lone CR,
+    # which matches neither '' nor '#'*, so a strip placed after the case still refuses the
+    # documented blank-separated format.
+    _ln="${_ln%$'\r'}"
     case "$_ln" in
       '') _reason=0; continue ;;
       '#'*) _reason=1; continue ;;
@@ -145,7 +149,9 @@ if [ -f "$ALLOW" ]; then
     _rest="${_rest#* }"
     _path="${_rest%% *}"; [ -n "$_path" ] || die "$ALLOW line $_n: entry is missing its path"
     _anchor="${_rest#* }"
-    [ "$_anchor" != "$_path" ] && [ -n "$_anchor" ] || die "$ALLOW line $_n: entry is missing its anchor"
+    # Compared with $_rest, not $_path: with no fourth field `${_rest#* }` consumed nothing and
+    # returns $_rest itself, while an anchor equal to its path is a real field that differs from it.
+    [ "$_anchor" != "$_rest" ] && [ -n "$_anchor" ] || die "$ALLOW line $_n: entry is missing its anchor"
     if ! git cat-file -e "HEAD:$_doc" 2>/dev/null; then
       printf '%s: %s line %d: stale, document %s is absent at HEAD\n' "$PROG" "$ALLOW" "$_n" "$_doc" >&2
       continue
