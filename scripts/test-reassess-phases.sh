@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 4
+# test-reassess-phases-version: 5
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.

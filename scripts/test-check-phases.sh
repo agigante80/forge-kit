@@ -29,6 +29,7 @@ expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$
 contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
 # #336: literal, case-sensitive absence (no -i, unlike contains, since rule lines are lower case on
 # purpose). -F is load-bearing: without it a pattern's dot matches any character.
+# Both properties are pinned in the "== absent_line self-test (#336) ==" section below.
 absent_line() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3"; else ok "$3"; fi; }
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
@@ -60,6 +61,18 @@ cp "$(dirname "$SRC")/roadmap-lib.sh" "$T/roadmap-lib.sh" 2>/dev/null || true
 goodplan() { printf '# %s\n\n## Goal\nx\n\n## Done looks like\nx\n\n## Fails if\nx\n' "$1"; }
 out=""; rc=0
 run() { out=$(cd "$T" && bash ./check-phases.sh "$@" 2>&1); rc=$?; }
+
+echo "== absent_line self-test (#336) =="
+# #336: absent_line matches LITERALLY and case-sensitively (the comment above its definition, pinned here).
+# The probes run in subshells so a deliberate failure never touches this suite's counters; `bad` prints
+# with a two-space prefix, so the output is checked with contains rather than equality. "a.b" must not
+# match "axb" (a regex dot would), and must match "a.b". "rule 3" must not match "Rule 3: x" (a -i would).
+probe_pass="$( absent_line "a.b" "axb" "probe" )"
+contains "ok: probe" "$probe_pass" "absent_line treats a dot literally: 'a.b' is absent from 'axb'"
+probe_fail="$( absent_line "a.b" "a.b" "probe" )"
+contains "FAIL: probe" "$probe_fail" "and fails when the literal text is present"
+probe_case="$( absent_line "rule 3" "Rule 3: x" "probe" )"
+contains "ok: probe" "$probe_case" "absent_line is case-sensitive: 'rule 3' is absent from 'Rule 3: x'"
 
 echo "== rule 2: an open phase needs a plan carrying a Fails if section =="
 goodplan A > "$T/docs/plans/a.md"
@@ -363,13 +376,6 @@ expect "flagged: rules 1 and 4 still exit 1" 1 "$rc"
 contains "rule 1: issue #7 has no phase." "$sout" "flagged: names the ticket with no phase"
 contains 'rule 4: phase "B" is done but holds 1 open ticket(s).' "$sout" "flagged: names the done phase holding a ticket"
 absent_line "rule 3" "$sout" "flagged: and prints no rule 3 line"
-# #336: absent_line matches LITERALLY. The probes run in subshells so a deliberate failure never
-# touches this suite's counters; `bad` prints with a two-space prefix, so the output is checked with
-# contains rather than equality. "a.b" must not match "axb" (a regex dot would), and must match "a.b".
-probe_pass="$( absent_line "a.b" "axb" "probe" )"
-contains "ok: probe" "$probe_pass" "absent_line treats a dot literally: 'a.b' is absent from 'axb'"
-probe_fail="$( absent_line "a.b" "a.b" "probe" )"
-contains "FAIL: probe" "$probe_fail" "and fails when the literal text is present"
 expect "flagged: stdout equals the unflagged run" "$ref_sout" "$sout"
 expect "flagged: stderr equals the unflagged run" "$ref_serr" "$serr"
 reads_all_zero "flagged rules 1 and 4 run"
@@ -393,9 +399,9 @@ expect "flagged: and no stderr" "" "$serr"
 reads_all_zero "flagged missing-milestone run"
 
 # Negative: a failed issue read is still a read failure, whatever the flag. (The ms.json rewrite below
-# is dead setup: the read fails before any rule runs. B is "planned" with an OPEN milestone elsewhere
-# in this file, which rule 3 treats as consistent; do not "fix" it to closed, that would be a real
-# rule 3 inconsistency, #336.)
+# is dead setup: the read fails before any rule runs. The roadmap is the rule-3 case's above
+# (B planned), and an open milestone is the consistent state for a planned phase; do not "fix" it
+# to closed, that would be a real rule 3 inconsistency, #336.)
 printf '[{"id":1,"title":"A","state":"open"},{"id":2,"title":"B","state":"open"}]' > "$T/ms.json"
 STUB_LIST_FAIL=iss FORGE_DRY_RUN=1 hostrun
 expect "flagged: a failed issue read exits 2" 2 "$rc"
