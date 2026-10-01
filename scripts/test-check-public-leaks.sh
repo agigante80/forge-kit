@@ -1507,6 +1507,45 @@ for v in '~/ foo' 'a b' 'say"hi' 'tick`x'; do
   "$SCRIPT" --allow-file "$WORK/ws-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
   expect "a root carrying what rule B cannot yield ($v) refuses the run (#239)" 2 "$?"
 done
+# #400: the root arm's whitespace refusal is a byte list, so its verdict does not follow the
+# caller's locale. Every ASCII whitespace byte is still refused, by name in stderr.
+for v in "$(printf 'a\tb')" "$(printf 'a\vb')" "$(printf 'a\fb')" "$(printf 'a\rb')"; do
+  printf 'root %s\n' "$v" > "$WORK/ws-root"
+  "$SCRIPT" --allow-file "$WORK/ws-root" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"; rc=$?
+  b="$(printf '%s' "$v" | od -An -c | tr -s ' ' | cut -d' ' -f3)"
+  expect "a root carrying the control byte $b refuses the run (#400)" 2 "$rc"
+  contains "root cannot contain whitespace, a double quote or a backtick" "$(cat "$WORK/err.txt")" "and names the rule for $b (#400)"
+done
+printf 'x\n' > "$WORK/sample.txt"
+printf 'root ~/a\xe2\x80\x83b\n' > "$WORK/root-emsp"
+rc_c=$(LC_ALL=C "$SCRIPT" --allow-file "$WORK/root-emsp" "$WORK/sample.txt" >/dev/null 2>&1; echo $?)
+expect "a root holding U+2003 is accepted under LC_ALL=C (#400)" 0 "$rc_c"
+if [ -n "$utf8loc" ]; then
+  rc_u=$(LC_ALL=$utf8loc "$SCRIPT" --allow-file "$WORK/root-emsp" "$WORK/sample.txt" >/dev/null 2>&1; echo $?)
+  expect "and gets the same verdict under $utf8loc (#400)" "$rc_c" "$rc_u"
+  EMSP_LINE="$(printf 'see ~/a\xe2\x80\x83b/x here')"
+  expect "and suppresses its live row under $utf8loc (#400)" 0 "$(LC_ALL=$utf8loc scan_line "$EMSP_LINE" --allow-file "$WORK/root-emsp")"
+  expect "which is reported without the entry, so the entry is live (#400)" 1 "$(LC_ALL=$utf8loc scan_line "$EMSP_LINE")"
+  printf 'x\n' > "$WORK/sample.txt"
+  M400A="$WORK/mutant-400-class.sh"
+  sed "/root cannot contain whitespace/s/\*\[\\$'[^']*'\]\*|/*[[:space:]]*|/" "$SCRIPT" > "$M400A"; chmod +x "$M400A"
+  expect "mutant ledger (#400 class): the byte-list pattern is on the root line" 1 "$(grep -c "\*\[\\\$' .*root cannot contain whitespace" "$SCRIPT")"
+  cmp -s "$SCRIPT" "$M400A" && bad "mutant ledger (#400 class): the sed did not apply" || ok "mutant ledger (#400 class): the mutant differs"
+  LC_ALL=$utf8loc "$M400A" --allow-file "$WORK/root-emsp" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 2 ] && ok "mutant (#400 class): with [[:space:]] restored the U+2003 root is refused under $utf8loc (exit $rc)" || bad "mutant (#400 class): the restored class still accepts the U+2003 root (exit $rc)"
+else
+  ok "no UTF-8 locale installed on this machine: the #400 U+2003 parity, live-row and class-mutant cases were not run"
+fi
+printf 'x\n' > "$WORK/sample.txt"
+M400B="$WORK/mutant-400-space.sh"
+sed "/root cannot contain whitespace/s/\*\[\\$'[^']*'\]\*|/*\" \"*|/" "$SCRIPT" > "$M400B"; chmod +x "$M400B"
+cmp -s "$SCRIPT" "$M400B" && bad "mutant ledger (#400 space only): the sed did not apply" || ok "mutant ledger (#400 space only): the mutant differs"
+printf 'root a b\n' > "$WORK/ws-root"
+"$M400B" --allow-file "$WORK/ws-root" "$WORK/sample.txt" >/dev/null 2>&1
+expect "mutant (#400 space only): a space alone still refuses (the mutant is otherwise live)" 2 "$?"
+printf 'root a\tb\n' > "$WORK/ws-root"
+"$M400B" --allow-file "$WORK/ws-root" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "mutant (#400 space only): with only a space tested a tab root is accepted (exit $rc)" || bad "mutant (#400 space only): the tab root is still refused"
 
 echo "== the two shapes rule C deliberately misses, pinned so they are not rediscovered as bugs =="
 # Both are stated in the scanner's header. A limit with no case is a limit nobody knows about.

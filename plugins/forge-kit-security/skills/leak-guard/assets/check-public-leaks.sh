@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 26
+# check-public-leaks-version: 27
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
@@ -361,9 +361,13 @@ if [ -n "$ALLOW_FILE" ]; then
         # Rule B's match class yields no whitespace, double quote or backtick, so an entry carrying
         # one could never match (#239). The SINGLE quote is a name byte, not punctuation here:
         # `root o'brien` suppresses a live `~/o'brien` row, and refusing it would break a working
-        # allow-file at exit 2.
+        # allow-file at exit 2. The whitespace is spelled as BYTES, as the prefix arm's is (#400, the
+        # twin of #242): RE_ROOT's class runs under LC_ALL=C, where only these ASCII bytes are
+        # whitespace, while `[[:space:]]` here would follow the caller's locale and, under UTF-8,
+        # also refuse U+2003, which rule B can yield; so one entry got exit 0 or 2 by locale. The
+        # allow-file line trims above still follow the caller's locale for an EDGE U+2003 (#403).
         case "$rootv" in
-          *[[:space:]]*|*'"'*|*'`'*) die "$ALLOW_FILE:$lineno: root cannot contain whitespace, a double quote or a backtick (rule B's match class yields none of them), so this entry could never match: $val" ;;
+          *[$' \t\n\v\f\r']*|*'"'*|*'`'*) die "$ALLOW_FILE:$lineno: root cannot contain whitespace, a double quote or a backtick (rule B's match class yields none of them), so this entry could never match: $val" ;;
         esac
         strip_tail "$rootv"
         [ -n "$STRIPPED" ] || die "$ALLOW_FILE:$lineno: root cannot be entirely punctuation (rule B never reports one), so this entry could never match: $val"
