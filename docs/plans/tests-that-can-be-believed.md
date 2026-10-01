@@ -17,8 +17,9 @@ itself and under load, and a mutant harness credits a kill only when the mutant 
 - The #402 watcher rows no longer see other copies' watchers (#411).
 - `test-forge-lib.sh`'s compose rows (`crlf`, own-region), its large-page count and its row
   recorder each have a stated cause or a recorded non-reproduction (#404, #378, #331 item 1).
-- `test-check-public-leaks.sh`'s glued real case has a fixture with a floor, so a shrink cannot
-  silently stop it catching a quadratic regression (#219).
+- No script asks `grep -q` a question through a pipe under pipefail, and a CI guard keeps it so
+  (#413, with #378 for `test-forge-lib.sh`). That is the named cause of the `glued` row (#219, closed
+  into #413), the compose rows (#378) and #331 item 1, and it can skip a shipped refusal.
 - A mutant harness outside `test-forge-lib.sh` reports a crashed mutant as crashed, never as
   killed (#360).
 - `test-forge-lib.sh` unsets every `FORGE_*` variable that can change a case, and sync-labels'
@@ -47,9 +48,13 @@ In order:
 2. **One load recipe**, written into #404 before any of its rows are judged: N parallel copies held
    for the whole soak, with the measured load average recorded, and the control run named. #378 and
    #331 item 1 are judged against the same recipe; if they are #404's rows, they close into it.
-3. **#219**, the glued fixture floor (its round-3 item is a sentence and a scenario).
+3. **#378 then #413**, the SIGPIPE class: `printf | grep -q` under pipefail returns 141 on a match
+   when grep exits first (49 of 400 loaded runs; the here-string form 0 of 400). Re-diagnosed by
+   #219's round-4 gate, which closed #219 into #413: the cause is a pipe, not a bound, so no bound
+   moves. #378 converts `test-forge-lib.sh`; #413 converts the other 249 sites (shipped assets
+   included) and adds the guard, which starts green only after #378.
 4. **#360**, one crash classification for the harnesses outside `test-forge-lib.sh`.
-5. **#331 items 2 and 3**, the env reset and the host dispatch.
+5. **#331 items 2 and 3**, the env reset and the host dispatch (item 1 moved to #378).
 
 Evidence already in hand (2026-10-01, this phase's opening): under 4 parallel copies for 3 rounds,
 only the #402 rows failed in `test-forge-lib.sh` (8 of 12 runs); the compose and `crlf` rows did not
