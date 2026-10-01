@@ -284,6 +284,14 @@ jobs:
       - name: forge-kit-roadmap is not referenced from outside itself
         run: bash scripts/check-group-isolation.sh
 
+      # Issue #348: the repo's policy is that every tracked scripts/test-* suite runs in CI, and
+      # #344 found one that did not. The guard reads this file, so it must wire itself too.
+      - name: Test suites wired tests
+        run: bash scripts/test-check-test-suites-wired.sh
+
+      - name: Every scripts/test-* suite has a step here
+        run: bash scripts/check-test-suites-wired.sh
+
       # Issue #163: a value baked in at install time pins a component to one project and forces a
       # per-project copy. Prose is allowed; a fenced command is not.
       - name: Live-placeholder guard tests
