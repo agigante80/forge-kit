@@ -692,6 +692,40 @@ sed "s/Except for \`scenarios\`, \`unit_tests\`, \`e2e_tests\`, \`docs_impact\`/
 cmp -s "$GATE" "$WORK/gate-mut-old.md" && bad "#383: the restoring mutant did not apply"
 old_scope_pin "$WORK/gate-mut-old.md" && ok "#383: MUTANT: restoring the old wording trips the absence pin" || bad "#383: MUTANT survived: the absence pin passes with the old wording restored"
 scope_pin "$WORK/gate-mut-old.md" && bad "#383: MUTANT survived: the moved scope pin passes with the old wording restored" || ok "#383: MUTANT: restoring the old wording also fails the moved scope pin"
+# #392: the doc's thin-section sentence is a READING of the agent's Thin row, and the agent is
+# deliberately not edited: ticket-gate.md plus its preloaded skill sit at the 5754-word ratchet with
+# zero headroom, so the doc declares itself a reading and both sides are pinned. A pin on the doc
+# alone would never fail when the agent's Thin row changed, which is the drift this guards.
+doc_has() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qF -- "$2"; }
+P392_READ='a reading of the Thin row'
+P392_NA='unless it states N/A with a reason'
+P392_PLACE="appended after the author's text, inside the author's section"
+doc_has "$DOC" "$P392_READ" && ok "#392: template-versioning.md marks the thin rule as a reading of the Thin row" || bad "#392: template-versioning.md lost the reading marker"
+doc_has "$DOC" "$P392_NA" && ok "#392: template-versioning.md exempts an N/A with a reason from thin" || bad "#392: template-versioning.md lost the N/A carve-out"
+doc_has "$DOC" "$P392_PLACE" && ok "#392: template-versioning.md places the append inside the author's section" || bad "#392: template-versioning.md lost the placement"
+mut392() {  # mut392 <name> <file> <sed-expr> <pin-fn> <pin-arg> <ok-text>
+  local out="$WORK/m392-$1"
+  sed "$3" "$2" > "$out"
+  if cmp -s "$2" "$out"; then bad "#392: the $1 mutant did not apply"; return; fi
+  if "$4" "$out" "$5"; then bad "#392: MUTANT survived: $6"; else ok "#392: MUTANT: $6"; fi
+}
+mut392 reading "$DOC" 's/a reading of the Thin row/a summary of the Thin row/' doc_has "$P392_READ" "rewording the reading marker fails the pin"
+mut392 carve-out "$DOC" 's/unless it states N\/A with a reason, //' doc_has "$P392_NA" "removing the N/A carve-out fails the pin"
+mut392 placement "$DOC" "s/inside the author's section/above the author's section/" doc_has "$P392_PLACE" "moving the append above the author's section fails the pin"
+sed 's/a reading of the Thin/a reading of the\nThin/' "$DOC" > "$WORK/doc392-wrap.md"
+cmp -s "$DOC" "$WORK/doc392-wrap.md" && bad "#392: the re-wrap mutant did not apply"
+doc_has "$WORK/doc392-wrap.md" "$P392_READ" && ok "#392: the reading pin survives a re-wrap" || bad "#392: the reading pin is wrap-sensitive"
+# The agent's own wording the doc reads from, one line each.
+line_has() { grep -qF -- "$2" "$1"; }
+A392_THIN='Keep existing text verbatim, append what the current template requires'
+A392_SEVEN='`personal_data` is the seven facts'
+A392_VAGUE='content vague or placeholder-only'
+line_has "$GATE" "$A392_THIN" && ok "#392: ticket-gate.md's Thin row is unchanged" || bad "#392: ticket-gate.md's Thin row moved; re-read template-versioning.md against it"
+line_has "$GATE" "$A392_SEVEN" && ok "#392: ticket-gate.md's seven-facts line is unchanged" || bad "#392: ticket-gate.md's seven-facts line moved"
+line_has "$GATE" "$A392_VAGUE" && ok "#392: ticket-gate.md's thin definition is unchanged" || bad "#392: ticket-gate.md's thin definition moved"
+mut392 thin-row "$GATE" 's/append what the current template requires/replace what the current template requires/' line_has "$A392_THIN" "editing the Thin row fails the anchor pin"
+mut392 seven-facts "$GATE" 's/`personal_data` is the seven facts/`personal_data` is the six facts/' line_has "$A392_SEVEN" "editing the seven-facts line fails the anchor pin"
+mut392 thin-definition "$GATE" 's/content vague or placeholder-only/content vague or empty/' line_has "$A392_VAGUE" "editing the thin definition fails the anchor pin"
 # Fails loudly (prints MISSING, never a count) when a path or glob does not exist, so a moved
 # reference cannot make the "no copies" assertion pass vacuously.
 gwt_copies() {

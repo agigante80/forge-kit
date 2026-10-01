@@ -88,8 +88,10 @@ its target heading is matched case-insensitively on GDPR, so a GDPR-headed secti
 `personal_data` and gets the label plus the pointer, which is what lets check 3 find the heading.
 A `personal_data` section under any other heading ("Privacy", say) is Missing and is synthesised
 under the template label with no pointer.
-A GDPR-headed section with fewer than seven facts is thin, so the pointer is added and what the
-template requires is appended under the author's section.
+This is a reading of the Thin row of the agent and of its seven-facts definition of
+`personal_data`: a GDPR-headed section with fewer than seven facts,
+unless it states N/A with a reason, is thin, so the pointer is added and what the template requires
+is appended after the author's text, inside the author's section.
 
 The synthesised content is real and concrete - not placeholder text. The sub-agent reads the
 full issue body and any linked external URLs to derive specific test cases.
