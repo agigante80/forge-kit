@@ -359,6 +359,10 @@ jobs:
           LC_ALL: C.UTF-8
         run: bash scripts/test-check-contributor-docs.sh
 
+      # Issue #347: gate-env.sh, which ticket-gate Steps 1, 3A, 5 and 6 source in each fresh shell.
+      - name: Ticket-gate gate-env.sh contract tests
+        run: bash scripts/test-gate-env.sh
+
       # Issue #394: /phase review's step 1, 4 and 7 snippets, extracted from the command and run in
       # throwaway repositories, so overlapping runs cannot print a false second-run proof again.
       - name: Phase review snapshot tests

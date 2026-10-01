@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 67 -->
+<!-- ticket-gate-version: 68 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -40,7 +40,7 @@ You never produce numeric scores: Step 2.5 carries why the committee was retired
 Source the `forge-host` adapter before any forge call and resolve identity once:
 
 ```bash
-source scripts/forge-lib.sh    # installed by the forge-host skill (path may vary)
+source scripts/forge-lib.sh    # forge-adapt install; Steps 1, 3A, 5, 6 resolve it via gate-env.sh
 REPO="$(forge_repo)"           # owner/repo on the detected host
 ```
 
@@ -184,22 +184,22 @@ gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
 
 ```bash
 D=<scratchpad>/gate-<NUMBER>; mkdir -p "$D"   # per issue: concurrent runs shared one file (#197)
-gh issue view <NUMBER> --repo "$REPO" --json number,title,body,labels,milestone > "$D/issue.json"
+gh issue view <NUMBER> --json number,title,body,labels,milestone > "$D/issue.json"
 jq -r .body "$D/issue.json" > "$D/body.md"
 MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
-# Never $CLAUDE_PLUGIN_ROOT (hooks only). Search: a checkout's own tree, then the highest marker
-# across installed copies, lexically LAST path as tie-break; a first `find` hit was stale three runs in four (#189).
+# Never $CLAUDE_PLUGIN_ROOT (hooks only). Else a checkout's tree, else the highest installed marker, last path on a tie (#189).
 [ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
-[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
-printf '%s\n' "$MECH" > "$D/mech"   # for Step 5
-P=${MECH/#$HOME/\~}; echo "mechanics: ${P:-none}${MECH:+ ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))}"   # quote in the review
-[ -n "$MECH" ] && ROUND=$("$(dirname "$MECH")/count-gate-rounds.sh" <NUMBER> --body "$D/body.md") || ROUND=unknown
-GS="$(dirname "$MECH")/gate-status.sh"; "$GS" <NUMBER> --unstamp   # unrecorded until Step 6 stamps (#284)
+[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sed 's/:check-ticket-mechanics-version: \([0-9]*\)$/	\1/' | sort -t$'\t' -k2,2n -k1,1 | tail -1 | cut -f1)
+[ -f "$(dirname "$MECH")/gate-env.sh" ] || { echo "ticket-gate: no checker with gate-env.sh beside it; see installing-the-mechanics-script.md" >&2; exit 2; }
+printf '%s\n' "$MECH" > "$D/mech"; . "$(dirname "$MECH")/gate-env.sh" || exit 2   # sets A, GS, FORGE_LIB
+echo "mechanics: ${MECH/#$HOME/\~} ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))"   # quote in the review
+ROUND=$("$A/count-gate-rounds.sh" <NUMBER> --body "$D/body.md") || ROUND=unknown
+"$GS" <NUMBER> --unstamp   # unrecorded until Step 6 stamps (#284)
 ```
 
 `<ROUND>` counts posted reviews, never the body, which any edit erases (#192); a disagreeing block
-is reported on stderr and loses. No checker, or exit 2, makes it `unknown`: every step runs full
-scope and the review says so.
+is reported on stderr and loses. Its exit 2 makes it `unknown`: every step runs full scope and the
+review says so.
 
 ### Step 1.5: Thin ticket pre-check
 
@@ -344,6 +344,7 @@ Run the script the `ticket-gate-reference` skill ships; do NOT re-implement its 
 which cannot be tested (#149).
 
 ```bash
+D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
 [ "$(jq .number "$D/issue.json")" = <NUMBER> ] || exit 2   # another run's fetch: STOP, post nothing (#197)
 "$MECH" --body "$D/body.md" --template <the type's template file> \
   --tpl-version <marker from the body> --current-tpl-version <0a's value> --labels <0b's labels> \
@@ -482,13 +483,12 @@ The review is a COMMENT, never edited: the audit trail. Its summary goes in the 
 Write the review to `$D/review.md`, then post in ONE Bash call (state does not persist):
 
 ```bash
-D=<scratchpad>/gate-<NUMBER>; A=$(dirname "$(cat "$D/mech")"); L=${FORGE_LIB:-}
-[ -f "$L" ] || L=$A/forge-lib.sh
-[ -f "$L" ] || L=$A/../../../../forge-kit-devops/skills/forge-host/assets/forge-lib.sh
-[ -f "$L" ] || L=$(find ~/.claude/plugins -path '*forge-kit-devops*' -name forge-lib.sh -exec grep -m1 -Ho 'forge-lib-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
-[ -f "$L" ] || { echo "ticket-gate: forge-lib.sh not found, review NOT posted" >&2; exit 2; }
-source "$L" && forge_issue_comment <NUMBER> "$(cat "$D/review.md")" || exit 2   # STOP: Step 6 never runs
+D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
+forge_issue_comment <NUMBER> "$(cat "$D/review.md")" || exit 2   # STOP: Step 6 never runs
 ```
+
+An `exit 2` from these blocks' own guard lines stops the run: relay its stderr line as your final
+message and return `BLOCKED - RUN_FAILED`.
 
 ### Step 6: Return result and auto-remediate
 
@@ -504,6 +504,7 @@ and it is a projection of Step 1's count, never its source.
 ```
 
 ```bash
+D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
 forge_body_region_set <NUMBER> gate <region> "<content>"
 forge_body_region_clear <NUMBER> gate <region>
 forge_body_compose_preserving <NUMBER> "<whole body>"

@@ -69,6 +69,7 @@ bash scripts/check-template-lockstep.sh
 
 ```bash
 cp /tmp/forge-kit/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/check-ticket-mechanics.sh scripts/
+cp /tmp/forge-kit/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/gate-env.sh             scripts/   # the agent's gate sources it
 cp /tmp/forge-kit/plugins/forge-kit-governance/skills/ticket-gate-reference/assets/forge-gate-mechanics.sh   scripts/
 bash scripts/forge-gate-mechanics.sh 182
 ```

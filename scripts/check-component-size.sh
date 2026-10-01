@@ -256,6 +256,12 @@ budget_for() {
 # lever was used first and is why the rule itself lives in forge-adapt-marketplace-status.sh
 # rather than here. An agent must NEVER raise a baseline on its own initiative. Ask.
 #
+# LOWERED 2026-10-01: ticket-gate 5754 to 5741 (#347, after #349 spent its six words in place).
+# Step 5's six-line forge-lib resolver moved into the shipped, contract-tested gate-env.sh, which
+# Steps 1, 3A, 5 and 6 now source in one line each, so every fresh shell rebuilds what it uses. The
+# move paid for that line in three more steps, the exit-2 rule and Step 1's install check, and left
+# thirteen words over. Nothing was compressed to fit.
+#
 # LOWERED 2026-09-10: ticket-gate 5778 to 5709 (#174). Its description was 1,073 characters, the
 # largest always-on cost in the tree, and about a third of it enumerated the agent's own workflow
 # and repeated it again inside the <example> commentary. Both are in the body already. Every
@@ -354,7 +360,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7154 ;;
-    ticket-gate) echo 5754 ;;
+    ticket-gate) echo 5741 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac
