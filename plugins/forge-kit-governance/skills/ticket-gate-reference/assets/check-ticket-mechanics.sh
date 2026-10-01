@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 12
+# check-ticket-mechanics-version: 13
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -60,6 +60,19 @@
 # permits where no behaviour delta exists, failed the same way where check 5 had always referred one for
 # the unit and E2E sections; it is now tested first, only where no block exists, so an N/A named
 # inside a real pair is still a pair, and a bare N/A with no reason still fails.
+#
+# TWO RULES KEEP GATE-WRITTEN TEXT OFF THE AUTHOR'S ACCOUNT (#304). A field the TEMPLATE marks
+# gate-filled is never charged for an absent heading: the mark is a `description:` line carrying the
+# fixed, case-sensitive substring "Auto-populated by ticket-gate", or a whole-line `# gate-owned`
+# YAML comment anywhere between the field's `- type:` line and the next one. It is read from the
+# template only, never from body text and never from a field id, and a `required: true` field is
+# never exempt, so a template that loses the mark gets the old charge, never a wider pass. And a
+# whole-line region START marker of any prefix (forge-lib's grammar, `<!-- <name>:start -->`, a
+# trailing CR or blank tolerated) ENDS a section: the gate appends its `gate-context` region at the
+# body end, where it read as content of the author's last `##` section and its paths satisfied
+# check 6. Ending at the start marker, not skipping to the end marker, is deliberate: it holds for
+# an unterminated region, and the cost is that author text after a region's end marker goes
+# unread, which can only make a check fail, never pass.
 #
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
@@ -171,6 +184,8 @@ section_of() {
   CTM_LABELS="$TEMPLATE_LABELS" CTM_SUBS="$(template_subheadings "$1")" awk -v want="$1" '
     BEGIN { n = split(ENVIRON["CTM_LABELS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1
             n = split(ENVIRON["CTM_SUBS"], b, "\n");   for (i = 1; i <= n; i++) if (b[i] != "") issub[b[i]] = 1 }
+    { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
+    inside && l ~ /^<!-- [^ \t]+:start -->$/ { inside = 0 }
     /^##+ / {
       lvl = index($0, " ") - 1; cur = substr($0, lvl + 2); sub(/[ \t]+$/, "", cur)
       if (inside && ((lvl == want_lvl && !(cur in issub)) || (cur in islabel))) inside = 0
@@ -200,23 +215,28 @@ has_content() {
 
 first_line() { printf '%s' "$1" | grep -m1 -v '^[[:space:]]*$' | cut -c1-120; }
 
-# Emits `<label>\t<required>\t<id>` per rendered field. Field labels sit at exactly six spaces and
-# field-level `required` at six; a checkboxes OPTION nests deeper and carries a leading dash,
-# which is what keeps option text out of the section list. The id is the third column and every
-# reader below takes it explicitly (`read -r label required _`): a two-field read would take the
-# id as the required flag and check 3 would fail open. --dump-fields keeps its two-column contract.
+# Emits `<label>\t<required>\t<id>\t<gate>` per rendered field. Field labels sit at exactly six
+# spaces and field-level `required` at six; a checkboxes OPTION nests deeper and carries a leading
+# dash, which is what keeps option text out of the section list. The id is the third column and
+# every reader below takes it explicitly (`read -r label required _`): a two-field read would take
+# the id as the required flag and check 3 would fail open. The fourth column is `yes` for a field
+# the template marks gate-filled (see the header, #304), and is read with awk -F'\t' only, never
+# bash `read`: tab is IFS whitespace, so an empty id would collapse two tabs and shift it.
+# --dump-fields keeps its two-column contract.
 template_fields() {
   awk '
     /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ {
-      if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id }
+      if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id "\t" (gate ? "yes" : "no") }
       t = $0; sub(/^.*type:[[:space:]]*/, "", t); gsub(/[[:space:]]/, "", t)
-      type = t; label = ""; req = "false"; id = ""; next
+      type = t; label = ""; req = "false"; id = ""; gate = 0; next
     }
+    /^      description: / && index($0, "Auto-populated by ticket-gate") { gate = 1 }
+    /^[[:space:]]*# gate-owned[[:space:]]*$/ { gate = 1 }
     /^    id: / { i = substr($0, 9); gsub(/[[:space:]]/, "", i); id = i }
     /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = l } }
     /^      required: / { r = $0; sub(/^.*required:[[:space:]]*/, "", r); gsub(/[[:space:]]/, "", r); req = r }
     /^          required: true/ { req = "true" }   # a checkboxes group with a required option
-    END { if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id } }
+    END { if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id "\t" (gate ? "yes" : "no") } }
   ' "$TEMPLATE"
 }
 
@@ -315,14 +335,20 @@ fi
 # --- check 3: required sections present -------------------------------------------------
 # Every section the template carries needs a heading. Only a field the template marks
 # `required: true` needs CONTENT: GitHub renders an unfilled optional field as `_No response_`,
-# and faulting that failed a template-perfect ticket in the first version.
-missing=""; empty=""; at2=""; at3=""
+# and faulting that failed a template-perfect ticket in the first version. An OPTIONAL field the
+# template marks gate-filled is not charged when its heading is absent (#304, see the header).
+GATE_FILLED="$(printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' '$4 == "yes" && $2 == "no" { print $1 }')"
+missing=""; empty=""; skipped=""; at2=""; at3=""
 while IFS="$(printf '\t')" read -r label required _; do
   grep -qxF "## $label" "$BODY" && at2="##"
   grep -qxF "### $label" "$BODY" && at3="###"
   [ -n "$label" ] || continue
   if ! grep -qxF -e "## $label" -e "### $label" "$BODY"; then
-    missing="$missing${missing:+; }$label"
+    if printf '%s\n' "$GATE_FILLED" | grep -qxF -- "$label"; then
+      skipped="$skipped${skipped:+; }$label"
+    else
+      missing="$missing${missing:+; }$label"
+    fi
   elif [ "$required" = "yes" ] && ! has_content "$(section_of "$label")"; then
     empty="$empty${empty:+; }$label"
   fi
@@ -335,7 +361,7 @@ if [ -n "$missing" ]; then
 elif [ -n "$empty" ]; then
   row sections fail "required heading present but empty ($(count_items "$empty")): $empty"
 else
-  row sections pass "every template section present, every required one filled (headings at ${at2}${at2:+${at3:+ and }}${at3})"
+  row sections pass "every template section present, every required one filled (headings at ${at2}${at2:+${at3:+ and }}${at3})${skipped:+; gate-filled, not charged: $skipped}"
 fi
 
 # --- check 4: GWT structure (rule 1, the checkable half) --------------------------------

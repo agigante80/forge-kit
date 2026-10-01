@@ -144,6 +144,17 @@ proj .github/ISSUE_TEMPLATE; issue "$FULL" feature P2 api
 run 42
 expect "a clean body exits 0" 0 "$rc"
 
+echo "== a body lacking only the gate-filled Codebase Context heading is not charged (#304) =="
+# The #299/#300 shape: a hand-filed body with every heading but Codebase Context. This path never
+# writes the body, so only the checker's template-keyed exemption can keep it from failing.
+grep -qx '### Codebase Context' "$T/full-body.md" && ok "the full fixture carries the heading to remove (fixture sanity)" \
+  || bad "the full fixture carries no Codebase Context heading to remove"
+proj .github/ISSUE_TEMPLATE
+issue "$(awk '$0 == "### Codebase Context" { skip = 2 } skip > 0 { skip--; next } { print }' "$T/full-body.md")" feature P2 api
+run 42 --format tsv
+expect "it exits 0" 0 "$rc"
+expect "and carries no sections FAIL row" pass "$(printf '%s\n' "$out" | awk -F'\t' '$1=="sections"{print $2}')"
+
 echo "== the Forgejo template directories are resolved too =="
 proj .forgejo/ISSUE_TEMPLATE; issue "$FULL" feature P2 api
 run 42

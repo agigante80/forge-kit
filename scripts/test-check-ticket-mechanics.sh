@@ -279,7 +279,9 @@ echo "check-ticket-mechanics: the four gaps found gating another project (#205)"
 printf '<!-- template-version: 6 -->\n' > "$WORK/bare.md"
 ev="$(run "$WORK/bare.md" feature | awk -F'\t' '$1=="sections"{print $3}')"
 case "$ev" in "heading absent ("*"):"*) ok "gap 1: the absent list carries a count prefix" ;; *) bad "gap 1: no count prefix in '$ev'" ;; esac
-case "$ev" in *"Codebase Context"*) ok "gap 1: the LAST feature.yml label survives (no 160-byte cut)" ;; *) bad "gap 1: the absent list is still truncated: '$ev'" ;; esac
+# Re-anchored by #304: Codebase Context is gate-filled and no longer charged, so the last CHARGED
+# feature.yml label is Documentation impact.
+case "$ev" in *"; Documentation impact") ok "gap 1: the LAST charged feature.yml label survives (no 160-byte cut)" ;; *) bad "gap 1: the absent list is still truncated: '$ev'" ;; esac
 n="$(printf '%s' "$ev" | sed -n 's/^heading absent (\([0-9]*\)):.*/\1/p')"
 items="$(printf '%s' "${ev#*: }" | awk -F'; ' '{print NF}')"
 expect "gap 1: the count equals the items listed (companion)" "$n" "$items"
@@ -383,11 +385,17 @@ O7="$(mkbody feature "one7.md" "$(printf -- '- Positive: Given a. When b.\n- Neg
 expect "#233: a one-line bullet with no Then is not a scenario and still fails 0/0 (near miss)" fail "$(outcome "$(run "$O7" feature)" gwt)"
 
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
-mktpl() {  # mktpl <out> <fields as "id|label|required" ...>
-  local out="$1"; shift; { echo 'body:'; for f in "$@"; do IFS='|' read -r id lab req <<EOF
+# An optional fourth field is the field's description line, and an optional fifth, `gate-owned`,
+# adds that YAML comment to the field block (#304); every older call keeps its shape.
+mktpl() {  # mktpl <out> <fields as "id|label|required[|description[|gate-owned]]" ...>
+  local out="$1"; shift; { echo 'body:'; for f in "$@"; do IFS='|' read -r id lab req desc cmt <<EOF
 $f
 EOF
-  printf '  - type: textarea\n    id: %s\n    attributes:\n      label: %s\n    validations:\n      required: %s\n' "$id" "$lab" "$req"; done; } > "$out"; }
+  printf '  - type: textarea\n    id: %s\n' "$id"
+  [ "$cmt" = gate-owned ] && printf '    # gate-owned\n'
+  printf '    attributes:\n      label: %s\n' "$lab"
+  [ -n "$desc" ] && printf '      description: %s\n' "$desc"
+  printf '    validations:\n      required: %s\n' "$req"; done; } > "$out"; }
 mktpl "$WORK/hubbub.yml" "summary|Summary|true" "integration_tests|Integration / subprocess test scenarios|true" "docs|Documentation impact|true"
 printf '<!-- template-version: 6 -->\n\n### Summary\n\nx\n\n### Integration / subprocess test scenarios\n\n- [ ] `tests/integration/spawn.test.ts` spawns the child\n\n### Documentation impact\n\nUpdates `docs/x.md`\n' > "$WORK/hubbub.md"
 o="$(bash "$SCRIPT" --body "$WORK/hubbub.md" --template "$WORK/hubbub.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null)"
@@ -697,6 +705,86 @@ printf 'Test scenarios (Given / When / Then)\n' >> "$WORK/gate-mut.md"
 [ "$(gwt_copies "$GATE" "$GREF/references/no-such-file.md")" = MISSING ] && ok "#361: MUTANT: a nonexistent path makes gwt_copies fail rather than count 0" || bad "#361: gwt_copies passes vacuously on a missing path"
 grep -qF 'The absolute path `$PWD/$TPL_DIR/<type>.yml`' "$GATE" && ok "#361: the 0c-iii dispatch names the template path" || bad "#361: the dispatch does not name the template path"
 grep -qF 'never placeholder text' "$GATE" && ok "#361: the never-placeholder-text instruction is kept" || bad "#361: never placeholder text was dropped"
+
+echo "check-ticket-mechanics: a gate-filled heading is never charged, and gate regions are not author text (#304)"
+sec_ev() { printf '%s\n' "$1" | awk -F'\t' '$1=="sections"{print $3}'; }
+docs_row() { printf '%s\n' "$1" | awk -F'\t' '$1=="docs_impact"{print $2 "\t" $3}'; }
+B="$(mkbody bug "g304.md")"
+python3 - "$B" "$WORK/g304-nocc.md" "$WORK/g304-nodeps.md" "$WORK/g304-bodytext.md" <<'PY'
+import sys
+s=open(sys.argv[1]).read()
+cc="### Codebase Context\n\n_No response_\n"
+dep="### Dependencies\n\n_No response_\n"
+bd="### Bug description\n\nfilled in\n"
+assert cc in s and dep in s and bd in s, "fixture anchors did not match"
+nocc=s.replace(cc,"",1); open(sys.argv[2],"w").write(nocc)
+open(sys.argv[3],"w").write(nocc.replace(dep,"",1))
+open(sys.argv[4],"w").write(s.replace(dep,"",1).replace(bd,bd+"Auto-populated by ticket-gate. Do not edit manually.\n",1))
+PY
+o="$(run "$WORK/g304-nocc.md" bug)"
+expect "#304: a bug body lacking only Codebase Context passes sections" pass "$(outcome "$o" sections)"
+case "$(sec_ev "$o")" in *"; gate-filled, not charged: Codebase Context") ok "#304: and its evidence ends naming Codebase Context as gate-filled" ;; *) bad "#304: evidence does not name the gate-filled field: $(sec_ev "$o")" ;; esac
+sed 's/^### /## /' "$WORK/g304-nocc.md" > "$WORK/g304-nocc2.md"
+expect "#304: the same body at ## headings passes too" pass "$(outcome "$(run "$WORK/g304-nocc2.md" bug)" sections)"
+expect "#304: an author-owned optional heading is still charged, by name and alone" "heading absent (1): Dependencies" "$(sec_ev "$(run "$WORK/g304-nodeps.md" bug)")"
+expect "#304: body text saying Auto-populated by ticket-gate exempts nothing" "heading absent (1): Dependencies" "$(sec_ev "$(run "$WORK/g304-bodytext.md" bug)")"
+# The stronger form (gate round 2): the template copy carries no mark, and the body carries the words.
+sed '/Auto-populated by ticket-gate/d' "$TPLDIR/bug.yml" > "$WORK/bug-nomark.yml"
+grep -q 'Auto-populated by ticket-gate' "$TPLDIR/bug.yml" && ! grep -q 'Auto-populated by ticket-gate' "$WORK/bug-nomark.yml" \
+  && ok "#304: the unmarked template copy lost its mark (fixture sanity)" || bad "#304: the unmarked template copy is not unmarked"
+python3 - "$WORK/g304-nocc.md" "$WORK/g304-nocc-words.md" <<'PY'
+import sys
+s=open(sys.argv[1]).read(); bd="### Bug description\n\nfilled in\n"
+assert bd in s, "bug description anchor did not match"
+open(sys.argv[2],"w").write(s.replace(bd,bd+"Auto-populated by ticket-gate. Do not edit manually.\n",1))
+PY
+o="$(bash "$SCRIPT" --body "$WORK/g304-nocc-words.md" --template "$WORK/bug-nomark.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#304: a template that does not mark the field charges it, whatever the body says" "heading absent (1): Codebase Context" "$(sec_ev "$o")"
+mktpl "$WORK/g304-cmt.yml" "summary|Summary|true" "notes|Gate notes|false||gate-owned"
+printf '<!-- template-version: 6 -->\n\n### Summary\n\nx\n' > "$WORK/g304-cmt.md"
+o="$(bash "$SCRIPT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-cmt.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#304: a # gate-owned YAML comment is the second marking route" pass "$(outcome "$o" sections)"
+mktpl "$WORK/g304-plain.yml" "summary|Summary|true" "notes|Gate notes|false|Anything else."
+o="$(bash "$SCRIPT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-plain.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#304: an unmarked optional field is still charged (the exemption does not generalise)" "heading absent (1): Gate notes" "$(sec_ev "$o")"
+mktpl "$WORK/g304-req.yml" "summary|Summary|true" "notes|Gate notes|true|Auto-populated by ticket-gate. Do not edit manually."
+o="$(bash "$SCRIPT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-req.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#304: a REQUIRED field is never exempt, whatever its description says" "heading absent (1): Gate notes" "$(sec_ev "$o")"
+mktpl "$WORK/g304-case.yml" "summary|Summary|true" "notes|Gate notes|false|auto-populated by Ticket-Gate."
+o="$(bash "$SCRIPT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-case.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#304: the description match is case-sensitive, so a near miss is charged" "heading absent (1): Gate notes" "$(sec_ev "$o")"
+dump="$(bash "$SCRIPT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-cmt.yml" --dump-fields)"
+expect "#304: --dump-fields keeps its two columns beside the new gate column" "$(printf 'Summary\tyes\nGate notes\tno')" "$dump"
+# Region boundary: the #299 shape, a ## body with no Codebase Context heading (so nothing but the
+# region can end the last section), a vague Documentation impact, and the gate's appended region.
+no_cc() { awk '$0 == "## Codebase Context" { skip = 3 } skip > 0 { skip--; next } { print }'; }
+REGION="$(printf '\n<!-- gate-context:start -->\n### Codebase context (gate, 2026-10-01)\n- `plugins/x/y.sh`: a path\n<!-- gate-context:end -->')"
+B="$(mkbody feature "g304-r.md" "" "" "" "we should think about it")"
+{ sed 's/^### /## /' "$B" | no_cc; printf '%s\n' "$REGION"; } > "$WORK/g304-r2.md"
+grep -qx '## Codebase Context' "$WORK/g304-r2.md" && bad "#304: the region fixture still carries a Codebase Context heading" || ok "#304: the region fixture has no Codebase Context heading (fixture sanity)"
+expect "#304: a gate-context region's paths cannot satisfy docs_impact" "$(printf 'fail\tnames no docs and makes no explicit none claim: we should think about it')" "$(docs_row "$(run "$WORK/g304-r2.md" feature)")"
+sed 's/^<!-- gate-context:start -->$/&\r/' "$WORK/g304-r2.md" > "$WORK/g304-r2cr.md"
+grep -q $'start -->\r$' "$WORK/g304-r2cr.md" && ok "#304: the CR fixture carries a CR (fixture sanity)" || bad "#304: the CR fixture has no CR"
+expect "#304: a start marker with a trailing CR still ends the section" fail "$(outcome "$(run "$WORK/g304-r2cr.md" feature)" docs_impact)"
+sed 's/gate-context:/brief-decision:/' "$WORK/g304-r2.md" > "$WORK/g304-r2brief.md"
+expect "#304: a region of any prefix ends the section (brief-*)" fail "$(outcome "$(run "$WORK/g304-r2brief.md" feature)" docs_impact)"
+B="$(mkbody feature "g304-p.md" "" "" "" 'Updates `docs/guides/labels.md`')"
+{ sed 's/^### /## /' "$B" | no_cc; printf '%s\n' "$REGION"; } > "$WORK/g304-p2.md"
+expect "#304: the author's own docs line is judged and quoted, not the region's" "$(printf 'pass\tUpdates `docs/guides/labels.md`')" "$(docs_row "$(run "$WORK/g304-p2.md" feature)")"
+# Mutant 1: the gate-filled clause deleted (one line altered); the positive case must flip.
+CL1="'\$4 == \"yes\" && \$2 == \"no\" { print \$1 }'"
+grep -qF "$CL1" "$SCRIPT" && ok "mutant ledger: the script carries the gate-filled clause (#304)" || bad "mutant ledger: #304 gate-filled clause not found"
+sed "s/'\$4 == \"yes\" && \$2 == \"no\" { print \$1 }'/'0 { print \$1 }'/" "$SCRIPT" > "$MUT"
+cmp -s "$SCRIPT" "$MUT" && bad "#304: the gate-filled mutant did not apply"
+ev="$(sec_ev "$(bash "$MUT" --body "$WORK/g304-nocc.md" --template "$TPLDIR/bug.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
+expect "mutant: with the gate-filled clause deleted, Codebase Context is charged (the #304 case can fail)" "heading absent (1): Codebase Context" "$ev"
+# Mutant 2: the region-start boundary removed from section_of(); the region case must flip to pass.
+CL2='inside && l ~ /^<!-- [^ \t]+:start -->$/ { inside = 0 }'
+grep -qF "$CL2" "$SCRIPT" && ok "mutant ledger: section_of() carries the region boundary (#304)" || bad "mutant ledger: #304 region boundary not found"
+grep -vF "$CL2" "$SCRIPT" > "$MUT"
+cmp -s "$SCRIPT" "$MUT" && bad "#304: the boundary mutant did not apply"
+o="$(bash "$MUT" --body "$WORK/g304-r2.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,feature 2>/dev/null)"
+expect "mutant: with the region boundary removed, the region's path passes docs_impact (the #304 case can fail)" pass "$(outcome "$o" docs_impact)"
 
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"
