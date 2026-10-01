@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 4
+# gate-status-version: 5
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -36,13 +36,18 @@
 # THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp3). Full review: <url>.` The
 # `(fp3)` after the hash names the algorithm that produced it: it is the gate-status version that
 # introduced the current fingerprint(), held in FP_TAG below. WHOEVER CHANGES fingerprint() MUST
-# BUMP FP_TAG in the same commit; the contract test pins one golden hash so a change without the
-# bump fails the suite. A TAGGED stamp whose tag differs from FP_TAG reads `stale round <R>
+# BUMP FP_TAG in the same commit. The contract test pins one golden hash together with the FP_TAG
+# literal, so changing fingerprint() fails the suite until the pin is updated, and the pin sits
+# beside the tag it names. That guards the pin's composition only: nothing mechanical can tell that
+# the tag moved WITH the algorithm, because an editor can update the hex and the tag in one
+# literal, or the hex alone. A TAGGED stamp whose tag differs from FP_TAG reads `stale round <R>
 # <VERDICT> (fingerprint <old>, now <current>)`, whatever its hash says, because that hash came from
 # an algorithm this script no longer has. An UNTAGGED stamp (written by v1 to v3) behaves exactly
 # as before: its hash is compared, and it is never reported as an algorithm change, so no stamped
-# ticket changes state. A malformed tag (anything but 1 to 16 of [a-z0-9] in parentheses directly
-# after a 16-hex hash) is no stamp: `unrecorded`. The tag follows the hash on purpose: every v1 to
+# ticket changes state. Only two shapes follow the hash: a tag, ` (<1 to 16 of [a-z0-9]>)` then
+# `.` then end of line or a space and text (the tag needs exactly 16 hex before it); or no tag, `.`
+# then end of line or a space and text (the untagged shape does not count the hex digits, the hash
+# is just compared). Anything else after the hash is no stamp: `unrecorded`. The tag follows the hash on purpose: every v1 to
 # v3 reader keys on `^Judged body: sha256:` and ignores the rest of the line, so it still compares
 # the hash, `--unstamp` still removes the line and a re-stamp still replaces it. The one thing an
 # older reader cannot do is name an algorithm change: where the change altered a body's hash it
@@ -186,9 +191,11 @@ state_of() {
   if [ -n "$judged" ]; then
     rest="${jline#"Judged body: $judged"}"
     case "$rest" in
+      .|". "*) ;;  # untagged: exactly the line a v1 to v3 writer produced, compared by hash
       " ("*)  # tagged: the tag is untrusted text, matched by one anchored pattern and never evaluated
         tag="$(printf '%s\n' "$jline" | sed -n 's/^Judged body: sha256:[0-9a-f]\{16\} (\([a-z0-9]\{1,16\}\))\.\( .*\)\{0,1\}$/\1/p')"
         [ -n "$tag" ] || judged="" ;;
+      *) judged="" ;;  # no other shape is a stamp (no space, double space, tab, glued text, bare hash)
     esac
   fi
   [ -n "$round" ] || round=unknown
@@ -251,7 +258,15 @@ Judged body: $fp ($FP_TAG). Full review: ${url:-no review comment found}." || {
       esac
     }
     fail=0
-    mark gate-verdict "$verdict" "**Stale:** the sections outside this block changed after this verdict; re-run /gate-ticket $ISSUE before acting on it." || fail=1
+    add="**Stale:** the sections outside this block changed after this verdict; re-run /gate-ticket $ISSUE before acting on it."
+    case "$st" in
+      *"(fingerprint "*", now "*")")  # $old is a tag state_of already matched against [a-z0-9]{1,16}
+        # The LAST "(fingerprint " is the tag's: the round comes from the heading, which the body's
+        # author controls and may itself contain "(fingerprint " (#342 review M1).
+        old="${st##*(fingerprint }"; old="${old%%,*}"
+        add="**Stale:** this verdict was recorded by fingerprint algorithm $old, which this script no longer computes; re-run /gate-ticket $ISSUE before acting on it." ;;
+    esac
+    mark gate-verdict "$verdict" "$add" || fail=1
     req="$(region gate-required-changes)" || exit 2
     [ -z "$req" ] || mark gate-required-changes "$req" "" || fail=1
     exit "$fail" ;;

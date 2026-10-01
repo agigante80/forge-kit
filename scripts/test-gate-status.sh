@@ -43,7 +43,7 @@ forge_api() {
       n=$(( $(cat "$S/gets" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/gets"
       for r in ${STUB_RACE_AT:-}; do
         [ "$r" = "$n" ] || continue
-        if [ "${STUB_RACE_KIND:-author}" = region ]; then sed -i "s/^context v.*/& r$n/" "$S/body"
+        if [ "${STUB_RACE_KIND:-author}" = region ]; then sed "s/^context v.*/& r$n/" "$S/body" > "$S/body.tmp" && mv "$S/body.tmp" "$S/body"
         else printf '\nracing edit %s\n' "$n" >> "$S/body"; fi
       done
       jq -Rs '{body:.}' < "$S/body" ;;
@@ -190,7 +190,7 @@ expect "a double stamp still leaves one Judged line" 1 "$(grep -c '^Judged body:
 expect "  and no bare pointer" 0 "$(grep -c '^Full review:' "$S/body")"
 
 echo "== the algorithm tag (#330) =="
-# stampedbody <judged line text after "Judged body: ">: BASE whose verdict carries that Judged line.
+# withjudged <judged line text after "Judged body: ">: BASE whose verdict carries that Judged line.
 withjudged() { setbody "${BASE/- significant: fix the scenarios/- significant: fix the scenarios
 Judged body: $1}"; }
 FPNOW=$(setbody "$BASE"; GS 7 --fingerprint)
@@ -209,9 +209,11 @@ withjudged "$FPNOW (fp3). Full review: https://x/c/3."
 expect "a matching tag with the right hash is current" "current round 2 NEEDS-WORK" "$(GS 7)"
 withjudged "$FPNOW (12345). Full review: https://x/c/3."
 expect "a digits-only tag is a tag: another algorithm" "stale round 2 NEEDS-WORK (fingerprint 12345, now fp3)" "$(GS 7)"
-withjudged "$(printf '%s (fp3). Full review: https://x/c/3.
-' "$FPNOW")"
-expect "a CRLF tagged line reads like the LF form" "current round 2 NEEDS-WORK" "$(GS 7)"
+# The two CR cases are a pair. A real \r after text is also absorbed by the tag pattern's trailing
+# ` .*`, so this one documents the shape but does NOT kill a deleted `tr -d '\r'`; only the next
+# case (nothing after the full stop) does. Do not merge them.
+withjudged "$(printf '%s (fp3). Full review: https://x/c/3.\r' "$FPNOW")"
+expect "a tagged line with a real CR after its text reads like the LF form" "current round 2 NEEDS-WORK" "$(GS 7)"
 withjudged "$(printf '%s (fp3).\r' "$FPNOW")"
 expect "a CRLF tagged line with nothing after the full stop is current" "current round 2 NEEDS-WORK" "$(GS 7)"
 withjudged "$FPNOW (fp1). Full review: https://x/c/3.
@@ -220,9 +222,23 @@ expect "two Judged lines: the first wins (tagged first)" "stale round 2 NEEDS-WO
 withjudged "$FPNOW. Full review: https://x/c/3.
 Judged body: $FPNOW (fp1). Full review: https://x/c/3."
 expect "two Judged lines: the first wins (untagged first)" "current round 2 NEEDS-WORK" "$(GS 7)"
-for bad_tag in "(FP3!)" "()" "(fp3" "(fp 3)" "(fp3;touch /tmp/x)" '($(id))' "(abcdefghijklmnopq)" "(fp3)x"; do
+for bad_tag in "(FP3)" "(FP3!)" "()" "(fp3" "(fp 3)" "(fp3;touch /tmp/x)" '($(id))' "(abcdefghijklmnopq)" "(fp3)x"; do
   withjudged "$FPNOW $bad_tag. Full review: https://x/c/3."
   out=$(GS 7); expect "a malformed tag '$bad_tag' is no stamp" "unrecorded round 2" "$out"
+done
+withjudged "$FPNOW (fp3).x"
+expect "text glued to the full stop after a valid tag is no stamp" "unrecorded round 2" "$(GS 7)"
+withjudged "$FPNOW."
+expect "a hash and a bare full stop is an untagged stamp, read by hash" "current round 2 NEEDS-WORK" "$(GS 7)"
+withjudged "$FPNOW.x"
+expect "text glued to the full stop of an untagged stamp is no stamp" "unrecorded round 2" "$(GS 7)"
+# Shapes no writer produced: with the CURRENT hash each must read unrecorded, and --mark-stale must send nothing.
+tab=$(printf '\t')
+for shape in "${FPNOW}(fp1). Full review: x." "$FPNOW  (fp1). Full review: x." "$FPNOW${tab}(fp1). Full review: x." \
+             "$FPNOW [fp1]. Full review: x." "${FPNOW}zz (fp3). Full review: x." "${FPNOW}.x" "$FPNOW"; do
+  withjudged "$shape"
+  out=$(GS 7); expect "a non-writer shape '$shape' is no stamp" "unrecorded round 2" "$out"
+  rm -f "$S/patches"; GS 7 --mark-stale; expect "  and --mark-stale sends nothing for it" 0 "$(patches)"
 done
 withjudged "$FPNOW (fp3)x Full review: https://x/c/3."
 expect "text glued to the closing parenthesis is no stamp" "unrecorded round 2" "$(GS 7)"
@@ -252,14 +268,23 @@ expect "  and it is tagged" 1 "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (f
 withjudged "$FPNOW (fp1). Full review: https://x/c/3."
 rm -f "$S/patches"; GS 7 --mark-stale; expect "--mark-stale on another algorithm's tag exits 0" 0 "$?"
 contains '### Gate verdict (round 2): STALE' "$(cat "$S/body")" "  and marks the verdict"
+contains '**Stale:** this verdict was recorded by fingerprint algorithm fp1, which this script no longer computes; re-run /gate-ticket 7 before acting on it.' "$(cat "$S/body")" "  with the algorithm reason"
+lacks "the sections outside this block changed" "$(cat "$S/body")" "  and not the body-edit reason"
+withjudged "$FPNOW (fp1). Full review: https://x/c/3."
+sed 's/^### Gate verdict (round 2)/### Gate verdict (round 2 (fingerprint evil)/' "$S/body" > "$S/body.t" && mv "$S/body.t" "$S/body"
+rm -f "$S/patches"; GS 7 --mark-stale >/dev/null
+contains '**Stale:** this verdict was recorded by fingerprint algorithm fp1, which this script no longer computes;' "$(cat "$S/body")" "--mark-stale names the tag even when the heading carries (fingerprint "
+lacks 'algorithm evil' "$(cat "$S/body")" "  and never text from the heading"
 expect "  with one PATCH per marked region" 2 "$(patches)"
 setbody "$BASE"; GS 7 --stamp; rm -f "$S/patches"; GS 7 --mark-stale
 expect "--mark-stale on a current tagged stamp sends nothing" 0 "$(patches)"
 withjudged "$FPNOW (FP3!). Full review: https://x/c/3."; rm -f "$S/patches"; GS 7 --mark-stale
 expect "--mark-stale on a malformed tag sends nothing" 0 "$(patches)"
-# The golden pin: changing fingerprint() without bumping FP_TAG must fail here.
+# The golden pin: changing fingerprint() fails here until the pin is updated. The tag and the hash are
+# ONE literal so the pin names the tag it must be updated with. This guards the pin's composition,
+# not intent: an editor can still change the hex and the tag together, or the hex alone.
 setbody "$(printf 'alpha\n\nbeta  \r\n<!-- x:start -->\nhidden\n<!-- x:end -->\ngamma\n')"
-expect "the golden fingerprint of a fixed body (bump FP_TAG with any change)" "sha256:4fdbc441ea7b5461" "$(GS 7 --fingerprint)"
+expect "the golden pin: FP_TAG and the fingerprint of a fixed body, one literal" 'FP_TAG="fp3" sha256:4fdbc441ea7b5461' "$(grep '^FP_TAG=' "$REAL") $(GS 7 --fingerprint)"
 
 ALT='<!-- gate-alternatives:start -->
 ### Architecture alternatives
@@ -305,6 +330,7 @@ body=$(cat "$S/body")
 contains '### Gate verdict (round 2): STALE' "$body" "the verdict heading is marked"
 contains '**Stale:** the sections outside this block changed after this verdict; re-run /gate-ticket 7 before acting on it.' "$body" "the verdict carries the Stale line"
 contains '### Required changes (round 2): STALE' "$body" "the required-changes heading is marked"
+lacks "fingerprint algorithm" "$body" "  and does not claim an algorithm change"
 contains '1. It works, now with a fix.' "$body" "the author edit is untouched"
 rm -f "$S/patches"; GS 7 --mark-stale; expect "a second mark-stale writes nothing" 0 "$(patches)"
 setbody "$BASE"; GS 7 --stamp; GS 7 --unstamp
@@ -365,7 +391,25 @@ probe_algo() { withjudged "$FPNOW (fp1). Full review: x."; [ "$(GS 7)" = "stale 
 probe_algomark() { withjudged "$FPNOW (fp1). Full review: x."; rm -f "$S/patches"; GS 7 --mark-stale >/dev/null 2>&1; [ "$(patches)" != 0 ]; }
 probe_malformed() { withjudged "$FPNOW (FP3!). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
 probe_untagged() { withjudged "sha256:0000000000000000. Full review: x."; [ "$(GS 7)" = "stale round 2 NEEDS-WORK" ]; }
-probe_golden() { setbody "$(printf 'alpha\n\nbeta  \r\n<!-- x:start -->\nhidden\n<!-- x:end -->\ngamma\n')"; [ "$(GS 7 --fingerprint)" = "sha256:4fdbc441ea7b5461" ]; }
+# The pin is read from the MUTANT ($T/gate-status.sh), never $REAL, or a tag-only mutant survives.
+probe_golden() { setbody "$(printf 'alpha\n\nbeta  \r\n<!-- x:start -->\nhidden\n<!-- x:end -->\ngamma\n')"; [ "$(grep '^FP_TAG=' "$T/gate-status.sh") $(GS 7 --fingerprint)" = 'FP_TAG="fp3" sha256:4fdbc441ea7b5461' ]; }
+probe_shape() { withjudged "${FPNOW}(fp1). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_glued() { withjudged "${FPNOW}.x"; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_bare() { withjudged "$FPNOW."; [ "$(GS 7)" = "current round 2 NEEDS-WORK" ]; }
+probe_upper() { withjudged "$FPNOW (FP3). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_anchor() { withjudged "$FPNOW (fp3).x"; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_cr() { withjudged "$(printf '%s (fp3).\r' "$FPNOW")"; [ "$(GS 7)" = "current round 2 NEEDS-WORK" ]; }
+probe_staleline() {  # the algorithm reason for an fp1 stamp
+  withjudged "sha256:0000000000000000 (fp1). Full review: x."; GS 7 --mark-stale >/dev/null 2>&1
+  grep -qxF '**Stale:** this verdict was recorded by fingerprint algorithm fp1, which this script no longer computes; re-run /gate-ticket 7 before acting on it.' "$S/body"; }
+probe_headtag() {  # a heading carrying "(fingerprint " must not leak into the Stale line
+  withjudged "$FPNOW (fp1). Full review: x."
+  sed 's/^### Gate verdict (round 2)/### Gate verdict (round 2 (fingerprint evil)/' "$S/body" > "$S/body.t" && mv "$S/body.t" "$S/body"
+  GS 7 --mark-stale >/dev/null 2>&1; grep -qF 'fingerprint algorithm fp1, which' "$S/body"; }
+probe_editline() {  # the body-edit reason for an author edit
+  setbody "$BASE"; GS 7 --stamp >/dev/null 2>&1; cur=$(cat "$S/body"); printf '%s' "${cur/1. It works./1. It works, now with a fix.}" > "$S/body"
+  GS 7 --mark-stale >/dev/null 2>&1
+  grep -qxF '**Stale:** the sections outside this block changed after this verdict; re-run /gate-ticket 7 before acting on it.' "$S/body"; }
 probe_para() { setbody "$(printf 'a\n\nb\n')"; a=$(GS 7 --fingerprint); setbody "$(printf 'a\nb\n')"; [ "$a" = "$(GS 7 --fingerprint)" ]; }
 m "hashing the whole body, regions included" '/inside { next }/d' probe_regions
 m "marking an unrecorded verdict" 's/case "$st" in stale\*) ;; \*) exit 0 ;; esac/:/' probe_unrecorded
@@ -386,7 +430,19 @@ m "state_of ignores the tag and compares the hash alone" 's/\[ -n "$tag" \] && \
 m "the algorithm change no longer starts with stale" 's/echo "stale round $round $word (fingerprint/echo "algo round $round $word (fingerprint/' probe_algomark
 m "a malformed tag is read as an untagged stamp" 's/\[ -n "$tag" \] || judged=""/:/' probe_malformed
 m "an untagged stamp is reported as an algorithm change" 's/\[ -n "$tag" \] && \[ "$tag" != "$FP_TAG" \]/[ "$tag" != "$FP_TAG" ]/' probe_untagged
-m "fingerprint() changes without a tag bump" 's/^    { print n }/    { print n "x" }/' probe_golden
+m "fingerprint() changes without updating the pin" 's/^    { print n }/    { print n "x" }/' probe_golden
+m "the tag changes alone" 's/^FP_TAG="fp3"/FP_TAG="fp4"/' probe_golden
+m "no other shape is rejected (the catch-all arm deleted)" '/^      \*) judged="" ;;/d' probe_shape
+m "the untagged arm widened to .*" 's/^      \.|". "\*) ;;/      .*) ;;/' probe_glued
+m "the bare full stop arm dropped" 's/^      \.|". "\*) ;;/      ". "*) ;;/' probe_bare
+m "the untagged arm deleted entirely" '/^      \.|". "\*) ;;/d' probe_bare
+m "the tag pattern accepts uppercase" 's/\[a-z0-9\]\\{1,16\\}/[a-zA-Z0-9]\\{1,16\\}/' probe_upper
+m "the tag pattern's end is unanchored" 's/)\\\.\\( \.\*\\)\\{0,1\\}\$/)\\..*$/' probe_anchor
+m "state_of stops stripping the carriage return" 's/ | tr -d [^ ]*)"$/)"/' probe_cr
+m "the Stale line always uses the algorithm text" 's/^    mark gate-verdict "$verdict" "$add"/    add="**Stale:** this verdict was recorded by fingerprint algorithm x, which this script no longer computes; re-run \/gate-ticket $ISSUE before acting on it."; mark gate-verdict "$verdict" "$add"/' probe_editline
+m "the Stale line never uses the algorithm text" 's/^      \*"(fingerprint "\*", now "\*")")/      "never")/' probe_staleline
+m "the algorithm text keeps the trailing now clause" 's/old="${old%%,\*}"/:/' probe_staleline
+m "the tag is cut at the first (fingerprint, not the last" 's/old="${st##\*(fingerprint }"/old="${st#*\\(fingerprint }"/' probe_headtag
 # A probe that regresses to any-non-zero would count a crash as a kill: install a crashing script
 # directly (not through m, which reports a survivor as a failure by design) and demand a 0.
 { sed -n 1p "$REAL"; echo 'echo "gate-status: boom" >&2; exit 1'; sed 1d "$REAL"; } > "$T/gate-status.sh"
