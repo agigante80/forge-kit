@@ -11,6 +11,11 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **Host-divergent conditions in ticket-standards rule 1** (#255, doc-rules-version 17 to 18).
+  A condition whose behaviour differs by forge host is one independent condition per branch, each
+  with its own positive and its own failure negative; a pure wire-form divergence takes the shared
+  write failure as that host's branch reports it, and the value never sent goes in the Positive's
+  Then. Worked example: `forge_issue_milestone`. `template-version` is unchanged.
 - **`roadmap_set_prose ""` is a fixed point** (#270, roadmap-lib v6). Empty prose used to emit a
   leading blank, an empty prose line and a trailing blank, so a keyed-only phase block gained blank
   lines on every call and the no-op short-circuit never fired. Empty prose now has one canonical
