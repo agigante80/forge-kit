@@ -12,7 +12,8 @@ measured agents read and hint at P3.
 
 `server_fixed.py` is the same service with the three planted issues fixed. Besides those fixes
 (including the `hmac` and `os` imports for P3), only its module docstring differs.
-It keeps, deliberately, every weakness that is not planted: no `Host` check and no rate limit.
+It keeps, deliberately, the weaknesses that are not planted, for example no `Host` check,
+no rate limit and plaintext token storage.
 
 ## The planted issues
 

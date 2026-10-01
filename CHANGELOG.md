@@ -11,6 +11,12 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **The tier-probe fixture no longer overclaims** (#318, fixture files only, no component or
+  plugin version change). `server_fixed.py`'s docstring said "nothing else changed", which was
+  false (the fix also adds the `hmac` and `os` imports); it now says "see README for what
+  differs". The fixture README's sentence on the unplanted weaknesses read as a complete list
+  while omitting plaintext token storage; it now says "for example" and names it. `server.py`,
+  the file the measured agents read, is byte-identical.
 - **A dry run of check-phases.sh and reassess-phases.sh now reads the real host** (#306,
   check-phases v6, reassess-phases v2, roadmap-phases v11). Both
   scope `FORGE_DRY_RUN=0` to each list read, as #269 did for sync-phases.sh, because forge-lib

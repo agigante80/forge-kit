@@ -1,4 +1,4 @@
-"""Order lookup service for a local dashboard. Loopback only. P1 to P3 fixed; nothing else changed."""
+"""Order lookup service for a local dashboard. Loopback only. P1 to P3 fixed; see README for what differs."""
 import hmac
 import json
 import os
