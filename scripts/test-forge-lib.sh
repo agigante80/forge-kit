@@ -2336,11 +2336,15 @@ dr_site() {
 # while an unwritable outfile exits 1 (the shell's redirection failure), the same as "no guard".
 DR_GUARD='"${FORGE_DRY_RUN:-0}" = 1'
 DR_HDR='^[A-Za-z_][A-Za-z0-9_]*\(\) *\{'
+# #380: the comment-line pattern is defined once, beside the other two, and read by dr_mutant, the
+# completeness scan and the reference count below, so a comment carrying the guard text is skipped by
+# all three alike.
+DR_CMT='^[[:space:]]*#'
 dr_mutant() {
-  DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" awk -v fn="$1" -v k="$2" '
-    BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"] }
+  DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" DR_CMT="$DR_CMT" awk -v fn="$1" -v k="$2" '
+    BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"]; cmt = ENVIRON["DR_CMT"] }
     $0 ~ hdr { inf = ($0 ~ "^" fn "\\(\\) *\\{") }
-    inf && !done && index($0, guard) {
+    inf && !done && $0 !~ cmt && index($0, guard) {
       if (k == "n") sub(/\[ "\$\{FORGE_DRY_RUN:-0\}" = 1 \]/, "[ -n \"${FORGE_DRY_RUN:-}\" ]")
       else sub(/= 1 \]/, "!= 0 ]")
       done = 1
@@ -2444,23 +2448,32 @@ unset MC_LIB
 # a second reference on a guard line makes the two differ and fails. An empty derived set also fails,
 # because a vacuous pass would hide a library whose guards all changed shape.
 DR_COVERED="$DR_SITES forge_milestone_close"
-DR_SCAN=$(DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" awk '
-  BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"] }
+# #380: a column-0 `}` closes the function (flush, then clear the name), so a guard under a header
+# DR_HDR does not recognise (`function f {`, `f () {`) or before the first header has no name and
+# prints ORPHAN <line> instead of being credited to the previous function or counted silently. g is
+# still incremented for an orphan, so the reference count agrees and exactly one failure fires.
+DR_SCAN=$(DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" DR_CMT="$DR_CMT" awk '
+  BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"]; cmt = ENVIRON["DR_CMT"] }
   $0 ~ hdr { flush(); name = $1; sub(/\(.*/, "", name); n = 0 }
-  $0 !~ /^[[:space:]]*#/ && index($0, guard) { g++; n++ }
+  /^}/ { flush(); name = "" }
+  $0 !~ cmt && index($0, guard) { g++; if (name == "") print "ORPHAN " NR; else n++ }
   function flush() { if (name != "" && n == 1) print name; else if (name != "" && n > 1) print "MULTI " name; n = 0 }
   END { flush(); print "COUNT " g + 0 }' "$LIB" 2>&1); DR_SCAN_RC=$?
 DR_G=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^COUNT //p')
 DR_MULTI=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^MULTI //p')
-DR_FNS=$(printf '%s\n' "$DR_SCAN" | grep -v -e '^COUNT ' -e '^MULTI ')
-DR_R=$(grep -v '^[[:space:]]*#' "$LIB" | grep -o FORGE_DRY_RUN | wc -l)
+DR_ORPHAN=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^ORPHAN //p')
+DR_FNS=$(printf '%s\n' "$DR_SCAN" | grep -v -e '^COUNT ' -e '^MULTI ' -e '^ORPHAN ')
+DR_R=$(grep -Ev "$DR_CMT" "$LIB" | grep -o FORGE_DRY_RUN | wc -l)
 DR_BAD=0
 if [ "$DR_SCAN_RC" != 0 ]; then
   bad "dry-run guard completeness: could not scan forge-lib.sh (awk exit $DR_SCAN_RC)"; DR_BAD=1
 else
-  if [ -z "$DR_FNS$DR_MULTI" ]; then
+  if [ -z "$DR_FNS$DR_MULTI$DR_ORPHAN" ]; then
     bad "dry-run guard completeness: no FORGE_DRY_RUN guard recognised in forge-lib.sh (derived set is empty)"; DR_BAD=1
   fi
+  for ln in $DR_ORPHAN; do
+    bad "dry-run guard completeness: FORGE_DRY_RUN guard at line $ln of forge-lib.sh is outside any recognised function header (ORPHAN)"; DR_BAD=1
+  done
   for fn in $DR_MULTI; do
     bad "dry-run guard completeness: $fn has more than one FORGE_DRY_RUN guard; dr_mutant mutates only the first"; DR_BAD=1
   done
@@ -2476,14 +2489,26 @@ else
 fi
 [ "$DR_BAD" = 0 ] && ok "dry-run guard completeness: every FORGE_DRY_RUN guard in forge-lib.sh is covered (DR_SITES plus the #319 forge_milestone_close ledger)"
 
-# #370: no two ok/FAIL rows share a text, so a failing row cannot be mistaken for its twin. ok() and
-# bad() append each text to $T/rows (not under $T/tmp, so the #291 check below still sees it empty),
-# which reaches rows printed from subshells that the pass/fail counters cannot. A repeat prints here.
-expect "no two ok/FAIL rows share a text" "" "$(sort "$T/rows" 2>&1 | uniq -d; [ "$(wc -l < "$T/rows" 2>/dev/null || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"
-
 # #291: every case removes the temp dirs it creates; the ls -A runs in the parent, after all cases.
 # 2>&1 so a vanished TMPDIR shows up as output and fails, rather than passing as empty.
 expect "the suite leaves its dedicated TMPDIR empty" "" "$(ls -A "$T/tmp" 2>&1)"
+
+# #380: bad()'s recorder half. In a green run bad() is never called, so dropping its printf alone
+# would pass. Call it in a command substitution (a subshell, so the real fail counter stays 0) on a
+# unique probe text and look that text up in the recorder. The probe line is one the counters never
+# saw, which the row-count check below tolerates (it fails only on FEWER rows than the counters).
+probe=$(bad "bad() recorder probe (#380)")
+if grep -qxF -- "bad() recorder probe (#380)" "$T/rows"; then ok "bad() records its text in the row recorder"; else bad "bad() records its text in the row recorder"; fi
+
+# #370: no two ok/FAIL rows share a text, so a failing row cannot be mistaken for its twin. ok() and
+# bad() append each text to $T/rows (not under $T/tmp, so the #291 check above still sees it empty),
+# which reaches rows printed from subshells that the pass/fail counters cannot. A repeat prints here.
+# #380: this row runs LAST so it also covers the TMPDIR-empty row's text. expect evaluates its $(...)
+# before ok()/bad() records the row's own text, so the own text is checked by a literal grep -cxF
+# against what earlier rows recorded. The redirection order in wc is deliberate: 2>/dev/null must
+# come BEFORE < or the open failure of a missing recorder reaches the terminal.
+UQ_TEXT="no two ok/FAIL rows share a text"
+expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"
 
 echo ""
 echo "forge-lib tests: $pass passed, $fail failed"
