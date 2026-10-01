@@ -12,6 +12,12 @@
 # Portability runs, by hand, because CI has neither: BASH_UNDER_TEST=/path/to/bash-3.2 runs the
 # script under that bash, and AWK_UNDER_TEST=mawk (or nawk, or `busybox awk` via a wrapper) puts
 # that awk first on PATH for every run.
+#
+# ESCAPE_WATCHDOG_SECS (positive integer from 1 to 60, seconds, default 10) is how long c_escape's
+# watchdog waits before it releases one extra opener of the FIFO sentinel. It also sets the bound
+# on every run of the script under test (that value plus 5 s), so a script that hangs on the
+# sentinel fails its case instead of hanging the suite. Any other non-empty value is refused up
+# front with exit 1.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -21,11 +27,34 @@ SHELL_UNDER_TEST="${BASH_UNDER_TEST:-bash}"
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
 
+# Validated before any case runs and before `run` uses it as a bound. A string pattern, not
+# arithmetic: bash rejects 08 as invalid octal. An empty or unset value means 10.
+ESCAPE_WATCHDOG_SECS=${ESCAPE_WATCHDOG_SECS:-10}
+case $ESCAPE_WATCHDOG_SECS in
+  [1-9]|[1-5][0-9]|60) ;;
+  *) echo "ESCAPE_WATCHDOG_SECS must be an integer from 1 to 60, got '$ESCAPE_WATCHDOG_SECS'" >&2; exit 1 ;;
+esac
+
 pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 
-W=$(mktemp -d); trap 'chmod -R u+rw "$W" 2>/dev/null; rm -rf "$W"' EXIT
+# c_escape records its writer and watchdog here so an interrupted run can kill them (a background
+# job of a non-interactive bash ignores SIGINT, and both block on a FIFO nobody will open). The
+# watchdog is its own process group, so killing the group takes its `sleep` child with it. KILL by
+# recorded PID only, never by pattern; c_escape clears both after its own cleanup so the trap never
+# signals a recycled PID.
+ESC_WPID=""; ESC_DPID=""
+cleanup_escape() {
+  [ -n "$ESC_WPID" ] && kill -KILL "$ESC_WPID" 2>/dev/null
+  [ -n "$ESC_DPID" ] && kill -KILL -- -"$ESC_DPID" 2>/dev/null
+  return 0
+}
+W=$(mktemp -d); trap 'cleanup_escape; chmod -R u+rw "$W" 2>/dev/null; rm -rf "$W"' EXIT
+# A trapped SIGINT runs once the foreground child returns, however that child exited. Without
+# this, a direct (not `$( )`) `bounded` call that exits 124 after its own INT trap counts as having
+# handled the signal, and bash carries on to the next case (#338 round 2).
+trap 'exit 130' INT
 export GIT_CEILING_DIRECTORIES="$W"
 
 AWKDIR=""
@@ -57,10 +86,36 @@ agents() { tput_ AGENTS.md "$1"; }
 nlines() { seq 1 "$1" | sed 's/.*/l/' > "$R/AGENTS.md"; git -C "$R" add AGENTS.md; }
 pkg() { tput_ package.json "{\"scripts\":{$1}}\n"; }
 
+# bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it. Defined before
+# `run`, which bounds the script under test with it. Derived from the helper that
+# scripts/test-forge-lib.sh and scripts/test-check-public-leaks.sh carry (stock macOS ships no GNU
+# `timeout`), but no longer the same: it adds an INT/TERM trap. With `set -m` the command and the
+# watcher sit in their own process groups, which a SIGINT to the suite's group does not reach once
+# `run` is bounded; without this trap the suite lingers until the bound expires with processes
+# left behind. The trap stops both groups, then re-raises SIGINT on the suite ($$ is the suite's
+# PID even in this subshell), whose own INT trap (next to the EXIT trap) then exits 130.
+# WHY TERM FOR THE COMMAND AND NOT KILL: the script under test (and a child suite) removes its
+# `mktemp -d` directory from an EXIT trap, and SIGKILL skips every trap, so killing the command's
+# group with KILL leaks a tmp.* directory into TMPDIR on each interrupt. TERM lets that trap run;
+# the wait then reaps it, so the suite exits only once the cleanup is done. The watcher only
+# sleeps, so it takes KILL. The bound-expiry path above already sends TERM (a plain `kill`), for
+# the same reason. Do not turn either into KILL.
+bounded() {
+  local secs="$1"; shift
+  ( set -m
+    "$@" & pid=$!
+    ( sleep "$secs"; kill -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+    set +m
+    trap 'kill -KILL -- -"$w" 2>/dev/null; kill -TERM -- -"$pid" 2>/dev/null; wait "$pid" 2>/dev/null; trap - INT TERM; kill -INT $$' INT TERM
+    wait "$pid" 2>/dev/null; rc=$?
+    kill -- -"$w" 2>/dev/null
+    [ "$rc" -ge 128 ] && rc=124; exit "$rc" )
+}
+
 OUT=""; ERR=""; RC=0
 run() {
   local p="$PATH"; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
-  OUT=$(cd "$R" && PATH="$p" "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
+  OUT=$(cd "$R" && PATH="$p" bounded $((ESCAPE_WATCHDOG_SECS + 5)) "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
   ERR=$(cat "$W/err")
 }
 run_nojq() {
@@ -184,29 +239,18 @@ c_link_misc() { new; tput_ docs/X.md 'x\n'; tput_ 'docs/a b.md' 'x\n'
 # A script that opens the path TWICE would block its second open forever and hang `run`, so a
 # watchdog releases that opener after a bound; the probe then finds no writer and fails the case
 # instead of hanging the suite. The sentinel is removed before mkfifo because this case runs twice
-# (shipped script, then mutant) in one $W. A TMPDIR without FIFO support fails mkfifo, and the case
+# (shipped script, then mutant) in one $W. The watchdog cannot release a third opener or a
+# write-open, so `run` also bounds the script under test (ESCAPE_WATCHDOG_SECS + 5 s, see
+# `bounded`): a hang is killed, RC becomes 124 and the case fails by name. A TMPDIR without FIFO support fails mkfifo, and the case
 # fails loudly with it.
-bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it.
-  # The same helper as scripts/test-forge-lib.sh and scripts/test-check-public-leaks.sh carry,
-  # copied for the reason they give: stock macOS ships no GNU `timeout`.
-  local secs="$1"; shift
-  ( set -m
-    "$@" & pid=$!
-    ( sleep "$secs"; kill -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
-    set +m
-    wait "$pid" 2>/dev/null; rc=$?
-    kill -- -"$w" 2>/dev/null
-    [ "$rc" -ge 128 ] && rc=124; exit "$rc" )
-}
-ESCAPE_WATCHDOG_SECS=${ESCAPE_WATCHDOG_SECS:-10}
 c_escape() { new; agents 'See [s](../sentinel) and [h](../../etc/hosts) and [g](docs/guide.md).\n'; tput_ docs/guide.md 'x\n'
   rm -f "$W/sentinel"; mkfifo "$W/sentinel" || return 1
-  { printf 'secret\n' > "$W/sentinel"; } & local wpid=$!
-  { sleep "$ESCAPE_WATCHDOG_SECS"; printf 'x\n' > "$W/sentinel"; } >/dev/null 2>&1 & local dpid=$!
+  { printf 'secret\n' > "$W/sentinel"; } & ESC_WPID=$!
+  ESC_DPID=$( set -m; { sleep "$ESCAPE_WATCHDOG_SECS"; printf 'x\n' > "$W/sentinel"; } >/dev/null 2>&1 & echo $! )
   run
-  { pkill -P "$dpid"; kill "$dpid"; wait "$dpid"; } 2>/dev/null
+  kill -KILL -- -"$ESC_DPID" 2>/dev/null; ESC_DPID=""
   local probe=0; bounded 2 cat "$W/sentinel" >/dev/null 2>&1 && probe=1
-  { kill "$wpid"; wait "$wpid"; } 2>/dev/null
+  { kill -KILL "$ESC_WPID"; wait "$ESC_WPID"; } 2>/dev/null; ESC_WPID=""
   [ "$probe" = 1 ] && rc_is 1 && row fail link "../sentinel: escapes the repository" \
     && row fail link "../../etc/hosts: escapes" && row pass link "docs/guide.md" && none secret; }
 c_ref_title() { new; tput_ docs/guide.md 'x\n'; agents '[g]: docs/guide.md "Guide"\n'; run
@@ -768,6 +812,23 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   mutant "a fence closed by a blank line" c_fence_unclosed '    code(line, 1); next' '    if (trim(line) == "") { infence = 0; next }
     code(line, 1); next'
   mutant "an escaping link read from disk" c_escape 'row fail link "$loc" "$a: escapes the repository"' 'row fail link "$loc" "$a: escapes the repository"; cat "${dir:-.}/$a" >/dev/null 2>&1'
+  # #338. The hang shapes the watchdog cannot release: only the bound in `run` kills them, so each
+  # also asserts RC 124 (it dies on the bound, not for an unrelated reason). They run at a watchdog
+  # of 3 s, set by plain assignment and restored after: a prefix on the call would expand the sleep
+  # below with the old value, because bash expands arguments before a prefix assignment applies.
+  # The sleep is expanded by the suite, never left as $((...)) in the mutant text, which would die
+  # at once with "unbound variable" under the script's `set -u`.
+  ESC_SAVED=$ESCAPE_WATCHDOG_SECS; ESCAPE_WATCHDOG_SECS=3
+  ESC_ROW='row fail link "$loc" "$a: escapes the repository"'
+  mutant "an escaping link opened three times" c_escape "$ESC_ROW" "$ESC_ROW"'; cat "${dir:-.}/$a" >/dev/null 2>&1; cat "${dir:-.}/$a" >/dev/null 2>&1; cat "${dir:-.}/$a" >/dev/null 2>&1'
+  [ "$RC" = 124 ] && ok "the three-open mutant was killed by the run bound (RC 124)" || bad "the three-open mutant was killed by the run bound (RC $RC)"
+  mutant "an escaping link opened for writing" c_escape "$ESC_ROW" "$ESC_ROW"'; : > "${dir:-.}/$a" 2>/dev/null'
+  [ "$RC" = 124 ] && ok "the write-open mutant was killed by the run bound (RC 124)" || bad "the write-open mutant was killed by the run bound (RC $RC)"
+  mutant "an escaping link read twice after the watchdog" c_escape "$ESC_ROW" "$ESC_ROW"'; sleep '"$((ESCAPE_WATCHDOG_SECS + 2))"'; cat "${dir:-.}/$a" >/dev/null 2>&1; cat "${dir:-.}/$a" >/dev/null 2>&1'
+  [ "$RC" = 124 ] && ok "the read-twice mutant was killed by the run bound (RC 124)" || bad "the read-twice mutant was killed by the run bound (RC $RC)"
+  # Control: one read after the sleep. It sleeps at two links, so it dies through the probe or the bound.
+  mutant "an escaping link read late" c_escape "$ESC_ROW" "$ESC_ROW"'; sleep '"$((ESCAPE_WATCHDOG_SECS + 2))"'; cat "${dir:-.}/$a" >/dev/null 2>&1'
+  ESCAPE_WATCHDOG_SECS=$ESC_SAVED
   mutant "an assignment prefix skipped silently" c_env_prefix '+ 2 * (env || carry)' '+ 0 * (env || carry)'
   # #326. Each names the case written to kill it.
   mutant "trim_punct trims nothing" c_pm_trim_site 'trim_punct() { TP=$1; ' 'trim_punct() { TP=$1; return; '
@@ -870,6 +931,28 @@ for pat in ',,}' '^^}' 'readlink -f' 'mapfile' 'readarray' 'declare -A' 'local -
   code_ | grep -qF -- "$pat" && bad "avoids $pat" || ok "avoids $pat"
 done
 grep -q 'check-contributor-docs-version: [0-9]' "$SCRIPT" && ok "carries its version marker" || bad "carries its version marker"
+
+# ---------------------------------------------------------------- ESCAPE_WATCHDOG_SECS (#338)
+# Last on purpose: a child suite given a VALID value is cut off after 2 s, long before it reaches
+# this section, so the driver cannot recurse. A refused value exits at once, before any case, and
+# its child also runs under `bounded 5`, so a validator that wrongly accepted the value would fail
+# this check by name after 5 s instead of running the whole suite and recursing.
+echo "== ESCAPE_WATCHDOG_SECS =="
+for v in abc 0 -1 1.5 08 61; do
+  out=$(ESCAPE_WATCHDOG_SECS=$v bounded 5 bash "$0" 2>"$W/wd.err"); wrc=$?
+  if [ "$wrc" = 1 ] && grep -qF "ESCAPE_WATCHDOG_SECS must be an integer from 1 to 60, got '$v'" "$W/wd.err" \
+     && ! grep -q 'ok:' <<<"$out"; then ok "ESCAPE_WATCHDOG_SECS=$v is refused before any case"
+  else bad "ESCAPE_WATCHDOG_SECS=$v is refused before any case (rc $wrc)"; fi
+done
+for v in 5 60; do
+  ESCAPE_WATCHDOG_SECS=$v bounded 2 bash "$0" >"$W/wd.out" 2>"$W/wd.err"
+  if grep -qF '== required and size ==' "$W/wd.out" && ! grep -q 'must be an integer' "$W/wd.err"; then
+    ok "ESCAPE_WATCHDOG_SECS=$v is accepted"
+  else bad "ESCAPE_WATCHDOG_SECS=$v is accepted"; fi
+done
+if sed -n 1,25p "$0" | grep -q 'ESCAPE_WATCHDOG_SECS' && sed -n 1,25p "$0" | grep -q '1 to 60' \
+   && sed -n 1,25p "$0" | grep -q 'default 10'; then ok "the header names ESCAPE_WATCHDOG_SECS, its range and its default"
+else bad "the header names ESCAPE_WATCHDOG_SECS, its range and its default"; fi
 
 echo ""
 echo "passed: $pass  failed: $fail"
