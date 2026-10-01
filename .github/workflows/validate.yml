@@ -346,6 +346,11 @@ jobs:
           AWK_UNDER_TEST: mawk
         run: bash scripts/test-check-contributor-docs.sh
 
+      # Issue #394: /phase review's step 1, 4 and 7 snippets, extracted from the command and run in
+      # throwaway repositories, so overlapping runs cannot print a false second-run proof again.
+      - name: Phase review snapshot tests
+        run: bash scripts/test-phase-review-snapshot.sh
+
       # Issue #278: size-review.sh decides whether a /full-review round skips the security phase, so
       # a wrong answer in one direction reviews a sensitive change without it.
       - name: Review-sizing tests

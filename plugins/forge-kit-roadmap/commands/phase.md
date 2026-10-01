@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, reassess, close or triage a
 argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 12 -->
+<!-- phase-version: 13 -->
 
 # /phase
 
@@ -13,12 +13,11 @@ acting, and when a guard refuses something, quote its message rather than paraph
 
 ## Resolving the scripts
 
-**Never use `$CLAUDE_PLUGIN_ROOT`.** It is exported to hook processes, not to an agent's Bash, so it
-expands to nothing here and a leading-slash path silently resolves somewhere else. Resolve by
+**Never use `$CLAUDE_PLUGIN_ROOT`.** It is exported to hook processes, not to an agent's Bash, so
+here it expands to nothing. Resolve by
 search, in this order: the project's own copy; a forge-kit checkout's tree, which is newer than
 anything installed; then the highest `<name>-version` marker across installed copies, lexically
-last path as the tie-break. The plugin cache holds versions side by side and `find` lists them in arbitrary order,
-so a first hit was a stale copy three runs in four (#189). Print the pick.
+last path as the tie-break. Print the pick.
 
 ```bash
 resolve() {  # resolve <asset.sh>
@@ -30,8 +29,7 @@ resolve() {  # resolve <asset.sh>
 CP=$(resolve check-phases.sh); SP=$(resolve sync-phases.sh); echo "using ${CP:-none}, ${SP:-none}" | sed "s|$HOME|~|g"
 ```
 
-If either is missing, say so and stop. Do not reimplement the checks in prose: the whole point of
-the scripts is that prose cannot be tested.
+If either is missing, say so and stop. Do not reimplement the checks in prose.
 
 ## `/phase status`
 
@@ -51,15 +49,14 @@ Writes or reviews a phase's plan. Run this before moving a phase to `open`, and 
 
 **Read both inputs.** The roadmap prose saying why the phase exists, AND the tickets already sitting
 in its milestone. A `planned` phase is a bucket, and what has accumulated in it is the evidence the
-plan is written from, not a distraction from the original intent.
+plan is written from.
 
 Write the five sections the skill defines: Goal, Done looks like, Fails if, Expected work, Out of
 scope.
 
 **Fails if is a premortem, not a risk list.** Put the question to the user in that form: *it is the
-end of this phase and it failed badly; what happened?* Imagining a failure that has already
-happened, rather than one that might, surfaces more causes and licenses doubts people will not
-otherwise raise. Write their answers, not a generic risk register.
+end of this phase and it failed badly; what happened?* A failure imagined as past surfaces more
+causes. Write their answers, not a generic risk register.
 
 When the plan is written and the user agrees, set the phase to `open` in `docs/roadmap.md`. Refuse
 if another phase is already `open`: finish or re-shape that one first.
@@ -86,8 +83,7 @@ Record which of the three outcomes it was, in the roadmap prose:
 - **re-shaped**, some landed and the rest moved, with the remainder named.
 - **abandoned**, the phase was a wrong turn, and the roadmap says why.
 
-**Abandoned is the one people skip.** Write it down: a phase deleted without a record looks, six
-months later, like a phase nobody considered.
+**Abandoned is the one people skip.** Write it down.
 
 Finish by running `bash "$CP"` and reporting the result. If it refuses, the phase is not closed.
 
@@ -121,15 +117,19 @@ The two libraries are SOURCED, not run, and the version that prints must be 25 o
    git dir (a shell variable does not survive the tool calls a run spans) holding one
    `<hash>  <path>` line per path from `git hash-object -- "<path>"`, or `absent  <path>` when the
    path is missing (`git hash-object` exits 128). Hashes, because `git status --porcelain`
-   reads ` M <path>` both before and after a second write. Overlapping runs share the file; the
-   later wins.
+   reads ` M <path>` both before and after a second write. Each run owns the file named by the
+   `run id: <id>` it prints; carry `<id>` into steps 4 and 7 as a literal, like `ACTS=N`. A
+   shared file let overlapping runs clobber each other's baseline into a false `held` (#394);
+   refusing a young file would still share the name. Files two or more days old
+   are orphans of aborted runs and are deleted.
 
 ```bash
-( cd "$(git rev-parse --show-toplevel)" &&
-  SNAP="$(git rev-parse --git-path phase-review.snapshot)" &&
+( cd "$(git rev-parse --show-toplevel)" && G="$(git rev-parse --git-path phase-review)" &&
+  { find "$(dirname "$G")" -maxdepth 1 -name 'phase-review.*' -mtime +1 -delete 2>/dev/null || true; } &&
+  SNAP="$(mktemp "$G.XXXXXX")" &&
   printf '%s\n' docs/roadmap.md "<plan>" "<doc>"... | LC_ALL=C sort | while IFS= read -r p; do
     if [ -e "$p" ]; then printf '%s  %s\n' "$(git hash-object -- "$p")" "$p"; else printf 'absent  %s\n' "$p"; fi
-  done > "$SNAP" )
+  done > "$SNAP" && echo "run id: ${SNAP##*.}" )
 ```
 2. Read the plan, the phase's roadmap prose, and EVERY ticket in the milestone, open and closed,
    including its comments through `forge_issue_comments`, excluding any comment whose first line is
@@ -143,7 +143,8 @@ The two libraries are SOURCED, not run, and the version that prints must be 25 o
    HEAD:<doc>` succeeds, read from the snapshot file, not memory:
 
 ```bash
-SNAP="$(git rev-parse --git-path phase-review.snapshot)"
+RUN=ID; case "$RUN" in ''|*[!A-Za-z0-9]*) RUN=none;; esac
+SNAP="$(git rev-parse --git-path "phase-review.$RUN")"
 if [ ! -f "$SNAP" ]; then echo "no snapshot from step 1"; else
   D=$(sed 's/^[^ ]*  //' "$SNAP" | grep -vxF -e docs/roadmap.md -e "<plan>" | paste -sd, -)
   echo "${D:-no docs beyond the roadmap and plan}"; fi
@@ -159,7 +160,8 @@ if [ ! -f "$SNAP" ]; then echo "no snapshot from step 1"; else
 
 ```bash
 ( cd "$(git rev-parse --show-toplevel)" &&
-  SNAP="$(git rev-parse --git-path phase-review.snapshot)" &&
+  RUN=ID && case "$RUN" in ''|*[!A-Za-z0-9]*) RUN=none;; esac &&
+  SNAP="$(git rev-parse --git-path "phase-review.$RUN")" &&
   ACTS=N &&
   if [ ! -f "$SNAP" ]; then echo "second-run proof: unproven, no snapshot from step 1"
   elif case "$ACTS" in ''|*[!0-9]*) true;; *) false;; esac; then echo "second-run proof: unproven, ACTS not set"
@@ -182,9 +184,8 @@ if [ ! -f "$SNAP" ]; then echo "no snapshot from step 1"; else
 
 ## `/phase reassess`
 
-Reshapes the roadmap itself: reorder, split, merge, rename, refocus, delete or insert a phase. One
-level above `/phase review`, which asks whether a single phase is still aligned; this asks whether
-the plan of phases is still the right one. The `roadmap-phases` skill is canonical for every rule
+Reshapes the roadmap itself: reorder, split, merge, rename, refocus, delete or insert a phase: the
+plan of phases, where `/phase review` judges one phase. The `roadmap-phases` skill is canonical for every rule
 and refusal; this is the mechanism only.
 
 Resolve the script the same way:
