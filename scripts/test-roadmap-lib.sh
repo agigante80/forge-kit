@@ -8,8 +8,8 @@
 #
 # Throwaway files only; nothing here touches a forge, and the library has no host dependency.
 #
-# MUTANTS KILLED, thirty-one run by hand on 2026-09-23 and a thirty-second on 2026-09-24 (#266 L3),
-# each shown to fail this suite.
+# MUTANTS KILLED, thirty-nine in all: thirty-one run by hand on 2026-09-23, a thirty-second on
+# 2026-09-24 (#266 L3), six from #270 and one from #316, each shown to fail this suite.
 # From the first battery: the parse-back comparison removed; the one-open rule removed from both
 # sites; the state and the plan ambiguity checks removed; the prose section guard removed, and
 # separately its first-line arm; the --milestone-empty assertion no longer required; the writer's
@@ -29,7 +29,9 @@
 # empty prose; set_prose emitting no separator before the next heading for empty prose; insert_at's
 # END branch still emitting the blank lines for empty prose; insert_at's mid-file path still
 # emitting them; insert_at left untouched while set_prose is fixed; and set_prose normalising
-# nothing (a missing final newline preserved by a printf without its newline).
+# nothing (a missing final newline preserved by a printf without its newline). From #316: set_prose's
+# emit made `printf "\n%s\n\n\n"` (two blanks before the next heading), which test 8 now kills
+# directly with a whole-file cmp; it had been dying only through other cases.
 #
 # FIVE OF THOSE ARE THIS SUITE'S OWN HISTORY rather than hypotheticals, and they are the reason the
 # ledger is worth keeping. A first battery left three mutants alive: one ambiguity case had been
@@ -303,7 +305,7 @@ echo "== empty prose is a fixed point, and one shape across both writers (#270) 
 # fixed point on the second), matching every other awk writer here. Every case asserts BYTES (cmp)
 # and the inode, never the rc alone: the pre-existing arity case checked only rc 0 for set_prose "",
 # which is how this defect passed. Test 3 and the no-op clause of 4 below also pass on v5: they
-# guard the decisions, they do not pin the fix. Tests 5, 6 and 7 fail on v5.
+# guard the decisions, they do not pin the fix. Tests 1, 2, 4's shape clause, and 5 to 7 fail on v5.
 keyed_mid() {  # Beta is keyed-only, one blank, then the next heading
   printf '%s\n' '# r' '' '## Phase: Alpha' 'state: done' 'plan: docs/plans/alpha.md' '' 'Alpha prose.' '' \
     '## Phase: Beta' 'state: planned' 'plan: docs/plans/beta.md' '' '## Phase: Gamma' 'state: backlog' \
@@ -352,9 +354,10 @@ expect "4. set_prose \"\" on the insert_at-created block returns 0" 0 "$RC"
 same "4." "$T/e4.md" "$T/e4b.md" "$i4"
 # 5. insert_at --end, empty prose, a fixture with NO trailing section and a NON-BLANK last line.
 # The standard fixture() ends in a `## Notes` section, so --end never reaches the END branch there.
-# The first assertion is the one that pins the fix: remove strips the blanks before an EOF block, so
-# the round trip alone passes on v5. The restore needs a non-blank last line: remove strips the
-# separator blank before an EOF block, so a file ending in a blank line would not come back.
+# The cmp against e5want.md is the assertion that pins the fix: remove strips the blanks before an
+# EOF block, so the round trip alone passes on v5. The restore needs a non-blank last line: remove
+# strips the separator blank before an EOF block, so a file ending in a blank line would not come
+# back.
 printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$T/e5.md"
 cp "$T/e5.md" "$T/e5orig.md"
 run roadmap_insert_at "$T/e5.md" --end Zed planned "" ""
@@ -371,18 +374,33 @@ for n in 1 2; do
   i=0; while [ "$i" -lt "$n" ]; do printf '\n' >> "$T/e6.md"; i=$((i + 1)); done
   run roadmap_set_prose "$T/e6.md" Gamma ""
   expect "6. $n trailing blank(s): the first set_prose \"\" returns 0" 0 "$RC"
-  if cmp -s "$T/e6.md" "$T/e6canon.md"; then ok "6. and the file now ends with the plan line and one newline"; else bad "6. $n trailing blank(s) were not normalised to the canonical shape"; fi
+  if cmp -s "$T/e6.md" "$T/e6canon.md"; then ok "6. $n trailing blank(s): and the file now ends with the plan line and one newline"; else bad "6. $n trailing blank(s) were not normalised to the canonical shape"; fi
   i6="$(inode "$T/e6.md")"; cp "$T/e6.md" "$T/e6b.md"
   run roadmap_set_prose "$T/e6.md" Gamma ""
   same "6. $n trailing blank(s), second call" "$T/e6.md" "$T/e6b.md" "$i6"
 done
 # 7. empty prose over existing prose is a real edit, to the canonical shape, mid-file and at EOF
+# BSD/macOS paste REQUIRES a file operand and GNU paste defaults to stdin, so a bare `paste -sd'|'`
+# passes on the CI runner and fails on a contributor's Mac. A shim on PATH that refuses a missing
+# operand makes that checkable on Linux: the pipeline below runs under it, and the shim proves it
+# bites by refusing the operand-less form first.
+mkdir "$T/shim"; REALPASTE="$(command -v paste)"
+cat > "$T/shim/paste" <<SHIM
+#!/bin/sh
+have=0
+for a in "\$@"; do case "\$a" in -) have=1 ;; -?*) ;; *) have=1 ;; esac; done
+[ "\$have" -eq 1 ] || { echo "usage: paste [-s] [-d list] file ..." >&2; exit 1; }
+exec "$REALPASTE" "\$@"
+SHIM
+chmod +x "$T/shim/paste"
+printf 'a\nb\n' | PATH="$T/shim:$PATH" paste -sd'|' >/dev/null 2>&1; shimrc=$?
+expect "7. the paste shim refuses a missing operand, as BSD paste does" 1 "$shimrc"
 fixture "$T/e7.md"
 run roadmap_set_prose "$T/e7.md" Beta ""
 expect "7. set_prose \"\" over existing prose mid-file returns 0" 0 "$RC"
 expect "7. and Beta is the keyed lines, one blank, then the next heading" \
   "## Phase: Beta|state: planned|plan: docs/plans/beta.md||## Phase: Gamma" \
-  "$(sed -n '/^## Phase: Beta/,/^## Phase: Gamma/p' "$T/e7.md" | paste -sd'|')"
+  "$(sed -n '/^## Phase: Beta/,/^## Phase: Gamma/p' "$T/e7.md" | PATH="$T/shim:$PATH" paste -sd'|' -)"
 printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$T/e7b.md"
 printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' > "$T/e7bwant.md"
 run roadmap_set_prose "$T/e7b.md" Gamma ""
@@ -394,6 +412,12 @@ run roadmap_set_prose "$T/e8.md" Beta "Now it has prose."
 expect "8. non-empty prose on a keyed-only block returns 0" 0 "$RC"
 if cmp -s "$T/e8.md" "$T/e8b.md"; then bad "8. the file did not change"; else ok "8. and the bytes changed"; fi
 contains "Now it has prose." "$(cat "$T/e8.md")" "8. and the prose is present"
+# The whole file, so exactly one blank line sits between the prose and the next heading.
+printf '%s\n' '# r' '' '## Phase: Alpha' 'state: done' 'plan: docs/plans/alpha.md' '' 'Alpha prose.' '' \
+  '## Phase: Beta' 'state: planned' 'plan: docs/plans/beta.md' '' 'Now it has prose.' '' \
+  '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$T/e8want.md"
+if cmp -s "$T/e8.md" "$T/e8want.md"; then ok "8. and the whole file is the expected bytes: one blank after the prose, then the next heading"
+else bad "8. the file is not the expected bytes"; fi
 # 9. the section guard is untouched
 keyed_mid "$T/e9.md"; cp "$T/e9.md" "$T/e9b.md"
 run roadmap_set_prose "$T/e9.md" Beta $'x\n## y'
@@ -568,7 +592,11 @@ expect "no GNU readlink -f" 0 "$(grep -c 'readlink -f' "$LIB")"
 # banned, and a flat grep would fail the library for documenting its own rule.
 expect "no awk -v carries anything but a number, a literal key or OFS" 0 \
   "$(grep -v '^[[:space:]]*#' "$LIB" | grep -oE '\-v [A-Za-z_]+=' | sed 's/-v //; s/=//' | grep -vxE 's|e|k|at|OFS' | grep -c .)"
-expect "and every primitive that writes prose reads it from ENVIRON" 3 "$(grep -c 'ENVIRON\["RM_PROSE"\]' "$LIB")"
+# USES per primitive, not lines: the old line count (3) stayed 3 when a read moved off ENVIRON on a
+# line that carries two. set_prose has four uses on two lines, insert_at two on one.
+prose_uses() { sed -n "/^$1()/,/^}/p" "$LIB" | grep -o 'ENVIRON\["RM_PROSE"\]' | wc -l | tr -d ' '; }
+expect "roadmap_set_prose reads its prose through ENVIRON, four uses" 4 "$(prose_uses roadmap_set_prose)"
+expect "roadmap_insert_at reads its prose through ENVIRON, two uses" 2 "$(prose_uses roadmap_insert_at)"
 
 echo ""
 echo "roadmap-lib tests: $pass passed, $fail failed"

@@ -11,6 +11,16 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **test-roadmap-lib.sh pins test 8's whole file and runs test 7 under a BSD-style paste shim**
+  (#316, test-only, no component or plugin version change). Test 8 now `cmp`s the whole file, so
+  `set_prose`'s emit of two blanks before the next heading dies on `FAIL: 8.` directly; test 7 runs
+  `paste -sd'|' -` under a PATH shim that refuses a missing operand like BSD paste, so the
+  portability defect is checkable on Linux; test 6's pass label carries `$n`; the ENVIRON assertion
+  counts uses per primitive (four in `roadmap_set_prose`, two in `roadmap_insert_at`) rather than
+  lines, with the count piped through `tr -d ' '` for BSD `wc`. Two comments that misstated which
+  tests fail on v5 and which assertion pins test 5's fix are corrected, and the mutant ledger's
+  headline count is now thirty-nine. The suite total goes from 166 to 169. Passes under gawk,
+  mawk and busybox awk.
 - **`closing-sessions` `memory.py` refuses a read-only `MEMORY.md` before it changes anything,
   and the strict-decode switch is pinned from both sides** (#329, closing-sessions v5,
   forge-kit-governance 0.27.1). With the index at mode 0444, `write` left a memory file with no
