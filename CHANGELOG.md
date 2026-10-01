@@ -11,6 +11,20 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **contributor-docs refers a row rescoped by an exported npm_config_ variable or a `$(...)`
+  assignment value** (#296, check-contributor-docs v3, contributor-docs v3). An `export`,
+  `declare -x` or `typeset -x` of a `NAME=value` whose NAME starts with `npm_config_` (any case, any
+  key, an empty value too) now refers every later runner of the same fenced block or code-span
+  paragraph, and a later segment of its own line, folded into the existing assignment bit so
+  `why_cd` and `judge_script` are untouched. `export FOO=1` and `export NODE_ENV=production` still
+  fail. A `NAME=$(...)` value with non-nesting parentheses is rewritten to a plain assignment at the
+  start of a word before the split, so `npm_config_workspace=$(echo client) npm run dev` refers
+  while `echo $(date); npm run nope` and `--workspace=$(...)` keep their rows. Stated limits: a
+  prose export does not carry into a following fence, plus nested-paren and backtick values,
+  `pnpm_config_*`, `JUST_*`, `unset`, `set -a`, `env VAR=... cmd` and a tracked `.npmrc` (#339). The
+  suite goes from 157 to 206 tests (25 cases and 24 mutants, including `declare -x`, `typeset -x`
+  and a `pwned` non-execution guard); the `c_env_prefix` and `c_cd_other_fence` mutant anchors are
+  rewritten. Passes under gawk and mawk.
 - **`test-forge-lib.sh` pins the flag-off side of eight more `FORGE_DRY_RUN` guards** (#334, `scripts/test-forge-lib.sh`, test-only, no `forge-lib.sh` change). The library's contract is that only the exact value 1 is a dry run, but at HEAD 17 of the 18 guard mutants (`[ -n "${FORGE_DRY_RUN:-}" ]` and `[ "${FORGE_DRY_RUN:-0}" != 0 ]`, nine guards) passed every assertion, so a caller that restored the flag to 0, as `sync-labels.sh` does, could have been turned into a silent no-op that returns 0. A table-driven section now drives `forge_api`, `forge_api_paginate`, `_forge_region_write`, `forge_body_compose_preserving`, `forge_issue_edit`, `forge_issue_list`, `forge_issue_label` and `forge_issue_milestone` under `0`, `true` and `1`, and an in-suite ledger rewrites each guard with a function-scoped `awk` on a scratch copy, proving the `-n` form dies at `0` and the `!= 0` form dies only at `true`. `forge_milestone_close` stays with #319. The stale "six sites" comment is corrected to nine guards. Suite: 279 tests before, 357 after.
 - **gate-status tags the fingerprint algorithm in the stamp, and two test probes stop counting crashes
   as kills** (#330, gate-status v4, forge-kit-governance 0.28.0). The stamp is now

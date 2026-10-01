@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 2 -->
+<!-- contributor-docs-version: 3 -->
 
 # Contributor docs
 
@@ -103,12 +103,19 @@ next command referred even when the root defines it**, because what then runs is
 script. Its scope is the fenced block, or for a code span the paragraph, so "Run `cd client`, then
 `npm run dev`." is referred and a `cd` in an earlier block reaches nothing. An assignment in front of the
 runner refers its own row the same way, since `npm_config_workspace=client npm run dev` runs a
-workspace's script.
+workspace's script, and so does an assignment whose value is a `$(...)` substitution (#296). An
+`export`, `declare -x` or `typeset -x` of an `npm_config_` variable (any case, any key, an empty
+value too, since referring is the safe side) refers every later runner of the same fenced block or
+code-span paragraph, and a later segment of its own line, never an earlier one. `export FOO=1` and
+`export NODE_ENV=production` rescope nothing and still fail.
 
 The limits, stated so they are not mistaken for coverage: spans and links are found within one
 line; indented code blocks are prose; the paragraph rule is order-dependent, and list items with
 no blank line between them form one paragraph; make's built-in implicit rules are not modelled; a
-percent-encoded non-ASCII target is referred. Workspaces are matched by `name` among tracked
+percent-encoded non-ASCII target is referred. An export in a prose code span does not carry into a
+following fence. Not modelled, so a false `fail` stays possible: nested-paren and backtick
+substitution values, `pnpm_config_*`, `JUST_JUSTFILE` and `JUST_WORKING_DIRECTORY`, `unset`,
+`set -a`, `env VAR=... cmd`, and a tracked `.npmrc` (#339). Workspaces are matched by `name` among tracked
 manifests, not against `package.json#workspaces` or `pnpm-workspace.yaml`, so a same-named manifest
 outside the workspace folders (a fixture or example package) can produce a false `fail` when it lacks
 the script, or a false `pass` when it defines one the real package lacks; two such manifests are

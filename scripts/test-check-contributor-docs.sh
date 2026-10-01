@@ -296,6 +296,98 @@ case_ c_env_prefix "an assignment before npm run refers the row"
 case_ c_env_bare "a bare npm run after a prompt still fails"
 
 
+# ---------------------------------------------------------------- #296: exports and substitutions
+# Every case here uses a root with no `dev` and no `nope`, so a `referred` row can only come from
+# the carry (a bare `npm run dev` would fail), and a `fail` row proves the carry did NOT apply.
+exp() { new; pkg '"x":"x"'; agents "$1"; run; }
+c_export_carry() { exp '```\nexport npm_config_workspace=client\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_other_neg() { exp '```\nexport FOO=1\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_export_gap() { exp '```\nexport npm_config_workspace=client\necho building\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev" && nostatus fail; }
+c_export_next_fence() { exp '```\nexport npm_config_workspace=client\n```\n\nthen\n\n```\nnpm run dev\n```\n'
+  rc_is 1 && row fail command "npm run dev: no such script"; }
+c_export_mixed() { exp '```\nexport NPM_Config_Workspace=client\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev" && nostatus fail; }
+c_export_node_env_neg() { exp '```\nexport NODE_ENV=production\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_export_loglevel() { exp '```\nexport npm_config_loglevel=warn\nnpm run nope\n```\n'
+  rc_is 0 && row referred command "npm run nope: an environment assignment" && nostatus fail; }
+c_export_name_neg() { exp '```\nexport MY_NPM_CONFIG_WORKSPACE=client\nnpm run dev\n```\n'
+  rc_is 1 && row fail command "npm run dev: no such script" && nocmd referred; }
+c_export_empty() { exp '```\nexport npm_config_workspace=\nnpm run nope\n```\n'
+  rc_is 0 && row referred command "npm run nope: an environment assignment" && nostatus fail; }
+c_export_span() { exp 'Run `export npm_config_workspace=client`, then `npm run dev`.\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_span_blank_neg() { exp 'Run `export npm_config_workspace=client`, then `npm run dev`.\n\nThen run `npm run dev`.\n'
+  rc_is 1 && row fail command "npm run dev: no such script" && [ "$(count fail command)" = 1 ]; }
+# The stated limit: a prose export does not reach a following fence. Pinned so it is not mistaken
+# for coverage and so a change to it is a decision.
+c_export_span_fence() { exp 'Run `export npm_config_workspace=client`.\n```\nnpm run dev\n```\n'
+  rc_is 1 && row fail command "npm run dev: no such script"; }
+c_export_andand() { exp '```\nexport npm_config_workspace=client && npm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev" && nostatus fail; }
+c_export_after_neg() { exp '```\nnpm run dev && export npm_config_workspace=client\n```\n'
+  rc_is 1 && row fail command "npm run dev: no such script"; }
+c_export_cd() { exp '```\ncd client\nexport npm_config_workspace=client\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: a directory change precedes it" && nostatus fail; }
+# Scenario 8's negative: with no cd, the reason names only the assignment.
+c_export_no_cd_reason() { exp '```\nexport npm_config_workspace=client\nnpm run nope\n```\n'
+  rc_is 0 && row referred command "npm run nope: an environment assignment precedes it" \
+    && none "a directory change" && nostatus fail; }
+c_export_declare() { exp '```\ndeclare -x npm_config_workspace=client\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+c_export_typeset() { exp '```\ntypeset -x npm_config_workspace=client\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment" && nostatus fail; }
+# declare without -x makes a shell variable that npm never sees.
+c_declare_plain_neg() { exp '```\ndeclare npm_config_workspace=client\nnpm run dev\n```\n'
+  rc_is 1 && row fail command "npm run dev: no such script"; }
+c_subst_value() { exp '```\nnpm_config_workspace=$(echo client) npm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_subst_other_neg() { exp '```\necho $(date); npm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_subst_after_neg() { exp '```\nnpm run nope $(echo x)\n```\n'
+  rc_is 1 && row fail command "npm run nope" && nocmd referred; }
+# The rewrite is anchored at the start of a word: a --workspace=$(...) flag value is not an
+# assignment and its row detail must stay as written.
+c_subst_flag_value() { exp '```\nnpm run dev --workspace=$(echo client)\n```\n'
+  rc_is 0 && row referred command "--workspace=$" && none "--workspace=X"; }
+# Doc text is read, never run: neither export nor value substitution may execute its body.
+c_pwned() { exp '```\nexport npm_config_workspace=$(touch pwned)\nnpm_config_workspace=$(touch pwned) npm run dev\n```\n'
+  [ ! -e "$R/pwned" ] && [ ! -e "$HERE/pwned" ] && rc_is 0 && row referred command "npm run dev" && nostatus fail; }
+# Malformed shapes give a row or none, never an awk error: exit 0 or 1, nothing on stderr.
+c_export_malformed() {
+  exp '```\nexport\nexport npm_config_workspace=$(echo\nexport npm_config_workspace=client\r\nnpm run dev\r\n```\n\n`export` and `x=$(`.\n'
+  { rc_is 0 || rc_is 1; } && [ -z "$ERR" ] && row referred command "npm run dev"; }
+
+echo "== #296 exports and substitutions =="
+case_ c_export_carry "an export of npm_config_workspace refers a later fence line"
+case_ c_export_other_neg "export FOO=1 rescopes nothing: the later runner still fails"
+case_ c_export_gap "the carry survives intervening lines of the fence"
+case_ c_export_next_fence "the carry does not reach the next fence"
+case_ c_export_mixed "the prefix matches in any case"
+case_ c_export_node_env_neg "export NODE_ENV=production still fails"
+case_ c_export_loglevel "any key under the prefix refers, naming the assignment"
+case_ c_export_name_neg "the prefix is anchored at the start of the name"
+case_ c_export_empty "an empty-valued export refers, deliberately"
+case_ c_export_span "an export in a code span refers a later span in its paragraph"
+case_ c_export_span_blank_neg "the paragraph carry ends at the blank line"
+case_ c_export_span_fence "a prose export does not carry into a following fence (stated limit)"
+case_ c_export_andand "an export refers a later segment of its own line"
+case_ c_export_after_neg "an export after the runner changes nothing"
+case_ c_export_cd "an export plus a cd keeps the directory-change reason"
+case_ c_export_no_cd_reason "an export with no cd names only the assignment"
+case_ c_export_declare "declare -x carries like export"
+case_ c_export_typeset "typeset -x carries like export"
+case_ c_declare_plain_neg "declare without -x exports nothing, so the runner still fails"
+case_ c_subst_value "an assignment value that is a substitution refers the row"
+case_ c_subst_other_neg "a substitution that is not an assignment value still fails"
+case_ c_subst_after_neg "a substitution argument after the runner still fails"
+case_ c_subst_flag_value "a flag value substitution is not rewritten"
+case_ c_pwned "a substitution body in the document is never executed"
+case_ c_export_malformed "bare, unterminated and CRLF shapes yield no awk error"
+
 # ---------------------------------------------------------------- #299: yarn and workspaces
 # mf <path> <name> <scripts-json>: write and track a workspace manifest.
 mf() { tput_ "$1" "{\"name\":\"$2\",\"scripts\":{$3}}\n"; }
@@ -512,17 +604,19 @@ case_ c_ea "ea508164 fails on test:unit, format and lint in .github/CONTRIBUTING
 case_ c_becf "becf395d exits 0 with its two PR-template links referred"
 
 # ---------------------------------------------------------------- mutants
-# mutant <label> <case> <old> <new>: the case must FAIL against the script with <old> replaced by
-# <new>. A replacement that matches nothing is itself a failure, so a refactor cannot quietly turn
+# mutant <label> <case> <old> <new> [<old2> <new2>]: the case must FAIL against the script with
+# <old> replaced by <new> (and <old2> by <new2>, for a defect that needs two edits). A replacement that matches nothing is itself a failure, so a refactor cannot quietly turn
 # a mutant into a no-op that "dies" for the wrong reason.
 M="$W/mutant.sh"
 mutant() {
-  if ! python3 - "$SCRIPT" "$M" "$3" "$4" <<'EOF'
+  if ! python3 - "$SCRIPT" "$M" "${@:3}" <<'EOF'
 import sys
-src, dst, old, new = sys.argv[1:]
+src, dst, *pairs = sys.argv[1:]
 s = open(src).read()
-if old not in s: sys.exit(1)
-open(dst, "w").write(s.replace(old, new))
+for old, new in zip(pairs[0::2], pairs[1::2]):
+    if old not in s: sys.exit(1)
+    s = s.replace(old, new)
+open(dst, "w").write(s)
 EOF
   then bad "mutant '$1': its anchor no longer matches the script"; return; fi
   S="$M"; if "$2"; then bad "mutant '$1' survived $2"; else ok "mutant '$1' dies on $2"; fi; S="$SCRIPT"
@@ -536,7 +630,7 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "commands scanned in prose" c_prose '  rest = spans(line)' '  code(line, 0); rest = spans(line)'
   mutant "referred collapsed into fail" c_referred 'row referred command' 'row fail command'
   mutant "directory link by exact match only" c_link_dir 'tracked "$1" || tracked_dir "$1"' 'tracked "$1"'
-  mutant "cd scope widened to the whole file" c_cd_other_fence 'infence = 1; fcd = 0; pcd = 0; next' 'infence = 1; pcd = 0; next'
+  mutant "cd scope widened to the whole file" c_cd_other_fence 'infence = 1; fcd = 0; fenv = 0; pcd = 0; penv = 0; next' 'infence = 1; fenv = 0; pcd = 0; penv = 0; next'
   mutant "paragraph scope narrowed to the span" c_para_span '    code(substr(rest, 1, j - 1), 0)' '    pcd = 0; code(substr(rest, 1, j - 1), 0)'
   mutant "[ -f package.json ] in place of tracked" c_pkg_untracked 'tracked package.json ||' '[ -f package.json ] ||'
   mutant "a cd ignored when the root defines the script" c_cd_root_defined '[ "$cd" != 0 ] && { row referred command "$loc" "$pm run' '[ "$cd" != 0 ] && ! { tracked package.json && resolve_script "$name"; } && { row referred command "$loc" "$pm run'
@@ -583,7 +677,32 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   mutant "a fence closed by a blank line" c_fence_unclosed '    code(line, 1); next' '    if (trim(line) == "") { infence = 0; next }
     code(line, 1); next'
   mutant "an escaping link read from disk" c_escape 'row fail link "$loc" "$a: escapes the repository"' 'row fail link "$loc" "$a: escapes the repository"; cat "${dir:-.}/$a" >/dev/null 2>&1'
-  mutant "an assignment prefix skipped silently" c_env_prefix '+ 2 * env' '+ 0 * env'
+  mutant "an assignment prefix skipped silently" c_env_prefix '+ 2 * (env || carry)' '+ 0 * (env || carry)'
+  # #296. Each pair names the case written to kill it.
+  mutant "export carry removed" c_export_carry '{ if (infence) fenv = 1; else penv = 1 }' '{ }'
+  mutant "export carry widened to every variable" c_export_other_neg 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /=/'
+  mutant "export carry widened (NODE_ENV)" c_export_node_env_neg 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /=/'
+  mutant "export carry cleared by an intervening line" c_export_gap 'carry = infence ? fenv : penv' 'carry = infence ? fenv : penv; if (w != "npm") { fenv = 0; penv = 0 }'
+  mutant "export carry not reset at fence open" c_export_next_fence 'fcd = 0; fenv = 0; pcd = 0; penv = 0; next' 'fcd = 0; pcd = 0; penv = 0; next'
+  mutant "export name match unanchored" c_export_name_neg 'ws[j] ~ /^[Nn][Pp][Mm]_' 'ws[j] ~ /[Nn][Pp][Mm]_'
+  mutant "export match lowercase only" c_export_mixed 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /^npm_config_[A-Za-z0-9_]*=/'
+  mutant "export match workspace key only" c_export_loglevel '[Ff][Ii][Gg]_[A-Za-z0-9_]*=/' '[Ff][Ii][Gg]_workspace=/'
+  mutant "empty-valued export not carried" c_export_empty '[Ff][Ii][Gg]_[A-Za-z0-9_]*=/' '[Ff][Ii][Gg]_[A-Za-z0-9_]*=[^ \t]/'
+  mutant "paragraph carry removed" c_export_span 'fenv = 1; else penv = 1' 'fenv = 1; else penv = 0'
+  mutant "paragraph carry not reset at blank line" c_export_span_blank_neg 'trim(line) == "") { pcd = 0; penv = 0; next }' 'trim(line) == "") { pcd = 0; next }'
+  mutant "prose carry leaks into a following fence" c_export_span_fence 'fcd = 0; fenv = 0; pcd' 'fcd = 0; fenv = penv; pcd'
+  mutant "export carry applied only to later lines" c_export_andand '  while (match(text, /(^|' $'  cin_ = infence ? fenv : penv\n  while (match(text, /(^|' 'carry = infence ? fenv : penv' 'carry = cin_'
+  mutant "carry applied before the export segment" c_export_after_neg 'carry = infence ? fenv : penv' 'carry = (infence ? fenv : penv) || (text ~ /export[ \t]+[Nn][Pp][Mm]_/)'
+  mutant "carry overrides a cd" c_export_cd '(infence ? fcd : pcd) + 2 * (env || carry)' '((env || carry) ? 2 : (infence ? fcd : pcd))'
+  mutant "carry reported as a directory change" c_export_no_cd_reason '2 * (env || carry)' '2 * env + 3 * carry'
+  mutant "declare -x dropped" c_export_declare '((w == "declare" || w == "typeset")' '((w == "typeset")'
+  mutant "typeset -x dropped" c_export_typeset '((w == "declare" || w == "typeset")' '((w == "declare")'
+  mutant "declare without -x carried" c_declare_plain_neg ' && ws[2] == "-x"))' '))'
+  mutant "assignment-value rewrite removed" c_subst_value '  while (match(text, /(^|' '  while (0 && match(text, /(^|'
+  mutant "substitution anywhere refers the row (other)" c_subst_other_neg '  while (match(text, /(^|' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  while (match(text, /(^|'
+  mutant "substitution anywhere refers the row (argument)" c_subst_after_neg '  while (match(text, /(^|' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  while (match(text, /(^|'
+  mutant "substitution rewrite not word-anchored" c_subst_flag_value '/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=\$\(' '/[A-Za-z_][A-Za-z0-9_]*=\$\('
+  mutant "a substitution body executed" c_pwned 'IDX=$T/index ROWS=$T/rows' 'IDX=$T/index ROWS=$T/rows; touch pwned'
   mutant "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$f")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$f")'
 else
   bad "python3 is needed to build the mutants"

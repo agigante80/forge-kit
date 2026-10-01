@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 2
+# check-contributor-docs-version: 3
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -48,6 +48,15 @@
 # command must START a segment of a line, split on && || ; | ( ), after an optional `$ ` prompt; a
 # VAR=val prefix is skipped to find the runner but refers the row, since npm_config_workspace=client
 # rescopes npm. Backticks there are literal, so a backticked name is referred.
+#
+# EXPORTS AND SUBSTITUTIONS (#296). An `export`, `declare -x` or `typeset -x` of a NAME=value whose
+# NAME starts with npm_config_ (any case, any key, an empty value too: referring is the safe side)
+# refers every LATER runner of the same fence or code-span paragraph, and a later segment of its own
+# line, exactly as a cd does and with the same resets. `export FOO=1` rescopes nothing and still
+# fails. A NAME=$(...) assignment value whose parentheses do not nest is read as a plain assignment.
+# Limits: an export in a prose code span does not carry into a following fence (the carry resets at
+# a fence open, as a cd does); nested-paren and backtick substitution values; pnpm_config_*;
+# JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a; `env VAR=... cmd`; a .npmrc (#339).
 #
 # Deliberate limits: code spans and links are found within one line; indented code blocks are
 # prose; the paragraph rule is order-dependent ("Run `npm run dev` (after `cd client`)." judges dev
@@ -172,7 +181,16 @@ is_template() {
 # already stripped of its anchor and query and percent-decoded.
 EXTRACT='
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-function code(text, infence,    n, i, segs, seg, w, env) {
+function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, rs) {
+  # A command substitution as an assignment VALUE rescopes npm like any other value
+  # (npm_config_workspace=$(echo client) npm run dev, #296), but the split below would cut it at
+  # its parentheses and leave a bare runner. Rewrite a NAME=$(...) WORD, whose parentheses do not
+  # nest, to NAME=X first, so the assignment strip sets env. Anchored at the start of a word, so
+  # --workspace=$(...) is left alone. A $( anywhere else rescopes nothing and stays judged.
+  while (match(text, /(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=\$\([^()]*\)/)) {
+    rs = substr(text, RSTART, RLENGTH); sub(/=\$\([^()]*\)$/, "=X", rs)
+    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)
+  }
   gsub(/&&|\|\||[;|()]/, "\n", text)
   n = split(text, segs, "\n")
   for (i = 1; i <= n; i++) {
@@ -186,9 +204,19 @@ function code(text, infence,    n, i, segs, seg, w, env) {
     env = 0
     while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) { sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", seg); env = 1 }
     w = seg; sub(/[ \t].*/, "", w)
+    # An exported npm_config_ variable (any case, any key, an empty value too) rescopes every later
+    # npm in the same fence or paragraph, so it is carried like a cd and applied from the NEXT
+    # segment on, never to an earlier one (#296). export, declare -x and typeset -x set it.
+    nw = split(seg, ws, /[ \t]+/)
+    if (w == "export" || ((w == "declare" || w == "typeset") && ws[2] == "-x")) {
+      for (j = 2; j <= nw; j++)
+        if (ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/) { if (infence) fenv = 1; else penv = 1 }
+      continue
+    }
+    carry = infence ? fenv : penv
     if (w == "cd" || w == "pushd") { if (infence) fcd = 1; else pcd = 1; continue }
     if (w == "npm" || w == "pnpm" || w == "yarn" || w == "make" || w == "just" || w == "node" || w == "sh" || w == "bash")
-      printf "C\t%d\t%d\t%s\n", NR, (infence ? fcd : pcd) + 2 * env, seg
+      printf "C\t%d\t%d\t%s\n", NR, (infence ? fcd : pcd) + 2 * (env || carry), seg
   }
 }
 function pdec(s,    out, i, h, v) {
@@ -244,7 +272,7 @@ function spans(s,    out, i, n, rest, pos, j, m, found) {
   }
   return out s
 }
-BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0 }
+BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0 }
 { sub(/\r$/, "") }
 {
   line = $0; lead = line; sub(/^ ? ? ?/, "", lead)
@@ -252,15 +280,15 @@ BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0 }
   if (infence) {
     if (substr(lead, 1, 1) == fch) {
       n = 0; while (substr(lead, n + 1, 1) == fch) n++
-      if (n >= flen && trim(substr(lead, n + 1)) == "") { infence = 0; pcd = 0; next }
+      if (n >= flen && trim(substr(lead, n + 1)) == "") { infence = 0; pcd = 0; penv = 0; next }
     }
     code(line, 1); next
   }
   if (c3 == "```" || c3 == "~~~") {
     fch = substr(c3, 1, 1); flen = 0; while (substr(lead, flen + 1, 1) == fch) flen++
-    infence = 1; fcd = 0; pcd = 0; next
+    infence = 1; fcd = 0; fenv = 0; pcd = 0; penv = 0; next
   }
-  if (trim(line) == "") { pcd = 0; next }
+  if (trim(line) == "") { pcd = 0; penv = 0; next }
   rest = spans(line)
   if (substr(lead, 1, 1) == "[" && substr(lead, 2, 1) != "^" && (k = index(lead, "]:")) > 2) {
     label = substr(lead, 2, k - 2)
