@@ -11,6 +11,11 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **ticket-standards.md cites the gate checker by its catalogue name** (#322). Precedence items 3, 7,
+  8 and 10 named `check-ticket-mechanics.sh` by bare filename, which `check-doc-drift.sh` cannot
+  resolve, so a change to the checker never flagged those four claims. They now read
+  `check-ticket-mechanics`, and a checker change reports all four. No `doc-rules-version` bump: no
+  rule changed.
 - **`gate-status.sh --stamp` no longer refuses a clean body** (#312, gate-status v3). The fingerprint
   collapsed runs of blank lines to one but still told "no blank" from "one blank", so a body with
   the version marker directly above a heading changed shape when the stamp padded a blank in, and
