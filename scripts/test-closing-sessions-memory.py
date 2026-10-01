@@ -5,6 +5,7 @@ Runs the helper as a subprocess against a throwaway project directory, the same
 way scripts/test-hooks.py exercises the hooks. Standard library only.
 """
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -17,10 +18,10 @@ SCRIPT = os.path.join(
 )
 
 
-def run(project_dir, args, body=""):
+def run(project_dir, args, body="", timeout=10):
     return subprocess.run(
         [sys.executable, SCRIPT, "--project-dir", project_dir, *args],
-        input=body, capture_output=True, text=True,
+        input=body, capture_output=True, text=True, timeout=timeout,
     )
 
 
@@ -162,15 +163,21 @@ class OwnershipTests(unittest.TestCase):
                 f.write(index)
 
     def _snapshot(self, d):
-        mem = os.path.join(d, ".claude", "memory")
+        # lstat only: never open a FIFO or follow a link, so a hostile fixture
+        # cannot hang or break the harness. Regular files are read by content.
         out = {}
         for root, dirs, files in os.walk(d):
-            for n in dirs:
-                out[os.path.relpath(os.path.join(root, n), d)] = None
-            for n in files:
+            for n in dirs + files:
                 full = os.path.join(root, n)
-                with open(full, "rb") as f:
-                    out[os.path.relpath(full, d)] = f.read()
+                st = os.lstat(full)
+                key = os.path.relpath(full, d)
+                if stat.S_ISREG(st.st_mode) and os.access(full, os.R_OK):
+                    with open(full, "rb") as f:
+                        out[key] = (st.st_mode, f.read())
+                elif stat.S_ISLNK(st.st_mode):
+                    out[key] = (st.st_mode, os.readlink(full))
+                else:
+                    out[key] = (st.st_mode, None)
         return out
 
     def _refused(self, d, args, body=""):
@@ -243,10 +250,10 @@ class OwnershipTests(unittest.TestCase):
     def test_reserved_slug_memory_refused_with_no_index(self):
         with tempfile.TemporaryDirectory() as d:
             for slug in ("MEMORY", "memory", "Memory"):
-                r = run(d, ["write", "--slug", slug] + self.WRITE[1:], body="b")
-                self.assertNotEqual(r.returncode, 0, slug)
-                r = run(d, ["remove", "--slug", slug])
-                self.assertNotEqual(r.returncode, 0, slug)
+                r = self._refused(d, ["write", "--slug", slug] + self.WRITE[1:], body="b")
+                self.assertIn("reserved", r.stderr, slug)
+                r = self._refused(d, ["remove", "--slug", slug])
+                self.assertIn("reserved", r.stderr, slug)
             self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "MEMORY.md")))
             self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "memory.md")))
 
@@ -274,6 +281,122 @@ class OwnershipTests(unittest.TestCase):
             self._seed(d, "a.md", "# x\n", index="- [A](a.md) - x\n")
             self._refused(d, ["remove", "--slug", "MEMORY"])
             self._refused(d, ["write", "--slug", "MEMORY"] + self.WRITE[1:], body="b")
+
+    # --- #314: slug policy and non-regular targets ---
+
+    def test_uppercase_ascii_slug_still_accepted(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, ["write", "--slug", "Feedback_Testing"] + self.WRITE[1:], body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("name: Feedback_Testing", read(d, "Feedback_Testing.md"))
+            r = run(d, ["remove", "--slug", "Feedback_Testing"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_folding_nonascii_slugs_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            # U+212A (Kelvin sign) folds to "k"; U+017F (long s) folds to "s".
+            for slug in ("\u212aelvin", "\u017fecret"):
+                self._refused(d, ["write", "--slug", slug] + self.WRITE[1:], body="b")
+                self._refused(d, ["remove", "--slug", slug])
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory")))
+
+    def _outside(self, d, text=None):
+        out = os.path.join(d, "outside.txt")
+        if text is not None:
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(text)
+        return out
+
+    def _link(self, d, name, target):
+        mem = os.path.join(d, ".claude", "memory")
+        os.makedirs(mem, exist_ok=True)
+        os.symlink(target, os.path.join(mem, name))
+
+    OWNED_A = "---\nname: a\ndescription: d\nmetadata:\n  type: user\n---\n\nb\n"
+
+    def test_dangling_symlink_target_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self._outside(d)
+            self._link(d, "a.md", out)
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            self._refused(d, ["remove", "--slug", "a"])
+            self.assertFalse(os.path.exists(out))
+
+    def test_live_symlink_target_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self._outside(d, self.OWNED_A)
+            self._link(d, "a.md", out)
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            self._refused(d, ["remove", "--slug", "a"])
+            with open(out, encoding="utf-8") as f:
+                self.assertEqual(f.read(), self.OWNED_A)
+
+    def test_fifo_target_refused_promptly(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".claude", "memory"))
+            fifo = os.path.join(d, ".claude", "memory", "a.md")
+            os.mkfifo(fifo)
+            self._refused(d, ["remove", "--slug", "a"])
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            self.assertTrue(stat.S_ISFIFO(os.lstat(fifo).st_mode))
+
+    def test_fifo_index_refused_before_any_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".claude", "memory"))
+            os.mkfifo(os.path.join(d, ".claude", "memory", "MEMORY.md"))
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            self._refused(d, ["remove", "--slug", "a"])
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "a.md")))
+
+    def test_symlinked_index_refused_before_any_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self._outside(d)
+            self._link(d, "MEMORY.md", out)
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            self.assertFalse(os.path.exists(out))
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "a.md")))
+        with tempfile.TemporaryDirectory() as d:
+            out = self._outside(d, "- [X](x.md) - x\n")
+            self._link(d, "MEMORY.md", out)
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            with open(out, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "- [X](x.md) - x\n")
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores file modes")
+    def test_unreadable_target_refused_without_traceback(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "a.md", self.OWNED_A)
+            os.chmod(os.path.join(d, ".claude", "memory", "a.md"), 0)
+            self._refused(d, ["remove", "--slug", "a"])
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores file modes")
+    def test_unreadable_index_refused_without_traceback(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "other.md", "# x\n")
+            os.chmod(os.path.join(d, ".claude", "memory", "MEMORY.md"), 0)
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+
+    def _bad_index(self, d):
+        mem = os.path.join(d, ".claude", "memory")
+        os.makedirs(mem, exist_ok=True)
+        with open(os.path.join(mem, "MEMORY.md"), "wb") as f:
+            f.write(b"\xff\xfe bad")
+
+    def test_non_utf8_index_refuses_write_before_any_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._bad_index(d)
+            r = self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            self.assertIn("not UTF-8", r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "a.md")))
+
+    def test_non_utf8_index_refuses_remove_and_keeps_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "a.md", self.OWNED_A)
+            self._bad_index(d)
+            r = self._refused(d, ["remove", "--slug", "a"])
+            self.assertIn("not UTF-8", r.stderr)
+            self.assertTrue(os.path.exists(os.path.join(d, ".claude", "memory", "a.md")))
 
     def test_own_file_still_updates_and_removes(self):
         with tempfile.TemporaryDirectory() as d:

@@ -7,6 +7,7 @@ depend on the model formatting them by hand each time. Standard library only.
 import argparse
 import os
 import re
+import stat
 import sys
 
 MEMORY_SUBDIR = os.path.join(".claude", "memory")
@@ -126,7 +127,10 @@ def remove_index_line(project_dir, slug):
     write_index(project_dir, pattern.sub("", existing))
 
 
-_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9._-]*")
+# ASCII only, matched against the slug AS GIVEN. Never lower() it first and never
+# add re.IGNORECASE: case folding maps U+212A (Kelvin sign) onto "k", so a
+# non-ASCII slug would pass. Uppercase ASCII stays accepted (#314).
+_SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*", re.ASCII)
 
 
 def _refuse(slug, reason):
@@ -154,21 +158,69 @@ def is_owned(content, slug):
     return any(re.match(r"^  type: \S", ln) for ln in block)
 
 
+def _inspect(path, rel, strict=False):
+    """Return (text, problem) for a leaf file; text is None when it is absent.
+
+    Anything at path that is not a regular, non-symlink, readable file yields a
+    problem string, so a link cannot carry a write out of .claude/memory/ and a
+    FIFO cannot hang the helper. strict=True (used for the index) refuses
+    bytes that are not UTF-8, because read_index decodes strictly later and
+    would otherwise crash after a write or remove had already happened.
+    Only the leaf is checked: a symlinked
+    .claude/memory/ directory is deliberately out of scope (#314).
+    """
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None, None
+    except OSError as e:
+        return None, f"{rel} cannot be inspected ({e.strerror})"
+    if stat.S_ISLNK(st.st_mode):
+        return None, f"{rel} is a symbolic link"
+    if stat.S_ISDIR(st.st_mode):
+        return None, f"{rel} is a directory"
+    if not stat.S_ISREG(st.st_mode):
+        return None, f"{rel} is not a regular file"
+    try:
+        # O_NONBLOCK opens a FIFO instead of hanging, so the fstat check below
+        # is what refuses one that was swapped in after the lstat.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as e:
+        return None, f"{rel} cannot be opened ({e.strerror})"
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return None, f"{rel} is not a regular file"
+        try:
+            data = f.read()
+        except OSError as e:
+            return None, f"{rel} cannot be read ({e.strerror})"
+    try:
+        return data.decode("utf-8", errors="strict" if strict else "replace"), None
+    except UnicodeDecodeError:
+        return None, f"{rel} is not UTF-8"
+
+
 def check_ownership(project_dir, slug):
-    """Return an error message, or None when acting on slug is allowed."""
-    if not _SLUG_RE.fullmatch(slug.lower()) or ".." in slug:
-        return "not a plain slug: use letters, digits, '.', '_' or '-', no path parts"
+    """Return an error message, or None when acting on slug is allowed.
+
+    Checks the memory file AND the MEMORY.md index, so a bad index refuses
+    before the memory file is written and no partial state is left behind.
+    """
+    if not _SLUG_RE.fullmatch(slug) or ".." in slug:
+        return "not a plain slug: use ASCII letters, digits, '.', '_' or '-', no path parts"
     if slug.lower() == INDEX_NAME[:-3].lower():
         return "reserved: it would collide with the MEMORY.md index"
-    path = memory_path(project_dir, slug)
-    if os.path.isdir(path):
-        return f"{os.path.join(MEMORY_SUBDIR, slug + '.md')} is a directory"
-    if not os.path.exists(path):
+    rel = os.path.join(MEMORY_SUBDIR, slug + ".md")
+    text, problem = _inspect(memory_path(project_dir, slug), rel)
+    if problem:
+        return problem
+    _, problem = _inspect(index_path(project_dir),
+                          os.path.join(MEMORY_SUBDIR, INDEX_NAME), strict=True)
+    if problem:
+        return problem
+    if text is None or is_owned(text, slug):
         return None
-    with open(path, encoding="utf-8", errors="replace") as f:
-        if is_owned(f.read(), slug):
-            return None
-    return (f"{os.path.join(MEMORY_SUBDIR, slug + '.md')} exists without the "
+    return (f"{rel} exists without the "
             "frontmatter this helper writes, so it is not ours to change")
 
 

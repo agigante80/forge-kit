@@ -11,6 +11,14 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **closing-sessions' `memory.py` refuses targets it cannot own safely** (#314, closing-sessions
+  v4). A slug is now plain ASCII (letters, digits, `.`, `_`, `-`), so a non-ASCII slug can no
+  longer fold into another through `lower()` (the Kelvin sign); uppercase stays accepted. A target
+  that is a directory, a symbolic link (dangling or live), a FIFO or any other non-regular file, or
+  one it cannot read, is refused with a reason instead of a traceback, opened with `O_NOFOLLOW` and
+  re-checked after opening. The `MEMORY.md` index gets the same checks before anything is written,
+  and a non-UTF-8 index is refused rather than leaving a memory file with no index line.
+  `scripts/test-closing-sessions-memory.py` grows from 26 to 37 tests.
 - **forge-adapt's Step 1 host probe decides by URL authority** (#215, forge-adapt v69). It used the
   pre-#212 globs, which read `https://evil.internal/x/y?z=@github.com/` as github and four genuine
   GitHub spellings (`https://github.com:443/o/r`, `ssh://git@ssh.github.com:443/o/r`,
