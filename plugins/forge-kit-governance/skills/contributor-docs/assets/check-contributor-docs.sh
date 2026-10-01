@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 13
+# check-contributor-docs-version: 14
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -67,15 +67,16 @@
 # anywhere on the line (export -n un-exports) makes the whole line carry nothing. These guards
 # count quotes, they do not parse them, so a # or -n inside a quoted value, mixed quote kinds and
 # an escaped quote can still misjudge a line. `export FOO=1` and `declare -g npm_config_x=y`
-# rescope nothing and still fail. A NAME=value assignment whose value holds one or
-# more non-nested $(...) groups, with literal text before, between or after them, is read as a plain
-# assignment, in one linear pass.
+# rescope nothing and still fail. A NAME=value assignment whose value is any mix of plain bytes,
+# non-nested $(...) groups, double- or single-quoted runs, backtick runs and backslash-escaped bytes
+# (so a value holding a space, or a ;&|() inside quotes) is read as a plain assignment, in one linear
+# pass, and refers the row; before #386 a space in the value lost the runner and gave no row, and a
+# quoted assignment before a cd hid the cd from the next line.
 # Limits: `$VAR` or `${...}` before a substitution (npm_config_workspace=$HOME$(echo c) npm run
 # dev) is still a false fail, as is `export "npm_config_x"=y`, whose quote closes before the `=`;
 # an export in a prose code span does not carry into a following fence (the carry resets at
-# a fence open, as a cd does); nested-paren substitution values; a backtick value is not rewritten
-# (with no space inside it is an ordinary assignment word and is referred, with a space inside the
-# row is simply absent); pnpm_config_*; JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a;
+# a fence open, as a cd does); nested-paren substitution values; a value with an UNBALANCED quote,
+# which matches no quoted run and is read as before (no row); pnpm_config_*; JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a;
 # `env VAR=... cmd`.
 #
 # A TRACKED ROOT .npmrc (#339). npm rescopes `npm run X` when that file sets `workspace` (any value,
@@ -238,15 +239,22 @@ function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, is
   # its parentheses and leave a bare runner. Rewrite the value of a NAME=value WORD to X when it
   # holds one or more $(...) groups whose parentheses do not nest, with optional literal text
   # before, between and after them (pre$(a), $(a)$(b), #346), so the assignment strip sets env.
+  # A value holding a SPACE is the same problem (#386): a double- or single-quoted run, a
+  # backslash-escaped byte or a backtick run can carry one, and the split and the strip below cut at
+  # it, so `FOO="a b" npm run nope` lost its runner and gave no row at all, and `FOO="a b" cd x`
+  # hid the cd from the next line. So the whole value, any mix of plain bytes, non-nested $(...)
+  # groups, quoted runs, backtick runs and escaped bytes, becomes X. A `;&|()` inside a quoted run
+  # is inside the X too. An UNBALANCED quote matches no run, so the value stops at it and the line
+  # is read as before (a stated limit, pinned by a case).
   # ONE left-to-right pass, linear in the line: a marker byte (\001, any real one removed first) is
-  # dropped after each word-start NAME=, the marked values that hold a $( become X, and the rest of
-  # the markers go. A restart-from-the-front loop is quadratic on a hostile line. Anchored at the
-  # start of a word, so --workspace=$(...) is left alone. A $( anywhere else rescopes nothing and
-  # stays judged.
-  if (index(text, "$(")) {
+  # dropped after each word-start NAME=, each marked value becomes X, and the rest of the markers
+  # go. A restart-from-the-front loop is quadratic on a hostile line. Anchored at the start of a
+  # word, so --workspace=$(...) is left alone. A $( anywhere else rescopes nothing and stays judged.
+  # The quote is \047 because this program sits inside a single-quoted shell variable.
+  if (index(text, "=")) {
     gsub(/\001/, "", text)
     gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)
-    gsub(/\001[^ \t;&|()$\001]*\$\([^()]*\)([^ \t;&|()$\001]|\$\([^()]*\))*/, "X", text)
+    gsub(/\001([^ \t;&|()$"\047`\\\001]|\$\([^()]*\)|"[^"]*"|\047[^\047]*\047|`[^`]*`|\\.)+/, "X", text)
     gsub(/\001/, "", text)
   }
   gsub(/&&|\|\||[;|()]/, "\n", text)

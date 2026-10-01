@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 9 -->
+<!-- contributor-docs-version: 10 -->
 
 # Contributor docs
 
@@ -141,8 +141,8 @@ The limits, stated so they are not mistaken for coverage: spans and links are fo
 line; indented code blocks are prose; the paragraph rule is order-dependent, and list items with
 no blank line between them form one paragraph; make's built-in implicit rules are not modelled; a
 percent-encoded non-ASCII target is referred. An export in a prose code span does not carry into a
-following fence. A backtick value is not rewritten: with no space inside it is an ordinary assignment
-word (referred), with a space inside the row is simply absent. Not modelled, so a false `fail`
+following fence. An assignment value holding a space (quoted, backslash-escaped or in backticks) is
+read as one value and refers the row; a value with an UNBALANCED quote is not, and gives no row. Not modelled, so a false `fail`
 stays possible: nested-paren substitution values, `pnpm_config_*`, `JUST_JUSTFILE` and `JUST_WORKING_DIRECTORY`, `unset`,
 `set -a`, `env VAR=... cmd`, the user and global `.npmrc`, `NPM_CONFIG_USERCONFIG` and a non-root
 `.npmrc` (npm never reads it for a run from the root). Where npm would run the root or stop with an error, a tracked `.npmrc` still refers

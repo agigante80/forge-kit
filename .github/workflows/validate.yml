@@ -43,9 +43,10 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    # The checks are seconds of work; the only slow step is the advisory npm install. A cap well
+    # The checks are seconds of work; the slow steps are the advisory npm install and the
+    # contributor-docs suite, which runs twice since #386 (about three minutes each). A cap well
     # above normal turns a hung runner into a fast failure instead of a six-hour default wait.
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       # Pinned to a full commit SHA, not a mutable tag: a tag can be repointed, which is the
       # supply-chain risk GitHub's hardening guide names first, and forge-kit ships components
@@ -317,7 +318,32 @@ jobs:
 
       # Issue #294: check-contributor-docs.sh decides whether a contributor doc names a script, a
       # target or a link that a clone does not have; a wrong fail rejects a correct doc.
-      - name: Contributor-docs check tests
+      #
+      # Issue #386: the suite runs under BOTH awks, because its strip-loop mutant needs gawk and was
+      # silently skipped on the runner's default awk (mawk). gawk is installed for its own run only:
+      # installing it repoints Ubuntu's `awk` alternative, so the alternative is set back to mawk and
+      # every other step keeps the awk it had. The identity is printed before and after, so a runner
+      # image that changes its default awk shows in the log rather than in a skipped mutant.
+      - name: Which awk the runner resolves (before installing gawk)
+        run: readlink -f "$(command -v awk)"; awk -W version 2>/dev/null | head -1 || true
+
+      - name: Install gawk for the contributor-docs gawk run, keeping mawk as awk
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gawk >/dev/null
+          sudo update-alternatives --set awk "$(command -v mawk)"
+          gawk --version | head -1
+
+      - name: Which awk the runner resolves (after installing gawk)
+        run: readlink -f "$(command -v awk)"; awk -W version 2>/dev/null | head -1 || true
+
+      - name: Contributor-docs check tests (gawk)
+        env:
+          AWK_UNDER_TEST: gawk
+        run: bash scripts/test-check-contributor-docs.sh
+
+      - name: Contributor-docs check tests (mawk)
+        env:
+          AWK_UNDER_TEST: mawk
         run: bash scripts/test-check-contributor-docs.sh
 
       # Issue #278: size-review.sh decides whether a /full-review round skips the security phase, so

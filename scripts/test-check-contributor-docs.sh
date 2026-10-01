@@ -9,9 +9,10 @@
 #
 # STREAMS ARE THE CONTRACT: TSV rows on stdout and exit 0 or 1, or nothing on stdout and exit 2.
 #
-# Portability runs, by hand, because CI has neither: BASH_UNDER_TEST=/path/to/bash-3.2 runs the
-# script under that bash, and AWK_UNDER_TEST=mawk (or nawk, or `busybox awk` via a wrapper) puts
-# that awk first on PATH for every run.
+# Portability runs: BASH_UNDER_TEST=/path/to/bash-3.2 runs the script under that bash (by hand, CI
+# has no bash 3.2), and AWK_UNDER_TEST=mawk (or gawk, nawk, or `busybox awk` via a wrapper) puts that
+# awk first on PATH for every run. CI runs this suite twice, AWK_UNDER_TEST=gawk and =mawk (#386); a
+# run that asks for gawk and gets another awk fails the strip mutant instead of skipping it.
 #
 # ESCAPE_WATCHDOG_SECS (positive integer from 1 to 60, seconds, default 10) is how long c_escape's
 # watchdog waits before it releases one extra opener of the FIFO sentinel. It also sets the bound
@@ -539,7 +540,37 @@ c_subst_double_value() { exp '```\nnpm_config_workspace=$(echo a)$(echo b) npm r
 c_subst_backtick_nospace() { exp '```\nnpm_config_workspace=`x` npm run dev\n```\n'
   rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
 c_subst_backtick_space() { exp '```\nnpm_config_workspace=`echo c` npm run dev\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run dev: an environment assignment precedes it" && nostatus fail; }
+# #386: an assignment value holding a SPACE (quoted, escaped or in backticks, with or without a
+# $(..)) refers the row; it used to give no row at all, so a broken command exited 0.
+c_subst_quoted_space_value() { exp '```\nnpm_config_workspace="a b$(echo c)" npm run nope\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run nope: an environment assignment precedes it" && nostatus fail; }
+c_quoted_space_nosubst() { exp '```\nFOO="a b" npm run nope\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run nope: an environment assignment precedes it" && nostatus fail; }
+c_single_quoted_space() { exp '```\nFOO=\047a b$(echo c)\047 npm run nope\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run nope: an environment assignment precedes it" && nostatus fail; }
+c_escaped_space() { exp '```\nFOO=a\\ b npm run nope\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run nope: an environment assignment precedes it" && nostatus fail; }
+c_quoted_meta_value() { exp '```\nFOO="a;b|c" npm run nope\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run nope: an environment assignment precedes it" && nostatus fail; }
+c_quoted_space_defined() { exp '```\nFOO="a b" npm run x\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run x: an environment assignment precedes it" && nostatus fail; }
+# The swallowed cd: `FOO="a b" cd x` hid the cd, so a correct doc got a wrong fail on the next line.
+# The cd line itself emits no row, as any cd does.
+c_swallowed_cd() { exp '```\nFOO="a b" cd x\nnpm run nope\n```\n'
+  rc_is 0 && at referred AGENTS.md:3 "npm run nope: a directory change precedes it" && nostatus fail && [ "$(count referred command)" = 1 ]; }
+c_swallowed_cd_oneline() { exp '```\nFOO="a b" cd x && npm run nope\n```\n'
+  rc_is 0 && at referred AGENTS.md:2 "npm run nope: a directory change precedes it" && nostatus fail; }
+# Stated limit, pinned: an UNBALANCED quote matches no quoted run, so the value is not rewritten and
+# the line is read as before (no row).
+c_unbalanced_quote_limit() { exp '```\nFOO="a b npm run nope\n```\n'
   rc_is 0 && nocmd fail && nocmd referred; }
+# The export quote-parity guard still matters where the rewrite cannot reach: an unbalanced quote.
+c_export_unbalanced_quote_neg() { exp '```\nexport MSG="set npm_config_workspace\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_quoted_space_hostile_linear() { new; pkg '"x":"x"'; agents "\`\`\`\n$(rep_ 24000 'a="x y$(z)" ')npm run dev\n\`\`\`\n"
+  run_bounded "$HOSTILE_WATCHDOG_SECS" --max-bytes 1000000
+  rc_is 0 && at referred AGENTS.md:2 "npm run dev: an environment assignment precedes it" && nostatus fail; }
 
 # Item 3: the other spellings of an npm_config_ export.
 c_export_declare_gx() { exp '```\ndeclare -gx npm_config_workspace=c\nnpm run dev\n```\n'
@@ -604,7 +635,18 @@ case_ c_export_yarn "an npm_config_ export refers a later yarn script, naming th
 case_ c_subst_prefix_value "a value with literal text before a substitution is an assignment"
 case_ c_subst_double_value "a value of two substitutions is one assignment"
 case_ c_subst_backtick_nospace "a backtick value with no space is an ordinary assignment word"
-case_ c_subst_backtick_space "a backtick value with a space inside gives no row (stated limit)"
+case_ c_subst_backtick_space "a backtick value with a space inside refers the row (#386)"
+case_ c_subst_quoted_space_value "a quoted value with a space and a substitution refers the row (#386)"
+case_ c_quoted_space_nosubst "a quoted value with a space refers the row (#386)"
+case_ c_single_quoted_space "a single-quoted value with a space refers the row (#386)"
+case_ c_escaped_space "a backslash-escaped space in a value refers the row (#386)"
+case_ c_quoted_meta_value "a ; or | inside a quoted value stays inside the value (#386)"
+case_ c_quoted_space_defined "a quoted value with a space before a defined script refers, never fails (#386)"
+case_ c_swallowed_cd "a cd after a quoted assignment still refers the next line (#386)"
+case_ c_swallowed_cd_oneline "a cd after a quoted assignment refers the same line's runner (#386)"
+case_ c_unbalanced_quote_limit "an unbalanced quote in a value gives no row (stated limit, #386)"
+case_ c_export_unbalanced_quote_neg "a name after an unbalanced quote in an export rescopes nothing"
+case_ c_quoted_space_hostile_linear "24000 quoted-space-substitution words are rewritten within the bound (#386)"
 case_ c_export_declare_gx "declare -gx carries"
 case_ c_export_declare_g_x "declare -g -x carries"
 case_ c_declare_g_plain_neg "declare -g without an x exports nothing"
@@ -1210,6 +1252,22 @@ mutant_needs() {
 # mutant that needs a clear margin over the bound is skipped there. The probe prepends AWKDIR like
 # `run` does; a bare `awk --version` would see the system gawk under AWK_UNDER_TEST=mawk.
 have_gawk() { PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1 | grep -q 'GNU Awk'; }
+# gawk_gate: run, skip, or refuse (#386). A run that ASKED for gawk (AWK_UNDER_TEST=gawk, as CI does)
+# and got an awk that is not GNU Awk must fail, never print a skip that counts as a pass.
+gawk_gate() { if have_gawk; then echo run; elif [ "${AWK_UNDER_TEST:-}" = gawk ]; then echo refuse; else echo skip; fi; }
+# Pinned with a non-GNU awk first on PATH (mawk, the Ubuntu default): asked for gawk, it refuses;
+# not asked, it skips.
+NONGNU="$(command -v mawk || true)"
+if [ -n "$NONGNU" ]; then
+  mkdir -p "$W/nongnu"; ln -sf "$NONGNU" "$W/nongnu/awk"
+  g="$(AWKDIR="$W/nongnu" AWK_UNDER_TEST=gawk gawk_gate)"
+  [ "$g" = refuse ] && ok "a requested gawk that is not GNU Awk refuses the strip mutant (#386)" || bad "a requested non-GNU gawk gave '$g', not refuse"
+  g="$(AWKDIR="$W/nongnu" AWK_UNDER_TEST= gawk_gate)"
+  [ "$g" = skip ] && ok "an unrequested non-GNU awk skips the strip mutant (#386)" || bad "an unrequested non-GNU awk gave '$g', not skip"
+else
+  ok "a requested gawk that is not GNU Awk refuses the strip mutant: no mawk here, skipped"
+  ok "an unrequested non-GNU awk skips the strip mutant: no mawk here, skipped"
+fi
 
 # #346 harness cases. They sit here, after the helpers above, because a function must be defined
 # before the line that calls it runs. Neither can be killed by a mutant (mutant() mutates only the
@@ -1413,9 +1471,9 @@ first_file() {'
   mutant "declare -x dropped" c_export_declare 'if (w == "declare" || w == "typeset") for' 'if (w == "typeset") for'
   mutant "typeset -x dropped" c_export_typeset 'if (w == "declare" || w == "typeset") for' 'if (w == "declare") for'
   mutant "declare without -x carried" c_declare_plain_neg 'isx = (w == "export")' 'isx = (w == "export" || w == "declare")'
-  mutant "assignment-value rewrite removed" c_subst_value '  if (index(text, "$(")) {' '  if (0) {'
-  mutant "substitution anywhere refers the row (other)" c_subst_other_neg '  if (index(text, "$(")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "$(")) {'
-  mutant "substitution anywhere refers the row (argument)" c_subst_after_neg '  if (index(text, "$(")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "$(")) {'
+  mutant "assignment-value rewrite removed" c_subst_value '  if (index(text, "=")) {' '  if (0) {'
+  mutant "substitution anywhere refers the row (other)" c_subst_other_neg '  if (index(text, "=")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "=")) {'
+  mutant "substitution anywhere refers the row (argument)" c_subst_after_neg '  if (index(text, "=")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "=")) {'
   mutant "substitution rewrite not word-anchored" c_subst_flag_value 'gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/' 'gsub(/[A-Za-z_][A-Za-z0-9_]*=/'
   mutant "a substitution body executed" c_pwned 'IDX=$T/index ROWS=$T/rows' 'IDX=$T/index ROWS=$T/rows; touch pwned'
   mutant_needs make "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$f")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$f")'
@@ -1567,10 +1625,14 @@ NR == 1 {' 'EXTRACT='\''
   mutant "carry kept for just" c_export_just_neg 'w != "npm" && w != "pnpm" && w != "yarn"' 'w != "npm" && w != "pnpm" && w != "yarn" && w != "just"'
   mutant "pnpm dropped from carry" c_export_pnpm 'w != "npm" && w != "pnpm" && w != "yarn"' 'w != "npm" && w != "yarn"'
   mutant "yarn dropped from carry" c_export_yarn 'w != "npm" && w != "pnpm" && w != "yarn"' 'w != "npm" && w != "pnpm"'
-  mutant "substitution prefix text not rewritten" c_subst_prefix_value '\001[^ \t;&|()$\001]*\$\(' '\001\$\('
-  mutant "second substitution of a value not rewritten" c_subst_double_value '\)([^ \t;&|()$\001]|\$\([^()]*\))*/, "X", text)' '\)/, "X", text)'
-  mutant "assignment value stops at a backtick" c_subst_backtick_nospace '=[^ \t]*[ \t]+)+/' '=[^ \t`]*[ \t]+)+/'
-  mutant "backtick pairs rewritten as a value" c_subst_backtick_space '  if (index(text, "$(")) {' $'  gsub(/`[^`]*`/, "X", text)\n  if (index(text, "$(")) {'
+  mutant "substitution prefix text not rewritten" c_subst_prefix_value '\001([^ \t;&|()$"\047`\\\001]|\$\(' '\001(\$\('
+  mutant "second substitution of a value not rewritten" c_subst_double_value '|\\.)+/, "X", text)' '|\\.)/, "X", text)'
+  mutant "assignment value stops at a backtick" c_subst_backtick_nospace '=[^ \t]*[ \t]+)+/' '=[^ \t`]*[ \t]+)+/' '|`[^`]*`|' '|'
+  mutant "backtick run not rewritten as a value" c_subst_backtick_space '|`[^`]*`|' '|'
+  mutant "double-quoted run not rewritten as a value" c_quoted_space_nosubst '|"[^"]*"|' '|'
+  mutant "single-quoted run not rewritten as a value" c_single_quoted_space '|\047[^\047]*\047|' '|'
+  mutant "escaped byte not rewritten as a value" c_escaped_space '|\\.)+/, "X", text)' ')+/, "X", text)'
+  mutant "value rewrite only where a substitution is" c_swallowed_cd '  if (index(text, "=")) {' '  if (index(text, "$(")) {'
   mutant "declare -x flag test is exactly -x" c_export_declare_gx '/^-[A-Za-z]*x/' '/^-x$/'
   mutant "declare checks only the first dash word" c_export_declare_g_x 'j <= nw && ws[j] ~ /^-/' 'j <= 2 && ws[j] ~ /^-/'
   mutant "declare carries on any dash word" c_declare_g_plain_neg '/^-[A-Za-z]*x/' '/^-/'
@@ -1584,17 +1646,24 @@ NR == 1 {' 'EXTRACT='\''
 ' ''
   mutant "export comment guard removed (code span)" c_export_span_comment_neg '        if (ws[j] ~ /^#/) break
 ' ''
-  mutant "export quote-parity guard removed" c_export_quoted_value_neg 'qn % 2 == 0 && ' ''
+  # Since #386 a balanced quoted value is rewritten to X before this guard runs, so only an
+  # unbalanced quote reaches it.
+  mutant "export quote-parity guard removed" c_export_unbalanced_quote_neg 'qn % 2 == 0 && ' ''
   mutant "export -n guard removed" c_export_n_neg '        if (ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
 ' ''
-  mutant "restart-from-start rewrite loop" c_subst_hostile_linear '  if (index(text, "$(")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "$(")) {'
-  mutant "restart-from-start rewrite loop (separate commands)" c_subst_hostile_arg_neg '  if (index(text, "$(")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "$(")) {'
+  mutant "restart-from-start rewrite loop" c_subst_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "=")) {'
+  mutant "restart-from-start rewrite loop (quoted values)" c_quoted_space_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /[A-Za-z_][A-Za-z0-9_]*="[^"]*"/)) text = substr(text, 1, RSTART - 1) "X" substr(text, RSTART + RLENGTH)\n  if (index(text, "=")) {'
+  mutant "restart-from-start rewrite loop (separate commands)" c_subst_hostile_arg_neg '  if (index(text, "=")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "=")) {'
   # The strip loop is quadratic on gawk only in a way the 6 s bound can see: gawk pre-fix takes
   # about 34 s at 192000 words, but mawk takes about 3.1 s, under the bound, so the restored loop
   # would survive there and the mutant is skipped (re-measured at the 6 s default, #346).
-  if have_gawk; then
+  case "$(gawk_gate)" in
+  run)
     mutant "strip loop restored" c_strip_hostile_linear '    if (match(seg, /^([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)+/)) { seg = substr(seg, RLENGTH + 1); env = 1 }' '    while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) { sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", seg); env = 1 }'
-  else ok "mutant 'strip loop restored' needs gawk: skipped"; fi
+    ;;
+  refuse) bad "mutant 'strip loop restored' cannot run: AWK_UNDER_TEST=gawk was requested but the awk under test is not GNU Awk" ;;
+  *) ok "mutant 'strip loop restored' needs gawk: skipped" ;;
+  esac
   mutant "rewrite marker pass handles one match" c_subst_while_multi 'gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)' 'sub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)'
   mutant "anchor class loses the start of a line" c_anchor_start 'gsub(/(^|[ \t;&|(])' 'gsub(/([ \t;&|(])'
   mutant "anchor class loses the space" c_anchor_space 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[\t;&|(])'
@@ -1603,7 +1672,7 @@ NR == 1 {' 'EXTRACT='\''
   mutant "anchor class loses the ampersand" c_anchor_amp 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ \t;|(])'
   mutant "anchor class loses the pipe" c_anchor_pipe 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ \t;&(])'
   mutant "anchor class loses the open parenthesis" c_anchor_paren 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ \t;&|])'
-  mutant "substitution anywhere refers the row (two segments)" c_subst_multi_neg '  if (index(text, "$(")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "$(")) {'
+  mutant "substitution anywhere refers the row (two segments)" c_subst_multi_neg '  if (index(text, "=")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "=")) {'
 else
   bad "python3 is needed to build the mutants"
 fi
