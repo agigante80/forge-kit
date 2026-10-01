@@ -20,15 +20,18 @@
 # line `run: bash scripts/test-a.sh.bak` for `test-a.sh`). For each line of validate.yml: strip a
 # trailing CR, leading whitespace, one optional `- ` and the whitespace after it; the remainder must
 # START with the literal `run: bash scripts/` or `run: python3 scripts/` (so a `#` comment is never
-# a step); the TOKEN is what follows up to the first space or tab. The suite is wired when the token
-# EQUALS its basename by string equality and the interpreter matches the extension (`bash` wires
-# `.sh`, `python3` wires `.py`). Text after the token is ignored. Nothing read from validate.yml or
-# from a file name is evaluated, sourced or used to build a pattern.
+# a step); the TOKEN is what follows up to the first whitespace character (the `[[:space:]]`
+# cut). The suite is wired when the token EQUALS its basename by string equality and the
+# interpreter matches the extension (`bash` wires `.sh`, `python3` wires `.py`). Text after the
+# token is ignored. Nothing read from validate.yml or from a file name is evaluated, sourced or
+# used to build a pattern.
 #
 # ACCEPTED LIMITS, each a false failure and never a false pass: a quoted value, a `./scripts/` path,
 # a `run: |` or `run: >` block, a compound command (`a && b` wires only a), an `env`- or
 # `cd`-prefixed command. A step with `if:` or `continue-on-error: true` still counts as wired,
-# because a line rule cannot see sibling keys.
+# because a line rule cannot see sibling keys. An exit-swallowing suffix such as
+# `run: bash scripts/test-a.sh || true` counts as wired too, because the token is the only thing
+# read, though that step can never fail CI.
 #
 # No exemption list, on purpose: an allowlist would be argued with.
 #
@@ -36,6 +39,9 @@
 # Exit: 0 every suite wired, 1 an unwired suite (all named on stderr), 2 the input is unusable
 #       (no root, root is not a directory, validate.yml missing or unreadable, zero suites found).
 set -uo pipefail
+# Pin the locale: under C.UTF-8 a U+3000 after the path would end the `[[:space:]]` token cut,
+# under C it does not. The guard must tokenise identically wherever it runs (#362).
+export LC_ALL=C
 
 if [ "$#" -ge 1 ]; then
   ROOT="$1"
@@ -68,9 +74,11 @@ if guard_in_checkout "$PROOT"; then
     case "$b" in test-*.sh|test-*.py) suites+=("$b") ;; esac
   done < <(guard_tracked_files "$PROOT")
 else
+  # A symlinked suite counts, as it does in a checkout; a dangling link is not a suite (#362).
   while IFS= read -r -d '' f; do
+    [ -f "$f" ] || continue
     suites+=("${f##*/}")
-  done < <(find "$PROOT/scripts" -maxdepth 1 -type f \( -name 'test-*.sh' -o -name 'test-*.py' \) -print0 2>/dev/null)
+  done < <(find "$PROOT/scripts" -maxdepth 1 \( -type f -o -type l \) \( -name 'test-*.sh' -o -name 'test-*.py' \) -print0 2>/dev/null)
 fi
 
 if [ "${#suites[@]}" -eq 0 ]; then

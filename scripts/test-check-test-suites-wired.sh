@@ -14,6 +14,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 SCRIPT="$HERE/check-test-suites-wired.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# Fixtures outside a checkout must stay outside one even when TMPDIR is inside this repo (#362).
+export GIT_CEILING_DIRECTORIES="$T"
 
 pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
@@ -172,12 +174,34 @@ expect "indentation, the list dash and a trailing note still wire" 0 "$rc"
 fresh test-example.sh
 printf -- '-   run: bash scripts/test-example.sh\t--flag\r\n' | yml
 run
-expect "several spaces after the dash, a tab after the token and a CRLF still wire" 0 "$rc"
+expect "several spaces after the dash and a tab after the token still wire" 0 "$rc"
+
+fresh test-example.sh
+printf -- '  - run: bash scripts/test-example.sh\r\n' | yml
+run
+expect "a CRLF line with nothing between the token and the CR still wires" 0 "$rc"
 
 fresh test-example.sh
 printf -- '  - run: bash scripts/test-example.sh' | yml
 run
 expect "a last line with no trailing newline still wires" 0 "$rc"
+
+echo "== the guard pins its own locale =="
+# The suite runs the guard under C.UTF-8 on purpose: with no pin in the guard, a U+3000 after the
+# path would end the token and the line would count as wired.
+if locale -a 2>/dev/null | grep -qiE '^c\.utf-?8$'; then
+  fresh test-a.sh
+  printf -- '  - run: bash scripts/test-a.sh\xe3\x80\x80x\n' | yml
+  out=$(LC_ALL=C.UTF-8 bash "$SCRIPT" "$D" 2>&1); rc=$?
+  expect "a U+3000 after the path does not end the token, even when the caller runs C.UTF-8" 1 "$rc"
+  contains "  x scripts/test-a.sh" "$out" "and the suite is named"
+  fresh test-a.sh
+  printf -- '  - run: bash scripts/test-a.sh # note\n' | yml
+  out=$(LC_ALL=C.UTF-8 bash "$SCRIPT" "$D" 2>&1); rc=$?
+  expect "a space-delimited token still wires under C.UTF-8" 0 "$rc"
+else
+  echo "  skip: no C.UTF-8 locale on this machine"
+fi
 
 echo "== refused shapes (accepted limits, each a false failure never a false pass) =="
 fresh test-example.sh
@@ -215,13 +239,15 @@ lacks "scripts/test-a.sh" "$out" "the first is not"
 
 echo "== what is a suite =="
 fresh test-a.sh
-mkdir -p "$D/scripts/sub"
+mkdir -p "$D/scripts/sub" "$D/docs"
+printf 'x\n' > "$D/docs/test-x.sh"                   # tracked, outside scripts/
+printf 'x\n' > "$D/test-y.py"                        # tracked, at the root
 printf 'x\n' > "$D/scripts/test-orphan.sh"            # untracked, never git-added
 printf 'x\n' > "$D/scripts/sub/test-nested.sh"        # tracked but nested
 printf 'x\n' > "$D/scripts/test-notes.txt"            # tracked, wrong extension
 printf 'x\n' > "$D/scripts/test-a.sh.bak"             # tracked, wrong extension
 printf 'x\n' > "$D/scripts/check-thing.sh"            # tracked, not test-*
-git -C "$D" add scripts/sub/test-nested.sh scripts/test-notes.txt scripts/test-a.sh.bak scripts/check-thing.sh
+git -C "$D" add docs/test-x.sh test-y.py scripts/sub/test-nested.sh scripts/test-notes.txt scripts/test-a.sh.bak scripts/check-thing.sh
 yml <<'M'
   - run: bash scripts/test-a.sh
 M
@@ -231,6 +257,8 @@ lacks "orphan" "$out" "the untracked suite is not reported"
 lacks "nested" "$out" "the nested suite is not reported"
 lacks "notes" "$out" "the .txt is not reported"
 lacks ".bak" "$out" "the .bak is not reported"
+lacks "test-x" "$out" "a tracked docs/test-x.sh is not reported"
+lacks "test-y" "$out" "a tracked root test-y.py is not reported"
 
 fresh test-a.sh
 mkdir -p "$D/scripts/sub"; printf 'x\n' > "$D/scripts/sub/test-nested.sh"
@@ -300,11 +328,11 @@ run
 expect "an empty validate.yml leaves the suite unwired, exit 1" 1 "$rc"
 
 fresh test-a.sh
-head -c 2048 /dev/urandom > "$D/.github/workflows/validate.yml"
+printf '\000\377\376\200\r\n\001run: bash scripts/\377\000\n\303(\n' > "$D/.github/workflows/validate.yml"
 run
-case "$rc" in 1|2) ok "a binary validate.yml yields a defined exit code ($rc)" ;;
-              *)   bad "binary validate.yml (got $rc: $out)" ;; esac
-lacks "line " "$(printf '%s' "$out" | grep -i 'syntax error')" "and no shell error"
+expect "a binary validate.yml reports the suite unwired, exit 1" 1 "$rc"
+contains "have no step" "$out" "and it is the finding, not a crash"
+if printf '%s' "$out" | grep -qE ': line [0-9]+: '; then bad "no shell error line in the output ($out)"; else ok "no shell error line in the output"; fi
 
 fresh
 rmdir "$D/scripts"
@@ -343,6 +371,25 @@ expect "the walk fallback reports an unwired suite" 1 "$rc"
 contains "scripts/test-b.py" "$out" "and names it"
 lacks "nested" "$out" "the walk does not descend"
 lacks ".bak" "$out" "the walk ignores a wrong extension"
+
+# A symlinked suite is a suite on the walk path as in a checkout; a dangling link is not.
+D="$T/plainlnk"; mkdir -p "$D/scripts" "$D/.github/workflows"
+printf 'x\n' > "$D/scripts/test-a.sh"; printf 'x\n' > "$D/real-a.sh"
+ln -s ../real-a.sh "$D/scripts/test-link.sh"
+yml <<'M'
+  - run: bash scripts/test-a.sh
+M
+run
+expect "an unwired symlinked suite is reported on the walk path" 1 "$rc"
+contains "  x scripts/test-link.sh" "$out" "and named"
+ln -s ../nonexistent "$D/scripts/test-dangle.sh"
+yml <<'M'
+  - run: bash scripts/test-a.sh
+  - run: bash scripts/test-link.sh
+M
+run
+expect "a dangling symlink is not a suite" 0 "$rc"
+lacks "test-dangle" "$out" "and appears nowhere in the output"
 
 echo "== the root is resolved physically once =="
 fresh test-a.sh test-b.sh

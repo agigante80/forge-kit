@@ -16,6 +16,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/check-producer-stamps.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+export GIT_CEILING_DIRECTORIES="$T"   # keep walk-path fixtures out of an enclosing checkout (#362)
 
 pass=0
 fail=0
