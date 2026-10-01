@@ -11,6 +11,18 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`gate-status.sh --stamp` no longer refuses a clean body** (#312, gate-status v3). The fingerprint
+  collapsed runs of blank lines to one but still told "no blank" from "one blank", so a body with
+  the version marker directly above a heading changed shape when the stamp padded a blank in, and
+  the first `--stamp` reported an author edit nobody made. The fingerprint now drops every blank
+  line. Upgrade note: every stamped ticket reads `stale` immediately after this change (the state
+  is recomputed on each read) and, where `gate-staleness.yml` is installed, gets its STALE mark
+  written on its next edit event; this is deliberate and fail-closed, with no legacy-hash
+  comparison kept. Re-run `/gate-ticket <N>` on each, never a bare `--stamp`, which would certify
+  unreviewed text as current. A stamp is comparable only under the same algorithm, so, where
+  `gate-staleness.yml` is installed, one written by a checkout whose fingerprint algorithm differs
+  from the default branch's is marked STALE on its own stamping edit. An edit that only
+  adds or removes blank lines, inside a code fence included, no longer makes a verdict stale.
 - **closing-sessions' `memory.py` refuses targets it cannot own safely** (#314, closing-sessions
   v4). A slug is now plain ASCII (letters, digits, `.`, `_`, `-`), so a non-ASCII slug can no
   longer fold into another through `lower()` (the Kelvin sign); uppercase stays accepted. A target

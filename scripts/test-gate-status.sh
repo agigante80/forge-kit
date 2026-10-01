@@ -128,6 +128,15 @@ $CTX"
 expect "moving the regions to the top leaves it unchanged" "$f0" "$(GS 7 --fingerprint)"
 setbody "${BASE/The thing./The other thing.}"
 f1=$(GS 7 --fingerprint); [ "$f1" != "$f0" ] && ok "one word outside a region changes it" || bad "author edit did not change it"
+# #312: a blank line is never an author edit, whatever its position.
+setbody "$(printf 'a\n\nb\n')"; fa=$(GS 7 --fingerprint)
+setbody "$(printf 'a\nb\n')"
+expect "removing a paragraph break leaves it unchanged" "$fa" "$(GS 7 --fingerprint)"
+setbody "$(printf '<!-- template-version: 6 -->\n## Summary\nThe thing.\n')"; fm=$(GS 7 --fingerprint)
+setbody "$(printf '<!-- template-version: 6 -->\n\n## Summary\nThe thing.\n')"
+expect "a blank line between the marker and a heading leaves it unchanged" "$fm" "$(GS 7 --fingerprint)"
+setbody "$(printf '<!-- template-version: 6 -->\n## Summary\nThe other thing.\n')"
+[ "$(GS 7 --fingerprint)" != "$fm" ] && ok "one word of a marker-then-heading body still changes it" || bad "author edit did not change it"
 touch "$S/fail-get"; out=$(GS 7 --fingerprint 2>/dev/null); expect "an unreadable body exits 2" 2 "$?"; expect "  with empty stdout" "" "$out"
 
 setbody "$AUTHOR
@@ -234,6 +243,21 @@ err=$(STUB_RACE_AT=4 GS 7 --mark-stale 2>&1 >/dev/null); expect "a race on mark-
 contains "not marked (rc 102)" "$err" "  and says so on stderr"
 lacks "STALE" "$(sed -n '/gate-verdict:start/,/gate-verdict:end/p' "$S/body")" "  and the verdict is not marked"
 
+# #312: a body whose marker is followed directly by a heading has no blank line there, and the
+# stamp's move to the top pads one in. That is not an author edit, so the FIRST stamp must succeed.
+NOBLANK='<!-- template-version: 6 -->
+## Summary
+
+The thing.
+
+'"$VERDICT"'
+'
+setbody "$NOBLANK"; GS 7 --stamp >/dev/null 2>&1; expect "a marker-then-heading body stamps on the first run" 0 "$?"
+expect "  and reads current" "current round 2 NEEDS-WORK" "$(GS 7)"
+setbody "$NOBLANK"; err=$(STUB_RACE_AT=6 GS 7 --stamp 2>&1 >/dev/null); expect "a real author edit during that stamp still exits 1" 1 "$?"
+contains "an author section changed during the stamp" "$err" "  and says why"
+expect "  and leaves it unrecorded" "unrecorded round 2" "$(GS 7)"
+
 echo "== mutants =="
 m() {  # m <label> <sed expr>: a mutant of the script must fail the named probe
   sed "$2" "$REAL" > "$T/gate-status.sh"
@@ -248,12 +272,19 @@ probe_retry() { setbody "$BASE"; STUB_RACE_KIND=region STUB_RACE_AT=6 GS 7 --sta
 # writing ANYTHING more once an author edit is seen, so the probe counts PATCHes.
 probe_judged() { setbody "$BASE"; STUB_RACE_AT=6 GS 7 --stamp >/dev/null 2>&1; [ "$(patches)" = 0 ]; }
 probe_final() { setbody "$BASE"; STUB_RACE_AT=10 GS 7 --stamp >/dev/null 2>&1; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_word() { setbody "$(printf 'a\nb\n')"; a=$(GS 7 --fingerprint); setbody "$(printf 'a\nc\n')"; [ "$a" != "$(GS 7 --fingerprint)" ]; }
+probe_nobl() { setbody "$NOBLANK"; GS 7 --stamp >/dev/null 2>&1; }
+probe_para() { setbody "$(printf 'a\n\nb\n')"; a=$(GS 7 --fingerprint); setbody "$(printf 'a\nb\n')"; [ "$a" = "$(GS 7 --fingerprint)" ]; }
 m "hashing the whole body, regions included" '/inside { next }/d' probe_regions
 m "marking an unrecorded verdict" 's/case "$st" in stale\*) ;; \*) exit 0 ;; esac/:/' probe_unrecorded
 m "stamping without top" 's/write_retry gate-verdict "$clean" top/write_retry gate-verdict "$clean"/' probe_top
 m "no retry on 102" 's/if \[ "$rc" = 102 \]/if false/' probe_retry
 m "retrying past an author edit" 's/\[ "$now" = "$FP0" \] ||/true ||/' probe_judged
 m "stamping the re-read body's own fingerprint" 's/\[ "$fp" = "$FP0" \] ||/true ||/' probe_final
+# Restoring the old asymmetric collapse (one blank kept between author lines) brings #312 back.
+m "collapsing blank runs instead of dropping them" 's/^    n == "" { next }/    n == "" { if (seen) pend = 1; next }/;s/^    { print n }/    { if (pend) print ""; pend = 0; seen = 1; print n }/' probe_nobl
+m "hashing no author text at all" 's/^    { print n }/    { next }/' probe_word
+m "collapsing blank runs (paragraph break)" 's/^    n == "" { next }/    n == "" { if (seen) pend = 1; next }/;s/^    { print n }/    { if (pend) print ""; pend = 0; seen = 1; print n }/' probe_para
 
 echo
 echo "gate-status: $pass passed, $fail failed"

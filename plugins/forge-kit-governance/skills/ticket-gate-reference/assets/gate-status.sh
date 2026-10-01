@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 2
+# gate-status-version: 3
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -13,11 +13,25 @@
 #
 # THE FINGERPRINT is `sha256:<16 hex>` of the body with every `<!-- <name>:start -->` ...
 # `<!-- <name>:end -->` region removed (every prefix, not only the gate's), CR and trailing blanks
-# stripped from every line, runs of blank lines collapsed to one, and blank lines at the start and
-# the end dropped. So it moves when an AUTHOR section changes and never when any writer's region
-# changes, is placed, or is moved: the stamp's own move to the top leaves it unchanged. A decision
+# stripped from every line, and EVERY blank line dropped (#312). So it moves when an AUTHOR section
+# changes and never when any writer's region changes, is placed, or is moved: the stamp's own move
+# to the top leaves it unchanged, including the blank lines `top` pads in around the region. Until
+# v3 it collapsed runs of blanks to one, which still told "no blank" from "one blank": a body whose
+# version marker sat directly above a heading changed shape when the stamp padded one in, and the
+# first --stamp refused an author edit that never happened. The cost: an edit that only adds or
+# removes blank lines no longer makes a verdict stale, including one inside a code fence or one
+# that changes how Markdown renders (a paragraph above `---` becoming a setext heading). A decision
 # written only inside a `brief-*` region therefore does not make the verdict stale, deliberately:
 # it is not a change to what the ticket asks for until its author folds it into a section.
+#
+# UPGRADE (v3, 2026-10-01). The fingerprint changed, so EVERY stamped ticket reads `stale` on its
+# next read (state_of recomputes it). Where gate-staleness.yml is installed (this repo; elsewhere
+# only the `stale` read applies) it writes the STALE mark on the next `issues: edited` event. That
+# is fail-closed and deliberate; no legacy-hash comparison is kept, because a permanent second
+# algorithm is not worth a one-time STALE mark. The remedy is to re-run `/gate-ticket <N>` on that
+# ticket, NEVER a bare `--stamp`, which would certify unreviewed text. A stamp is comparable only
+# under the same algorithm: one written by a checkout ahead of or behind the default branch, which
+# the workflow runs from, is marked STALE at once.
 #
 # An UNPAIRED marker (a start with no end, or an end with no start) refuses with exit 2, the
 # splice's 103 shape, rather than hashing to the end of the body and calling that an answer.
@@ -96,8 +110,8 @@ fingerprint() {  # body on stdin
     n ~ /^<!-- [^ \t]+:start -->$/ { if (inside) { bad = 1; exit 3 } inside = 1; next }
     n ~ /^<!-- [^ \t]+:end -->$/   { if (!inside) { bad = 1; exit 3 } inside = 0; next }
     inside { next }
-    n == "" { if (seen) pend = 1; next }
-    { if (pend) print ""; pend = 0; seen = 1; print n }
+    n == "" { next }
+    { print n }
     END { if (bad || inside) exit 3 }
   ' | $HASH | cut -c1-16)" || return 2
   [ -n "$h" ] || return 2
