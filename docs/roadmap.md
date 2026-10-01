@@ -940,6 +940,30 @@ downgrade the user's own session (#279); a measurement in turns as well as token
 forge-adapt carrying the decisions into installed copies (#281). Per-dispatch effort through Workflow
 scripts was considered and deferred to Backlog (#282).
 
+## Phase: What contributor-docs still cannot see
+state: open
+plan: docs/plans/what-contributor-docs-cannot-see.md
+
+Opened 2026-10-01, when no phase was open and 28 open tickets had none. Seven of them are about one check, `check-contributor-docs.sh`, and they share a cause: the check reads a line well now (#385 to #395 saw to that), but it follows a tracked symlink out of the repository (#309), never follows a `CLAUDE.md`'s `@`-imports (#301), never looks at per-harness copies of `AGENTS.md` (#300), and never counts what a session loads before any work begins (#297), which one downstream repository measured at 258 KB. #302's line budget waits on a maintainer decision, and #398 and #406 are the Lows and the Apple-awk gap the last batches left.
+
+## Phase: Tests that can be believed
+state: planned
+plan: 
+
+A bucket, filed 2026-10-01. Suites that pass alone and fail under load (#404, #378, #331, #219), and mutant harnesses outside test-forge-lib.sh that count a crashing mutant as killed (#360). A suite that flakes teaches people to re-run it, and a mutant that crashes proves nothing; both make a green run mean less than it says. The plan, when it opens, has to say what a flake's root cause is in each case rather than raise a timeout.
+
+## Phase: The gate's own correctness
+state: planned
+plan: 
+
+A bucket, filed 2026-10-01. The gate failing its own critic's advice (#349: a 'Control (...)' scenario the critic recommends trips the scenario counter), the #283 review Lows and a forge_issue_comment jq failure (#347), and the #304 review Lows in check-ticket-mechanics.sh (#320, #335). ticket-gate.md sits at its size ratchet with zero headroom, so the plan has to say where each fix's words come from.
+
+## Phase: Portable shell, everywhere
+state: planned
+plan: 
+
+A bucket, filed 2026-10-01. The sweeps #259 and #321 started and did not finish: a cd that echoes under CDPATH (#377) and the guard that would stop it coming back (#379), awk file operands shaped name=value and the blind spots in the zero-awk-v count (#405), and the lost-variable class outside forge-adapt (#407). Each is a class, so each wants a guard, not just a fix.
+
 ## Phase: Backlog
 state: backlog
 
