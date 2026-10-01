@@ -200,11 +200,35 @@ def _inspect(path, rel, strict=False):
         return None, f"{rel} is not UTF-8"
 
 
+def _index_writable(path):
+    """True if the index can be opened for writing by the effective uid.
+
+    An open probe rather than os.access: access(2) tests the REAL uid, while
+    write_index opens as the effective one. No O_TRUNC, so the probe never
+    changes the file, and it is closed at once. O_NONBLOCK keeps a FIFO swapped
+    in after _inspect from hanging the open.
+    """
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK))
+    except OSError:
+        return False
+    return True
+
+
 def check_ownership(project_dir, slug):
     """Return an error message, or None when acting on slug is allowed.
 
-    Checks the memory file AND the MEMORY.md index, so a bad index refuses
-    before the memory file is written and no partial state is left behind.
+    Checks the memory file AND the MEMORY.md index (when present: regular,
+    UTF-8, readable and writable), so an index defect refuses before the
+    memory file is written or deleted and leaves nothing half done. The two
+    are decoded differently on purpose. A memory file is only scanned for its
+    frontmatter and then overwritten or deleted whole, so it is decoded with
+    errors="replace": a stray byte must never block updating or erasing an
+    owned file. The index is rewritten from what read_index returns after a
+    mutation, so it must decode cleanly up front. That covers only what
+    this check can see: an I/O failure after it (the race between check and
+    write, ENOSPC, a network filesystem) can still leave partial state, because
+    the helper is not transactional (#329).
     """
     if not _SLUG_RE.fullmatch(slug) or ".." in slug:
         return "not a plain slug: use ASCII letters, digits, '.', '_' or '-', no path parts"
@@ -214,10 +238,12 @@ def check_ownership(project_dir, slug):
     text, problem = _inspect(memory_path(project_dir, slug), rel)
     if problem:
         return problem
-    _, problem = _inspect(index_path(project_dir),
-                          os.path.join(MEMORY_SUBDIR, INDEX_NAME), strict=True)
+    idx_rel = os.path.join(MEMORY_SUBDIR, INDEX_NAME)
+    idx_text, problem = _inspect(index_path(project_dir), idx_rel, strict=True)
     if problem:
         return problem
+    if idx_text is not None and not _index_writable(index_path(project_dir)):
+        return f"{idx_rel} is not writable"
     if text is None or is_owned(text, slug):
         return None
     return (f"{rel} exists without the "

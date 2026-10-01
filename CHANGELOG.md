@@ -11,6 +11,18 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`closing-sessions` `memory.py` refuses a read-only `MEMORY.md` before it changes anything,
+  and the strict-decode switch is pinned from both sides** (#329, closing-sessions v5,
+  forge-kit-governance 0.27.1). With the index at mode 0444, `write` left a memory file with no
+  index line and `remove` deleted the file but kept its index line, each ending in a
+  `PermissionError` traceback. `check_ownership` now probes the index with a non-truncating
+  `os.open(O_WRONLY|O_NOFOLLOW|O_NONBLOCK)` (the effective uid, as `write_index` uses; not
+  `os.access`, which tests the real uid) and refuses with `.claude/memory/MEMORY.md is not
+  writable`. Its docstring now says what the check does not cover: a race between check and write,
+  ENOSPC or a network filesystem can still leave partial state, because the helper is not
+  transactional. A new test pins that an owned memory file holding a non-UTF-8 byte is still
+  overwritten and removed, which an all-strict decode had passed silently. The suite grows from
+  37 to 40 tests (`scripts/test-closing-sessions-memory.py`).
 - **test-check-contributor-docs.sh: `c_escape` no longer depends on access times** (#305,
   test-only, no component or plugin version change). The outside sentinel is now a FIFO with a
   parked writer, so any read of it is observed directly by a bounded probe, and a watchdog

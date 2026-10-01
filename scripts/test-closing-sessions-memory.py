@@ -377,6 +377,46 @@ class OwnershipTests(unittest.TestCase):
             os.chmod(os.path.join(d, ".claude", "memory", "MEMORY.md"), 0)
             self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
 
+    def _lock_index(self, d):
+        os.chmod(os.path.join(d, ".claude", "memory", "MEMORY.md"), 0o444)
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores file modes")
+    def test_unwritable_index_refuses_write_before_any_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "other.md", "# x\n")
+            self._lock_index(d)
+            r = self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="n")
+            self.assertIn("MEMORY.md is not writable", r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "a.md")))
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores file modes")
+    def test_unwritable_index_refuses_remove_and_keeps_file_and_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "a.md", self.OWNED_A, index="- [T](a.md) - d\n")
+            self._lock_index(d)
+            r = self._refused(d, ["remove", "--slug", "a"])
+            self.assertIn("MEMORY.md is not writable", r.stderr)
+            self.assertTrue(os.path.exists(os.path.join(d, ".claude", "memory", "a.md")))
+            self.assertIn("(a.md)", read(d, "MEMORY.md"))
+
+    def test_owned_file_with_non_utf8_body_still_overwritten_and_removed(self):
+        # Only the index is decoded strictly (#314); a memory file is decoded
+        # with errors="replace". Pins the replace side of that switch (#329).
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "a.md", "", index="- [T](a.md) - d\n")
+            path = os.path.join(d, ".claude", "memory", "a.md")
+            with open(path, "wb") as f:
+                f.write(self.OWNED_A.encode("utf-8") + b"\xff\n")
+            r = run(d, ["write", "--slug", "a"] + self.WRITE[1:], body="fresh")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("fresh", read(d, "a.md"))
+            with open(path, "wb") as f:
+                f.write(self.OWNED_A.encode("utf-8") + b"\xff\n")
+            r = run(d, ["remove", "--slug", "a"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(os.path.exists(path))
+            self.assertNotIn("(a.md)", read(d, "MEMORY.md"))
+
     def _bad_index(self, d):
         mem = os.path.join(d, ".claude", "memory")
         os.makedirs(mem, exist_ok=True)
