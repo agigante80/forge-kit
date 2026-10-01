@@ -404,6 +404,25 @@ else
   ok "no live forge call (the gh/curl shim log is empty)"
 fi
 
+echo "== no awk -v in the shipped asset, and a backslash path is printed as typed (#259) =="
+# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
+# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
+awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
+expect "sync-phases.sh carries no awk -v code line" 0 "$(awkv_count "$SRC")"
+{ cat "$SRC"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$T/awkv-mut.sh"
+n="$(awkv_count "$T/awkv-mut.sh")"
+[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in sync-phases.sh" || bad "MUTANT: an added awk -F'\\t' -v line in sync-phases.sh counted $n, not 1"
+printf '## Phase: A\nstate: bogus\n\nx\n' > "$T/r\\tmap.md"
+run --check --roadmap 'r\tmap.md'
+expect "a malformed roadmap at a backslash path still exits 3" 3 "$rc"
+contains 'r\tmap.md' "$out" "and the diagnostic names r\\tmap.md with its backslash"
+case "$out" in *"$(printf '\t')"*) bad "and the diagnostic carries no TAB byte (the -v escape pass)" ;; *) ok "and the diagnostic carries no TAB byte (the -v escape pass)" ;; esac
+cp "$T/r\\tmap.md" "$T/rtmap.md"
+run --check --roadmap rtmap.md
+expect "the backslash-free control exits 3" 3 "$rc"
+expect "and its first line is unchanged" 'sync-phases: rtmap.md: phase "A": unknown state "bogus"' "$(printf '%s\n' "$out" | head -1)"
+rm -f "$T/r\\tmap.md" "$T/rtmap.md"
+
 echo ""
 echo "sync-phases tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

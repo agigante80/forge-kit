@@ -631,6 +631,35 @@ else
   ok "no live forge call (the gh/curl shim log is empty)"
 fi
 
+echo "== no awk -v in the shipped asset, and a backslash path is printed as typed (#259) =="
+# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
+# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
+awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
+expect "reassess-phases.sh carries no awk -v code line" 0 "$(awkv_count "$SRC")"
+{ cat "$SRC"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$T/awkv-mut.sh"
+n="$(awkv_count "$T/awkv-mut.sh")"
+[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in reassess-phases.sh" || bad "MUTANT: an added awk -F'\\t' -v line in reassess-phases.sh counted $n, not 1"
+printf '## Phase: A\nstate: bogus\n\nx\n' > "$T/r\\tmap.md"
+run reorder A --end --check --roadmap 'r\tmap.md'
+expect "a malformed roadmap at a backslash path still exits 3" 3 "$rc"
+contains 'r\tmap.md' "$serr" "and the diagnostic names r\\tmap.md with its backslash"
+case "$serr" in *"$(printf '\t')"*) bad "and the diagnostic carries no TAB byte (the -v escape pass)" ;; *) ok "and the diagnostic carries no TAB byte (the -v escape pass)" ;; esac
+rm -f "$T/r\\tmap.md"
+# A phase NAME carrying backslash-t: under -v the lookup compared against a TAB and refused it.
+base_roadmap; base_issues
+printf '\n## Phase: a\\tb\nstate: planned\n\nA backslash phase.\n' >> "$T/docs/roadmap.md"
+cat > "$T/ms.json" <<'JSON'
+[{"id":1,"title":"Alpha","state":"open"},{"id":2,"title":"Beta","state":"open"},
+ {"id":3,"title":"Zeta","state":"closed"},{"id":4,"title":"Cellar","state":"open"},
+ {"id":5,"title":"a\\tb","state":"open"}]
+JSON
+run reorder 'a\tb' --end --check
+expect "a phase named a\\tb is found by reorder --check" 0 "$rc"
+expect "and the preview names it as typed" "would reorder 'a\\tb' to the end" "$(printf '%s\n' "$sout" | head -1)"
+run reorder zzz --end --check
+expect "an unknown phase still refuses with 5" 5 "$rc"
+expect "and says so" "reassess-phases: no phase named 'zzz'" "$serr"
+
 echo ""
 echo "reassess-phases tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

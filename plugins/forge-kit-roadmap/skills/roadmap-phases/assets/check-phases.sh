@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# check-phases-version: 6
+# check-phases-version: 7
+#
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
+# `--roadmap` path (caller text), reads it through ENVIRON instead: a path named `r\tmap.md` is
+# printed as typed rather than with a tab. scripts/test-check-phases.sh counts zero `awk ... -v`
+# code lines; a `-v` on an awk continuation line is banned too, since that count is line-based.
 #
 # The roadmap-phases guard: four rules that make rolling wave planning mechanical.
 #
@@ -81,7 +87,7 @@ fi
 PHASES="$(parse_roadmap "$ROADMAP")"
 if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
   printf '%s\n' "$PHASES" \
-    | awk -F'\t' -v f="$ROADMAP" '/^MALFORMED/ {printf("check-phases: %s: phase \"%s\": %s\n", f, $2, $3)}' >&2
+    | CP_F="$ROADMAP" awk -F'\t' '/^MALFORMED/ {printf("check-phases: %s: phase \"%s\": %s\n", ENVIRON["CP_F"], $2, $3)}' >&2
   echo "check-phases: state must be one of: planned, open, done, backlog." >&2
   echo "  NOTHING was checked. A partially parsed roadmap reports phases as compliant that were never read." >&2
   exit 3

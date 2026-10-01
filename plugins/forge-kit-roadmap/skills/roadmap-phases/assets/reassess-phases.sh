@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 3
+# reassess-phases-version: 4
+#
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline. Every site that took a value reads it through ENVIRON instead:
+# the MALFORMED diagnostic's `--roadmap` path and the phase NAME in phase_exists, phase_state and
+# next_phase_name are caller text (a phase named `a\tb` was refused as unknown, exit 5); the
+# `_read_prose` line bounds are numbers, moved as hardening only (not reproducible). The count in
+# scripts/test-reassess-phases.sh is line-based, so a `-v` on an awk continuation line is banned.
 #
 # Reshapes docs/roadmap.md itself: the level above /phase review (#244), which asks whether ONE
 # phase is still aligned. This asks whether the ROADMAP is still the right plan (#249).
@@ -160,7 +167,7 @@ LIB="$(find_forge_lib)" || {
 PHASES="$(parse_roadmap "$ROADMAP")"
 if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
   printf '%s\n' "$PHASES" \
-    | awk -F'\t' -v f="$ROADMAP" '/^MALFORMED/ {printf("reassess-phases: %s: phase \"%s\": %s\n", f, $2, $3)}' >&2
+    | RP_F="$ROADMAP" awk -F'\t' '/^MALFORMED/ {printf("reassess-phases: %s: phase \"%s\": %s\n", ENVIRON["RP_F"], $2, $3)}' >&2
   echo "reassess-phases: state must be one of: planned, open, done, backlog." >&2
   echo "  NOTHING was written." >&2
   exit 3
@@ -175,9 +182,9 @@ MS="$(FORGE_DRY_RUN=0 forge_milestone_list)" || die "could not list milestones; 
 ISS="$(FORGE_DRY_RUN=0 forge_issue_milestone_list)" || die "could not list issue milestones; check the token and the forge configuration"
 
 # --- read-only helpers over $PHASES / $MS / $ISS, all fixed as of this run's start ---------------
-phase_exists()      { printf '%s\n' "$PHASES" | awk -F'\t' -v n="$1" '$1==n{f=1} END{exit !f}'; }
-phase_state()       { printf '%s\n' "$PHASES" | awk -F'\t' -v n="$1" '$1==n{print $2; exit}'; }
-next_phase_name()    { printf '%s\n' "$PHASES" | awk -F'\t' -v n="$1" '{a[NR]=$1} a[NR]==n{f=NR} END{if(f && a[f+1]!="") print a[f+1]}'; }
+phase_exists()      { printf '%s\n' "$PHASES" | RP_N="$1" awk -F'\t' '$1==ENVIRON["RP_N"]{f=1} END{exit !f}'; }
+phase_state()       { printf '%s\n' "$PHASES" | RP_N="$1" awk -F'\t' '$1==ENVIRON["RP_N"]{print $2; exit}'; }
+next_phase_name()    { printf '%s\n' "$PHASES" | RP_N="$1" awk -F'\t' '{a[NR]=$1} a[NR]==ENVIRON["RP_N"]{f=NR} END{if(f && a[f+1]!="") print a[f+1]}'; }
 open_ticket_numbers() { printf '%s' "$ISS" | jq -r --arg t "$1" '.[] | select(.milestone==$t) | .number'; }
 resolve_dest() {
   local raw="$1"
@@ -193,7 +200,8 @@ _read_prose() {  # _read_prose <phase> -> its current prose text, trimmed
   blk="$(_rm_block "$ROADMAP" "$1")"
   case "$blk" in NONE|DUPLICATE) return 1 ;; esac
   s="${blk%% *}"; e="${blk##* }"
-  awk -v s="$s" -v e="$e" '
+  RP_S="$s" RP_E="$e" awk '
+    BEGIN{s=ENVIRON["RP_S"]+0; e=ENVIRON["RP_E"]+0}
     NR<=s{next} NR>=e{next}
     index($0,"state:")==1 || index($0,"plan:")==1 {next}
     {lines[++n]=$0}

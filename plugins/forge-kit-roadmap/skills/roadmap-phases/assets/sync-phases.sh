@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# sync-phases-version: 7
+# sync-phases-version: 8
+#
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
+# `--roadmap` path (caller text), reads it through ENVIRON instead. scripts/test-sync-phases.sh
+# counts zero `awk ... -v` code lines; a `-v` on an awk continuation line is banned too.
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
@@ -120,7 +125,7 @@ fi
 PHASES="$(parse_roadmap "$ROADMAP")"
 if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
   printf '%s\n' "$PHASES" \
-    | awk -F'\t' -v f="$ROADMAP" '/^MALFORMED/ {printf("sync-phases: %s: phase \"%s\": %s\n", f, $2, $3)}' >&2
+    | SP_F="$ROADMAP" awk -F'\t' '/^MALFORMED/ {printf("sync-phases: %s: phase \"%s\": %s\n", ENVIRON["SP_F"], $2, $3)}' >&2
   echo "sync-phases: state must be one of: planned, open, done, backlog." >&2
   echo "  NOTHING was written. A partial sync is the drift this exists to end." >&2
   exit 3
