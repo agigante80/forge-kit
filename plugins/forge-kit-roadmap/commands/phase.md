@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, reassess, close or triage a
 argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 10 -->
+<!-- phase-version: 11 -->
 
 # /phase
 
@@ -120,16 +120,16 @@ The two libraries are SOURCED, not run, and the version that prints must be 25 o
    and each document of step 4's `<documents>` (computed here, once). The listing is a FILE under the
    git dir, since a shell variable does not survive the tool calls a run spans, and it holds one
    `<hash>  <path>` line per path from `git hash-object -- "<path>"`, or `absent  <path>` when the
-   path does not exist (`git hash-object` exits 128 on one). Hashes, not `git status --porcelain`:
-   porcelain prints ` M <path>` before and after a second write to an already-modified path.
-   Overlapping runs share the one file, so the later run wins and the earlier one reports changed or
-   unproven, never held.
+   path does not exist (`git hash-object` exits 128 on one). Hashes, because `git status --porcelain`
+   reads ` M <path>` both before and after a second write. Overlapping runs share the file; the later
+   wins.
 
 ```bash
-SNAP="$(git rev-parse --git-path phase-review.snapshot)"
-printf '%s\n' docs/roadmap.md "<plan>" "<doc>"... | LC_ALL=C sort | while IFS= read -r p; do
-  if [ -e "$p" ]; then printf '%s  %s\n' "$(git hash-object -- "$p")" "$p"; else printf 'absent  %s\n' "$p"; fi
-done > "$SNAP"
+( cd "$(git rev-parse --show-toplevel)" &&
+  SNAP="$(git rev-parse --git-path phase-review.snapshot)" &&
+  printf '%s\n' docs/roadmap.md "<plan>" "<doc>"... | LC_ALL=C sort | while IFS= read -r p; do
+    if [ -e "$p" ]; then printf '%s  %s\n' "$(git hash-object -- "$p")" "$p"; else printf 'absent  %s\n' "$p"; fi
+  done > "$SNAP" )
 ```
 2. Read the plan, the phase's roadmap prose, and EVERY ticket in the milestone, open and closed,
    including its comments through `forge_issue_comments`, excluding any comment whose first line is
@@ -140,8 +140,11 @@ done > "$SNAP"
 4. Run `bash "$DD" --range <base>^..HEAD --docs <documents>` and read its rows. `<base>` is derived
    by the skill's range rule, never restated here. `<documents>` is a comma-separated list
    (`--docs <doc>[,<doc>...]`), the project's standing documents for which `git cat-file -e
-   HEAD:<doc>` succeeds, read back from the snapshot file rather than from memory: `sed 's/^[^ ]*  //'
-   "$SNAP" | grep -vxF -e docs/roadmap.md -e "<plan>" | paste -sd, -`. Both flags are required.
+   HEAD:<doc>` succeeds, read back from the snapshot file rather than from memory:
+   `SNAP="$(git rev-parse --git-path phase-review.snapshot)"; [ -f "$SNAP" ] && sed 's/^[^ ]*  //'
+   "$SNAP" | grep -vxF -e docs/roadmap.md -e "<plan>" | paste -sd, -`.
+   With no snapshot it prints nothing: report `no snapshot from step 1`, skip this step. Both flags
+   are required.
 5. Report every act the review would perform, on the tickets, on the plan, on the roadmap prose and
    on those documents, each with its reason. Nothing is written before this report exists.
 6. Act. The roadmap prose goes through `roadmap_set_prose`; the plan and the documents are ordinary
@@ -151,23 +154,26 @@ done > "$SNAP"
    indistinguishable from the review's own write; each act prints on a `performed` line.
 
 ```bash
-SNAP="$(git rev-parse --git-path phase-review.snapshot)"; ACTS=N   # replace N with the count
-if [ ! -f "$SNAP" ]; then echo "second-run proof: unproven, no snapshot from step 1"
-elif case "$ACTS" in ''|*[!0-9]*) true;; *) false;; esac; then echo "second-run proof: unproven, ACTS not set"
-else
-  sed 's/^[^ ]*  //' "$SNAP" | while IFS= read -r p; do
-    if [ -e "$p" ]; then printf '%s  %s\n' "$(git hash-object -- "$p")" "$p"; else printf 'absent  %s\n' "$p"; fi
-  done > "$SNAP.after"
-  CHG=$(diff "$SNAP" "$SNAP.after" | sed -n 's/^> [^ ]*  /second-run proof: not held, changed during the run: /p')
-  if [ -z "$CHG" ] && [ "$ACTS" -eq 0 ]; then
-    echo "second-run proof: held ($(wc -l < "$SNAP") paths unchanged, 0 acts)"
-  elif [ -n "$CHG" ]; then printf '%s\n' "$CHG"; fi
-  rm -f "$SNAP" "$SNAP.after"
-fi
+( cd "$(git rev-parse --show-toplevel)" &&
+  SNAP="$(git rev-parse --git-path phase-review.snapshot)" &&
+  ACTS=N &&
+  if [ ! -f "$SNAP" ]; then echo "second-run proof: unproven, no snapshot from step 1"
+  elif case "$ACTS" in ''|*[!0-9]*) true;; *) false;; esac; then echo "second-run proof: unproven, ACTS not set"
+  else
+    sed 's/^[^ ]*  //' "$SNAP" | while IFS= read -r p; do
+      if [ -e "$p" ]; then printf '%s  %s\n' "$(git hash-object -- "$p")" "$p"; else printf 'absent  %s\n' "$p"; fi
+    done > "$SNAP.after"
+    CHG=$(diff "$SNAP" "$SNAP.after" | sed -n 's/^> [^ ]*  /second-run proof: not held, changed during the run: /p')
+    if [ -z "$CHG" ] && [ "$ACTS" -eq 0 ]; then
+      echo "second-run proof: held ($(wc -l < "$SNAP" | tr -d ' ') paths unchanged, 0 acts)"
+    elif [ -n "$CHG" ]; then printf '%s\n' "$CHG"; fi
+    rm -f "$SNAP" "$SNAP.after"
+  fi )
 ```
 
-   For each act print `second-run proof: not held, performed: <act>` (for example `close #<N>`). The
-   held and unproven lines print alone; both `not held` forms may print together.
+   For each act print `second-run proof: not held, performed: <act>` (for example `close #<N>`),
+   also after an `unproven` line.
+   `held` prints alone, and only with zero acts and nothing changed.
 8. If every ticket is implemented, hand over to `/phase close`. Do not close it here.
 
 ## `/phase reassess`
