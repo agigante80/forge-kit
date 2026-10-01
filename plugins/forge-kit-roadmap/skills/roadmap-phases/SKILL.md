@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 11 -->
+<!-- roadmap-phases-version: 12 -->
 
 # Roadmap phases
 
@@ -187,9 +187,14 @@ review asks the question by hand and names
 what it compared.
 
 **A second run with nothing changed in between PROVES it wrote nothing, rather than asserting it.**
-Step 5's act list is empty, no write primitive runs, and the run prints `git status --porcelain --
-docs/roadmap.md <plan> <documents>`, which must itself be empty. A review that always finds
-something to change cannot be believed when it does.
+The proof is relative to the run: step 1 snapshots the local paths (roadmap, plan, documents) as
+content hashes, and after step 6 the listing must equal it AND step 5's act list must be empty. It
+is not a clean tree: the review never commits its writes (considered and rejected: it would make
+history on the user's branch and sweep in unrelated staged work), so a second run after a writing
+first run is still dirty and must hold. An uncommitted edit present at step 1 is neutral. The
+snapshot sees local files only, so host writes (closes, body rewrites, comments) rest on the empty
+act list alone. A missing snapshot is unproven, never held; `phase.md` carries the format. A review
+that always finds something to change cannot be believed when it does.
 
 **It may NOT reshape the roadmap.** One sentence decides the boundary: if the change would alter
 which phases exist or their order, it is a REASSESSMENT, and the review stops and says so rather

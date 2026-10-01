@@ -15,6 +15,10 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- `/phase review`'s second-run proof compares a step 1 snapshot of the local paths (per-path
+  `git hash-object`, kept in a file under the git dir) with the state after step 6, and also requires
+  an empty act list, instead of requiring a clean `git status --porcelain` that a first run's
+  uncommitted writes made impossible; a missing snapshot, or an `ACTS` count never set, reports unproven, never held (#271).
 - `check-ticket-mechanics.sh`'s multi-When check (check 4) named a Negative block Positive in its
   evidence whenever the block's label contained the word (`Negative (the Positive path is
   blocked)`), because it tested polarity with a substring search. It now uses the anchored
