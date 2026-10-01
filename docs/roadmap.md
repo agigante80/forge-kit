@@ -946,6 +946,12 @@ plan: docs/plans/what-contributor-docs-cannot-see.md
 
 Opened 2026-10-01, when no phase was open and 28 open tickets had none. Seven of them are about one check, `check-contributor-docs.sh`, and they share a cause: the check reads a line well now (#385 to #395 saw to that), but it follows a tracked symlink out of the repository (#309), never follows a `CLAUDE.md`'s `@`-imports (#301), never looks at per-harness copies of `AGENTS.md` (#300), and never counts what a session loads before any work begins (#297), which one downstream repository measured at 258 KB. #302's line budget waits on a maintainer decision, and #398 and #406 are the Lows and the Apple-awk gap the last batches left.
 
+## Phase: What a session loads before work begins
+state: planned
+plan: 
+
+Split from "What contributor-docs still cannot see": A bucket, split out 2026-10-01 when What contributor-docs still cannot see closed. #297 asks forge-kit to treat startup context (a project's CLAUDE.md, its transitive @-imports, ancestors, rules and the auto-memory MEMORY.md) as a budget the way check-component-size.sh budgets component bodies. Its prior-art research is done (comment on #297): nothing existing budgets it per project, and `claude -p --output-format json "/context"` reports exact per-file memory tokens at no cost. What blocks it is the maintainer's: where the measurement lives, the warn and fail levels, the escape-hatch form, and which of R1 to R11 are enforced. The plan gets written from those answers.
+
 ## Phase: Tests that can be believed
 state: planned
 plan: 
