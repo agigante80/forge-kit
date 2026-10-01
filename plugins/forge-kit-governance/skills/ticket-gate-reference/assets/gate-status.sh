@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 7
+# gate-status-version: 8
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -42,9 +42,9 @@
 # the tag moved WITH the algorithm, because an editor can update the hex and the tag in one
 # literal, or the hex alone. A TAGGED stamp whose tag differs from FP_TAG reads
 # `stale round <R> <VERDICT> (fingerprint <old>, now <current>)`, whatever its hash says, because
-# that hash came from an algorithm this script no longer has. An UNTAGGED stamp (written by v1 to v3) behaves exactly
-# as before: its hash is compared, and it is never reported as an algorithm change, so no stamped
-# ticket changes state. (v5, #342) Only two shapes follow the hash: a tag,
+# that hash came from an algorithm this script no longer has. An UNTAGGED stamp (written by v1 to
+# v3) behaves exactly as before: its hash is compared, and it is never reported as an algorithm
+# change, so no stamped ticket changes state. (v5, #342) Only two shapes follow the hash: a tag,
 # ` (<1 to 16 of [a-z0-9]>)` then `.` then end of line or a space and text (the tag needs exactly
 # 16 hex before it); or no tag, `.` then end of line or a space and text (the untagged shape does
 # not count the hex digits, the hash is just compared). Anything else after the hash is no stamp:
