@@ -1,11 +1,11 @@
 # tier-probe-security-tester fixture
 
 **`server.py` is vulnerable ON PURPOSE.** It is the seed for #292, the re-measurement of which model
-tier `api-security-tester` needs. It binds to `127.0.0.1` only, nothing in CI, no hook and no install path starts it
-(`reference_test.py` does, and a bare `python3 -m pytest` at the repo root collects it, so run that
-only with port 8765 free), and its tokens are fake literals, not credentials.
-Start it by hand, on loopback, and only to reproduce the measurement. Never bind it to a
-non-loopback address and never deploy it anywhere.
+tier `api-security-tester` needs. It binds to `127.0.0.1` only, nothing in CI starts it, and no hook
+or install path does either. `reference_test.py` does start it, and a bare `python3 -m pytest` at
+the repo root collects that file, so it reports `3 failed` by design and only with port 8765 free.
+Its tokens are fake literals, not credentials. Start it by hand, on loopback, and only to
+reproduce the measurement. Never bind it to a non-loopback address and never deploy it anywhere.
 
 This is a sibling of `scripts/fixtures/tier-probe-security/`, which is left byte-identical so the
 recorded #289 `security-auditor` rows and the line numbers its README cites stay valid. It is the

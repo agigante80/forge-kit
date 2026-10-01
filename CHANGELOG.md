@@ -11,6 +11,11 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- `reference_test.py` in the tier-probe fixture now waits for the server child with
+  `proc.wait(timeout=1)` instead of a single `proc.poll()`. A listener appearing after the port
+  probe (a concurrent run) could answer the test while this run's child had already lost the bind,
+  giving a wrong answer key; it now gives `3 errors`. The fixture README's opening paragraph is
+  rewrapped and says a bare repo-root `python3 -m pytest` reports `3 failed` by design (#355).
 - The pre-push hook no longer presents itself as a preview of CI. It names where CI's base differs
   (the PR's target branch on a pull request, the previous tip on a push), says a push to any other
   branch gets no push-time run, and stops claiming the roadmap guard's host rules run in CI: they
