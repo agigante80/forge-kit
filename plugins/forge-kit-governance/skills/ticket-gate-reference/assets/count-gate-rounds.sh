@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# count-gate-rounds-version: 2
+# count-gate-rounds-version: 3
 # count-gate-rounds.sh <issue-number> [--body FILE]
 # count-gate-rounds.sh <issue-number> --memory [--body FILE]
 #
@@ -54,7 +54,7 @@
 # this suite, already puts the issue number first.
 set -uo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 
 # forge-lib.sh beside this script is the forge-adapt install shape; the fallback reaches across
 # plugin groups, which is the shape of a source checkout. Absent both, REFUSE.

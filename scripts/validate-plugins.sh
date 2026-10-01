@@ -15,7 +15,7 @@
 # Contract test: scripts/test-validate-plugins.sh.
 set -uo pipefail
 # Resolved before the cd: $0 may be relative. Sourced for component_frontmatter_field (check 5).
-. "$(cd "$(dirname "$0")" && pwd)/guard-lib.sh"
+. "$(CDPATH= cd -- "$(dirname "$0")" && pwd)/guard-lib.sh"
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
 err=0

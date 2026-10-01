@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 17
+# check-private-leaks-version: 18
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -126,7 +126,7 @@ fi
 abspath() {
   local d b
   d="$(dirname -- "$1")"; b="$(basename -- "$1")"
-  d="$(cd -- "$d" 2>/dev/null && pwd -P)" || { printf '%s' "$1"; return; }
+  d="$(CDPATH= cd -- "$d" 2>/dev/null && pwd -P)" || { printf '%s' "$1"; return; }
   printf '%s/%s' "$d" "$b"
 }
 

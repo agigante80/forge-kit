@@ -32,7 +32,7 @@
 set -uo pipefail
 
 ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)}"
-cd "$ROOT" || { echo "check-neighbour-overlap: no such directory: $ROOT" >&2; exit 2; }
+CDPATH= cd -- "$ROOT" || { echo "check-neighbour-overlap: no such directory: $ROOT" >&2; exit 2; }
 
 MANIFEST=docs/neighbours.tsv
 ALLOW=.neighbour-allow

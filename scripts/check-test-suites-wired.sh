@@ -50,7 +50,7 @@ else
     echo "check-test-suites-wired: not a git checkout and no root given" >&2; exit 2; }
 fi
 [ -d "$ROOT" ] || { echo "check-test-suites-wired: '$ROOT' is not a directory" >&2; exit 2; }
-PROOT="$(cd "$ROOT" && pwd -P)" || {
+PROOT="$(CDPATH= cd -- "$ROOT" && pwd -P)" || {
   echo "check-test-suites-wired: cannot resolve '$ROOT'" >&2; exit 2; }
 
 WF="$PROOT/.github/workflows/validate.yml"

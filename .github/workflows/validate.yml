@@ -363,6 +363,10 @@ jobs:
       - name: Ticket-gate gate-env.sh contract tests
         run: bash scripts/test-gate-env.sh
 
+      # Issue #377: every shipped asset and repository script behaves the same under an exported CDPATH.
+      - name: CDPATH-safe cd contract tests
+        run: bash scripts/test-cdpath.sh
+
       # Issue #394: /phase review's step 1, 4 and 7 snippets, extracted from the command and run in
       # throwaway repositories, so overlapping runs cannot print a false second-run proof again.
       - name: Phase review snapshot tests

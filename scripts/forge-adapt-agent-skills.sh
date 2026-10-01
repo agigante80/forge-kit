@@ -153,7 +153,7 @@ case "$mode" in
       target="$(readlink "$f")" || { echo "forge-adapt-agent-skills: cannot read link '$f'" >&2; exit 2; }
       case "$target" in
         /*) f="$target" ;;
-        *)  f="$(cd "$(dirname "$f")" 2>/dev/null && pwd -P)/$target" ;;
+        *)  f="$(CDPATH= cd -- "$(dirname "$f")" 2>/dev/null && pwd -P)/$target" ;;
       esac
     done
     [ -f "$f" ] || { echo "forge-adapt-agent-skills: '$f' is not a regular file" >&2; exit 2; }

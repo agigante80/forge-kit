@@ -41,9 +41,9 @@ set -uo pipefail
 
 # Resolved BEFORE the cd below: rule 4 reads this script's own source, and a relative $0 would
 # point somewhere else once the directory changes (found in review).
-SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+SELF="$(CDPATH= cd -- "$(dirname "$0")" && pwd)/$(basename "$0")"
 ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)}"
-cd "$ROOT" || { echo "check-label-taxonomy: no such directory: $ROOT" >&2; exit 2; }
+CDPATH= cd -- "$ROOT" || { echo "check-label-taxonomy: no such directory: $ROOT" >&2; exit 2; }
 
 DOC=docs/guides/labels.md
 YML=.github/labels.yml

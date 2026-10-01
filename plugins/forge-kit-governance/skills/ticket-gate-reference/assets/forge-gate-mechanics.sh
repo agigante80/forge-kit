@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 4
+# forge-gate-mechanics-version: 5
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -33,7 +33,7 @@
 # and its contract test asserts it by scanning this file as well as by running it.
 set -uo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 
 # Beside this script first, which is the shape a forge-adapt install produces (every asset lands in
 # the project's scripts/). The fallback reaches across plugin groups, which is the shape of a source
@@ -41,7 +41,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 find_beside() {  # find_beside <filename> <source-tree-relative-fallback>
   if [ -f "$HERE/$1" ]; then printf '%s\n' "$HERE/$1"; return 0; fi
   if [ -f "$HERE/../../../../$2" ]; then
-    printf '%s/%s\n' "$(cd "$HERE/../../../../$(dirname "$2")" && pwd)" "$(basename "$2")"
+    printf '%s/%s\n' "$(CDPATH= cd -- "$HERE/../../../../$(dirname "$2")" && pwd)" "$(basename "$2")"
     return 0
   fi
   return 1

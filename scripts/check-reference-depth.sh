@@ -36,7 +36,7 @@ set -uo pipefail
 
 ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)}"
 [ -d "$ROOT" ] || { echo "check-reference-depth: no such directory: $ROOT" >&2; exit 2; }
-cd "$ROOT" || exit 2
+CDPATH= cd -- "$ROOT" || exit 2
 [ -d plugins ] || { echo "check-reference-depth: no plugins/ under $ROOT, nothing to check." ; exit 0; }
 
 orphans=0

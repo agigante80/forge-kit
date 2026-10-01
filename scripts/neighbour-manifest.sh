@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
 done
 [ "$MODE" = refresh ] || { echo "neighbour-manifest: --refresh is required (this rewrites docs/neighbours.tsv)" >&2; exit 2; }
 [ -d "$MK" ] || { echo "neighbour-manifest: no marketplaces directory at $MK" >&2; exit 2; }
-cd "$ROOT" || exit 2
+CDPATH= cd -- "$ROOT" || exit 2
 
 OUT=docs/neighbours.tsv
 TODAY=$(date +%Y-%m-%d)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-phases-version: 8
+# sync-phases-version: 9
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
@@ -39,7 +39,7 @@ set -uo pipefail
 # The roadmap format lives in roadmap-lib.sh, defined once (#162). Anchored to this script's own
 # location, never the working directory: both assets land in the same directory in the source tree
 # and in a forge-adapt install, so adjacency holds in both shapes.
-_HERE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_HERE_LIB="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$_HERE_LIB/roadmap-lib.sh" ]; then
   # shellcheck source=roadmap-lib.sh
   . "$_HERE_LIB/roadmap-lib.sh"
@@ -76,7 +76,7 @@ if [ -z "$ROADMAP" ]; then
   exit 0
 fi
 
-HERE="$(cd "$(dirname "$SELF")" && pwd)"
+HERE="$(CDPATH= cd -- "$(dirname "$SELF")" && pwd)"
 # Resolving forge-lib.sh: BESIDE, then by SEARCH, never by $CLAUDE_PLUGIN_ROOT.
 #
 # In a forge-adapt install both assets land in scripts/ and adjacency works. In the forge-kit source

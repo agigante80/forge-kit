@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 4
+# reassess-phases-version: 5
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline. Every site that took a value reads it through ENVIRON instead:
@@ -70,7 +70,7 @@
 
 set -uo pipefail
 
-_HERE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_HERE_LIB="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$_HERE_LIB/roadmap-lib.sh" ]; then
   # shellcheck source=roadmap-lib.sh
   . "$_HERE_LIB/roadmap-lib.sh"
@@ -81,7 +81,7 @@ else
 fi
 
 SELF="$(abspath "${BASH_SOURCE[0]}")"
-HERE="$(cd "$(dirname "$SELF")" && pwd)"
+HERE="$(CDPATH= cd -- "$(dirname "$SELF")" && pwd)"
 
 die()    { printf 'reassess-phases: %s\n' "$1" >&2; exit 2; }
 refuse() { printf 'reassess-phases: %s\n' "$1" >&2; exit 5; }

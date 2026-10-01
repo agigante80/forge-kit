@@ -110,7 +110,7 @@ done
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 if [ -n "$ROOT" ]; then
-  cd "$ROOT" 2>/dev/null || die "no such directory: $ROOT"
+  CDPATH= cd -- "$ROOT" 2>/dev/null || die "no such directory: $ROOT"
 fi
 git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git repository"
 

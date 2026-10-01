@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-labels-version: 11
+# sync-labels-version: 12
 # sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not.
 #
 # NO `awk -v` IN THIS FILE (#259). Its one site carried the compiled-in separator `$'\x1f'`, a
@@ -37,7 +37,7 @@
 # a sync script that deletes what it does not recognise is a footgun aimed at other people's data.
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=forge-lib.sh
 if [ -f "$HERE/forge-lib.sh" ]; then . "$HERE/forge-lib.sh"
 else echo "sync-labels: forge-lib.sh not found next to this script" >&2; exit 2; fi

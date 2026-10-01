@@ -37,9 +37,9 @@ guard_in_checkout() {
 #   Caller must have established the checkout with guard_in_checkout first.
 guard_tracked_files() {
   local root="$1" abs top rel
-  abs="$(cd "$root" 2>/dev/null && pwd -P)" || return 2
+  abs="$(CDPATH= cd -- "$root" 2>/dev/null && pwd -P)" || return 2
   top="$(git -C "$abs" rev-parse --show-toplevel 2>/dev/null)" || return 1
-  top="$(cd "$top" && pwd -P)"
+  top="$(CDPATH= cd -- "$top" && pwd -P)"
   # Listed from the repo root and filtered to the requested subtree rather than passing a pathspec,
   # so <root> may be the repo root or any directory inside it through one code path.
   while IFS= read -r -d '' rel; do
@@ -52,7 +52,7 @@ guard_tracked_files() {
     # not run when in fact there was nothing to read.
     [ -f "$top/$rel" ] || continue
     printf '%s\0' "$top/$rel"
-  done < <(cd "$top" && git ls-files -z)
+  done < <(CDPATH= cd -- "$top" && git ls-files -z)
 }
 
 # component_scope <file> -> prints `user` or `project`, or the raw value if it is neither.

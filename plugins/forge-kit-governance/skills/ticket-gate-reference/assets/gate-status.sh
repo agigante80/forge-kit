@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 8
+# gate-status-version: 9
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -84,7 +84,7 @@
 # #248's disjointness contract holds. It never prints a comment author.
 set -uo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 
 # Resolved exactly as count-gate-rounds.sh resolves it: beside this script (a forge-adapt install),
 # then across plugin groups (a source checkout), else FORGE_LIB. Absent all three, REFUSE.

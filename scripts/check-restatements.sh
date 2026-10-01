@@ -24,7 +24,7 @@
 # content is part of the gate for this purpose (issue #109 moved the lens briefs there).
 set -uo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 if [ "$#" -eq 1 ]; then
   echo "check-restatements: give BOTH a doc and at least one gate file, or no arguments at all" >&2
   exit 2
