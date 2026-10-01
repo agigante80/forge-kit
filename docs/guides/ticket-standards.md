@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 18 -->
+<!-- doc-rules-version: 19 -->
 
 # Ticket standards (canonical)
 
@@ -59,18 +59,21 @@ N/A claim like any other.
 **Host-divergent conditions.** This applies only to a condition whose code path branches on
 the forge host. Such a branch is its own independent condition: it owns its own positive and
 its own failure negative, so the bar above is unchanged and no scenario fills the negative
-slot with the other host's success. A pure wire-form divergence has no host-specific error, so
-its negative is the shared write failure taken through that host's branch (on the Forgejo path
-`forge_api` returns rc 44 for an HTTP 404), and the differential value that is never sent
-belongs in the Positive's Then. Worked example, `forge_issue_milestone` in `forge-lib`:
+slot with the other host's success. A pure wire-form divergence adds no error of its own: the
+rejected write is the same event on both hosts, so its negative is that rejected write,
+asserted with the code each host's branch returns (on the Forgejo path `forge_api` returns
+rc 44 for an HTTP 404), and the differential value that is never sent belongs in the
+Positive's Then. Worked example, `forge_issue_milestone` in `forge-lib`:
 
 - set, GitHub: the PATCH carries the milestone `number`; Forgejo: it carries the `id`. Each
   Positive names which of the two is sent, and never the other. Each branch's negative is that
-  host's write failure: rc 44 on Forgejo, and rc 1 (`gh`'s documented failure code) on GitHub.
+  rejected write as its host returns it: rc 44 on Forgejo, and rc 1 (`gh`'s documented failure
+  code) on GitHub.
 - clear, GitHub: the PATCH carries `null`; Forgejo: it carries `0`. The Forgejo Positive's Then
   says "never `null`". The negatives are the same two write failures as for set.
-- set with an unknown title, either host: rc 2 and `no milestone titled '<title>'`. This is an
-  extra shared negative, not a substitute for a branch's own.
+- set with an unknown title, either host: rc 2 and `no milestone titled '<title>'`,
+  refused by `forge-lib` itself before the write is sent, so code and message are identical on
+  both hosts. This is an extra negative, not a substitute for a branch's own.
 
 The structural half is mechanical and the host-independence judgement is the critic's. The
 scenario check (check 4) counts per section, not per condition, so a missing per-condition

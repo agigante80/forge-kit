@@ -11,6 +11,15 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **Host-divergent wording in ticket-standards rule 1 no longer reads as self-contradicting**
+  (#325, doc-rules-version 18 to 19; supersedes the #255 wording "its negative is the shared
+  write failure taken through that host's branch"). The paragraph said a wire-form divergence "has no
+  host-specific error" while its example gave a different code per host. It now says the
+  divergence adds no error of its own, its negative is the rejected write asserted with the code
+  each host's branch returns (rc 44 on Forgejo, rc 1 on GitHub), and the unknown-title refusal
+  (rc 2) is raised by `forge-lib` itself before the write is sent, so it is identical on both
+  hosts. The word "shared" no longer appears in the paragraph. The #255 entry stays as history.
+  `template-version` is unchanged; no component or plugin version change.
 - **sync-labels' dry run says what it would do, not what it did** (#323, sync-labels v10). Under
   `FORGE_DRY_RUN=1` the final line claimed `synced from ... (N created, M updated)` although nothing
   was sent. It now reads `dry run, nothing sent to <repo>; would create N, would update M (from
