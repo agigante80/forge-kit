@@ -2092,6 +2092,22 @@ for name in forge_body_region_get NoSuchFn; do
     && ok "dr_mutant refuses $name: no guard, exit 1, output byte-identical to the library" \
     || bad "dr_mutant refuses $name: no guard, exit 1, output byte-identical to the library"
 done
+# #350: a kill is a CLEAN DRY RUN (dr_site ... dry), never merely "dr_site ... real failed". The old
+# `real && bad || ok` shape credited any non-zero exit, so a mutant that crashed (rc 127, a missing
+# function) printed `ok: ... killed`. $CRASH is the library with forge_issue_list deleted. dr_site
+# rejects a crash in BOTH modes: the `real` result is what made the old shape print ok, the `dry`
+# result is what the kill lines now rely on. One site proves it, because dr_site's later per-mode
+# predicates reject a crash as well as its early exit, so this pins dr_site's overall crash
+# rejection and not one line of it. A revert of the two kill lines is NOT caught here; it is caught
+# by the manual mutation check in #350 (point FORGE_LIB_UNDER_TEST at a library without the function).
+CRASH="$T/forge-lib-crash350.sh"
+awk '/^forge_issue_list\(\) *\{/ {skip=1} skip { if ($0 ~ /^\}/) skip=0; next } { print }' "$LIB" > "$CRASH"
+cmp -s "$LIB" "$CRASH" && bad "crash mutant (#350): the forge_issue_list deletion did not apply" || ok "crash mutant (#350): the forge_issue_list deletion differs from the lib"
+for v in 0 true; do
+  ! dr_site "$CRASH" forge_issue_list "$v" real && ! dr_site "$CRASH" forge_issue_list "$v" dry \
+    && ok "crash mutant (#350): not credited as a kill by FORGE_DRY_RUN=$v" \
+    || bad "crash mutant (#350): credited as a kill by FORGE_DRY_RUN=$v"
+done
 DR_SITES="forge_api forge_api_paginate _forge_region_write forge_body_compose_preserving forge_issue_edit forge_issue_list forge_issue_label forge_issue_milestone"
 for site in $DR_SITES; do
   # forge_api's value 0 is the pre-existing real-forge_api case above; `true` and 1 are both run here.
@@ -2113,10 +2129,10 @@ for site in $DR_SITES; do
     cmp -s "$LIB" "$MUT334" && bad "mutant ledger (#334): the $site $form mutant did not apply" || ok "mutant ledger (#334): the $site $form mutant differs from the lib"
     [ "$(diff "$LIB" "$MUT334" | grep -c '^>')" = 1 ] && ok "mutant ledger (#334): the $site $form mutant changes exactly one line" || bad "mutant ledger (#334): the $site $form mutant changed a number of lines other than one"
     if [ "$form" = n ]; then
-      dr_site "$MUT334" "$site" 0 real && bad "mutant (#334): a -n guard at $site survived FORGE_DRY_RUN=0" || ok "mutant (#334): a -n guard at $site is killed by FORGE_DRY_RUN=0"
+      dr_site "$MUT334" "$site" 0 dry && ok "mutant (#334): a -n guard at $site is killed by FORGE_DRY_RUN=0" || bad "mutant (#334): a -n guard at $site did not die as a clean dry run at FORGE_DRY_RUN=0"
     else
       dr_site "$MUT334" "$site" 0 real && ok "mutant (#334): a != 0 guard at $site passes the value 0, which is why the value true is needed" || bad "mutant (#334): a != 0 guard at $site failed the value 0 case, so the ledger's premise is wrong"
-      dr_site "$MUT334" "$site" true real && bad "mutant (#334): a != 0 guard at $site survived FORGE_DRY_RUN=true" || ok "mutant (#334): a != 0 guard at $site is killed by FORGE_DRY_RUN=true"
+      dr_site "$MUT334" "$site" true dry && ok "mutant (#334): a != 0 guard at $site is killed by FORGE_DRY_RUN=true" || bad "mutant (#334): a != 0 guard at $site did not die as a clean dry run at FORGE_DRY_RUN=true"
     fi
   done
 done
