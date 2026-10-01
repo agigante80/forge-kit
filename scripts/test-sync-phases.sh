@@ -158,7 +158,10 @@ echo "== the milestone read is real under FORGE_DRY_RUN=1, the writes are not (#
 #     and the dry-run close case (the suppressed-create case does NOT kill it: B is missing either
 #     way and nothing logs CREATE under the flag).
 #   "unscoped top-level clear" (`FORGE_DRY_RUN=0; MS=...`): the suppressed-create case, because the
-#     write then sees the cleared flag and logs CREATE B.
+#     write then sees the cleared flag and logs CREATE B, and ALSO the dry-run close case ("The #254
+#     coupling" below, `absent "CLOSE A"`: the cleared flag lets a real CLOSE A reach REQLOG). Proving
+#     it needs a copy that is its own git repository (`git init`), because this suite resolves the
+#     script through `git rev-parse --show-toplevel` and a copy under this repo tests the real one (#319).
 #   "unconditional real-run strings" (v6, #307): the dry-run create and close cases'
 #     `would ...` and `absent 'created/closed milestone'` assertions.
 #   "always would" (#307): the real-run create and close tense assertions.

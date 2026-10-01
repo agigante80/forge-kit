@@ -30,7 +30,9 @@ set -uo pipefail
 # FORGE_DRY_RUN=1 fails 48 cases, FORGE_REMOTE=upstream fails 31, FORGE_PAGINATE_MAX_PAGES=2 fails
 # 6, and FORGE_DEBUG=1 fails 1. The person most likely to have any of them exported is the one
 # debugging forge-lib.sh, and each failure accuses the library rather than the environment.
-unset FORGE_DEBUG FORGE_DRY_RUN FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE
+# MC_LIB is this suite's own scratch-library switch (#319): exported ambiently it reroutes every
+# mc_run and fails 13 cases.
+unset FORGE_DEBUG FORGE_DRY_RUN FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE MC_LIB
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -951,10 +953,14 @@ esac
 # v27 resolved first; under the flag the paginator returns a literal [] so every title was
 # unresolvable and a dry run returned 2 for a milestone that exists.
 echo "== #254: a dry-run milestone close =="
-mc_run() {  # mc_run <dry:0|1> <title> [list-json]: sets MCRC, MCOUT, MCERR, MCLOG
+# mc_run <flag> <title> [list-json]: sets MCRC, MCOUT, MCERR, MCLOG. <flag> is 0 (FORGE_DRY_RUN left
+# UNSET), 1 (exported as 1), or =<value> (exported as that literal, so =0 is an explicit 0 and =true is
+# a truthy-looking non-1, #319). MC_LIB, when set, runs a scratch copy of the library (the ledger below).
+mc_run() {
   MCLOG="$T/mc.log"; : > "$MCLOG"
-  MCRC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+  MCRC=$( ( . "${MC_LIB:-$LIB}"; export FORGE_HOST=forgejo FORGE_REPO=o/r
             [ "$1" = 1 ] && export FORGE_DRY_RUN=1
+            case "$1" in =*) export FORGE_DRY_RUN="${1#=}" ;; esac
             LISTJSON="${3-[]}"
             forge_api() { echo "$1 $2" >> "$MCLOG"; case "$2" in *"/milestones?"*page=1*) printf '%s' "$LISTJSON" ;; *) printf '[]' ;; esac; }
             forge_milestone_close "$2" >"$T/mc.out" 2>"$T/mc.err"; echo $? ) )
@@ -975,6 +981,28 @@ mc_run 0 "No Such Phase"
 expect "a real run with an unresolvable title still returns 2" 2 "$MCRC"
 expect "and still refuses naming the title and repo" "forge-lib: no milestone titled 'No Such Phase' on o/r" "$MCERR"
 case "$(cat "$MCLOG")" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH" ;; esac
+# The flag-off side (#319): only the exact value 1 is a dry run. mc_flagoff_ok is the one predicate the
+# mutant ledger at the end of the file uses; the direct cases below assert the same things inline, one
+# value per loop pass, and do not call it. It runs ONE value per call and is true iff the three
+# real-run checks (rc 0, PATCH sent, no dry-run line) all hold. Its positive control follows.
+mc_flagoff_ok() {  # mc_flagoff_ok <flag-value>: the value is passed to mc_run as =<value>
+  mc_run "=$1" "Phase A" '[{"id":7,"title":"Phase A","state":"open"}]'
+  [ "$MCRC" = 0 ] || return 1
+  case "$(cat "$MCLOG")" in *"PATCH /repos/o/r/milestones/7"*) ;; *) return 1 ;; esac
+  case "$MCERR" in *'[dry-run]'*) return 1 ;; esac
+  return 0
+}
+mc_flagoff_ok 0 && mc_flagoff_ok true && ok "mc_flagoff_ok accepts the real library at 0 and true (the ledger's positive control)" || bad "mc_flagoff_ok rejects the real library: rc=$MCRC err=$MCERR"
+for v in 0 true; do
+  mc_run "=$v" "Phase A" '[{"id":7,"title":"Phase A","state":"open"}]'
+  expect "FORGE_DRY_RUN=$v close of an existing title returns 0" 0 "$MCRC"
+  case "$(cat "$MCLOG")" in *"PATCH /repos/o/r/milestones/7"*) ok "and sends PATCH /repos/o/r/milestones/7 (not a dry run)" ;; *) bad "FORGE_DRY_RUN=$v: no PATCH reached the transport: $(cat "$MCLOG")" ;; esac
+  case "$MCERR" in *'[dry-run]'*) bad "FORGE_DRY_RUN=$v printed a [dry-run] line: $MCERR" ;; *) ok "and prints no [dry-run] line" ;; esac
+done
+mc_run =0 "No Such Phase"
+expect "an explicit FORGE_DRY_RUN=0 with an unresolvable title returns 2" 2 "$MCRC"
+expect "and refuses naming the title and repo" "forge-lib: no milestone titled 'No Such Phase' on o/r" "$MCERR"
+case "$(cat "$MCLOG")" in *PATCH*) bad "FORGE_DRY_RUN=0: a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH" ;; esac
 # An underivable repo under dry-run is still 2: the guard sits AFTER forge_repo.
 D="$(mktemp -d "$T/mcr.XXXXXX")"
 MCRC=$( cd "$D" && git init -q . && git remote add origin /some/local/path && ( . "$LIB"; unset FORGE_REPO; export FORGE_HOST=forgejo FORGE_DRY_RUN=1
@@ -1958,7 +1986,7 @@ expect "mutant (#256): without the refusal an invalid-host close returns 0, so t
 
 # --- #334: the flag-OFF side of every FORGE_DRY_RUN guard -------------------------------------------
 # The library's contract is that ONLY the exact value 1 is a dry run. Eight guards are exercised here
-# (forge_milestone_close is #319's, which adds its own explicit-value cases). Before this section the
+# (forge_milestone_close is #319's: its explicit-value cases sit with mc_run, its ledger at the end). Before this section the
 # suite drove the flag-off side of exactly one of them (forge_api, with 0), so a guard rewritten to
 # `[ -n "${FORGE_DRY_RUN:-}" ]` or `[ "${FORGE_DRY_RUN:-0}" != 0 ]` passed everything at the other
 # seven. Two mutants, two values: the value 0 kills the `-n` form, and ONLY a non-numeric truthy-looking
@@ -2081,6 +2109,33 @@ for site in $DR_SITES; do
     fi
   done
 done
+
+# mc_cleanly_dry <title>: true iff the LAST mc_run was a clean dry run: rc 0, exactly the dry-run line,
+# and an empty request log. A mutant counts as killed only when it fails the flag-off predicate AND did
+# so by dry-running; a crash (rc 127 from a syntax error, a missing function) is not a kill (#330 ruled
+# crash mutants out as kills).
+mc_cleanly_dry() {
+  [ "$MCRC" = 0 ] && [ "$MCERR" = "[dry-run] close milestone $1 on o/r" ] && [ ! -s "$MCLOG" ]
+}
+# The forge_milestone_close ledger (#319). It reuses dr_mutant and the same two mutant forms, judged by
+# mc_flagoff_ok through MC_LIB. Kills: the `-n` form dies at =0 (the PATCH assertion; the mutant still
+# returns 0, so the rc assertion alone would not catch it) and at =true; the `!= 0` form SURVIVES =0
+# and dies only at =true.
+for form in n b; do
+  MUT319="$T/forge-lib-mut319-$form.sh"
+  dr_mutant forge_milestone_close "$form" "$MUT319"
+  cmp -s "$LIB" "$MUT319" && bad "mutant ledger (#319): the forge_milestone_close $form mutant did not apply" || ok "mutant ledger (#319): the forge_milestone_close $form mutant differs from the lib"
+  [ "$(diff "$LIB" "$MUT319" | grep -c '^>')" = 1 ] && ok "mutant ledger (#319): the forge_milestone_close $form mutant changes exactly one line" || bad "mutant ledger (#319): the forge_milestone_close $form mutant changed a number of lines other than one"
+  if [ "$form" = n ]; then
+    MC_LIB="$MUT319" mc_flagoff_ok 0 && bad "mutant (#319): a -n guard at forge_milestone_close survived FORGE_DRY_RUN=0" || { mc_cleanly_dry "Phase A" && ok "mutant (#319): a -n guard at forge_milestone_close is killed by FORGE_DRY_RUN=0" || bad "mutant (#319): the -n mutant failed at =0 but not as a clean dry run (crash?): rc=$MCRC err=$MCERR"; }
+    MC_LIB="$MUT319" mc_run =0 "No Such Phase"
+    mc_cleanly_dry "No Such Phase" && ok "mutant (#319): a -n guard at forge_milestone_close is killed by the unknown-title case (a clean dry run, rc 0 not 2)" || bad "mutant (#319): the -n mutant did not dry-run the unknown title cleanly: rc=$MCRC err=$MCERR"
+  else
+    MC_LIB="$MUT319" mc_flagoff_ok 0 && ok "mutant (#319): a != 0 guard at forge_milestone_close passes the value 0, which is why the value true is needed" || bad "mutant (#319): a != 0 guard at forge_milestone_close failed the value 0 case, so the ledger's premise is wrong"
+    MC_LIB="$MUT319" mc_flagoff_ok true && bad "mutant (#319): a != 0 guard at forge_milestone_close survived FORGE_DRY_RUN=true" || { mc_cleanly_dry "Phase A" && ok "mutant (#319): a != 0 guard at forge_milestone_close is killed by FORGE_DRY_RUN=true" || bad "mutant (#319): the != 0 mutant failed at =true but not as a clean dry run (crash?): rc=$MCRC err=$MCERR"; }
+  fi
+done
+unset MC_LIB
 
 # #291: every case removes the temp dirs it creates; the ls -A runs in the parent, after all cases.
 # 2>&1 so a vanished TMPDIR shows up as output and fails, rather than passing as empty.
