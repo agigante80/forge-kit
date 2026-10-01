@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-phases-version: 6
+# sync-phases-version: 7
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
@@ -7,7 +7,9 @@
 #     default   create missing milestones and close the ones whose phase is done
 #     --check   change nothing; report what is missing or drifted
 #   FORGE_DRY_RUN=1  the milestone READ is still real (see the read below); only the writes are held
-#                    and printed as `[dry-run]` lines
+#                    and printed as `[dry-run]` lines. The summary line then says `would create` or
+#                    `would close`, never `created` or `closed`, because nothing was sent (#307).
+#                    Only the exact value 1 counts, as in forge-lib.sh; `true` is a real run.
 #
 # Exit codes are distinguishable, because this runs from automation:
 #   0  in sync (or synced successfully)
@@ -143,7 +145,9 @@ while IFS="$(printf '\t')" read -r name state plan; do
       echo "would create milestone \"$name\""; drift=$((drift + 1))
     else
       forge_milestone_create "$name" "Phase from $ROADMAP" || exit 4
-      echo "created milestone \"$name\""
+      # #307: the library held the write under the flag, so say `would`. Same predicate as forge-lib.
+      if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then echo "would create milestone \"$name\""
+      else echo "created milestone \"$name\""; fi
     fi
     continue
   fi
@@ -152,7 +156,8 @@ while IFS="$(printf '\t')" read -r name state plan; do
       echo "would close milestone \"$name\""; drift=$((drift + 1))
     else
       forge_milestone_close "$name" || exit 4
-      echo "closed milestone \"$name\""
+      if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then echo "would close milestone \"$name\""
+      else echo "closed milestone \"$name\""; fi
     fi
     continue
   fi

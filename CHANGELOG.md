@@ -11,6 +11,12 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`sync-phases.sh` no longer claims writes a dry run did not make** (#307, sync-phases v7). Under
+  `FORGE_DRY_RUN=1` the summary said `created milestone` and `closed milestone` although nothing was
+  sent; it now says `would create milestone` and `would close milestone`. A real run is unchanged,
+  only the exact value `1` counts as a dry run (`true` is a real run, matching forge-lib), and a
+  failed write still exits 4 with no success or `would` line. `scripts/test-sync-phases.sh` grows
+  from 59 to 85 cases.
 - **contributor-docs resolves bare yarn scripts and workspace-scoped commands** (#299,
   check-contributor-docs v2, contributor-docs v2). `npm -w`/`--workspace` and `pnpm --filter`/`-F`
   with `run X` now resolve against the one tracked manifest of that name and fail when it lacks X;

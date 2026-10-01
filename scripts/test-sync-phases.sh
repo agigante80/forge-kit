@@ -67,8 +67,16 @@ forge_milestone_list() {
   [ "${STUB_LIST_FAIL:-0}" = 1 ] && return 2
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[]'; else cat "$STUB_MILESTONES"; fi
 }
-forge_milestone_create() { [ "${FORGE_DRY_RUN:-0}" = 1 ] || printf 'CREATE %s\n' "$1" >> "$REQLOG"; }
+# STUB_WRITE_FAIL=1 makes both writers fail (#307), to pin the script's exit 4. The create prints the
+# library's `[dry-run] POST` line to stderr under the flag, as forge-lib does, so a script that skips
+# the call under a dry run is visible.
+forge_milestone_create() {
+  [ "${STUB_WRITE_FAIL:-0}" = 1 ] && return 1
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[dry-run] POST https://api.github.com/repos/o/r/milestones\n' >&2; return 0; fi
+  printf 'CREATE %s\n' "$1" >> "$REQLOG"
+}
 forge_milestone_close() {
+  [ "${STUB_WRITE_FAIL:-0}" = 1 ] && return 1
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[dry-run] close milestone %s on o/r\n' "$1" >&2; return 0; fi
   printf 'CLOSE %s\n' "$1" >> "$REQLOG"
 }
@@ -101,6 +109,8 @@ expect "and writes nothing" "" "$(cat "$REQLOG")"
 run
 expect "the default mode exits 0" 0 "$rc"
 contains "CREATE A" "$(cat "$REQLOG")" "and creates the milestone"
+contains 'created milestone "A"' "$out" "and reports it in the past tense on a real run"
+absent "would create" "$out" "and does not say would on a real run"
 
 echo "== an in-sync roadmap is a no-op =="
 printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
@@ -121,6 +131,8 @@ expect "--check reports the close as drift" 1 "$rc"
 contains "would close" "$out" "and says so"
 run
 contains "CLOSE A" "$(cat "$REQLOG")" "and closes it"
+contains 'closed milestone "A"' "$out" "and reports it in the past tense on a real run (#307)"
+absent "would close" "$out" "and does not say would on a real run (#307)"
 
 # The near-miss: an already-closed milestone for a done phase must not be closed again.
 printf '[{"id":1,"title":"A","state":"closed"}]' > "$T/ms.json"
@@ -147,6 +159,10 @@ echo "== the milestone read is real under FORGE_DRY_RUN=1, the writes are not (#
 #     way and nothing logs CREATE under the flag).
 #   "unscoped top-level clear" (`FORGE_DRY_RUN=0; MS=...`): the suppressed-create case, because the
 #     write then sees the cleared flag and logs CREATE B.
+#   "unconditional real-run strings" (v6, #307): the dry-run create and close cases'
+#     `would ...` and `absent 'created/closed milestone'` assertions.
+#   "always would" (#307): the real-run create and close tense assertions.
+#   "-n predicate" (#307): the FORGE_DRY_RUN=true cases, both halves.
 # A second stub further down (the versioned copies under ~/.claude/plugins) ignores the flag; it is
 # only used by the resolution cases, which never set it, and the unset at the top covers it.
 roadmap <<'MD'
@@ -198,6 +214,9 @@ printf '[]' > "$T/ms.json"
 FORGE_DRY_RUN=1 run
 expect "a dry run with a missing milestone exits 0" 0 "$rc"
 absent "CREATE B" "$(cat "$REQLOG")" "and logs no CREATE (the flag reached the write)"
+contains "[dry-run] POST" "$out" "and the write was attempted and held by the library (#307)"
+contains 'would create milestone "B"' "$out" "and says would create (#307)"
+absent 'created milestone' "$out" "and never claims a create it did not make (#307)"
 run
 expect "the same state with the flag unset exits 0" 0 "$rc"
 expect "and logs exactly one CREATE B" 1 "$(grep -c '^CREATE B$' "$REQLOG")"
@@ -215,6 +234,46 @@ expect "a dry run closing a done phase exits 0, not 4" 0 "$rc"
 absent "CLOSE A" "$(cat "$REQLOG")" "and logs no CLOSE"
 contains "[dry-run] close milestone A on o/r" "$out" "and reports the would-close through the library's line"
 absent "no milestone titled" "$out" "and never says the milestone is missing"
+contains 'would close milestone "A"' "$out" "and says would close (#307)"
+absent 'closed milestone' "$out" "and never claims a close it did not make (#307)"
+# Only the exact value 1 is a dry run, the library's own predicate: `true` is a real run.
+FORGE_DRY_RUN=true run
+expect "FORGE_DRY_RUN=true is a real run: exits 0" 0 "$rc"
+contains "CLOSE A" "$(cat "$REQLOG")" "and the close is sent"
+contains 'closed milestone "A"' "$out" "and reports closed, not would close"
+absent "would close" "$out" "and does not say would"
+roadmap <<'MD'
+## Phase: B
+state: open
+plan: docs/plans/a.md
+MD
+printf '[]' > "$T/ms.json"
+FORGE_DRY_RUN=true run
+contains "CREATE B" "$(cat "$REQLOG")" "FORGE_DRY_RUN=true creates for real"
+contains 'created milestone "B"' "$out" "and reports created, not would create"
+absent "would create" "$out" "and does not say would"
+
+echo "== a failing write exits 4 with no success or would line (#307) =="
+STUB_WRITE_FAIL=1 run
+expect "a failed create exits 4" 4 "$rc"
+absent "created milestone" "$out" "and prints no created line"
+absent "would create" "$out" "and prints no would line"
+STUB_WRITE_FAIL=1 FORGE_DRY_RUN=1 run
+expect "a failed create under the flag also exits 4" 4 "$rc"
+absent "would create" "$out" "and prints no would line"
+roadmap <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+STUB_WRITE_FAIL=1 run
+expect "a failed close exits 4" 4 "$rc"
+absent "closed milestone" "$out" "and prints no closed line"
+absent "would close" "$out" "and prints no would line"
+STUB_WRITE_FAIL=1 FORGE_DRY_RUN=1 run
+expect "a failed close under the flag also exits 4" 4 "$rc"
+absent "would close" "$out" "and prints no would line"
 
 echo "== NEVER deletes =="
 roadmap <<'MD'
