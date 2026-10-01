@@ -38,6 +38,16 @@
 # next line anyway) and a `/` test on the token (a table key never holds one). A sort of the table
 # was dropped for the same reason: the catalogue's order already puts plugins/ before scripts/.
 #
+# #354 ADDED SEVEN MORE (so thirty-one in all), run by hand on 2026-10-01, each shown to fail this
+# suite. (a) the not-found warning removed (3 failures); (b) the guard moved so it fires without the
+# `-d plugins` test (2); (c) the script directory resolved after the --root cd again, a bare
+# `dirname "$0"` (5); (d) the failing-catalogue warning removed so a non-zero catalogue is silent
+# again (1); (e) an empty-output catalogue treated as failed, `|| [ ! -s cat.tsv ]` (1); (f) the
+# CDPATH-safe `CDPATH= cd --` reverted to a bare `cd` (2); (g) the not-found warning printed before
+# the documents are validated (the not-found printf moved above the validation loop and silenced in
+# its old place), so a refused run still warns (1, re-measured in the #354 round-2 review). The
+# first ten ran on 2026-09-23, four more under #265 and ten under #332, both on 2026-10-01.
+#
 # One mutant is deliberately absent. A sha-equality branch for "the same commit addressed it" was
 # written, and no input could reach it: a line whose last commit IS the commit that changed the
 # path carries that commit timestamp, so the age test already decides it. It was removed rather
@@ -177,6 +187,135 @@ run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "a claim naming a component rather than a path is reported" 1 "$(printf '%s' "$OUT" | grep -c .)"
 contains "demo-skill" "$OUT" "and the row names it"
 expect "exit 0" 0 "$RC"
+
+echo "== #354: a missing or failing catalogue is said so, never silently skipped =="
+# run() always executes the absolute $SUT, so these build their own copy directory OUTSIDE the
+# fixture repo and capture OUT, ERR and RC the way run() does. cdoc <dir> <args...> runs from <dir>.
+NF_MSG="check-doc-drift: forge-adapt-catalogue.sh not found beside the script; component-name claims were not checked"
+FL_MSG="check-doc-drift: forge-adapt-catalogue.sh failed; component-name claims were not checked"
+cdoc() {
+  _d="$1"; shift
+  OUT="$(cd "$_d" && bash "$@" 2>"$T/err")"; RC=$?; ERR="$(cat "$T/err")"
+}
+nlines() { printf '%s\n' "$2" | grep -cF -- "$1"; }
+cpdir() {  # cpdir <name> <with-catalogue 0|1|stub>: D/scripts holding the script copy
+  D="$T/$1"; rm -rf "$D"; mkdir -p "$D/scripts"
+  cp "$SUT" "$D/scripts/check-doc-drift.sh"
+  case "$2" in
+    1) cp "$ROOT/scripts/forge-adapt-catalogue.sh" "$D/scripts/" ;;
+    stub) printf '#!/usr/bin/env bash\nexit 3\n' > "$D/scripts/forge-adapt-catalogue.sh" ;;
+  esac
+}
+mkrepo cat354
+mkdir -p "$R/plugins/demo-group/skills/demo-skill" "$R/plugins/demo-group/.claude-plugin"
+printf '<!-- demo-skill-version: 1 -->\nbody\n' > "$R/plugins/demo-group/skills/demo-skill/SKILL.md"
+printf '{"name":"demo-group","version":"0.1.0","description":"d","author":{"name":"a"}}\n' > "$R/plugins/demo-group/.claude-plugin/plugin.json"
+printf '# Doc\n\nThe `demo-skill` skill does the thing.\n\nThe tool is `scripts/tool.sh` here.\n' > "$R/README.md"
+printf '#!/usr/bin/env bash\n' > "$R/scripts/tool.sh"
+snap "$T1" "base"; B354=$(sha HEAD)
+printf 'body, changed\n' >> "$R/plugins/demo-group/skills/demo-skill/SKILL.md"
+printf '# changed\n' >> "$R/scripts/tool.sh"
+snap "$T2" "change both"
+RG="$B354..$(sha HEAD)"
+SUMLINE="check-doc-drift: 1 suspected stale claim(s) across the documents given."
+
+# Condition A: the catalogue absent beside a copy, tree has plugins/.
+cpdir a354 0
+cdoc "$R" "$D/scripts/check-doc-drift.sh" --range "$RG" --docs README.md
+expect "catalogue missing warns exactly once" 1 "$(nlines "$NF_MSG" "$ERR")"
+expect "and exit stays 0" 0 "$RC"
+lacks "demo-skill" "$OUT" "and the component row is absent"
+expect "while the path row still prints" 1 "$(printf '%s' "$OUT" | grep -c .)"
+contains "scripts/tool.sh" "$OUT" "and it names the path"
+expect "and the summary is still the last stderr line" "$SUMLINE" "$(printf '%s\n' "$ERR" | tail -n 1)"
+lacks "failed" "$ERR" "and the failed message does not appear"
+# Positive control: the real catalogue beside the copy.
+cpdir a354p 1
+cdoc "$R" "$D/scripts/check-doc-drift.sh" --range "$RG" --docs README.md
+expect "catalogue present: component and path rows" 2 "$(printf '%s' "$OUT" | grep -c .)"
+contains "demo-skill" "$OUT" "the component row names demo-skill"
+lacks "not found beside the script" "$ERR" "no not-found warning"
+lacks "failed" "$ERR" "no failed warning"
+expect "exit 0" 0 "$RC"
+# Several documents still warn once.
+printf '# Two\n\nSee `scripts/tool.sh` too.\n' > "$R/OTHER.md"; snap "$T1" "other"
+RG2="$B354..$(sha HEAD)"
+cdoc "$R" "$T/a354/scripts/check-doc-drift.sh" --range "$RG2" --docs README.md,OTHER.md
+expect "two documents still warn exactly once" 1 "$(nlines "$NF_MSG" "$ERR")"
+
+# Condition B: no plugins/ directory stays silent.
+mkrepo np354
+printf '# Doc\n\nThe tool is `scripts/tool.sh` here.\n' > "$R/README.md"
+printf '#!/usr/bin/env bash\n' > "$R/scripts/tool.sh"
+snap "$T1" "base"; NB=$(sha HEAD)
+printf '# changed\n' >> "$R/scripts/tool.sh"; snap "$T2" "change tool"
+cpdir b354 0
+cdoc "$R" "$D/scripts/check-doc-drift.sh" --range "$NB..$(sha HEAD)" --docs README.md
+expect "no plugins/ dir: not-found warning absent" 0 "$(nlines "not found beside the script" "$ERR")"
+expect "one path row for scripts/tool.sh" 1 "$(printf '%s' "$OUT" | grep -c 'scripts/tool.sh')"
+expect "stderr is exactly the summary line" "$SUMLINE" "$ERR"
+expect "exit 0" 0 "$RC"
+
+# Condition C: a RELATIVE script path plus --root, run from outside the fixture repo.
+cpdir c354 1
+R354="$T/cat354"
+cdoc "$D" scripts/check-doc-drift.sh --root "$R354" --range "$RG" --docs README.md
+expect "relative path + --root, catalogue beside: component row found" 2 "$(printf '%s' "$OUT" | grep -c .)"
+contains "demo-skill" "$OUT" "the row names demo-skill"
+lacks "not found beside the script" "$ERR" "and no false not-found warning"
+expect "exit 0" 0 "$RC"
+cpdir c354n 0
+cdoc "$D" scripts/check-doc-drift.sh --root "$R354" --range "$RG" --docs README.md
+expect "relative path + --root, catalogue absent: warns exactly once" 1 "$(nlines "$NF_MSG" "$ERR")"
+lacks "demo-skill" "$OUT" "and no component row"
+expect "exit 0" 0 "$RC"
+
+# Condition D: a catalogue that exists but exits non-zero.
+cpdir d354 stub
+cdoc "$R354" "$D/scripts/check-doc-drift.sh" --range "$RG" --docs README.md
+expect "failing catalogue warns exactly once" 1 "$(nlines "$FL_MSG" "$ERR")"
+lacks "not found beside the script" "$ERR" "and the not-found message does not appear"
+lacks "demo-skill" "$OUT" "and no component row"
+expect "exit 0" 0 "$RC"
+expect "summary still last" "$SUMLINE" "$(printf '%s\n' "$ERR" | tail -n 1)"
+cpdir d354np stub
+cdoc "$T/np354" "$D/scripts/check-doc-drift.sh" --range "$NB..$(cd "$T/np354" && git rev-parse HEAD)" --docs README.md
+lacks "failed" "$ERR" "a failing catalogue with no plugins/ dir stays silent"
+expect "and that run exits 0" 0 "$RC"
+expect "and stderr is exactly the summary line" "$SUMLINE" "$ERR"
+
+# Condition E: a catalogue that exists, exits 0 and prints nothing (empty plugins/) is neither
+# missing nor failed: no warning of either kind, rc 0, stderr exactly the summary line.
+mkrepo em354
+mkdir -p "$R/plugins/empty"
+printf '# Doc\n\nThe tool is `scripts/tool.sh` here.\n' > "$R/README.md"
+printf '#!/usr/bin/env bash\n' > "$R/scripts/tool.sh"
+snap "$T1" "base"; EB=$(sha HEAD)
+printf '# changed\n' >> "$R/scripts/tool.sh"; snap "$T2" "change tool"
+cpdir e354 1
+cdoc "$R" "$D/scripts/check-doc-drift.sh" --range "$EB..$(sha HEAD)" --docs README.md
+expect "an empty-output catalogue exits 0" 0 "$RC"
+expect "and stderr is exactly the summary line" "$SUMLINE" "$ERR"
+expect "and the path row still prints" 1 "$(printf '%s' "$OUT" | grep -c 'scripts/tool.sh')"
+
+# Condition F: a refused run (exit 2) prints no catalogue warning and never runs the catalogue.
+cpdir f354 0
+printf '# Untracked\n' > "$R354/UNTRACKED.md"
+cdoc "$R354" "$D/scripts/check-doc-drift.sh" --range "$RG" --docs README.md,UNTRACKED.md
+expect "an untracked doc is refused with rc 2" 2 "$RC"
+lacks "component-name claims were not checked" "$ERR" "and no catalogue warning is printed on a refused run"
+cpdir f354s stub
+cdoc "$R354" "$D/scripts/check-doc-drift.sh" --range "$RG" --docs README.md,UNTRACKED.md
+expect "a refused run with a failing catalogue is rc 2" 2 "$RC"
+lacks "component-name claims were not checked" "$ERR" "and prints no failed warning either"
+rm -f "$R354/UNTRACKED.md"
+
+# Condition G: an exported CDPATH must not corrupt the script directory (cd would echo it).
+cpdir g354 1
+OUT="$(cd "$D" && CDPATH="$T:$D:." bash scripts/check-doc-drift.sh --root "$R354" --range "$RG" --docs README.md 2>"$T/err")"; RC=$?; ERR="$(cat "$T/err")"
+expect "CDPATH exported: exit 0" 0 "$RC"
+lacks "not found beside the script" "$ERR" "and no false not-found warning"
+contains "demo-skill" "$OUT" "and the component row is found"
 
 echo "== #332: a bare <name>.sh resolves to a shipped asset or a tracked scripts/ file, and refuses to guess on a collision =="
 # Fixture builders. A group needs its plugin.json and one skill for the catalogue to list its asset.

@@ -39,7 +39,17 @@
 #
 # A COMPONENT NAME RESOLVES THROUGH THE CATALOGUE, never through a fourth definition of what a
 # component path is. forge-adapt-catalogue.sh --tsv is the one definition and update-component-index.py
-# already shells out to it for the same reason.
+# already shells out to it for the same reason. When the catalogue is not beside the script and the
+# tree has a plugins/ directory, ONE stderr line says so (`forge-adapt-catalogue.sh not found beside
+# the script; component-name claims were not checked`); one that exists but exits non-zero gets its
+# own (`forge-adapt-catalogue.sh failed; component-name claims were not checked`). Both are
+# warnings, exit stays 0, path rows print unchanged, and both come before the summary line. A tree
+# with no plugins/ directory has no component names to resolve and stays silent. The script's
+# directory is resolved before any --root cd, so a relative script path still finds its catalogue
+# (#354). The lookup runs only after every document is validated, so a refused run (exit 2) prints
+# no catalogue warning. Invoking the script through a FILE SYMLINK looks for the catalogue beside the
+# link, not beside its target, and warns not found when none is there: readlink -f is deliberately
+# avoided for BSD portability.
 #
 # A BARE SHELL FILENAME RESOLVES TOO (#332). A backticked `<name>.sh` with no path separator is
 # looked up in exactly two places: the shipped assets the catalogue lists (type `asset`, by path
@@ -88,6 +98,12 @@ done
 
 [ -n "$RANGE" ] || die "a commit range is required: --range <base>..<head>"
 [ -n "$DOCS" ]  || die "at least one document is required: --docs <doc>[,<doc>...]"
+
+# The script's own directory, resolved BEFORE the --root cd below: a bare dirname "$0" taken after it
+# is relative to the new directory, so a relative script path plus --root missed a catalogue that
+# sits right beside the script (#354). No readlink -f: bash 3.2 and BSD portability. CDPATH is
+# cleared for this cd so an exported CDPATH cannot make it print the directory and corrupt HERE.
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 if [ -n "$ROOT" ]; then
   cd "$ROOT" 2>/dev/null || die "no such directory: $ROOT"
@@ -188,22 +204,6 @@ git log --pretty=format:'C %H %ct' --name-only "$RANGE" 2>/dev/null \
       { if (!($0 in seen)) { seen[$0] = 1; printf "%s\t%s\t%s\n", $0, sha, ct } }
     ' > "$TMP/changed" || die "cannot read the log for '$RANGE'"
 
-# --- component names, resolved by the one definition of what a component is --------------------
-: > "$TMP/names"
-CAT="$(dirname "$0")/forge-adapt-catalogue.sh"
-: > "$TMP/bare"
-if [ -f "$CAT" ] && [ -d plugins ]; then
-  bash "$CAT" --tsv . 2>/dev/null > "$TMP/cat.tsv" || : > "$TMP/cat.tsv"
-  awk -F'\t' 'NF >= 5 { p = $5; sub(/^\.\//, "", p); printf "%s\t%s\n", $3, p }' "$TMP/cat.tsv" > "$TMP/names"
-  # Bare-filename candidates (#332): shipped assets by basename ...
-  awk -F'\t' 'NF >= 5 && $2 == "asset" { p = $5; sub(/^\.\//, "", p); b = p; sub(/^.*\//, "", b); printf "%s\t%s\n", b, p }' "$TMP/cat.tsv" > "$TMP/bare"
-fi
-# ... and tracked scripts/<name>.sh at HEAD (direct children only; ls-tree is not recursive).
-# A key never holds a slash, so a path-separator token cannot reach this table. The order of the
-# paths in an ambiguity line is the catalogue's, then scripts/'s.
-git ls-tree --name-only HEAD scripts/ 2>/dev/null \
-  | awk '/^scripts\/[^\/]+\.sh$/ { b = $0; sub(/^scripts\//, "", b); printf "%s\t%s\n", b, $0 }' >> "$TMP/bare"
-
 # --- every document is validated before any row is emitted (#267 F2) ---------------------------
 # rc 2 means "could not run", never "ran partway": validating inside the emit loop below printed
 # earlier documents' rows before dying on a later untracked one, which pinned the defect the
@@ -226,6 +226,29 @@ for doc in $DOCS; do
 done
 set +f
 IFS=$OLDIFS
+
+# --- component names, resolved by the one definition of what a component is --------------------
+: > "$TMP/names"
+CAT="$HERE/forge-adapt-catalogue.sh"
+: > "$TMP/bare"
+if [ -d plugins ] && [ ! -f "$CAT" ]; then
+  # Degraded, and said so (#354): without the catalogue no claim naming a component can match, and a
+  # run that silently found fewer rows read as a clean one. Warn, never fail: path rows stay valid.
+  printf '%s: forge-adapt-catalogue.sh not found beside the script; component-name claims were not checked\n' "$PROG" >&2
+elif [ -d plugins ]; then
+  if ! bash "$CAT" --tsv . 2>/dev/null > "$TMP/cat.tsv"; then
+    : > "$TMP/cat.tsv"
+    printf '%s: forge-adapt-catalogue.sh failed; component-name claims were not checked\n' "$PROG" >&2
+  fi
+  awk -F'\t' 'NF >= 5 { p = $5; sub(/^\.\//, "", p); printf "%s\t%s\n", $3, p }' "$TMP/cat.tsv" > "$TMP/names"
+  # Bare-filename candidates (#332): shipped assets by basename ...
+  awk -F'\t' 'NF >= 5 && $2 == "asset" { p = $5; sub(/^\.\//, "", p); b = p; sub(/^.*\//, "", b); printf "%s\t%s\n", b, p }' "$TMP/cat.tsv" > "$TMP/bare"
+fi
+# ... and tracked scripts/<name>.sh at HEAD (direct children only; ls-tree is not recursive).
+# A key never holds a slash, so a path-separator token cannot reach this table. The order of the
+# paths in an ambiguity line is the catalogue's, then scripts/'s.
+git ls-tree --name-only HEAD scripts/ 2>/dev/null \
+  | awk '/^scripts\/[^\/]+\.sh$/ { b = $0; sub(/^scripts\//, "", b); printf "%s\t%s\n", b, $0 }' >> "$TMP/bare"
 
 # --- the marker regions somebody else owns ------------------------------------------------------
 REGION_IDS="plugin-catalogue component-index plugin-groups"
