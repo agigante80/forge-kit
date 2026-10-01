@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# sync-phases-version: 5
+# sync-phases-version: 6
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
 #   sync-phases.sh [--check] [--roadmap FILE]
 #     default   create missing milestones and close the ones whose phase is done
 #     --check   change nothing; report what is missing or drifted
-#   FORGE_DRY_RUN=1  print what would be written and send nothing
+#   FORGE_DRY_RUN=1  the milestone READ is still real (see the read below); only the writes are held
+#                    and printed as `[dry-run]` lines
 #
 # Exit codes are distinguishable, because this runs from automation:
 #   0  in sync (or synced successfully)
@@ -123,7 +124,15 @@ if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
   exit 3
 fi
 
-MS="$(forge_milestone_list)" || die "could not list milestones; check the token and the forge configuration"
+# FORGE_DRY_RUN=0 is scoped to this substitution on purpose (#269). forge_api_paginate short-circuits
+# to a literal `[]` under FORGE_DRY_RUN=1, GET included, so without it every phase reads as missing
+# and --check reports `would create milestone` for milestones that exist. A read has no side effect,
+# and the prefix assignment dies with the substitution's subshell, so there is nothing to restore,
+# the caller's flag is untouched, and the writes below still see it and stay held. Do NOT hoist this
+# to a top-level `FORGE_DRY_RUN=0`: that would let the writes through. The close under the flag also
+# relies on forge_milestone_close deciding the dry run before it resolves the title (forge-lib v28,
+# #254); this change must not reach `main` before that one (#254 closed, or its commit an ancestor).
+MS="$(FORGE_DRY_RUN=0 forge_milestone_list)" || die "could not list milestones; check the token and the forge configuration"
 
 drift=0
 while IFS="$(printf '\t')" read -r name state plan; do

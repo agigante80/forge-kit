@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 27
+# forge-lib-version: 28
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -126,6 +126,13 @@
 #       at the top of the body (after a leading template-version marker line), and an existing one
 #       is MOVED there. Additive: without it the output is byte-identical to v26. Any other fifth
 #       argument exits 2, since a typo that silently appended would hide the region it was moving.
+#   v28 forge_milestone_close decides FORGE_DRY_RUN BEFORE it resolves the title (#254). v27
+#       resolved first, and under the flag the paginator returns a literal `[]`, so every title
+#       was unresolvable: a dry run returned 2 and said `no milestone titled` for a milestone
+#       that exists. It now prints `[dry-run] close milestone <title> on <repo>` to stderr and
+#       returns 0, sending nothing. A caller that saw rc 2 under the flag now sees rc 0, and a
+#       title that does NOT exist also returns 0 under the flag (the caller resolved it from a
+#       real read; forge_issue_milestone makes the same trade). A real run is unchanged.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -984,6 +991,15 @@ _forge_milestone_id() {
 forge_milestone_close() {
   local title="$1" repo id
   repo="$(forge_repo)" || return 2
+  # The dry-run guard runs BEFORE the resolution, as forge_issue_label's and forge_issue_milestone's
+  # do (#254). Resolving first made every title unresolvable under the flag, because the paginator
+  # returns a literal `[]` there. Clearing the flag around the resolution read is rejected: it
+  # would perform a real GET inside a dry run. The accepted trade: a title that does not exist
+  # also prints the line and returns 0, because the caller already resolved it from a real read.
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    printf '[dry-run] close milestone %s on %s\n' "$title" "$repo" >&2
+    return 0
+  fi
   # FAILS on an unknown title rather than no-opping. A close that quietly did nothing would let a
   # roadmap say `done` while the milestone stayed open, which is the exact drift a caller asks this
   # to prevent.
@@ -1009,7 +1025,7 @@ forge_milestone_close() {
 #
 # The dry-run guard runs BEFORE the resolution, as forge_issue_label's does: under FORGE_DRY_RUN
 # the paginator returns a literal `[]`, so every title is unresolvable and a dry run would report
-# a real phase as missing (that is what forge_milestone_close does today, #254).
+# a real phase as missing (forge_milestone_close had that defect until v28, #254).
 forge_issue_milestone() {
   local n="$1" title="$2" repo host id payload rc=0
   repo="$(forge_repo)" || return 2

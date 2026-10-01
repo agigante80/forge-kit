@@ -7,6 +7,17 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
+## Unreleased
+
+### Fixed
+
+- **`FORGE_DRY_RUN` and reads, corrected** (#254, #269). The v0.7.0 line "`FORGE_DRY_RUN=1` fakes
+  writes only, never reads (#268)" described the docs, not the library: `forge_api` short-circuits
+  every method under the flag, GET included, so a read returns an empty result. `sync-phases.sh`
+  now scopes a clear of the flag around its own milestone read, so a dry run no longer reports
+  existing milestones as missing; `forge_milestone_close` decides the dry run before it resolves
+  the title (forge-lib v28), so a dry-run close returns 0 instead of 2.
+
 ## v0.7.0 (2026-09-24)
 
 Five phases since v0.6.0: the leak guard's edge cases closed one by one, the forge adapter and the

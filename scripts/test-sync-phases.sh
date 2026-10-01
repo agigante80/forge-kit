@@ -12,7 +12,10 @@ set -uo pipefail
 # ENVIRONMENT, 2.43, #288): GIT_DISCOVERY_ACROSS_FILESYSTEM only lets a search cross a mount the
 # ceiling still stops, GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS act on a repository already found,
 # which the ceiling prevents, and GIT_NAMESPACE scopes refs only. All three are ruled out, not missed.
-unset FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+# #269: FORGE_DRY_RUN joins the list, as test-forge-lib.sh does, because the stubs below now honour
+# it: an inherited flag from a maintainer shell or the pre-push hook would steer every case. Each
+# dry-run case passes it per call (`FORGE_DRY_RUN=1 run ...`).
+unset FORGE_DRY_RUN FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
 ASSETS="$ROOT/plugins/forge-kit-roadmap/skills/roadmap-phases/assets"
@@ -54,9 +57,21 @@ cp "$ASSETS/roadmap-lib.sh" "$T/roadmap-lib.sh" 2>/dev/null || true
 cat > "$T/forge-lib.sh" <<'STUB'
 forge_repo() { printf 'o/r'; }
 forge_host() { printf 'github'; }
-forge_milestone_list()   { cat "$STUB_MILESTONES"; }
-forge_milestone_create() { printf 'CREATE %s\n' "$1" >> "$REQLOG"; }
-forge_milestone_close()  { printf 'CLOSE %s\n'  "$1" >> "$REQLOG"; }
+# These stubs model the real library under FORGE_DRY_RUN=1 (#269): the paginator returns `[]`
+# (forge_api_paginate), a write logs nothing, and forge_milestone_close prints a `[dry-run]` line to
+# stderr and returns 0 (forge-lib v28, #254). Without that fidelity no case could fail against
+# sync-phases v5, which ignores the flag. STUB_LIST_FAIL=1 fails the list whatever the flag is: a
+# stub that failed only under the flag would never fail after the fix, since the read then runs
+# with the flag at 0.
+forge_milestone_list() {
+  [ "${STUB_LIST_FAIL:-0}" = 1 ] && return 2
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[]'; else cat "$STUB_MILESTONES"; fi
+}
+forge_milestone_create() { [ "${FORGE_DRY_RUN:-0}" = 1 ] || printf 'CREATE %s\n' "$1" >> "$REQLOG"; }
+forge_milestone_close() {
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[dry-run] close milestone %s on o/r\n' "$1" >&2; return 0; fi
+  printf 'CLOSE %s\n' "$1" >> "$REQLOG"
+}
 STUB
 
 goodplan() { printf '# %s\n\n## Goal\nx\n\n## Done looks like\nx\n\n## Fails if\nx\n' "$1"; }
@@ -122,6 +137,84 @@ printf '[{"id":1,"title":"A","state":"closed"}]' > "$T/ms.json"
 run
 expect "reopening is not attempted" "" "$(cat "$REQLOG")"
 contains "closed" "$out" "and the disagreement is reported"
+
+echo "== the milestone read is real under FORGE_DRY_RUN=1, the writes are not (#269) =="
+# Dependency: #269 must not reach main before #254 (forge-lib v28) has: #254 closed, or its commit an
+# ancestor of this one. The stub's close mirrors v28, so the close case below cannot prove it.
+# Mutants, each shown to fail by the cases named:
+#   "drop the clear (v5)": the --check positive, the done-phase --check, the closed-milestone note
+#     and the dry-run close case (the suppressed-create case does NOT kill it: B is missing either
+#     way and nothing logs CREATE under the flag).
+#   "unscoped top-level clear" (`FORGE_DRY_RUN=0; MS=...`): the suppressed-create case, because the
+#     write then sees the cleared flag and logs CREATE B.
+# A second stub further down (the versioned copies under ~/.claude/plugins) ignores the flag; it is
+# only used by the resolution cases, which never set it, and the unset at the top covers it.
+roadmap <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+FORGE_DRY_RUN=1 run --check
+expect "dry-run --check on an in-sync host exits 0" 0 "$rc"
+absent "would create milestone" "$out" "and does not report an existing milestone as missing"
+printf '[]' > "$T/ms.json"
+FORGE_DRY_RUN=1 run --check
+expect "dry-run --check still reports genuine drift (exit 1)" 1 "$rc"
+expect "with exactly the would-create line" 'would create milestone "A"' "$(printf '%s\n' "$out" | grep 'would create')"
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+STUB_LIST_FAIL=1 FORGE_DRY_RUN=1 run --check
+expect "a failed list under the flag exits 2" 2 "$rc"
+contains "could not list milestones" "$out" "and says so"
+STUB_LIST_FAIL=1 run --check
+expect "a failed list with the flag unset also exits 2" 2 "$rc"
+run --check
+expect "flag unset, in-sync roadmap: --check exits 0" 0 "$rc"
+absent "could not list milestones" "$out" "and does not claim a list failure"
+roadmap <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/a.md
+MD
+FORGE_DRY_RUN=1 run --check
+expect "dry-run --check on a done phase with an open milestone exits 1" 1 "$rc"
+contains 'would close milestone "A"' "$out" "and reports the close"
+roadmap <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"closed"}]' > "$T/ms.json"
+FORGE_DRY_RUN=1 run --check
+expect "dry-run --check on an open phase with a closed milestone exits 1" 1 "$rc"
+contains 'phase "A" is open but its milestone is closed' "$out" "and reports the note"
+# Writes stay held under the flag, and flow when it is off.
+roadmap <<'MD'
+## Phase: B
+state: open
+plan: docs/plans/a.md
+MD
+printf '[]' > "$T/ms.json"
+FORGE_DRY_RUN=1 run
+expect "a dry run with a missing milestone exits 0" 0 "$rc"
+absent "CREATE B" "$(cat "$REQLOG")" "and logs no CREATE (the flag reached the write)"
+run
+expect "the same state with the flag unset exits 0" 0 "$rc"
+expect "and logs exactly one CREATE B" 1 "$(grep -c '^CREATE B$' "$REQLOG")"
+contains 'created milestone "B"' "$out" "and reports it"
+# The #254 coupling: a done phase with an open milestone reaches forge_milestone_close for the
+# first time under the flag, and must not turn a dry run into exit 4.
+roadmap <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+FORGE_DRY_RUN=1 run
+expect "a dry run closing a done phase exits 0, not 4" 0 "$rc"
+absent "CLOSE A" "$(cat "$REQLOG")" "and logs no CLOSE"
+contains "[dry-run] close milestone A on o/r" "$out" "and reports the would-close through the library's line"
+absent "no milestone titled" "$out" "and never says the milestone is missing"
 
 echo "== NEVER deletes =="
 roadmap <<'MD'

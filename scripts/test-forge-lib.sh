@@ -947,6 +947,53 @@ esac
 [ $? -eq 0 ] && ok "closing an unknown title FAILS rather than silently doing nothing" \
              || bad "closing an unknown title silently succeeded"
 
+# --- #254: forge_milestone_close decides the dry run BEFORE it resolves the title ------------
+# v27 resolved first; under the flag the paginator returns a literal [] so every title was
+# unresolvable and a dry run returned 2 for a milestone that exists.
+echo "== #254: a dry-run milestone close =="
+mc_run() {  # mc_run <dry:0|1> <title> [list-json]: sets MCRC, MCOUT, MCERR, MCLOG
+  MCLOG="$T/mc.log"; : > "$MCLOG"
+  MCRC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+            [ "$1" = 1 ] && export FORGE_DRY_RUN=1
+            LISTJSON="${3-[]}"
+            forge_api() { echo "$1 $2" >> "$MCLOG"; case "$2" in *"/milestones?"*page=1*) printf '%s' "$LISTJSON" ;; *) printf '[]' ;; esac; }
+            forge_milestone_close "$2" >"$T/mc.out" 2>"$T/mc.err"; echo $? ) )
+  MCOUT="$(cat "$T/mc.out")"; MCERR="$(cat "$T/mc.err")"
+}
+mc_run 1 "Phase A" '[{"id":7,"title":"Phase A","state":"open"}]'
+expect "dry-run close of an existing title returns 0" 0 "$MCRC"
+expect "and writes exactly the dry-run line to stderr" "[dry-run] close milestone Phase A on o/r" "$MCERR"
+expect "and writes nothing to stdout" "" "$MCOUT"
+expect "and makes no call at all (no GET, no PATCH)" "" "$(cat "$MCLOG")"
+mc_run 1 "No Such Phase"
+expect "a NONEXISTENT title under dry-run also returns 0 (the accepted trade)" 0 "$MCRC"
+expect "and prints the same dry-run line" "[dry-run] close milestone No Such Phase on o/r" "$MCERR"
+case "$MCERR" in *"no milestone titled"*) bad "dry-run printed the unresolvable-title refusal" ;; *) ok "and never prints 'no milestone titled'" ;; esac
+expect "and makes no call" "" "$(cat "$MCLOG")"
+# A real run is unchanged. This case logs every call, which the older case above does not.
+mc_run 0 "No Such Phase"
+expect "a real run with an unresolvable title still returns 2" 2 "$MCRC"
+expect "and still refuses naming the title and repo" "forge-lib: no milestone titled 'No Such Phase' on o/r" "$MCERR"
+case "$(cat "$MCLOG")" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH" ;; esac
+# An underivable repo under dry-run is still 2: the guard sits AFTER forge_repo.
+D="$(mktemp -d "$T/mcr.XXXXXX")"
+MCRC=$( cd "$D" && git init -q . && git remote add origin /some/local/path && ( . "$LIB"; unset FORGE_REPO; export FORGE_HOST=forgejo FORGE_DRY_RUN=1
+        forge_api() { echo "$1 $2" >> "$D/log"; }
+        forge_milestone_close "Phase A" >/dev/null 2>"$D/err"; echo $? ) )
+expect "an underivable repo under dry-run returns 2 (forge_repo runs before the guard)" 2 "$MCRC"
+case "$(cat "$D/err")" in *"cannot parse owner/repo from remote"*) ok "and names why" ;; *) bad "underivable-repo message: $(cat "$D/err")" ;; esac
+expect "and sent nothing" "" "$(cat "$D/log" 2>/dev/null)"
+# The REAL forge_api with gh/curl stubs that exit 99. FORGE_API_URL is set so that a mutant which
+# clears FORGE_DRY_RUN around the resolution read (the rejected approach) resolves a base and
+# REACHES the curl stub; a resolve-first mutant (v27) is caught by the rc assertion instead,
+# because the real forge_api short-circuits the dry-run GET and the title is then unresolvable.
+BIN254="$T/mc-bin"; mkdir -p "$BIN254"
+for x in gh curl; do printf '#!/bin/sh\necho "%s should not run under FORGE_DRY_RUN=1: $*" >&2\nexit 99\n' "$x" > "$BIN254/$x"; chmod +x "$BIN254/$x"; done
+RT=$( ( . "$LIB"; export PATH="$BIN254:$PATH" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
+        forge_milestone_close "Phase A" >/dev/null 2>"$T/mc-rt.err"; echo $? ) )
+expect "real forge_api: dry-run close returns 0" 0 "$RT"
+case "$(cat "$T/mc-rt.err")" in *"should not run"*) bad "real transport was invoked under dry-run: $(cat "$T/mc-rt.err")" ;; *) ok "and neither gh nor curl was invoked" ;; esac
+
 # Issues carry the milestone TITLE, and pull requests must not appear: the roadmap rule is about
 # tickets. Forgejo's issues endpoint returns PRs too, which is why forge_issue_list filters them.
 (
@@ -1682,7 +1729,7 @@ echo "== #248: a dry run decides BEFORE it would have fetched =="echo "== #248: 
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
   # A stub that FAILS the case if it is called at all, for any method including GET. forge_api
   # short-circuits GET under dry-run and returns an empty body, so a guard placed after the fetch
-  # would splice against an empty string: open defect #254's exact shape, inside the primitive
+  # would splice against an empty string: the shape #254 had in forge_milestone_close, inside the primitive
   # built to make writing safe.
   forge_api() { echo "CALLED" > "$T/called"; }
   rm -f "$T/called"
@@ -1696,7 +1743,7 @@ echo "== #248: a dry run decides BEFORE it would have fetched =="echo "== #248: 
 case $? in
   0) ok "dry-run names the region and the ARGUMENT byte count, and makes no request at all";;
   1) bad "dry-run did not return 0";;
-  2) bad "dry-run called forge_api, so the guard sits after the fetch (#254's shape)";;
+  2) bad "dry-run called forge_api, so the guard sits after the fetch (the shape #254 fixed)";;
   3) bad "dry-run did not name the region";;
   4) bad "dry-run did not print the argument character count";;
   *) bad "the dry-run case errored";;
