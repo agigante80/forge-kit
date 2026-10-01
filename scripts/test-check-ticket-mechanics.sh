@@ -804,12 +804,32 @@ grep -qx '## Codebase Context' "$WORK/g304-r2.md" && bad "#304: the region fixtu
 expect "#304: a gate-context region's paths cannot satisfy docs_impact" "$(printf 'fail\tnames no docs and makes no explicit none claim: we should think about it')" "$(docs_row "$(run "$WORK/g304-r2.md" feature)")"
 sed 's/^<!-- gate-context:start -->$/&\r/' "$WORK/g304-r2.md" > "$WORK/g304-r2cr.md"
 grep -q $'start -->\r$' "$WORK/g304-r2cr.md" && ok "#304: the CR fixture carries a CR (fixture sanity)" || bad "#304: the CR fixture has no CR"
-expect "#304: a start marker with a trailing CR still ends the section" fail "$(outcome "$(run "$WORK/g304-r2cr.md" feature)" docs_impact)"
+expect "#304: a start marker with a trailing CR still opens a region, so its path is not author text" fail "$(outcome "$(run "$WORK/g304-r2cr.md" feature)" docs_impact)"
 sed 's/gate-context:/brief-decision:/' "$WORK/g304-r2.md" > "$WORK/g304-r2brief.md"
-expect "#304: a region of any prefix ends the section (brief-*)" fail "$(outcome "$(run "$WORK/g304-r2brief.md" feature)" docs_impact)"
+expect "#304: a region of any prefix (brief-*) is skipped, not read as author text" fail "$(outcome "$(run "$WORK/g304-r2brief.md" feature)" docs_impact)"
 B="$(mkbody feature "g304-p.md" "" "" "" 'Updates `docs/guides/labels.md`')"
 { sed 's/^### /## /' "$B" | no_cc; printf '%s\n' "$REGION"; } > "$WORK/g304-p2.md"
 expect "#304: the author's own docs line is judged and quoted, not the region's" "$(printf 'pass\tUpdates `docs/guides/labels.md`')" "$(docs_row "$(run "$WORK/g304-p2.md" feature)")"
+# #335: a region ends only at the end marker of its OWN name (landed in fd05cba), so a nested region
+# of another name neither ends the outer skip early nor leaks its paths, and a mismatched end marker
+# does not close a region it does not name. Built the way the region fixtures above are.
+NEST="$(printf '\n<!-- gate-context:start -->\n<!-- gate-verdict:start -->\n- `plugins/x/y.sh`: a path\n<!-- gate-verdict:end -->\n- `docs/guides/labels.md`\n<!-- gate-context:end -->')"
+MISM="$(printf '\n<!-- gate-context:start -->\n- `plugins/x/y.sh`: a path\n<!-- gate-verdict:end -->\n- `docs/guides/labels.md`')"
+B="$(mkbody feature "g335.md" "" "" "" "we should think about it")"
+{ sed 's/^### /## /' "$B" | no_cc; printf '%s\n' "$NEST"; } > "$WORK/g335-nest.md"
+{ sed 's/^### /## /' "$B" | no_cc; printf '%s\n' "$MISM"; } > "$WORK/g335-mism.md"
+{ sed 's/^### /## /' "$B" | no_cc; printf '%s\n\n%s\n' "$NEST" 'Updates `docs/guides/labels.md`'; } > "$WORK/g335-after.md"
+expect "#335: a nested region of another name leaks no path" "$(printf 'fail\tnames no docs and makes no explicit none claim: we should think about it')" "$(docs_row "$(run "$WORK/g335-nest.md" feature)")"
+expect "#335: an end marker of another name does not close the region" "$(printf 'fail\tnames no docs and makes no explicit none claim: we should think about it')" "$(docs_row "$(run "$WORK/g335-mism.md" feature)")"
+expect "#335: author text after the nested region closes is read" pass "$(outcome "$(run "$WORK/g335-after.md" feature)" docs_impact)"
+CL3='rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; next }'
+grep -qF "$CL3" "$SCRIPT" && ok "mutant ledger: section_of() ends a region at its own end marker (#335)" || bad "mutant ledger: #335 end rule not found"
+sed 's|if (l == "<!-- " rgn ":end -->") rgn = ""|if (l ~ /:end -->$/) rgn = ""|' "$SCRIPT" > "$MUT"
+cmp -s "$SCRIPT" "$MUT" && bad "#335: the name-blind mutant did not apply"
+o="$(bash "$MUT" --body "$WORK/g335-nest.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,feature 2>/dev/null)"
+expect "mutant: a name-blind end rule lets the nested region's path pass docs_impact (#335 can fail)" pass "$(outcome "$o" docs_impact)"
+o="$(bash "$MUT" --body "$WORK/g335-mism.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,feature 2>/dev/null)"
+expect "mutant: a name-blind end rule closes a region at another name's end marker (#335 can fail)" pass "$(outcome "$o" docs_impact)"
 # Mutant 1: the gate-filled clause deleted (one line altered); the positive case must flip. Since
 # #320 the clause is the per-row test in check 3's loop.
 CL1='if [ "$gate" = yes ] && [ "$required" = no ]; then   # check 3: per-row gate flag'
