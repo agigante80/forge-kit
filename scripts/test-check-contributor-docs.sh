@@ -1840,9 +1840,17 @@ NR == 1 {' 'EXTRACT='\''
   mutant "escaped quote inside a double-quoted value ends it" c_export_escaped_in_dq_neg '"([^"\\]|\\.)*"|' '"[^"]*"|'
   mutant "export -n guard removed" c_export_n_neg '        if (w == "export" && qs[j] ~ /^-[A-Za-z]*n/) unexp = 1
 ' ''
-  mutant "restart-from-start rewrite loop" c_subst_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "=")) {'
-  mutant "restart-from-start rewrite loop (quoted values)" c_quoted_space_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /[A-Za-z_][A-Za-z0-9_]*="[^"]*"/)) text = substr(text, 1, RSTART - 1) "X" substr(text, RSTART + RLENGTH)\n  if (index(text, "=")) {'
-  mutant "restart-from-start rewrite loop (separate commands)" c_subst_hostile_arg_neg '  if (index(text, "=")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "=")) {'
+  # The restart-from-front mutants are quadratic, but mawk is fast enough to finish the 24000-word
+  # cases near the watchdog (8.3 s locally, under 6 s on a CI runner, so the mutant survived there):
+  # like the strip loop below, they run only where the awk under test is GNU Awk (94 s), which CI
+  # covers with its AWK_UNDER_TEST=gawk run, and print a skip elsewhere.
+  if [ "$(gawk_gate)" = run ]; then
+    mutant "restart-from-start rewrite loop" c_subst_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "=")) {'
+    mutant "restart-from-start rewrite loop (quoted values)" c_quoted_space_hostile_linear '  if (index(text, "=")) {' $'  while (match(text, /[A-Za-z_][A-Za-z0-9_]*="[^"]*"/)) text = substr(text, 1, RSTART - 1) "X" substr(text, RSTART + RLENGTH)\n  if (index(text, "=")) {'
+    mutant "restart-from-start rewrite loop (separate commands)" c_subst_hostile_arg_neg '  if (index(text, "=")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "=")) {'
+  else
+    for m in "restart-from-start rewrite loop" "restart-from-start rewrite loop (quoted values)" "restart-from-start rewrite loop (separate commands)"; do ok "mutant '$m' needs gawk: skipped"; done
+  fi
   # The strip loop is quadratic on gawk only in a way the 6 s bound can see: gawk pre-fix takes
   # about 34 s at 192000 words, but mawk takes about 3.1 s, under the bound, so the restored loop
   # would survive there and the mutant is skipped (re-measured at the 6 s default, #346).
