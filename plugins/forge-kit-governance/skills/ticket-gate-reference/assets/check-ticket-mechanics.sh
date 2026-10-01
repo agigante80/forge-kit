@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 14
+# check-ticket-mechanics-version: 15
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -60,6 +60,11 @@
 # permits where no behaviour delta exists, failed the same way where check 5 had always referred one for
 # the unit and E2E sections; it is now tested first, only where no block exists, so an N/A named
 # inside a real pair is still a pair, and a bare N/A with no reason still fails.
+#
+# CHECK 4'S BLOCK POLARITY COMES FROM THE ANCHORED `MARK_NEG` (#359). The When-count evidence names
+# a block Negative when its marker line matches `MARK_NEG`, which is `marker_re Negative`, so the
+# one `marker_re` that builds `MARK_ANY` and `MARK_POS` decides polarity too. A substring test is
+# deliberately not used: it named a Negative block Positive when its label held the word.
 #
 # TWO RULES KEEP GATE-WRITTEN TEXT OFF THE AUTHOR'S ACCOUNT (#304). A field the TEMPLATE marks
 # gate-filled is never charged for an absent heading: the mark is a `description:` line carrying the

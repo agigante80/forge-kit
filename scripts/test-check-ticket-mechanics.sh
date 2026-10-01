@@ -321,11 +321,14 @@ expect "gap 2: the missing-Then site recognises the bold marker" fail "$(outcome
 gwt_ev() { printf '%s\n' "$1" | awk -F'\t' '$1=="gwt"{print $3}'; }
 # --- #359: the When-count evidence names a block by its anchored marker, not by a substring. A
 # Negative block whose label CONTAINS the word Positive used to be reported as Positive.
-wc_ev() { gwt_ev "$(run "$(mkbody feature "$1" "$(printf '%s' "$2")")" feature)"; }
+wc_run() { run "$(mkbody feature "$1" "$2")" feature; }
+wc_ev() { gwt_ev "$(wc_run "$1" "$2")"; }
 P1='Positive\n- Given: a\n- When: b\n- Then: c'
 N1='Negative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED'
 N2='Negative\n- Given: d\n- When: e\n- When: ee\n- Then: 401 AUTH_FAILED'
-ev="$(wc_ev wc1.md "$(printf "$P1\n\nNegative (the Positive path is blocked)\n- Given: d\n- When: e\n- When: ee\n- Then: 401 AUTH_FAILED")")"
+o="$(wc_run wc1.md "$(printf "$P1\n\nNegative (the Positive path is blocked)\n- Given: d\n- When: e\n- When: ee\n- Then: 401 AUTH_FAILED")")"; ev="$(gwt_ev "$o")"
+expect "#371: wc1's outcome is fail" fail "$(outcome "$o" gwt)"
+case "$ev" in *"Positive: 2 When lines"*) bad "#371: wc1 also names a Positive block: $ev" ;; *) ok "#371: wc1 names no Positive block" ;; esac
 case "$ev" in *"(Negative: 2 When lines)"*) ok "#359: a plain-parenthetical Negative label naming Positive is reported Negative" ;; *) bad "#359: labelled Negative misnamed: $ev" ;; esac
 ev="$(wc_ev wc2.md "$(printf "$P1\n\n**Negative** guards the Positive path\n- Given: d\n- When: e\n- When: ee\n- Then: 401 AUTH_FAILED")")"
 case "$ev" in *"(Negative: 2 When lines)"*) ok "#359: a bold Negative marker with Positive in the prose is reported Negative" ;; *) bad "#359: bold Negative misnamed: $ev" ;; esac
@@ -339,8 +342,9 @@ W3="each scenario block needs exactly one When (Positive: 2 When lines; Negative
 [ "$ev" = "$W3" ] && ok "#365: three offending blocks are joined by '; ' with no run-on pair (whole-field equality)" || bad "#365: three-block evidence wrong: $ev"
 ev="$(wc_ev wc9.md "$(printf "$P2\n\n$N2\n\n$P2\n\n$N2")")"
 [ "$ev" = "$W3" ] && ok "#365: four offending blocks name the first three only (the head -3 cap, whole-field equality)" || bad "#365: four-block evidence wrong: $ev"
-ev="$(wc_ev wc5.md "$(printf "Positive (the Negative path is not taken)\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N1")")"
-case "$ev" in *"(Positive: 2 When lines)"*"Negative: "*|*"Negative: "*) bad "#359: a Positive label naming Negative was misnamed: $ev" ;; *"(Positive: 2 When lines)"*) ok "#359: a Positive block whose label names Negative keeps its own name" ;; *) bad "#359: mirror case evidence wrong: $ev" ;; esac
+o="$(wc_run wc5.md "$(printf "Positive (the Negative path is not taken)\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N1")")"; ev="$(gwt_ev "$o")"
+expect "#371: wc5's outcome is fail" fail "$(outcome "$o" gwt)"
+case "$ev" in *"Negative: "*) bad "#359: a Positive label naming Negative was misnamed: $ev" ;; *"(Positive: 2 When lines)"*) ok "#359: a Positive block whose label names Negative keeps its own name" ;; *) bad "#359: mirror case evidence wrong: $ev" ;; esac
 expect "#359: the one-When mirror (Positive labelled with Negative) passes" pass "$(outcome "$(run "$(mkbody feature wc6.md "$(printf 'Positive (the Negative path is not taken)\n- Given: a\n- When: b\n- Then: c\n\n%b' "$N1")")" feature)" gwt)"
 expect "#359: the one-When Negative labelled with Positive passes" pass "$(outcome "$(run "$(mkbody feature wc7.md "$(printf '%b\n\nNegative (the Positive path is blocked)\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED' "$P1")")" feature)" gwt)"
 ev="$(gwt_ev "$(run "$G2e" feature)")"
