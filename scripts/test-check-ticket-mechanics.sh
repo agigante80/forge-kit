@@ -778,13 +778,62 @@ sed "s/'\$4 == \"yes\" && \$2 == \"no\" { print \$1 }'/'0 { print \$1 }'/" "$SCR
 cmp -s "$SCRIPT" "$MUT" && bad "#304: the gate-filled mutant did not apply"
 ev="$(sec_ev "$(bash "$MUT" --body "$WORK/g304-nocc.md" --template "$TPLDIR/bug.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
 expect "mutant: with the gate-filled clause deleted, Codebase Context is charged (the #304 case can fail)" "heading absent (1): Codebase Context" "$ev"
-# Mutant 2: the region-start boundary removed from section_of(); the region case must flip to pass.
-CL2='inside && l ~ /^<!-- [^ \t]+:start -->$/ { inside = 0 }'
+# Mutant 2: the region-start rule removed from section_of(); the region case must flip to pass.
+CL2='l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }'
 grep -qF "$CL2" "$SCRIPT" && ok "mutant ledger: section_of() carries the region boundary (#304)" || bad "mutant ledger: #304 region boundary not found"
 grep -vF "$CL2" "$SCRIPT" > "$MUT"
 cmp -s "$SCRIPT" "$MUT" && bad "#304: the boundary mutant did not apply"
 o="$(bash "$MUT" --body "$WORK/g304-r2.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,feature 2>/dev/null)"
 expect "mutant: with the region boundary removed, the region's path passes docs_impact (the #304 case can fail)" pass "$(outcome "$o" docs_impact)"
+# Review round 1 of #304: the mark is anchored to the template's own structure, and a region is
+# skipped to its end marker rather than ending the section, so author text below it is still read.
+cat > "$WORK/g304-blk.yml" <<'YML'
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      placeholder: |
+        Auto-populated by ticket-gate is a phrase an author may quote here.
+        # gate-owned
+    validations:
+      required: false
+  # gate-owned
+  - type: textarea
+    id: deps
+    attributes:
+      label: Deps
+    validations:
+      required: false
+YML
+o="$(bash "$SCRIPT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-blk.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#304: block-scalar text and a comment above the next field mark nothing, so both are charged" "heading absent (2): Notes; Deps" "$(sec_ev "$o")"
+UNITREG="$(printf -- '- [ ] `tests/unit/foo.test.ts` covers it\n\n<!-- brief-notes:start -->\nregion text\n<!-- brief-notes:end -->\n\nN/A: a pure refactor with no behaviour change')"
+B="$(mkbody feature "g304-u.md" "" "$UNITREG")"
+expect "#304: author text below a region's end marker is still judged (an N/A there refers)" referred "$(outcome "$(run "$B" feature)" unit_tests)"
+GWTREG="$(printf 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED\n\n<!-- brief-extra:start -->\nx\n<!-- brief-extra:end -->\n\nNegative\n- Given: f\n- When: g\n- When: h\n- Then: 400 BAD')"
+B="$(mkbody feature "g304-g.md" "$GWTREG")"
+expect "#304: a malformed block below a region still fails check 4" "$(printf 'fail\teach scenario block needs exactly one When (Negative: 2 When lines)')" "$(printf '%s\n' "$(run "$B" feature)" | awk -F'\t' '$1=="gwt"{print $2 "\t" $3}')"
+# Mutant 3: the description anchor dropped (the phrase matched on any template line).
+CL3='/^      description: / && index($0, "Auto-populated by ticket-gate") { gate = 1 }'
+grep -qF "$CL3" "$SCRIPT" && ok "mutant ledger: the description match is anchored to the field's description line (#304)" || bad "mutant ledger: #304 description anchor not found"
+awk -v c="$CL3" 'index($0, c) { sub(/\/\^      description: \/ && /, "") } { print }' "$SCRIPT" > "$MUT"
+cmp -s "$SCRIPT" "$MUT" && bad "#304: the description-anchor mutant did not apply"
+ev="$(sec_ev "$(bash "$MUT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-blk.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
+[ "$ev" != "heading absent (2): Notes; Deps" ] && ok "mutant: with the description anchor dropped, placeholder text exempts Notes (the #304 case can fail)" || bad "mutant: the description-anchor mutant survived"
+# Mutant 4: the gate-owned comment matched at any indent.
+CL4='/^    # gate-owned[[:space:]]*$/ { gate = 1 }'
+grep -qF "$CL4" "$SCRIPT" && ok "mutant ledger: the gate-owned comment is anchored to the key indent (#304)" || bad "mutant ledger: #304 comment anchor not found"
+awk -v c="$CL4" 'index($0, c) { sub(/\/\^    # gate-owned/, "/^[[:space:]]*# gate-owned") } { print }' "$SCRIPT" > "$MUT"
+cmp -s "$SCRIPT" "$MUT" && bad "#304: the comment-anchor mutant did not apply"
+ev="$(sec_ev "$(bash "$MUT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-blk.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
+[ "$ev" != "heading absent (2): Notes; Deps" ] && ok "mutant: with the comment matched at any indent, the wrong fields are exempt (the #304 case can fail)" || bad "mutant: the comment-anchor mutant survived"
 
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"

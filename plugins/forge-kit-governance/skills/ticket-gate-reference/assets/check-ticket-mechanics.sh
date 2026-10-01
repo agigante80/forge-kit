@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 13
+# check-ticket-mechanics-version: 14
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -63,16 +63,19 @@
 #
 # TWO RULES KEEP GATE-WRITTEN TEXT OFF THE AUTHOR'S ACCOUNT (#304). A field the TEMPLATE marks
 # gate-filled is never charged for an absent heading: the mark is a `description:` line carrying the
-# fixed, case-sensitive substring "Auto-populated by ticket-gate", or a whole-line `# gate-owned`
-# YAML comment anywhere between the field's `- type:` line and the next one. It is read from the
-# template only, never from body text and never from a field id, and a `required: true` field is
-# never exempt, so a template that loses the mark gets the old charge, never a wider pass. And a
-# whole-line region START marker of any prefix (forge-lib's grammar, `<!-- <name>:start -->`, a
-# trailing CR or blank tolerated) ENDS a section: the gate appends its `gate-context` region at the
-# body end, where it read as content of the author's last `##` section and its paths satisfied
-# check 6. Ending at the start marker, not skipping to the end marker, is deliberate: it holds for
-# an unterminated region, and the cost is that author text after a region's end marker goes
-# unread, which can only make a check fail, never pass.
+# fixed, case-sensitive substring "Auto-populated by ticket-gate", or a `# gate-owned` YAML comment
+# on a line of its own at the field's key indent (four spaces, beside `id:`), after the field's
+# `- type:` line. A comment above the NEXT `- type:` (two spaces) or a line inside a `value:` or
+# `placeholder:` block (eight) is not the mark, since either would exempt the wrong field. It is
+# read from the template only, never from body text and never from a field id, and a `required:
+# true` field is never exempt, so a template that loses the mark gets the old charge, never a wider
+# pass. And the lines of a body REGION of any prefix (forge-lib's grammar, `<!-- <name>:start -->`
+# to `<!-- <name>:end -->`, a trailing CR or blank tolerated) are never section content: the gate
+# appends its `gate-context` region at the body end, where it read as content of the author's last
+# `##` section and its paths satisfied check 6. Reading resumes after the matching end marker, so
+# author text below a region is still judged; an unterminated region runs to the end of the body.
+# Region text is excluded as if absent, which is no more than an author could do by deleting it,
+# and the critic still reads the whole body.
 #
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
@@ -185,7 +188,8 @@ section_of() {
     BEGIN { n = split(ENVIRON["CTM_LABELS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1
             n = split(ENVIRON["CTM_SUBS"], b, "\n");   for (i = 1; i <= n; i++) if (b[i] != "") issub[b[i]] = 1 }
     { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
-    inside && l ~ /^<!-- [^ \t]+:start -->$/ { inside = 0 }
+    rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; next }
+    l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }
     /^##+ / {
       lvl = index($0, " ") - 1; cur = substr($0, lvl + 2); sub(/[ \t]+$/, "", cur)
       if (inside && ((lvl == want_lvl && !(cur in issub)) || (cur in islabel))) inside = 0
@@ -231,7 +235,7 @@ template_fields() {
       type = t; label = ""; req = "false"; id = ""; gate = 0; next
     }
     /^      description: / && index($0, "Auto-populated by ticket-gate") { gate = 1 }
-    /^[[:space:]]*# gate-owned[[:space:]]*$/ { gate = 1 }
+    /^    # gate-owned[[:space:]]*$/ { gate = 1 }
     /^    id: / { i = substr($0, 9); gsub(/[[:space:]]/, "", i); id = i }
     /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = l } }
     /^      required: / { r = $0; sub(/^.*required:[[:space:]]*/, "", r); gsub(/[[:space:]]/, "", r); req = r }
