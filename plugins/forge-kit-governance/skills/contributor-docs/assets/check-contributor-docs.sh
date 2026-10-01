@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 10
+# check-contributor-docs-version: 11
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -25,12 +25,14 @@
 #   max-lines  AGENTS.md within --max-lines (150, counted as wc -l counts).
 #   max-bytes  AGENTS.md within --max-bytes (32768: Codex truncates the file at 32 KiB).
 #   command    Only inside code spans and fenced blocks. The FAIL set is a closed allowlist: the two
-#              root shapes `npm run X` and `pnpm run X` (`run` straight after the package manager, a
-#              literal name, no flag but --silent/-s, a tracked root package.json, no cd or pushd
-#              earlier in the same scope), plus six workspace spellings resolved against the ONE
-#              tracked manifest of that name (#299): npm -w, --workspace and --workspace=, pnpm
-#              --filter, -F and --filter=, each followed by `run X`. Yarn never fails, because yarn
-#              falls through to a binary: a defined root script is a pass, anything else referred.
+#              root shapes `npm run X` and `pnpm run X` (`run`, or its alias `run-script`, straight
+#              after the package manager, #353; a literal name, no flag but --silent/-s, a tracked
+#              root package.json, no cd or pushd earlier in the same scope), plus six workspace
+#              spellings resolved against the ONE tracked manifest of that name (#299): npm -w,
+#              --workspace and --workspace=, pnpm --filter, -F and --filter=, each followed by
+#              `run X` (the workspace `run-script` spelling is a known gap, #363). Yarn never
+#              fails, because yarn falls through to a binary: a defined root script is a pass,
+#              anything else referred.
 #              Everything else is referred or silent. make and just are read as TEXT and never
 #              invoked: make runs recipes while remaking makefiles. npm run X is also referred when a
 #              tracked root .npmrc sets workspace or workspaces (#339), or is a symlink.
@@ -459,6 +461,8 @@ why_cd() { if [ "$1" = 2 ]; then printf 'an environment assignment precedes it';
 # trim_punct <word>: the word without its trailing punctuation, in the global TP (#326). It is the
 # one definition of the punctuation class, so a change to the set cannot miss a copy. Like
 # resolve_workspace it is called DIRECTLY, never through $(...), and a caller copies TP out at once.
+# A script name that trims to nothing (`npm run .`) keeps its raw word at the three name sites, so the
+# row is never malformed (#353): `[ -n "$TP" ] && name=$TP`.
 TP=""
 trim_punct() { TP=$1; while :; do case "$TP" in *[.,\;:!?]) TP=${TP%?} ;; *) break ;; esac; done; }
 
@@ -502,11 +506,11 @@ npmrc_scan() {
 }
 
 judge_pm() {   # <loc> <cd> <pm> <args...>
-  local loc=$1 cd=$2 pm=$3 w name="" flag="" extra wsv="" wsn=0
+  local loc=$1 cd=$2 pm=$3 w name="" flag="" extra wsv="" wsn=0 v=run
   shift 3
   if [ $# -eq 0 ]; then return; fi
   case "$1" in
-    run) shift ;;
+    run|run-script) v=$1; shift ;;   # the doc's own verb is printed in every row (#353)
     -*) # The six workspace spellings, each with `run` straight after the value (#299).
         case "$pm:$1" in
           npm:-w|npm:--workspace|pnpm:--filter|pnpm:-F) [ $# -ge 3 ] && [ "$3" = run ] && { wsv=$2; wsn=3; } ;;
@@ -522,7 +526,7 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
     # and `npm run. build` cannot become a false pass (#326). The rows print the raw word.
     *) trim_punct "$1"; w=$TP
        case "$w" in
-         test|start|run-script|t|tst) row referred command "$loc" "$pm $1: runs a lifecycle script; not checked"; return ;;
+         test|start|t|tst) row referred command "$loc" "$pm $1: runs a lifecycle script; not checked"; return ;;
        esac
        [ "$pm" = pnpm ] || return
        case "$w" in
@@ -539,20 +543,20 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
       *) [ -z "$name" ] && name=$w ;;
     esac
   done
-  [ -n "$flag" ] && { row referred command "$loc" "$pm run ${name:-...}: $flag may change which script runs"; return; }
+  [ -n "$flag" ] && { row referred command "$loc" "$pm $v ${name:-...}: $flag may change which script runs"; return; }
   [ -z "$name" ] && return
-  trim_punct "$name"; name=$TP
+  trim_punct "$name"; [ -n "$TP" ] && name=$TP
   local re='^[A-Za-z0-9][A-Za-z0-9:_.-]*$'
-  [[ $name =~ $re ]] || { row referred command "$loc" "$pm run $name: not a literal script name"; return; }
-  [ "$cd" != 0 ] && { row referred command "$loc" "$pm run $name: $(why_cd "$cd")"; return; }
+  [[ $name =~ $re ]] || { row referred command "$loc" "$pm $v $name: not a literal script name"; return; }
+  [ "$cd" != 0 ] && { row referred command "$loc" "$pm $v $name: $(why_cd "$cd")"; return; }
   if [ "$pm" = npm ]; then
     npmrc_scan
-    [ "$NPMRC_KEY" = symlink ] && { row referred command "$loc" "npm run $name: a tracked .npmrc is a symlink"; return; }
-    [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm run $name: a tracked .npmrc sets $NPMRC_KEY"; return; }
+    [ "$NPMRC_KEY" = symlink ] && { row referred command "$loc" "npm $v $name: a tracked .npmrc is a symlink"; return; }
+    [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm $v $name: a tracked .npmrc sets $NPMRC_KEY"; return; }
   fi
-  tracked package.json || { row referred command "$loc" "$pm run $name: no root package.json is tracked"; return; }
-  if resolve_script "$name"; then row pass command "$loc" "$pm run $name: defined in package.json"
-  else row fail command "$loc" "$pm run $name: no such script in package.json"; fi
+  tracked package.json || { row referred command "$loc" "$pm $v $name: no root package.json is tracked"; return; }
+  if resolve_script "$name"; then row pass command "$loc" "$pm $v $name: defined in package.json"
+  else row fail command "$loc" "$pm $v $name: no such script in package.json"; fi
 }
 
 # scan_script <silent-ok> <args...>: the first non-flag word is the script; a `-` flag before `--`
@@ -587,7 +591,7 @@ judge_ws() {
   [ -n "$SC_FLAG" ] && { row referred command "$loc" "$lab: $SC_FLAG may change which script runs"; return; }
   name=$SC_NAME
   [ -z "$name" ] && return
-  trim_punct "$name"; name=$TP
+  trim_punct "$name"; [ -n "$TP" ] && name=$TP
   [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: $name is not a literal script name"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }
   if [ "$pm" = npm ]; then npmrc_scan; [ "$NPMRC_LAST" = wsfalse ] && { row referred command "$loc" "$lab: a tracked .npmrc sets workspaces=false"; return; }; fi
@@ -616,7 +620,7 @@ judge_yarn_root() {
   [ -n "$SC_FLAG" ] && { row referred command "$loc" "$lab ${SC_NAME:-...}: $SC_FLAG may change which script runs"; return; }
   name=$SC_NAME
   [ -z "$name" ] && return
-  trim_punct "$name"; name=$TP
+  trim_punct "$name"; [ -n "$TP" ] && name=$TP
   [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name: not a literal script name"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab $name: $(why_cd "$cd")"; return; }
   tracked package.json || { row referred command "$loc" "$lab $name: no root package.json is tracked"; return; }

@@ -869,6 +869,43 @@ c_ws_trim_site() { new; mf packages/web/package.json web '"build":"x"'; agents '
   rc_is 0 && row pass command "npm -w web run build.: build is defined in packages/web/package.json"; }
 c_yroot_trim_site() { new; pkg '"build":"x"'; agents '`yarn run build.`\n'; run
   rc_is 0 && row pass command "yarn run build: defined in package.json"; }
+# #353: a name that trims to nothing keeps its raw word, one case per site, so a row is never
+# malformed (`npm run : ...`) and always greps back to its doc line.
+c_pm_empty_name_raw() { new; pkg '"x":"x"'; agents '`npm run .`\n\n`npm run .,`\n'; run
+  rc_is 0 && row referred command "npm run .: not a literal script name" && row referred command "npm run .,: not a literal script name" \
+    && none "npm run : " && nocmd pass && nocmd fail; }
+c_ws_empty_name_raw() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run .`\n'; run
+  rc_is 0 && row referred command "npm -w web run .: . is not a literal script name" && none ":  is not" && nocmd pass && nocmd fail; }
+c_yroot_empty_name_raw() { new; pkg '"x":"x"'; agents '`yarn run .`\n\n`yarn .`\n'; run
+  rc_is 0 && row referred command "yarn run .: not a literal script name" && row referred command "yarn .: not a literal script name" \
+    && none "yarn : not" && none "yarn run : not" && nocmd pass && nocmd fail; }
+# #353: run-script is npm's canonical name for run (pnpm accepts it too), so it is judged like run and
+# every judge_pm row prints the doc's own verb. One case per row, each using the run-script spelling.
+c_pm_run_script_defined() { new; pkg '"x":"x"'; agents '`npm run-script x`\n\n`pnpm run-script x`\n'; run
+  rc_is 0 && row pass command "npm run-script x: defined in package.json" && row pass command "pnpm run-script x: defined in package.json" \
+    && none "runs a lifecycle script"; }
+c_pm_run_script_undefined() { new; pkg '"x":"x"'; agents '`npm run-script build`\n\n`pnpm run-script build`\n'; run
+  rc_is 1 && row fail command "npm run-script build: no such script in package.json" && row fail command "pnpm run-script build: no such script in package.json" \
+    && none "runs a lifecycle script"; }
+c_pm_run_script_dispatch_raw() { new; pkg '"x":"x"'; agents '`npm run-script. x`\n\n`npm run-script`\n'; run
+  rc_is 0 && nocmd pass && nocmd fail && nocmd referred; }
+# KNOWN GAP, tracked by #363: the workspace spelling of run-script is not judged. npm gives no row;
+# pnpm keeps its "may be a script" row. Widening it is a deliberate change that replaces this case.
+c_pm_run_script_ws_silent() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run-script nope`\n\n`pnpm -F web run-script nope`\n'; run
+  rc_is 0 && nocmd pass && nocmd fail && row referred command "pnpm -F web run-script nope: may be a script, a built-in or a binary" \
+    && [ "$(count referred command)" = 1 ]; }
+c_pm_run_script_flag() { new; pkg '"x":"x"'; agents '`npm run-script --foo x`\n'; run
+  rc_is 0 && row referred command "npm run-script ...: --foo may change which script runs" && none "npm run ..."; }
+c_pm_run_script_cd() { new; pkg '"x":"x"'; agents '```\ncd client\nnpm run-script x\n```\n'; run
+  rc_is 0 && row referred command "npm run-script x: a directory change precedes it" && nocmd pass && nocmd fail; }
+c_pm_run_script_not_literal() { new; pkg '"x":"x"'; agents '`npm run-script a/b`\n'; run
+  rc_is 0 && row referred command "npm run-script a/b: not a literal script name"; }
+c_pm_run_script_npmrc() { npmrc_case 'workspace=client\n' 'npm run-script dev'
+  rc_is 0 && row referred command "npm run-script dev: a tracked .npmrc sets workspace" && nocmd pass && nocmd fail; }
+c_pm_run_script_npmrc_link() { npmrc_link 'workspace=client\n' 'npm run-script dev'
+  linkmode && rc_is 0 && row referred command "npm run-script dev: a tracked .npmrc is a symlink"; }
+c_pm_run_script_no_pkg() { new; agents '`npm run-script x`\n'; run
+  rc_is 0 && row referred command "npm run-script x: no root package.json is tracked"; }
 # The punctuation class is spelled once in the code (comments stripped), as the trim_punct body.
 c_trim_once() { [ "$(grep -v '^[[:space:]]*#' "$S" | grep -oF '*[.,\;:!?])' | wc -l | tr -d ' ')" = 1 ]; }
 # Index, never the working tree: the blob and the file on disk disagree, in both directions.
@@ -973,6 +1010,19 @@ case_ c_pm_run_untrimmed "a mistyped run is never trimmed into a pass or a fail"
 case_ c_pm_trim_site "npm run build. trims its script name (judge_pm)"
 case_ c_ws_trim_site "npm -w web run build. trims its script name (judge_ws)"
 case_ c_yroot_trim_site "yarn run build. trims its script name (judge_yarn_root)"
+case_ c_pm_empty_name_raw "a punctuation-only npm script name keeps its raw word (judge_pm)"
+case_ c_ws_empty_name_raw "a punctuation-only workspace script name keeps its raw word (judge_ws)"
+case_ c_yroot_empty_name_raw "a punctuation-only yarn script name keeps its raw word (judge_yarn_root)"
+case_ c_pm_run_script_defined "run-script is judged like run: a defined script passes, with the doc's verb"
+case_ c_pm_run_script_undefined "run-script is judged like run: an undefined script fails, with the doc's verb"
+case_ c_pm_run_script_dispatch_raw "run-script. and a bare run-script are never judged"
+case_ c_pm_run_script_ws_silent "pinned gap (#363): the workspace run-script spelling is not judged"
+case_ c_pm_run_script_flag "the flag row keeps the run-script verb"
+case_ c_pm_run_script_cd "the cd row keeps the run-script verb"
+case_ c_pm_run_script_not_literal "the not-literal row keeps the run-script verb"
+case_ c_pm_run_script_npmrc "the .npmrc workspace row keeps the run-script verb"
+case_ c_pm_run_script_npmrc_link "the .npmrc symlink row keeps the run-script verb"
+case_ c_pm_run_script_no_pkg "the no-package.json row keeps the run-script verb"
 case_ c_trim_once "the trailing-punctuation class is defined once"
 case_ c_idx_ws_fail "the index lacks the script, the disk has it: fail"
 case_ c_idx_ws_pass "the index has the script, the disk lacks it: pass"
@@ -1112,7 +1162,7 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "cd scope widened to the whole file" c_cd_other_fence 'infence = 1; fcd = 0; fenv = 0; pcd = 0; penv = 0; next' 'infence = 1; fenv = 0; pcd = 0; penv = 0; next'
   mutant "paragraph scope narrowed to the span" c_para_span '    code(substr(rest, 1, j - 1), 0)' '    pcd = 0; code(substr(rest, 1, j - 1), 0)'
   mutant "[ -f package.json ] in place of tracked" c_pkg_untracked 'tracked package.json ||' '[ -f package.json ] ||'
-  mutant "a cd ignored when the root defines the script" c_cd_root_defined '[ "$cd" != 0 ] && { row referred command "$loc" "$pm run' '[ "$cd" != 0 ] && ! { tracked package.json && resolve_script "$name"; } && { row referred command "$loc" "$pm run'
+  mutant "a cd ignored when the root defines the script" c_cd_root_defined '[ "$cd" != 0 ] && { row referred command "$loc" "$pm $v' '[ "$cd" != 0 ] && ! { tracked package.json && resolve_script "$name"; } && { row referred command "$loc" "$pm $v'
   mutant "a PR-template link that passes" c_tmpl 'if [ "$tmpl" = 1 ]; then' 'if false; then'
   mutant "an undefined yarn script fails (bare)" c_y_bare_neg 'else row referred command "$loc" "$lab $name: not defined' 'else row fail command "$loc" "$lab $name: not defined'
   mutant "an undefined yarn script fails (run)" c_y_run_neg 'else row referred command "$loc" "$lab $name: not defined' 'else row fail command "$loc" "$lab $name: not defined'
@@ -1177,11 +1227,11 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   # #326. Each names the case written to kill it.
   mutant "trim_punct trims nothing" c_pm_trim_site 'trim_punct() { TP=$1; ' 'trim_punct() { TP=$1; return; '
   mutant "trim_punct trims once" c_pm_trim_edges 'TP=${TP%?} ;; *) break' 'TP=${TP%?}; break ;; *) break'
-  mutant "judge_pm trim removed" c_pm_trim_site '  trim_punct "$name"; name=$TP
+  mutant "judge_pm trim removed" c_pm_trim_site '  trim_punct "$name"; [ -n "$TP" ] && name=$TP
   local re=' '  local re='
-  mutant "judge_ws trim removed" c_ws_trim_site '  trim_punct "$name"; name=$TP
+  mutant "judge_ws trim removed" c_ws_trim_site '  trim_punct "$name"; [ -n "$TP" ] && name=$TP
   [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: ' '  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: '
-  mutant "judge_yarn_root trim removed" c_yroot_trim_site '  trim_punct "$name"; name=$TP
+  mutant "judge_yarn_root trim removed" c_yroot_trim_site '  trim_punct "$name"; [ -n "$TP" ] && name=$TP
   [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name' '  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name'
   mutant "lifecycle word left raw" c_pm_trim_lifecycle 'trim_punct "$1"; w=$TP' 'w=$1'
   mutant "pnpm silent list matched on the raw word" c_pm_trim_pnpm_builtin '       case "$w" in
@@ -1192,10 +1242,41 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   esac'
   mutant "dispatch subject trimmed" c_pm_run_untrimmed '  if [ $# -eq 0 ]; then return; fi
   case "$1" in
-    run) shift ;;' '  if [ $# -eq 0 ]; then return; fi
+    run|run-script) v=$1; shift ;;' '  if [ $# -eq 0 ]; then return; fi
   trim_punct "$1"
   case "$TP" in
-    run) shift ;;'
+    run|run-script) v=$1; shift ;;'
+  # #353. Item 1: the lifecycle row's two halves, each killed by the one case that pins it.
+  mutant "lifecycle row prints the trimmed word" c_pm_trim_lifecycle '"$pm $1: runs a lifecycle script' '"$pm $w: runs a lifecycle script'
+  mutant "lifecycle word tested on the raw word" c_pm_trim_lifecycle 'case "$w" in
+         test|start' 'case "$1" in
+         test|start'
+  # Item 2: two-line per-site anchors (the fixed text is OLD), so each replaces exactly one site.
+  mutant "judge_pm empty name printed" c_pm_empty_name_raw '  trim_punct "$name"; [ -n "$TP" ] && name=$TP
+  local re=' '  trim_punct "$name"; name=$TP
+  local re='
+  mutant "judge_ws empty name printed" c_ws_empty_name_raw '  trim_punct "$name"; [ -n "$TP" ] && name=$TP
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: ' '  trim_punct "$name"; name=$TP
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: '
+  mutant "judge_yarn_root empty name printed" c_yroot_empty_name_raw '  trim_punct "$name"; [ -n "$TP" ] && name=$TP
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name' '  trim_punct "$name"; name=$TP
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name'
+  # Item 3: both halves are reverted together, because re-adding run-script to the lifecycle list
+  # alone is an equivalent mutant (the dispatch matches it first).
+  mutant "run-script back in the lifecycle list" c_pm_run_script_defined 'run|run-script) v=$1; shift ;;' 'run) shift ;;' 'test|start|t|tst)' 'test|start|run-script|t|tst)'
+  mutant "run-script back in the lifecycle list (undefined)" c_pm_run_script_undefined 'run|run-script) v=$1; shift ;;' 'run) shift ;;' 'test|start|t|tst)' 'test|start|run-script|t|tst)'
+  mutant "run-script dispatch matched on the trimmed word" c_pm_run_script_dispatch_raw '  case "$1" in
+    run|run-script) v=$1; shift ;;' '  trim_punct "$1"; case "$TP" in
+    run|run-script) v=$1; shift ;;'
+  mutant "npm workspace run-script widened" c_pm_run_script_ws_silent '[ $# -ge 3 ] && [ "$3" = run ] && { wsv=$2; wsn=3; }' '[ $# -ge 3 ] && { [ "$3" = run ] || [ "$3" = run-script ]; } && { wsv=$2; wsn=3; }'
+  mutant "flag row prints run" c_pm_run_script_flag '"$pm $v ${name:-...}: $flag may change' '"$pm run ${name:-...}: $flag may change'
+  mutant "not-literal row prints run" c_pm_run_script_not_literal '"$pm $v $name: not a literal script name' '"$pm run $name: not a literal script name'
+  mutant "cd row prints run" c_pm_run_script_cd '"$pm $v $name: $(why_cd' '"$pm run $name: $(why_cd'
+  mutant "npmrc symlink row prints run" c_pm_run_script_npmrc_link '"npm $v $name: a tracked .npmrc is a symlink' '"npm run $name: a tracked .npmrc is a symlink'
+  mutant "npmrc row prints run" c_pm_run_script_npmrc '"npm $v $name: a tracked .npmrc sets' '"npm run $name: a tracked .npmrc sets'
+  mutant "no-package row prints run" c_pm_run_script_no_pkg '"$pm $v $name: no root package.json' '"$pm run $name: no root package.json'
+  mutant "pass row prints run" c_pm_run_script_defined '"$pm $v $name: defined in' '"$pm run $name: defined in'
+  mutant "fail row prints run" c_pm_run_script_undefined '"$pm $v $name: no such script' '"$pm run $name: no such script'
   mutant "workspace built-in message prints the raw word" c_yws_builtin '"$lab: $b1 may be a yarn built-in"' '"$lab: $1 may be a yarn built-in"'
   mutant "a second inline copy of the trim loop" c_trim_once 'first_file() {' 'X=; while :; do case "$X" in *[.,\;:!?]) X=${X%?} ;; *) break ;; esac; done
 first_file() {'
@@ -1252,7 +1333,7 @@ first_file() {'
   mutant "workspaces key ignored" c_npmrc_workspaces 'if (key == "workspaces") { last = val; seen = 1 }' 'if (0) { last = val; seen = 1 }'
   mutant "only a would-be fail becomes referred" c_npmrc_ws_defined '[ -n "$NPMRC_KEY" ] && { row referred' '[ -n "$NPMRC_KEY" ] && ! { tracked package.json && resolve_script "$name"; } && { row referred'
   mutant "a non-root .npmrc is read" c_npmrc_subdir_neg 'tracked .npmrc || return' 'tracked client/.npmrc || return' 'git ls-files -s -- .npmrc' 'git ls-files -s -- client/.npmrc' 'git show :.npmrc 2>/dev/null |' 'git show :client/.npmrc 2>/dev/null |'
-  mutant "the whole .npmrc is echoed" c_npmrc_token '"npm run $name: a tracked .npmrc sets $NPMRC_KEY"; return; }' '"npm run $name: a tracked .npmrc sets $NPMRC_KEY"; git show :.npmrc; return; }'
+  mutant "the whole .npmrc is echoed" c_npmrc_token '"npm $v $name: a tracked .npmrc sets $NPMRC_KEY"; return; }' '"npm $v $name: a tracked .npmrc sets $NPMRC_KEY"; git show :.npmrc; return; }'
   mutant "the matched .npmrc line is echoed" c_npmrc_token 'if (key == "workspace") hasws = 1' 'if (key == "workspace") { hasws = 1; wsl = $0 }' 'print (hasws ? "workspace" :' 'print (hasws ? wsl :'
   mutant "npm-only guard dropped" c_npmrc_pnpm_unchanged '  if [ "$pm" = npm ]; then
     npmrc_scan' '  if true; then
@@ -1327,7 +1408,7 @@ NR == 1 {' 'EXTRACT='\''
   mutant "detail always workspace" c_npmrc_workspaces 'sets $NPMRC_KEY"' 'sets workspace"'
   mutant "final line without a newline dropped" c_npmrc_no_final_newline 'git show :.npmrc 2>/dev/null |' 'git show :.npmrc 2>/dev/null | while IFS= read -r l; do printf "%s\n" "$l"; done |'
   mutant "exact workspace= string match" c_npmrc_spaced 'sub(/[ \t]+$/, "", key); sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)' 'sub(/\[\]$/, "", key)'
-  mutant "refers when no .npmrc exists" c_npmrc_none_neg '    [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm run' '    [ -z "$NPMRC_KEY" ] && { row referred command "$loc" "npm run'
+  mutant "refers when no .npmrc exists" c_npmrc_none_neg '    [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm $v' '    [ -z "$NPMRC_KEY" ] && { row referred command "$loc" "npm $v'
   mutant "the .npmrc rule leaks into the explicit workspace forms" c_npmrc_unchanged_forms '  [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }' '  npmrc_scan; [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "$lab: a tracked .npmrc sets $NPMRC_KEY"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }'
   # #357. Anchors are exact substrings of the awk and the functions around it.

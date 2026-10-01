@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 6 -->
+<!-- contributor-docs-version: 7 -->
 
 # Contributor docs
 
@@ -77,8 +77,9 @@ What it checks, all resolved against the git INDEX, never the disk:
   by its target, so `AGENTS.md -> CLAUDE.md` fails when `CLAUDE.md` is local only.
 - **max-lines**, **max-bytes**: the budget above.
 - **command**: inside code spans and fenced blocks only, since prose naming a command is not an
-  instruction. Only these shapes can FAIL: `npm run X` and `pnpm run X` from the root, with a
-  literal name missing from the tracked `package.json`, and the npm and pnpm workspace forms
+  instruction. Only these shapes can FAIL: `npm run X` and `pnpm run X` from the root (the alias
+  `run-script` is judged the same way, though not yet in the workspace forms, #363), with a literal
+  name missing from the tracked `package.json`, and the npm and pnpm workspace forms
   (`npm -w`, `--workspace` and `--workspace=` with `run X`; `pnpm --filter`, `-F` and `--filter=`
   with `run X`), which resolve against the one tracked manifest whose `name` equals the given name
   and fail when it lacks X. Yarn never fails, because yarn runs a `node_modules/.bin` binary when no
