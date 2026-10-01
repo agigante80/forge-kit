@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 6
+# gate-status-version: 7
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -40,14 +40,15 @@
 # literal, so changing fingerprint() fails the suite until the pin is updated, and the pin sits
 # beside the tag it names. That guards the pin's composition only: nothing mechanical can tell that
 # the tag moved WITH the algorithm, because an editor can update the hex and the tag in one
-# literal, or the hex alone. A TAGGED stamp whose tag differs from FP_TAG reads `stale round <R>
-# <VERDICT> (fingerprint <old>, now <current>)`, whatever its hash says, because that hash came from
-# an algorithm this script no longer has. An UNTAGGED stamp (written by v1 to v3) behaves exactly
+# literal, or the hex alone. A TAGGED stamp whose tag differs from FP_TAG reads
+# `stale round <R> <VERDICT> (fingerprint <old>, now <current>)`, whatever its hash says, because
+# that hash came from an algorithm this script no longer has. An UNTAGGED stamp (written by v1 to v3) behaves exactly
 # as before: its hash is compared, and it is never reported as an algorithm change, so no stamped
-# ticket changes state. (v5, #342) Only two shapes follow the hash: a tag, ` (<1 to 16 of
-# [a-z0-9]>)` then `.` then end of line or a space and text (the tag needs exactly 16 hex before
-# it); or no tag, `.` then end of line or a space and text (the untagged shape does not count the
-# hex digits, the hash is just compared). Anything else after the hash is no stamp: `unrecorded`.
+# ticket changes state. (v5, #342) Only two shapes follow the hash: a tag,
+# ` (<1 to 16 of [a-z0-9]>)` then `.` then end of line or a space and text (the tag needs exactly
+# 16 hex before it); or no tag, `.` then end of line or a space and text (the untagged shape does
+# not count the hex digits, the hash is just compared). Anything else after the hash is no stamp:
+# `unrecorded`.
 # The tag follows the hash on purpose: every v1 to v3 reader keys on `^Judged body: sha256:` and
 # ignores the rest of the line, so it still compares the hash, `--unstamp` still removes the line
 # and a re-stamp still replaces it. The one thing an older reader cannot do is name an algorithm

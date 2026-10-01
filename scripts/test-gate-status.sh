@@ -247,8 +247,9 @@ done
 # Untrusted text after the hash (#356). The state assertion carries the kill (the catch-all mutant
 # reads "current round 2 NEEDS-WORK"). The absent-file check is a SANITY check only: state_of never
 # evaluates the tail, so no plausible mutant makes it fail, and it is not claimed to pin the vector.
-# Both cases run inside the fresh scratch dir $T, never the caller's directory: a relative `x` there
-# would be deleted or misread in whatever folder the suite was started from.
+# All three cases (the third, a SANITY case, is further down) run inside the fresh scratch dir $T,
+# never the caller's directory: a relative `x` there would be deleted or misread in whatever folder
+# the suite was started from.
 withjudged "$FPNOW ;touch x (fp3). Full review: x."
 out=$(cd "$T" && GS 7); expect "metacharacters after the hash, outside the parentheses, are no stamp" "unrecorded round 2" "$out"
 expect "  sanity: no file named x was created" "no" "$([ -e "$T/x" ] && echo yes || echo no)"
@@ -260,7 +261,7 @@ out=$(cd "$T" && GS 7); expect "a newline splitting the text after the hash is n
 # line is read" is pinned by the two `two Judged lines: the first wins` cases above.
 withjudged "$FPNOW (fp3).
 ;touch x (fp3). Full review: x."
-out=$(GS 7); expect "a newline after a complete stamp: the stamp is its first line (sanity)" "current round 2 NEEDS-WORK" "$out"
+out=$(cd "$T" && GS 7); expect "a newline after a complete stamp: the stamp is its first line (sanity)" "current round 2 NEEDS-WORK" "$out"
 withjudged "$FPNOW (fp3)x Full review: https://x/c/3."
 expect "text glued to the closing parenthesis is no stamp" "unrecorded round 2" "$(GS 7)"
 withjudged "sha256: (fp3). Full review: https://x/c/3."
