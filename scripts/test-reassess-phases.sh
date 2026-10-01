@@ -160,9 +160,11 @@ run() {
   sout=$(cat "$T/run.out"); serr=$(cat "$T/run.err"); out="$sout
 $serr"
 }
-# Every list call of a FLAGGED run must have seen the flag at 0. Flagged runs only: an unflagged merge
-# or rename reaches confirm_emptied's read, which is unscoped on purpose and logs the flag as unset.
-# Only a flagged case that really runs a read's code path can fail for an unscoped read.
+# Every list call of a FLAGGED or --check run must have seen the flag at 0. Not other runs: a merge,
+# rename or delete-with-tickets run with neither the flag nor --check reaches confirm_emptied's read,
+# which is unscoped on purpose and logs the flag as unset.
+# #336: a flagged or --check merge reaches confirm_emptied under CHECK=1, where its re-read must never
+# run (the early return); this catches that read when it does. The --check merge's reads do see 0.
 reads_all_zero() {
   local n bad_lines
   n=$(wc -l < "$READLOG" | tr -d ' ')
@@ -408,6 +410,31 @@ for flagval in unset 0 true; do
   first="$(grep -m1 '^## Phase:' "$T/docs/roadmap.md")"
   expect "FORGE_DRY_RUN=$flagval: the roadmap was written, Beta now comes first" "## Phase: Beta" "$first"
 done
+
+# #336: a flagged MERGE reaches confirm_emptied under CHECK=1, the only FLAGGED path that does (the flagged
+# delete refuses earlier, and every other merge, rename and delete case is unflagged). Open ticket #10
+# in Alpha is load-bearing: with an empty issue fixture both runs print "is now emptied" and only
+# reads_all_zero kills a mutant that drops confirm_emptied's early --check return. With it, that mutant
+# re-reads, finds #10 still in Alpha (nothing moved), and exits 4. The --check run is asserted
+# ABSOLUTELY, since comparing the flagged run to it alone passes a mutant that changes both alike.
+base_roadmap; base_milestones
+printf '[{"number":10,"milestone":"Alpha"}]' > "$T/iss.json"
+before="$(cat "$T/docs/roadmap.md")"; ibefore="$(cat "$T/iss.json")"
+run merge Alpha --into Beta --reason "dry" --check
+ref_sout="$sout"; ref_serr="$serr"; ref_rc="$rc"
+expect "the unflagged --check merge exits 0" 0 "$ref_rc"
+expect "and prints no stderr" "" "$ref_serr"
+contains 'would confirm "Alpha" holds zero open tickets before continuing' "$ref_sout" "and says it would confirm the loser is empty"
+expect "and sent nothing to the host" "" "$(cat "$REQLOG")"
+reads_all_zero "unflagged --check merge"
+FORGE_DRY_RUN=1 run merge Alpha --into Beta --reason "dry"
+expect "flagged merge exits as --check does" "$ref_rc" "$rc"
+expect "its stdout equals the unflagged --check run" "$ref_sout" "$sout"
+expect "its stderr equals the unflagged --check run" "$ref_serr" "$serr"
+expect "and the roadmap is byte-identical" "$before" "$(cat "$T/docs/roadmap.md")"
+expect "and no ticket moved" "$ibefore" "$(cat "$T/iss.json")"
+expect "and no write reached the host" "" "$(cat "$REQLOG")"
+reads_all_zero "flagged merge"
 
 echo "== structural: missing libraries, a malformed roadmap, --help, an unknown op =="
 base_roadmap; base_milestones; base_issues

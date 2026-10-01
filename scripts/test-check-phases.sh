@@ -27,6 +27,9 @@ ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
 contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+# #336: literal, case-sensitive absence (no -i, unlike contains, since rule lines are lower case on
+# purpose). -F is load-bearing: without it a pattern's dot matches any character.
+absent_line() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3"; else ok "$3"; fi; }
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
@@ -359,8 +362,14 @@ FORGE_DRY_RUN=1 hostrun
 expect "flagged: rules 1 and 4 still exit 1" 1 "$rc"
 contains "rule 1: issue #7 has no phase." "$sout" "flagged: names the ticket with no phase"
 contains 'rule 4: phase "B" is done but holds 1 open ticket(s).' "$sout" "flagged: names the done phase holding a ticket"
-absent_line() { if printf '%s' "$2" | grep -q "$1"; then bad "$3"; else ok "$3"; fi; }
 absent_line "rule 3" "$sout" "flagged: and prints no rule 3 line"
+# #336: absent_line matches LITERALLY. The probes run in subshells so a deliberate failure never
+# touches this suite's counters; `bad` prints with a two-space prefix, so the output is checked with
+# contains rather than equality. "a.b" must not match "axb" (a regex dot would), and must match "a.b".
+probe_pass="$( absent_line "a.b" "axb" "probe" )"
+contains "ok: probe" "$probe_pass" "absent_line treats a dot literally: 'a.b' is absent from 'axb'"
+probe_fail="$( absent_line "a.b" "a.b" "probe" )"
+contains "FAIL: probe" "$probe_fail" "and fails when the literal text is present"
 expect "flagged: stdout equals the unflagged run" "$ref_sout" "$sout"
 expect "flagged: stderr equals the unflagged run" "$ref_serr" "$serr"
 reads_all_zero "flagged rules 1 and 4 run"
@@ -383,7 +392,10 @@ expect "flagged: with exactly the one rule 3 line, for B" 'rule 3: phase "B" has
 expect "flagged: and no stderr" "" "$serr"
 reads_all_zero "flagged missing-milestone run"
 
-# Negative: a failed issue read is still a read failure, whatever the flag.
+# Negative: a failed issue read is still a read failure, whatever the flag. (The ms.json rewrite below
+# is dead setup: the read fails before any rule runs. B is "planned" with an OPEN milestone elsewhere
+# in this file, which rule 3 treats as consistent; do not "fix" it to closed, that would be a real
+# rule 3 inconsistency, #336.)
 printf '[{"id":1,"title":"A","state":"open"},{"id":2,"title":"B","state":"open"}]' > "$T/ms.json"
 STUB_LIST_FAIL=iss FORGE_DRY_RUN=1 hostrun
 expect "flagged: a failed issue read exits 2" 2 "$rc"
