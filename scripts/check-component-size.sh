@@ -221,6 +221,13 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-10-01: adapt 7206 to 7199 (#215, r1 review). Step 1's host probe (three globs, a dead
+# slug parser and a 63-word block) became two lines (45 words) plus a short comment: the public
+# forge_host in a subshell, with forge-lib resolved inline. The r1 review moved the budget note
+# here (out of the skill's comment) and added an `echo "forge-host: $FORGE_HOST"` line so the
+# decided host reaches the transcript. Probe lines were 45 words, the comment at most 17.
+# Tested by scripts/test-forge-adapt-host.sh.
+#
 # LOWERED 2026-09-24: adapt 7209 to 7206 (#281). Step 3 now keeps the tier keys verbatim and
 # refresh runs forge-adapt-tier-diff.sh; paid for by a shorter marker rationale and by dropping
 # refresh's restated examples of adaptation, which the tier line now carries one of.
@@ -341,7 +348,7 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7206 ;;
+    adapt)       echo 7199 ;;
     ticket-gate) echo 5754 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;

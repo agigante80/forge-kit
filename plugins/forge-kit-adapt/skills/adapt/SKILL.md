@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 68 -->
+<!-- forge-adapt-version: 69 -->
 
 # forge-adapt
 
@@ -198,15 +198,10 @@ for f in .claude/hooks/*; do
   v=$(grep -oP -- "(?:<!--\s*|#\s*)${n}-version:\s*\K\d+" "$f" | head -1)  # anchored: same ver_of as S3
   echo "  $n (hook) | v${v:-none}"
 done
-# Forge host + repo slug (host-aware: GitHub or self-hosted Forgejo).
-REMOTE_URL=$(git remote get-url origin 2>/dev/null)
-# Anchor github.com to the HOST slot (see forge_host, #215). A Forgejo URL that merely
-# contains 'github.com' in its path/vanity host must NOT read as github.
-case "$REMOTE_URL" in
-  ''|*://github.com/*|*://*@github.com/*|git@github.com:*) FORGE_HOST=github ;;
-  *) FORGE_HOST=forgejo ;;
-esac
-CURRENT_REPO=$(printf '%s' "$REMOTE_URL" | sed -E 's#\.git$##; s#/$##; s#^.*://[^/]+/##; s#^[^@]*@[^:/]+[:/]##')
+# Sentinel API url: non-GitHub reads forgejo (#215).
+FK=""; for d in "${FORGE_KIT_DIR:-}" ~/.claude/plugins/marketplaces/forge-kit ~/forge-kit; do [ -f "$d/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh" ] && { FK=$d; break; }; done
+FORGE_HOST=$(FORGE_API_URL=x bash -c '. "$1" && forge_host' _ "$FK/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh" 2>/dev/null) || { FORGE_HOST=github; echo "forge-adapt: forge-lib.sh not found or FORGE_HOST invalid; host defaulted to github, verify"; }
+echo "forge-host: $FORGE_HOST"
 # Domain/pattern sample:
 find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep -vE 'node_modules|\.claude|dist' | head -20
 # Issue-template drift (host-aware) + governance state. Exit-0-safe: a missing dir is a normal finding.
@@ -220,7 +215,7 @@ PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template .gitea/IS
 PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoiP 'template[ -]version:\s*\*{0,2}\s*\K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
 # Is the version carried in the canonical `<!-- template-version: N -->` form (vs a visible line)?
 PRJ_TPL_CANONICAL=no; { [ -n "$PRJ_TPL_DIR" ] && grep -qP '<!--\s*template-version:\s*\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null && PRJ_TPL_CANONICAL=yes; } || true
-FK_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$FORGE_KIT_DIR"/.github/ISSUE_TEMPLATE/*.yml 2>/dev/null | sort -un | tail -1)
+FK_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$FK"/.github/ISSUE_TEMPLATE/*.yml 2>/dev/null | sort -un | tail -1)
 HAS_LOCKSTEP=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
 echo "issue-templates: project=v${PRJ_TPL_VER:-none} canonical-marker=${PRJ_TPL_CANONICAL} dir=${PRJ_TPL_DIR:-none} forge-kit=v${FK_TPL_VER:-none} lockstep-guard=${HAS_LOCKSTEP}"
 # CI / releases / dep-automation signals. Exit-0-safe: a missing path is a normal finding (do NOT

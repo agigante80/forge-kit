@@ -336,6 +336,11 @@ jobs:
       - name: forge-adapt install-plan tests
         run: bash scripts/test-forge-adapt-install-plan.sh
 
+      # Issue #215: Step 1's host probe is extracted from adapt/SKILL.md and run, so the shipped text
+      # is what is tested.
+      - name: forge-adapt host-probe tests
+        run: bash scripts/test-forge-adapt-host.sh
+
       # Issue #167: a registered component reported as missing would invite the copy #166 removed.
       - name: forge-adapt drift-status tests
         run: bash scripts/test-forge-adapt-drift-status.sh

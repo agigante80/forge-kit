@@ -11,6 +11,17 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **forge-adapt's Step 1 host probe decides by URL authority** (#215, forge-adapt v69). It used the
+  pre-#212 globs, which read `https://evil.internal/x/y?z=@github.com/` as github and four genuine
+  GitHub spellings (`https://github.com:443/o/r`, `ssh://git@ssh.github.com:443/o/r`,
+  `github.com:o/r`, `https://GitHub.com/o/r`) as forgejo. It now runs the public `forge_host` in a
+  subshell, resolving forge-lib itself (`$FORGE_KIT_DIR`, then the marketplace checkout, then
+  `~/forge-kit`) because Step 1 runs in a fresh shell, with a sentinel `FORGE_API_URL` so any
+  non-GitHub remote reads as forgejo. It prints `forge-host: <host>`, and a warning when it must default
+  to github. Behaviour change: an existing `.forge.conf` or exported `FORGE_HOST` now wins over the
+  remote at install time. The dead `CURRENT_REPO` and `REMOTE_URL` are gone and the template-version
+  read uses the resolved path. New suite `scripts/test-forge-adapt-host.sh`. adapt shrinks 7206 to
+  7199 words and its size baseline is lowered to match.
 - **`sync-phases.sh` no longer claims writes a dry run did not make** (#307, sync-phases v7). Under
   `FORGE_DRY_RUN=1` the summary said `created milestone` and `closed milestone` although nothing was
   sent; it now says `would create milestone` and `would close milestone`. A real run is unchanged,
