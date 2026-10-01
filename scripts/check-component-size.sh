@@ -221,6 +221,11 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-10-01: adapt 7199 to 7154 (#321). Every later read of the library became
+# ${FORGE_KIT_DIR:?} (no words), S2 now prints the library path and a governance-plugin-active line,
+# and one fresh-shell rule follows S2's stop rule; paid for by moving S2's 70-word refresh rationale
+# into scripts/test-forge-adapt-host.sh and collapsing the lockstep block's FORGE_KIT_SRC branch.
+#
 # LOWERED 2026-10-01: adapt 7206 to 7199 (#215, r1 review). Step 1's host probe (three globs, a dead
 # slug parser and a 63-word block) became two lines (45 words) plus a short comment: the public
 # forge_host in a subshell, with forge-lib resolved inline. The r1 review moved the budget note
@@ -348,7 +353,7 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7199 ;;
+    adapt)       echo 7154 ;;
     ticket-gate) echo 5754 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;

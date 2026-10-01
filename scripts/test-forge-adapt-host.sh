@@ -145,6 +145,150 @@ expect "no CURRENT_REPO assignment in the skill" 0 "$(grep -c '^CURRENT_REPO=' "
 expect "no REMOTE_URL assignment in the skill" 0 "$(grep -c '^REMOTE_URL=' "$SKILL")"
 expect "FK_TPL_VER reads \$FK, not the unset \$FORGE_KIT_DIR" 1 "$(grep -c '^FK_TPL_VER=.*"\$FK"/\.github/ISSUE_TEMPLATE' "$SKILL")"
 
+# ==================================================================================================
+# #321: every Bash call is a fresh shell, so the library path S2 resolves is gone in later blocks.
+# Each later read is `${FORGE_KIT_DIR:?}` (or a head-of-block guard), so an unset value STOPS naming
+# the variable instead of reading `/scripts/...`, listing every component as project-only, leaving
+# the template version empty, or misdiagnosing a stale library after a `mkdir`. S2 prints the
+# library path and the governance flag, which is how a later block learns them.
+#
+# WHY S2 REFRESHES (moved here from the skill to pay for the #321 words): both library sources are
+# plain git checkouts of the repo tracking origin/main, so fetch + reset --hard makes either current.
+# The marketplace checkout is NOT auto-pulled between manual `/plugin marketplace update` runs and
+# pins no SHA (known_marketplaces.json holds only source + installLocation), so resetting it forward
+# lands exactly what an update would. A stale checkout both mis-catalogues versions and lacks the
+# scripts/ and docs/ files a governance install copies.
+#
+# S2 FIXTURE RULE: S2's first statement discards an exported FORGE_KIT_DIR, and it runs fetch and
+# reset --hard on any git checkout it picks, so every S2 fixture is a NON-git mktemp library placed
+# where S2 looks, in a throwaway HOME, never the MH/CH symlinks to this repository; each S2 case
+# asserts that no clone ran. GIT_CEILING_DIRECTORIES keeps git from finding an enclosing checkout.
+echo "== #321: later blocks stop on an unset library instead of reading a bare path =="
+export GIT_CEILING_DIRECTORIES="$T"
+# fence <content-pattern>: the one fenced bash block (indented fences included) holding the pattern,
+# its indentation removed; exits the suite unless exactly one block matches.
+fence() {
+  local got n
+  got=$(P="$1" awk '
+    /^[ \t]*```bash[ \t]*$/ { ind = $0; sub(/```bash.*/, "", ind); inb = 1; buf = ""; next }
+    inb && /^[ \t]*```[ \t]*$/ { inb = 0; if (index(buf, ENVIRON["P"])) { k++; keep = buf } next }
+    inb { l = $0; if (index(l, ind) == 1) l = substr(l, length(ind) + 1); buf = buf l "\n" }
+    END { printf "%s", keep; exit (k == 1 ? 0 : 1) }' "$SKILL") || { echo "fence: no single bash block holds '$1' in $SKILL"; exit 1; }
+  printf '%s' "$got"
+}
+# span <content-pattern>: the one inline code span holding the pattern, backticks removed.
+span() {
+  local got
+  got=$(grep -o '`[^`]*'"$1"'[^`]*`' "$SKILL" | tr -d '`')
+  [ "$(printf '%s\n' "$got" | grep -c .)" = 1 ] || { echo "span: no single code span holds '$1' in $SKILL"; exit 1; }
+  printf '%s' "$got"
+}
+fill() { printf '%s' "$1" | sed -e 's/<name>/x/g' -e 's/<file>/plan.txt/g' -e 's/<group>/g/g' -e 's/<installed>/a/g' -e 's/<catalogue>/b/g'; }
+# lib [file...]: a valid library (plugins/ present) with stub helpers that print ok.
+lib() { local d; d=$(mktemp -d "$T/lib.XXXXXX"); mkdir -p "$d/plugins" "$d/scripts"
+  for h in forge-adapt-catalogue.sh forge-adapt-neighbour-disposition.sh forge-adapt-install-plan.sh \
+           forge-adapt-agent-skills.sh forge-adapt-drift-status.sh forge-adapt-tier-diff.sh; do
+    printf '#!/bin/sh\necho ok\n' > "$d/scripts/$h"; chmod +x "$d/scripts/$h"; done
+  echo "$d"; }
+# run_block <block> [VAR=value ...]: the block under env -i in a fresh project dir; sets bout, berr, brc, PROJ.
+bout=""; berr=""; brc=""; PROJ=""
+run_block() { local b="$1"; shift; PROJ=$(mktemp -d "$T/proj.XXXXXX")
+  bout=$(cd "$PROJ" && env -i PATH="$PATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" "$@" bash -c "$b" 2>"$T/berr"); brc=$?; berr=$(cat "$T/berr"); }
+L=$(lib)
+for pat in 'forge-adapt-catalogue.sh' 'forge-adapt-neighbour-disposition.sh <name>' 'forge-adapt-install-plan.sh <file>' 'forge-adapt-agent-skills.sh --names'; do
+  b=$(fill "$(fence "$pat")")
+  run_block "$b" FORGE_KIT_DIR="$L"
+  case "$bout" in ok*) ok "#321: '$pat' runs from the library" ;; *) bad "#321: '$pat' did not run from the library (out '$bout', rc $brc)" ;; esac
+  expect "#321: '$pat' exits 0 with the library" 0 "$brc"
+  run_block "$b"
+  [ "$brc" != 0 ] && ok "#321: '$pat' unset: exits non-zero" || bad "#321: '$pat' unset: exited 0"
+  case "$berr" in *FORGE_KIT_DIR*) ok "#321: '$pat' unset: stderr names FORGE_KIT_DIR" ;; *) bad "#321: '$pat' unset: stderr '$berr'" ;; esac
+  case "$berr" in *"No such file or directory"*) bad "#321: '$pat' unset: a bare /scripts path was tried" ;; *) ok "#321: '$pat' unset: no bare /scripts path tried" ;; esac
+done
+for pat in 'forge-adapt-drift-status.sh' 'forge-adapt-tier-diff.sh'; do
+  b=$(fill "$(span "$pat")")
+  run_block "$b" FORGE_KIT_DIR="$L"; expect "#321: span '$pat' runs from the library" ok "$bout"
+  run_block "$b"
+  [ "$brc" != 0 ] && case "$berr" in *FORGE_KIT_DIR*) true ;; *) false ;; esac \
+    && ok "#321: span '$pat' unset: exits non-zero naming FORGE_KIT_DIR" || bad "#321: span '$pat' unset: rc $brc, stderr '$berr'"
+done
+# Contributions: a library shipping ticket-gate, a project holding it and my-local.
+CB=$(fence 'comm -23'); CL=$(lib); mkdir -p "$CL/plugins/g/agents"; : > "$CL/plugins/g/agents/ticket-gate.md"
+contrib() { PROJ=$(mktemp -d "$T/proj.XXXXXX"); mkdir -p "$PROJ/.claude/agents"; : > "$PROJ/.claude/agents/ticket-gate.md"; : > "$PROJ/.claude/agents/my-local.md"
+  bout=$(cd "$PROJ" && env -i PATH="$PATH" HOME="$EH" "$@" bash -c "$CB" 2>"$T/berr"); brc=$?; berr=$(cat "$T/berr"); }
+contrib FORGE_KIT_DIR="$CL"; expect "#321: contributions lists only the project-only component" my-local.md "$bout"
+contrib; expect "#321: contributions unset: prints nothing" "" "$bout"
+[ "$brc" != 0 ] && case "$berr" in *FORGE_KIT_DIR*) true ;; *) false ;; esac && ok "#321: contributions unset: exits non-zero naming FORGE_KIT_DIR" || bad "#321: contributions unset: rc $brc, stderr '$berr'"
+case "$berr" in *"basename: missing operand"*) bad "#321: contributions unset: basename ran" ;; *) ok "#321: contributions unset: basename never ran" ;; esac
+BADL=$(mktemp -d "$T/bad.XXXXXX"); contrib FORGE_KIT_DIR="$BADL"; expect "#321: contributions set-but-bad: prints nothing" "" "$bout"
+[ "$brc" != 0 ] && case "$berr" in *"$BADL"*) true ;; *) false ;; esac && ok "#321: contributions set-but-bad: exits non-zero naming the path" || bad "#321: contributions set-but-bad: rc $brc, stderr '$berr'"
+# Templates version.
+TB=$(fence 'FORGE_KIT_TEMPLATE_VERSION=')$'\necho "V=$FORGE_KIT_TEMPLATE_VERSION"'
+TL=$(lib); mkdir -p "$TL/.github/ISSUE_TEMPLATE"; printf '# template-version: 6\n' > "$TL/.github/ISSUE_TEMPLATE/feature.yml"
+run_block "$TB" FORGE_KIT_DIR="$TL"; expect "#321: templates version read from the library" V=6 "$bout"; expect "#321: templates version: exit 0" 0 "$brc"
+run_block "$TB"
+[ "$brc" != 0 ] && case "$berr" in *FORGE_KIT_DIR*) true ;; *) false ;; esac && ok "#321: templates unset: exits non-zero naming FORGE_KIT_DIR" || bad "#321: templates unset: rc $brc, stderr '$berr'"
+case "$berr$bout" in *"grep: /.github"*|*V=*) bad "#321: templates unset: read on or printed an empty version" ;; *) ok "#321: templates unset: never read /.github or set an empty version" ;; esac
+run_block "$TB" FORGE_KIT_DIR="$L"
+[ "$brc" != 0 ] && case "$berr" in *"$L/.github/ISSUE_TEMPLATE/feature.yml"*) true ;; *) false ;; esac && ok "#321: templates, library without feature.yml: stops naming that path" || bad "#321: templates incomplete library: rc $brc, stderr '$berr'"
+# Lockstep install block.
+KB=$(fence 'check-template-lockstep.sh" scripts/')
+KL=$(lib); : > "$KL/scripts/check-template-lockstep.sh"; : > "$KL/scripts/test-template-lockstep.sh"
+run_block "$KB" FORGE_KIT_DIR="$KL"
+[ "$brc" = 0 ] && [ -f "$PROJ/scripts/check-template-lockstep.sh" ] && ok "#321: lockstep copies the guard from the library" || bad "#321: lockstep did not copy (rc $brc)"
+run_block "$KB"
+[ "$brc" != 0 ] && case "$berr" in *FORGE_KIT_DIR*) true ;; *) false ;; esac && ok "#321: lockstep unset: exits non-zero naming FORGE_KIT_DIR" || bad "#321: lockstep unset: rc $brc, stderr '$berr'"
+[ ! -e "$PROJ/scripts" ] && ok "#321: lockstep unset: no scripts/ directory created" || bad "#321: lockstep unset: created scripts/"
+case "$bout$berr" in *"(stale)"*|*"git -C  pull"*) bad "#321: lockstep unset: printed the stale misdiagnosis" ;; *) ok "#321: lockstep unset: no stale misdiagnosis" ;; esac
+run_block "$KB" FORGE_KIT_DIR="$L"
+[ "$brc" != 0 ] && [ ! -e "$PROJ/scripts" ] && case "$berr" in *"marketplace update"*"git pull"*) true ;; *) false ;; esac \
+  && ok "#321: lockstep, library missing the guard: one message naming both remedies, nothing created" || bad "#321: lockstep missing guard: rc $brc, stderr '$berr'"
+# S2 prints the library path and the governance flag, and decides the library itself.
+SB=$(fence 'FORGE_KIT_DIR=""; FORGE_KIT_SRC=""')
+s2home() { local h; h=$(mktemp -d "$T/s2h.XXXXXX"); mkdir -p "$h/.claude/plugins/marketplaces/forge-kit/plugins"; echo "$h"; }
+s2() { local h="$1"; shift; bout=$(env -i PATH="$PATH" HOME="$h" GIT_CEILING_DIRECTORIES="$T" "$@" bash -c "$SB" 2>&1); brc=$?; }
+H=$(s2home); s2 "$H"
+case "$bout" in *governance-plugin-active=no*) ok "#321: S2 prints governance-plugin-active=no" ;; *) bad "#321: S2 printed no governance flag: $bout" ;; esac
+case "$bout" in *": $H/.claude/plugins/marketplaces/forge-kit"*) ok "#321: S2 prints the library path" ;; *) bad "#321: S2 printed no library path: $bout" ;; esac
+[ ! -e "$H/forge-kit" ] && ok "#321: S2 (governance absent): no clone ran" || bad "#321: S2 cloned"
+H=$(s2home); mkdir -p "$H/.claude/plugins/cache/forge-kit/forge-kit-governance"; s2 "$H"
+case "$bout" in *governance-plugin-active=yes*) ok "#321: S2 prints governance-plugin-active=yes with the plugin installed" ;; *) bad "#321: S2 governance present: $bout" ;; esac
+case "$bout" in *governance-plugin-active=no*) bad "#321: S2 also printed =no" ;; *) ok "#321: S2 governance present: no =no line" ;; esac
+[ ! -e "$H/forge-kit" ] && ok "#321: S2 (governance present): no clone ran" || bad "#321: S2 cloned"
+A=$(lib); H=$(s2home); s2 "$H" FORGE_KIT_DIR="$A"
+case "$bout" in *": $H/.claude/plugins/marketplaces/forge-kit"*) ok "#321: S2 decides the library itself, ignoring an exported FORGE_KIT_DIR" ;; *) bad "#321: S2 precedence: $bout" ;; esac
+case "$bout" in *"$A"*) bad "#321: S2 printed the exported path" ;; *) ok "#321: S2 never printed the exported path" ;; esac
+[ ! -e "$H/forge-kit" ] && ok "#321: S2 (precedence): no clone ran" || bad "#321: S2 cloned"
+# Structural lint: every fenced bash block after S2 reads the library only through ${FORGE_KIT_DIR:?},
+# per occurrence (the Step 1 probe and S2 itself are excluded); later text never reads the old state.
+lint=$(awk '
+  /^[ \t]*```bash[ \t]*$/ { inb = 1; start = NR; buf = ""; next }
+  inb && /^[ \t]*```[ \t]*$/ { inb = 0
+    if (index(buf, "FORGE_KIT_DIR=\"\"; FORGE_KIT_SRC=\"\"")) { s2 = 1; next }
+    if (!s2 || index(buf, "FK=\"\"; for d in")) next
+    t = buf; n = gsub(/\$FORGE_KIT_DIR|\$\{FORGE_KIT_DIR\}|\$\{FORGE_KIT_DIR:-/, "", t)
+    if (n) print "block at line " start ": " n " unguarded read(s)"
+    next }
+  inb { buf = buf $0 "\n" }' "$SKILL")
+expect "#321: lint: every later fenced read of the library is \${FORGE_KIT_DIR:?}" "" "$lint"
+after=$(awk 'index($0, "echo \"governance-plugin-active=") { on = 1; next } on' "$SKILL")
+expect "#321: no later text reads \$FORGE_KIT_SRC" 0 "$(printf '%s\n' "$after" | grep -c 'FORGE_KIT_SRC')"
+expect "#321: no later text reads GOVERNANCE_PLUGIN_ACTIVE (the hook branch reads the printed flag)" 0 "$(printf '%s\n' "$after" | grep -c 'GOVERNANCE_PLUGIN_ACTIVE')"
+grep -q '^\*\*Branch on S2.s printed `governance-plugin-active=` line' "$SKILL" && ok "#321: the hook branch names the printed flag" || bad "#321: the hook branch does not name the printed flag"
+# The lint can fail: one guard reverted on a copy.
+cp "$SKILL" "$T/skill-mut.md"; sed -i.bak 's|"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-install-plan.sh|"$FORGE_KIT_DIR"/scripts/forge-adapt-install-plan.sh|' "$T/skill-mut.md"
+cmp -s "$SKILL" "$T/skill-mut.md" && bad "#321: the lint mutant did not apply"
+mlint=$(SKILL="$T/skill-mut.md" awk '
+  /^[ \t]*```bash[ \t]*$/ { inb = 1; start = NR; buf = ""; next }
+  inb && /^[ \t]*```[ \t]*$/ { inb = 0
+    if (index(buf, "FORGE_KIT_DIR=\"\"; FORGE_KIT_SRC=\"\"")) { s2 = 1; next }
+    if (!s2 || index(buf, "FK=\"\"; for d in")) next
+    t = buf; n = gsub(/\$FORGE_KIT_DIR|\$\{FORGE_KIT_DIR\}|\$\{FORGE_KIT_DIR:-/, "", t)
+    if (n) print "block at line " start ": " n " unguarded read(s)"
+    next }
+  inb { buf = buf $0 "\n" }' "$T/skill-mut.md")
+case "$mlint" in "block at line "*": 1 unguarded read(s)") ok "#321: mutant: a reverted guard fails the lint and names its block" ;; *) bad "#321: mutant: the lint missed a reverted guard ('$mlint')" ;; esac
+
 echo ""
 echo "forge-adapt host probe tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

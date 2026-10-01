@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 69 -->
+<!-- forge-adapt-version: 70 -->
 
 # forge-adapt
 
@@ -103,14 +103,8 @@ else
   git clone https://github.com/agigante80/forge-kit ~/forge-kit --depth 1 --quiet && { FORGE_KIT_DIR=~/forge-kit; FORGE_KIT_SRC="clone"; }
 fi
 
-# Refresh the library so the catalogue AND file-copy installs reflect the latest forge-kit.
-# BOTH sources are plain git checkouts of the repo tracking origin/main, so fetch + reset
-# --hard makes either current. The marketplace checkout is NOT auto-pulled by Claude Code
-# between manual `/plugin marketplace update` runs, and it pins no SHA (known_marketplaces.json
-# holds only source + installLocation), so resetting it forward is safe and lands exactly what
-# an update would. Refreshing it here is what stops the library drifting - a stale checkout
-# both mis-catalogues versions AND is missing the scripts/ + docs/ files a governance install
-# copies, which would hard-fail the install.
+# Refresh: both sources are plain checkouts tracking origin/main, so fetch + reset --hard makes
+# either current (rationale: scripts/test-forge-adapt-host.sh).
 if git -C "$FORGE_KIT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "$FORGE_KIT_DIR" fetch --depth 1 origin --quiet 2>/dev/null \
     && git -C "$FORGE_KIT_DIR" reset --hard origin/HEAD --quiet 2>/dev/null \
@@ -119,7 +113,7 @@ if git -C "$FORGE_KIT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
 else
   echo "forge-adapt: library at $FORGE_KIT_DIR is not a git checkout; cannot auto-refresh (catalogue may be behind)."
 fi
-echo "forge-adapt: library at $(git -C "$FORGE_KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?') ($FORGE_KIT_SRC)"
+echo "forge-adapt: library at $(git -C "$FORGE_KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?') ($FORGE_KIT_SRC): $FORGE_KIT_DIR"
 
 # SEPARATE QUESTION, do not conflate: where the library lives says NOTHING about which plugin
 # groups the user enabled. A plugin's hooks/hooks.json is live only when THAT plugin is installed.
@@ -128,17 +122,22 @@ if [ -d ~/.claude/plugins/cache/forge-kit/forge-kit-governance ] \
    || grep -q 'forge-kit-governance@forge-kit' ~/.claude/plugins/installed_plugins.json 2>/dev/null; then
   GOVERNANCE_PLUGIN_ACTIVE=yes
 fi
+echo "governance-plugin-active=$GOVERNANCE_PLUGIN_ACTIVE"
 ```
 
 If `FORGE_KIT_DIR` is still empty, stop and tell the user to clone it manually
 (`git clone https://github.com/agigante80/forge-kit ~/forge-kit`) and re-run.
+
+**Every Bash call is a fresh shell**: nothing S2 set survives. Prefix `FORGE_KIT_DIR=<library>` (the
+path S2 printed) to each later block; one that stops naming `FORGE_KIT_DIR`, or `ls: cannot
+access`, lacks it. Take the governance flag from S2's `governance-plugin-active=` line.
 
 **S3. Catalogue forge-kit** (the menu of what can be recommended). Run the shipped catalogue script
 VERBATIM - do NOT reimplement it inline. It prints every component's type, name, and
 `<name>-version` marker, and it lives in the just-refreshed library, so it is current:
 
 ```bash
-bash "$FORGE_KIT_DIR/scripts/forge-adapt-catalogue.sh" "$FORGE_KIT_DIR"
+bash "${FORGE_KIT_DIR:?}/scripts/forge-adapt-catalogue.sh" "${FORGE_KIT_DIR:?}"
 ```
 
 The script is versioned and tested (`scripts/test-forge-adapt-catalogue.sh`). A hand-rolled
@@ -271,7 +270,7 @@ catalogue, skip that row.
 **Coexistence (apply BEFORE ranking).** For every component you are about to list, run:
 
 ```bash
-"$FORGE_KIT_DIR"/scripts/forge-adapt-neighbour-disposition.sh <name>
+"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-neighbour-disposition.sh <name>
 ```
 
 It returns `recommend`, `caveat` or `suppress` with a reason, judging the pair rather than the
@@ -397,14 +396,14 @@ Rules for this step:
 ### Step 3: Install (register or adapt)
 
 ```bash
-"$FORGE_KIT_DIR"/scripts/forge-adapt-install-plan.sh <file> ${NO_MARKETPLACE:+--no-marketplace}
+"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-install-plan.sh <file> ${NO_MARKETPLACE:+--no-marketplace}
 ```
 
 `register`: tell the user to enable that plugin group, write NO copy, quote its reason.
 `copy`: continue below. Exit 2: STOP and report.
 
 **Subagents / Skills / Commands:**
-1. Read the template (`$FORGE_KIT_DIR/plugins/<group>/agents|commands/<name>.md`, or
+1. Read the template (`<library>/plugins/<group>/agents|commands/<name>.md`, or
    `.../skills/<name>/SKILL.md`).
 2. Rewrite for the project profile - adapt rules:
    - Replace generic stack references with the actual stack
@@ -446,19 +445,19 @@ Rules for this step:
      report it:
 
      ```bash
-     "$FORGE_KIT_DIR"/scripts/forge-adapt-agent-skills.sh --names "$FORGE_KIT_DIR/plugins/<group>/agents/<name>.md"
-     "$FORGE_KIT_DIR"/scripts/forge-adapt-agent-skills.sh --rewrite .claude/agents/<name>.md
+     "${FORGE_KIT_DIR:?}"/scripts/forge-adapt-agent-skills.sh --names "${FORGE_KIT_DIR:?}/plugins/<group>/agents/<name>.md"
+     "${FORGE_KIT_DIR:?}"/scripts/forge-adapt-agent-skills.sh --rewrite .claude/agents/<name>.md
      ```
 6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
 **Hooks** (e.g. `block-dashes`):
 
-**Branch on `$GOVERNANCE_PLUGIN_ACTIVE` (set during Setup S2), NOT on `$FORGE_KIT_SRC`.** Where the
-component library lives says nothing about which plugin groups the user enabled. A plugin's
+**Branch on S2's printed `governance-plugin-active=` line, NOT on where the library came from.** Where
+the component library lives says nothing about which plugin groups the user enabled. A plugin's
 `hooks/hooks.json` is live only when that plugin itself is installed. Conflating the two ships a
 sentinel file and a success message while registering no hook at all.
 
-**If `GOVERNANCE_PLUGIN_ACTIVE = yes`** the hook is ALREADY registered and running: the plugin ships
+**If `governance-plugin-active=yes`** the hook is ALREADY registered and running: the plugin ships
 `hooks/hooks.json`, which Claude Code activates whenever `forge-kit-governance` is enabled, anchored
 to `${CLAUDE_PLUGIN_ROOT}`. Copying the script and editing `settings.json` would install a *second*
 copy that fires alongside it. Do neither. A plugin-registered `block-dashes` stays dormant in every
@@ -484,11 +483,11 @@ fi
 Confirm: `✓ block-dashes (hook) - already active via the plugin; opted this project in`.
 To opt out later, delete `.claude/no-dashes`. Nothing else to undo.
 
-**If `GOVERNANCE_PLUGIN_ACTIVE = no`** nothing is registering the hook, whatever `$FORGE_KIT_SRC` says.
+**If `governance-plugin-active=no`** nothing is registering the hook, wherever the library lives.
 Either tell the user they can `/plugin install forge-kit-governance@forge-kit` to get it managed by
 the plugin, or install it into the project as below. Never do both.
 
-1. Copy the script verbatim from `$FORGE_KIT_DIR/plugins/<group>/hooks/<file>` to
+1. Copy the script verbatim from `<library>/plugins/<group>/hooks/<file>` to
    `.claude/hooks/<file>` (`mkdir -p .claude/hooks`). Hook scripts are stack-agnostic - do not
    rewrite them; keep the `# <name>-version: N` marker line. A copy inside the project root is
    itself the opt-in: no sentinel needed, and the script detects this by its own location.
@@ -587,7 +586,7 @@ forge-adapt drift report - <project>
 ```
 
 Stop after the report; change nothing. For each row run
-`"$FORGE_KIT_DIR"/scripts/forge-adapt-drift-status.sh` and print the word it returns.
+`"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-drift-status.sh` and print the word it returns.
 
 **Then one line ABOVE the table, from `forge-adapt-marketplace-status.sh`** (#172). It is not a
 component row and must never be rendered as one.
@@ -612,7 +611,7 @@ The only full content diff here, and it must NEVER blind-overwrite adaptation. S
      tombstones (a deliberately dropped conditional paragraph; never re-offer the clause).
    - **Behind forge-kit (offer to apply):** structural/behavioural improvements present in the
      catalogue copy but missing locally (new rules, new sections, the version bump).
-   - **Tier:** `"$FORGE_KIT_DIR"/scripts/forge-adapt-tier-diff.sh <installed> <catalogue>`; copy its
+   - **Tier:** `"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-tier-diff.sh <installed> <catalogue>`; copy its
      lines into the report verbatim. Keep the local tier; it never enters the merge.
 3. Print the report - what is adaptation, what is missing, and the proposed merge:
 
@@ -641,9 +640,10 @@ may have edited a same-version copy) - but default to "already current, nothing 
 Skip Steps 1-3. After Setup, surface project-only components that could help the wider kit.
 
 ```bash
-comm -23 <(ls .claude/agents/   2>/dev/null | sort) <(ls "$FORGE_KIT_DIR"/plugins/*/agents/   2>/dev/null | xargs -n1 basename | sort -u)
-comm -23 <(ls .claude/commands/ 2>/dev/null | sort) <(ls "$FORGE_KIT_DIR"/plugins/*/commands/ 2>/dev/null | xargs -n1 basename | sort -u)
-comm -23 <(ls .claude/skills/ 2>/dev/null | grep -v '^forge-adapt$' | sort) <(ls "$FORGE_KIT_DIR"/plugins/*/skills/ 2>/dev/null | xargs -n1 basename | sort -u)
+ls -d "${FORGE_KIT_DIR:?}/plugins" >/dev/null || exit 1
+comm -23 <(ls .claude/agents/   2>/dev/null | sort) <(ls "${FORGE_KIT_DIR:?}"/plugins/*/agents/   2>/dev/null | xargs -n1 basename | sort -u)
+comm -23 <(ls .claude/commands/ 2>/dev/null | sort) <(ls "${FORGE_KIT_DIR:?}"/plugins/*/commands/ 2>/dev/null | xargs -n1 basename | sort -u)
+comm -23 <(ls .claude/skills/ 2>/dev/null | grep -v '^forge-adapt$' | sort) <(ls "${FORGE_KIT_DIR:?}"/plugins/*/skills/ 2>/dev/null | xargs -n1 basename | sort -u)
 ```
 
 **Generalisation filter** - skip candidates that are clearly project-specific: filenames with the
@@ -667,7 +667,8 @@ Never auto-create - always confirm. Print each issue URL.
 Audit `.github/ISSUE_TEMPLATE/*.yml` against the forge-kit reference version.
 
 ```bash
-FORGE_KIT_TEMPLATE_VERSION=$(grep -oP 'template-version: \K\d+' "$FORGE_KIT_DIR/.github/ISSUE_TEMPLATE/feature.yml" | head -1)
+ls "${FORGE_KIT_DIR:?}/.github/ISSUE_TEMPLATE/feature.yml" >/dev/null || exit 1
+FORGE_KIT_TEMPLATE_VERSION=$(grep -oP 'template-version: \K\d+' "${FORGE_KIT_DIR:?}/.github/ISSUE_TEMPLATE/feature.yml" | head -1)
 ```
 
 Show a per-template status table (missing / outdated / incomplete / current), ask which to
@@ -709,14 +710,13 @@ Both are independent - a project can take the guard, the doc, or both.
 **Install: lockstep guard (copied verbatim - host-agnostic, like a hook).**
 
 ```bash
-mkdir -p scripts
-src="$FORGE_KIT_DIR/scripts"
+src="${FORGE_KIT_DIR:?}/scripts"
 # Defence in depth: if S2's refresh failed (offline) the library can still be stale and these
 # files absent. Never cp a missing source (a raw cp error reads as a bug); stop with the fix.
 if [ ! -f "$src/check-template-lockstep.sh" ] || [ ! -f "$src/test-template-lockstep.sh" ]; then
-  if [ "$FORGE_KIT_SRC" = "marketplace" ]; then fix="/plugin marketplace update forge-kit"; else fix="git -C $FORGE_KIT_DIR pull"; fi
-  echo "forge-adapt: guard scripts missing from the library at $FORGE_KIT_DIR (stale). Refresh and retry: $fix"
+  echo "forge-adapt: guard scripts missing from $src; run /plugin marketplace update forge-kit (or git pull in a clone) and retry." >&2; exit 1
 else
+  mkdir -p scripts
   cp "$src/check-template-lockstep.sh" scripts/
   cp "$src/test-template-lockstep.sh"  scripts/
   chmod +x scripts/check-template-lockstep.sh scripts/test-template-lockstep.sh
@@ -753,7 +753,7 @@ Confirm: `✓ template-lockstep guard installed + wired (<host-workflows-dir>)`.
 
 **Install: canonical ticket-standards doc (adapted; report-first if it already exists).**
 
-- **Absent** (`HAS_DOC=no`): read `$FORGE_KIT_DIR/docs/guides/ticket-standards.md` (if that source
+- **Absent** (`HAS_DOC=no`): read `<library>/docs/guides/ticket-standards.md` (if that source
   file is missing, the library is stale - refresh it as in S2 and retry; never fabricate the doc), adapt it to the
   project (reference the project's ACTUAL template set and package names; drop rules for sections the
   project's templates do not carry; honour `adapt-droppable` paragraph markers per the Step 3 rule,
