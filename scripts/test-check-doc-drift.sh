@@ -27,6 +27,17 @@
 # pass); and the anchor check loosened to emptiness alone, which accepts a missing fourth field
 # and is killed only by the L1 missing-anchor negative (4).
 #
+# #332 ADDED TEN MORE for the bare-filename resolution, run by hand on 2026-10-01, each shown to
+# fail this suite: an ambiguous token resolved to its first candidate (10 failures); the bare lookup
+# disabled (16); the scripts/ half dropped (10); the asset half dropped (15); the ambiguity line
+# printed per mention instead of once (1); the ambiguity line made to depend on the range (8); the
+# line's text corrupted (4); its path list cut to the last candidate (2); a bare-name table hit
+# allowed to override a changed root-level path of the same name (1); and the report-only posture
+# changed to exit 1 on a finding (16). Two candidate mutants were EQUIVALENT and the code was
+# simplified instead: the `continue` after the ambiguity line (the empty path is skipped on the
+# next line anyway) and a `/` test on the token (a table key never holds one). A sort of the table
+# was dropped for the same reason: the catalogue's order already puts plugins/ before scripts/.
+#
 # One mutant is deliberately absent. A sha-equality branch for "the same commit addressed it" was
 # written, and no input could reach it: a line whose last commit IS the commit that changed the
 # path carries that commit timestamp, so the age test already decides it. It was removed rather
@@ -166,6 +177,134 @@ run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "a claim naming a component rather than a path is reported" 1 "$(printf '%s' "$OUT" | grep -c .)"
 contains "demo-skill" "$OUT" "and the row names it"
 expect "exit 0" 0 "$RC"
+
+echo "== #332: a bare <name>.sh resolves to a shipped asset or a tracked scripts/ file, and refuses to guess on a collision =="
+# Fixture builders. A group needs its plugin.json and one skill for the catalogue to list its asset.
+bare_group() {  # bare_group <group> <asset-basename>: a group with one skill carrying that asset
+  mkdir -p "$R/plugins/$1/skills/$1-skill/assets" "$R/plugins/$1/.claude-plugin"
+  printf '<!-- %s-skill-version: 1 -->\nbody\n' "$1" > "$R/plugins/$1/skills/$1-skill/SKILL.md"
+  printf '{"name":"%s","version":"0.1.0","description":"d","author":{"name":"a"}}\n' "$1" > "$R/plugins/$1/.claude-plugin/plugin.json"
+  printf '#!/usr/bin/env bash\n# %s-version: 1\n' "${2%.sh}" > "$R/plugins/$1/skills/$1-skill/assets/$2"
+}
+bare_touch() { printf '# changed\n' >> "$1"; }
+rows() { printf '%s' "$OUT" | grep -c .; }
+ZERO="check-doc-drift: 0 suspected stale claim(s) across the documents given."
+
+# Condition A: a shipped asset's bare filename.
+mkrepo bare-asset
+bare_group demo-group demo-asset.sh
+printf '# Doc\n\nThe asset is `demo-asset.sh` here.\n\nThe same by catalogue name: `demo-asset`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/plugins/demo-group/skills/demo-group-skill/assets/demo-asset.sh"
+snap "$T2" "change the asset"; HEADSHA=$(sha HEAD)
+run --range "$BASE..$HEADSHA" --docs README.md
+expect "a bare asset filename and the same asset by catalogue name yield one row each" 2 "$(rows)"
+contains "	3	demo-asset.sh	" "$OUT" "the bare token's row names it and its line"
+contains "	5	demo-asset	" "$OUT" "and the catalogue-name row is unchanged beside it"
+contains "$HEADSHA" "$OUT" "and the commit that changed the asset"
+expect "exit 0" 0 "$RC"
+mkrepo bare-asset-neg
+bare_group demo-group demo-asset.sh
+printf '# Doc\n\nThe asset is `demo-asset.sh` here.\n' > "$R/README.md"; printf 'x\n' > "$R/other.txt"
+snap "$T1" "base"; BASE=$(sha HEAD)
+printf 'y\n' > "$R/other.txt"; snap "$T2" "touch only a file the README does not cite"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a commit that touches only an uncited file reports nothing" "" "$OUT"
+expect "with exactly the zero-claims summary on stderr" "$ZERO" "$ERR"
+expect "and exit 0" 0 "$RC"
+
+# Condition B: a repo-only scripts/ file's bare filename.
+mkrepo bare-script
+printf 'x\n' > "$R/scripts/demo-check.sh"
+printf '# Doc\n\nRun `demo-check.sh` first, and `demo-missing.sh` never.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/scripts/demo-check.sh"; snap "$T2" "change the script"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a bare repo-only script filename yields exactly one row" 1 "$(rows)"
+contains "demo-check.sh" "$OUT" "naming it"
+lacks "demo-missing.sh" "$OUT" "and a bare name matching nothing yields no row"
+lacks "ambiguous" "$ERR" "nor an ambiguity line"
+expect "exit 0" 0 "$RC"
+mkrepo bare-none
+printf 'x\n' > "$R/scripts/demo-check.sh"
+printf '# Doc\n\nRun `demo-missing.sh`, `demo-assetXsh` and `demo-check.shx`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/scripts/demo-check.sh"; snap "$T2" "change the script"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a missing name and two near-miss spellings yield no row" "" "$OUT"
+expect "stderr is exactly the zero-claims summary, with no ambiguity line" "$ZERO" "$ERR"
+expect "exit 0" 0 "$RC"
+
+# Condition C: a collision, asset against scripts/ file, and then two assets in two groups.
+mkrepo bare-dup
+bare_group demo-group demo-dup.sh
+printf 'x\n' > "$R/scripts/demo-dup.sh"
+printf '# Doc\n\nBare: `demo-dup.sh`.\n\nFull: `scripts/demo-dup.sh`.\n\nBare again: `demo-dup.sh`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/plugins/demo-group/skills/demo-group-skill/assets/demo-dup.sh"
+snap "$T2" "change the asset"; DUP_ASSET=$(sha HEAD)
+run --range "$BASE..$DUP_ASSET" --docs README.md
+expect "a bare name matching an asset and a scripts/ file yields no row" "" "$OUT"
+contains "ambiguous bare name 'demo-dup.sh'" "$ERR" "and stderr names the token"
+contains "plugins/demo-group/skills/demo-group-skill/assets/demo-dup.sh" "$ERR" "and the asset path"
+contains "scripts/demo-dup.sh" "$ERR" "and the scripts/ path"
+contains "cite the full path" "$ERR" "and says what to do"
+expect "exit 0, ambiguity never fails" 0 "$RC"
+bare_touch "$R/scripts/demo-dup.sh"; snap "$T2" "change the scripts/ file"; DUP_SCRIPT=$(sha HEAD)
+run --range "$DUP_ASSET..$DUP_SCRIPT" --docs README.md
+expect "the full path in the same document still yields exactly one row" 1 "$(rows)"
+contains "scripts/demo-dup.sh" "$OUT" "naming the full path"
+contains "$DUP_SCRIPT" "$OUT" "and the commit that changed it"
+contains "ambiguous bare name 'demo-dup.sh'" "$ERR" "while the bare token is still refused beside it"
+printf 'z\n' > "$R/other.txt"; snap "$T2" "change neither candidate"
+run --range "$DUP_SCRIPT..$(sha HEAD)" --docs README.md
+expect "ambiguity does not depend on the range: a range changing neither candidate yields no row" "" "$OUT"
+contains "ambiguous bare name 'demo-dup.sh'" "$ERR" "and still prints the ambiguity line"
+expect "once, not once per mention" 1 "$(printf '%s\n' "$ERR" | grep -c 'ambiguous bare name')"
+mkrepo bare-dup-assets
+bare_group group-one demo-twin.sh; bare_group group-two demo-twin.sh
+printf '# Doc\n\nTwice shipped: `demo-twin.sh`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/plugins/group-one/skills/group-one-skill/assets/demo-twin.sh"; snap "$T2" "change one"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "two assets in different groups sharing a basename yield no row" "" "$OUT"
+contains "plugins/group-one/skills/group-one-skill/assets/demo-twin.sh, plugins/group-two/skills/group-two-skill/assets/demo-twin.sh" "$ERR" "and stderr names both paths, in catalogue order"
+expect "exit 0" 0 "$RC"
+
+# A token carrying a path separator takes the existing full-path route and is never checked for ambiguity.
+mkrepo bare-sep
+printf 'x\n' > "$R/scripts/demo-check.sh"
+printf '# Doc\n\nFull: `scripts/demo-check.sh`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/scripts/demo-check.sh"; snap "$T2" "change the script"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a path-separator token yields one row by the full-path route" 1 "$(rows)"
+lacks "ambiguous" "$ERR" "with no ambiguity line"
+
+# A changed file at the repository root that is itself named by the bare token wins over the table.
+mkrepo bare-root
+printf 'x\n' > "$R/demo-root.sh"; printf 'x\n' > "$R/scripts/demo-root.sh"
+printf '# Doc\n\nRoot script: `demo-root.sh`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/demo-root.sh"; snap "$T2" "change the root file"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a token that is itself a changed path keeps resolving to it, ahead of the bare-name table" 1 "$(rows)"
+
+# Condition D: an allow-file mention suppresses a bare-name line, keyed on the RESOLVED path.
+mkrepo bare-allow
+bare_group demo-group demo-asset.sh
+printf '# Doc\n\nIn passing, `demo-asset.sh` is only named here.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/plugins/demo-group/skills/demo-group-skill/assets/demo-asset.sh"; snap "$T2" "change the asset"
+ASSETPATH=plugins/demo-group/skills/demo-group-skill/assets/demo-asset.sh
+printf '# only a mention\nmention README.md %s is only named here\n' "$ASSETPATH" > "$R/.doc-drift-allow"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an entry for the resolved asset path suppresses the bare-name row" "" "$OUT"
+expect "with exactly the zero-claims summary on stderr, no stale line" "$ZERO" "$ERR"
+printf '# wrong path\nmention README.md plugins/demo-group/skills/demo-group-skill/SKILL.md is only named here\n' > "$R/.doc-drift-allow"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an entry naming a different path does not suppress" 1 "$(rows)"
+lacks "ambiguous" "$ERR" "and prints no ambiguity line"
 
 echo "== unresolvable input REFUSES rather than reporting clean =="
 mkrepo refuse
@@ -423,7 +562,7 @@ ranges_expect() {  # ranges_expect <range> <expected-row-count> <claim-anchor-th
                  *) bad "range ${r%%..*} lost the claim '$keep'" ;; esac
   RANGE_TXT="$txt"
 }
-ranges_expect f15dd74e..106a4531 3 'The canonical rules'
+ranges_expect f15dd74e..106a4531 4 'The canonical rules'
 for a in 'canonical ready-ticket rules' 'what is being worked on now'; do
   case "$RANGE_TXT" in *"$a"*) ok "range 1 still reports the claim '$a'" ;; *) bad "range 1 lost the claim '$a'" ;; esac
 done
@@ -431,7 +570,7 @@ for a in 'block-dashes` hook stays dormant' 'the group stays inert' 'you copy th
   case "$RANGE_TXT" in *"$a"*) bad "range 1 still reports the mention anchored by '$a'" ;; *) ok "range 1 no longer reports '$a'" ;; esac
 done
 for r in 106a4531..9416a77b 9416a77b..c15150c4; do
-  ranges_expect "$r" 1 'what is being worked on now'
+  ranges_expect "$r" 2 'what is being worked on now'
   # Only the two roadmap mentions exist in these ranges; the ticket-standards one does not, so
   # asserting its absence here would pass whatever the code did.
   for a in 'block-dashes` hook stays dormant' 'the group stays inert'; do

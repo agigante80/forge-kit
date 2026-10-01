@@ -41,6 +41,18 @@
 # component path is. forge-adapt-catalogue.sh --tsv is the one definition and update-component-index.py
 # already shells out to it for the same reason.
 #
+# A BARE SHELL FILENAME RESOLVES TOO (#332). A backticked `<name>.sh` with no path separator is
+# looked up in exactly two places: the shipped assets the catalogue lists (type `asset`, by path
+# basename) and the tracked `scripts/<name>.sh` at HEAD. The `scripts/` half is a path convention,
+# not a fourth definition of a component. One candidate resolves the token to that path and the
+# ordinary age test runs on it; two or more make the token AMBIGUOUS: no row, one stderr line
+# naming every candidate, exit still 0. Ambiguity is decided from what exists, never from what the
+# range changed, so a document's result does not flip with the range. Zero candidates is ignored.
+# The `scripts/` listing is read from HEAD (`git ls-tree`); the asset half follows the working
+# tree, like the catalogue-name lookup above, so an uncommitted or deleted asset can add or
+# suppress a row as well as change the ambiguity line. A duplicate catalogue NAME still takes the
+# last row silently; that gap predates this and the ambiguity rule does not cover it.
+#
 # Portability: bash 3.2 and BSD userland. No bash-4 expansions, no associative arrays, no
 # `readlink -f`, no `grep -P`, no GNU `timeout`, and no `date -d`, since every time comparison here
 # is on the integer seconds git already reports.
@@ -179,11 +191,18 @@ git log --pretty=format:'C %H %ct' --name-only "$RANGE" 2>/dev/null \
 # --- component names, resolved by the one definition of what a component is --------------------
 : > "$TMP/names"
 CAT="$(dirname "$0")/forge-adapt-catalogue.sh"
+: > "$TMP/bare"
 if [ -f "$CAT" ] && [ -d plugins ]; then
-  bash "$CAT" --tsv . 2>/dev/null \
-    | awk -F'\t' 'NF >= 5 { p = $5; sub(/^\.\//, "", p); printf "%s\t%s\n", $3, p }' \
-    > "$TMP/names" || : > "$TMP/names"
+  bash "$CAT" --tsv . 2>/dev/null > "$TMP/cat.tsv" || : > "$TMP/cat.tsv"
+  awk -F'\t' 'NF >= 5 { p = $5; sub(/^\.\//, "", p); printf "%s\t%s\n", $3, p }' "$TMP/cat.tsv" > "$TMP/names"
+  # Bare-filename candidates (#332): shipped assets by basename ...
+  awk -F'\t' 'NF >= 5 && $2 == "asset" { p = $5; sub(/^\.\//, "", p); b = p; sub(/^.*\//, "", b); printf "%s\t%s\n", b, p }' "$TMP/cat.tsv" > "$TMP/bare"
 fi
+# ... and tracked scripts/<name>.sh at HEAD (direct children only; ls-tree is not recursive).
+# A key never holds a slash, so a path-separator token cannot reach this table. The order of the
+# paths in an ambiguity line is the catalogue's, then scripts/'s.
+git ls-tree --name-only HEAD scripts/ 2>/dev/null \
+  | awk '/^scripts\/[^\/]+\.sh$/ { b = $0; sub(/^scripts\//, "", b); printf "%s\t%s\n", b, $0 }' >> "$TMP/bare"
 
 # --- every document is validated before any row is emitted (#267 F2) ---------------------------
 # rc 2 means "could not run", never "ran partway": validating inside the emit loop below printed
@@ -238,6 +257,7 @@ for doc in $DOCS; do
       FILENAME == ARGV[2] { npath[$1] = $2; next }
       FILENAME == ARGV[3] { bsha[$1] = $2; bct[$1] = $3; next }
       FILENAME == ARGV[4] { sup[$1 SUBSEP $2 SUBSEP $3] = 1; next }
+      FILENAME == ARGV[5] { bn[$1]++; bp[$1] = (bn[$1] == 1 ? $2 : bp[$1] ", " $2); bfirst[$1] = (bn[$1] == 1 ? $2 : bfirst[$1]); next }
       {
         line = FNR
         # A marker region is entered and left by its own comment, and both delimiter lines are
@@ -257,6 +277,17 @@ for doc in $DOCS; do
           path = ""
           if (tok in csha) path = tok
           else if (tok in npath && npath[tok] in csha) path = npath[tok]
+          if (path == "" && tok in bn) {
+            if (bn[tok] == 1) path = bfirst[tok]
+            else {
+              # Ambiguous (#332): never guess. Once per token per document, whatever the range.
+              if (!(tok in warned)) {
+                warned[tok] = 1
+                printf "%s: ambiguous bare name \047%s\047 (matches %s); cite the full path\n", "check-doc-drift", tok, bp[tok] > "/dev/stderr"
+              }
+              # path stays empty, so the line below skips the token
+            }
+          }
           if (path == "") continue
           if (!(line in bsha)) continue
           # No sha comparison. A line whose last commit IS the commit that changed the path
@@ -271,7 +302,7 @@ for doc in $DOCS; do
           printf "%s\t%d\t%s\t%s\n", doc, line, tok, csha[path]
         }
       }
-    ' "$TMP/changed" "$TMP/names" "$TMP/blame" "$TMP/suppress" "$TMP/text"
+    ' "$TMP/changed" "$TMP/names" "$TMP/blame" "$TMP/suppress" "$TMP/bare" "$TMP/text"
   )"
 
   if [ -n "$rows" ]; then

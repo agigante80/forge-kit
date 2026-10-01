@@ -9,6 +9,10 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+### Changed
+
+- **`check-doc-drift.sh` resolves a bare `<name>.sh` citation** (`scripts/check-doc-drift.sh` and `scripts/test-check-doc-drift.sh`, repo-only, no component or plugin change, so no marker or semver bump; the suite goes from 143 to 182 passed, 0 failed). A backticked `<name>.sh` with no path separator was neither a tracked path nor a catalogue name, so a claim citing it was never flagged when that script changed. It now resolves to the one shipped asset (catalogue type `asset`, by basename) or tracked `scripts/<name>.sh` (read from HEAD) it names, and the ordinary line-age test runs on that path, so a `.doc-drift-allow` `mention` is keyed on the resolved path. A name matching two or more candidates is AMBIGUOUS: no row, one stderr line `ambiguous bare name '<name>.sh' (matches <path>, <path>); cite the full path`, once per token per document, decided from what exists and never from the range, exit still 0. No document is rewritten. The three `ranges_expect` README counts rise from 3, 1, 1 to 4, 2, 2 by design: the added row is the README line citing `forge-lib.sh`. The report-only posture is unchanged, and exempting done-phase roadmap history as a class is #340 (#332).
+
 ### Fixed
 
 - `check-ticket-mechanics.sh`'s multi-When check (check 4) named a Negative block Positive in its
