@@ -317,6 +317,27 @@ expect "gap 2: the missing-Then site recognises the bold marker" fail "$(outcome
 # a heuristic miss that INVERTED the verdict, which the header forbids. The detector is separate
 # from the marker regex and runs before the block count; the regexes are unchanged.
 gwt_ev() { printf '%s\n' "$1" | awk -F'\t' '$1=="gwt"{print $3}'; }
+# --- #359: the When-count evidence names a block by its anchored marker, not by a substring. A
+# Negative block whose label CONTAINS the word Positive used to be reported as Positive.
+wc_ev() { gwt_ev "$(run "$(mkbody feature "$1" "$(printf '%s' "$2")")" feature)"; }
+P1='Positive\n- Given: a\n- When: b\n- Then: c'
+N1='Negative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED'
+N2='Negative\n- Given: d\n- When: e\n- When: ee\n- Then: 401 AUTH_FAILED'
+ev="$(wc_ev wc1.md "$(printf "$P1\n\nNegative (the Positive path is blocked)\n- Given: d\n- When: e\n- When: ee\n- Then: 401 AUTH_FAILED")")"
+case "$ev" in *"(Negative: 2 When lines)"*) ok "#359: a plain-parenthetical Negative label naming Positive is reported Negative" ;; *) bad "#359: labelled Negative misnamed: $ev" ;; esac
+ev="$(wc_ev wc2.md "$(printf "$P1\n\n**Negative** guards the Positive path\n- Given: d\n- When: e\n- When: ee\n- Then: 401 AUTH_FAILED")")"
+case "$ev" in *"(Negative: 2 When lines)"*) ok "#359: a bold Negative marker with Positive in the prose is reported Negative" ;; *) bad "#359: bold Negative misnamed: $ev" ;; esac
+ev="$(wc_ev wc3.md "$(printf "Positive\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N1")")"
+case "$ev" in *"(Positive: 2 When lines)"*) ok "#359: an unlabelled two-When Positive is still reported Positive" ;; *) bad "#359: Positive regressed: $ev" ;; esac
+ev="$(wc_ev wc4.md "$(printf "Positive\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N2")")"
+case "$ev" in *"Positive: 2 When lines;Negative: 2 When lines"*) ok "#359: both blocks at two Whens are named in order, joined by ';'" ;; *) bad "#359: two-block evidence wrong: $ev" ;; esac
+ev="$(wc_ev wc5.md "$(printf "Positive (the Negative path is not taken)\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N1")")"
+case "$ev" in *"(Positive: 2 When lines)"*"Negative: "*|*"Negative: "*) bad "#359: a Positive label naming Negative was misnamed: $ev" ;; *"(Positive: 2 When lines)"*) ok "#359: a Positive block whose label names Negative keeps its own name" ;; *) bad "#359: mirror case evidence wrong: $ev" ;; esac
+expect "#359: the one-When mirror (Positive labelled with Negative) passes" pass "$(outcome "$(run "$(mkbody feature wc6.md "$(printf 'Positive (the Negative path is not taken)\n- Given: a\n- When: b\n- Then: c\n\n%b' "$N1")")" feature)" gwt)"
+expect "#359: the one-When Negative labelled with Positive passes" pass "$(outcome "$(run "$(mkbody feature wc7.md "$(printf '%b\n\nNegative (the Positive path is blocked)\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED' "$P1")")" feature)" gwt)"
+ev="$(gwt_ev "$(run "$G2e" feature)")"
+case "$ev" in *"Positive: 2 When lines"*) case "$ev" in *Negative*) bad "#359: G2e evidence names Negative: $ev" ;; *) ok "#359: the G2e fixture reports Positive: 2 When lines only" ;; esac ;; *) bad "#359: G2e evidence wrong: $ev" ;; esac
+
 O1="$(mkbody feature "one1.md" "$(printf -- '**Condition: x**\n- Positive. Given a valid token. When the endpoint is called. Then it returns 200.\n- Negative. Given a bad token. When the endpoint is called. Then 401 AUTH_FAILED.')")"
 o="$(run "$O1" feature)"
 expect "#233: a one-line bullet scenario (dot form) refers, never fails" referred "$(outcome "$o" gwt)"
@@ -412,6 +433,12 @@ grep -q 'cut -c1-1000' "$SCRIPT" && ok "mutant ledger: the script carries the 10
 ev="$(bash "$MUT" --body "$WORK/bare.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="sections"{print $3}')"
 n="$(printf '%s' "$ev" | sed -n 's/^heading absent (\([0-9]*\)):.*/\1/p')"; items="$(printf '%s' "${ev#*: }" | awk -F'; ' '{print NF}')"
 [ "$n" != "$items" ] && ok "mutant: with the old 160-byte cut the count disagrees with the items (the companion can fail)" || bad "mutant: the companion did not notice the cut"
+
+# #359 mutant: restore the substring polarity test on a copy; the labelled-Negative fixture must flip.
+grep -q 'block = (\$0 ~ neg ? "Negative" : "Positive")' "$SCRIPT" && ok "mutant ledger: the script carries the anchored polarity test (#359)" || bad "mutant ledger: #359 expression not found"
+sed 's/(\$0 ~ neg ? "Negative" : "Positive")/(index($0, "Positive") ? "Positive" : "Negative")/' "$SCRIPT" > "$MUT"
+ev="$(bash "$MUT" --body "$WORK/wc1.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="gwt"{print $3}')"
+case "$ev" in *"(Positive: 2 When lines)"*) ok "mutant: the substring test names the labelled Negative Positive (the #359 companion can fail)" ;; *) bad "mutant: substring test not detected: $ev" ;; esac
 
 # The fifth fix (lists via ENVIRON) is invisible to gawk, which accepts a newline in -v; only BWK
 # awk refuses it, and CI has no BWK awk. Running the whole script under a second awk is still the

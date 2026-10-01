@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 10
+# check-ticket-mechanics-version: 11
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -389,10 +389,13 @@ else
     elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
     else
-      multi_when="$(printf '%s\n' "$SCENARIOS" | awk -v any="$MARK_ANY" '
+      # Polarity comes from the anchored MARK_NEG, the same regex the counts and sibling awks use
+      # (#359). A substring test named a Negative block Positive when its label held the word. The
+      # else branch is safe: every line reaching it already matched MARK_ANY, so it is Positive.
+      multi_when="$(printf '%s\n' "$SCENARIOS" | awk -v any="$MARK_ANY" -v neg="$MARK_NEG" '
         $0 ~ any {
           if (block != "" && whens != 1) { print block ": " whens " When lines" }
-          block = (index($0, "Positive") ? "Positive" : "Negative"); whens = 0; next
+          block = ($0 ~ neg ? "Negative" : "Positive"); whens = 0; next
         }
         block != "" && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { whens++ }
         END { if (block != "" && whens != 1) { print block ": " whens " When lines" } }

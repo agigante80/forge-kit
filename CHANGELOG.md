@@ -11,6 +11,12 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- `check-ticket-mechanics.sh`'s multi-When check (check 4) named a Negative block Positive in its
+  evidence whenever the block's label contained the word (`Negative (the Positive path is
+  blocked)`), because it tested polarity with a substring search. It now uses the anchored
+  `MARK_NEG` regex its sibling checks already use, so the evidence names the right block. The
+  suite pins the labelled-Negative, bold-Negative, mirror and both-blocks cases and a mutant that
+  restores the substring test. `check-ticket-mechanics` 10 to 11 (#359).
 - `scripts/test-forge-lib.sh`: the #334 and #319 `dr_mutant` ledger rows now name the mutant form, so
   the n and b rows are distinct. The `dr_mutant` contract comment now states its exit status, and the
   comments no longer carry a guard count. Test-only, suite count unchanged (#358).
