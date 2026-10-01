@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 3
+# gate-status-version: 4
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -13,8 +13,8 @@
 #
 # THE FINGERPRINT is `sha256:<16 hex>` of the body with every `<!-- <name>:start -->` ...
 # `<!-- <name>:end -->` region removed (every prefix, not only the gate's), CR and trailing blanks
-# stripped from every line, and EVERY blank line dropped (#312). So it moves when an AUTHOR section
-# changes and never when any writer's region changes, is placed, or is moved: the stamp's own move
+# stripped from every line, and EVERY blank line dropped (#312). So it moves when an AUTHOR section's
+# non-blank text changes and never when any writer's region changes, is placed, or is moved: the stamp's own move
 # to the top leaves it unchanged, including the blank lines `top` pads in around the region. Until
 # v3 it collapsed runs of blanks to one, which still told "no blank" from "one blank": a body whose
 # version marker sat directly above a heading changed shape when the stamp padded one in, and the
@@ -33,12 +33,29 @@
 # under the same algorithm: one written by a checkout ahead of or behind the default branch, which
 # the workflow runs from, is marked STALE at once.
 #
+# THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp3). Full review: <url>.` The
+# `(fp3)` after the hash names the algorithm that produced it: it is the gate-status version that
+# introduced the current fingerprint(), held in FP_TAG below. WHOEVER CHANGES fingerprint() MUST
+# BUMP FP_TAG in the same commit; the contract test pins one golden hash so a change without the
+# bump fails the suite. A TAGGED stamp whose tag differs from FP_TAG reads `stale round <R>
+# <VERDICT> (fingerprint <old>, now <current>)`, whatever its hash says, because that hash came from
+# an algorithm this script no longer has. An UNTAGGED stamp (written by v1 to v3) behaves exactly
+# as before: its hash is compared, and it is never reported as an algorithm change, so no stamped
+# ticket changes state. A malformed tag (anything but 1 to 16 of [a-z0-9] in parentheses directly
+# after a 16-hex hash) is no stamp: `unrecorded`. The tag follows the hash on purpose: every v1 to
+# v3 reader keys on `^Judged body: sha256:` and ignores the rest of the line, so it still compares
+# the hash, `--unstamp` still removes the line and a re-stamp still replaces it. The one thing an
+# older reader cannot do is name an algorithm change: where the change altered a body's hash it
+# reads plain `stale`, and where it did not it reads by hash alone. The tag is diagnostic only, the
+# remedy for both kinds of stale is the same re-run of `/gate-ticket <N>`. No downgrade path exists.
+#
 # An UNPAIRED marker (a start with no end, or an end with no start) refuses with exit 2, the
 # splice's 103 shape, rather than hashing to the end of the body and calling that an answer.
 #
 # STATES, one line on stdout, exit 0: `ungated`, `unrecorded round <R>` (a verdict with no Judged
 # line: gated before #284, mid-run, or ended early), `current round <R> <VERDICT>`,
-# `stale round <R> <VERDICT>`. Exit 2 with NOTHING on stdout when the body cannot be read, since a
+# `stale round <R> <VERDICT>` (an algorithm change adds ` (fingerprint <old>, now <current>)`).
+# Exit 2 with NOTHING on stdout when the body cannot be read, since a
 # state that cannot be computed must never read as `current`.
 #
 # THE ORDER OF WRITES IS THE CONTRACT. Every gate write is an `issues: edited` event, so the gate
@@ -102,6 +119,9 @@ body_of() {
   printf '%s' "$raw" | jq -r '.body // ""'
 }
 
+# The gate-status version that introduced the current fingerprint() (v3, #312). Bump with it.
+FP_TAG="fp3"
+
 fingerprint() {  # body on stdin
   local h
   h="$(awk '
@@ -156,14 +176,27 @@ fi
 verdict="$(region gate-verdict)" || { echo "gate-status: could not read gate-verdict of issue #$ISSUE" >&2; exit 2; }
 
 state_of() {
-  local round word judged now
+  local round word judged now jline rest tag
   if [ -z "$verdict" ]; then echo ungated; return 0; fi
   round="$(printf '%s\n' "$verdict" | sed -n 's/^### Gate verdict (round \([^)]*\)).*/\1/p' | head -1)"
   word="$(printf '%s\n' "$verdict" | sed -n 's/^\*\*Verdict:\*\* *\([A-Za-z-]*\).*/\1/p' | head -1)"
-  judged="$(printf '%s\n' "$verdict" | sed -n 's/^Judged body: \(sha256:[0-9a-f]*\).*/\1/p' | head -1)"
+  jline="$(printf '%s\n' "$verdict" | sed -n '/^Judged body: sha256:/{p;q;}' | tr -d '\r')"
+  judged="$(printf '%s\n' "$jline" | sed -n 's/^Judged body: \(sha256:[0-9a-f]*\).*/\1/p')"
+  tag=""
+  if [ -n "$judged" ]; then
+    rest="${jline#"Judged body: $judged"}"
+    case "$rest" in
+      " ("*)  # tagged: the tag is untrusted text, matched by one anchored pattern and never evaluated
+        tag="$(printf '%s\n' "$jline" | sed -n 's/^Judged body: sha256:[0-9a-f]\{16\} (\([a-z0-9]\{1,16\}\))\.\( .*\)\{0,1\}$/\1/p')"
+        [ -n "$tag" ] || judged="" ;;
+    esac
+  fi
   [ -n "$round" ] || round=unknown
   [ -n "$word" ] || word=unknown
   if [ -z "$judged" ]; then echo "unrecorded round $round"; return 0; fi
+  if [ -n "$tag" ] && [ "$tag" != "$FP_TAG" ]; then
+    echo "stale round $round $word (fingerprint $tag, now $FP_TAG)"; return 0
+  fi
   now="$(printf '%s\n' "$body" | fingerprint)" || return 2
   if [ "$now" = "$judged" ]; then echo "current round $round $word"; else echo "stale round $round $word"; fi
 }
@@ -196,7 +229,7 @@ case "$MODE" in
     url="$(forge_issue_comments "$ISSUE" 2>/dev/null | jq -r --arg h "## Ticket Readiness Review - #$ISSUE" \
       '[.[]? | select(((.body // "") | split("\n")[0] | rtrimstr("\r")) == $h)] | last | .html_url // empty' 2>/dev/null)"
     write_retry gate-verdict "$clean
-Judged body: $fp. Full review: ${url:-no review comment found}." || {
+Judged body: $fp ($FP_TAG). Full review: ${url:-no review comment found}." || {
       echo "gate-status: could not stamp issue #$ISSUE" >&2; exit 1; }
     exit 0 ;;
 

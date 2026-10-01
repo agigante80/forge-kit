@@ -1,7 +1,7 @@
 name: Gate staleness
 
-# Marks a ticket's body verdict STALE when an author section changes after the gate judged it
-# (#284). Later sessions read the body rather than the comments, so a verdict that no longer
+# Marks a ticket's body verdict STALE when an author section's non-blank text changes after the
+# gate judged it (#284). Later sessions read the body rather than the comments, so a verdict that no longer
 # describes the body is actively believed. This repository's dogfood; installing it into other
 # projects is a forge-adapt follow-up.
 #

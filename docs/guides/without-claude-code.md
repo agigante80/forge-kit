@@ -135,7 +135,11 @@ bash scripts/gate-status.sh 182
 
 It prints `ungated`, `unrecorded round <R>`, `current round <R> <VERDICT>` or
 `stale round <R> <VERDICT>`. The gate records a fingerprint of the body outside every marker
-region when it writes its verdict, so an edit to any author section afterwards reads as `stale`.
+region when it writes its verdict, so an edit to the non-blank text of any author section afterwards
+reads as `stale`. The stamp is `Judged body: sha256:<16 hex> (fp3). Full review: <url>.`; a stamp
+whose `(fpN)` tag names another fingerprint algorithm reads `stale round <R> <VERDICT> (fingerprint
+<old>, now <current>)`, and a stamp without a tag (written by an older copy) is compared by its
+hash alone, as before.
 `--mark-stale` writes that into the verdict's heading, which is what this repository's
 `gate-staleness.yml` workflow runs on every issue edit. The block is a display: the fingerprint is
 a hash of public text, not a signature, so treat the review comment as the record.

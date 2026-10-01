@@ -11,6 +11,21 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **gate-status tags the fingerprint algorithm in the stamp, and two test probes stop counting crashes
+  as kills** (#330, gate-status v4, forge-kit-governance 0.28.0). The stamp is now
+  `Judged body: sha256:<16 hex> (fp3). Full review: <url>.`; the tag follows the hash so every v1 to
+  v3 reader (keyed on `^Judged body: sha256:`) still compares the hash, unstamps and re-stamps the
+  line, and only an older reader cannot name an algorithm change (where it altered a body's hash it
+  reads plain `stale`, otherwise it reads by hash alone). A tagged stamp whose tag differs from
+  `FP_TAG` reads `stale round <R> <VERDICT> (fingerprint <old>, now <current>)`; an untagged stamp
+  behaves exactly as before, so no stamped ticket changes state; a malformed tag (anything but 1 to
+  16 of `[a-z0-9]` in parentheses after a 16-hex hash) reads `unrecorded`. A golden fingerprint pin
+  fails the suite when `fingerprint()` changes without a tag bump. `probe_nobl` and `probe_retry`
+  now count a mutant as dead only on a non-zero exit AND the expected stderr (`author section
+  changed`, `could not move`), each proven by a crash mutant. The header, `without-claude-code.md`
+  and `gate-staleness.yml` now say "non-blank text of an author section". `scripts/test-gate-status.sh`
+  87 to 141 tests; the four touched suites otherwise unchanged (check-ticket-mechanics 139,
+  forge-gate-mechanics 34, count-gate-rounds 69 in the clean worktree).
 - **test-roadmap-lib.sh pins test 8's whole file and runs test 7 under a BSD-style paste shim**
   (#316, test-only, no component or plugin version change). Test 8 now `cmp`s the whole file, so
   `set_prose`'s emit of two blanks before the next heading dies on `FAIL: 8.` directly; test 7 runs
