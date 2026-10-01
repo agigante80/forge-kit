@@ -1,6 +1,8 @@
 # Temporary scratch folder (contents ignored, folder kept)
 temp/*
 !temp/.gitkeep
+# Local TMPDIR for scripts and agents: never write temporary files to /tmp
+/tmp/
 
 # working-overnight runtime artifacts (manifest, queue, decisions, report)
 .claude/overnight/
