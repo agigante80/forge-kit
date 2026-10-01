@@ -148,13 +148,48 @@ done < <(awk '/^baseline_for\(\) \{/,/^\}/' "$CHECK" \
 fi
 
 # --- 9. the index word counts must equal what the budget counts --------------------------------
-# Two different counters (python str.split, wc -w) would silently disagree about whether a
-# component is over budget.
+# Two different counters would silently disagree about whether a component is over budget, so the
+# README's count is compared with the check's OWN counter (count_words, #410), not a bare `wc -w`.
+eval "$(sed -n '/^count_words() {/,/^}/p' "$CHECK")"
 idx=$(grep -oP '^\| `forge-kit-governance` \| agent \| `ticket-gate` \| v\d+ \| \K\d+' "$ROOT/README.md")
-wcw=$(wc -w < "$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md" | tr -d ' ')
-[ -n "$idx" ] && [ "$idx" = "$wcw" ] \
-  && ok "the index word count equals wc -w ($wcw)" \
-  || bad "the index word count equals wc -w (index=$idx wc=$wcw)"
+cw=$(count_words "$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md")
+[ -n "$idx" ] && [ "$idx" = "$cw" ] \
+  && ok "the index word count equals the check's counter ($cw)" \
+  || bad "the index word count equals the check's counter (index=$idx check=$cw)"
+
+# --- #410: the count does not move with the caller's locale -----------------------------------
+# A fixture agent one word over its 2000-word budget must warn under LC_ALL=C and C.UTF-8 alike.
+# The non-ASCII one holds `❌` alone between spaces, the token GNU `wc -w` drops under C; a token
+# glued to a word counts the same in both locales and would prove nothing.
+LOC=$(mktemp -d); mkdir -p "$LOC/scripts" "$LOC/plugins/l/agents"
+cp "$HERE/forge-adapt-catalogue.sh" "$HERE/forge-adapt-agent-skills.sh" "$LOC/scripts/"
+cp "$CHECK" "$LOC/check.sh"
+over_by_one() {  # over_by_one <extra text>: an agent of exactly 2001 words by count_words
+  local f="$LOC/plugins/l/agents/loc-agent.md" n
+  words 0 "$f" loc-agent; printf '%s\n' "$1" >> "$f"
+  n=$(count_words "$f"); yes lorem | head -n $((2001 - n)) | tr '\n' ' ' >> "$f"
+}
+locale_agree() {  # locale_agree <check>: both locales warn on loc-agent with identical output
+  local a b
+  a=$(LC_ALL=C bash "$1" --root "$LOC" 2>&1); b=$(LC_ALL=C.UTF-8 bash "$1" --root "$LOC" 2>&1)
+  [ "$a" = "$b" ] && printf '%s' "$a" | grep -q '^warn .*loc-agent'
+}
+over_by_one 'alpha beta'
+locale_agree "$CHECK" && ok "an ASCII component counts the same under C and C.UTF-8" \
+  || bad "an ASCII component counts the same under C and C.UTF-8"
+over_by_one 'alpha ❌ beta'
+locale_agree "$CHECK" && ok "a lone non-ASCII token counts the same under C and C.UTF-8" \
+  || bad "a lone non-ASCII token counts the same under C and C.UTF-8"
+sed -i 's|words=$(count_words "$path") \|\| exit 2|words=$(wc -w < "$path" \| tr -d " ")|' "$LOC/check.sh"
+if cmp -s "$CHECK" "$LOC/check.sh"; then bad "mutant (bare wc -w restored): nothing to replace"
+elif locale_agree "$LOC/check.sh"; then bad "mutant (bare wc -w restored) survived the non-ASCII fixture"
+else ok "mutant (bare wc -w restored) dies on the non-ASCII fixture"; fi
+printf '\377\376 not utf-8\n' >> "$LOC/plugins/l/agents/loc-agent.md"
+out=$(bash "$CHECK" --root "$LOC" 2>&1); rc=$?
+[ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'cannot count words in .*loc-agent.md' && ! printf '%s' "$out" | grep -q Traceback \
+  && ok "a file that is not UTF-8 exits 2 naming it, no traceback" \
+  || bad "a file that is not UTF-8 exits 2 naming it, no traceback (rc=$rc)"
+rm -rf "$LOC"
 
 # --- #150: an agent is charged for what it PRELOADS, not just its own file --------------------
 # Verified against the installed Claude Code binary (2.1.263): the subagent spawn path renders every

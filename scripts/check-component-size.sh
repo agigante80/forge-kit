@@ -206,6 +206,20 @@ desc_of() {
   ' "$1"
 }
 
+# count_words <file>: THE ONE COUNTING RULE (#410), the index generator's: Python's str.split() over
+# the file read as UTF-8, exactly as update-component-index.py's word_count() counts, so the budget
+# and the README index can never disagree. Not `wc -w`: its count moves with the caller's locale.
+# Under LC_ALL=C, GNU wc drops a token made only of non-ASCII bytes (a lone `❌`), and C is the only
+# locale both Linux and macOS have, so pinning one is no fix (17 plugin files counted lower, adapt
+# 7135 against 7154). A file that is not valid UTF-8 fails naming the file, never a traceback.
+count_words() {
+  python3 -c 'import sys
+try:
+    print(len(open(sys.argv[1], encoding="utf-8").read().split()))
+except (OSError, UnicodeError) as e:
+    sys.exit("check-component-size: cannot count words in %s: %s" % (sys.argv[1], e))' "$1"
+}
+
 budget_for() {
   case "$1" in
     orchestrator) echo 4000 ;;
@@ -388,7 +402,7 @@ while IFS=$'\t' read -r group ctype name version path; do
   budget=$(budget_for "$effective")
   [ "$budget" -gt 0 ] || continue          # skip hooks and shell assets
   [ -f "$path" ] || continue
-  words=$(wc -w < "$path" | tr -d ' ')
+  words=$(count_words "$path") || exit 2
 
   # THE ALWAYS-ON COST. A COMMAND is exempt from the floor rather than forgiven: three of this
   # kit's commands carry no frontmatter at all, by convention (the name comes from the filename),
@@ -435,7 +449,8 @@ while IFS=$'\t' read -r group ctype name version path; do
         cname="${ref##*:}"
         cfile="$(find "$ROOT" -path "*/skills/$cname/SKILL.md" -type f 2>/dev/null | head -1)"
         if [ -n "$cfile" ]; then
-          words=$(( words + $(wc -w < "$cfile" | tr -d ' ') ))
+          cwords=$(count_words "$cfile") || exit 2
+          words=$(( words + cwords ))
           companions="${companions:+$companions, }$cname"
         else
           echo "FAIL  $ctype $name: declares companion skill '$ref', which is not installed."
