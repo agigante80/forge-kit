@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 3
+# check-contributor-docs-version: 4
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -384,6 +384,12 @@ resolve_workspace() {   # <name> <script>
 # why_cd <flag>: what precedes a command whose flag is not 0.
 why_cd() { if [ "$1" = 2 ]; then printf 'an environment assignment precedes it'; else printf 'a directory change precedes it'; fi; }
 
+# trim_punct <word>: the word without its trailing punctuation, in the global TP (#326). It is the
+# one definition of the punctuation class, so a change to the set cannot miss a copy. Like
+# resolve_workspace it is called DIRECTLY, never through $(...), and a caller copies TP out at once.
+TP=""
+trim_punct() { TP=$1; while :; do case "$TP" in *[.,\;:!?]) TP=${TP%?} ;; *) break ;; esac; done; }
+
 # first_file <candidates...>: the first one that is tracked.
 first_file() { local f; for f in "$@"; do tracked "$f" && { printf '%s' "$f"; return 0; }; done; return 1; }
 
@@ -393,7 +399,6 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
   if [ $# -eq 0 ]; then return; fi
   case "$1" in
     run) shift ;;
-    test|start|run-script|t|tst) row referred command "$loc" "$pm $1: runs a lifecycle script; not checked"; return ;;
     -*) # The six workspace spellings, each with `run` straight after the value (#299).
         case "$pm:$1" in
           npm:-w|npm:--workspace|pnpm:--filter|pnpm:-F) [ $# -ge 3 ] && [ "$3" = run ] && { wsv=$2; wsn=3; } ;;
@@ -405,8 +410,14 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
         # pnpm runs a bare word as a script, so `pnpm -r build` may be one; npm never does.
         [ "$pm" = pnpm ] && for w in "$@"; do case "$w" in -*) ;; *) row referred command "$loc" "pnpm $*: may be a script, a built-in or a binary"; return ;; esac; done
         return ;;
-    *) [ "$pm" = pnpm ] || return
-       case "$1" in
+    # Only this arm trims: `case "$1"` stays on the raw word, so `run.` is never trimmed into `run)`
+    # and `npm run. build` cannot become a false pass (#326). The rows print the raw word.
+    *) trim_punct "$1"; w=$TP
+       case "$w" in
+         test|start|run-script|t|tst) row referred command "$loc" "$pm $1: runs a lifecycle script; not checked"; return ;;
+       esac
+       [ "$pm" = pnpm ] || return
+       case "$w" in
          install|i|add|remove|rm|update|up|exec|dlx|create|init|store|audit|outdated|list|ls|why|link|unlink|publish|pack|prune|rebuild|import|fetch|env|setup|config|patch|patch-commit|deploy|licenses|server|root|bin|help|approve-builds|self-update|dedupe) return ;;
        esac
        row referred command "$loc" "pnpm $1: may be a script, a built-in or a binary"; return ;;
@@ -422,7 +433,7 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
   done
   [ -n "$flag" ] && { row referred command "$loc" "$pm run ${name:-...}: $flag may change which script runs"; return; }
   [ -z "$name" ] && return
-  while :; do case "$name" in *[.,\;:!?]) name=${name%?} ;; *) break ;; esac; done
+  trim_punct "$name"; name=$TP
   local re='^[A-Za-z0-9][A-Za-z0-9:_.-]*$'
   [[ $name =~ $re ]] || { row referred command "$loc" "$pm run $name: not a literal script name"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$pm run $name: $(why_cd "$cd")"; return; }
@@ -463,7 +474,7 @@ judge_ws() {
   [ -n "$SC_FLAG" ] && { row referred command "$loc" "$lab: $SC_FLAG may change which script runs"; return; }
   name=$SC_NAME
   [ -z "$name" ] && return
-  while :; do case "$name" in *[.,\;:!?]) name=${name%?} ;; *) break ;; esac; done
+  trim_punct "$name"; name=$TP
   [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: $name is not a literal script name"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }
   resolve_workspace "$ws" "$name"
@@ -491,7 +502,7 @@ judge_yarn_root() {
   [ -n "$SC_FLAG" ] && { row referred command "$loc" "$lab ${SC_NAME:-...}: $SC_FLAG may change which script runs"; return; }
   name=$SC_NAME
   [ -z "$name" ] && return
-  while :; do case "$name" in *[.,\;:!?]) name=${name%?} ;; *) break ;; esac; done
+  trim_punct "$name"; name=$TP
   [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name: not a literal script name"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab $name: $(why_cd "$cd")"; return; }
   tracked package.json || { row referred command "$loc" "$lab $name: no root package.json is tracked"; return; }
@@ -522,16 +533,16 @@ judge_yarn() {   # <loc> <cd> <args...>
       ws=$1; shift
       if [ "$1" = run ]; then shift; [ $# -ge 1 ] || return
       else
-        b1=$1; while :; do case "$b1" in *[.,\;:!?]) b1=${b1%?} ;; *) break ;; esac; done   # `yarn check.` is still the built-in
+        trim_punct "$1"; b1=$TP   # `yarn check.` is still the built-in
         yarn_builtin "$b1"; b=$?
         [ "$b" = 0 ] && return
-        [ "$b" = 1 ] && { row referred command "$loc" "$lab: $1 may be a yarn built-in"; return; }
+        [ "$b" = 1 ] && { row referred command "$loc" "$lab: $b1 may be a yarn built-in"; return; }
       fi
       judge_ws "$loc" "$cd" "$lab" yarn "$ws" "$@"; return ;;
     -*) for w in "$@"; do case "$w" in -*) ;; *) row referred command "$loc" "yarn $*: may be a script, a built-in or a binary"; return ;; esac; done
         return ;;
   esac
-  b1=$1; while :; do case "$b1" in *[.,\;:!?]) b1=${b1%?} ;; *) break ;; esac; done   # trailing punctuation never hides a built-in
+  trim_punct "$1"; b1=$TP   # trailing punctuation never hides a built-in
   yarn_builtin "$b1"; b=$?
   [ "$b" = 0 ] && return
   [ "$b" = 1 ] && { row referred command "$loc" "yarn $1: may be a yarn built-in, which shadows a script of that name under yarn 1"; return; }

@@ -414,7 +414,7 @@ c_y_install() { new; pkg '"install":"x"'; agents '`yarn run install`\n\n`yarn in
     && [ "$(count referred command)" = 0 ]; }
 c_y_classic() { new; pkg '"check":"x","install":"x"'; agents '`yarn run check`\n\n`yarn check`\n\n`yarn check.`\n\n`yarn install.`\n'; run
   rc_is 0 && row pass command "yarn run check: defined" && row referred command "yarn check: may be a yarn built-in" \
-    && row referred command "yarn check.: may be a yarn built-in" && none "yarn install." \
+    && row referred command "yarn check.: may be a yarn built-in" && none "yarn install" \
     && [ "$(count pass command)" = 1 ] && nocmd fail; }
 c_yws() { new; mf packages/web/package.json web '"build":"x"'; agents '`yarn workspace web run build`\n\n`yarn workspace web build`\n'; run
   rc_is 0 && [ "$(count pass command)" = 2 ] && [ "$(grep -c 'defined in packages/web/package.json' <<<"$OUT")" = 2 ]; }
@@ -423,7 +423,7 @@ c_yws_neg() { new; mf packages/web/package.json web '"x":"x"'; agents '`yarn wor
 c_yws_builtin() { new; mf packages/web/package.json web '"add":"x","check":"x"'
   agents '`yarn workspace web add lodash`\n\n`yarn workspace web check`\n\n`yarn workspace web check.`\n\n`yarn workspace web add.`\n'; run
   rc_is 0 && none "workspace web add" && row referred command "check may be a yarn built-in" \
-    && row referred command "check. may be a yarn built-in" && none "add." && nocmd pass; }
+    && row referred command "web check.: check may be a yarn built-in" && none "check. may" && none "add." && nocmd pass; }
 c_scoped() { new; mf packages/api/package.json @acme/api '"test":"x"'; agents '`yarn workspace @acme/api run test`\n'; run
   rc_is 0 && row pass command "test is defined in packages/api/package.json"; }
 c_scoped_neg() { new; mf packages/api/package.json @acme/apis '"test":"x"'; agents '`yarn workspace @acme/api run test`\n'; run
@@ -460,6 +460,25 @@ c_dupe() { new; mf a/package.json web '"build":"x"'; mf b/package.json web '"x":
 c_ws_notrim() { new; mf packages/web/package.json web '"build":"x"'
   agents '`npm -w web. run build`\n\n`yarn workspace web, run build`\n'; run
   rc_is 0 && nocmd pass && nocmd fail && [ "$(count referred command)" = 2 ]; }
+# #326: judge_pm trims only in its `*)` arm; the dispatch word is raw, so a mistyped `run` stays unknown.
+c_pm_trim_lifecycle() { new; pkg '"x":"x"'; agents '`npm test.`\n'; run
+  rc_is 0 && row referred command "npm test.: runs a lifecycle script" && [ "$(count referred command)" = 1 ]; }
+c_pm_trim_pnpm_builtin() { new; pkg '"x":"x"'; agents '`pnpm install.`\n'; run
+  rc_is 0 && none "pnpm install" && nocmd referred; }
+c_pm_trim_edges() { new; pkg '"x":"x"'; agents '`npm test.,`\n\n`npm .`\n\n`pnpm .`\n'; run
+  rc_is 0 && row referred command "npm test.,: runs a lifecycle script" && row referred command "pnpm .: may be a script, a built-in or a binary" \
+    && [ "$(count referred command)" = 2 ] && nocmd pass && nocmd fail; }
+c_pm_run_untrimmed() { new; pkg '"build":"x"'; agents '`npm run. build`\n\n`pnpm run. build`\n'; run
+  rc_is 0 && nocmd pass && nocmd fail; }
+# One case per trim site, so removing exactly one trim kills exactly one case (#317 item 3).
+c_pm_trim_site() { new; pkg '"build":"x"'; agents '`npm run build.`\n'; run
+  rc_is 0 && row pass command "npm run build: defined in package.json"; }
+c_ws_trim_site() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run build.`\n'; run
+  rc_is 0 && row pass command "npm -w web run build.: build is defined in packages/web/package.json"; }
+c_yroot_trim_site() { new; pkg '"build":"x"'; agents '`yarn run build.`\n'; run
+  rc_is 0 && row pass command "yarn run build: defined in package.json"; }
+# The punctuation class is spelled once in the code (comments stripped), as the trim_punct body.
+c_trim_once() { [ "$(grep -v '^[[:space:]]*#' "$S" | grep -oF '*[.,\;:!?])' | wc -l | tr -d ' ')" = 1 ]; }
 # Index, never the working tree: the blob and the file on disk disagree, in both directions.
 c_idx_ws_fail() { new; mf packages/web/package.json web '"x":"x"'; put packages/web/package.json '{"name":"web","scripts":{"deploy":"x"}}\n'
   agents '`npm -w web run deploy`\n'; run
@@ -550,6 +569,14 @@ case_ c_dot_regex "a workspace name is equality, not a pattern"
 case_ c_ghost "a name matching no manifest is referred"
 case_ c_dupe "a name matching two manifests is referred"
 case_ c_ws_notrim "a workspace name is never punctuation-trimmed"
+case_ c_pm_trim_lifecycle "npm test. gets the lifecycle row, printed with the raw word"
+case_ c_pm_trim_pnpm_builtin "pnpm install. is silent like pnpm install"
+case_ c_pm_trim_edges "several marks trim, and a punctuation-only word never loops or prints a malformed row"
+case_ c_pm_run_untrimmed "a mistyped run is never trimmed into a pass or a fail"
+case_ c_pm_trim_site "npm run build. trims its script name (judge_pm)"
+case_ c_ws_trim_site "npm -w web run build. trims its script name (judge_ws)"
+case_ c_yroot_trim_site "yarn run build. trims its script name (judge_yarn_root)"
+case_ c_trim_once "the trailing-punctuation class is defined once"
 case_ c_idx_ws_fail "the index lacks the script, the disk has it: fail"
 case_ c_idx_ws_pass "the index has the script, the disk lacks it: pass"
 case_ c_idx_ws_name "the index name decides, not the disk name"
@@ -678,6 +705,31 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
     code(line, 1); next'
   mutant "an escaping link read from disk" c_escape 'row fail link "$loc" "$a: escapes the repository"' 'row fail link "$loc" "$a: escapes the repository"; cat "${dir:-.}/$a" >/dev/null 2>&1'
   mutant "an assignment prefix skipped silently" c_env_prefix '+ 2 * (env || carry)' '+ 0 * (env || carry)'
+  # #326. Each names the case written to kill it.
+  mutant "trim_punct trims nothing" c_pm_trim_site 'trim_punct() { TP=$1; ' 'trim_punct() { TP=$1; return; '
+  mutant "trim_punct trims once" c_pm_trim_edges 'TP=${TP%?} ;; *) break' 'TP=${TP%?}; break ;; *) break'
+  mutant "judge_pm trim removed" c_pm_trim_site '  trim_punct "$name"; name=$TP
+  local re=' '  local re='
+  mutant "judge_ws trim removed" c_ws_trim_site '  trim_punct "$name"; name=$TP
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: ' '  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: '
+  mutant "judge_yarn_root trim removed" c_yroot_trim_site '  trim_punct "$name"; name=$TP
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name' '  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name'
+  mutant "lifecycle word left raw" c_pm_trim_lifecycle 'trim_punct "$1"; w=$TP' 'w=$1'
+  mutant "pnpm silent list matched on the raw word" c_pm_trim_pnpm_builtin '       case "$w" in
+         install|i|add' '       case "$1" in
+         install|i|add'
+  mutant "pnpm first-word row prints the trimmed word" c_pm_trim_edges 'row referred command "$loc" "pnpm $1: may be a script, a built-in or a binary"; return ;;
+  esac' 'row referred command "$loc" "pnpm $w: may be a script, a built-in or a binary"; return ;;
+  esac'
+  mutant "dispatch subject trimmed" c_pm_run_untrimmed '  if [ $# -eq 0 ]; then return; fi
+  case "$1" in
+    run) shift ;;' '  if [ $# -eq 0 ]; then return; fi
+  trim_punct "$1"
+  case "$TP" in
+    run) shift ;;'
+  mutant "workspace built-in message prints the raw word" c_yws_builtin '"$lab: $b1 may be a yarn built-in"' '"$lab: $1 may be a yarn built-in"'
+  mutant "a second inline copy of the trim loop" c_trim_once 'first_file() {' 'X=; while :; do case "$X" in *[.,\;:!?]) X=${X%?} ;; *) break ;; esac; done
+first_file() {'
   # #296. Each pair names the case written to kill it.
   mutant "export carry removed" c_export_carry '{ if (infence) fenv = 1; else penv = 1 }' '{ }'
   mutant "export carry widened to every variable" c_export_other_neg 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /=/'
