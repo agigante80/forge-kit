@@ -1058,6 +1058,35 @@ expect "#273: a missing example fails loudly" "documented gate-written scenario 
 [ "$rc" -ne 0 ] && ok "#273: and returns non-zero" || bad "#273: a missing example returned 0"
 grep -q 'Apply the rule-1 quality bar.*`\*\*Positive:\*\* <title>`' "$GATE_MD" \
   && ok "#273: the Step 0c-iii scenarios row states the label form beside its rule-1 anchor" || bad "#273: the scenarios row lacks the label form"
+# #349: the critic's own advice names a label check 4 reads. Step 3B element 3 gives the shape the
+# critic writes; #341's critic invented `Control (...)`, which check 4 does not read, and #292's
+# writer used `_(...)_`. The checker is unchanged: the guidance moved to it.
+B="$(mkbody feature "g349-a.md" "$(blk '**Positive:** valid user' '**Negative:** bad password')")"
+expect "#349: the label shape Step 3B names passes check 4" "$(printf 'pass\t1 positive and 1 negative blocks, each Then specific')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g349-b.md" "$(blk 'Control (valid user)' '**Negative:** bad password')")"
+expect "#349: Control is not a label (the #341 advice)" "$(printf 'fail\tneeds at least one Positive and one Negative block (found 0 positive, 1 negative)')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g349-c.md" "$(blk 'Positive' 'Negative _(gate-written, round 1: bad password)_')")"
+expect "#349: the #292 underscore-italic annotation is not a marker" "$(printf 'fail\tneeds at least one Positive and one Negative block (found 1 positive, 0 negative)')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g349-d.md" "$(blk '**Positive:** valid user (gate-written, round 1)' '**Negative:** bad password (gate-written, round 1)')")"
+expect "#349: the Step 6 item 2 gate-written shape passes" pass "$(outcome "$(run "$B" feature)" gwt)"
+# Extract and run: the first backticked span holding **Positive:** in Step 3B element 3.
+cr_example() {
+  local ex n
+  ex="$(awk '/^3\. \*\*GWT review or additions\*\*/ { on = 1 } on && /^4\. / { exit } on { printf "%s ", $0 }' "$1" \
+    | grep -o '`[^`]*\*\*Positive:\*\*[^`]*`')"
+  n="$(printf '%s' "$ex" | grep -c .)"
+  [ "$n" = 1 ] || { echo "documented critic scenario label not found exactly once (found $n)" >&2; return 1; }
+  printf '%s\n' "$ex" | tr -d '`'
+}
+ex="$(cr_example "$GATE_MD")"
+case "$ex" in "**Positive:** <title>") ok "#349: the Step 3B element 3 example is extracted whole" ;; *) bad "#349: unexpected Step 3B example: '$ex'" ;; esac
+B="$(mkbody feature "g349-e.md" "$(blk "$(printf '%s' "$ex" | sed 's/<title>/valid user/')" '**Negative:** bad password')")"
+case "$(gwt_row "$(run "$B" feature)")" in pass*) ok "#349: the documented critic label passes check 4" ;; *) bad "#349: the documented critic label fails check 4: $(gwt_row "$(run "$B" feature)")" ;; esac
+sed 's/`\*\*Positive:\*\* <title>` or `\*\*Negative:\*\* <title>`\./`Control (valid user)`./' "$GATE_MD" > "$WORK/gate-cr-control.md"
+cmp -s "$GATE_MD" "$WORK/gate-cr-control.md" && bad "#349: the Control copy did not apply"
+msg="$(cr_example "$WORK/gate-cr-control.md" 2>&1 >/dev/null)"; rc=$?
+expect "#349: a Step 3B example swapped to Control is not found, loudly" "documented critic scenario label not found exactly once (found 0)" "$msg"
+[ "$rc" -ne 0 ] && ok "#349: and returns non-zero" || bad "#349: a Control example returned 0"
 
 echo "== no awk -v in the shipped asset, and a backslash label resolves (#259) =="
 # Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
