@@ -152,13 +152,30 @@ printf 'the log said %s/alice/secret/build.log\n' /home > docs-leak.md
 git add -A >/dev/null; git commit --quiet -m "a leak, no marker bump needed"
 # Base ref still deleted from the case above, so the range guards cannot run at all.
 out=$(run_hook leakcheck); rc=$?
-[ "$rc" -ne 0 ] && ok "a leak blocks the push even with no base ref" \
+# Exactly 1: the leak block exits 1, and so does the leak_errors branch, so -ne 0 proved little.
+[ "$rc" -eq 1 ] && ok "a leak blocks the push even with no base ref" \
   || bad "a leak blocks the push even with no base ref (rc=$rc)"
 printf '%s' "$out" | grep -q 'home-path' \
   && ok "and the finding itself is shown" || bad "and the finding itself is shown"
-printf '%s' "$out" | grep -qi 'NOT one of the CI checks' \
-  && ok "the message does not claim CI will catch it" \
-  || bad "the message does not claim CI will catch it"
+# Wording assertions use STDOUT only (the leak block echoes there). The old phrases survive only
+# as absence patterns (#313).
+so="$(run_hook_stdout leakcheck)"
+printf '%s' "$so" | grep -qi 'NOT one of the CI checks' \
+  && bad "the message no longer says the leak guard is not a CI check" \
+  || ok "the message no longer says the leak guard is not a CI check"
+printf '%s' "$so" | grep -q 'nothing server-side will catch it for you' \
+  && bad "the message no longer says nothing server-side catches it" \
+  || ok "the message no longer says nothing server-side catches it"
+for frag in 'CI also runs' 'pushes to main and develop' 'triggers no CI scan' 'runs only on this machine' '--no-verify publishes it'; do
+  printf '%s' "$so" | grep -q -e "$frag" \
+    && ok "leak message states: $frag" || bad "leak message states: $frag"
+done
+printf '%s' "$so" | grep 'private-name' | grep -q 'runs only on this machine' \
+  && ok "the private-name line says it runs only on this machine" \
+  || bad "the private-name line says it runs only on this machine"
+printf '%s' "$so" | grep 'private-name' | grep -q 'CI also runs' \
+  && bad "the private-name line does not claim CI runs it" \
+  || ok "the private-name line does not claim CI runs it"
 printf '%s' "$out" | grep -q 'range check(s) failed' \
   && bad "a leak is not reported as a range-check failure" \
   || ok "a leak is not reported as a range-check failure"
@@ -171,6 +188,10 @@ out=$(run_hook leakcheck); rc=$?
 printf '%s' "$out" | grep -qi 'could not RUN' \
   && ok "and says it could not run, not that it found something" \
   || bad "and says it could not run, not that it found something"
+# Structural regression guard (the leak_errors exit comes first), not coverage of the new wording.
+printf '%s' "$out" | grep -q -e 'CI also runs' -e 'runs only on this machine' \
+  && bad "a could-not-run result carries none of the finding wording" \
+  || ok "a could-not-run result carries none of the finding wording"
 rm -f .leak-guard-allow docs-leak.md; git add -A >/dev/null; git commit --quiet -m cleanup
 
 # --- the roadmap guard's OFFLINE half ----------------------------------------------------------

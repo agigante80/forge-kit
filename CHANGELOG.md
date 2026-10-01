@@ -11,6 +11,13 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- The pre-push hook's leak message no longer says "NOT one of the CI checks; nothing server-side will
+  catch it for you", which was false for the public scan: CI runs `check-public-leaks.sh --all`. The
+  counter is shared by both scanners, so the message is now conditional: the private-name scan runs
+  only on this machine, the public scan is also run by CI on pull requests and pushes to main and
+  develop but only after publication, and a push to another branch triggers no CI scan. The test
+  asserts the wording on stdout, pins exit code 1, and keeps the old phrases as absence patterns
+  (#313).
 - `reference_test.py` in the tier-probe fixture now waits for the server child with
   `proc.wait(timeout=1)` instead of a single `proc.poll()`. A listener appearing after the port
   probe (a concurrent run) could answer the test while this run's child had already lost the bind,
