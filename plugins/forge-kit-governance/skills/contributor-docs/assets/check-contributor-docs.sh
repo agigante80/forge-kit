@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 11
+# check-contributor-docs-version: 12
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -30,9 +30,8 @@
 #              root package.json, no cd or pushd earlier in the same scope), plus six workspace
 #              spellings resolved against the ONE tracked manifest of that name (#299): npm -w,
 #              --workspace and --workspace=, pnpm --filter, -F and --filter=, each followed by
-#              `run X` (the workspace `run-script` spelling is a known gap, #363). Yarn never
-#              fails, because yarn falls through to a binary: a defined root script is a pass,
-#              anything else referred.
+#              `run X` or `run-script X` (#363). Yarn never fails, because yarn falls through to a
+#              binary: a defined root script is a pass, anything else referred.
 #              Everything else is referred or silent. make and just are read as TEXT and never
 #              invoked: make runs recipes while remaking makefiles. npm run X is also referred when a
 #              tracked root .npmrc sets workspace or workspaces (#339), or is a symlink.
@@ -505,20 +504,24 @@ npmrc_scan() {
   [ "$NPMRC_KEY" = none ] && NPMRC_KEY=""
 }
 
+# is_run <word>: is it the run verb or its alias run-script (#363). Exact words only, so run-scripts
+# and the aliases rum and urn stay unjudged. Used by the workspace arms and the flag-between loop.
+is_run() { [ "$1" = run ] || [ "$1" = run-script ]; }
+
 judge_pm() {   # <loc> <cd> <pm> <args...>
   local loc=$1 cd=$2 pm=$3 w name="" flag="" extra wsv="" wsn=0 v=run
   shift 3
   if [ $# -eq 0 ]; then return; fi
   case "$1" in
     run|run-script) v=$1; shift ;;   # the doc's own verb is printed in every row (#353)
-    -*) # The six workspace spellings, each with `run` straight after the value (#299).
+    -*) # The six workspace spellings, each with `run` or `run-script` straight after the value (#299, #363).
         case "$pm:$1" in
-          npm:-w|npm:--workspace|pnpm:--filter|pnpm:-F) [ $# -ge 3 ] && [ "$3" = run ] && { wsv=$2; wsn=3; } ;;
-          npm:--workspace=*) [ $# -ge 2 ] && [ "$2" = run ] && { wsv=${1#--workspace=}; wsn=2; } ;;
-          pnpm:--filter=*) [ $# -ge 2 ] && [ "$2" = run ] && { wsv=${1#--filter=}; wsn=2; } ;;
+          npm:-w|npm:--workspace|pnpm:--filter|pnpm:-F) [ $# -ge 3 ] && is_run "$3" && { wsv=$2; wsn=3; } ;;
+          npm:--workspace=*) [ $# -ge 2 ] && is_run "$2" && { wsv=${1#--workspace=}; wsn=2; } ;;
+          pnpm:--filter=*) [ $# -ge 2 ] && is_run "$2" && { wsv=${1#--filter=}; wsn=2; } ;;
         esac
         if [ "$wsn" != 0 ]; then judge_ws "$loc" "$cd" "$pm $*" "$pm" "$wsv" "${@:$((wsn + 1))}"; return; fi
-        for w in "$@"; do [ "$w" = run ] && { row referred command "$loc" "$pm $*: a flag between $pm and run may change which script runs"; return; }; done
+        for w in "$@"; do is_run "$w" && { row referred command "$loc" "$pm $*: a flag between $pm and $w may change which script runs"; return; }; done
         # pnpm runs a bare word as a script, so `pnpm -r build` may be one; npm never does.
         [ "$pm" = pnpm ] && for w in "$@"; do case "$w" in -*) ;; *) row referred command "$loc" "pnpm $*: may be a script, a built-in or a binary"; return ;; esac; done
         return ;;

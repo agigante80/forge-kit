@@ -889,11 +889,35 @@ c_pm_run_script_undefined() { new; pkg '"x":"x"'; agents '`npm run-script build`
     && none "runs a lifecycle script"; }
 c_pm_run_script_dispatch_raw() { new; pkg '"x":"x"'; agents '`npm run-script. x`\n\n`npm run-script`\n'; run
   rc_is 0 && nocmd pass && nocmd fail && nocmd referred; }
-# KNOWN GAP, tracked by #363: the workspace spelling of run-script is not judged. npm gives no row;
-# pnpm keeps its "may be a script" row. Widening it is a deliberate change that replaces this case.
-c_pm_run_script_ws_silent() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run-script nope`\n\n`pnpm -F web run-script nope`\n'; run
-  rc_is 0 && nocmd pass && nocmd fail && row referred command "pnpm -F web run-script nope: may be a script, a built-in or a binary" \
+# #363: the workspace spelling of run-script is judged like the workspace run, in all six forms.
+# The three rows below pin the pnpm and npm arms separately, so each arm has a case of its own (the four-flag arm fails both the npm and the pnpm case).
+c_pm_run_script_ws_npm() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run-script nope`\n\n`npm --workspace web run-script nope`\n\n`npm --workspace=web run-script nope`\n\n`npm -w web run-script build`\n'; run
+  rc_is 1 && row fail command "npm -w web run-script nope: nope is not a script of web (packages/web/package.json)" \
+    && row fail command "npm --workspace web run-script nope: nope is not a script of web" \
+    && row fail command "npm --workspace=web run-script nope: nope is not a script of web" \
+    && row pass command "npm -w web run-script build: build is defined in packages/web/package.json" && [ "$(count fail command)" = 3 ]; }
+c_pm_run_script_ws_pnpm() { new; mf packages/web/package.json web '"build":"x"'; agents '`pnpm -F web run-script nope`\n\n`pnpm --filter web run-script nope`\n\n`pnpm --filter=web run-script nope`\n\n`pnpm -F web run-script build`\n'; run
+  rc_is 1 && row fail command "pnpm -F web run-script nope: nope is not a script of web" \
+    && row fail command "pnpm --filter web run-script nope: nope is not a script of web" \
+    && row fail command "pnpm --filter=web run-script nope: nope is not a script of web" \
+    && row pass command "pnpm -F web run-script build: build is defined in packages/web/package.json" && [ "$(count fail command)" = 3 ]; }
+c_pm_run_script_ws_near() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run-scripts nope`\n\n`pnpm -F web run-scripts nope`\n\n`npm -w web rum nope`\n'; run
+  rc_is 0 && nocmd pass && nocmd fail && row referred command "pnpm -F web run-scripts nope: may be a script, a built-in or a binary" \
     && [ "$(count referred command)" = 1 ]; }
+c_pm_run_script_ws_guards() { new; mf packages/web/package.json 'web*' '"build":"x"'; agents '`npm -w web* run-script nope`\n\n`pnpm --filter web* run-script nope`\n\n```\ncd packages && npm -w web run-script nope\n```\n'; run
+  rc_is 0 && nocmd pass && nocmd fail && [ "$(count referred command)" = 3 ] \
+    && row referred command "npm -w web* run-script nope: not a literal package name" \
+    && row referred command "pnpm --filter web* run-script nope: not a literal package name" \
+    && row referred command "npm -w web run-script nope: a directory change precedes it"; }
+c_pm_run_script_ws_noname() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run-script`\n\n`pnpm -F web run-script`\n\n`yarn workspace web run-script nope`\n'; run
+  rc_is 0 && nocmd pass && nocmd fail && none "npm -w web run-script" && none "pnpm -F web run-script"; }
+c_run_script_flag_between() { new; pkg '"x":"x"'; agents '`pnpm -r run-script build`\n\n`npm -s run-script x`\n\n`npm -w web --silent run-script nope`\n'; run
+  rc_is 0 && nocmd fail && row referred command "pnpm -r run-script build: a flag between pnpm and run-script may change which script runs" \
+    && row referred command "npm -s run-script x: a flag between npm and run-script may change which script runs" \
+    && row referred command "npm -w web --silent run-script nope: a flag between npm and run-script may change which script runs"; }
+c_run_flag_between_unchanged() { new; pkg '"x":"x"'; agents '`pnpm -r run build`\n\n`npm -s run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "pnpm -r run build: a flag between pnpm and run may change which script runs" \
+    && row referred command "npm -s run x: a flag between npm and run may change which script runs"; }
 c_pm_run_script_flag() { new; pkg '"x":"x"'; agents '`npm run-script --foo x`\n'; run
   rc_is 0 && row referred command "npm run-script ...: --foo may change which script runs" && none "npm run ..."; }
 c_pm_run_script_cd() { new; pkg '"x":"x"'; agents '```\ncd client\nnpm run-script x\n```\n'; run
@@ -1016,7 +1040,13 @@ case_ c_yroot_empty_name_raw "a punctuation-only yarn script name keeps its raw 
 case_ c_pm_run_script_defined "run-script is judged like run: a defined script passes, with the doc's verb"
 case_ c_pm_run_script_undefined "run-script is judged like run: an undefined script fails, with the doc's verb"
 case_ c_pm_run_script_dispatch_raw "run-script. and a bare run-script are never judged"
-case_ c_pm_run_script_ws_silent "pinned gap (#363): the workspace run-script spelling is not judged"
+case_ c_pm_run_script_ws_npm "the npm workspace spellings judge run-script like run (#363)"
+case_ c_pm_run_script_ws_pnpm "the pnpm workspace spellings judge run-script like run (#363)"
+case_ c_pm_run_script_ws_near "run-scripts is not widened in the workspace forms"
+case_ c_pm_run_script_ws_guards "a non-literal selector and a preceding cd still refer for run-script"
+case_ c_pm_run_script_ws_noname "a workspace run-script with no name is silent, and yarn workspace stays unjudged"
+case_ c_run_script_flag_between "a flag before run-script refers, printing run-script"
+case_ c_run_flag_between_unchanged "a flag before run still refers, printing run"
 case_ c_pm_run_script_flag "the flag row keeps the run-script verb"
 case_ c_pm_run_script_cd "the cd row keeps the run-script verb"
 case_ c_pm_run_script_not_literal "the not-literal row keeps the run-script verb"
@@ -1268,7 +1298,15 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   mutant "run-script dispatch matched on the trimmed word" c_pm_run_script_dispatch_raw '  case "$1" in
     run|run-script) v=$1; shift ;;' '  trim_punct "$1"; case "$TP" in
     run|run-script) v=$1; shift ;;'
-  mutant "npm workspace run-script widened" c_pm_run_script_ws_silent '[ $# -ge 3 ] && [ "$3" = run ] && { wsv=$2; wsn=3; }' '[ $# -ge 3 ] && { [ "$3" = run ] || [ "$3" = run-script ]; } && { wsv=$2; wsn=3; }'
+  # #363: each workspace arm and the flag loop reverted on its own (arm-prefixed anchors occur once).
+  mutant "four-flag workspace arm reverted to run only" c_pm_run_script_ws_npm '--filter|pnpm:-F) [ $# -ge 3 ] && is_run "$3"' '--filter|pnpm:-F) [ $# -ge 3 ] && [ "$3" = run ]'
+  mutant "npm --workspace= arm reverted to run only" c_pm_run_script_ws_npm 'npm:--workspace=*) [ $# -ge 2 ] && is_run "$2"' 'npm:--workspace=*) [ $# -ge 2 ] && [ "$2" = run ]'
+  mutant "pnpm --filter= arm reverted to run only" c_pm_run_script_ws_pnpm 'pnpm:--filter=*) [ $# -ge 2 ] && is_run "$2"' 'pnpm:--filter=*) [ $# -ge 2 ] && [ "$2" = run ]'
+  mutant "workspace is_run accepts run-scripts" c_pm_run_script_ws_near 'is_run() { [ "$1" = run ] || [ "$1" = run-script ]; }' 'is_run() { [ "$1" = run ] || case "$1" in run-script*) true ;; *) false ;; esac; }'
+  mutant "workspace label rewritten to run" c_pm_run_script_ws_npm 'judge_ws "$loc" "$cd" "$pm $*" "$pm"' 'judge_ws "$loc" "$cd" "$pm run" "$pm"'
+  mutant "flag loop reverted to run only" c_run_script_flag_between 'for w in "$@"; do is_run "$w" &&' 'for w in "$@"; do [ "$w" = run ] &&'
+  mutant "flag loop prints a fixed run" c_run_script_flag_between 'a flag between $pm and $w may' 'a flag between $pm and run may'
+  mutant "flag loop prints a fixed run-script" c_run_flag_between_unchanged 'a flag between $pm and $w may' 'a flag between $pm and run-script may'
   mutant "flag row prints run" c_pm_run_script_flag '"$pm $v ${name:-...}: $flag may change' '"$pm run ${name:-...}: $flag may change'
   mutant "not-literal row prints run" c_pm_run_script_not_literal '"$pm $v $name: not a literal script name' '"$pm run $name: not a literal script name'
   mutant "cd row prints run" c_pm_run_script_cd '"$pm $v $name: $(why_cd' '"$pm run $name: $(why_cd'
