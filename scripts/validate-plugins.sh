@@ -16,7 +16,7 @@
 set -uo pipefail
 # Resolved before the cd: $0 may be relative. Sourced for component_frontmatter_field (check 5).
 . "$(CDPATH= cd -- "$(dirname "$0")" && pwd)/guard-lib.sh"
-cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+CDPATH= cd -- "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
 err=0
 fail() { echo "  ✗ $1" >&2; err=1; }

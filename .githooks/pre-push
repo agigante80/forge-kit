@@ -30,7 +30,7 @@ ROOT="$(git rev-parse --show-toplevel)"
 # only makes a hand run from a subdirectory behave the same (#396). It fails closed: from `.git`
 # `rev-parse --show-toplevel` fails, ROOT is empty, and a bare `cd "$ROOT"` would return 0 without
 # moving and leave the guard silently skipped.
-[ -n "$ROOT" ] && cd -- "$ROOT" || { echo "forge-kit: could not change to the work-tree root; the leak guard could not RUN"; exit 1; }
+[ -n "$ROOT" ] && CDPATH= cd -- "$ROOT" || { echo "forge-kit: could not change to the work-tree root; the leak guard could not RUN"; exit 1; }
 ZERO='0000000000000000000000000000000000000000'
 
 # The guards resolve paths against HEAD (`git show "HEAD:$f"`), so they are only meaningful for

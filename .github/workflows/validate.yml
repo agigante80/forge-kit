@@ -367,6 +367,13 @@ jobs:
       - name: CDPATH-safe cd contract tests
         run: bash scripts/test-cdpath.sh
 
+      # Issue #379: the guard that keeps a new bare cd out of shipped and repository scripts.
+      - name: CDPATH cd guard tests
+        run: bash scripts/test-check-cdpath-cd.sh
+
+      - name: CDPATH cd guard
+        run: bash scripts/check-cdpath-cd.sh
+
       # Issue #407: /phase's resolved values reach every later Bash call through phase-env.sh.
       - name: /phase fresh-shell contract tests
         run: bash scripts/test-phase-env.sh

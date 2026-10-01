@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 24
+# check-contributor-docs-version: 25
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -184,7 +184,7 @@ case "$max_bytes" in ''|*[!0-9]*) usage "--max-bytes must be a number" ;; esac
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
 prefix=$(git rev-parse --show-prefix 2>/dev/null) || die "not inside a git repository"
-cd "$top" || die "cannot enter the repository root"
+CDPATH= cd -- "$top" || die "cannot enter the repository root"
 set -f
 
 T=$(mktemp -d) || die "mktemp failed"

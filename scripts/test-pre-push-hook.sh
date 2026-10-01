@@ -442,7 +442,7 @@ printf '%s' "$out" | grep -q 'root-leak.md:1: home-path:' \
 printf '%s' "$out" | grep -q 'forge-kit: the tree carries something from this machine' \
   && ok "subdirectory: and the hook says the tree carries something from this machine" \
   || bad "subdirectory: and the hook says the tree carries something from this machine"
-if hook_mutant cd-dropped '/^\[ -n "\$ROOT" \] && cd -- "\$ROOT" /d'; then
+if hook_mutant cd-dropped '/^\[ -n "\$ROOT" \] && CDPATH= cd -- "\$ROOT" /d'; then
   out=$(run_hook_sub "$HOOKABS.mut-cd-dropped"); rc=$?
   [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'root-leak.md:1:' \
     && ok "mutant cd-dropped: from sub/ the root leak is invisible (rc 0, no finding line)" \
@@ -457,7 +457,7 @@ printf '%s' "$out" | grep -q 'could not change to the work-tree root' \
   && printf '%s' "$out" | grep -q 'could not RUN' \
   && ok "fail closed: and the output says it could not change to the work-tree root and could not RUN" \
   || bad "fail closed: and the output says it could not change to the work-tree root and could not RUN"
-if hook_mutant cd-unguarded 's|^\[ -n "\$ROOT" \] && cd -- "\$ROOT" .*$|cd "$ROOT"|'; then
+if hook_mutant cd-unguarded 's|^\[ -n "\$ROOT" \] && CDPATH= cd -- "\$ROOT" .*$|cd "$ROOT"|'; then
   out=$(run_hook_in "$REPO/.git" "$HOOKABS.mut-cd-unguarded"); rc=$?
   [ "$rc" -eq 0 ] && ok "mutant cd-unguarded: a bare cd of an empty ROOT fails open from .git (rc 0)" \
     || bad "mutant cd-unguarded: a bare cd of an empty ROOT fails open from .git (rc=$rc)"
