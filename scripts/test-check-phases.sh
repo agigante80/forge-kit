@@ -14,7 +14,10 @@ set -uo pipefail
 # ENVIRONMENT, 2.43, #288): GIT_DISCOVERY_ACROSS_FILESYSTEM only lets a search cross a mount the
 # ceiling still stops, GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS act on a repository already found,
 # which the ceiling prevents, and GIT_NAMESPACE scopes refs only. All three are ruled out, not missed.
-unset FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+# #306: FORGE_DRY_RUN joins the list because the host stub below now honours it as forge-lib v28 does:
+# an inherited flag from a maintainer shell or the pre-push hook would steer every case. Each dry-run
+# case passes it per call (`FORGE_DRY_RUN=1 hostrun ...`).
+unset FORGE_DRY_RUN FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
 SRC="$ROOT/plugins/forge-kit-roadmap/skills/roadmap-phases/assets/check-phases.sh"
@@ -191,12 +194,43 @@ echo "== the host rules, against a stubbed transport =="
 cat > "$T/forge-lib.sh" <<'STUB'
 forge_repo() { printf 'o/r'; }
 forge_host() { printf 'github'; }
-forge_milestone_list()       { cat "$STUB_MILESTONES"; }
-forge_issue_milestone_list() { cat "$STUB_ISSUES"; }
+# #306: these list stubs model forge-lib v28 under FORGE_DRY_RUN=1: forge_api_paginate returns a
+# literal `[]` for every method, GET included. Each call appends the value of the flag it SAW to
+# $READLOG ("ms <value>" or "iss <value>", "unset" when the variable is not set), so a read that is
+# not scoped is visible. STUB_LIST_FAIL fails a list whatever the flag is: `iss` only the issue list,
+# any other non-empty value both. A stub that failed only under the flag would never fail once the
+# read runs with the flag at 0.
+forge_milestone_list() {
+  printf 'ms %s\n' "${FORGE_DRY_RUN-unset}" >> "$READLOG"
+  [ -n "${STUB_LIST_FAIL:-}" ] && [ "$STUB_LIST_FAIL" != iss ] && return 2
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[]'; else cat "$STUB_MILESTONES"; fi
+}
+forge_issue_milestone_list() {
+  printf 'iss %s\n' "${FORGE_DRY_RUN-unset}" >> "$READLOG"
+  [ -n "${STUB_LIST_FAIL:-}" ] && return 2
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[]'; else cat "$STUB_ISSUES"; fi
+}
 STUB
+READLOG="$T/read.log"
+# #306: stdout and stderr are captured SEPARATELY ($sout, $serr) so a case can compare them one by
+# one; $out is both joined, which is what every older assertion reads.
+sout=""; serr=""
 hostrun() {
-  out=$(cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" \
-        bash ./check-phases.sh "$@" 2>&1); rc=$?
+  : > "$READLOG"
+  (cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" READLOG="$READLOG" \
+        bash ./check-phases.sh "$@" >"$T/run.out" 2>"$T/run.err"); rc=$?
+  sout=$(cat "$T/run.out"); serr=$(cat "$T/run.err"); out="$sout
+$serr"
+}
+# Both list reads of a FLAGGED run must have seen the flag at 0. Only a flagged case that really runs
+# a read's code path can fail for an unscoped read; a read added later on a path no flagged case
+# reaches is not covered by this.
+reads_all_zero() {
+  local n bad_lines
+  n=$(wc -l < "$READLOG" | tr -d ' ')
+  bad_lines=$(grep -vc ' 0$' "$READLOG" || true)
+  if [ "${n:-0}" -ge 2 ] && [ "$bad_lines" = 0 ]; then ok "$1: both list reads ($n) saw FORGE_DRY_RUN=0"
+  else bad "$1: list reads did not all see FORGE_DRY_RUN=0 ($(tr '\n' ';' < "$READLOG"))"; fi
 }
 
 goodplan A > "$T/docs/plans/a.md"
@@ -291,6 +325,70 @@ printf '[]' > "$T/iss.json"
 hostrun
 expect "a phase with no milestone fails" 1 "$rc"
 contains "sync-phases" "$out" "and points at the script that fixes it"
+
+echo "-- FORGE_DRY_RUN=1 changes nothing: the reads see the real host (#306) --"
+# check-phases.sh has no write path, so a flagged run must print exactly what an unflagged one does.
+# Fixture: phase A is open (its plan carries a Fails if section, rule 2), phase B is done (plan too).
+goodplan A > "$T/docs/plans/a.md"; goodplan B > "$T/docs/plans/b.md"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+
+## Phase: B
+state: done
+plan: docs/plans/b.md
+MD
+# Positive, the clean verdict: milestone A open, B closed, every open ticket in a phase.
+printf '[{"id":1,"title":"A","state":"open"},{"id":2,"title":"B","state":"closed"}]' > "$T/ms.json"
+printf '[{"number":7,"milestone":"A"}]' > "$T/iss.json"
+hostrun
+expect "unflagged: the consistent host is clean" 0 "$rc"
+FORGE_DRY_RUN=1 hostrun
+expect "flagged: a clean verdict exits 0" 0 "$rc"
+expect "flagged: with no stdout" "" "$sout"
+expect "flagged: and no stderr" "" "$serr"
+reads_all_zero "flagged clean run"
+
+# Positive, rules 1 and 4: issue #7 in no phase, issue #8 open in the done phase B.
+printf '[{"number":7,"milestone":null},{"number":8,"milestone":"B"}]' > "$T/iss.json"
+hostrun
+ref_sout="$sout"; ref_serr="$serr"; ref_rc="$rc"
+expect "unflagged: rules 1 and 4 fail" 1 "$ref_rc"
+FORGE_DRY_RUN=1 hostrun
+expect "flagged: rules 1 and 4 still exit 1" 1 "$rc"
+contains "rule 1: issue #7 has no phase." "$sout" "flagged: names the ticket with no phase"
+contains 'rule 4: phase "B" is done but holds 1 open ticket(s).' "$sout" "flagged: names the done phase holding a ticket"
+absent_line() { if printf '%s' "$2" | grep -q "$1"; then bad "$3"; else ok "$3"; fi; }
+absent_line "rule 3" "$sout" "flagged: and prints no rule 3 line"
+expect "flagged: stdout equals the unflagged run" "$ref_sout" "$sout"
+expect "flagged: stderr equals the unflagged run" "$ref_serr" "$serr"
+reads_all_zero "flagged rules 1 and 4 run"
+
+# Negative, rule 3: B is PLANNED here (a planned phase needs no plan and cannot trip the at-most-one
+# open rule), and only milestone A exists. Exactly one rule 3 line, for B, none for A.
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+
+## Phase: B
+state: planned
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+printf '[{"number":7,"milestone":"A"}]' > "$T/iss.json"
+FORGE_DRY_RUN=1 hostrun
+expect "flagged: a missing milestone exits 1" 1 "$rc"
+expect "flagged: with exactly the one rule 3 line, for B" 'rule 3: phase "B" has no milestone on the host. Run sync-phases.sh.' "$sout"
+expect "flagged: and no stderr" "" "$serr"
+reads_all_zero "flagged missing-milestone run"
+
+# Negative: a failed issue read is still a read failure, whatever the flag.
+printf '[{"id":1,"title":"A","state":"open"},{"id":2,"title":"B","state":"open"}]' > "$T/ms.json"
+STUB_LIST_FAIL=iss FORGE_DRY_RUN=1 hostrun
+expect "flagged: a failed issue read exits 2" 2 "$rc"
+contains "check-phases: the host could not be reached, so rules 1, 3 and 4 were SKIPPED." "$serr" "flagged: and says the host rules were skipped"
+reads_all_zero "flagged failed read"
 
 echo "-- a check that cannot run must never report clean --"
 cp "$T/forge-lib.sh" "$T/forge-lib.good.sh"

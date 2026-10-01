@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 2
+# test-reassess-phases-version: 3
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.
@@ -14,7 +14,10 @@ set -uo pipefail
 # ENVIRONMENT, 2.43, #288): GIT_DISCOVERY_ACROSS_FILESYSTEM only lets a search cross a mount the
 # ceiling still stops, GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS act on a repository already found,
 # which the ceiling prevents, and GIT_NAMESPACE scopes refs only. All three are ruled out, not missed.
-unset FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+# #306: FORGE_DRY_RUN joins the list because the stubs below now honour it as forge-lib v28 does: an
+# inherited flag from a maintainer shell or the pre-push hook would steer every case. Each dry-run case
+# passes it per call (`FORGE_DRY_RUN=1 run ...`).
+unset FORGE_DRY_RUN FORGE_LIB GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -61,7 +64,18 @@ cat > "$T/forge-lib.sh" <<'STUB'
 # forge-lib-version: 1
 forge_repo() { printf 'o/r'; }
 forge_host() { printf 'github'; }
-forge_milestone_list() { cat "$STUB_MILESTONES"; }
+# #306: these list stubs model forge-lib v28 under FORGE_DRY_RUN=1: forge_api_paginate returns a literal
+# `[]` for every method, GET included. Each call appends the value of the flag it SAW to $READLOG
+# ("ms <value>" or "iss <value>", "unset" when the variable is not set), so a read that is not scoped
+# is visible even when it is behaviourally dead (reassess-phases.sh's MS read is never used after
+# assignment). STUB_LIST_FAIL fails a list whatever the flag is: `iss` fails only the issue list, any
+# other non-empty value fails both. A stub that failed only under the flag would never fail once the
+# read runs with the flag at 0.
+forge_milestone_list() {
+  printf 'ms %s\n' "${FORGE_DRY_RUN-unset}" >> "$READLOG"
+  [ -n "${STUB_LIST_FAIL:-}" ] && [ "$STUB_LIST_FAIL" != iss ] && return 2
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[]'; else cat "$STUB_MILESTONES"; fi
+}
 forge_milestone_create() {
   printf 'CREATE %s\n' "$1" >> "$REQLOG"
   local maxid
@@ -85,7 +99,11 @@ forge_issue_milestone() {
     "$STUB_ISSUES" > "$STUB_ISSUES.tmp" && mv "$STUB_ISSUES.tmp" "$STUB_ISSUES"
   printf 'MOVE %s %s\n' "$n" "$title" >> "$REQLOG"
 }
-forge_issue_milestone_list() { cat "$STUB_ISSUES"; }
+forge_issue_milestone_list() {
+  printf 'iss %s\n' "${FORGE_DRY_RUN-unset}" >> "$READLOG"
+  [ -n "${STUB_LIST_FAIL:-}" ] && return 2
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[]'; else cat "$STUB_ISSUES"; fi
+}
 STUB
 
 goodplan() { printf '# %s\n\n## Goal\nx\n\n## Done looks like\nx\n\n## Fails if\nx\n' "$1"; }
@@ -130,11 +148,25 @@ JSON
 }
 base_issues() { printf '[]' > "$T/iss.json"; }
 
-out=""; rc=0; REQLOG="$T/req.log"
+out=""; sout=""; serr=""; rc=0; REQLOG="$T/req.log"; READLOG="$T/read.log"
+# #306: stdout and stderr are captured SEPARATELY ($sout, $serr) so a case can compare them one by
+# one; $out is both joined, which is what every older assertion reads.
 run() {
-  : > "$REQLOG"
-  out=$(cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" REQLOG="$REQLOG" \
-        FAIL_MOVE="${FAIL_MOVE:-}" bash ./reassess-phases.sh "$@" 2>&1); rc=$?
+  : > "$REQLOG"; : > "$READLOG"
+  (cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" REQLOG="$REQLOG" READLOG="$READLOG" \
+        FAIL_MOVE="${FAIL_MOVE:-}" bash ./reassess-phases.sh "$@" >"$T/run.out" 2>"$T/run.err"); rc=$?
+  sout=$(cat "$T/run.out"); serr=$(cat "$T/run.err"); out="$sout
+$serr"
+}
+# Every list call of a FLAGGED run must have seen the flag at 0. Flagged runs only: an unflagged merge
+# or rename reaches confirm_emptied's read, which is unscoped on purpose and logs the flag as unset.
+# Only a flagged case that really runs a read's code path can fail for an unscoped read.
+reads_all_zero() {
+  local n bad_lines
+  n=$(wc -l < "$READLOG" | tr -d ' ')
+  bad_lines=$(grep -vc ' 0$' "$READLOG" || true)
+  if [ "${n:-0}" -ge 2 ] && [ "$bad_lines" = 0 ]; then ok "$1: every list read ($n) saw FORGE_DRY_RUN=0"
+  else bad "$1: list reads did not all see FORGE_DRY_RUN=0 ($(tr '\n' ';' < "$READLOG"))"; fi
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -288,6 +320,92 @@ run delete Beta
 expect "deleting a phase with open tickets and no destination refuses" 5 "$rc"
 contains "nowhere for them" "$out" "and says why"
 expect "and the file is untouched" "$before" "$(cat "$T/docs/roadmap.md")"
+
+echo "== FORGE_DRY_RUN=1 behaves as --check, and its reads see the real host (#306) =="
+# Fixture: phase Alpha is open (its plan carries a Fails if section, rule 2), phase Cell is planned
+# (a planned phase needs no plan) and holds open ticket #9 on the host. Both milestones exist.
+dryroadmap() {
+  roadmap <<'MD'
+## Phase: Alpha
+state: open
+plan: docs/plans/alpha.md
+
+Alpha is open.
+
+## Phase: Cell
+state: planned
+
+Cell is planned.
+MD
+  cat > "$T/ms.json" <<'JSON'
+[{"id":1,"title":"Alpha","state":"open"},{"id":2,"title":"Cell","state":"open"}]
+JSON
+  printf '[{"number":9,"milestone":"Cell"}]' > "$T/iss.json"
+}
+dryroadmap
+before="$(cat "$T/docs/roadmap.md")"; ibefore="$(cat "$T/iss.json")"
+run delete Cell --check
+ref_sout="$sout"; ref_serr="$serr"; ref_rc="$rc"
+expect "the unflagged --check refuses a delete of a phase holding open tickets" 5 "$ref_rc"
+FORGE_DRY_RUN=1 run delete Cell
+expect "flagged delete of a phase holding open tickets exits 5" 5 "$rc"
+contains "reassess-phases: 'Cell' holds 1 open ticket(s) (9) and names nowhere for them. Pass --to <phase>|backlog" "$serr" "and prints the refusal"
+expect "its stdout equals the unflagged --check run" "$ref_sout" "$sout"
+expect "its stderr equals the unflagged --check run" "$ref_serr" "$serr"
+expect "and the roadmap is byte-identical" "$before" "$(cat "$T/docs/roadmap.md")"
+expect "and no ticket moved" "$ibefore" "$(cat "$T/iss.json")"
+expect "and no write reached the host" "" "$(cat "$REQLOG")"
+reads_all_zero "flagged delete refusal"
+
+dryroadmap
+STUB_LIST_FAIL=iss FORGE_DRY_RUN=1 run delete Cell
+expect "a failed issue read under the flag exits 2" 2 "$rc"
+contains "reassess-phases: could not list issue milestones; check the token and the forge configuration" "$serr" "and prints the read failure"
+expect "and the roadmap is byte-identical" "$before" "$(cat "$T/docs/roadmap.md")"
+reads_all_zero "flagged failed read"
+
+# The positive: a reorder under the flag previews and writes nothing, exactly as --check does.
+base_roadmap; base_milestones; base_issues
+before="$(cat "$T/docs/roadmap.md")"
+run reorder Beta --before Alpha --check
+ref_sout="$sout"; ref_serr="$serr"; ref_rc="$rc"
+expect "the unflagged --check reorder exits 0" 0 "$ref_rc"
+FORGE_DRY_RUN=1 run reorder Beta --before Alpha
+expect "flagged reorder exits 0" 0 "$rc"
+expect "its stdout equals the unflagged --check run" "$ref_sout" "$sout"
+expect "its stderr equals the unflagged --check run" "$ref_serr" "$serr"
+expect "and docs/roadmap.md is byte-identical, so the flag held the file write" "$before" "$(cat "$T/docs/roadmap.md")"
+expect "and no write reached the host" "" "$(cat "$REQLOG")"
+reads_all_zero "flagged reorder"
+
+# The same reorder with Beta's milestone missing, so the sync-phases.sh --check subprocess prints a
+# line (`would create milestone "Beta"`) and the compared output is not an empty string on both sides.
+base_roadmap; base_issues
+cat > "$T/ms.json" <<'JSON'
+[{"id":1,"title":"Alpha","state":"open"},{"id":3,"title":"Zeta","state":"closed"},
+ {"id":4,"title":"Cellar","state":"open"}]
+JSON
+before="$(cat "$T/docs/roadmap.md")"
+run reorder Beta --before Alpha --check
+ref_sout="$sout"; ref_serr="$serr"; ref_rc="$rc"
+contains 'would create milestone "Beta"' "$ref_sout" "the unflagged --check preview names the missing milestone"
+FORGE_DRY_RUN=1 run reorder Beta --before Alpha
+expect "flagged reorder with a missing milestone exits as --check does" "$ref_rc" "$rc"
+expect "its stdout equals the unflagged --check run" "$ref_sout" "$sout"
+expect "its stderr equals the unflagged --check run" "$ref_serr" "$serr"
+expect "and the roadmap is byte-identical" "$before" "$(cat "$T/docs/roadmap.md")"
+reads_all_zero "flagged reorder with a missing milestone"
+
+# The negative: without the flag, or with any value but 1, the same command writes, so the flag and
+# not the operation is what holds the file.
+for flagval in unset 0 true; do
+  base_roadmap; base_milestones; base_issues
+  if [ "$flagval" = unset ]; then run reorder Beta --before Alpha
+  else FORGE_DRY_RUN="$flagval" run reorder Beta --before Alpha; fi
+  expect "FORGE_DRY_RUN=$flagval: reorder exits 0" 0 "$rc"
+  first="$(grep -m1 '^## Phase:' "$T/docs/roadmap.md")"
+  expect "FORGE_DRY_RUN=$flagval: the roadmap was written, Beta now comes first" "## Phase: Beta" "$first"
+done
 
 echo "== structural: missing libraries, a malformed roadmap, --help, an unknown op =="
 base_roadmap; base_milestones; base_issues

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# check-phases-version: 5
+# check-phases-version: 6
 #
 # The roadmap-phases guard: four rules that make rolling wave planning mechanical.
 #
 #   check-phases.sh [--offline] [--roadmap FILE]
 #     default     check everything; rules 1, 3 and 4 call the host
 #     --offline   check only rule 2, which needs no host
+#   FORGE_DRY_RUN=1  changes nothing: both host reads are scoped to 0, so a flagged run prints
+#                    exactly what an unflagged one does (#306)
 #
 # Exit 0 clean, 1 a rule found something, 2 could not run, 3 the roadmap is malformed.
 #
@@ -160,8 +162,15 @@ LIB="$(find_forge_lib)" || {
 # shellcheck source=forge-lib.sh
 . "$LIB"
 
-MS="$(forge_milestone_list 2>/dev/null)" || MS=""
-ISS="$(forge_issue_milestone_list 2>/dev/null)" || ISS=""
+# FORGE_DRY_RUN=0 is scoped to each read on purpose (#306, the defect #269 fixed in sync-phases.sh).
+# forge_api_paginate returns a literal `[]` under FORGE_DRY_RUN=1, GET included, and the -z guard
+# below never trips on `[]`: with the milestone read unscoped every phase reads as missing (false
+# rule 3), and with only that one scoped the issue read is empty and rules 1 and 4 report a false
+# clean. This script has no write path, so a flagged run must print exactly what an unflagged one
+# does. The prefix dies with the substitution's subshell, so the caller's flag is untouched. Do NOT
+# hoist it to a top-level `FORGE_DRY_RUN=0`: a write added later would then inherit it.
+MS="$(FORGE_DRY_RUN=0 forge_milestone_list 2>/dev/null)" || MS=""
+ISS="$(FORGE_DRY_RUN=0 forge_issue_milestone_list 2>/dev/null)" || ISS=""
 if [ -z "$MS" ] || [ -z "$ISS" ]; then
   echo "check-phases: the host could not be reached, so rules 1, 3 and 4 were SKIPPED." >&2
   echo "  They were NOT checked and NOT passed. Check the token and the forge configuration." >&2

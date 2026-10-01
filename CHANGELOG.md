@@ -11,6 +11,14 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **A dry run of check-phases.sh and reassess-phases.sh now reads the real host** (#306,
+  check-phases v6, reassess-phases v2, roadmap-phases v11). Both
+  scope `FORGE_DRY_RUN=0` to each list read, as #269 did for sync-phases.sh, because forge-lib
+  returns `[]` under the flag: a flagged check-phases.sh reported false rule 3 findings and a false
+  clean for rules 1 and 4. `FORGE_DRY_RUN=1` now behaves as `--check` in reassess-phases.sh, so a
+  flagged `delete` of a phase holding open tickets exits 5 with the roadmap untouched instead of
+  rewriting `docs/roadmap.md`. Both suites model the flag in their stubs, log the flag each list
+  call saw, and compare stdout, stderr and exit code separately.
 - **forge-lib refuses an invalid `FORGE_HOST` instead of reporting success** (#256, forge-lib v29,
   forge-host v31). `forge_host` prints nothing for an invalid host, and every consumer that matched
   its output with a `case` fell through, so the writers returned 0 having sent nothing. Each one now

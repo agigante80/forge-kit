@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 1
+# reassess-phases-version: 2
 #
 # Reshapes docs/roadmap.md itself: the level above /phase review (#244), which asks whether ONE
 # phase is still aligned. This asks whether the ROADMAP is still the right plan (#249).
@@ -14,6 +14,9 @@
 #     insert  <name>   --before <phase>|--end --state STATE --prose TEXT [--plan PATH]
 #
 #   --check    show every act it would perform, with its reason; write nothing
+#   FORGE_DRY_RUN=1 (the exact value 1) behaves as --check (#306): the flag holds the roadmap file
+#              writes as well as the host writes, so a dry run never rewrites docs/roadmap.md. Unset,
+#              0 and any other value are a real run. The list reads still see the real host.
 #   --reason   the "why", folded into the roadmap prose a created, deleted or refocused phase carries
 #
 # Exit codes are distinguishable, because a reassessment is unattended-safe automation:
@@ -112,6 +115,10 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Contract (a) of #306: the flag implies --check. Without it the flag holds host writes only, never
+# roadmap-lib.sh's file writes, and a flagged delete bypassed its exit 5 refusal and rewrote the file.
+[ "${FORGE_DRY_RUN:-0}" = 1 ] && CHECK=1
+
 if [ -z "$ROADMAP" ]; then
   for c in docs/roadmap.md roadmap.md; do [ -f "$c" ] && { ROADMAP="$c"; break; }; done
 fi
@@ -158,8 +165,14 @@ if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
   echo "  NOTHING was written." >&2
   exit 3
 fi
-MS="$(forge_milestone_list)" || die "could not list milestones; check the token and the forge configuration"
-ISS="$(forge_issue_milestone_list)" || die "could not list issue milestones; check the token and the forge configuration"
+# FORGE_DRY_RUN=0 is scoped to these two reads (#306, as #269 did in sync-phases.sh): under the flag
+# forge_api_paginate returns a literal `[]`, so ISS would read an empty host and the --check preview
+# the flag now implies would not refuse what the unflagged --check refuses. The prefix dies with the
+# substitution, so no later write sees it. confirm_emptied's own read stays unscoped on purpose: it
+# returns before reading under --check, which the flag implies. Do NOT hoist this to a top level
+# `FORGE_DRY_RUN=0`.
+MS="$(FORGE_DRY_RUN=0 forge_milestone_list)" || die "could not list milestones; check the token and the forge configuration"
+ISS="$(FORGE_DRY_RUN=0 forge_issue_milestone_list)" || die "could not list issue milestones; check the token and the forge configuration"
 
 # --- read-only helpers over $PHASES / $MS / $ISS, all fixed as of this run's start ---------------
 phase_exists()      { printf '%s\n' "$PHASES" | awk -F'\t' -v n="$1" '$1==n{f=1} END{exit !f}'; }

@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 10 -->
+<!-- roadmap-phases-version: 11 -->
 
 # Roadmap phases
 
@@ -259,7 +259,10 @@ Seven ops, each an atomic reshape of `roadmap.md` plus the milestones behind it:
 split, as the target of a refocus or delete. A closed phase is history; reshaping it would rewrite
 what already happened rather than what happens next. **`--check` runs the same validation and prints
 the same plan without writing anything**, on the file or the host, and is not optional to skip: run
-it first, always, and show the result before running for real.
+it first, always, and show the result before running for real. An exported `FORGE_DRY_RUN=1` now
+means the same `--check` (#306), so a flagged reshape writes nothing either; `check-phases.sh` and
+`sync-phases.sh` scope it off their host reads, so a flagged guard run reports what an unflagged
+one does.
 
 Five exit codes, and each means something specific: `0` done, ending with `check-phases.sh`'s own
 verdict; `2` a usage or environment error, nothing written; `3` the roadmap was already malformed,
