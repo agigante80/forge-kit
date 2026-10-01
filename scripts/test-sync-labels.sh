@@ -573,6 +573,15 @@ run --check
 [ "$rc" -eq 0 ] && ok "a duplicate host label compares against the FIRST, as before #121" \
                 || bad "duplicate host labels compare against the last (rc=$rc: $out)"
 
+echo "== no awk -v in the shipped asset (#259) =="
+# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
+# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
+awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
+n="$(awkv_count "$SRC")"; [ "$n" = 0 ] && ok "sync-labels.sh carries no awk -v code line" || bad "sync-labels.sh carries $n awk -v code line(s)"
+{ cat "$SRC"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$T/awkv-mut.sh"
+n="$(awkv_count "$T/awkv-mut.sh")"
+[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in sync-labels.sh" || bad "MUTANT: an added awk -F'\\t' -v line in sync-labels.sh counted $n, not 1"
+
 echo ""
 echo "sync-labels tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

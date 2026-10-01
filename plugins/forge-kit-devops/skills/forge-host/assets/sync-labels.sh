@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# sync-labels-version: 10
+# sync-labels-version: 11
 # sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not.
+#
+# NO `awk -v` IN THIS FILE (#259). Its one site carried the compiled-in separator `$'\x1f'`, a
+# literal with no backslash, so the move to ENVIRON is hardening only (not reproducible): `-v` runs
+# a backslash-escape pass and Apple's awk refuses a newline in its value. scripts/test-sync-labels.sh
+# counts zero `awk ... -v` code lines; a `-v` on an awk continuation line is banned too.
 #
 # WHY THIS EXISTS (issue #104). forge-kit shipped a label taxonomy, documented that labels drive
 # ticket-gate's lens routing, and never imported it into its own repository: 18 labels declared,
@@ -89,11 +94,11 @@ REPO="${REPO_OVERRIDE:-$(forge_repo)}"
 # from UNQUOTED values only. Without this, a trailing space or a CRLF file silently creates a
 # phantom label and the script never converges.
 US=$'\x1f'
-declared=$(awk -v US="$US" '
+declared=$(SL_US="$US" awk '
   # SQ/DQ are built from character codes so this program contains no literal quote of either kind:
   # it is embedded in a single-quoted shell string, and nested quoting is where the first attempt
   # at this function went wrong.
-  BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+  BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92); US = ENVIRON["SL_US"] }
   # The unterminated-quote verdict travels in its OWN FIELD, not inside the value (#127 H7). It
   # used to be a sentinel string returned by clean(), so a description that merely CONTAINED that
   # byte sequence was refused. A verdict smuggled inside a value is the same in-band signalling
