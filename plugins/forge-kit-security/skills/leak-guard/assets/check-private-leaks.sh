@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 14
+# check-private-leaks-version: 15
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -13,7 +13,9 @@
 # them would reasonably infer this half had none.
 #
 # THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
-# enumerates tracked files in the WORKING TREE, `--staged` reads the index, and `--range` enumerates
+# enumerates tracked files in the WORKING TREE, `--head` reads HEAD's COMMITTED tree (#375; the
+# pre-push hook's mode, so an uncommitted edit or a file deleted only in the working tree cannot
+# mask what a push publishes; HEAD's tree, not every pushed commit), `--staged` reads the index, and `--range` enumerates
 # two endpoints (`--no-renames --diff-filter=ACMT`, so a renamed-and-edited file and a symlink
 # replaced by a file are listed; both were invisible before #208) and reads each file at HEAD, so a
 # name added and removed inside the range is invisible at both ends. The tree modes fail closed
@@ -65,7 +67,7 @@
 # For the going-public case, run a credential scanner as well: `gitleaks git .` walks the whole
 # history for SECRETS rather than identity, so it is a companion and not a substitute.
 #
-#   check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>]
+#   check-private-leaks.sh [--staged | --range <base> | --head | --all] [--list <path>]
 #                          [--allow-file <path>] [--show-names] [paths...]
 #   check-private-leaks.sh --history [--orphans] [--list <path>] [--show-names]
 #
@@ -138,11 +140,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     # One mode per run. The last flag used to win silently, so "--history --staged" scanned the
     # index and reported clean on the history the user asked about.
-    --all)         [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=all ;;
-    --staged)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=staged ;;
-    --range)       [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1
+    --all)         [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=all ;;
+    --staged)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=staged ;;
+    --range)       [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1
                    MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
-    --history)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=history ;;
+    --history)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=history ;;
+    --head)        [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=head ;;
     --orphans)     ORPHANS=1 ;;
     --list)        shift; [ $# -gt 0 ] || die "--list needs a path"; LIST="$1" ;;
     --allow-file)  shift; [ $# -gt 0 ] || die "--allow-file needs a path"; ALLOW_FILE="$1" ;;
@@ -192,6 +195,8 @@ if [ "$MODE" = history ]; then
 else
   [ "$ORPHANS" = 0 ] || die "--orphans is only valid with --history"
 fi
+# Explicit paths would switch MODE to `paths` below and silently ignore --head (#375).
+[ "$MODE" != head ] || [ "${#PATHS[@]}" -eq 0 ] || die "--head takes no paths"
 
 # Messages show the list path with the home directory as "~": this scanner's own stderr is exactly
 # the text the public half polices, and the default path is under $HOME. A case, not a pattern
@@ -363,6 +368,19 @@ else
         || die "base ref not found: $BASE (fetch it first)"
       while IFS= read -r -d '' f; do FILES+=("$f"); done \
         < <(git diff --no-renames --name-only --diff-filter=ACMT -z "$BASE...HEAD") ;;
+    head)
+      # HEAD's committed tree (#375): what a push publishes, whatever the working tree says. The
+      # unborn-HEAD check is explicit because the enumeration below hides a failure and an empty
+      # list exits 0 further down. The pre-check is the mechanism for a failing `ls-tree`, since
+      # `< <(...)` hides its exit status. Only blob entries (100644, 100755, 120000) are kept, so
+      # a 160000 gitlink is skipped and no per-file `cat-file -t` is needed. `ls-tree` lists paths
+      # relative to the CURRENT directory, which is why the read below is `HEAD:./$f`.
+      git rev-parse --verify --quiet "HEAD^{commit}" >/dev/null \
+        || die "HEAD not found: no commits yet, so --head has nothing to scan"
+      git ls-tree -r -z HEAD >/dev/null 2>&1 || die "could not list HEAD's tree"
+      while IFS= read -r -d '' ent; do
+        case "${ent%% *}" in 100644|100755|120000) FILES+=("${ent#*$'\t'}") ;; esac
+      done < <(git ls-tree -r -z HEAD) ;;
   esac
 fi
 [ "$MODE" = history ] || [ "${#FILES[@]}" -gt 0 ] || exit 0
@@ -645,11 +663,18 @@ for f in "${FILES[@]}"; do
             { git show ":0:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     range)  [ "$(git cat-file -t "HEAD:$f" 2>/dev/null)" = blob ] || continue
             { git show "HEAD:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
+    # --head (#375): the mode and type come from `ls-tree`, so only blobs are in FILES. "HEAD:./$f",
+    # never "HEAD:$f": `ls-tree` paths are relative to the current directory and a bare
+    # "HEAD:<path>" is root-relative, so from a subdirectory the bare form reads the ROOT file of
+    # the same name (a leaking sub/README.md judged by the clean ./README.md). Same failure rule.
+    head)   { git show "HEAD:./$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac
   # A tracked SYMLINK is its target text in git, and the worktree read followed it: a dangling
   # link whose target is a home path was reported by --staged and clean under --all, the pre-push
   # hook's mode (review of #208). The link text is what git commits, so it is what is scanned.
+  # --head is deliberately NOT in the gate below: its scanfile is the regular-file $BLOB, so -L is
+  # false and `git show` already yields the link text.
   if [ "$MODE" != staged ] && [ "$MODE" != range ] && [ -L "$scanfile" ]; then
     { readlink -- "$scanfile" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB"
   fi

@@ -48,7 +48,7 @@ done
 # LEAK GUARD, before the base-ref exit, because it depends on none of it.
 #
 # It DOES sit after the "is this HEAD" test above, and that is deliberate rather than an oversight
-# of the same kind: a full-tree scan reads the checked-out worktree, so running it while pushing
+# of the same kind: the scan reads HEAD's committed tree (`--head`), so running it while pushing
 # some OTHER branch would report confidently on content that is not being pushed. Scanning the
 # wrong tree is worse than not scanning.
 #
@@ -57,7 +57,7 @@ done
 # both scanners were silently skipped, and the private half runs nowhere else at all. Found by
 # review, not by the guard.
 #
-# The FULL-TREE scan is the right question here, not the range. A range scan asks "did this push
+# The FULL-TREE scan of HEAD's tree is the right question here, not the range. A range scan asks "did this push
 # add a leak", which is the wrong question the moment a history rewrite is needed: what matters
 # then is whether the tree is clean, not whether this push made it worse.
 #
@@ -70,19 +70,45 @@ done
 # pull requests and pushes to main and develop and only after publication; the private-name scan
 # runs nowhere else. Do not collapse this back to one static claim either way (#313).
 #
-# "Once it is published", never "this push has published it" (#368): --all scans the WORKING TREE,
-# so a leak that exists only in an uncommitted edit is blocked here but never published by this
-# push; the --no-verify line says "can publish" for the same reason. Declined on purpose (#368):
+# WHAT IS SCANNED (#375): HEAD's committed tree, never the working tree. The pushed tip is HEAD
+# (the loop above skips every other ref), so `--head` judges what a push publishes: a leak committed
+# at HEAD and edited out only in an uncommitted change still blocks, and so does a tracked file
+# deleted only in the working tree. The consequence is deliberate and not a regression: a leak that
+# exists ONLY in an uncommitted edit no longer blocks, because it is never published and the next
+# commit is caught by pre-commit (`--staged`). It is HEAD's tree, not every pushed commit: a leak
+# added and removed inside one push is published and invisible to a tree scan.
+# `.leak-guard-allow` is read from HEAD for the same reason: a `skip` entry drops a whole file, so an
+# uncommitted entry would mask a committed leak exactly as an uncommitted edit does. A read failure
+# is a could-not-RUN, never a fallback to the working-tree copy.
+#
+# "Once it is published", never "this push has published it" (#368): the hook cannot tell whether
+# HEAD is already on the remote, and the public CI scan runs only after publication, so a leak
+# blocks only once it is published; the --no-verify line says "can publish" because a push can
+# publish what a tree scan of HEAD finds. Declined on purpose (#368):
 # "when the run reaches that step" (an earlier red step already reddens the run, and the clause
 # would couple this text to validate.yml's step order) and the scanner labels home-path,
 # home-root, email (the findings above the message already print them, and pinning them fails
 # this suite on a scanner rename).
 lg="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets"
 allow_args=()
-[ -f "$ROOT/.leak-guard-allow" ] && allow_args=(--allow-file "$ROOT/.leak-guard-allow")
+allow_tmp=""
+# A plain EXIT trap: this hook set none before (#375), so there is nothing to compose with.
+trap '[ -z "$allow_tmp" ] || rm -f "$allow_tmp"' EXIT
 
 leaks=0
 leak_errors=0
+# The allow-file comes from HEAD's tree, not the working tree (#375, D2). Absent at HEAD means no
+# allow-file, even when one sits in the working tree. The temp name says where it came from, so a
+# scanner error on a malformed committed entry names a path that reads as the HEAD copy.
+if git cat-file -e HEAD:.leak-guard-allow 2>/dev/null; then
+  if allow_tmp="$(mktemp "${TMPDIR:-/tmp}/leak-guard-allow.HEAD.XXXXXX" 2>/dev/null)" \
+     && git show HEAD:.leak-guard-allow > "$allow_tmp" 2>/dev/null; then
+    allow_args=(--allow-file "$allow_tmp")
+  else
+    echo "forge-kit: could not read .leak-guard-allow at HEAD"
+    leak_errors=$((leak_errors + 1))
+  fi
+fi
 scan() {
   local script="$1"; shift
   # PRESENCE, not the exec bit: this invokes via `bash`, so the bit is not needed to run the
@@ -98,9 +124,9 @@ scan() {
     *) leak_errors=$((leak_errors + 1)) ;;
   esac
 }
-scan "$lg/check-public-leaks.sh" --all ${allow_args+"${allow_args[@]}"}
+scan "$lg/check-public-leaks.sh" --head ${allow_args+"${allow_args[@]}"}
 # Local only, never in CI: it needs the list of private names, which cannot be published.
-scan "$lg/check-private-leaks.sh" --all
+scan "$lg/check-private-leaks.sh" --head
 
 # The roadmap guard, OFFLINE half only. A push must never depend on the host being reachable, and
 # rule 2 (an open phase has a plan carrying a Fails if section) needs only the files. The host rules

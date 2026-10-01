@@ -182,6 +182,10 @@ printf 'acme-migration\nnorthstar\nprivate-name\n' > "$WORK/selflist"
 ( cd "$SELFREPO" && git add scripts \
   && ./scripts/check-private-leaks.sh --list "$WORK/selflist" --staged ) >/dev/null 2>&1
 expect "--staged does not report the scanner's own source" 0 "$?"
+# ...and in --head, where the file is read as a HEAD blob (the public suite's twin is the "#375" case).
+( cd "$SELFREPO" && git commit -qm add >/dev/null 2>&1 \
+  && ./scripts/check-private-leaks.sh --list "$WORK/selflist" --head ) >/dev/null 2>&1
+expect "--head does not report the scanner's own source (#375)" 0 "$?"
 
 echo "== git modes =="
 # A SECOND repo, whose tracked content is clean. The owner repo above deliberately holds a tracked
@@ -493,6 +497,156 @@ if [ "$(id -u)" -ne 0 ]; then
   ( cd "$HREPO" && chmod 644 leak.md )
 else
   ok "unreadable-file case skipped: running as root"
+fi
+
+echo "== --head: HEAD's committed tree, never the working tree (#375) =="
+# The pre-push hook's mode. MUTANTS RUN AGAINST THIS SECTION, each on a scratch copy with `cmp -s`
+# proving the edit applied, each killed: the read taken from the worktree file; `HEAD:./$f` reduced
+# to `HEAD:$f` (killed by G1); the unborn-HEAD refusal removed; the `ls-tree` pre-check removed; the
+# `--head takes no paths` refusal removed; the 160000 gitlink mode admitted. Fresh repo per case
+# (mkrepo), so none leans on another's tree or leaves it dirty. C1, C2 and C6 use the NON-EMPTY list
+# $WORK/hlist: the scanner exits 0 on an empty or missing list before it looks at the work tree.
+NEWMODES='one mode only: --all, --staged, --range, --head or --history'
+hcommit() {  # hcommit <file> <content-printf-format>: write, add, commit in HREPO
+  ( cd "$HREPO" && printf "$2" > "$1" && git add -- "$1" && git commit -qm "add $1" ) >/dev/null 2>&1
+}
+mkrepo h-clean
+hrun --head; rc=$RC; expect "--head over a clean HEAD exits 0" 0 "$rc"
+[ -z "$OUT" ] && ok "with no output" || bad "with no output (got '$OUT')"
+mkrepo h-masked
+hcommit leak.md 'work on secretproj today\n'
+printf 'edited out\n' > "$HREPO/leak.md"
+hrun --head; rc=$RC; expect "--head reports a committed name masked by an uncommitted fix" 1 "$rc"
+contains "leak.md:1: private-name: se********" "$OUT" "as a redacted private-name finding"
+hrun --all; rc=$RC; expect "(the defect: --all reads the working tree and reports the same state clean)" 0 "$rc"
+mkrepo h-uncommitted
+printf 'secretproj\n' >> "$HREPO/seed.md"
+hrun --head; rc=$RC; expect "--head ignores an uncommitted-only name (never published)" 0 "$rc"
+( cd "$HREPO" && git add seed.md && git commit -qm leak ) >/dev/null 2>&1
+hrun --head; rc=$RC; expect "the same edit, committed, is reported" 1 "$rc"
+mkrepo h-deleted
+hcommit gone.md 'secretproj\n'
+rm -f "$HREPO/gone.md"
+hrun --head; rc=$RC; expect "a committed name in a file deleted in the worktree is still reported" 1 "$rc"
+hrun --all; rc=$RC; expect "(the defect: --all skips the deleted file)" 0 "$rc"
+mkrepo h-deleted-clean
+hcommit fine.md 'nothing here\n'
+rm -f "$HREPO/fine.md"
+hrun --head; rc=$RC; expect "a clean file deleted in the worktree exits 0" 0 "$rc"
+[ -z "$OUT" ] && ok "with no output" || bad "with no output (got '$OUT')"
+mkrepo h-renamed
+hcommit a.md 'secretproj\n'
+mv "$HREPO/a.md" "$HREPO/b.md"
+hrun --head; rc=$RC; expect "a file renamed in the worktree and not committed is found under its old name" 1 "$rc"
+contains "a.md:1:" "$OUT" "at the committed path"
+mkrepo h-binary
+( cd "$HREPO" && printf '\0secretproj\n' > blob.dat && git add blob.dat && git commit -qm bin ) >/dev/null 2>&1
+hrun --head; rc=$RC; expect "a binary file (NUL bytes) is skipped, as under --all" 0 "$rc"
+mkrepo h-symlink
+( cd "$HREPO" && ln -s /srv/secretproj/data link && git add link && git commit -qm link ) >/dev/null 2>&1
+hrun --head; rc=$RC; expect "a tracked symlink is scanned as its link text, the parity of --all" 1 "$rc"
+contains "link:1: private-name: se********" "$OUT" "at the link's path, redacted"
+mkrepo h-gitlink
+( cd "$HREPO" && c="$(git commit-tree -m 'secretproj in a message' "$(git write-tree)")" \
+  && git update-index --add --cacheinfo 160000,"$c",present && git commit -qm gitlink ) >/dev/null 2>&1
+hrun --head; rc=$RC; expect "a committed gitlink is skipped, never read and never a refusal" 0 "$rc"
+
+echo "== --head: the refusals, each with its own message =="
+mkdir -p "$WORK/h-nogit"
+OUT="$( cd "$WORK/h-nogit" && GIT_CEILING_DIRECTORIES="$WORK" "$SCRIPT" --list "$WORK/hlist" --head 2>"$WORK/herr.txt" )"; rc=$?
+expect "C1: --head outside a git work tree refuses" 2 "$rc"
+contains "check-private-leaks: not inside a git work tree (pass explicit paths to scan without git)" "$(cat "$WORK/herr.txt")" "and says so"
+mkdir -p "$WORK/h-unborn"; ( cd "$WORK/h-unborn" && git init -q . ) >/dev/null 2>&1
+OUT="$( cd "$WORK/h-unborn" && "$SCRIPT" --list "$WORK/hlist" --head 2>"$WORK/herr.txt" )"; rc=$?
+expect "C2: --head on an unborn HEAD refuses, it never reports clean" 2 "$rc"
+contains "check-private-leaks: HEAD not found: no commits yet, so --head has nothing to scan" "$(cat "$WORK/herr.txt")" "and names the cause"
+mkrepo h-modes
+hrun --head --all; rc=$RC; expect "C3: --head with --all refuses" 2 "$rc"
+contains "$NEWMODES" "$ERR" "and lists every mode, --head included"
+contains "check-private-leaks: one mode only" "$ERR" "under the private scanner's own prefix"
+hrun --all --head; rc=$RC; expect "and in the other order" 2 "$rc"
+contains "$NEWMODES" "$ERR" "with the same text"
+mkrepo h-leak
+hcommit leak.md 'secretproj\n'
+hrun --head; rc=$RC; expect "C4: a HEAD carrying one listed name exits 1, so the mode ran rather than returning early" 1 "$rc"
+contains "leak.md:1: private-name: se********" "$OUT" "and prints the redacted finding"
+hrun --head leak.md; rc=$RC; expect "C5: --head with an explicit path refuses (paths would silently replace the mode)" 2 "$rc"
+contains "check-private-leaks: --head takes no paths" "$ERR" "and says so"
+SHIM="$WORK/h-shim"; mkdir -p "$SHIM"
+REALGIT="$(command -v git)"
+printf '#!/bin/sh\n[ "$1" = ls-tree ] && exit 1\nexec "%s" "$@"\n' "$REALGIT" > "$SHIM/git"; chmod +x "$SHIM/git"
+OUT="$( cd "$HREPO" && PATH="$SHIM:$PATH" "$SCRIPT" --list "$WORK/hlist" --head 2>"$WORK/herr.txt" )"; rc=$?
+expect "C6: a failing tree listing refuses, it never reports clean" 2 "$rc"
+contains "could not list HEAD's tree" "$(cat "$WORK/herr.txt")" "and says so"
+
+echo "== --head: it reads each blob relative to the directory it runs from (G, gate round 2) =="
+mkrepo h-sub
+( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf 'secretproj\n' > sub/README.md \
+  && git add -A && git commit -qm sub ) >/dev/null 2>&1
+OUT="$( cd "$HREPO/sub" && "$SCRIPT" --list "$WORK/hlist" --head 2>"$WORK/herr.txt" )"; rc=$?
+expect "G1: from sub/, a sub/README.md naming a listed name is reported, never judged by the clean root README.md" 1 "$rc"
+contains "README.md:1: private-name" "$OUT" "as a private-name finding for README.md"
+mkrepo h-sub-clean
+( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf 'also clean\n' > sub/README.md \
+  && git add -A && git commit -qm sub ) >/dev/null 2>&1
+OUT="$( cd "$HREPO/sub" && "$SCRIPT" --list "$WORK/hlist" --head 2>"$WORK/herr.txt" )"; rc=$?
+expect "G2: clean README.md files at the root and in sub/ exit 0" 0 "$rc"
+[ -z "$OUT" ] && ok "with no output" || bad "with no output (got '$OUT')"
+
+echo "== --head fails closed, the way the other tree modes do (#208) =="
+mkrepo h-notmp
+hcommit leak.md 'secretproj\n'
+OUT="$( cd "$HREPO" && TMPDIR="$WORK/does-not-exist" "$SCRIPT" --list "$WORK/hlist" --head </dev/null 2>"$WORK/herr.txt" )"; rc=$?
+expect "mktemp failure refuses --head" 2 "$rc"
+contains "cannot create a temp directory" "$(cat "$WORK/herr.txt")" "and says so"
+mkrepo h-nowrite
+( cd "$HREPO" && head -c 3000 /dev/zero | tr '\0' a > big.md && printf '\nsecretproj\n' >> big.md \
+  && git add big.md && git commit -qm big ) >/dev/null 2>&1
+( cd "$HREPO" && ulimit -f 1 && "$SCRIPT" --list "$WORK/hlist" --head </dev/null >"$WORK/wout.txt" 2>"$WORK/werr.txt"; echo $? > "$WORK/wrc.txt" ) 2>/dev/null
+expect "a blob the scanner cannot write refuses --head" 2 "$(cat "$WORK/wrc.txt")"
+contains "could not read big.md" "$(cat "$WORK/werr.txt")" "naming the file"
+lacks "$ROOT" "$(cat "$WORK/werr.txt")" "and never the script's path"
+
+echo "== --head: the mutants, each applied (cmp -s) and each killed =="
+head_mutant() {  # head_mutant <name> <sed script>: scratch copy in $HMUT; returns 1 when the edit changed nothing
+  HMUT="$WORK/mutant-head-$1.sh"; sed "$2" "$SCRIPT" > "$HMUT"; chmod +x "$HMUT"
+  if cmp -s "$HMUT" "$SCRIPT"; then bad "mutant ledger ($1): the edit changed nothing"; return 1; fi
+  ok "mutant ledger ($1): the scratch copy differs from the scanner"
+}
+if head_mutant worktree-read 's|^    head)   {.*$|    head)   scanfile="$f" ;;|'; then
+  mkrepo hm-masked; hcommit leak.md 'secretproj\n'; printf 'edited out\n' > "$HREPO/leak.md"
+  ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
+  expect "mutant: reading the worktree file instead of HEAD misses the masked name (the masked case fails it)" 0 "$?"
+fi
+if head_mutant no-dot-slash 's|"HEAD:\./\$f"|"HEAD:$f"|'; then
+  mkrepo hm-sub
+  ( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf 'secretproj\n' > sub/README.md \
+    && git add -A && git commit -qm sub ) >/dev/null 2>&1
+  ( cd "$HREPO/sub" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
+  expect "mutant: HEAD:\$f without ./ reads the ROOT README.md and reports clean (G1 fails it)" 0 "$?"
+fi
+if head_mutant no-unborn-check 's|^        \|\| die "HEAD not found: no commits yet.*$|        \|\| true|'; then
+  OUT="$( cd "$WORK/h-unborn" && "$HMUT" --list "$WORK/hlist" --head 2>&1 )"
+  lacks "HEAD not found" "$OUT" "mutant: without the unborn-HEAD refusal the C2 message is gone"
+fi
+if head_mutant no-precheck 's|^      git ls-tree -r -z HEAD >/dev/null 2>&1 .*$|      :|'; then
+  ( cd "$HREPO" && PATH="$SHIM:$PATH" "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
+  expect "mutant: without the ls-tree pre-check a failing listing reads as clean (C6 fails it)" 0 "$?"
+fi
+if head_mutant no-paths-refusal 's|^\[ "\$MODE" != head \].*$|:|'; then
+  mkrepo hm-paths; hcommit leak.md 'secretproj\n'
+  ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head leak.md ) >/dev/null 2>&1
+  [ "$?" != 2 ] && ok "mutant: without the refusal --head with a path no longer exits 2 (C5 fails it)" \
+    || bad "mutant: without the refusal --head with a path no longer exits 2"
+fi
+if head_mutant gitlink-admitted 's/100644|100755|120000/100644|100755|120000|160000/'; then
+  mkrepo hm-gitlink
+  ( cd "$HREPO" && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub \
+    && git commit -qm gitlink ) >/dev/null 2>&1
+  ( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
+  expect "(the real scanner skips an absent-commit gitlink)" 0 "$?"
+  ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
+  expect "mutant: admitting 160000 makes a gitlink a refusal (the gitlink case fails it)" 2 "$?"
 fi
 
 echo "== the owner drop applies only where its rationale is true (#209) =="

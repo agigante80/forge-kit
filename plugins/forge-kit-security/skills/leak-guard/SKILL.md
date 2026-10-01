@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 19 -->
+<!-- leak-guard-version: 20 -->
 
 # Leak guard
 
@@ -20,9 +20,9 @@ private. The project name at the end is the only part anyone meant to publish.
 
 ## What this does not reach, and what to run beside it
 
-**The tree modes never look at history; `--history` does, and it is opt-in.** `--all`, `--staged`
-and `--range` enumerate the working tree, the index, or two endpoints of a range, so a path, a name
-or an address committed once and removed later is invisible to all three. That is the going-public
+**The tree modes never look at history; `--history` does, and it is opt-in.** `--all`, `--staged`,
+`--range` and `--head` enumerate the working tree, the index, two endpoints of a range, or HEAD's tree, so a path, a name
+or an address committed once and removed later is invisible to all four. That is the going-public
 moment this skill is named for, which is why the mode exists and why it is run by hand rather than
 from a hook:
 
@@ -123,7 +123,7 @@ a place with worse access controls and more readers.
 ## The public half
 
 ```
-check-public-leaks.sh [--staged | --range <base> | --all] [--allow-file <path>] [paths...]
+check-public-leaks.sh [--staged | --range <base> | --head | --all] [--allow-file <path>] [paths...]
 ```
 
 Exit 0 clean, 1 on a finding, 2 when it could not run. One line per finding:
@@ -159,7 +159,7 @@ everything in it is something the project decided it may show.
 ## The private half
 
 ```
-check-private-leaks.sh [--staged | --range <base> | --all] [--list <path>] [--allow-file <path>] [--show-names] [paths...]
+check-private-leaks.sh [--staged | --range <base> | --head | --all] [--list <path>] [--allow-file <path>] [--show-names] [paths...]
 check-private-leaks.sh --history [--orphans] [--list <path>] [--allow-file <path>] [--show-names]
 check-private-leaks.sh --init [--list <path>]
 ```
@@ -212,9 +212,9 @@ Two rules learned the hard way, both written into the list `--init` creates:
 ## Where it runs
 
 Both stages, which is one decision taken explicitly rather than by default. The cheap staged scan
-at commit gives fast feedback on what you are about to write down. The full-tree scan at push is
-the one that matters the moment a history rewrite is ever needed, because it asks about the state
-of the tree rather than about one change to it. A project that wires only the commit stage has the
+at commit gives fast feedback on what you are about to write down. The push scan reads HEAD's committed tree (`--head`), never the working tree, so an uncommitted edit
+cannot hide a committed leak, and it asks about the state of the tree rather than about one change
+to it, which matters the moment a history rewrite is ever needed. A project that wires only the commit stage has the
 weaker half of the pair.
 
 The scanner documents its own rules in placeholder shapes (`/home/<name>/`, `~/<root>/`,

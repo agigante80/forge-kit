@@ -230,6 +230,95 @@ printf '%s' "$out" | grep -q -e 'CI also runs' -e 'runs only on this machine' \
   || ok "a could-not-run result carries none of the finding wording"
 rm -f .leak-guard-allow docs-leak.md; git add -A >/dev/null; git commit --quiet -m cleanup
 
+# --- the scan reads HEAD, not the working tree (#375) ----------------------------------------------
+# Every case that dirties the tree restores it, because later sections run `git add -A` and commit.
+LEAKLINE="$(printf 'the log said %s/alice/work/build.log' /home)"
+hook_commit() { git add -A >/dev/null; git commit --quiet --allow-empty -m "$1"; }
+# A: a leak committed at HEAD and removed only in an uncommitted edit still blocks.
+printf '%s\n' "$LEAKLINE" > docs-leak.md; hook_commit "a committed leak"
+printf 'edited out, not committed\n' > docs-leak.md
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 1 ] && ok "a committed leak masked by an uncommitted fix still blocks (rc exactly 1)" \
+  || bad "a committed leak masked by an uncommitted fix still blocks (rc=$rc)"
+printf '%s' "$out" | grep -q 'home-path' && ok "and the finding is shown" || bad "and the finding is shown"
+# B: a clean HEAD with an uncommitted-only leak passes: nothing leaky is published.
+printf 'clean\n' > docs-leak.md; hook_commit "fix the leak"
+printf '%s\n' "$LEAKLINE" > docs-leak.md
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 0 ] && ok "an uncommitted-only leak over a clean HEAD passes (never published)" \
+  || bad "an uncommitted-only leak over a clean HEAD passes (rc=$rc)"
+printf 'clean\n' > docs-leak.md
+# F1: an allow-file entry that exists only in the working tree must not suppress a committed leak.
+printf '%s\n' "$LEAKLINE" > docs-leak.md; hook_commit "a committed leak again"
+printf 'skip docs-leak.md\n' > .leak-guard-allow
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 1 ] && ok "F1: an uncommitted skip entry does not mask a committed leak (no allow-file at HEAD)" \
+  || bad "F1: an uncommitted skip entry does not mask a committed leak (no allow-file at HEAD) (rc=$rc)"
+printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry"
+printf 'root nowhere\nskip docs-leak.md\n' > .leak-guard-allow
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 1 ] && ok "F1: an uncommitted skip entry does not mask it over a committed allow-file lacking the entry" \
+  || bad "F1: an uncommitted skip entry does not mask it over a committed allow-file lacking the entry (rc=$rc)"
+printf '%s' "$out" | grep -q 'home-path' \
+  && ok "F1: and it blocks on the finding, not on a malformed allow-file" || bad "F1: and it blocks on the finding, not on a malformed allow-file"
+# F2: a committed entry covers the finding; emptying it in the working tree does not un-cover it.
+printf 'skip docs-leak.md\n' > .leak-guard-allow; hook_commit "a committed skip"
+: > .leak-guard-allow
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 0 ] && ok "F2: a committed skip entry still applies when emptied in the working tree only" \
+  || bad "F2: a committed skip entry still applies when emptied in the working tree only (rc=$rc)"
+rm -f .leak-guard-allow
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 0 ] && ok "F2: nor when deleted in the working tree" || bad "F2: nor when deleted in the working tree (rc=$rc)"
+# F3: an unreadable HEAD allow-file is a could-not-run, never a silent drop of the allow-file.
+GSHIM="$TMP/gshim"; mkdir -p "$GSHIM"
+REALGIT="$(command -v git)"
+printf '#!/bin/sh\n[ "$1" = show ] && [ "$2" = "HEAD:.leak-guard-allow" ] && exit 1\nexec "%s" "$@"\n' "$REALGIT" > "$GSHIM/git"
+chmod +x "$GSHIM/git"
+out=$(PATH="$GSHIM:$PATH" run_hook leakcheck); rc=$?
+[ "$rc" -eq 1 ] && ok "F3: a failing read of .leak-guard-allow at HEAD blocks (rc exactly 1)" \
+  || bad "F3: a failing read of .leak-guard-allow at HEAD blocks (rc=$rc)"
+printf '%s' "$out" | grep -q 'forge-kit: could not read .leak-guard-allow at HEAD' \
+  && ok "F3: and names the unreadable allow-file" || bad "F3: and names the unreadable allow-file"
+printf '%s' "$out" | grep -q 'could not RUN' \
+  && ok "F3: and reports could not RUN, not a finding" || bad "F3: and reports could not RUN, not a finding"
+# The hook's own comment no longer describes the working tree as what is scanned.
+grep -q 'reads the checked-out worktree' .githooks/pre-push \
+  && bad "the hook comment no longer says it reads the checked-out worktree" \
+  || ok "the hook comment no longer says it reads the checked-out worktree"
+grep -q 'scans the WORKING TREE' .githooks/pre-push \
+  && bad "the hook comment no longer says it scans the WORKING TREE" \
+  || ok "the hook comment no longer says it scans the WORKING TREE"
+# Hook-level mutants, each applied (cmp -s) and each killed. Scratch copies of the hook.
+hook_mutant() {  # hook_mutant <name> <sed>: writes .githooks/pre-push.mut-<name>; fails if unchanged
+  HM=".githooks/pre-push.mut-$1"; sed "$2" .githooks/pre-push > "$HM"
+  if cmp -s "$HM" .githooks/pre-push; then bad "hook mutant ledger ($1): the edit changed nothing"; return 1; fi
+  ok "hook mutant ledger ($1): the scratch copy differs from the hook"
+}
+if hook_mutant swallow-read-error '/could not read .leak-guard-allow at HEAD/{n;s/leak_errors=\$((leak_errors + 1))/:/}'; then
+  out=$(PATH="$GSHIM:$PATH" run_hook leakcheck .githooks/pre-push.mut-swallow-read-error)
+  printf '%s' "$out" | grep -q 'could not RUN' \
+    && bad "mutant: swallowing the read failure still reports could not RUN" \
+    || ok "mutant: swallowing the read failure drops could not RUN (the F3 case fails it)"
+fi
+# Both remaining mutants need HEAD to carry an allow-file WITHOUT the skip entry, plus the committed leak.
+printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry, for the mutants"
+if hook_mutant worktree-allow 's|git show HEAD:.leak-guard-allow|cat .leak-guard-allow|; s|git cat-file -e HEAD:.leak-guard-allow|test -e .leak-guard-allow|'; then
+  printf 'root nowhere\nskip docs-leak.md\n' > .leak-guard-allow
+  out=$(run_hook leakcheck .githooks/pre-push.mut-worktree-allow); rc=$?
+  [ "$rc" -eq 0 ] && ok "mutant: reading the allow-file from the worktree lets an uncommitted skip mask the leak (F1 fails it)" \
+    || bad "mutant: reading the allow-file from the worktree lets an uncommitted skip mask the leak (rc=$rc)"
+  printf 'root nowhere\n' > .leak-guard-allow
+fi
+if hook_mutant worktree-scan 's/ --head//'; then
+  printf 'edited out, not committed\n' > docs-leak.md
+  out=$(run_hook leakcheck .githooks/pre-push.mut-worktree-scan); rc=$?
+  [ "$rc" -eq 0 ] && ok "mutant: dropping --head reads the worktree and passes the masked leak (the masked case fails it)" \
+    || bad "mutant: dropping --head reads the worktree and passes the masked leak (rc=$rc)"
+fi
+rm -f .githooks/pre-push.mut-* .leak-guard-allow docs-leak.md
+git add -A >/dev/null; git commit --quiet --allow-empty -m "restore a clean tree"
+
 # --- the roadmap guard's OFFLINE half ----------------------------------------------------------
 # --offline on purpose: a push must never depend on the host being reachable, and rule 2 (an open
 # phase has a plan carrying a Fails if section) needs only the files.

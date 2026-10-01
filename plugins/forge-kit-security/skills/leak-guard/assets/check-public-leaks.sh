@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 20
+# check-public-leaks-version: 21
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -17,10 +17,13 @@
 # guard that overstates its reach is worse than a narrow one that admits it.
 #
 # THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
-# enumerates `git ls-files`: tracked files in the WORKING TREE. `--staged` reads the index. `--range`
+# enumerates `git ls-files`: tracked files in the WORKING TREE. `--head` reads HEAD's COMMITTED tree
+# (#375; `git ls-tree -r -z HEAD`, each blob by `git show "HEAD:./$f"`), so an uncommitted edit, or a
+# tracked file deleted in the working tree, cannot mask what a push publishes: the pre-push hook
+# uses it. It is HEAD's tree and not every pushed commit. `--staged` reads the index. `--range`
 # enumerates `git diff --no-renames --name-only --diff-filter=ACMT` between two endpoints and reads
 # each file at HEAD, so a file added AND deleted inside the range is excluded at both ends. A home
-# path committed in one commit and removed in the next is invisible to all three, in the public
+# path committed in one commit and removed in the next is invisible to all four, in the public
 # repository where it stays readable forever, and that is exactly the going-public moment this
 # component exists for. `--no-renames` and the `T` are load-bearing (#208): with rename detection
 # on, a renamed-and-edited file is status R and was listed by nothing, so the commit hook said
@@ -140,7 +143,7 @@
 # half of the leak. Catching those needs the name, which is the private half's job. This was found
 # by review AFTER the paragraph above shipped, which is the argument for the paragraph.
 #
-#   check-public-leaks.sh [--staged | --range <base> | --all] [--allow-file <path>] [paths...]
+#   check-public-leaks.sh [--staged | --range <base> | --head | --all] [--allow-file <path>] [paths...]
 #   check-public-leaks.sh --history [--orphans] [--show-evidence] [--allow-file <path>]
 #
 # Exit 0 clean, 1 when something was found, 2 when it could not run. One line per violation:
@@ -204,11 +207,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     # One mode per run. The last flag used to win silently, so "--history --staged" scanned the
     # index and reported clean on the history the user asked about.
-    --all)        [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=all ;;
-    --staged)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=staged ;;
-    --range)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1
+    --all)        [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=all ;;
+    --staged)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=staged ;;
+    --range)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1
                   MODE=range; shift; [ $# -gt 0 ] || die "--range needs a base ref"; BASE="$1" ;;
-    --history)    [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range or --history"; MODESET=1; MODE=history ;;
+    --history)    [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=history ;;
+    --head)       [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=head ;;
     --orphans)    ORPHANS=1 ;;
     --show-evidence) SHOW_EVIDENCE=1 ;;
     --allow-file) shift; [ $# -gt 0 ] || die "--allow-file needs a path"; ALLOW_FILE="$1" ;;
@@ -404,6 +408,8 @@ else
   [ "$ORPHANS" = 0 ] || die "--orphans is only valid with --history"
   [ "$SHOW_EVIDENCE" = 0 ] || die "--show-evidence is only valid with --history"
 fi
+# Explicit paths would switch MODE to `paths` below and silently ignore --head (#375).
+[ "$MODE" != head ] || [ "${#PATHS[@]}" -eq 0 ] || die "--head takes no paths"
 
 # --- which files ------------------------------------------------------------
 in_git() { git rev-parse --is-inside-work-tree >/dev/null 2>&1; }
@@ -431,6 +437,19 @@ else
         || die "base ref not found: $BASE (fetch it first)"
       while IFS= read -r -d '' f; do FILES+=("$f"); done \
         < <(git diff --no-renames --name-only --diff-filter=ACMT -z "$BASE...HEAD") ;;
+    head)
+      # HEAD's committed tree (#375): what a push publishes, whatever the working tree says. The
+      # unborn-HEAD check is explicit because the enumeration below hides a failure and an empty
+      # list exits 0 further down. The pre-check is the mechanism for a failing `ls-tree`, since
+      # `< <(...)` hides its exit status. Only blob entries (100644, 100755, 120000) are kept, so
+      # a 160000 gitlink is skipped and no per-file `cat-file -t` is needed. `ls-tree` lists paths
+      # relative to the CURRENT directory, which is why the read below is `HEAD:./$f`.
+      git rev-parse --verify --quiet "HEAD^{commit}" >/dev/null \
+        || die "HEAD not found: no commits yet, so --head has nothing to scan"
+      git ls-tree -r -z HEAD >/dev/null 2>&1 || die "could not list HEAD's tree"
+      while IFS= read -r -d '' ent; do
+        case "${ent%% *}" in 100644|100755|120000) FILES+=("${ent#*$'\t'}") ;; esac
+      done < <(git ls-tree -r -z HEAD) ;;
   esac
 fi
 
@@ -795,11 +814,18 @@ for f in "${FILES[@]}"; do
             { git show ":0:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     range)  [ "$(git cat-file -t "HEAD:$f" 2>/dev/null)" = blob ] || continue
             { git show "HEAD:$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
+    # --head (#375): the mode and type come from `ls-tree`, so only blobs are in FILES. "HEAD:./$f",
+    # never "HEAD:$f": `ls-tree` paths are relative to the current directory and a bare
+    # "HEAD:<path>" is root-relative, so from a subdirectory the bare form reads the ROOT file of
+    # the same name (a leaking sub/README.md judged by the clean ./README.md). Same failure rule.
+    head)   { git show "HEAD:./$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac
   # A tracked SYMLINK is its target text in git, and the worktree read followed it: a dangling
   # link whose target is a home path was reported by --staged and clean under --all, the pre-push
   # hook's mode (review of #208). The link text is what git commits, so it is what is scanned.
+  # --head is deliberately NOT in the gate below: its scanfile is the regular-file $BLOB, so -L is
+  # false and `git show` already yields the link text.
   if [ "$MODE" != staged ] && [ "$MODE" != range ] && [ -L "$scanfile" ]; then
     { readlink -- "$scanfile" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB"
   fi
