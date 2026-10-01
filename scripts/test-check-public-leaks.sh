@@ -216,6 +216,122 @@ printf 'prefix /home/..\n' > "$WORK/punct-allow"
 expect "a punctuation-only prefix segment refuses the run" 2 "$?"
 contains "cannot be a username" "$(cat "$WORK/err.txt")" "and explains why"
 
+# #242: two more dead prefix shapes. Rule A strips the match and compares it EXACTLY against the
+# unstripped entry, so an entry ending in a TAIL_PUNCT byte can never equal a match, and RE_HOME
+# yields no whitespace, double quote or backtick. Unlike root there is NO bracketed exemption,
+# because the two keys compare differently. The `/home/..` ordering case above is kept as it is.
+echo "== #242: a prefix ending in punctuation, or carrying what rule A cannot yield, is refused =="
+printf 'x\n' > "$WORK/sample.txt"
+for v in '/home/alice.' '/home/alice)' '/Users/bob,' '/home/[myco]' '/home/[redacted]'; do
+  printf 'prefix %s\n' "$v" > "$WORK/pfx-end"
+  "$SCRIPT" --allow-file "$WORK/pfx-end" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a prefix ending in punctuation ($v) refuses the run (#242)" 2 "$?"
+  contains "pfx-end:1: prefix segment cannot end in punctuation" "$(cat "$WORK/err.txt")" "and names the line ($v)"
+  contains "so this entry could never match: $v" "$(cat "$WORK/err.txt")" "and says it could never match, with the value ($v)"
+done
+for v in '/home/a b' '/home/a"b' '/home/a`b' "$(printf '/home/a\tb')" "$(printf '/home/a\vb')" "$(printf '/home/a\fb')" "$(printf '/home/a\rb')"; do
+  printf 'prefix %s\n' "$v" > "$WORK/pfx-ws"
+  "$SCRIPT" --allow-file "$WORK/pfx-ws" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a prefix carrying what rule A cannot yield (a space, quote, backtick, tab, VT, FF or CR) refuses the run (#242)" 2 "$?"
+  contains "prefix segment cannot contain whitespace, a double quote or a backtick" "$(cat "$WORK/err.txt")" "and explains why"
+done
+# Where both refusals apply, the whitespace/quote/backtick one wins: it is checked first.
+for v in '/home/a"' '/home/a b.'; do
+  printf 'prefix %s\n' "$v" > "$WORK/pfx-both"
+  "$SCRIPT" --allow-file "$WORK/pfx-both" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "an entry failing both refusals ($v) exits 2 (#242)" 2 "$?"
+  contains "prefix segment cannot contain whitespace" "$(cat "$WORK/err.txt")" "and the whitespace message wins ($v)"
+  lacks "cannot end in punctuation" "$(cat "$WORK/err.txt")" "and the punctuation message does not appear ($v)"
+done
+# A trailing single quote is TAIL_PUNCT too, so it is refused (the mid-name quote below is not).
+printf "prefix /home/o'brien'\n" > "$WORK/pfx-end"
+"$SCRIPT" --allow-file "$WORK/pfx-end" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+expect "a prefix ending in a single quote (/home/o'brien') refuses the run (#242)" 2 "$?"
+# Locale independence: the whitespace test must not change its verdict with the caller's locale.
+printf 'prefix /home/a\xe2\x80\x83b\n' > "$WORK/pfx-emsp"
+rc_c=$(LC_ALL=C "$SCRIPT" --allow-file "$WORK/pfx-emsp" "$WORK/sample.txt" >/dev/null 2>&1; echo $?)
+utf8loc=""
+for l in C.UTF-8 C.utf8 en_US.UTF-8 en_GB.utf8; do
+  [ "$(LC_ALL=$l locale charmap 2>/dev/null)" = UTF-8 ] && { utf8loc=$l; break; }
+done
+if [ -n "$utf8loc" ]; then
+  rc_u=$(LC_ALL=$utf8loc "$SCRIPT" --allow-file "$WORK/pfx-emsp" "$WORK/sample.txt" >/dev/null 2>&1; echo $?)
+  expect "a prefix holding U+2003 gives the same verdict under LC_ALL=C and $utf8loc (#242)" "$rc_c" "$rc_u"
+  expect "and that verdict is acceptance, since rule A's C-locale class can yield U+2003 (#242)" 0 "$rc_u"
+else
+  ok "no UTF-8 locale installed on this machine: the U+2003 locale-parity case was not run"
+fi
+for v in '/home/runner' '/home/runner/' '/home/<user>' '/Users/<seg>' '/home/alice' "/home/o'brien" '/home/a.b' '/home/a]b'; do
+  printf 'prefix %s\n' "$v" > "$WORK/pfx-ok"
+  "$SCRIPT" --allow-file "$WORK/pfx-ok" "$WORK/sample.txt" >/dev/null 2>&1
+  expect "an accepted prefix ($v) still parses (#242)" 0 "$?"
+done
+printf "prefix /home/o'brien\n" > "$WORK/pfx-quote"
+expect "and prefix o'brien suppresses its row (mid-name punctuation is a name byte)" 0 "$(scan_line "see /home/o'brien/x" --allow-file "$WORK/pfx-quote")"
+expect "and the same row is reported without the entry" 1 "$(scan_line "see /home/o'brien/x")"
+
+# Mutants, each applied (cmp -s) and each killed.
+# scan_line above rewrote sample.txt, so restore the clean one: a mutant that accepts the dead entry must exit 0.
+printf 'x\n' > "$WORK/sample.txt"
+M242="$WORK/mutant-242-punct.sh"
+grep -v '^        \[ "\$STRIPPED" = "\$rest" \] || die ' "$SCRIPT" > "$M242"; chmod +x "$M242"
+expect "mutant ledger (#242 punctuation refusal dropped): the line exists once" 1 "$(grep -c '^        \[ "\$STRIPPED" = "\$rest" \] || die ' "$SCRIPT")"
+cmp -s "$SCRIPT" "$M242" && bad "mutant ledger (#242 punctuation refusal dropped): nothing was removed" || ok "mutant ledger (#242 punctuation refusal dropped): the mutant differs"
+printf 'prefix /home/alice.\n' > "$WORK/pfx-end"
+"$M242" --allow-file "$WORK/pfx-end" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "mutant (#242): without the punctuation refusal the dead entry is accepted (exit $rc)" || bad "mutant (#242): the dead entry is still refused"
+
+M242B="$WORK/mutant-242-ws.sh"
+awk '/prefix segment cannot contain whitespace/ {next} {print}' "$SCRIPT" > "$M242B"; chmod +x "$M242B"
+expect "mutant ledger (#242 whitespace refusal dropped): the line exists once" 1 "$(grep -c 'prefix segment cannot contain whitespace' "$SCRIPT")"
+cmp -s "$SCRIPT" "$M242B" && bad "mutant ledger (#242 whitespace refusal dropped): nothing was removed" || ok "mutant ledger (#242 whitespace refusal dropped): the mutant differs"
+printf 'prefix /home/a b\n' > "$WORK/pfx-ws"
+"$M242B" --allow-file "$WORK/pfx-ws" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "mutant (#242): without the whitespace refusal the dead entry is accepted (exit $rc)" || bad "mutant (#242): the whitespace entry is still refused"
+
+M242C="$WORK/mutant-242-tab.sh"
+sed '/prefix segment cannot contain/s/\*\[[^]]*\]\*|/*" "*|/' "$SCRIPT" > "$M242C"; chmod +x "$M242C"
+expect "mutant ledger (#242 tab): the whitespace-byte pattern is on the prefix line" 1 "$(grep -c '\*\[\$[^]]*\]\*|.*prefix segment cannot contain' "$SCRIPT")"
+cmp -s "$SCRIPT" "$M242C" && bad "mutant ledger (#242 tab): the sed did not apply" || ok "mutant ledger (#242 tab): the mutant differs"
+printf 'prefix /home/a b\n' > "$WORK/pfx-ws"
+"$M242C" --allow-file "$WORK/pfx-ws" "$WORK/sample.txt" >/dev/null 2>&1
+expect "mutant (#242 tab): a space alone still refuses (the mutant is otherwise live)" 2 "$?"
+printf 'prefix /home/a\tb\n' > "$WORK/pfx-tab"
+"$M242C" --allow-file "$WORK/pfx-tab" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "mutant (#242 tab): with only a space tested a tab entry is accepted (exit $rc)" || bad "mutant (#242 tab): the tab entry is still refused"
+
+M242D="$WORK/mutant-242-contains.sh"
+sed 's/^        \[ "\$STRIPPED" = "\$rest" \] || die /        case "$rest" in *[.]*|*"]"*|*"'"'"'"*) false ;; *) true ;; esac || die /' "$SCRIPT" > "$M242D"; chmod +x "$M242D"
+expect "mutant ledger (#242 contains-punctuation): the target line exists once" 1 "$(grep -c '^        \[ "\$STRIPPED" = "\$rest" \] || die ' "$SCRIPT")"
+cmp -s "$SCRIPT" "$M242D" && bad "mutant ledger (#242 contains-punctuation): the sed did not apply" || ok "mutant ledger (#242 contains-punctuation): the mutant differs"
+printf 'prefix /home/alice.\n' > "$WORK/pfx-end"
+"$M242D" --allow-file "$WORK/pfx-end" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+expect "mutant (#242 contains-punctuation): still refuses a trailing period (live)" 2 "$?"
+printf 'prefix /home/a.b\n' > "$WORK/pfx-ok"
+"$M242D" --allow-file "$WORK/pfx-ok" "$WORK/sample.txt" >/dev/null 2>"$WORK/err2.txt"
+expect "mutant (#242 contains-punctuation): refuses mid-name punctuation, which the accept loop above forbids" 2 "$?"
+contains "cannot end in punctuation" "$(cat "$WORK/err.txt")" "mutant (#242 contains-punctuation): the trailing-period refusal is the punctuation message, not a crash"
+contains "cannot end in punctuation" "$(cat "$WORK/err2.txt")" "mutant (#242 contains-punctuation): the mid-name refusal is the punctuation message, not a crash"
+
+M242E="$WORK/mutant-242-bracket.sh"
+sed 's/^        \[ "\$STRIPPED" = "\$rest" \] || die /        [ "$STRIPPED" = "$rest" ] || case "$rest" in \\[*\\]) true ;; *) false ;; esac || die /' "$SCRIPT" > "$M242E"; chmod +x "$M242E"
+expect "mutant ledger (#242 bracket exemption copied): the target line exists once" 1 "$(grep -c '^        \[ "\$STRIPPED" = "\$rest" \] || die ' "$SCRIPT")"
+cmp -s "$SCRIPT" "$M242E" && bad "mutant ledger (#242 bracket exemption copied): the sed did not apply" || ok "mutant ledger (#242 bracket exemption copied): the mutant differs"
+printf 'prefix /home/[myco]\n' > "$WORK/pfx-end"
+"$M242E" --allow-file "$WORK/pfx-end" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "mutant (#242 bracket exemption copied): the dead bracketed entry is accepted (exit $rc)" || bad "mutant (#242 bracket exemption copied): still refused"
+
+M242F="$WORK/mutant-242-squote.sh"
+sed 's/^        \[ "\$STRIPPED" = "\$rest" \] || die /        [ "$STRIPPED" = "$rest" ] || case "$rest" in *"'"'"'") : ;; *) false ;; esac || die /' "$SCRIPT" > "$M242F"; chmod +x "$M242F"
+expect "mutant ledger (#242 trailing quote exempted): the target line exists once" 1 "$(grep -c '^        \[ "\$STRIPPED" = "\$rest" \] || die ' "$SCRIPT")"
+cmp -s "$SCRIPT" "$M242F" && bad "mutant ledger (#242 trailing quote exempted): the sed did not apply" || ok "mutant ledger (#242 trailing quote exempted): the mutant differs"
+printf "prefix /home/o'brien'\n" > "$WORK/pfx-end"
+"$M242F" --allow-file "$WORK/pfx-end" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "mutant (#242 trailing quote exempted): the dead entry is accepted (exit $rc)" || bad "mutant (#242 trailing quote exempted): still refused or crashed (exit $rc)"
+printf 'prefix /home/alice.\n' > "$WORK/pfx-end"
+"$M242F" --allow-file "$WORK/pfx-end" "$WORK/sample.txt" >/dev/null 2>&1
+expect "mutant (#242 trailing quote exempted): still refuses a trailing period (live)" 2 "$?"
+
 # #224: the root key gets the same guard. A root that strips to nothing ("..", "}", "...") is
 # returned clean by rule B before the list is consulted, so the entry can never change a verdict;
 # it sits in a tracked allow-file looking like a decision somebody made. One of the seventeen

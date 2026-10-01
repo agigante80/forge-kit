@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 21 -->
+<!-- leak-guard-version: 22 -->
 
 # Leak guard
 
@@ -101,14 +101,13 @@ gitleaks dir .     # the working tree
 git log --all --diff-filter=A --name-only --format= -- '*.env' '*.env.*' | sort -u
 ```
 
-Running both is the answer. Neither covers the other, and a guard that implied otherwise would be
-worse than a narrow one that admits it.
+Running both is the answer. Neither covers the other.
 
 ## Two halves, split by whether the check needs a secret
 
 **A denylist of the private names cannot live in the repository it protects.** A public file
 enumerating the names you have been hiding tells a reader exactly what to search the history for.
-It converts a guard into an index. That single constraint forces the whole design.
+It converts a guard into an index.
 
 | | Public half | Private half |
 |---|---|---|
@@ -139,7 +138,7 @@ so.
 real first name is not. Shape cannot decide whether `~/<root>` is private, because the string
 carries no marker either way. So the test is inverted: an allowlist of roots a document may show.
 That catches the case by construction rather than by enumeration, and it asks one thing of the
-project, **a canonical example root, agreed once**. A project without one has a different problem.
+project, **a canonical example root, agreed once**.
 Neither rule reports a user segment or root that is entirely punctuation once trailing punctuation
 is stripped (`/home/..`, `~/...`, `~/}`): a path idiom or a code fragment, not a person, and one no
 allow-file entry could name either.
@@ -154,9 +153,11 @@ entry that could never match, since a dead entry in a tracked file reads as a de
 made. A `root` is refused when it is entirely punctuation, when it is not exactly one segment
 (rule B matches one segment and nothing deeper, though a trailing slash is tolerated), when it
 carries whitespace, a double quote or a backtick, and when it ends in punctuation, which after the
-strip could only ever match its own literal. Bracketed values are the exception to that last rule,
-because a redaction marker is exactly such a literal and is meant to be written out. The file is tracked and public on purpose:
-everything in it is something the project decided it may show.
+strip could only ever match its own literal; bracketed `root` values are the exception to that last
+rule, since a redaction marker is such a literal. A `prefix` is refused for the same four shapes
+with no bracketed exception, because rule A compares the stripped match exactly, so an entry
+ending in punctuation never matches; the built-in redaction markers need no prefix entry. The
+file is tracked and public on purpose: everything in it is something the project decided it may show.
 
 ## The private half
 

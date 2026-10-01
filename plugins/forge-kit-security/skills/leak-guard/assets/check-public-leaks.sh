@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 23
+# check-public-leaks-version: 24
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -389,6 +389,24 @@ if [ -n "$ALLOW_FILE" ]; then
         # naming one could never match anything. Refuse it rather than accept a dead entry.
         strip_tail "$rest"
         [ -n "$STRIPPED" ] || die "$ALLOW_FILE:$lineno: prefix segment cannot be a username (entirely punctuation), so this entry could never match: $pfx"
+        # Two more dead shapes (#242). Where both apply (a segment ending in a double quote, or
+        # holding a space and ending in a period) the whitespace/quote/backtick message wins,
+        # because it is checked first and is the deeper fault: RE_HOME could never yield the
+        # segment at all, ending in punctuation or not.
+        # Rule A's match class (RE_HOME) yields no [[:space:]], double quote or backtick.
+        # The whitespace set is spelled as bytes, not [[:space:]], so this test gives the same
+        # verdict in every caller locale: RE_HOME's [[:space:]] runs under LC_ALL=C and a UTF-8
+        # caller's [[:space:]] would also match U+2003, which rule A's C-locale class does yield,
+        # so refusing it would refuse a live entry.
+        case "$rest" in
+          *[$' \t\n\v\f\r']*|*'"'*|*'`'*) die "$ALLOW_FILE:$lineno: prefix segment cannot contain whitespace, a double quote or a backtick (rule A's match class yields none of them), so this entry could never match: $pfx" ;;
+        esac
+        # DELIBERATELY unlike root, which exempts a bracketed literal (#239): rule A strips the
+        # match and compares it EXACTLY against the unstripped entry (no in_list_stripping, which
+        # only rule B and PLACEHOLDER_USERS use), so an entry ending in a TAIL_PUNCT byte can
+        # never equal a stripped match, bracketed or not. Do not copy root's exemption here.
+        # Only the final byte is tested: punctuation inside a name (`a.b`, `o'brien`) is fine.
+        [ "$STRIPPED" = "$rest" ] || die "$ALLOW_FILE:$lineno: prefix segment cannot end in punctuation (rule A strips it from the match before compare), so this entry could never match: $pfx"
         ALLOW_PREFIXES+=("$pfx") ;;
       email)  ALLOW_EMAILS+=("$val") ;;
       skip)   SKIP_PATHS+=("$val") ;;
