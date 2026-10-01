@@ -73,9 +73,12 @@
 #  (c) INSERT, immediately above the awk line `if (path == "" && tok in bn) {`, this one line:
 #      if (path == "") { cmd = "git ls-files -- \"scripts/" tok "\""; if ((cmd | getline lf) > 0) path = lf; close(cmd) }
 #      15 failures (17 against the suite with the #382 rows). The PLACEMENT matters: the same line
-#      put directly above `if (path == "") continue`, as a fallback, gives 6 failures, because a
-#      token the table already resolved never reaches it: meta-subst PASSES (it survives), and only
-#      meta-subst-unresolved and meta-glob-absent fail, with the four bare-dup rows still green.
+#      put directly above `if (path == "") continue`, as a fallback, gives 6 failures (7 against
+#      the suite with the #382 rows), because a token the table already resolved never reaches it:
+#      meta-subst PASSES (it survives). The 6 are bare-dup's "the full path in the same document
+#      still yields exactly one row" (3 rows for 1), meta-subst-unresolved's three rows and
+#      meta-glob-absent's two; the seventh is bare-root-dup's "a range changing only a candidate
+#      yields no row".
 #  (d) REPLACE the two awk lines `if (path == "" && tok in bn) {` and
 #      `if (bn[tok] == 1) path = bfirst[tok]` with these three:
 #      lk = ""; if (path == "") for (k in bn) if (k ~ tok) lk = k
@@ -502,8 +505,9 @@ run --range "$ROOT_HEAD..$(sha HEAD)" --docs README.md
 expect "a later range that did not change the root file yields no row" "" "$OUT"
 expect "with exactly the zero-claims summary and no ambiguity line" "$ZERO" "$ERR"
 
-# #382: the root file beside an AMBIGUOUS table. bare-root has one table candidate, so a table lookup
-# would resolve it without any ambiguity and could not tell the two orders apart; this fixture has two.
+# #382: the root file beside an AMBIGUOUS table. bare-root has one table candidate, so a table
+# lookup would resolve it without any ambiguity and could not tell the two orders apart; this
+# fixture has two.
 mkrepo bare-root-dup
 bare_group demo-group demo-rootdup.sh
 printf 'x\n' > "$R/scripts/demo-rootdup.sh"; printf 'x\n' > "$R/demo-rootdup.sh"
