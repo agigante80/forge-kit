@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# sync-labels-version: 12
+# sync-labels-version: 13
 # sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not.
 #
 # NO `awk -v` IN THIS FILE (#259). Its one site carried the compiled-in separator `$'\x1f'`, a
 # literal with no backslash, so the move to ENVIRON is hardening only (not reproducible): `-v` runs
 # a backslash-escape pass and Apple's awk refuses a newline in its value. scripts/test-sync-labels.sh
-# counts zero `awk ... -v` code lines; a `-v` on an awk continuation line is banned too.
+# counts zero `awk ... -v` lines (scripts/awkv-count.sh, continuations joined). No awk takes a file
+# operand either (#405): a `name=value` operand is an assignment, so files come in through `<`.
 #
 # WHY THIS EXISTS (issue #104). forge-kit shipped a label taxonomy, documented that labels drive
 # ticket-gate's lens routing, and never imported it into its own repository: 18 labels declared,
@@ -157,7 +158,7 @@ declared=$(SL_US="$US" awk '
   /^[[:space:]]+description:/ { v = $0; sub(/^[[:space:]]+description:/, "", v); d = clean(v); if (unterm) u = 1; next }
   { print "sync-labels: unparsable line " NR ": " $0 > "/dev/stderr"; bad = 1 }
   END { if (seen) print n US c US d US u; if (bad) exit 3 }
-' "$LABELS_FILE") || {
+' < "$LABELS_FILE") || {
   echo "sync-labels: $LABELS_FILE is not in the expected shape; refusing to sync a partial set" >&2
   exit 3; }
 

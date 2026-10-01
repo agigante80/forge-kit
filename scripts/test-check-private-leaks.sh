@@ -734,13 +734,8 @@ expect "--init refuses to overwrite an existing list" 2 "$?"
 expect "and leaves it untouched" "mine" "$(cat "$TEMPLATE")"
 
 echo "== no awk -v in the shipped asset, and a backslash TMPDIR still finds a leak (#259) =="
-# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
-# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
-awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
-expect "check-private-leaks.sh carries no awk -v code line" 0 "$(awkv_count "$SCRIPT")"
-{ cat "$SCRIPT"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$WORK/awkv-mut.sh"
-n="$(awkv_count "$WORK/awkv-mut.sh")"
-[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in check-private-leaks.sh" || bad "MUTANT: an added awk -F'\\t' -v line in check-private-leaks.sh counted $n, not 1"
+# #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
+. "$ROOT/scripts/awkv-count.sh"; awkv_checks check-private-leaks.sh "$SCRIPT" "$WORK"
 # The temp paths come from mktemp -d under the caller's TMPDIR. Under -v a TMPDIR named `t\tx`
 # (backslash, t) read back with a TAB, every getline failed, and --history reported CLEAN.
 mkdir -p "$WORK/tA" "$WORK/t\\tx"
@@ -753,6 +748,16 @@ contains "notes.md@" "$OUT" "#259: and the finding names the file"
 mkrepo bs-clean
 TMPDIR="$WORK/t\\tx" hrun --history; expect "#259: backslash TMPDIR over a clean history exits 0" 0 "$RC"
 expect "#259: and reports nothing" "" "$OUT"
+# #405: a RELATIVE TMPDIR named name=value. Every temp path then reads `x=y/...`, which awk took for
+# an assignment when it came as an operand; through a redirect it is a file like any other.
+mkrepo eq-leak
+( cd "$HREPO" && printf 'work on secretproj today\n' > notes.md && git add notes.md && git commit -qm add ) >/dev/null 2>&1
+TMPDIR="$WORK/tA" hrun --history; abs_rc=$RC; abs_out=$OUT
+mkdir -p "$HREPO/x=y"
+TMPDIR='x=y' hrun --history
+expect "#405: a relative TMPDIR named x=y exits as an absolute one does ($abs_rc)" "$abs_rc" "$RC"
+expect "#405: and reports the same rows" "$abs_out" "$OUT"
+contains "notes.md@" "$OUT" "#405: and the finding is reported"
 
 echo ""
 echo "passed: $passed  failed: $failed"

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 28
+# check-public-leaks-version: 29
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
 # whatever the caller's TMPDIR is named. Under a TMPDIR named `t\tx` (backslash, t) the paths read
 # back with a TAB, every `getline` failed, and `--history` reported CLEAN over a committed finding.
 # Every value now reaches awk through ENVIRON (`LG_*`); the 0-or-1 flags (`orphans`) moved as
-# hardening only. The suite counts zero `awk ... -v` code lines; that count is line-based, so a
-# `-v` on an awk continuation line is banned too.
+# hardening only. The suite counts zero `awk ... -v` lines (scripts/awkv-count.sh, continuations
+# joined), and no awk takes a file operand (#405): under a TMPDIR named `x=y` one was an assignment.
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -232,7 +232,7 @@ while [ $# -gt 0 ]; do
     # Prints the whole comment header, rather than a hardcoded line range. The range was the bug:
     # growing the header by seven lines truncated --help mid-sentence and dropped the synopsis, and
     # help text that rots silently is worse than none because it still reads as current.
-    --help|-h)    awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$SELF"; exit 0 ;;
+    --help|-h)    awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' < "$SELF"; exit 0 ;;
     --)           shift; while [ $# -gt 0 ]; do PATHS+=("$1"); shift; done; break ;;
     -*)           die "unknown flag: $1" ;;
     *)            PATHS+=("$1") ;;
@@ -748,7 +748,7 @@ history_scan() {
   # An object git cannot read prints "<oid> missing" with exit 0. That is a store this scanner
   # cannot read honestly, so it refuses rather than scanning what is left.
   local unreadable
-  unreadable="$(LC_ALL=C awk '$2 != "blob" && $2 != "commit" && $2 != "tag" && $2 != "tree" { print; exit }' "$types")"
+  unreadable="$(LC_ALL=C awk '$2 != "blob" && $2 != "commit" && $2 != "tag" && $2 != "tree" { print; exit }' < "$types")"
   [ -z "$unreadable" ] || die "refusing --history: git cannot read every object ($unreadable); repair the store first"
   # Every path each blob has ever had, from every commit's diff against every parent (-m: a merge
   # resolved to content in neither parent has no other entry). -z then tr, because --raw quotes
@@ -780,8 +780,8 @@ history_scan() {
     # first space.
     # && inside the group: a brace group's pipeline status is its LAST command's, so without it a
     # failure of the first awk would be invisible to pipe_ok (found in review round 2).
-    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects" \
-    && LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
+    LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' < "$objects" \
+    && LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' < "$pathmap"
   } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
     | LC_ALL=C LG_TYPES="$types" awk -F'\t' '
         BEGIN { types = ENVIRON["LG_TYPES"]; while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }

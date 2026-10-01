@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# sync-phases-version: 9
+# sync-phases-version: 10
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
 # `--roadmap` path (caller text), reads it through ENVIRON instead. scripts/test-sync-phases.sh
-# counts zero `awk ... -v` code lines; a `-v` on an awk continuation line is banned too.
+# counts zero `awk ... -v` lines (scripts/awkv-count.sh, continuations joined). No awk takes a file
+# operand either (#405): a `name=value` operand is an assignment, so files come in through `<`.
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
@@ -60,7 +61,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --check)    MODE=check ;;
     --roadmap)  shift; [ $# -gt 0 ] || die "--roadmap needs a path"; ROADMAP="$1" ;;
-    --help|-h)  awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$SELF"; exit 0 ;;
+    --help|-h)  awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' < "$SELF"; exit 0 ;;
     -*)         die "unknown flag: $1" ;;
     *)          die "unexpected argument: $1" ;;
   esac

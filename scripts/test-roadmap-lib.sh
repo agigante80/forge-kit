@@ -598,6 +598,16 @@ prose_uses() { sed -n "/^$1()/,/^}/p" "$LIB" | grep -o 'ENVIRON\["RM_PROSE"\]' |
 expect "roadmap_set_prose reads its prose through ENVIRON, four uses" 4 "$(prose_uses roadmap_set_prose)"
 expect "roadmap_insert_at reads its prose through ENVIRON, two uses" 2 "$(prose_uses roadmap_insert_at)"
 
+echo "== awk -v ratchet and no awk file operand (#405) =="
+# roadmap-lib.sh still passes 11 values through `awk -v` (a follow-up moves them to ENVIRON and
+# lowers this pin to 0); the count may fall, never rise. Its file operands are all redirects.
+. "$ROOT/scripts/awkv-count.sh"; awkv_checks roadmap-lib.sh "$LIB" "$T" 11
+expect "roadmap-lib.sh counts exactly the 11 pinned awk -v lines today" 11 "$(awkv_count "$LIB")"
+{ cat "$LIB"; printf '%s\n' "x=\$(awk -v y=1 '{print y}' < /dev/null)"; } > "$T/rl-ratchet.sh"
+n=$(awkv_count "$T/rl-ratchet.sh")
+[ "$n" = 12 ] && [ "$n" -gt 11 ] && ok "MUTANT: one more awk -v line counts 12, above the pin of 11, and would fail the ratchet" \
+  || bad "MUTANT: the ratchet mutant counted $n"
+
 echo ""
 echo "roadmap-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

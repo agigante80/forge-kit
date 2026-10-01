@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 7
+# roadmap-lib-version: 8
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -83,7 +83,7 @@ parse_roadmap() {
       }
       printf("%s\t%s\t%s\n", name, state, plan)
     }
-  ' "$1"
+  ' < "$1"
 }
 
 # --- the WRITE primitives (#246) ---------------------------------------------------------------
@@ -160,7 +160,7 @@ _rm_block() {
       if (n > 1)  { print "DUPLICATE"; exit }
       print s[1] " " e[1]
     }
-  ' "$1"
+  ' < "$1"
 }
 
 # _rm_end_point <file> -> the line to insert a phase BEFORE so it lands after the last phase.
@@ -176,7 +176,7 @@ _rm_end_point() {
       next
     }
     END { if (instart) print NR + 1; else if (endp) print endp; else print NR + 1 }
-  ' "$1"
+  ' < "$1"
 }
 
 # _rm_split <file> <start> <end> <body-out> <strip-out>
@@ -204,7 +204,7 @@ _rm_split() {
       for (i = e; i <= NR; i++) print lines[i] > so
       close(bo); close(so)
     }
-  ' "$1"
+  ' < "$1"
 }
 
 # _rm_check <file> -> 0 when parse_roadmap reads it cleanly. MALFORMED only.
@@ -288,7 +288,7 @@ _rm_one_open() {
 # _rm_keyed <file> <start> <end> <key> -> how many column-0 `<key>:` lines the block carries.
 # The key is this library's own literal, `state` or `plan`, never caller text.
 _rm_keyed() {
-  awk -v s="$2" -v e="$3" -v k="$4" 'NR > s && NR < e && index($0, k ":") == 1 { n++ } END { print n + 0 }' "$1"
+  awk -v s="$2" -v e="$3" -v k="$4" 'NR > s && NR < e && index($0, k ":") == 1 { n++ } END { print n + 0 }' < "$1"
 }
 
 _rm_prepare() {  # _rm_prepare <file> <phase> -> sets RM_START, RM_END; refuses otherwise
@@ -320,7 +320,7 @@ roadmap_set_state() {
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
   RM_V="$st" awk -v s="$RM_START" -v e="$RM_END" '
     NR > s && NR < e && index($0, "state:") == 1 { print "state: " ENVIRON["RM_V"]; next } { print }
-  ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
+  ' < "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
 
@@ -342,7 +342,7 @@ roadmap_set_plan() {
     NR > s && NR < e && index($0, "plan:") == 1 {
       v = ENVIRON["RM_V"]; print (v == "" ? "plan:" : "plan: " v); next
     } { print }
-  ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
+  ' < "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
 
@@ -376,7 +376,7 @@ roadmap_set_prose() {
     index($0, "state:") == 1 || index($0, "plan:") == 1 { print; next }
     { next }
     END { if (!done && ENVIRON["RM_PROSE"] != "") printf "\n%s\n", ENVIRON["RM_PROSE"] }
-  ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
+  ' < "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
 
@@ -429,7 +429,7 @@ roadmap_insert_at() {
     NR == at { block(); print ""; done = 1 }
     { prev = $0; print }
     END { if (!done) { if (prev != "") print ""; block() } }
-  ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
+  ' < "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
 
@@ -479,7 +479,7 @@ roadmap_reorder() {
     NR == at { while ((getline l < bf) > 0) print l; print ""; done = 1 }
     { prev = $0; print }
     END { if (!done) { if (prev != "") print ""; while ((getline l < bf) > 0) print l } }
-  ' "$cand.strip" > "$cand" || { rm -f "$cand" "$cand.body" "$cand.strip"; _rm_die "cannot build the new content"; return 2; }
+  ' < "$cand.strip" > "$cand" || { rm -f "$cand" "$cand.body" "$cand.strip"; _rm_die "cannot build the new content"; return 2; }
   rm -f "$cand.body" "$cand.strip"
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
@@ -517,7 +517,7 @@ roadmap_rename() {
   case "$(_rm_block "$f" "$new")" in NONE) ;; *) _rm_die "a phase named '$new' is already in the roadmap" 5; return 5 ;; esac
   RM_EXPECT="$(parse_roadmap "$f" | RM_O="$old" RM_N="$new" awk -F'\t' -v OFS='\t' '$1 == ENVIRON["RM_O"] { $1 = ENVIRON["RM_N"] } { print }')"
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  RM_N="$new" awk -v s="$RM_START" 'NR == s { print "## Phase: " ENVIRON["RM_N"]; next } { print }' "$f" > "$cand" \
+  RM_N="$new" awk -v s="$RM_START" 'NR == s { print "## Phase: " ENVIRON["RM_N"]; next } { print }' < "$f" > "$cand" \
     || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"
   [ "$rc" = 0 ] && printf 'roadmap-lib: renamed in the roadmap only. forge-lib.sh has no milestone rename, so the host still carries the milestone titled "%s" with its tickets; create "%s" and move them, or the phase reads empty while all four rules pass.\n' "$old" "$new" >&2

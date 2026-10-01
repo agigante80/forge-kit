@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# check-phases-version: 8
+# check-phases-version: 9
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
 # `--roadmap` path (caller text), reads it through ENVIRON instead: a path named `r\tmap.md` is
 # printed as typed rather than with a tab. scripts/test-check-phases.sh counts zero `awk ... -v`
-# code lines; a `-v` on an awk continuation line is banned too, since that count is line-based.
+# lines (scripts/awkv-count.sh, continuations joined). No awk takes a file operand either (#405):
+# `--roadmap 'r=bad.md'` was read as an assignment and passed silently, so files come in through `<`.
 #
 # The roadmap-phases guard: four rules that make rolling wave planning mechanical.
 #
@@ -66,7 +67,7 @@ while [ $# -gt 0 ]; do
     --roadmap)  shift; [ $# -gt 0 ] || die "--roadmap needs a path"; ROADMAP="$1" ;;
     # Prints the whole comment header rather than a hardcoded line range, which is the bug that
     # made the leak scanners' --help truncate mid-sentence when their headers grew.
-    --help|-h)  awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$SELF"; exit 0 ;;
+    --help|-h)  awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' < "$SELF"; exit 0 ;;
     -*)         die "unknown flag: $1" ;;
     *)          die "unexpected argument: $1" ;;
   esac

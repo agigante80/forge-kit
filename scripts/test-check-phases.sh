@@ -537,13 +537,16 @@ else
 fi
 
 echo "== no awk -v in the shipped asset, and a backslash path is printed as typed (#259) =="
-# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
-# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
-awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
-expect "check-phases.sh carries no awk -v code line" 0 "$(awkv_count "$SRC")"
-{ cat "$SRC"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$T/awkv-mut.sh"
-n="$(awkv_count "$T/awkv-mut.sh")"
-[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in check-phases.sh" || bad "MUTANT: an added awk -F'\\t' -v line in check-phases.sh counted $n, not 1"
+# #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
+. "$ROOT/scripts/awkv-count.sh"; awkv_checks check-phases.sh "$SRC" "$T"
+# #405: a roadmap whose name is shaped name=value is still read as a file. Before, awk took
+# `r=bad.md` for an assignment, read stdin instead, and a malformed roadmap passed with rc 0.
+printf '## Phase: A\n\nx\n' > "$T/r=bad.md"; cp "$T/r=bad.md" "$T/rbad.md"
+run --offline --roadmap 'r=bad.md' </dev/null
+expect "#405: a malformed roadmap named r=bad.md exits 3, never a silent 0" 3 "$rc"
+contains 'no state line' "$out" "#405: and it names the missing state line"
+run --offline --roadmap rbad.md </dev/null
+expect "#405: the plain-named control exits 3 too" 3 "$rc"
 printf '## Phase: A\nstate: bogus\n\nx\n' > "$T/r\\tmap.md"
 run --offline --roadmap 'r\tmap.md'
 expect "a malformed roadmap at a backslash path still exits 3" 3 "$rc"

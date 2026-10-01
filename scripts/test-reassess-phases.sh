@@ -632,13 +632,17 @@ else
 fi
 
 echo "== no awk -v in the shipped asset, and a backslash path is printed as typed (#259) =="
-# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
-# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
-awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
-expect "reassess-phases.sh carries no awk -v code line" 0 "$(awkv_count "$SRC")"
-{ cat "$SRC"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$T/awkv-mut.sh"
-n="$(awkv_count "$T/awkv-mut.sh")"
-[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in reassess-phases.sh" || bad "MUTANT: an added awk -F'\\t' -v line in reassess-phases.sh counted $n, not 1"
+# #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
+. "$ROOT/scripts/awkv-count.sh"; awkv_checks reassess-phases.sh "$SRC" "$T"
+# #405: a roadmap named name=value reads the same as the plain name (the path text aside).
+printf '## Phase: A\nstate: open\nplan: docs/plans/a.md\n\nWhy A.\n\n## Phase: B\nstate: planned\nplan:\n\nWhy B.\n' > "$T/x.md"
+cp "$T/x.md" "$T/r=x.md"; [ -f "$T/ms.json" ] || printf '[]' > "$T/ms.json"
+run reorder B --before A --check --roadmap x.md </dev/null; plain_rc=$rc; plain_out=$(printf '%s' "$out" | sed 's/x\.md/ROADMAP/g')
+run reorder B --before A --check --roadmap 'r=x.md' </dev/null
+expect "#405: --roadmap 'r=x.md' exits as x.md does ($plain_rc)" "$plain_rc" "$rc"
+expect "#405: and prints the same output" "$plain_out" "$(printf '%s' "$out" | sed 's/r=x\.md/ROADMAP/g')"
+[ -n "$plain_out" ] && ok "#405: the control printed something to compare" || bad "#405: the control printed nothing"
+rm -f "$T/x.md" "$T/r=x.md"
 printf '## Phase: A\nstate: bogus\n\nx\n' > "$T/r\\tmap.md"
 run reorder A --end --check --roadmap 'r\tmap.md'
 expect "a malformed roadmap at a backslash path still exits 3" 3 "$rc"

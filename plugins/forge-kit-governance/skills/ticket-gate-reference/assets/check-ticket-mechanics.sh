@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 17
+# check-ticket-mechanics-version: 18
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -89,8 +89,9 @@
 # its filled section was reported empty; `p` (role_label) receives only the literal role patterns,
 # and `any`/`neg`/`pos` are built by marker_re from literals, both moved as hardening (not
 # reproducible), which also removes the trap where a future `\.` in a regex silently became `.`.
-# scripts/test-check-ticket-mechanics.sh counts zero `awk ... -v` code lines; the count is
-# line-based, so a `-v` on an awk continuation line is banned too.
+# scripts/test-check-ticket-mechanics.sh counts zero `awk ... -v` lines (scripts/awkv-count.sh,
+# continuations joined). No awk takes a file operand either (#405): a `--body 'b=x.md'` operand
+# was read as an assignment, so files come in through `<`.
 #
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
@@ -139,7 +140,7 @@ while [ $# -gt 0 ]; do
     --labels-doc)          need_value $# "$1"; LABELS_DOC="$2"; shift 2 ;;
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
-    -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' "$0"; exit 0 ;;
+    -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' < "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -167,7 +168,7 @@ if [ "$AREA_EXPLICIT" -eq 0 ] && [ -n "$LABELS_DOC" ] && [ -f "$LABELS_DOC" ]; t
     /^### Area labels/ { inside = 1; next }
     inside && /^##?#? / { exit }
     inside && /^[ \t]*\|[ \t]*`/ { sub(/^[ \t]*\|[ \t]*`/, ""); sub(/[ \t]*`.*/, ""); print }
-  ' "$LABELS_DOC" | tr '\n' ' ')"
+  ' < "$LABELS_DOC" | tr '\n' ' ')"
   doc_areas="${doc_areas% }"
   if [ -n "$doc_areas" ]; then AREA_LABELS="$doc_areas"; else DOC_NO_TABLE=1; fi
 fi
@@ -212,7 +213,7 @@ section_of() {
       if (!inside && !found && cur == want) { inside = 1; found = 1; want_lvl = lvl; next }
     }
     inside { print }
-  ' "$BODY"
+  ' < "$BODY"
 }
 # The `#`-headed lines inside ONE field's `value:` or `placeholder:` block, heading marks stripped.
 template_subheadings() {
@@ -223,7 +224,7 @@ template_subheadings() {
     /^      (value|placeholder): \|/ { inblk = 1; next }
     /^      [a-z]/ { inblk = 0 }
     inblk && label == want && /^        #+ / { h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/[ \t]+$/, "", h); print h }
-  ' "$TEMPLATE"
+  ' < "$TEMPLATE"
 }
 
 # GitHub renders an unfilled OPTIONAL textarea as `_No response_`. That is presence without
@@ -258,7 +259,7 @@ template_fields() {
     /^      required: / { r = $0; sub(/^.*required:[[:space:]]*/, "", r); gsub(/[[:space:]]/, "", r); req = r }
     /^          required: true/ { req = "true" }   # a checkboxes group with a required option
     END { if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id "\t" (gate ? "yes" : "no") } }
-  ' "$TEMPLATE"
+  ' < "$TEMPLATE"
 }
 
 TEMPLATE_FIELDS="$(template_fields)"

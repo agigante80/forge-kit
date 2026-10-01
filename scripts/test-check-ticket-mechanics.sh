@@ -1089,13 +1089,8 @@ expect "#349: a Step 3B example swapped to Control is not found, loudly" "docume
 [ "$rc" -ne 0 ] && ok "#349: and returns non-zero" || bad "#349: a Control example returned 0"
 
 echo "== no awk -v in the shipped asset, and a backslash label resolves (#259) =="
-# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
-# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
-awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
-expect "check-ticket-mechanics.sh carries no awk -v code line" 0 "$(awkv_count "$SCRIPT")"
-{ cat "$SCRIPT"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$WORK/awkv-mut.sh"
-n="$(awkv_count "$WORK/awkv-mut.sh")"
-[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in check-ticket-mechanics.sh" || bad "MUTANT: an added awk -F'\\t' -v line in check-ticket-mechanics.sh counted $n, not 1"
+# #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
+. "$ROOT/scripts/awkv-count.sh"; awkv_checks check-ticket-mechanics.sh "$SCRIPT" "$WORK"
 # A template LABEL carrying backslash-t: under -v, section_of() looked for `Steps<TAB>x` and the
 # filled section read as empty.
 printf 'body:\n  - type: textarea\n    id: steps\n    attributes:\n      label: Steps\\tx\n    validations:\n      required: true\n' > "$WORK/bs.yml"
@@ -1106,6 +1101,17 @@ o="$(bash "$SCRIPT" --body "$WORK/bs-full.md" --template "$WORK/bs.yml" --tpl-ve
 expect "#259: a backslash-t label resolves to its filled section" pass "$(outcome "$o" sections)"
 o="$(bash "$SCRIPT" --body "$WORK/bs-empty.md" --template "$WORK/bs.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
 expect "#259: and an empty one still fails, by its label as typed" 'required heading present but empty (1): Steps\tx' "$(sec_ev "$o")"
+
+# #405: a file named name=value is read as a file. Before, awk took `b=x.md` for an assignment and
+# read stdin, so a filled section was reported empty; `tp=x.yml` parsed no fields at all.
+cp "$WORK/bs-full.md" "$WORK/b=x.md"; cp "$WORK/bs.yml" "$WORK/tp=x.yml"; cp "$WORK/proj/docs/guides/labels.md" "$WORK/l=x.md"
+ctm() { (cd "$WORK" && bash "$SCRIPT" --tpl-version 6 --current-tpl-version 6 "$@" 2>&1 </dev/null); }
+o="$(ctm --body 'b=x.md' --template bs.yml --labels backend,bug)"
+expect "#405: --body 'b=x.md' reads the body: its filled section passes" pass "$(outcome "$o" sections)"
+expect "#405: --template 'tp=x.yml' gives the same rows as bs.yml" "$(ctm --body bs-full.md --template bs.yml --labels backend,bug)" \
+  "$(ctm --body bs-full.md --template 'tp=x.yml' --labels backend,bug | sed 's/tp=x\.yml/bs.yml/g')"
+o="$(ctm --body bs-full.md --template bs.yml --labels protocol,feature --labels-doc 'l=x.md' | awk -F'\t' '$1=="labels"{print $2}')"
+expect "#405: --labels-doc 'l=x.md' reads the project's areas (protocol passes)" pass "$o"
 
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"

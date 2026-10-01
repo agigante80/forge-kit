@@ -374,6 +374,10 @@ jobs:
       - name: CDPATH cd guard
         run: bash scripts/check-cdpath-cd.sh
 
+      # Issue #405: the shared zero-awk -v count and no-awk-file-operand rule the #259 suites source.
+      - name: awkv-count helper tests
+        run: bash scripts/test-awkv-count.sh
+
       # Issue #407: /phase's resolved values reach every later Bash call through phase-env.sh.
       - name: /phase fresh-shell contract tests
         run: bash scripts/test-phase-env.sh

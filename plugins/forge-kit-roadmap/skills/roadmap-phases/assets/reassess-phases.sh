@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 5
+# reassess-phases-version: 6
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline. Every site that took a value reads it through ENVIRON instead:
 # the MALFORMED diagnostic's `--roadmap` path and the phase NAME in phase_exists, phase_state and
 # next_phase_name are caller text (a phase named `a\tb` was refused as unknown, exit 5); the
 # `_read_prose` line bounds are numbers, moved as hardening only (not reproducible). The count in
-# scripts/test-reassess-phases.sh is line-based, so a `-v` on an awk continuation line is banned.
+# scripts/test-reassess-phases.sh (scripts/awkv-count.sh) joins continuations. No awk takes a file
+# operand either (#405): a `name=value` operand is an assignment, so files come in through `<`.
 #
 # Reshapes docs/roadmap.md itself: the level above /phase review (#244), which asks whether ONE
 # phase is still aligned. This asks whether the ROADMAP is still the right plan (#249).
@@ -91,7 +92,7 @@ usage="usage: reassess-phases.sh <op> ... [--roadmap FILE] [--check] [--reason T
 
 [ $# -ge 1 ] || die "$usage"
 case "$1" in
-  --help|-h) awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$SELF"; exit 0 ;;
+  --help|-h) awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' < "$SELF"; exit 0 ;;
 esac
 OP="$1"; shift
 case "$OP" in
@@ -115,7 +116,7 @@ while [ $# -gt 0 ]; do
     --plan)    shift; [ $# -gt 0 ] || die "--plan needs a path"; PLAN="$1" ;;
     --prose)   shift; [ $# -gt 0 ] || die "--prose needs text"; PROSE="$1" ;;
     --to)      shift; [ $# -gt 0 ] || die "--to needs a phase name or 'backlog'"; TO="$1" ;;
-    --help|-h) awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$SELF"; exit 0 ;;
+    --help|-h) awk 'NR==1{next} /^# *[a-z0-9-]+-version: [0-9]+$/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' < "$SELF"; exit 0 ;;
     -*)        die "unknown flag: $1" ;;
     *)         ARGS+=("$1") ;;
   esac
@@ -209,7 +210,7 @@ _read_prose() {  # _read_prose <phase> -> its current prose text, trimmed
       st=1; while (st<=n && lines[st]=="") st++
       en=n; while (en>=st && lines[en]=="") en--
       for(i=st;i<=en;i++) print lines[i]
-    }' "$ROADMAP"
+    }' < "$ROADMAP"
 }
 
 # --- write-gated helpers: --check reports, otherwise performs and reports ------------------------

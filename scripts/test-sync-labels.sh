@@ -574,13 +574,17 @@ run --check
                 || bad "duplicate host labels compare against the last (rc=$rc: $out)"
 
 echo "== no awk -v in the shipped asset (#259) =="
-# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
-# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
-awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
-n="$(awkv_count "$SRC")"; [ "$n" = 0 ] && ok "sync-labels.sh carries no awk -v code line" || bad "sync-labels.sh carries $n awk -v code line(s)"
-{ cat "$SRC"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$T/awkv-mut.sh"
-n="$(awkv_count "$T/awkv-mut.sh")"
-[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in sync-labels.sh" || bad "MUTANT: an added awk -F'\\t' -v line in sync-labels.sh counted $n, not 1"
+# #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
+. "$ROOT/scripts/awkv-count.sh"; awkv_checks sync-labels.sh "$SRC" "$T"
+# #405: a labels file named name=value is read as a file, not taken for an awk assignment.
+cp "$T/labels.yml" "$T/l=x.yml"; cp "$T/labels.yml" "$T/lx.yml"; host_json '[]'
+sl() { out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" FORGE_DRY_RUN=1 bash ./sync-labels.sh --labels "$1" 2>&1); rc=$?; }
+sl lx.yml; plain_rc=$rc; plain_out=$(printf '%s' "$out" | sed 's/lx\.yml/LABELS/g')
+sl 'l=x.yml'
+[ "$rc" = "$plain_rc" ] && ok "#405: --labels 'l=x.yml' exits as lx.yml does ($plain_rc)" || bad "#405: l=x.yml rc $rc, lx.yml rc $plain_rc"
+[ "$(printf '%s' "$out" | sed 's/l=x\.yml/LABELS/g')" = "$plain_out" ] && ok "#405: and plans the same changes" || bad "#405: l=x.yml planned: $out"
+case "$out" in *"declares no labels"*) bad "#405: l=x.yml read as declaring no labels" ;; *) ok "#405: l=x.yml is never read as declaring no labels" ;; esac
+printf '%s' "$plain_out" | grep -q 'bug' && ok "#405: the control plans the declared labels" || bad "#405: the control planned nothing: $plain_out"
 
 echo ""
 echo "sync-labels tests: $pass passed, $fail failed"
