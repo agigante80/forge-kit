@@ -794,6 +794,32 @@ c_npmrc_indented_key_tab() { npmrc_case '\tworkspace=client\n'; rc_is 0 && row r
 c_npmrc_indented_nonkey_neg() { npmrc_case '  registry=x\n'; rc_is 1 && row fail command "no such script" && nostatus referred; }
 
 # #357: workspaces=false refuses an explicit workspace run; npm takes the LAST value (npm 10.9.7).
+# #395: an array-form `workspaces[]` line means workspaces on, whatever its value, because npm's ini
+# parser makes the key a list and a non-empty list is truthy (measured on npm 10.9.4).
+c_npmrc_wsarray_plain() { npmrc_case 'workspaces[]=false\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail && nocmd pass; }
+c_npmrc_wsarray_rootdef() { new; pkg '"dev":"x"'; tput_ client/package.json '{"name":"client","scripts":{"dev":"x"}}\n'; tput_ .npmrc 'workspaces[]=false\n'
+  agents '```\nnpm run dev\n```\n'; run
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail && nocmd pass; }
+c_npmrc_wsarray_explicit() { npmrc_case 'workspaces[]=false\n' 'npm -w client run dev'
+  rc_is 0 && row pass command "npm -w client run dev: dev is defined in client/package.json" && nocmd referred && nostatus fail; }
+c_npmrc_wsarray_true_then() { npmrc_case 'workspaces=true\nworkspaces[]=false\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail && nocmd pass; }
+c_npmrc_wsarray_scalar_false_neg() { npmrc_case 'workspaces=false\nworkspaces[]=false\n'
+  rc_is 0 && row referred command "sets workspaces" && nostatus fail || return 1
+  npmrc_case 'workspaces[]=false\nworkspaces=false\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail && nocmd pass; }
+c_npmrc_wsarray_scalar_false_explicit() { npmrc_case 'workspaces[]=false\nworkspaces=false\n' 'npm -w client run dev'
+  rc_is 0 && row pass command "npm -w client run dev: dev is defined in client/package.json" && nocmd referred && nostatus fail; }
+c_npmrc_wsarray_spaced() { npmrc_case 'workspaces[] = false\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail && nocmd pass; }
+c_npmrc_wsarray_quoted() { npmrc_case '"workspaces[]"=false\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail && nocmd pass; }
+c_npmrc_wsarray_zero() { npmrc_case 'workspaces[]=0\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail && nocmd pass; }
+# `workspaces []=false` is npm's key "workspaces " and leaves workspaces unset: the root runs.
+c_npmrc_wsarray_space_before_brackets_neg() { npmrc_case 'workspaces []=false\n'
+  rc_is 1 && row fail command "npm run dev: no such script in package.json" && ! row referred command "sets workspaces"; }
 c_npmrc_wsfalse_explicit_w() { npmrc_case 'workspaces=false\n' 'npm -w client run dev'
   rc_is 0 && row referred command "npm -w client run dev: a tracked .npmrc sets workspaces=false" && nocmd pass && nostatus fail; }
 c_npmrc_wsfalse_explicit_workspace() { npmrc_case 'workspaces=false\n' 'npm --workspace client run dev'
@@ -898,6 +924,16 @@ case_ c_npmrc_wsfalse_explicit_w "workspaces=false refers npm -w"
 case_ c_npmrc_wsfalse_explicit_workspace "workspaces=false refers npm --workspace"
 case_ c_npmrc_wsfalse_explicit_eq "workspaces=false refers npm --workspace="
 case_ c_npmrc_wsfalse_last_true_then_false "true then false: the last value refers an explicit form"
+case_ c_npmrc_wsarray_plain "workspaces[]=false refers a plain run (#395)"
+case_ c_npmrc_wsarray_rootdef "workspaces[]=false refers a plain run the root defines, never a pass (#395)"
+case_ c_npmrc_wsarray_explicit "workspaces[]=false judges an explicit -w run by the manifest (#395)"
+case_ c_npmrc_wsarray_true_then "workspaces=true then workspaces[]=false refers, never fails (#395)"
+case_ c_npmrc_wsarray_scalar_false_neg "a scalar false before or after an array form does not turn it false (#395)"
+case_ c_npmrc_wsarray_scalar_false_explicit "an array form after or before a scalar false lets an explicit -w run pass (#395)"
+case_ c_npmrc_wsarray_spaced "workspaces[] = false is the array form (#395)"
+case_ c_npmrc_wsarray_quoted "a quoted workspaces[] key is the array form (#395)"
+case_ c_npmrc_wsarray_zero "workspaces[]=0 is the array form, never false (#395)"
+case_ c_npmrc_wsarray_space_before_brackets_neg "workspaces []=false is another key, so the root runs and the row fails (#395)"
 case_ c_npmrc_wsfalse_last_false_then_true "false then true: the last value passes an explicit form"
 case_ c_npmrc_wsfalse_with_wskey_explicit "workspaces=false plus a workspace key still refers an explicit form"
 case_ c_npmrc_wsfalse_explicit_neg "workspaces=true leaves an explicit form a pass"
@@ -1587,6 +1623,17 @@ first_file() {'
   mutant "comment lines count as the key" c_npmrc_comment_neg '$0 == "" || /^[;#]/ { next }' '$0 == "" { next }
     { sub(/^[;#][ \t]*/, "") }'
   mutant "substring match on workspace" c_npmrc_key_neg 'if (key == "workspace") hasws = 1' 'if (index(key, "workspace")) hasws = 1'
+  # #395: the array form.
+  mutant "array flag dropped" c_npmrc_wsarray_plain 'if (key == "workspaces[]") wsarr = 1' 'if (0) wsarr = 1'
+  mutant "array read as the scalar on an explicit run" c_npmrc_wsarray_explicit '      if (wsarr) { last = "true"; seen = 1 }
+' ''
+  mutant "a later scalar false overrides the array" c_npmrc_wsarray_scalar_false_neg '{ last = "true"; seen = 1 }' '{ last = "true"; seen = 1; wsarr = 0 }'
+  mutant "array key tested after the bracket strip" c_npmrc_wsarray_plain '      if (key == "workspaces[]") wsarr = 1
+      sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)' '      sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)
+      if (key == "workspaces[]") wsarr = 1'
+  mutant "array key tested before the quote strip" c_npmrc_wsarray_quoted '      if (kn > 1 && (kc == "\"" || kc == "\047") && substr(key, kn, 1) == kc) key = substr(key, 2, kn - 2)
+      if (key == "workspaces[]") wsarr = 1' '      if (key == "workspaces[]") wsarr = 1
+      if (kn > 1 && (kc == "\"" || kc == "\047") && substr(key, kn, 1) == kc) key = substr(key, 2, kn - 2)'
   mutant "workspaces key ignored" c_npmrc_workspaces 'if (key == "workspaces") { last = val; seen = 1 }' 'if (0) { last = val; seen = 1 }'
   mutant "only a would-be fail becomes referred" c_npmrc_ws_defined '[ -n "$NPMRC_KEY" ] && { row referred' '[ -n "$NPMRC_KEY" ] && ! { tracked package.json && resolve_script "$name"; } && { row referred'
   mutant "a non-root .npmrc is read" c_npmrc_subdir_neg 'tracked .npmrc || return' 'tracked client/.npmrc || return' 'git ls-files -s -- .npmrc' 'git ls-files -s -- client/.npmrc' 'git show :.npmrc 2>/dev/null |' 'git show :client/.npmrc 2>/dev/null |'

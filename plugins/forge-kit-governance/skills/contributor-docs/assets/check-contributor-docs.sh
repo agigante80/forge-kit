@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 16
+# check-contributor-docs-version: 17
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -101,9 +101,15 @@
 # referrals where npm would run the root or stop with an error: `workspaces=null`, `workspace []=x`
 # and `workspace` with no root `workspaces` field. Not modelled, so an explicit -w form passes
 # where npm refuses: `workspaces=0x0`, `0e0` and a value with whitespace inside quotes
-# (`" false"`), which npm reads as false. Also unmodelled, and still a false fail or pass:
-# `workspaces[]=false`, an array form npm reads through a different path (#395). The -w
-# refusal and the last-value rule are verified on npm 10.9.7 only.
+# (`" false"`), which npm reads as false. An ARRAY-form key (`workspaces[]`, quoted, spaced around
+# the `=` or valued 0 included) means workspaces on whatever its value and wherever it sits beside a
+# scalar line, because npm's ini parser makes the key a list and a non-empty list is truthy (#395,
+# measured on npm 10.9.4: a plain run goes to the client, an explicit -w run is not refused). So
+# a plain run refers (`sets workspaces`) and an explicit -w run is judged by the manifest.
+# `workspaces []=false` (a space before the brackets) is npm's key "workspaces " and leaves the
+# key unset; it is read as the scalar, so a plain run still fails, as npm does, and an explicit -w
+# run is referred where npm runs the client (safe side). The -w refusal and the last-value rule
+# are verified on npm 10.9.7 and 10.9.4 only.
 #
 # Deliberate limits: code spans and links are found within one line; indented code blocks are
 # prose; the paragraph rule is order-dependent ("Run `npm run dev` (after `cd client`)." judges dev
@@ -526,6 +532,7 @@ npmrc_scan() {
       eq = index($0, "="); key = eq ? substr($0, 1, eq - 1) : $0; val = eq ? substr($0, eq + 1) : ""
       sub(/[ \t]+$/, "", key); kn = length(key); kc = substr(key, 1, 1)
       if (kn > 1 && (kc == "\"" || kc == "\047") && substr(key, kn, 1) == kc) key = substr(key, 2, kn - 2)
+      if (key == "workspaces[]") wsarr = 1
       sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)
       sub(/^[ \t]+/, "", val); n = length(val); c = substr(val, 1, 1)
       if (n > 1 && (c == "\"" || c == "\047") && substr(val, n, 1) == c) val = substr(val, 2, n - 2)
@@ -533,6 +540,7 @@ npmrc_scan() {
       if (val ~ /^[-+]?(0+\.?0*|\.0+)$/) val = "false"
       if (key == "workspace") hasws = 1
       if (key == "workspaces") { last = val; seen = 1 }
+      if (wsarr) { last = "true"; seen = 1 }
     }
     END { print (hasws ? "workspace" : seen && last != "false" ? "workspaces" : "none"), (seen && last == "false" ? "wsfalse" : "-") }' 2>/dev/null)
   read -r NPMRC_KEY NPMRC_LAST <<<"$out"
