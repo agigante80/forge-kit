@@ -254,7 +254,23 @@ def cmd_write(args):
     err = check_ownership(args.project_dir, args.slug)
     if err:
         return _refuse(args.slug, err)
-    body = sys.stdin.read()
+    # Every encode-on-write input is probed BEFORE the first write: the index and
+    # the memory file are opened with "w", so an encode error mid-write would
+    # leave a 0-byte file. Each field is probed on its own so the refusal names
+    # it, and the refusal never echoes the value. stdin is read as bytes and
+    # decoded strictly here, because a text read decodes (and may raise, or
+    # smuggle surrogates through) before any check can run. Do not swap this for
+    # errors="surrogateescape": a raw byte in the index makes the strict index
+    # decode refuse every later write and remove.
+    for field, value in (("--title", args.title), ("--description", args.description)):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            return _refuse(args.slug, f"{field} is not valid UTF-8")
+    try:
+        body = sys.stdin.buffer.read().decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return _refuse(args.slug, "stdin is not valid UTF-8")
     os.makedirs(memory_dir(args.project_dir), exist_ok=True)
     with open(memory_path(args.project_dir, args.slug), "w", encoding="utf-8") as f:
         f.write(render_memory(args.slug, args.type, args.description, body))

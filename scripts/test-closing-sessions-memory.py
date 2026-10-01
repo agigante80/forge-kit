@@ -18,11 +18,28 @@ SCRIPT = os.path.join(
 )
 
 
-def run(project_dir, args, body="", timeout=10):
-    return subprocess.run(
-        [sys.executable, SCRIPT, "--project-dir", project_dir, *args],
-        input=body, capture_output=True, text=True, timeout=timeout,
-    )
+def _clean_env(extra):
+    """The inherited environment minus every variable that picks the stdin decoding."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTHONUTF8", "PYTHONIOENCODING", "LANG") and not k.startswith("LC_")}
+    env.update(extra)
+    return env
+
+
+def run(project_dir, args, body="", timeout=10, env=None):
+    """Run the helper. A str body is text; a bytes body is piped raw and the
+    result's stdout and stderr are decoded with errors="replace". env, when
+    given, is applied over a locale-clean copy of the inherited environment."""
+    cmd = [sys.executable, SCRIPT, "--project-dir", project_dir, *args]
+    kw = {} if env is None else {"env": _clean_env(env)}
+    if isinstance(body, bytes):
+        r = subprocess.run(cmd, input=body, capture_output=True, timeout=timeout, **kw)
+        return subprocess.CompletedProcess(
+            r.args, r.returncode,
+            r.stdout.decode("utf-8", errors="replace"),
+            r.stderr.decode("utf-8", errors="replace"))
+    return subprocess.run(cmd, input=body, capture_output=True, text=True,
+                          timeout=timeout, **kw)
 
 
 def read(project_dir, *parts):
@@ -180,9 +197,9 @@ class OwnershipTests(unittest.TestCase):
                     out[key] = (st.st_mode, None)
         return out
 
-    def _refused(self, d, args, body=""):
+    def _refused(self, d, args, body="", env=None):
         before = self._snapshot(d)
-        r = run(d, args, body=body)
+        r = run(d, args, body=body, env=env)
         self.assertNotEqual(r.returncode, 0, "expected refusal")
         self.assertIn("memory.py: refusing", r.stderr)
         self.assertNotIn("Traceback", r.stderr)
@@ -454,6 +471,88 @@ class OwnershipTests(unittest.TestCase):
             r = run(d, ["remove", "--slug", "gone"])
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertNotIn("(gone.md)", read(d, "MEMORY.md"))
+
+    BAD = os.fsdecode(b"\xff")  # an argv value that is not valid UTF-8
+
+    def _write(self, slug, title="T", description="d"):
+        return ["write", "--slug", slug, "--title", title, "--type", "project",
+                "--description", description]
+
+    def _seed_owned(self, d, slug="a"):
+        run(d, self._write(slug), body="old body")
+        return os.path.join(d, ".claude", "memory", slug + ".md")
+
+    def _assert_names_field(self, r, field):
+        self.assertIn(field, r.stderr)
+        self.assertIn("UTF-8", r.stderr)
+
+    def test_non_utf8_title_refused_before_any_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "other.md", "# x\n")
+            r = self._refused(d, self._write("c", title=self.BAD), body="n")
+            self._assert_names_field(r, "--title")
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "c.md")))
+
+    def test_non_utf8_title_refused_with_no_index_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self._refused(d, self._write("c", title=self.BAD), body="n")
+            self._assert_names_field(r, "--title")
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude")))
+
+    def test_non_utf8_description_refused_leaves_owned_file_intact(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_owned(d)
+            r = self._refused(d, self._write("a", description=self.BAD), body="n2")
+            self._assert_names_field(r, "--description")
+            self.assertGreater(len(read(d, "a.md")), 0)
+
+    def test_non_utf8_stdin_refused_under_surrogateescape(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_owned(d)
+            r = self._refused(d, self._write("a"), body=b"\xff\n",
+                              env={"PYTHONUTF8": "1"})
+            self._assert_names_field(r, "stdin")
+
+    def test_non_utf8_stdin_refused_under_utf8_locale(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_owned(d)
+            r = self._refused(d, self._write("a"), body=b"\xff\n",
+                              env={"PYTHONIOENCODING": "utf-8:strict"})
+            self._assert_names_field(r, "stdin")
+
+    def test_encoding_refusal_never_echoes_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed_owned(d)
+            for args, body, field in (
+                (self._write("a", title="SECRET" + self.BAD), b"n", "--title"),
+                (self._write("a", description="SECRET" + self.BAD), b"n", "--description"),
+                (self._write("a"), b"SECRET\xff", "stdin"),
+            ):
+                r = self._refused(d, args, body=body, env={})
+                self._assert_names_field(r, field)
+                self.assertNotIn("SECRET", r.stderr)
+                self.assertNotIn("\udcff", r.stderr)
+                self.assertNotIn("\ufffd", r.stderr)
+
+    def test_symlink_refusal_wins_over_bad_title(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "other.md", "# x\n")
+            os.symlink("other.md", os.path.join(d, ".claude", "memory", "c.md"))
+            r = self._refused(d, self._write("c", title=self.BAD), body="n")
+            self.assertIn("symbolic link", r.stderr)
+            self.assertNotIn("UTF-8", r.stderr)
+
+    def test_non_ascii_utf8_inputs_still_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._write("a", title="caf\u00e9", description="na\u00efve"),
+                    body="h\u00e9llo".encode("utf-8"), env={})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("h\u00e9llo", read(d, "a.md"))
+            self.assertIn("- [caf\u00e9](a.md) - na\u00efve", read(d, "MEMORY.md"))
+            r = run(d, self._write("b"), body="h\u00e9llo".encode("utf-8"),
+                    env={"PYTHONUTF8": "1"})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("h\u00e9llo", read(d, "b.md"))
 
 
 if __name__ == "__main__":
