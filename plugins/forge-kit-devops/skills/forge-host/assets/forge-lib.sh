@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 32
+# forge-lib-version: 33
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -406,7 +406,9 @@ forge_api() {
       # real failure). The status is appended on its own line and split off here.
       local out rc
       if [ -n "$body" ]; then
-        out="$(curl -sSL -w '\n%{http_code}' -X "$method" -H "Authorization: token $tok" -H 'Content-Type: application/json' -d "$body" "$base$path")"; rc=$?
+        # The body goes on STDIN (#409): `-d "$body"` put the whole payload in one execve argument,
+        # which Linux caps at MAX_ARG_STRLEN (131072), so a large body failed with rc 126.
+        out="$(printf '%s' "$body" | curl -sSL -w '\n%{http_code}' -X "$method" -H "Authorization: token $tok" -H 'Content-Type: application/json' --data-binary @- "$base$path")"; rc=$?
       else
         out="$(curl -sSL -w '\n%{http_code}' -X "$method" -H "Authorization: token $tok" "$base$path")"; rc=$?
       fi
@@ -441,6 +443,8 @@ forge_api() {
 # capped at MAX_ARG_STRLEN (~128KiB on Linux), and one real page of template-v4-sized issues
 # measures at that ceiling, so argv accumulation hard-fails on exactly the repos pagination
 # exists for. File/stdin input has no such limit (and avoids re-parsing prior pages each loop).
+# The WRITE path follows the same rule since #409: every body travels on stdin (`_forge_payload`,
+# and `--data-binary @-` on Forgejo), never as one argument.
 forge_api_paginate() {
   _forge_load_conf || true   # ONCE, in this shell: the per-page $(forge_api ...) subshells and
                              # their own $(forge_host) / $(_forge_token) subshells inherit the
@@ -858,8 +862,22 @@ _forge_write_rc() {
   return "$3"
 }
 
+# _forge_payload <fn> <jq-filter> [jq --arg name value ...]: the request JSON, built with the BODY
+# read from STDIN and bound as $b (#409). A body passed as `jq --arg` is one execve argument, capped
+# at MAX_ARG_STRLEN (131072 bytes) on Linux: above it jq failed, the payload came back empty, and the
+# caller sent nothing in a dry run (rc 0, a false pass) or a request with no body live. Only short
+# fields (a title, a tag) go as --arg. A failed build returns 2 with one stderr line naming <fn>.
+# Callers feed it with `printf '%s' "$body" |`, a builtin, so the body never reaches an argv.
+_forge_payload() {
+  local fn=$1 filter=$2 out; shift 2
+  out="$(jq -c -Rs "$@" ". as \$b | $filter")" && [ -n "$out" ] \
+    || { echo "forge-lib: $fn: could not build the request body" >&2; return 2; }
+  printf '%s' "$out"
+}
+
 forge_issue_comment() {
-  local payload rc=0; payload="$(jq -nc --arg b "$2" '{body:$b}')"
+  local payload rc=0
+  payload="$(printf '%s' "$2" | _forge_payload forge_issue_comment '{body:$b}')" || return 2   # forge-lib: payload (comment)
   # `rc=0; ... || rc=$?`, never `...; rc=$?` (#237): under a `set -e` caller errexit fires on the
   # forge_api line before rc=$? runs, and the 404 line is never printed. The || form is the one
   # shape that survives -e for 0, 22 and 44; a subshell or `|| true` swallows the code.
@@ -890,7 +908,7 @@ forge_issue_close() {
 forge_issue_edit() {
   [ -n "${2:-}" ] || { echo "forge_issue_edit: refusing to replace issue #${1:-?} with an empty body" >&2; return 2; }
   forge_host >/dev/null || return 2   # above the dry-run guard (#256): both hosts PATCH, but an invalid one must not dry-run clean
-  local payload; payload="$(jq -nc --arg b "$2" '{body:$b}')"
+  local payload; payload="$(printf '%s' "$2" | _forge_payload forge_issue_edit '{body:$b}')" || return 2   # forge-lib: payload (edit)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     printf '[dry-run] replace body of issue %s on %s (%s characters)\n' "$1" "$(forge_repo)" "${#2}" >&2
     return 0
@@ -921,7 +939,7 @@ forge_issue_list() {
 # add them in a follow-up host-specific step rather than risk a cross-host mismatch here.
 forge_issue_create() {
   local repo payload; repo="$(forge_repo)" || return 2
-  payload="$(jq -nc --arg t "$1" --arg b "$2" '{title:$t, body:$b}')"
+  payload="$(printf '%s' "$2" | _forge_payload forge_issue_create '{title:$t, body:$b}' --arg t "$1")" || return 2   # forge-lib: payload (create)
   forge_api POST "/repos/$repo/issues" "$payload"
 }
 
@@ -1125,7 +1143,7 @@ forge_tag_exists() { forge_api GET "/repos/$(forge_repo)/tags/$1" >/dev/null 2>&
 
 # forge_release_create <tag> [title] [notes]   (both hosts accept tag_name/name/body)
 forge_release_create() {
-  local payload; payload="$(jq -nc --arg t "$1" --arg n "${2:-$1}" --arg b "${3-}" '{tag_name:$t,name:$n,body:$b}')"
+  local payload; payload="$(printf '%s' "${3-}" | _forge_payload forge_release_create '{tag_name:$t,name:$n,body:$b}' --arg t "$1" --arg n "${2:-$1}")" || return 2   # forge-lib: payload (release)
   forge_api POST "/repos/$(forge_repo)/releases" "$payload" >/dev/null
 }
 

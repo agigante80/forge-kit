@@ -2204,7 +2204,8 @@ echo '[]'
 STUB
 cat > "$N256BIN/curl" <<'STUB'
 #!/bin/sh
-echo "curl $*" | sed 's/token [^ ]*/token X/' >> "$N256LOG"   # never log a credential
+b=""; case " $* " in *" --data-binary @- "*) b=$(cat) ;; esac   # #409: the body arrives on stdin
+echo "curl $*" | sed 's/token [^ ]*/token X/' | B="$b" awk '{ sub(/@- /, ENVIRON["B"] " "); print }' >> "$N256LOG"   # never log a credential
 printf '[]\n200'
 STUB
 chmod +x "$N256BIN/gh" "$N256BIN/curl"
@@ -2594,6 +2595,84 @@ if grep -qxF -- "bad() recorder probe (#380)" "$T/rows"; then ok "bad() records 
 # before ok()/bad() records the row's own text, so the own text is checked by a literal grep -cxF
 # against what earlier rows recorded. The redirection order in wc is deliberate: 2>/dev/null must
 # come BEFORE < or the open failure of a missing recorder reaches the terminal.
+echo "== #409: a body over 128 KiB travels on stdin, never as one argument =="
+# Every body is built INSIDE the shell under test: passing it to `bash -c` would hit the very limit
+# this pins. Each case takes the library path, so a mutant is the same case run on a sed copy.
+mkdir -p "$T/s409"
+# A curl stub for the Forgejo arm: records its arguments, keeps stdin when it sends a body, answers
+# a GET with an issue whose body is "old" and anything else with {}.
+cat > "$T/s409/curl" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$@" > "$S409/args"
+case " $* " in *" --data-binary "*) cat > "$S409/stdin"; printf '{}\n200' ;; *) printf '{"body":"old"}\n200' ;; esac
+STUB
+chmod +x "$T/s409/curl"
+mkdir -p "$T/s409/nojq"; printf '#!/bin/sh\nexit 1\n' > "$T/s409/nojq/jq"; chmod +x "$T/s409/nojq/jq"
+# c409_gh <lib> <fn> <size>: the payload forge_api receives decodes to exactly the body.
+c409_gh() {
+  ( . "$1"; export FORGE_HOST=github FORGE_REPO=o/r
+    forge_api() { printf '%s' "$3" > "$T/s409/payload"; }
+    big=$(head -c "$3" /dev/zero | tr '\0' a)
+    case "$2" in
+      forge_issue_comment) forge_issue_comment 1 "$big" ;;
+      forge_issue_edit) forge_issue_edit 1 "$big" ;;
+      forge_issue_create) forge_issue_create title "$big" >/dev/null ;;
+      forge_release_create) forge_release_create v1 v1 "$big" ;;
+    esac || exit 1
+    printf '%s' "$big" > "$T/s409/want"; jq -j .body "$T/s409/payload" > "$T/s409/got" 2>/dev/null
+    cmp -s "$T/s409/want" "$T/s409/got" ) 2>/dev/null; }
+# c409_fj <lib>: on Forgejo, curl gets --data-binary @- and the full body on stdin, never -d.
+c409_fj() {
+  ( . "$1"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://f.invalid FORGE_TOKEN_ENV=TK TK=tok FORGE_NO_GIT_CREDENTIALS=1 S409="$T/s409"
+    PATH="$T/s409:$PATH"; big=$(head -c 140000 /dev/zero | tr '\0' a)
+    forge_issue_comment 1 "$big" || exit 1
+    grep -qx -- '--data-binary' "$T/s409/args" && ! grep -qx -- '-d' "$T/s409/args" || exit 1
+    printf '%s' "$big" > "$T/s409/want"; jq -j .body "$T/s409/stdin" > "$T/s409/got"
+    cmp -s "$T/s409/want" "$T/s409/got" ) >/dev/null 2>&1; }
+# c409_compose <lib> (compose ends the body with one newline, trimmed before the count): forge_body_compose_preserving (the _forge_body_write path) sends a large body whole on Forgejo.
+c409_compose() {
+  ( . "$1"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://f.invalid FORGE_TOKEN_ENV=TK TK=tok FORGE_NO_GIT_CREDENTIALS=1 S409="$T/s409"
+    PATH="$T/s409:$PATH"; big=$(head -c 140000 /dev/zero | tr '\0' a); rm -f "$T/s409/stdin"
+    forge_body_compose_preserving 1 "$big" || exit 1
+    [ "$(jq -r '.body | rtrimstr("\n") | length' "$T/s409/stdin")" = 140000 ] ) >/dev/null 2>&1; }
+# c409_nojq <lib> <fn>: a failed build returns 2, names the function, and prints no [dry-run] line.
+c409_nojq() {
+  local out rc
+  out=$( ( . "$1"; export FORGE_HOST=github FORGE_REPO=o/r FORGE_DRY_RUN=1; PATH="$T/s409/nojq:$PATH"
+    case "$2" in
+      forge_issue_comment) forge_issue_comment 1 hi ;;
+      forge_issue_edit) forge_issue_edit 1 hi ;;
+      forge_issue_create) forge_issue_create t hi ;;
+      forge_release_create) forge_release_create v1 v1 hi ;;
+    esac ) 2>&1 ); rc=$?
+  [ "$rc" = 2 ] && printf '%s' "$out" | grep -q "$2: could not build the request body" && ! printf '%s' "$out" | grep -q '\[dry-run\]'; }
+for fn in forge_issue_comment forge_issue_edit forge_issue_create forge_release_create; do
+  for sz in 131071 131072; do
+    c409_gh "$LIB" "$fn" "$sz" && ok "#409: $fn carries a $sz-byte body whole" || bad "#409: $fn lost a $sz-byte body"
+  done
+  c409_nojq "$LIB" "$fn" && ok "#409: $fn returns 2 on a failed build, with no dry-run line" || bad "#409: $fn did not refuse a failed build"
+done
+c409_fj "$LIB" && ok "#409: Forgejo sends the body on curl's stdin (--data-binary @-), whole" || bad "#409: the Forgejo arm did not send a large body on stdin"
+c409_compose "$LIB" && ok "#409: forge_body_compose_preserving sends a 140000-byte body whole on Forgejo" || bad "#409: compose lost a large body on Forgejo"
+# m409 <name> <anchor> <replacement> <case...>: the case must FAIL on a copy with one edit.
+m409() {
+  local name=$1 a=$2 b=$3; shift 3
+  A409="$a" B409="$b" python3 - "$LIB" "$T/s409/mut.sh" <<'PY' || { bad "#409 mutant '$name': anchor not found once"; return; }
+import os, sys
+s = open(sys.argv[1]).read(); a = os.environ["A409"]
+if s.count(a) != 1: sys.exit(1)
+open(sys.argv[2], "w").write(s.replace(a, os.environ["B409"]))
+PY
+  if "$@"; then bad "#409 mutant '$name' survived $*"; else ok "#409 mutant '$name' dies"; fi
+}
+M=$T/s409/mut.sh
+m409 "comment built with --arg" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_comment '{body:\$b}')\" || return 2" "payload=\"\$(jq -nc --arg b \"\$2\" '{body:\$b}')\"" c409_gh "$M" forge_issue_comment 131072
+m409 "edit built with --arg" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_edit '{body:\$b}')\" || return 2" "payload=\"\$(jq -nc --arg b \"\$2\" '{body:\$b}')\"" c409_gh "$M" forge_issue_edit 131072
+m409 "create built with --arg" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_create '{title:\$t, body:\$b}' --arg t \"\$1\")\" || return 2" "payload=\"\$(jq -nc --arg t \"\$1\" --arg b \"\$2\" '{title:\$t, body:\$b}')\"" c409_gh "$M" forge_issue_create 131072
+m409 "release built with --arg" "payload=\"\$(printf '%s' \"\${3-}\" | _forge_payload forge_release_create '{tag_name:\$t,name:\$n,body:\$b}' --arg t \"\$1\" --arg n \"\${2:-\$1}\")\" || return 2" "payload=\"\$(jq -nc --arg t \"\$1\" --arg n \"\${2:-\$1}\" --arg b \"\${3-}\" '{tag_name:\$t,name:\$n,body:\$b}')\"" c409_gh "$M" forge_release_create 131072
+m409 "Forgejo body back on -d" "out=\"\$(printf '%s' \"\$body\" | curl -sSL -w '\\n%{http_code}' -X \"\$method\" -H \"Authorization: token \$tok\" -H 'Content-Type: application/json' --data-binary @- \"\$base\$path\")\"" "out=\"\$(curl -sSL -w '\\n%{http_code}' -X \"\$method\" -H \"Authorization: token \$tok\" -H 'Content-Type: application/json' -d \"\$body\" \"\$base\$path\")\"" c409_fj "$M"
+m409 "build failure not checked" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_edit '{body:\$b}')\" || return 2" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_edit '{body:\$b}')\"" c409_nojq "$M" forge_issue_edit
+
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"
 
