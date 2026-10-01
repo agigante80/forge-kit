@@ -24,6 +24,13 @@ set -uo pipefail
 
 remote="${1:-origin}"
 ROOT="$(git rev-parse --show-toplevel)"
+# Change to the root before every directory-relative step: the allow-file probe, both `--head`
+# scans, the roadmap guard (`check-phases.sh` reads docs/roadmap.md from the working directory)
+# and the suite-count pathspec. Git already runs a pre-push hook from the work-tree root, so this
+# only makes a hand run from a subdirectory behave the same (#396). It fails closed: from `.git`
+# `rev-parse --show-toplevel` fails, ROOT is empty, and a bare `cd "$ROOT"` would return 0 without
+# moving and leave the guard silently skipped.
+[ -n "$ROOT" ] && cd -- "$ROOT" || { echo "forge-kit: could not change to the work-tree root; the leak guard could not RUN"; exit 1; }
 ZERO='0000000000000000000000000000000000000000'
 
 # The guards resolve paths against HEAD (`git show "HEAD:$f"`), so they are only meaningful for
@@ -89,12 +96,13 @@ done
 # its LINK TEXT, so a link whose text is itself a valid entry (`skip docs-leak.md`) was applied as
 # a skip and the scan exited 0 over a committed leak. That failed OPEN. The key is the MODE field,
 # never the type field, because a symlink lists as `120000 blob`. The read is `git cat-file blob`
-# on the oid from that same line, so the object read is the object whose mode was checked, and
-# `--full-tree` keeps the probe root-relative whatever directory the hook runs from. So no link
-# shape is ever read here; do not describe this as "fails closed for every link shape" (an entry
-# such as a link whose text is not a valid entry would have exited 2 only by accident). CI differs:
-# it runs `--allow-file .leak-guard-allow` on the worktree, where `[ -f ]` follows a link, so a
-# deliberately symlinked allow-file is refused here and followed there.
+# on the oid from that same line, so the object read is the object whose mode was checked. So no
+# link shape is ever read here; do not describe this as "fails closed for every link shape" (an
+# entry such as a link whose text is not a valid entry would have exited 2 only by accident).
+# CI differs: it runs `--allow-file .leak-guard-allow` on the worktree, where `[ -f ]` follows a
+# link, so a deliberately symlinked allow-file is refused here and followed there. `--full-tree`
+# is defence in depth with no test of its own (#396): the `cd` to the root above already makes
+# the probe root-relative, and the flag keeps it so if that `cd` is ever removed.
 #
 # "Once it is published", never "this push has published it" (#368): the hook cannot tell whether
 # HEAD is already on the remote, and the public CI scan runs only after publication, so a leak

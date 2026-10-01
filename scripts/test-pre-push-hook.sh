@@ -409,37 +409,60 @@ if hook_mutant probe-error-as-absent 's/^if ! al_line=\(.*\); then$/if ! al_line
     || ok "mutant probe-error-as-absent: a failing probe is treated as absent (the probe-failure case fails it)"
 fi
 rm -f .githooks/pre-push.mut-*
-# #388: `--full-tree` on the probe is pinned by a run from a SUBDIRECTORY. Git itself runs a
-# pre-push hook from the work-tree root, so the flag is a no-op on a real push; it matters only
-# when the hook is run by hand from below the root. THIS CASE PINS THE FLAG AND NOTHING MORE: from
-# `sub/` the hook's `--head` scan lists paths relative to `sub/` and never changes to $ROOT, so the
-# rc 0 expected below would be fail-open on a real push, which never happens. Hardening the hook to
-# cd to $ROOT would make this mutant equivalent again, and that change is #396. The
-# root allow-file's `skip docs-leak.md` matches `sub/docs-leak.md` as `docs-leak.md` (exact path),
-# so it suppresses the leak only when the probe still finds the root file from `sub/`. Both hooks
-# are called by absolute path because `run_hook`'s default is relative to the root. The fixture and
-# the mutant copy are removed afterwards: `hook_commit` runs `git add -A`.
+# #396: the hook changes to the work-tree root before every directory-relative step, so a hand run
+# from a SUBDIRECTORY scans the whole of HEAD, exactly as a run from the root does. Git itself runs
+# a pre-push hook from the root, so a real push never needed this; it is the hand run that failed
+# open. The case plants a leak OUTSIDE sub/ in root-leak.md (not docs-leak.md, which the root
+# allow-file's `skip docs-leak.md` covers at this point) and expects it reported from sub/. The
+# `--full-tree` flag on the probe is now defence in depth with no test of its own: the `cd` makes
+# the probe root-relative already (#388 pinned the flag; its mutant became equivalent here). Both
+# hooks are called by absolute path because `run_hook`'s default is relative to the root. The
+# fixture and the mutant copies are removed afterwards: `hook_commit` runs `git add -A`.
 HOOKABS="$REPO/.githooks/pre-push"
-run_hook_sub() {  # run_hook_sub <hook>: the hook run with sub/ as its working directory
+run_hook_in() {  # run_hook_in <dir> <hook>: the hook run with <dir> as its working directory
   local sha; sha=$(git rev-parse HEAD)
-  ( CDPATH= cd -- "$REPO/sub" && printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" \
-      "0000000000000000000000000000000000000000" | bash "$1" origin "$BARE" 2>&1 )
+  ( CDPATH= cd -- "$1" && printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" \
+      "0000000000000000000000000000000000000000" | bash "$2" origin "$BARE" 2>&1 )
 }
-mkdir -p sub; printf '%s\n' "$LEAKLINE" > sub/docs-leak.md; hook_commit "a leak under sub/, root allow-file skips docs-leak.md"
+run_hook_sub() { run_hook_in "$REPO/sub" "$1"; }  # run_hook_sub <hook>: sub/ as the working directory
+mkdir -p sub; printf 'clean\n' > sub/notes.md; hook_commit "a clean tracked file under sub/"
 out=$(run_hook_sub "$HOOKABS"); rc=$?
-[ "$rc" -eq 0 ] && ok "subdirectory: run from sub/, the probe finds the root allow-file and its skip applies (rc 0)" \
-  || bad "subdirectory: run from sub/, the probe finds the root allow-file and its skip applies (rc=$rc)"
-printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
-  && bad "subdirectory: and no finding line is printed" || ok "subdirectory: and no finding line is printed"
+[ "$rc" -eq 0 ] && ok "subdirectory: with no unskipped leak anywhere, the hook run from sub/ exits 0" \
+  || bad "subdirectory: with no unskipped leak anywhere, the hook run from sub/ exits 0 (rc=$rc)"
 printf '%s' "$out" | grep -q 'could not RUN' \
   && bad "subdirectory: and nothing reports could not RUN" || ok "subdirectory: and nothing reports could not RUN"
-if hook_mutant full-tree-dropped 's/git ls-tree --full-tree HEAD/git ls-tree HEAD/'; then
-  out=$(run_hook_sub "$HOOKABS.mut-full-tree-dropped"); rc=$?
-  [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
-    && ok "mutant full-tree-dropped: from sub/ the probe sees no allow-file and the leak is reported (rc 1 plus the finding)" \
-    || bad "mutant full-tree-dropped: from sub/ the probe sees no allow-file and the leak is reported (rc=$rc)"
+printf '%s' "$out" | grep -q 'home-path:' \
+  && bad "subdirectory: and no finding line is printed" || ok "subdirectory: and no finding line is printed"
+printf '%s\n' "$LEAKLINE" > root-leak.md; hook_commit "a leak at the root, outside sub/"
+out=$(run_hook_sub "$HOOKABS"); rc=$?
+[ "$rc" -eq 1 ] && ok "subdirectory: run from sub/, a committed leak at the root is reported (rc 1)" \
+  || bad "subdirectory: run from sub/, a committed leak at the root is reported (rc=$rc)"
+printf '%s' "$out" | grep -q 'root-leak.md:1: home-path:' \
+  && ok "subdirectory: and the finding line names root-leak.md" || bad "subdirectory: and the finding line names root-leak.md"
+printf '%s' "$out" | grep -q 'forge-kit: the tree carries something from this machine' \
+  && ok "subdirectory: and the hook says the tree carries something from this machine" \
+  || bad "subdirectory: and the hook says the tree carries something from this machine"
+if hook_mutant cd-dropped '/^\[ -n "\$ROOT" \] && cd -- "\$ROOT" /d'; then
+  out=$(run_hook_sub "$HOOKABS.mut-cd-dropped"); rc=$?
+  [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'root-leak.md:1:' \
+    && ok "mutant cd-dropped: from sub/ the root leak is invisible (rc 0, no finding line)" \
+    || bad "mutant cd-dropped: from sub/ the root leak is invisible (rc=$rc)"
 fi
-rm -f .githooks/pre-push.mut-*; rm -f sub/docs-leak.md; rmdir sub
+# Fail closed: from .git, `rev-parse --show-toplevel` fails and ROOT is empty, where a bare
+# `cd "$ROOT"` returns 0 without moving. The hook must exit 1, not 0, over the committed leak.
+out=$(run_hook_in "$REPO/.git" "$HOOKABS"); rc=$?
+[ "$rc" -eq 1 ] && ok "fail closed: run from .git over a committed root leak the hook exits 1" \
+  || bad "fail closed: run from .git over a committed root leak the hook exits 1 (rc=$rc)"
+printf '%s' "$out" | grep -q 'could not change to the work-tree root' \
+  && printf '%s' "$out" | grep -q 'could not RUN' \
+  && ok "fail closed: and the output says it could not change to the work-tree root and could not RUN" \
+  || bad "fail closed: and the output says it could not change to the work-tree root and could not RUN"
+if hook_mutant cd-unguarded 's|^\[ -n "\$ROOT" \] && cd -- "\$ROOT" .*$|cd "$ROOT"|'; then
+  out=$(run_hook_in "$REPO/.git" "$HOOKABS.mut-cd-unguarded"); rc=$?
+  [ "$rc" -eq 0 ] && ok "mutant cd-unguarded: a bare cd of an empty ROOT fails open from .git (rc 0)" \
+    || bad "mutant cd-unguarded: a bare cd of an empty ROOT fails open from .git (rc=$rc)"
+fi
+rm -f .githooks/pre-push.mut-*; rm -f root-leak.md sub/notes.md; rmdir sub
 # Both remaining mutants need HEAD to carry an allow-file WITHOUT the skip entry, plus the committed leak.
 printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry, for the mutants"
 if hook_mutant worktree-allow 's|git cat-file blob "$al_oid"|cat .leak-guard-allow|; s|git ls-tree --full-tree HEAD -- .leak-guard-allow|echo 100644 blob x|'; then
@@ -512,6 +535,34 @@ if grep -q "the host rules run from /phase; CI runs only the guard's contract te
 else
   bad "the roadmap check detects the restored claim (ledger or mutant failed)"
 fi
+# #396: the roadmap guard reads docs/roadmap.md relative to the working directory, so from sub/ it
+# used to print "nothing to check" and exit 0 over a plan lacking Fails if. Distinct variable names
+# (rs_out, rs_rc): the assertions above read $out from the roadmapbad run, and the bad plan must
+# stay committed for the mutant below.
+mkdir -p sub; printf 'clean\n' > sub/notes.md; hook_commit "a tracked file under sub/, plan still lacks Fails if"
+rs_out=$(run_hook_sub "$HOOKABS"); rs_rc=$?
+[ "$rs_rc" -eq 1 ] && ok "roadmap from sub/: a plan with no Fails if section blocks the push (rc 1)" \
+  || bad "roadmap from sub/: a plan with no Fails if section blocks the push (rc=$rs_rc)"
+printf '%s' "$rs_out" | grep -q 'rule 2:' \
+  && printf '%s' "$rs_out" | grep -q 'the roadmap does not satisfy check-phases.sh' \
+  && ok "roadmap from sub/: and rule 2 and the roadmap message are printed" \
+  || bad "roadmap from sub/: and rule 2 and the roadmap message are printed"
+if hook_mutant cd-undone-before-roadmap '/^phase_problems=0$/i cd -- "$OLDPWD"'; then
+  rs_out=$(run_hook_sub "$HOOKABS.mut-cd-undone-before-roadmap"); rs_rc=$?
+  [ "$rs_rc" -eq 0 ] && printf '%s' "$rs_out" | grep -q 'nothing to check' \
+    && ok "mutant cd-undone-before-roadmap: from sub/ the roadmap guard is skipped as nothing to check (rc 0)" \
+    || bad "mutant cd-undone-before-roadmap: from sub/ the roadmap guard is skipped as nothing to check (rc=$rs_rc)"
+fi
+rm -f .githooks/pre-push.mut-*
+printf '# A\n\n## Goal\nx\n\n## Fails if\nx\n' > docs/plans/a.md
+hook_commit "plan regains its premortem, for the sub/ positive case"
+rs_out=$(run_hook_sub "$HOOKABS"); rs_rc=$?
+[ "$rs_rc" -eq 0 ] && ok "roadmap from sub/: a complete plan exits 0" \
+  || bad "roadmap from sub/: a complete plan exits 0 (rc=$rs_rc)"
+printf '%s' "$rs_out" | grep -q 'nothing to check' \
+  && bad "roadmap from sub/: and the guard did not skip as nothing to check" \
+  || ok "roadmap from sub/: and the guard did not skip as nothing to check"
+rm -f sub/notes.md; rmdir sub
 rm -rf docs plugins/forge-kit-roadmap; git add -A >/dev/null; git commit --quiet -m cleanup
 
 cd "$ROOT"
@@ -576,6 +627,30 @@ printf '%s' "$out" | grep -q 'test-fixture-one.sh' && ok "naming the claim" || b
 printf '%s' "$out" | grep -q 'update-suite-counts.py' && ok "and the script that fixes it" || bad "and the script that fixes it"
 [ -f "$SENT/one.ran" ] && ok "the changed suite was invoked" || bad "the changed suite was invoked"
 [ -f "$SENT/two.ran" ] && bad "and the unchanged one was not" || ok "and the unchanged one was not"
+
+# #396: the same stale-count path from a SUBDIRECTORY. The suite-count pathspec
+# `-- 'scripts/test-*'` is directory-relative, so without the hook's `cd` to the root a run from
+# sub/ would list no changed suite and say nothing counted changed. The mutant undoes the cd just
+# before the doc rule runs, which is the only step this case isolates.
+rm -f "$SENT"/*.ran
+mkdir -p sub
+sub_push() {  # sub_push <hook> <base-sha>: the hook run from sub/ over the main push
+  local sha; sha=$(git rev-parse HEAD)
+  ( CDPATH= cd -- "$REPO/sub" && printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$2" \
+      | SENTINEL_DIR="$SENT" bash "$1" origin "$BARE" 2>&1 )
+}
+out="$(sub_push "$REPO/.githooks/pre-push" "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "suite counts from sub/: a stale claim still blocks the push (rc 1)" || bad "suite counts from sub/: a stale claim still blocks the push (rc $rc, $out)"
+printf '%s' "$out" | grep -q 'test-fixture-one.sh' && ok "suite counts from sub/: and the claim is named" || bad "suite counts from sub/: and the claim is named"
+[ -f "$SENT/one.ran" ] && ok "suite counts from sub/: and the changed suite was invoked" || bad "suite counts from sub/: and the changed suite was invoked"
+if hook_mutant cd-undone-before-counts 's|^doc_problems=0$|cd -- "$OLDPWD"\ndoc_problems=0|'; then
+  rm -f "$SENT"/*.ran
+  out="$(sub_push "$REPO/.githooks/pre-push.mut-cd-undone-before-counts" "$base")"; rc=$?
+  [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no counted suite changed' \
+    && ok "mutant cd-undone-before-counts: from sub/ the changed suite is invisible (rc 0, no counted suite changed)" \
+    || bad "mutant cd-undone-before-counts: from sub/ the changed suite is invisible (rc $rc)"
+fi
+rm -f .githooks/pre-push.mut-*; rmdir sub
 
 # Regenerating the claim clears it.
 python3 scripts/update-suite-counts.py --doc CLAUDE.md --root . >/dev/null 2>&1
