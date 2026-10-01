@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 15 -->
+<!-- contributor-docs-version: 16 -->
 
 # Contributor docs
 
@@ -161,9 +161,11 @@ read as one value and refers the row; a value with an UNBALANCED quote is not, a
 stays possible: nested-paren substitution values, `pnpm_config_*`, `JUST_JUSTFILE` and `JUST_WORKING_DIRECTORY`, `unset`,
 `set -a`, `env VAR=... cmd`, the user and global `.npmrc`, `NPM_CONFIG_USERCONFIG` and a non-root
 `.npmrc` (npm never reads it for a run from the root). Where npm would run the root or stop with an error, a tracked `.npmrc` still refers
-(safe side): `workspaces=null`, `workspace []=x` and `workspace` with no root `workspaces` field.
-Not modelled, so an explicit form passes where npm refuses: `workspaces=0x0`, `0e0` and a value with
-whitespace inside quotes (`" false"`). An array-form `workspaces[]` line means workspaces on, whatever
+(safe side): `workspaces=null`, `workspace []=x`, `workspace` with no root `workspaces` field and
+`workspaces=undefined`. Not modelled, so an explicit form passes where npm refuses: `workspaces=0x0`,
+`0b0`, `0o0`, `0e0`, `0e5`, `undefined`, a value with whitespace inside quotes (`" false"`),
+`workspaces;x=false` and `workspaces #c=false`; `workspace#c=client` is a false `fail`, and a space
+inside a quoted key is trimmed (safe side). An array-form `workspaces[]` line means workspaces on, whatever
 its value, as npm reads it: a plain run refers and an explicit `-w` run is judged by its manifest.
 Other npm versions are not specified. Workspaces are matched by `name` among tracked
 manifests, not against `package.json#workspaces` or `pnpm-workspace.yaml`, so a same-named manifest

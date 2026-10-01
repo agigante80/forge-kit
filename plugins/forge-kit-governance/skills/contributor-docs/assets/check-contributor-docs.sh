@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 21
+# check-contributor-docs-version: 22
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -121,9 +121,14 @@
 # and a non-root .npmrc are never read (npm never reads a non-root .npmrc for a run from the root;
 # the user and global files and NPM_CONFIG_USERCONFIG are outside the repository); safe-side
 # referrals where npm would run the root or stop with an error: `workspaces=null`, `workspace []=x`
-# and `workspace` with no root `workspaces` field. Not modelled, so an explicit -w form passes
-# where npm refuses: `workspaces=0x0`, `0e0` and a value with whitespace inside quotes
-# (`" false"`), which npm reads as false. An ARRAY-form key (`workspaces[]`, quoted, spaced around
+# and `workspace` with no root `workspaces` field, and `workspaces=undefined` (npm runs the root
+# on a plain run). Not modelled, so an explicit -w form passes where npm refuses:
+# `workspaces=0x0`, `0b0`, `0o0`, `0e0`, `0e5`, `undefined` and a value with whitespace inside
+# quotes (`" false"`), which npm reads as false, and the key-side spellings `workspaces;x=false`
+# and `workspaces #c=false`. `workspace#c=client` is a false fail (npm runs the client), and a
+# space inside a quoted key is trimmed (`"workspace "=client`, `"workspaces "=true` refer, safe
+# side) (#398). An empty value, or one empty after the comment cut, is truthy, as npm reads it,
+# and the cut never runs inside a quoted value (`"false # c"` is a truthy string). An ARRAY-form key (`workspaces[]`, quoted, spaced around
 # the `=` or valued 0 included) means workspaces on whatever its value and wherever it sits beside a
 # scalar line, because npm's ini parser makes the key a list and a non-empty list is truthy (#395,
 # measured on npm 10.9.4: a plain run goes to the client, an explicit -w run is not refused). So

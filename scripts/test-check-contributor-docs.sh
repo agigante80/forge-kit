@@ -1171,6 +1171,28 @@ c_npmrc_one_neg() { npmrc_case 'workspaces=1\n' "$EXPL"
   row pass command "npm -w client run dev: dev is defined in client/package.json" && nostatus referred || return 1
   npmrc_case 'workspaces=1\n'; rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces"; }
 # Documented limit: npm reads 0x0 and 0e0 as false and refuses the explicit form; the asset does not model it.
+# #398: the comment cut never runs inside a quoted value (npm 10.9.7 reads "false # c" as a truthy
+# string and runs the client), and an empty value, or one empty after the cut, is truthy.
+c_npmrc_quoted_value_hash_explicit() { npmrc_case 'workspaces="false # c"\n' "$EXPL"
+  row pass command "npm -w client run dev: dev is defined in client/package.json" && nostatus referred; }
+c_npmrc_empty_after_cut() { npmrc_case 'workspaces= # c\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail; }
+# #398 stated limits, each pinned at the asset's current row (npm 10.9.7's verdict in the label).
+c_npmrc_key_hash_limit() { npmrc_case 'workspace#c=client\n'
+  rc_is 1 && row fail command "npm run dev: no such script in package.json"; }
+c_npmrc_key_semicolon_limit() { npmrc_case 'workspaces;x=false\n' "$EXPL"
+  row pass command "npm -w client run dev: dev is defined in client/package.json"; }
+c_npmrc_key_space_hash_limit() { npmrc_case 'workspaces #c=false\n' "$EXPL"
+  row pass command "npm -w client run dev: dev is defined in client/package.json"; }
+c_npmrc_more_zero_limit() { local v
+  for v in 0b0 0o0 0e5; do npmrc_case "workspaces=$v\n" "$EXPL"
+    row pass command "npm -w client run dev: dev is defined in client/package.json" || { printf '      | value %s\n' "$v"; return 1; }; done; }
+c_npmrc_undefined_limit() { npmrc_case 'workspaces=undefined\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail || return 1
+  npmrc_case 'workspaces=undefined\n' "$EXPL"; row pass command "npm -w client run dev: dev is defined in client/package.json"; }
+c_npmrc_quoted_key_trim_limit() { npmrc_case '"workspace "=client\n'
+  row referred command "npm run dev: a tracked .npmrc sets workspace" || return 1
+  npmrc_case '"workspaces "=true\n'; row referred command "a tracked .npmrc sets workspaces" && nostatus fail; }
 c_npmrc_zero_hex_limit() { local v
   for v in 0x0 0e0; do npmrc_case "workspaces=$v\n" "$EXPL"
     row pass command "npm -w client run dev" && nostatus referred || return 1
@@ -1187,7 +1209,7 @@ c_npmrc_quoted_value_comment_neg() { npmrc_case 'workspaces="false" # c\n' "$EXP
 # Regression pin, no killing mutant: a value holding a backslash is never false in either parser.
 c_npmrc_escaped_comment_neg() { npmrc_case 'workspaces=false\;x\n' "$EXPL"; row pass command "npm -w client run dev"; }
 c_npmrc_quoted_key_explicit() { local k
-  for k in '"workspaces"' "'workspaces'"; do npmrc_case "$k=false\n" "$EXPL"
+  for k in '"workspaces"' "'workspaces'" '"workspaces" '; do npmrc_case "$k=false\n" "$EXPL"
     row referred command "npm -w client run dev: a tracked .npmrc sets workspaces=false" || { printf '      | key %s\n' "$k"; return 1; }; done; }
 # One file per key: in one file the plain `workspace` key would mask a mutant that fails to unquote the second.
 c_npmrc_quoted_key_ws() { local k
@@ -1260,6 +1282,14 @@ case_ c_npmrc_zero_explicit "workspaces=0 refers an explicit -w form"
 case_ c_npmrc_zero_spellings_explicit "00, -0, +0, 0.0, .0 and \"0\" read as false and refer an explicit form"
 case_ c_npmrc_one_neg "workspaces=1 is not false: explicit passes, plain refers"
 case_ c_npmrc_zero_hex_limit "pinned limit: 0x0 and 0e0 are not modelled"
+case_ c_npmrc_quoted_value_hash_explicit "a # inside a quoted value is no comment, so the value is truthy (#398)"
+case_ c_npmrc_empty_after_cut "an empty value after the comment cut is truthy (#398)"
+case_ c_npmrc_key_hash_limit "pinned limit: workspace#c=client is a false fail, npm runs the client (#398)"
+case_ c_npmrc_key_semicolon_limit "pinned limit: workspaces;x=false passes the explicit form npm refuses (#398)"
+case_ c_npmrc_key_space_hash_limit "pinned limit: workspaces #c=false passes the explicit form npm refuses (#398)"
+case_ c_npmrc_more_zero_limit "pinned limit: 0b0, 0o0 and 0e5 are not modelled (#398)"
+case_ c_npmrc_undefined_limit "pinned limit: workspaces=undefined refers a plain run and passes an explicit one (#398)"
+case_ c_npmrc_quoted_key_trim_limit "pinned limit: a space inside a quoted key is trimmed, safe side (#398)"
 case_ c_npmrc_inline_comment_explicit "an inline ; or # comment after a false value is cut"
 case_ c_npmrc_inline_comment_true_neg "a comment after true never makes the value false"
 case_ c_npmrc_quoted_value_comment_neg "a quoted false followed by a comment is truthy to npm"
@@ -2138,6 +2168,10 @@ NR == 1 {' 'EXTRACT='\''
   mutant "comment cut before unquote" c_npmrc_quoted_value_comment_neg 'sub(/^[ \t]+/, "", val); n = length(val); c = substr(val, 1, 1)' 'sub(/^[ \t]+/, "", val); if (match(val, /[;#]/)) { val = substr(val, 1, RSTART - 1); sub(/[ \t]+$/, "", val) } n = length(val); c = substr(val, 1, 1)'
   mutant "quote strip after the [] strip" c_npmrc_quoted_key_ws '      sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)' '      sub(/[ \t]+$/, "", key)' 'kn = length(key); kc = substr(key, 1, 1)' 'sub(/\[\]$/, "", key); kn = length(key); kc = substr(key, 1, 1)'
   mutant "quoted key not unquoted" c_npmrc_quoted_key_explicit 'if (kn > 1 && (kc' 'if (0 && (kc'
+  # #398: the three single edits that survived the suite.
+  mutant "pre-unquote key trim dropped" c_npmrc_quoted_key_explicit 'sub(/[ \t]+$/, "", key); kn = length(key)' 'kn = length(key)'
+  mutant "comment cut inside a quoted value" c_npmrc_quoted_value_hash_explicit 'else if (match(val, /[;#]/))' 'if (match(val, /[;#]/))'
+  mutant "empty value read as false" c_npmrc_empty_after_cut 'if (val ~ /^[-+]?(0+\.?0*|\.0+)$/) val' 'if (val ~ /^[-+]?(0+\.?0*|\.0+)$/ || val == "") val'
   mutant "closing key quote not checked" c_npmrc_quoted_key_mismatch_neg '&& substr(key, kn, 1) == kc) key =' ') key ='
   # #346. Anchors are exact substrings of code() in the shipped script.
   mutant "carry applied to every runner" c_export_make_neg '    if (w != "npm" && w != "pnpm" && w != "yarn") carry = 0
