@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, reassess, close or triage a
 argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 11 -->
+<!-- phase-version: 12 -->
 
 # /phase
 
@@ -115,14 +115,14 @@ grep -m1 -o 'forge-lib-version: [0-9]*' "$FL"
 The two libraries are SOURCED, not run, and the version that prints must be 25 or higher.
 `${DD:-none}` is often `none`, and the skill says what the review does then.
 
-1. Run `bash "$CP"` and report its verdict verbatim. Then, before anything can write, snapshot
+1. Run `bash "$CP"` and report its verdict verbatim. Then, before any write, snapshot
    the local paths the second-run proof covers: `docs/roadmap.md`, the plan `docs/plans/<phase>.md`
    and each document of step 4's `<documents>` (computed here, once). The listing is a FILE under the
-   git dir, since a shell variable does not survive the tool calls a run spans, and it holds one
+   git dir (a shell variable does not survive the tool calls a run spans) holding one
    `<hash>  <path>` line per path from `git hash-object -- "<path>"`, or `absent  <path>` when the
-   path does not exist (`git hash-object` exits 128 on one). Hashes, because `git status --porcelain`
-   reads ` M <path>` both before and after a second write. Overlapping runs share the file; the later
-   wins.
+   path is missing (`git hash-object` exits 128). Hashes, because `git status --porcelain`
+   reads ` M <path>` both before and after a second write. Overlapping runs share the file; the
+   later wins.
 
 ```bash
 ( cd "$(git rev-parse --show-toplevel)" &&
@@ -137,14 +137,18 @@ The two libraries are SOURCED, not run, and the version that prints must be 25 o
    something that happened during this phase.
 3. Report each ticket against the tree: implemented, naming the commit or commits under the
    skill's rule above, partly implemented (naming what is missing), not started, or superseded.
-4. Run `bash "$DD" --range <base>^..HEAD --docs <documents>` and read its rows. `<base>` is derived
-   by the skill's range rule, never restated here. `<documents>` is a comma-separated list
-   (`--docs <doc>[,<doc>...]`), the project's standing documents for which `git cat-file -e
-   HEAD:<doc>` succeeds, read back from the snapshot file rather than from memory:
-   `SNAP="$(git rev-parse --git-path phase-review.snapshot)"; [ -f "$SNAP" ] && sed 's/^[^ ]*  //'
-   "$SNAP" | grep -vxF -e docs/roadmap.md -e "<plan>" | paste -sd, -`.
-   With no snapshot it prints nothing: report `no snapshot from step 1`, skip this step. Both flags
-   are required.
+4. Run `bash "$DD" --range <base>^..HEAD --docs <documents>`, read its rows. `<base>` is derived
+   by the skill's range rule, never restated here. `<documents>` is a comma-separated
+   `<doc>[,<doc>...]`, the project's standing documents for which `git cat-file -e
+   HEAD:<doc>` succeeds, read from the snapshot file, not memory:
+
+```bash
+SNAP="$(git rev-parse --git-path phase-review.snapshot)"
+if [ ! -f "$SNAP" ]; then echo "no snapshot from step 1"; else
+  D=$(sed 's/^[^ ]*  //' "$SNAP" | grep -vxF -e docs/roadmap.md -e "<plan>" | paste -sd, -)
+  echo "${D:-no docs beyond the roadmap and plan}"; fi
+```
+   Report either message verbatim and skip the drift check. Both flags are required.
 5. Report every act the review would perform, on the tickets, on the plan, on the roadmap prose and
    on those documents, each with its reason. Nothing is written before this report exists.
 6. Act. The roadmap prose goes through `roadmap_set_prose`; the plan and the documents are ordinary
