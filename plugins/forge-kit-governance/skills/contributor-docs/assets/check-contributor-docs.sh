@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 17
+# check-contributor-docs-version: 18
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -75,8 +75,8 @@
 # pass, and refers the row; before #386 a space in the value lost the runner and gave no row, and a
 # quoted assignment before a cd hid the cd from the next line.
 # Limits: `$VAR` or `${...}` before a substitution (npm_config_workspace=$HOME$(echo c) npm run
-# dev) is still a false fail, as is `export "npm_config_x"=y`, whose quote closes before the `=`;
-# an export in a prose code span does not carry into a following fence (the carry resets at
+# dev) is still a false fail (`export "npm_config_x"=y` carries since the #387 review, as bash
+# exports it); an export in a prose code span does not carry into a following fence (the carry resets at
 # a fence open, as a cd does); nested-paren substitution values; a value with an UNBALANCED quote,
 # which matches no quoted run and is read as before (no row); pnpm_config_*; JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a;
 # `env VAR=... cmd`.
@@ -241,7 +241,7 @@ is_template() {
 EXTRACT='
 NR == 1 { sub(/^\357\273\277/, "") }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, isx, unx, hit, unexp, dq, sq, qw, c, out) {
+function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, isx, unx, hit, unexp, q, qs, nq) {
   # A command substitution in an assignment VALUE rescopes npm like any other value
   # (npm_config_workspace=$(echo client) npm run dev, #296), but the split below would cut it at
   # its parentheses and leave a bare runner. Rewrite the value of a NAME=value WORD to X when it
@@ -254,16 +254,25 @@ function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, is
   # groups, quoted runs, backtick runs and escaped bytes, becomes X. A `;&|()` inside a quoted run
   # is inside the X too. An UNBALANCED quote matches no run, so the value stops at it and the line
   # is read as before (a stated limit, pinned by a case).
-  # ONE left-to-right pass, linear in the line: a marker byte (\001, any real one removed first) is
-  # dropped after each word-start NAME=, each marked value becomes X, and the rest of the markers
-  # go. A restart-from-the-front loop is quadratic on a hostile line. Anchored at the start of a
+  # THE RUNS ARE PAIRED FIRST, left to right as the shell pairs them (#386 review round 1): every
+  # balanced quoted run, backtick run and escaped byte is wrapped in \002...\003, and a value may
+  # take a run only through its opening \002. A word-start NAME= INSIDE a quoted argument
+  # (`git commit -m "set retries=3" && npm run nope && echo "x"`) is still marked, but its value
+  # cannot reach past the closing quote of that argument, which carries no \002; reading that quote as
+  # the opener of a new run swallowed `&& npm run nope && echo ` into X and silenced a broken command.
+  # ONE left-to-right pass per step, linear in the line: the wrap, a marker byte (\001) after each
+  # word-start NAME=, each marked value to X, then every marker byte (any real one removed first)
+  # goes. A restart-from-the-front loop is quadratic on a hostile line. Anchored at the start of a
   # word, so --workspace=$(...) is left alone. A $( anywhere else rescopes nothing and stays judged.
   # The quote is \047 because this program sits inside a single-quoted shell variable.
   if (index(text, "=")) {
-    gsub(/\001/, "", text)
-    gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)
-    gsub(/\001([^ \t;&|()$"\047`\\\001]|\$\([^()]*\)|"([^"\\]|\\.)*"|\047[^\047]*\047|`[^`]*`|\\.)+/, "X", text)
-    gsub(/\001/, "", text)
+    gsub(/[\001\002\003]/, "", text)
+    gsub(/"([^"\\]|\\.)*"|\047[^\047]*\047|`[^`]*`|\\./, "\002&\003", text)
+    # A leading space stands in for the start of the line: `(^|[ \t;&|(])` sends gawk in a UTF-8
+    # locale to its slow matcher, quadratic on one long word (400k bytes took 9 s, now 0.04 s).
+    text = " " text; gsub(/[ \t;&|(][A-Za-z_][A-Za-z0-9_]*=/, "&\001", text); text = substr(text, 2)
+    gsub(/\001([^ \t;&|()$"\047`\\\001\002\003]|\$\([^()]*\)|\002[^\003]*\003)+/, "X", text)
+    gsub(/[\001\002\003]/, "", text)
   }
   gsub(/&&|\|\||[;|()]/, "\n", text)
   n = split(text, segs, "\n")
@@ -292,28 +301,26 @@ function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, is
     if (w == "declare" || w == "typeset") for (j = 2; j <= nw && ws[j] ~ /^[-+]/; j++) { if (ws[j] ~ /^-[A-Za-z]*x/) isx = 1; if (ws[j] ~ /^[+][A-Za-z]*x/) unx = 1 }
     if (unx) isx = 0
     if (isx) {
-      # Three guards keep an npm_config_ match honest, each applied only to a word that STARTS
-      # outside any quote: a word starting with # ends the command (a comment), a word inside a
-      # quoted value is not a name, and under export (only: for declare, -n means nameref and the
-      # line still exports) a dash word holding an n anywhere on the line un-exports it. The quote
-      # state is PARSED in one left-to-right pass (#387), double and single quotes as separate
-      # kinds, a backslash outside single quotes escaping the next byte; it used to count quote
-      # characters of either kind, so `export "a # b" npm_config_workspace=c` carried nothing.
-      hit = 0; unexp = 0; dq = 0; sq = 0
-      for (j = 2; j <= nw; j++) {
-        out = !dq && !sq
-        if (out && ws[j] ~ /^#/) break
-        if (out && w == "export" && ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
-        if (out && ws[j] ~ /^["\047]?[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=|["\047]?$)/) hit = 1
-        qw = ws[j]
-        for (k = 1; k <= length(qw); k++) {
-          c = substr(qw, k, 1)
-          if (sq) { if (c == "\047") sq = 0 }
-          else if (c == "\\") k++
-          else if (dq) { if (c == "\"") dq = 0 }
-          else if (c == "\"") dq = 1
-          else if (c == "\047") sq = 1
-        }
+      # Three guards keep an npm_config_ match honest, each applied only to a word OUTSIDE any
+      # quote: a word starting with # ends the command (a comment), a word inside a quoted value is
+      # not a name, and under export (only: for declare, -n means nameref and the line still
+      # exports) a dash word holding an n anywhere on the line un-exports it. The quotes are PARSED
+      # (#387), linearly: a quoted npm_config_ word keeps its name; then every balanced double- or
+      # single-quoted run and escaped byte becomes Q (one gsub, paired left to right, two kinds, a
+      # backslash outside single quotes escaping the next byte), so `export "a # b" ...` is one
+      # word; then an UNBALANCED quote cuts the rest, which sits inside a quoted value. A
+      # per-character loop was quadratic on a hostile export line on BWK, busybox and gawk in a
+      # UTF-8 locale (#387 review round 1); the old guards counted quote characters of either kind.
+      q = seg
+      gsub(/["\047][Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=[^"\047]*)?["\047]/, "npm_config_q=X", q)
+      gsub(/"([^"\\]|\\.)*"|\047[^\047]*\047|\\./, "Q", q)
+      if (match(q, /["\047]/)) q = substr(q, 1, RSTART - 1)
+      nq = split(q, qs, /[ \t]+/)
+      hit = 0; unexp = 0
+      for (j = 2; j <= nq; j++) {
+        if (qs[j] ~ /^#/) break
+        if (w == "export" && qs[j] ~ /^-[A-Za-z]*n/) unexp = 1
+        if (qs[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=|$)/) hit = 1
       }
       if (hit && !unexp) { if (infence) fenv = 1; else penv = 1 }
       continue
@@ -567,14 +574,14 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
         # The flag prefix ends at the first word that is neither a flag nor a flag's value (#390): a
         # run or run-script after it (`npm -g install run`) is an argument, not the verb, and a
         # flag's VALUE (`npm --prefix run-script run build`) is never the verb either. Exactly
-        # these seven take a value; every other dash word is read as a boolean, as npm 10.9.7 reads
+        # these eight take a value (npm -C is --prefix's alias, #390 review); every other dash word is read as a boolean, as npm 10.9.7 reads
         # an unknown --flag and pnpm 10.33.3 refuses one, so `npm --loglevel verbose run x` ends
         # the search at `verbose` (silent, never a fail). Words are compared to literals only.
         for w in "$@"; do
           if [ "$skip" = 1 ]; then skip=0; continue; fi
           is_run "$w" && { row referred command "$loc" "$pm $*: a flag between $pm and $w may change which script runs"; return; }
           case "$pm:$w" in
-            npm:-w|npm:--workspace|npm:--prefix|pnpm:--filter|pnpm:-F|pnpm:-C|pnpm:--dir) skip=1 ;;
+            npm:-w|npm:--workspace|npm:--prefix|npm:-C|pnpm:--filter|pnpm:-F|pnpm:-C|pnpm:--dir) skip=1 ;;
             *:-*) ;;
             *) break ;;
           esac

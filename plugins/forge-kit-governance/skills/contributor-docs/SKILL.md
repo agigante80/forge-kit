@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 12 -->
+<!-- contributor-docs-version: 13 -->
 
 # Contributor docs
 
@@ -119,8 +119,7 @@ carries nothing, and under `export` a dash word holding an `n` anywhere on the l
 un-exports) voids the whole line; for `declare`, `-n` means nameref and still carries, and a leading
 `+x` un-exports. Quotes are parsed (two kinds, backslash escapes), so a `#` or `-n` inside quotes is
 text. Still a false `fail`: `$VAR` or
-`${...}` before a substitution (`npm_config_workspace=$HOME$(echo c) npm run dev`), and
-`export "npm_config_x"=y`, whose quote closes before the `=`.
+`${...}` before a substitution (`npm_config_workspace=$HOME$(echo c) npm run dev`).
 A tracked root `.npmrc` refers every `npm run X`, whether or not the root defines X, because npm then
 runs the workspace's script (#339). That happens when it sets `workspace` (any value; `workspace[]=`,
 `workspace = x` and a quoted key included) or sets `workspaces` to anything but false. npm takes the
