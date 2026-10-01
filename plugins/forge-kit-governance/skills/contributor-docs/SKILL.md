@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 13 -->
+<!-- contributor-docs-version: 14 -->
 
 # Contributor docs
 
@@ -73,8 +73,14 @@ each scanned only if tracked. `--docs` replaces the set; `AGENTS.md` is required
 
 What it checks, all resolved against the git INDEX, never the disk:
 
-- **required**: `AGENTS.md` is tracked and no ignore rule matches it. A tracked symlink is judged
-  by its target, so `AGENTS.md -> CLAUDE.md` fails when `CLAUDE.md` is local only.
+- **required**: `AGENTS.md` is tracked and no ignore rule matches it. A tracked symlink passes only
+  when its target is relative and, from the link's own directory, names a tracked regular file, so
+  `AGENTS.md -> CLAUDE.md` passes and fails when `CLAUDE.md` is local only. A chain, an absolute or
+  escaping target, a directory and a dangling name each fail, and nothing behind them is read: every
+  document, Makefile and justfile is read as its index blob, so an unstaged edit is not judged. The
+  same rule refuses a symlinked `CONTRIBUTING.md`, PR template, make or just file or `--docs` path
+  with one `fail` row, and an untracked `--docs` path must be a regular file inside the repository.
+  Control bytes in any row field print as `?` (#309).
 - **max-lines**, **max-bytes**: the budget above.
 - **command**: inside code spans and fenced blocks only, since prose naming a command is not an
   instruction. Only these shapes can FAIL: `npm run X` and `pnpm run X` from the root (`run-script`
@@ -167,7 +173,9 @@ The check belongs where contributors' PRs run, not in a hook. Copy the asset int
 - run: bash scripts/check-contributor-docs.sh
 ```
 
-Fetch depth does not matter, since it reads the index of the checkout. Install `jq` on a runner
+Fetch depth does not matter, since it reads the index of the checkout. It never reads outside the
+repository, but a `pull_request_target` workflow or a self-hosted runner that keeps files between
+jobs runs it on a contributor's tree with more within reach, so prefer a plain `pull_request` job. Install `jq` on a runner
 that lacks it, or the first npm command it resolves stops the run with exit 2.
 
 ## Boundary with coding-standards-auditor

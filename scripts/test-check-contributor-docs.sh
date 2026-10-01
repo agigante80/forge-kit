@@ -180,6 +180,140 @@ case_ c_150 "exactly 150 lines passes"
 case_ c_151 "151 lines fails naming 151 and 150"
 case_ c_bytes "32769 bytes fails naming 32769"
 
+# ---------------------------------------------------------------- #309: one safe read, no outside content
+# Every negative asserts the outside token never reaches stdout or stderr, by CONTENT (#305): a read
+# of the outside file is caught whatever row it produced. Each repository is $W/rN, so ../outside.md
+# names $W/outside.md.
+TOKEN=SECRET-TOKEN-abc123
+printf 'See [x](%s.md)\n' "$TOKEN" > "$W/outside.md"
+mkdir -p "$W/outdir"; printf 'See [x](%s.md)\n' "$TOKEN" > "$W/outdir/z.md"
+no_token() { ! grep -qF -- "$TOKEN" <<<"$OUT$ERR"; }
+# lnk <target> <name>: a tracked symlink.
+lnk() { mkdir -p "$(dirname "$R/$2")"; ln -s "$1" "$R/$2"; git -C "$R" add -- "$2"; }
+# four_fields: every output line has exactly four TAB-separated fields and none starts with `::`.
+four_fields() { awk -F'\t' 'NF != 4 || /^::/ { f = 1 } END { exit f }' <<<"$OUT"; }
+# The awk shim for c_make_awk_fails: exit 1 only for the make and just programs (their text holds
+# `unsettled`), the real awk otherwise. REAL_AWK is resolved before the shim directory is on PATH.
+REAL_AWK=$(PATH="${AWKDIR:+$AWKDIR:}$PATH" command -v awk)
+mkdir -p "$W/shim"; printf '#!/bin/sh\ncase "$*" in *unsettled*) exit 1 ;; esac\nexec "%s" "$@"\n' "$REAL_AWK" > "$W/shim/awk"; chmod +x "$W/shim/awk"
+
+c_symlink_ok() { new; tput_ CLAUDE.md 'x\n'; lnk CLAUDE.md AGENTS.md; run
+  rc_is 0 && row pass required "symlink to tracked CLAUDE.md" && [ -z "$ERR" ]; }
+c_symlink_chain_escape() { new; lnk ../outside.md l2.md; lnk l2.md AGENTS.md; run
+  rc_is 1 && row fail required "l2.md, which is itself a symlink" && no_token && [ "$(count pass max-lines)" = 0 ] && [ "$(count fail max-lines)" = 0 ]; }
+c_symlink_chain_inside() { new; tput_ CLAUDE.md 'x\n'; lnk CLAUDE.md l2.md; lnk l2.md AGENTS.md; run
+  rc_is 1 && row fail required "l2.md, which is itself a symlink"; }
+c_symlink_chain_three() { new; lnk ../outside.md l3.md; lnk l3.md l2.md; lnk l2.md AGENTS.md; run
+  rc_is 1 && row fail required "l2.md, which is itself a symlink" && no_token; }
+c_symlink_escape_one() { new; lnk ../outside.md AGENTS.md; run
+  rc_is 1 && row fail required "escapes the repository" && no_token \
+    && [ "$(awk -F'\t' '$3 == "AGENTS.md" || index($3, "AGENTS.md:") == 1' <<<"$OUT" | grep -c .)" = 1 ]; }
+c_symlink_abs() { new; tput_ etc/hostname 'x\n'; lnk /etc/hostname AGENTS.md; run
+  rc_is 1 && row fail required "/etc/hostname, which is absolute" && [ "$(count pass required)" = 0 ] \
+    && [ "$(count pass max-bytes)" = 0 ] && [ "$(count fail max-bytes)" = 0 ] || return 1
+  # #310: an absolute target whose path minus the slash is tracked as a decoy
+  new; tput_ "${W#/}/outside.md" 'decoy\n'; lnk "$W/outside.md" AGENTS.md; run
+  rc_is 1 && row fail required "which is absolute" && no_token && none decoy; }
+c_symlink_subdir() { new; agents 'x\n'; tput_ docs/guide.md 'See [r](../AGENTS.md).\n'; lnk guide.md docs/AGENTS.md; run --docs docs/AGENTS.md
+  rc_is 0 && at pass docs/AGENTS.md:1 "../AGENTS.md"; }
+c_symlink_dir() { new; tput_ docs/guide.md 'x\n'; lnk docs AGENTS.md; run
+  rc_is 1 && row fail required "docs, a directory, which is not a tracked file" && ! grep -q 'cannot read' <<<"$ERR"; }
+c_symlink_glob() { new; tput_ CLAUDE.md 'x\n'; lnk 'C*.md' AGENTS.md; run
+  rc_is 1 && row fail required "C*.md, which is not tracked" && [ -z "$ERR" ] || return 1
+  new; tput_ CLAUDE.md 'x\n'; lnk ':(top)CLAUDE.md' AGENTS.md; run
+  rc_is 1 && row fail required ":(top)CLAUDE.md, which is not tracked" && [ -z "$ERR" ]; }
+c_symlink_dangling() { new; lnk missing.md AGENTS.md; run
+  rc_is 1 && row fail required "missing.md, which is not tracked" && [ -z "$ERR" ]; }
+c_contrib_regular() { new; agents 'x\n'; tput_ CONTRIBUTING.md 'See [a](AGENTS.md).\n'; run
+  rc_is 0 && at pass CONTRIBUTING.md:1 "AGENTS.md"; }
+c_contrib_symlink() { new; agents 'x\n'; lnk ../outside.md CONTRIBUTING.md; run
+  rc_is 1 && at fail CONTRIBUTING.md "unsafe link" && ! at pass CONTRIBUTING.md:1 "" && ! at fail CONTRIBUTING.md:1 "" && no_token; }
+c_prtemplate_symlink() { new; agents 'x\n'; lnk ../../outside.md .github/PULL_REQUEST_TEMPLATE.md; run
+  rc_is 1 && at fail .github/PULL_REQUEST_TEMPLATE.md "unsafe link" && no_token; }
+c_docs_regular() { new; agents 'x\n'; tput_ x.md 'See [a](AGENTS.md).\n'; run --docs x.md
+  rc_is 0 && at pass x.md:1 "AGENTS.md"; }
+c_docs_tracked_symlink() { new; agents 'x\n'; lnk ../outside.md x.md; run --docs x.md
+  rc_is 1 && at fail x.md "unsafe link" && no_token; }
+c_docs_untracked_symlink() { new; agents 'x\n'; ln -s ../outside.md "$R/y.md"; run --docs y.md
+  rc_is 1 && at fail y.md "an untracked symlink" && no_token; }
+c_docs_symlinked_parent() { new; agents 'x\n'; ln -s ../outdir "$R/docs"; run --docs docs/z.md
+  rc_is 1 && at fail docs/z.md "resolves outside the repository" && no_token; }
+c_docs_sibling_prefix() { new; agents 'x\n'; mkdir -p "${R}x"; printf 'See [x](%s.md)\n' "$TOKEN" > "${R}x/z.md"
+  ln -s "${R}x" "$R/docs"; run --docs docs/z.md
+  rc_is 1 && at fail docs/z.md "resolves outside the repository" && no_token; }
+c_docs_dash_parent() { new; agents 'x\n'; ln -s ../outdir "$R/-foo"; run --docs -foo/z.md
+  rc_is 1 && at fail -foo/z.md "resolves outside the repository" && no_token; }
+c_make_symlink_passwd() { new; lnk /etc/passwd Makefile; agents '`make root`\n\n`make zzqq`\n'; run
+  rc_is 1 && row fail command "Makefile is an unsafe link" && ! row pass command "make root" && ! row fail command "no such target"; }
+c_just_symlink() { new; lnk ../outside.md justfile; agents '`just build`\n'; run
+  rc_is 1 && row fail command "justfile is an unsafe link" && no_token; }
+c_make_symlink_devzero() { new; lnk /dev/zero Makefile; agents '`make build`\n'; run_bounded 10
+  rc_is 1 && row fail command "Makefile is an unsafe link"; }
+c_make_regular() { new; tput_ Makefile 'build:\n\techo b\n'; agents '`make build`\n'; run
+  rc_is 0 && row pass command "make build: defined in Makefile"; }
+c_make_awk_fails() { new; tput_ Makefile 'build:\n\techo b\n'; agents '`make build`\n'; AWKDIR="$W/shim" run
+  rc_is 2 && [ -z "$OUT" ]; }
+c_row_plain_target() { new; tput_ CLAUDE.md 'x\n'; lnk CLAUDE.md AGENTS.md; run
+  rc_is 0 && four_fields; }
+c_row_newline_target() { new; lnk "$(printf 'a\n::warning title=forged::injected')" AGENTS.md; run
+  rc_is 1 && four_fields && row fail required "a?::warning title=forged::injected, which holds a control character" || return 1
+  new; lnk "$(printf 'a\r\033[2Jb')" AGENTS.md; run
+  rc_is 1 && four_fields && row fail required "a??[2Jb" && ! grep -q "$(printf '[\r\033]')" <<<"$OUT"; }
+# A file name holding control bytes reaches a row through --docs (an untracked doc is read from disk)
+# and through a link row's location: each name's doc links to a missing file, so a row exists.
+c_row_newline_name() { new; agents 'x\n'
+  local n1 n2; n1=$(printf 'a\n::warning title=forged::x.md') n2=$(printf 'a\033[2J\rb.md')
+  printf 'See [m](missing.md).\n' > "$R/$n1"; printf 'See [m](missing.md).\n' > "$R/$n2"; run --docs "$n1" "$n2"
+  rc_is 1 && four_fields && [ "$(count fail link)" = 2 ] && ! grep -q "$(printf '[\r\033]')" <<<"$OUT"; }
+c_tracked_newline_name() { new; tput_ "$(printf 'z\nCLAUDE.md')" 'x\n'; lnk CLAUDE.md AGENTS.md; run
+  rc_is 1 && row fail required "CLAUDE.md, which is not tracked" && [ "$(count pass required)" = 0 ]; }
+c_tracked_newline_dir() { new; tput_ "$(printf 'a\nb/c')" 'x\n'; agents 'See [b](b).\n'; run
+  rc_is 1 && at fail AGENTS.md:1 "b is not a tracked path"; }
+c_tracked_tab_name() { new; tput_ "$(printf '\tCLAUDE.md')" 'x\n'; lnk CLAUDE.md AGENTS.md; run
+  rc_is 1 && row fail required "CLAUDE.md, which is not tracked" && [ "$(count pass required)" = 0 ]; }
+c_tracked_tab_inner() { new; tput_ "$(printf 'CLAUDE.md\tx')" 'x\n'; lnk CLAUDE.md AGENTS.md; run
+  rc_is 1 && row fail required "CLAUDE.md, which is not tracked" && [ "$(count pass required)" = 0 ]; }
+c_tracked_tab_shadow() { new; tput_ "$(printf '\tCLAUDE.md')" 'x\n'; lnk ../outside.md CLAUDE.md; lnk CLAUDE.md AGENTS.md; run
+  rc_is 1 && row fail required "CLAUDE.md, which is itself a symlink" && no_token; }
+c_submodule_doc() { new; agents 'x\n'
+  git -C "$R" update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,CONTRIBUTING.md; run
+  rc_is 1 && at fail CONTRIBUTING.md "a submodule, not a file"; }
+
+echo "== #309 one safe read =="
+case_ c_symlink_ok "AGENTS.md -> a tracked regular CLAUDE.md passes, stderr empty"
+case_ c_symlink_chain_escape "a two-link chain leaving the repository fails at the first hop, nothing read"
+case_ c_symlink_chain_inside "a chain that stays inside the repository still fails"
+case_ c_symlink_chain_three "a three-link chain fails naming the first hop, nothing read"
+case_ c_symlink_escape_one "a one-level escape gives the required fail as the only AGENTS.md row, nothing read"
+case_ c_symlink_abs "an absolute target fails even when the path minus its slash is tracked (#310)"
+case_ c_symlink_subdir "a relative target resolves from the link's own directory"
+case_ c_symlink_dir "a directory target is a fail row, never exit 2"
+case_ c_symlink_glob "a glob or pathspec-magic target is not a tracked file"
+case_ c_symlink_dangling "a dangling target fails, stderr empty"
+case_ c_contrib_regular "a regular CONTRIBUTING.md is scanned"
+case_ c_contrib_symlink "a symlinked CONTRIBUTING.md is one fail row, never read"
+case_ c_prtemplate_symlink "a symlinked PR template is one fail row, never read"
+case_ c_docs_regular "a regular --docs file is scanned"
+case_ c_docs_tracked_symlink "a tracked --docs symlink is refused, never read"
+case_ c_docs_untracked_symlink "an untracked --docs symlink is refused, never read"
+case_ c_docs_symlinked_parent "a --docs path under a symlinked folder is refused, never read"
+case_ c_docs_sibling_prefix "a sibling directory sharing the repository's name prefix is outside"
+case_ c_docs_dash_parent "a dash-led --docs folder is resolved, not read as an option"
+case_ c_make_symlink_passwd "a Makefile linked to a runner file is refused, no oracle"
+case_ c_just_symlink "a justfile linked outside is refused, never read"
+case_ c_make_symlink_devzero "a Makefile linked to /dev/zero is refused within the bound"
+case_ c_make_regular "a regular Makefile answers targets"
+case_ c_make_awk_fails "a make read that fails is exit 2 with nothing on stdout"
+case_ c_row_plain_target "every row has four fields"
+case_ c_row_newline_target "a newline, CR or ESC in a link target becomes ? and forges no row"
+case_ c_row_newline_name "a newline, CR or ESC in a file name becomes ? and forges no row"
+case_ c_tracked_newline_name "a newline file name cannot forge CLAUDE.md as tracked"
+case_ c_tracked_newline_dir "a newline file name cannot forge a tracked directory"
+case_ c_tracked_tab_name "a TAB-led file name cannot forge CLAUDE.md as tracked"
+case_ c_tracked_tab_inner "a file name with an inner TAB cannot forge CLAUDE.md as tracked"
+case_ c_tracked_tab_shadow "a TAB-led name cannot shadow a tracked CLAUDE.md symlink"
+case_ c_submodule_doc "a doc path that is a submodule is a fail row, never read"
+
 # ---------------------------------------------------------------- check 3: commands
 c_build() { new; pkg '"build":"x"'; agents 'Run `npm run build`.\n'; run
   rc_is 0 && row pass command "npm run build"; }
@@ -1459,6 +1593,22 @@ echo "== mutants =="
 # inside a single-quoted shell variable.
 XRE='qs[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=|$)/'
 if command -v python3 >/dev/null 2>&1; then
+  # #309: each guard line carries a `# safe_open: <name>` or `# row: sanitise` tag, so no anchor can
+  # match an unrelated line.
+  mutant "chain check dropped" c_symlink_chain_escape '120000) SO_WHY="links to $np, which is itself a symlink"; return 1 ;;   # safe_open: chain' '120000) ;;'
+  mutant "absolute accepted" c_symlink_abs 'case "$tgt" in /*) SO_WHY="links to $tgt, which is absolute"; return 1 ;; esac   # safe_open: absolute' ':'
+  mutant "size guard bypassed" c_symlink_escape_one 'if [ "$agents_ok" = 1 ]; then   # safe_open: size' 'if [ -f AGENTS.md ]; then' 'n=$(wc -l < "$T/agents" | tr -d '"' '"') b=$(wc -c < "$T/agents" | tr -d '"' '"')' 'n=$(wc -l < AGENTS.md | tr -d '"' '"') b=$(wc -c < AGENTS.md | tr -d '"' '"')'
+  mutant "doc-loop guard bypassed" c_contrib_symlink 'safe_open "$d" "$T/doc" || { row fail link "$d" "$d: unsafe link ($SO_WHY), not read"; continue; }   # safe_open: loop' 'cat "$d" > "$T/doc"'
+  mutant "make read unguarded" c_make_symlink_passwd 'safe_open "$f" "$T/mk" || { row fail command "$loc" "$f is an unsafe link ($SO_WHY), not read"; return; }   # safe_open: make' 'cat "$f" > "$T/mk"'
+  mutant "control bytes echoed" c_row_newline_target 'a=${a//[[:cntrl:]]/?} b=${b//[[:cntrl:]]/?} c=${c//[[:cntrl:]]/?} d=${d//[[:cntrl:]]/?}   # row: sanitise' ':'
+  mutant "row fields unsanitised" c_row_newline_name 'a=${a//[[:cntrl:]]/?} b=${b//[[:cntrl:]]/?} c=${c//[[:cntrl:]]/?} d=${d//[[:cntrl:]]/?}   # row: sanitise' 'b=${b//[[:cntrl:]]/?} d=${d//[[:cntrl:]]/?}'
+  mutant "tracked list newline-split" c_tracked_newline_dir 'awk '"'"'{ print substr($0, index($0, "\t") + 1) }'"'"' "$IDXM" > "$IDX"' 'git ls-files -z | tr '"'"'\0'"'"' '"'"'\n'"'"' > "$IDX"'
+  mutant "control-byte names kept" c_tracked_newline_dir '  if (LC_ALL=C; [[ $p == *[[:cntrl:]]* ]]); then continue; fi' '  :'
+  mutant "index lookup by prefix" c_symlink_dir 'substr($0, i + 1) == ENVIRON["P"] { print' 'index(substr($0, i + 1), ENVIRON["P"]) == 1 { print'
+  mutant "awk failure swallowed" c_make_awk_fails 'verdict=$(TGT=$TGT awk "$prog" "$T/mk") || die "could not read $f"   # safe_open: awk' 'verdict=$(TGT=$TGT awk "$prog" "$T/mk")'
+  mutant "containment without separator" c_docs_sibling_prefix 'case "$real" in "$top"/*) ;;' 'case "$real" in "$top"*) ;;'
+  mutant "index read-back by IFS" c_tracked_tab_name 'meta=${rec%%$'"'"'\t'"'"'*}; p=${rec#*$'"'"'\t'"'"'}   # safe_open: split' 'IFS=$'"'"'\t'"'"' read -r meta p <<<"$rec"'
+  mutant "dash-led dirname" c_docs_dash_parent 'CDPATH= cd -- "$(dirname -- "./$p")"' 'CDPATH= cd "$(dirname "$p" 2>/dev/null)"'
   mutant "presence instead of tracked" c_untracked 'if tracked AGENTS.md; then' 'if [ -e AGENTS.md ]; then'
   mutant "check-ignore without --no-index" c_ignored 'check-ignore -q --no-index' 'check-ignore -q'
   mutant "links resolved from the root" c_link_parent 'np=$(normpath "$dir" "$a")' 'np=$(normpath "" "$a")'
@@ -1642,7 +1792,7 @@ first_file() {'
   mutant "substitution anywhere refers the row (argument)" c_subst_after_neg '  if (index(text, "=")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "=")) {'
   mutant "substitution rewrite not word-anchored" c_subst_flag_value 'gsub(/[ \t;&|(][A-Za-z_][A-Za-z0-9_]*=/' 'gsub(/[A-Za-z_][A-Za-z0-9_]*=/'
   mutant "a substitution body executed" c_pwned 'IDX=$T/index ROWS=$T/rows' 'IDX=$T/index ROWS=$T/rows; touch pwned'
-  mutant_needs make "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$f")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$f")'
+  mutant_needs make "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$T/mk")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$T/mk")'
   # #339. Each names the case written to kill it.
   mutant "npmrc never read" c_npmrc_ws_undef '    npmrc_scan
 ' ''

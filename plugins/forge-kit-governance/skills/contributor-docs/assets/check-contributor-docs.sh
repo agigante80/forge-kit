@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 18
+# check-contributor-docs-version: 19
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -7,7 +7,9 @@
 # names commands and links other docs, and each rots silently. The trap this exists for is
 # agigante80/actual-mcp-server#496: CONTRIBUTING.md named npm scripts that did not exist while
 # AGENTS.md was gitignored, so it was present on the maintainer's disk and absent for everyone else.
-# Every path here is therefore resolved against the git INDEX, never the disk.
+# Every path here is therefore resolved against the git INDEX, never the disk, and every document,
+# Makefile and justfile is READ through safe_open (#309): a tracked one as its index blob, so an
+# unstaged edit is not judged and no link, device or file outside the repository is ever opened.
 #
 # Usage: check-contributor-docs.sh [--docs <file>...] [--max-lines N] [--max-bytes N]
 #
@@ -21,7 +23,16 @@
 #
 #   required   AGENTS.md exists, is in the index, and no ignore rule matches it (check-ignore
 #              --no-index, since plain check-ignore never reports a tracked file). A tracked
-#              symlink is judged by its target, so AGENTS.md -> an untracked CLAUDE.md fails.
+#              symlink passes only when its target, read from the index, is a relative path that
+#              resolves from the link's own directory to a tracked REGULAR file, so AGENTS.md ->
+#              CLAUDE.md passes and AGENTS.md -> an untracked CLAUDE.md fails. Any chain, an absolute
+#              or escaping target, a directory, a submodule or a dangling name fails, and a
+#              rejected AGENTS.md gets that one row: nothing else is built from it. The same rule
+#              refuses a symlinked CONTRIBUTING.md, PR template, make or just file and --docs path
+#              (one fail row, not read); an untracked --docs path must be a regular file, not a
+#              symlink, whose physical directory is inside the repository. Relative links inside a
+#              symlinked doc resolve from the link's own directory, as GitHub renders them. Every row
+#              field has its control bytes printed as `?`, so no name or link text forges a row.
 #   max-lines  AGENTS.md within --max-lines (150, counted as wc -l counts).
 #   max-bytes  AGENTS.md within --max-bytes (32768: Codex truncates the file at 32 KiB).
 #   command    Only inside code spans and fenced blocks. The FAIL set is a closed allowlist: the two
@@ -154,10 +165,31 @@ T=$(mktemp -d) || die "mktemp failed"
 trap 'rm -rf "$T"' EXIT
 IDX=$T/index ROWS=$T/rows
 : > "$ROWS"
-git -c core.quotepath=off ls-files -z > "$T/index0" 2>/dev/null || die "git ls-files failed"
-tr '\0' '\n' < "$T/index0" > "$IDX"
+# THE INDEX LOADER (#309). Read once, NUL-separated, so no file name can split a record. Each record
+# is `<mode> <object> <stage><TAB><path>`, split at its FIRST TAB: an IFS read strips a leading TAB
+# from the path and `awk -F'\t' $2` cuts at a second one, and either lets a file named
+# `<TAB>CLAUDE.md` forge or shadow CLAUDE.md. Only stage 0 is kept, and a path holding any control
+# byte (a TAB or a newline included) is dropped, so it reads as untracked. Two files result:
+# `mode<TAB>path` ($IDXM, for safe_open) and the paths alone ($IDX, for everything else); with
+# those paths dropped, a whole-line compare on either is exact.
+IDXM=$T/indexm
+git -c core.quotepath=off ls-files -s -z > "$T/index0" 2>/dev/null || die "git ls-files failed"
+while IFS= read -r -d '' rec; do
+  meta=${rec%%$'\t'*}; p=${rec#*$'\t'}   # safe_open: split
+  [ "${meta##* }" = 0 ] || continue
+  if (LC_ALL=C; [[ $p == *[[:cntrl:]]* ]]); then continue; fi
+  printf '%s\t%s\n' "${meta%% *}" "$p"
+done < "$T/index0" > "$IDXM"
+awk '{ print substr($0, index($0, "\t") + 1) }' "$IDXM" > "$IDX"
 
-row() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "$ROWS"; }
+# row: every field is sanitised (#309): under LC_ALL=C each control byte (0x00 to 0x1f, and 0x7f)
+# becomes `?`, so a row stays one four-field line and no file name, link target or doc text can
+# plant a row or a `::` workflow command in a CI log.
+row() {
+  local LC_ALL=C a=$1 b=$2 c=$3 d=$4
+  a=${a//[[:cntrl:]]/?} b=${b//[[:cntrl:]]/?} c=${c//[[:cntrl:]]/?} d=${d//[[:cntrl:]]/?}   # row: sanitise
+  printf '%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" >> "$ROWS"
+}
 tracked() { P=$1 awk '$0 == ENVIRON["P"] { f = 1; exit } END { exit !f }' "$IDX"; }
 tracked_dir() { P=$1 awk 'index($0, ENVIRON["P"] "/") == 1 { f = 1; exit } END { exit !f }' "$IDX"; }
 
@@ -183,30 +215,82 @@ judge_path() {
   tracked "$1" || tracked_dir "$1"
 }
 
+# idx_mode <path>: the index mode of exactly that path, or nothing. A whole-string compare after the
+# first TAB, never a pathspec: `git ls-files -- docs` also matches docs/x.md, `C*.md` is a glob and
+# `:(top)` is magic, so each would find a file the link does not name.
+idx_mode() { P=$1 awk '{ i = index($0, "\t") } substr($0, i + 1) == ENVIRON["P"] { print substr($0, 1, i - 1); exit }' "$IDXM"; }   # safe_open: exact
+
+# safe_open <path> <out> (#309): the ONE place a document, Makefile or justfile is read. On success
+# its content is in <out> and SO_LINK holds the target of a safe symlink (empty otherwise); on a
+# refusal nothing is read and SO_WHY says why. A tracked path is read as its INDEX blob, which cannot
+# follow a link, reach a device or hang on /dev/zero (so an unstaged edit is not judged, as the
+# header says). A tracked symlink is accepted only when its target, read from the index too, is a
+# relative path that resolves from the link's own directory to a tracked REGULAR file: no chain, no
+# absolute target, no escape, no directory, no submodule, no dangling name. An untracked path must
+# be a regular file, not a symlink, whose physical directory lies inside the repository.
+SO_WHY="" SO_LINK=""
+safe_open() {
+  local p=$1 out=$2 mode tgt np tmode real
+  SO_WHY="" SO_LINK=""
+  mode=$(idx_mode "$p")
+  case "$mode" in
+    100644|100755) git cat-file blob ":0:$p" > "$out" 2>/dev/null || die "cannot read $p from the index"; return 0 ;;
+    160000) SO_WHY="a submodule, not a file"; return 1 ;;
+    120000)
+      tgt=$(git cat-file blob ":0:$p" 2>/dev/null; printf x) || die "cannot read $p from the index"; tgt=${tgt%x}
+      if [ -z "$tgt" ]; then SO_WHY="an empty link"; return 1; fi
+      if (LC_ALL=C; [[ $tgt == *[[:cntrl:]]* ]]); then SO_WHY="links to $tgt, which holds a control character"; return 1; fi
+      case "$tgt" in /*) SO_WHY="links to $tgt, which is absolute"; return 1 ;; esac   # safe_open: absolute
+      np=${p%/*}; [ "$np" = "$p" ] && np=""
+      np=$(normpath "$np" "$tgt") || { SO_WHY="links to $tgt, which escapes the repository"; return 1; }
+      tmode=$(idx_mode "$np")
+      case "$tmode" in
+        100644|100755) ;;
+        120000) SO_WHY="links to $np, which is itself a symlink"; return 1 ;;   # safe_open: chain
+        '') if [ -n "$np" ] && tracked_dir "$np"; then SO_WHY="links to $np, a directory, which is not a tracked file"
+            elif [ -n "$np" ] && { [ -e "$np" ] || [ -L "$np" ]; }; then SO_WHY="links to $np, which is not tracked, so it is local only"
+            else SO_WHY="links to ${np:-the repository root}, which is not tracked"; fi
+            return 1 ;;
+        *) SO_WHY="links to $np, which is not a tracked file"; return 1 ;;
+      esac
+      git cat-file blob ":0:$np" > "$out" 2>/dev/null || die "cannot read $np from the index"
+      SO_LINK=$np; return 0 ;;
+  esac
+  [ -L "$p" ] && { SO_WHY="an untracked symlink"; return 1; }
+  { [ -e "$p" ] || [ -L "$p" ]; } || die "cannot read $p"
+  [ -f "$p" ] || { SO_WHY="not a regular file"; return 1; }
+  # The ./ and the -- keep a dash-led path (-foo/z.md) from reading as an option, and CDPATH= keeps
+  # cd from resolving through, or echoing, the caller's CDPATH. An empty result refuses.
+  real=$(CDPATH= cd -- "$(dirname -- "./$p")" 2>/dev/null && pwd -P)   # safe_open: dash
+  [ -n "$real" ] || { SO_WHY="its directory cannot be resolved"; return 1; }
+  if [ "$real" != "$top" ]; then
+    case "$real" in "$top"/*) ;; *) SO_WHY="resolves outside the repository"; return 1 ;; esac   # safe_open: contain
+  fi
+  cat < "./$p" > "$out" 2>/dev/null || die "cannot read $p"
+}
+
 # ---- check 1: required and published, and check 2: size ----
+# A rejected AGENTS.md gets exactly one row, the required fail, and is never opened: no size row and
+# no doc-loop read is built from it (agents_ok stays 0).
+agents_ok=0
 if tracked AGENTS.md; then
   if git check-ignore -q --no-index AGENTS.md 2>/dev/null; then
     row fail required AGENTS.md "AGENTS.md is tracked but ignored; a fresh clone's tooling treats it as local"
-  elif [ -L AGENTS.md ]; then
-    tgt=$(readlink AGENTS.md)
-    if ! np=$(normpath "" "$tgt"); then
-      row fail required AGENTS.md "AGENTS.md links to $tgt, which escapes the repository"
-    elif judge_path "$np"; then
-      row pass required AGENTS.md "AGENTS.md is tracked (symlink to tracked $np)"
-    else
-      row fail required AGENTS.md "AGENTS.md links to $np, which is not tracked, so it is local only"
-    fi
+  elif ! safe_open AGENTS.md "$T/agents"; then
+    row fail required AGENTS.md "AGENTS.md $SO_WHY"
+  elif [ -n "$SO_LINK" ]; then
+    row pass required AGENTS.md "AGENTS.md is tracked (symlink to tracked $SO_LINK)"; agents_ok=1
   else
-    row pass required AGENTS.md "AGENTS.md is tracked"
+    row pass required AGENTS.md "AGENTS.md is tracked"; agents_ok=1
   fi
 elif [ -e AGENTS.md ] || [ -L AGENTS.md ]; then
   row fail required AGENTS.md "AGENTS.md exists but is not tracked, so nobody else has it"
+  safe_open AGENTS.md "$T/agents" && agents_ok=1
 else
   row fail required AGENTS.md "AGENTS.md is missing"
 fi
-if [ -f AGENTS.md ]; then
-  [ -r AGENTS.md ] || die "cannot read AGENTS.md"
-  n=$(wc -l < AGENTS.md | tr -d ' ') b=$(wc -c < AGENTS.md | tr -d ' ')
+if [ "$agents_ok" = 1 ]; then   # safe_open: size
+  n=$(wc -l < "$T/agents" | tr -d ' ') b=$(wc -c < "$T/agents" | tr -d ' ')
   if [ "$n" -le "$max_lines" ]; then row pass max-lines AGENTS.md "$n lines, budget $max_lines"
   else row fail max-lines AGENTS.md "$n lines exceeds the budget of $max_lines"; fi
   if [ "$b" -le "$max_bytes" ]; then row pass max-bytes AGENTS.md "$b bytes, budget $max_bytes"
@@ -215,7 +299,7 @@ fi
 
 # ---- the doc set ----
 if [ "$docs_set" = 0 ]; then
-  tracked AGENTS.md && docs+=(AGENTS.md)
+  tracked AGENTS.md && [ "$agents_ok" = 1 ] && docs+=(AGENTS.md)
   while IFS= read -r d; do docs+=("$d"); done < <(awk '
     { l = tolower($0) }
     l == "contributing.md" || l == ".github/contributing.md" || l == "docs/contributing.md" { print; next }
@@ -738,7 +822,9 @@ judge_target() {   # <loc> <tool> <awk> <files...> ; the target is in $TGT
   local loc=$1 tool=$2 prog=$3 f verdict
   shift 3
   f=$(first_file "$@") || { row referred command "$loc" "$tool $TGT: no tracked $1 to read"; return; }
-  verdict=$(TGT=$TGT awk "$prog" "$f")
+  safe_open "$f" "$T/mk" || { row fail command "$loc" "$f is an unsafe link ($SO_WHY), not read"; return; }   # safe_open: make
+  # An awk failure is exit 2 (could not run), never a `no such target` row built from nothing.
+  verdict=$(TGT=$TGT awk "$prog" "$T/mk") || die "could not read $f"   # safe_open: awk
   case "$verdict" in
     found) row pass command "$loc" "$tool $TGT: defined in $f" ;;
     unsettled) row referred command "$loc" "$tool $TGT: not literal in $f, which includes or imports others" ;;
@@ -799,10 +885,11 @@ for d in "${docs[@]+"${docs[@]}"}"; do
     *) d=$prefix$d ;;
   esac
   d=$(normpath "" "$d") || die "$d is outside the repository"
-  { [ -f "$d" ] && [ -r "$d" ]; } || die "cannot read $d"
+  if [ "$d" = AGENTS.md ] && tracked AGENTS.md && [ "$agents_ok" = 0 ]; then continue; fi   # its required row says why
+  safe_open "$d" "$T/doc" || { row fail link "$d" "$d: unsafe link ($SO_WHY), not read"; continue; }   # safe_open: loop
   dir=$(dirname "$d"); [ "$dir" = . ] && dir=""
   tmpl=0; is_template "$d" && tmpl=1
-  awk "$EXTRACT" "$d" > "$T/rec" || die "could not scan $d"
+  awk "$EXTRACT" "$T/doc" > "$T/rec" || die "could not scan $d"
   while IFS=$'\t' read -r kind ln a b c; do
     loc="$d:$ln"
     if [ "$kind" = C ]; then
