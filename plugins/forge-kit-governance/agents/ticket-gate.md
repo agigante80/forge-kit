@@ -25,14 +25,13 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 62 -->
+<!-- ticket-gate-version: 63 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
 pass by a single critic agent (Step 3B), plus a security specialist lens when labels call
 for it. You produce a review with a PASS / NEEDS-WORK verdict and a concrete change list.
-You never produce numeric scores: a grounded critique with sources certifies more than a
-committee of 10/10s. Step 2.5 carries why the committee was retired.
+You never produce numeric scores: Step 2.5 carries why the committee was retired.
 
 **Repository:** resolved at runtime via `forge_repo`
 
@@ -51,7 +50,7 @@ and the templates Steps 0c, 1.5, 3C, 4 and 6 use are FILES under the `ticket-gat
 found, say so and stop rather than working from memory.
 
 The `gh …` snippets below are the **GitHub reference form**; apply the `forge_*` equivalent. If
-`forge-lib.sh` is absent (legacy install), fall back to `gh`.
+`forge-lib.sh` is absent (legacy install), fall back to `gh`, except Step 5.
 
 **That skill is required from Step 0 on**, and a declared skill that is missing is skipped with
 only a debug-log warning. If it is not loaded, return `BLOCKED - REFERENCE_MISSING` before any forge
@@ -78,7 +77,7 @@ TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
 # Guard the empty case: with no template dir, "$TPL_DIR"/*.yml would glob "/*.yml".
 CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)
 ```
-Use `$CURRENT_TPL_VER` everywhere below. Never hardcode a literal target version.
+Use `$CURRENT_TPL_VER` everywhere below.
 
 2. **Fetch the issue body and check for version marker:**
 ```bash
@@ -94,7 +93,7 @@ gh issue view <NUMBER> --repo "$REPO" --json body --jq '.body' | grep -oP 'templ
 
 #### 0c. Auto-synthesis (runs when version is missing or outdated)
 
-Synthesise the missing content rather than blocking, in this order:
+Synthesise the missing content rather than blocking:
 
 **0c-i. Parse current template structure**
 
@@ -109,7 +108,7 @@ Identify every section `id` from the template file (`$TPL_DIR` resolved in 0a). 
 **0c-ii. Identify gaps in the issue body**
 
 For each template section `id`, classify the corresponding content in the issue body as:
-- **Present and sufficient** - substantive content that satisfies the current template version's requirements
+- **Present and sufficient** - substantive content that satisfies the current template's requirements
 - **Present but thin** - heading exists but content is vague or placeholder-only
 - **Missing** - no corresponding heading or content in the body at all
 
@@ -159,8 +158,7 @@ Post the SYNTHESIS VOID template from `references/comment-templates.md`.
 
 **0c-vi. Proceed to 0b**
 
-The review runs against the enriched body. Version check is now satisfied. Do NOT return
-BLOCKED at this step. Continue the gate normally.
+The review runs against the enriched body. Do NOT return BLOCKED here.
 
 #### 0b. Label validation
 
@@ -174,7 +172,7 @@ gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
    Return `BLOCKED - LABELS_REQUIRED`. Post comment: "Issue must have at least one area
    label for lens routing. See docs/guides/labels.md."
 
-3. **Warn if no type label**, as defined in `docs/guides/labels.md`. If missing: log the
+3. **Warn if no type label** (same doc). If missing: log the
    warning in the review but do NOT block.
 
 ---
@@ -190,6 +188,7 @@ MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
 # across installed copies, lexically LAST path as tie-break; a first `find` hit was stale three runs in four (#189).
 [ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
 [ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
+printf '%s\n' "$MECH" > "$D/mech"   # for Step 5
 P=${MECH/#$HOME/\~}; echo "mechanics: ${P:-none}${MECH:+ ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))}"   # quote in the review
 [ -n "$MECH" ] && ROUND=$("$(dirname "$MECH")/count-gate-rounds.sh" <NUMBER> --body "$D/body.md") || ROUND=unknown
 GS="$(dirname "$MECH")/gate-status.sh"; "$GS" <NUMBER> --unstamp   # unrecorded until Step 6 stamps (#284)
@@ -284,8 +283,7 @@ element 5 is re-derived by the critic rather than re-sourced.
 
 **Using research results:**
 - Feed findings into the critic's context (and the lens's, where one runs) before the
-  critique; the critic's element 5 USES what this step gathered, searching itself only for
-  gaps, so research never runs twice
+  critique
 - If research reveals incorrect assumptions in the ticket, they become blocking items with
   the corrections listed
 - Log all research in the review's **Best practices** section (sources inline); no separate section
@@ -293,8 +291,7 @@ element 5 is re-derived by the critic rather than re-sourced.
 
 ### Step 2.9: Codebase exploration
 
-Map existing code patterns relevant to this ticket. This step ALWAYS runs its check, per the
-rules below; findings reach the critic either way.
+Map existing code patterns relevant to this ticket. This step ALWAYS runs its check.
 
 **1. Check if `codebase_context` is already populated**, in the issue body ALREADY FETCHED
 in Step 1 (never a fresh forge call):
@@ -462,26 +459,31 @@ If any blocking item (critic or lens) is classed fundamental, launch a `general-
 sub-agent (`model: opus`) NOW, before compiling, to generate 2 to 3 architecture alternatives, EACH with
 why it resolves the specific objection; include them in the review under the template's
 `### Architecture alternatives` slot. This is the CANONICAL alternatives instruction;
-every other mention points here. The posted comment must be complete, since editing a
-posted review is the post-then-retract failure the Rules forbid.
+every other mention points here.
 
 **Merge rule, phrased for N sources because projects add lenses.** The review carries ONE
 verdict, the strictest across all sources; any blocking item from ANY source blocks; lens
 advisories join the review's advisory list like the critic's; a fundamental from ANY source
-forbids override and triggers the alternatives above. This governs the orchestrator rather
-than any lens, so it stays here and the reference skill only points at it.
+forbids override and triggers the alternatives above.
 
 Build a markdown review (never a numeric scorecard):
 
 Read `references/review-template.md` and use it VERBATIM, including
 the optional `### Security lens` and `### Architecture alternatives` slots.
 
-### Step 5: Post to GitHub
+### Step 5: Post the review
 
 The review is a COMMENT, never edited: the audit trail. Its summary goes in the BODY at Step 6.
 
+Write the review to `$D/review.md`, then post in ONE Bash call (state does not persist):
+
 ```bash
-gh issue comment <NUMBER> --repo "$REPO" --body "<review>"
+D=<scratchpad>/gate-<NUMBER>; A=$(dirname "$(cat "$D/mech")"); L=${FORGE_LIB:-}
+[ -f "$L" ] || L=$A/forge-lib.sh
+[ -f "$L" ] || L=$A/../../../../forge-kit-devops/skills/forge-host/assets/forge-lib.sh
+[ -f "$L" ] || L=$(find ~/.claude/plugins -path '*forge-kit-devops*' -name forge-lib.sh -exec grep -m1 -Ho 'forge-lib-version: [0-9]*' {} + 2>/dev/null | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)
+[ -f "$L" ] || { echo "ticket-gate: forge-lib.sh not found, review NOT posted" >&2; exit 2; }
+source "$L" && forge_issue_comment <NUMBER> "$(cat "$D/review.md")" || exit 2   # STOP: Step 6 never runs
 ```
 
 ### Step 6: Return result and auto-remediate
