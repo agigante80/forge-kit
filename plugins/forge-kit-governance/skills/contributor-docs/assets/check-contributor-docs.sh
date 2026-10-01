@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 22
+# check-contributor-docs-version: 23
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -58,6 +58,11 @@
 #              repository fails and is never read. In a PR template every relative link is
 #              referred, because GitHub copies the template into the PR body and it then resolves
 #              against the PR URL.
+#   harness-copy  (#300) Never fails. A tracked per-harness copy beside AGENTS.md (CLAUDE.md,
+#              GEMINI.md, .github/copilot-instructions.md, .cursor/rules/<name>.mdc, .cursorrules,
+#              .junie/guidelines.md, .windsurfrules, the .clinerules file) passes when it reaches
+#              AGENTS.md by a mechanism that harness documents, and is referred otherwise. See the
+#              check's own section for the table and its limits.
 #   import     (#301) Only when the root CLAUDE.md is TRACKED and --docs is not given. Each @-import
 #              token CLAUDE.md holds outside spans and fences must name a file a clone has: a
 #              tracked, unignored path, resolved from the importing file's directory, with a
@@ -500,15 +505,18 @@ function spans(s,    out, i, n, rest, pos, j, m, found) {
 # FIRST character is @ (so user@host and (@x.md) are not imports), an escaped space stays inside
 # it, and it is a path candidate only when what follows the @ holds a / or a . (so @maintainer is
 # prose). Trailing punctuation is KEPT: Claude Code 2.1.287 loads nothing for `@x.md.`.
-function imports(s,    n, i, w, ws) {
+# The fourth field is `own` when the token is the whole line once trimmed, the form harness-copy
+# credits (#300), and `-` otherwise.
+function imports(s,    n, i, w, ws, k) {
   gsub(/\\ /, "\001", s)
   n = split(s, ws, /[ \t]+/)
+  k = 0; for (i = 1; i <= n; i++) if (ws[i] != "") k++
   for (i = 1; i <= n; i++) {
     w = ws[i]
     if (substr(w, 1, 1) != "@") continue   # import: token start
     w = substr(w, 2); gsub(/\001/, " ", w)
     if (index(w, "/") == 0 && index(w, ".") == 0) continue   # import: path candidate
-    printf "I\t%d\t%s\t-\n", NR, w
+    printf "I\t%d\t%s\t%s\n", NR, w, (k == 1 ? "own" : "-")
   }
 }
 BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0 }
@@ -1035,6 +1043,77 @@ while [ "$qi" -lt "${#docs[@]}" ]; do
     fi
   done < "$T/rec"
 done
+
+# ---- check: harness-copy (#300) ----
+# A tracked per-harness instruction file beside AGENTS.md passes only when it reaches the root
+# AGENTS.md by a mechanism THAT harness documents, and is otherwise `referred`: it never fails, since
+# a file of harness-specific rules alone is legitimate. Credited (vendor docs, 2026-10-01): a
+# symlink for every harness (the filesystem resolves it first); an own-line `@path` import for
+# CLAUDE.md, GEMINI.md and .cursor/rules/<name>.mdc; a Markdown link for
+# .github/copilot-instructions.md, which reads an @ line as text. Everything comes from the index:
+# the mode, a symlink's target blob and a regular file's blob, so an uncommitted import does not
+# count. It runs whenever AGENTS.md is tracked, --docs or not, and the harness files never join the
+# doc set. Limits: a link or import is weak evidence (a copy may import AGENTS.md and still restate
+# it); a symlink chain is referred, not followed; only the own-line @ form counts; a nested
+# .cursor/rules/<dir>/x.mdc, the .clinerules directory form and differently cased names are not
+# read.
+harness_credit() {
+  case "$1" in
+    CLAUDE.md|GEMINI.md|.cursor/rules/*.mdc) HC_IMP=1 HC_LINK=0 ;;
+    .github/copilot-instructions.md) HC_IMP=0 HC_LINK=1 ;;
+    *) HC_IMP=0 HC_LINK=0 ;;
+  esac
+}
+# harness_judge_doc <path>: judge the blob already in $T/hdoc. Fences and spans are skipped by EXTRACT.
+harness_judge_doc() {
+  local h=$1 hdir np kind ln a b c imp=0 lnk=0 abs=0 uimp=0 ulnk=0 why
+  hdir=${h%/*}; [ "$hdir" = "$h" ] && hdir=""
+  harness_credit "$h"
+  IMPORTS=1 LC_ALL=C awk "$EXTRACT" "$T/hdoc" > "$T/hrec" || die "could not scan $h"
+  while IFS=$'\t' read -r kind ln a b c; do
+    case "$kind" in
+      I) [ "$b" = own ] || continue
+         case "$a" in /*) abs=1; continue ;; esac   # harness: absolute import
+         np=$(normpath "$hdir" "$a") || continue   # harness: import from dir
+         [ "$np" = AGENTS.md ] || continue
+         if [ "$HC_IMP" = 1 ]; then imp=1; else uimp=1; fi ;;
+      L) np=$(normpath "$hdir" "$a") || continue
+         [ "$np" = AGENTS.md ] || continue
+         if [ "$HC_LINK" = 1 ]; then lnk=1; else ulnk=1; fi ;;
+    esac
+  done < "$T/hrec"
+  if [ "$imp" = 1 ] || [ "$lnk" = 1 ]; then row pass harness-copy "$h" "points at AGENTS.md"; return; fi
+  if [ "$abs" = 1 ]; then row referred harness-copy "$h" "absolute import path; Claude Code reads it as a filesystem path"; return; fi
+  if [ "$uimp" = 1 ]; then row referred harness-copy "$h" "reaches AGENTS.md by an import; import not documented for this harness"; return; fi
+  if [ "$ulnk" = 1 ]; then row referred harness-copy "$h" "reaches AGENTS.md by a link; link not documented for this harness"; return; fi
+  why="a separate copy of the project's instructions; it may diverge from AGENTS.md"
+  [ "$h" = CLAUDE.md ] && why="$why. Claude Code reads only CLAUDE.md when both exist, so this file shadows AGENTS.md by default"
+  row referred harness-copy "$h" "$why"
+}
+judge_harness() {
+  local h=$1 mode tgt np hdir
+  hdir=${h%/*}; [ "$hdir" = "$h" ] && hdir=""
+  if [ -n "$agents_link" ] && [ "$agents_link" = "$h" ]; then row pass harness-copy "$h" "AGENTS.md is a symlink to this file"; return; fi   # harness: agents link
+  mode=$(idx_mode "$h")
+  case "$mode" in
+    120000)
+      tgt=$(git cat-file blob ":0:$h" 2>/dev/null; printf x) || die "cannot read $h from the index"; tgt=${tgt%x}
+      case "$tgt" in /*) row referred harness-copy "$h" "absolute symlink target"; return ;; esac   # harness: absolute target
+      np=$(normpath "$hdir" "$tgt") || { row referred harness-copy "$h" "symlink target leaves the repository"; return; }   # harness: escape
+      if [ "$np" = AGENTS.md ]; then row pass harness-copy "$h" "symlink to AGENTS.md"
+      else row referred harness-copy "$h" "symlink to a different file"; fi ;;
+    100644|100755)
+      git cat-file blob ":0:$h" > "$T/hdoc" 2>/dev/null || die "cannot read $h from the index"   # harness: index blob
+      harness_judge_doc "$h" ;;
+    *) return ;;   # harness: untracked
+  esac
+}
+if tracked AGENTS.md; then   # harness: entry
+  awk '{ p = $0 }
+    p == ".github/copilot-instructions.md" || p == ".cursorrules" || p == ".junie/guidelines.md" || p == "GEMINI.md" ||
+    p == ".windsurfrules" || p == ".clinerules" || p == "CLAUDE.md" || p ~ /^\.cursor\/rules\/[^\/]+\.mdc$/ { print $0 }' "$IDX" > "$T/harness"
+  while IFS= read -r h; do judge_harness "$h"; done < "$T/harness"
+fi
 
 cat "$ROWS"
 awk -F'\t' '$1 == "fail" { f = 1 } END { exit f }' "$ROWS" || exit 1

@@ -154,8 +154,10 @@ bash scripts/check-contributor-docs.sh
 It needs git, and `jq` only once it resolves an npm or pnpm script. It fails when `AGENTS.md` is
 untracked or ignored, when `AGENTS.md`, `CONTRIBUTING.md` or a PR template names an `npm run` or
 `pnpm run` script, a make or just target, or a relative link that the tracked tree does not have,
-and marks `referred` whatever it cannot settle. It reads the git index, never your disk, so it
-answers for a fresh clone rather than for your machine. Exit 0, 1, or 2 when it could not run.
+and marks `referred` whatever it cannot settle. Per-harness copies such as `CLAUDE.md`, `GEMINI.md`
+or `.github/copilot-instructions.md` are `referred` when they do not reach `AGENTS.md`, never failed.
+It reads tracked files from the git index, so it answers for a fresh clone rather than for your
+machine. Exit 0, 1, or 2 when it could not run.
 
 `FORGE_TOKEN` or `GH_TOKEN` is read from the environment by `forge-lib.sh`. It is never written to a
 file by any of these scripts, and you should not put it in one.

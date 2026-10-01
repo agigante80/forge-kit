@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 16 -->
+<!-- contributor-docs-version: 17 -->
 
 # Contributor docs
 
@@ -20,7 +20,8 @@ that is ignored, untracked, or only on one machine does not exist for the reader
 ## Writing AGENTS.md: a map, not a copy
 
 `AGENTS.md` is the open, agent-agnostic instruction file ([agents.md](https://agents.md)); Codex,
-Cursor, Gemini CLI and others read it, and Claude Code reads it through an import (below). Write it
+Cursor, Gemini CLI and others read it, and Claude Code reads it natively when there is no
+`CLAUDE.md`, through an import otherwise (below). Write it
 as a MAP to tracked docs, never as a second copy of them. A copy drifts from the original, and
 the original is the one the humans maintain.
 
@@ -49,6 +50,24 @@ Codex truncates the file at 32 KiB, and a file that long is a copy rather than a
   facts. Put `@AGENTS.md` on its own line in `CLAUDE.md` so Claude Code imports it, and keep only
   Claude-specific additions beside the import. The check follows that import, and every other one.
 
+## Per-harness copies
+
+A per-harness file that restates `AGENTS.md` is a second source that drifts. Make each one reach
+`AGENTS.md` by the mechanism THAT harness documents (vendor docs, 2026-10-01):
+
+| File | Credited |
+|---|---|
+| `CLAUDE.md`, `GEMINI.md`, `.cursor/rules/*.mdc` | `@AGENTS.md` on its own line (`@../../AGENTS.md` from the rules directory), or a symlink |
+| `.github/copilot-instructions.md` | a Markdown link (Copilot reads `@` as text), or a symlink |
+| `.cursorrules`, `.junie/guidelines.md`, `.windsurfrules`, `.clinerules` | a symlink only |
+
+A committed symlink is a one-line text file on a Windows clone without `core.symlinks`, which
+leaves that clone with no instructions: where anyone clones on Windows, prefer the import. Where a
+generator (Laravel Boost) writes a copy, regenerate it; list generated harness files with the
+generated files `AGENTS.md` names. Mirror skills by symlink, keep harness-specific rules in their own
+labelled section, point `CONTRIBUTING.md` at any AI usage policy, and map `PRODUCT.md` and
+`DESIGN.md` when present.
+
 ## Before the first commit of AGENTS.md
 
 A doc written from a local instruction file carries local things: home paths, private project
@@ -69,18 +88,15 @@ bash check-contributor-docs.sh --docs AGENTS.md docs/HACKING.md --max-lines 200
 Exit 0 when no row fails, 1 when one does, 2 when it could not run, with nothing on stdout. The
 default set is `AGENTS.md`, `CONTRIBUTING.md` at its three locations, and every PR template GitHub
 reads (`.md`, `.txt` or extensionless, plus files inside a `PULL_REQUEST_TEMPLATE/` directory),
-each scanned only if tracked. `--docs` replaces the set; `AGENTS.md` is required regardless.
+each scanned only if tracked. `--docs` replaces the set; `AGENTS.md` and `harness-copy` run regardless.
 
 What it checks, all resolved against the git INDEX, never the disk:
 
 - **required**: `AGENTS.md` is tracked and no ignore rule matches it. A tracked symlink passes only
-  when its target is relative and, from the link's own directory, names a tracked regular file, so
-  `AGENTS.md -> CLAUDE.md` passes and fails when `CLAUDE.md` is local only. A chain, an absolute or
-  escaping target, a directory and a dangling name each fail, and nothing behind them is read: every
-  document, Makefile and justfile is read as its index blob, so an unstaged edit is not judged. The
-  same rule refuses a symlinked `CONTRIBUTING.md`, PR template, make or just file or `--docs` path
-  with one `fail` row, and an untracked `--docs` path must be a regular file inside the repository.
-  Control bytes in any row field print as `?` (#309).
+  when its relative target names a tracked regular file, so `AGENTS.md -> CLAUDE.md` fails when
+  `CLAUDE.md` is local only; a chain, absolute, escaping, directory or dangling target fails, unread.
+  Every doc, Makefile and justfile is read as its index blob under the same rule (an unstaged edit
+  is not judged), and an untracked `--docs` path must be a regular file inside the repository (#309).
 - **max-lines**, **max-bytes**: the budget above.
 - **command**: inside code spans and fenced blocks only, since prose naming a command is not an
   instruction. Only these shapes can FAIL: `npm run X` and `pnpm run X` from the root (`run-script`
@@ -96,13 +112,13 @@ What it checks, all resolved against the git INDEX, never the disk:
 - **link**: a relative link or reference definition resolves to a tracked file, or a directory
   holding one. `/x` means the repository root, as GitHub renders it. A link leaving the
   repository fails and is never read.
-- **import** (#301): when the root `CLAUDE.md` is tracked and `--docs` is not given, each `@path`
-  token it holds outside spans and fences (a word starting with `@` whose path holds a `/` or a `.`)
-  must name a file a clone has, judged from the importing file's directory with the same safe-link
-  rule as `required`; an untracked, ignored or escaping target fails, `@~/...` and `@/...` are
-  referred. A markdown import is scanned like any doc and its own imports followed, breadth-first, to
-  Claude Code's four hops; a fifth is referred. Trailing punctuation is part of the path, as Claude
-  Code reads it, so `see @docs/DEV.md.` fails: that import never loads.
+- **harness-copy** (#300): a tracked per-harness file passes when it reaches `AGENTS.md` by a
+  credited mechanism (table above), read from the index, and is `referred` otherwise. It never fails.
+- **import** (#301): with a tracked root `CLAUDE.md` and no `--docs`, each `@path` token outside
+  spans and fences must name a file a clone has, resolved from the importing file under the
+  `required` link rule; `@~/` and `@/` are referred. Markdown imports are scanned too, breadth-first
+  to Claude Code's four hops. Trailing punctuation is part of the path, as Claude Code reads it, so
+  `see @docs/DEV.md.` fails.
 
 **`referred` means "a person must look", and it never fails the run.** Everything the check cannot
 settle is referred rather than guessed. Under yarn, `yarn X` and `yarn run X` with X defined in the

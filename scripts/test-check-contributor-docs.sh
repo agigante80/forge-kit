@@ -363,7 +363,7 @@ dead='`npm run nope`\n\n[dead](missing.md)\n\n@docs/missing.md\n'
 c_imp_nonmd() { new; pkg '"x":"x"'; agents 'x\n'; claudemd '@docs/DEV.md\n@src/x.ts\n'; tput_ docs/DEV.md "$dead"; tput_ src/x.ts "$dead"; run
   rc_is 1 && [ "$(nimp pass)" = 2 ] && at fail docs/DEV.md:1 "npm run nope" && at fail docs/DEV.md:3 "missing.md" && at fail docs/DEV.md:5 "docs/missing.md" && ! at fail src/x.ts ""; }
 c_imp_nonmd_only() { new; pkg '"x":"x"'; agents 'x\n'; claudemd '@src/x.ts\n'; tput_ src/x.ts "$dead"; run
-  rc_is 0 && [ "$(nimp pass)" = 1 ] && at pass CLAUDE.md:1 "src/x.ts: tracked" && [ "$(grep -c . <<<"$OUT")" = 4 ]; }
+  rc_is 0 && [ "$(nimp pass)" = 1 ] && at pass CLAUDE.md:1 "src/x.ts: tracked" && [ "$(grep -v "$(printf '\tharness-copy\t')" <<<"$OUT" | grep -c .)" = 4 ]; }
 c_imp_nonmd_untracked() { new; agents 'x\n'; claudemd '@src/x.ts\n'; put src/x.ts 'x\n'; run
   rc_is 1 && at fail CLAUDE.md:1 "src/x.ts: imported by CLAUDE.md but not in a clone"; }
 c_imp_symlink_ok() { new; agents 'x\n'; claudemd '@docs/link.md\n'; tput_ docs/real.md 'x\n'; lnk real.md docs/link.md; run
@@ -461,6 +461,128 @@ case_ c_imp_dedupe_neg "an import's broken command is reported once at its own f
 case_ c_imp_injection "an import holding shell syntax is data, never run"
 case_ c_imp_malformed "malformed tokens and CRLF give rows or nothing, never a crash"
 case_ c_imp_claude_symlink "a symlinked CLAUDE.md is judged by its target before it is read"
+
+# ---------------------------------------------------------------- #300: per-harness copies
+hrow() { awk -F'\t' -v s="$1" -v l="$2" -v x="$3" '$1 == s && $2 == "harness-copy" && $3 == l && index($4, x) { f = 1 } END { exit !f }' <<<"$OUT"; }
+hnone() { ! awk -F'\t' -v l="$1" '$2 == "harness-copy" && $3 == l { f = 1 } END { exit !f }' <<<"$OUT"; }
+hcount() { awk -F'\t' '$2 == "harness-copy" { k++ } END { print k + 0 }' <<<"$OUT"; }
+copy40() { seq 1 40 | sed 's/.*/rule/'; }
+mkdir -p "$W/outside"; printf '@AGENTS.md\n' > "$W/outside/rules.md"
+CP=.github/copilot-instructions.md
+h_sym_ok() { new; agents 'x\n'; lnk ../AGENTS.md "$CP"; run
+  rc_is 0 && hrow pass "$CP" "symlink to AGENTS.md"; }
+h_sym_other() { new; agents 'x\n'; tput_ docs/instructions.md 'x\n'; lnk docs/instructions.md GEMINI.md; run
+  rc_is 0 && hrow referred GEMINI.md "symlink to a different file" && ! hrow pass GEMINI.md ""; }
+h_sym_owndir() { new; agents 'x\n'; lnk AGENTS.md "$CP"; run
+  rc_is 0 && hrow referred "$CP" "symlink to a different file"; }
+h_sym_escape() { new; agents 'x\n'; lnk ../outside/rules.md GEMINI.md; run
+  rc_is 0 && hrow referred GEMINI.md "symlink target leaves the repository" && ! hrow pass GEMINI.md ""; }
+h_sym_root() { new; agents 'x\n'; lnk AGENTS.md .windsurfrules; run
+  rc_is 0 && hrow pass .windsurfrules "symlink to AGENTS.md" && ! hrow referred .windsurfrules ""; }
+h_sym_abs() { new; agents 'x\n'; lnk /AGENTS.md .windsurfrules; run
+  rc_is 0 && hrow referred .windsurfrules "absolute symlink target"; }
+h_imp_abs() { new; agents 'x\n'; tput_ CLAUDE.md '@/AGENTS.md\n'; run
+  rc_is 0 && hrow referred CLAUDE.md "absolute import path" && ! hrow pass CLAUDE.md ""; }
+h_imp_ok() { new; agents 'x\n'; tput_ CLAUDE.md '@AGENTS.md\n\nClaude only: be brief.\n'; run
+  rc_is 0 && hrow pass CLAUDE.md "points at AGENTS.md"; }
+h_copy_claude() { new; agents 'x\n'; tput_ CLAUDE.md "$(copy40)\n"; run
+  rc_is 0 && hrow referred CLAUDE.md "a separate copy of the project's instructions" && hrow referred CLAUDE.md "shadows AGENTS.md by default" && nostatus fail; }
+h_fence() { new; agents 'x\n'; tput_ CLAUDE.md "$(lines '```' @AGENTS.md '```')"; run
+  rc_is 0 && hrow referred CLAUDE.md "a separate copy"; }
+h_fence_neg() { new; agents 'x\n'; tput_ CLAUDE.md '@AGENTS.md\n'; run
+  rc_is 0 && hrow pass CLAUDE.md "points at AGENTS.md"; }
+h_span() { new; agents 'x\n'; tput_ "$CP" 'See `[a](../AGENTS.md)` here.\n'; run
+  rc_is 0 && hrow referred "$CP" "a separate copy"; }
+h_span_neg() { new; agents 'x\n'; tput_ "$CP" '[a](../AGENTS.md)\n'; run
+  rc_is 0 && hrow pass "$CP" "points at AGENTS.md"; }
+h_copilot_imp() { new; agents 'x\n'; tput_ "$CP" '@../AGENTS.md\n'; run
+  rc_is 0 && hrow referred "$CP" "import not documented for this harness" && ! hrow pass "$CP" ""; }
+h_copilot_link() { new; agents 'x\n'; tput_ "$CP" '[AGENTS.md](../AGENTS.md)\n'; run
+  rc_is 0 && hrow pass "$CP" "points at AGENTS.md"; }
+h_claude_link() { new; agents 'x\n'; tput_ CLAUDE.md '[AGENTS.md](AGENTS.md)\n'; run
+  rc_is 0 && hrow referred CLAUDE.md "link not documented for this harness"; }
+h_gemini_wind() { new; agents 'x\n'; tput_ GEMINI.md '@AGENTS.md\n'; tput_ .windsurfrules '@AGENTS.md\n'; run
+  rc_is 0 && hrow pass GEMINI.md "points at AGENTS.md" && hrow referred .windsurfrules "import not documented for this harness"; }
+h_cursor_ok() { new; agents 'x\n'; tput_ .cursor/rules/project.mdc '@../../AGENTS.md\n'; run
+  rc_is 0 && hrow pass .cursor/rules/project.mdc "points at AGENTS.md"; }
+h_cursor_neg() { new; agents 'x\n'; tput_ .cursor/rules/project.mdc '@AGENTS.md\n'; run
+  rc_is 0 && hrow referred .cursor/rules/project.mdc "a separate copy"; }
+h_link_ok() { new; agents 'x\n'; tput_ "$CP" 'Rules: [AGENTS.md](../AGENTS.md)\n'; run
+  rc_is 0 && hrow pass "$CP" "points at AGENTS.md"; }
+h_link_neg() { new; agents 'x\n'; tput_ docs/guide.md 'x\n'; tput_ "$CP" 'Rules: [guide](../docs/guide.md)\n'; run
+  rc_is 0 && hrow referred "$CP" "a separate copy" && ! at pass "$CP:" "" && ! at fail "$CP:" ""; }
+h_agents_link() { new; tput_ CLAUDE.md "$(copy40)\n"; lnk CLAUDE.md AGENTS.md; run
+  rc_is 0 && hrow pass CLAUDE.md "AGENTS.md is a symlink to this file" && ! hrow referred CLAUDE.md ""; }
+h_agents_link_neg() { new; tput_ docs/agents-body.md 'x\n'; lnk docs/agents-body.md AGENTS.md; tput_ CLAUDE.md "$(copy40)\n"; run
+  rc_is 0 && hrow referred CLAUDE.md "a separate copy"; }
+h_untracked() { new; agents 'x\n'; tput_ .gitignore 'GEMINI.md\n'; put GEMINI.md 'x\n'; tput_ .cursorrules 'x\n'; run
+  rc_is 0 && hnone GEMINI.md && hrow referred .cursorrules "a separate copy"; }
+h_tracked_copy() { new; agents 'x\n'; tput_ GEMINI.md 'rules\n'; run
+  rc_is 0 && [ "$(hcount)" = 1 ] && hrow referred GEMINI.md "a separate copy"; }
+h_needs_agents() { new; tput_ .gitignore 'AGENTS.md\n'; put AGENTS.md 'x\n'; tput_ CLAUDE.md 'x\n'; run
+  rc_is 1 && row fail required "not tracked" && [ "$(hcount)" = 0 ]; }
+h_needs_agents_neg() { new; agents 'x\n'; tput_ CLAUDE.md 'x\n'; run
+  rc_is 0 && hrow referred CLAUDE.md ""; }
+h_index_unstaged() { new; agents 'x\n'; tput_ CLAUDE.md "$(seq 1 10 | sed 's/.*/r/')\n"; git -C "$R" commit --quiet -m a
+  printf '@AGENTS.md\n' >> "$R/CLAUDE.md"; run
+  rc_is 0 && hrow referred CLAUDE.md "a separate copy" || return 1
+  git -C "$R" add CLAUDE.md; run; rc_is 0 && hrow pass CLAUDE.md "points at AGENTS.md"; }
+h_docs_flag() { new; agents 'x\n'; tput_ GEMINI.md 'See [m](missing.md).\n'; run --docs AGENTS.md
+  rc_is 0 && hrow referred GEMINI.md "a separate copy" && ! at fail GEMINI.md: "" || return 1
+  run; rc_is 0 && hrow referred GEMINI.md "a separate copy"; }
+h_paths() { new; agents 'x\n'; tput_ .cursor/rules/a.mdc 'x\n'; tput_ .cursorrules 'x\n'; tput_ .windsurfrules 'x\n'; tput_ .clinerules 'x\n'; run
+  rc_is 0 && [ "$(hcount)" = 4 ] && hrow referred .cursor/rules/a.mdc "" && hrow referred .cursorrules "" && hrow referred .windsurfrules "" && hrow referred .clinerules ""; }
+h_nested() { new; agents 'x\n'; tput_ .cursor/rules/sub/b.mdc 'x\n'; tput_ .cursorrules 'x\n'; run
+  rc_is 0 && hnone .cursor/rules/sub/b.mdc && hrow referred .cursorrules ""; }
+h_cline_dir() { new; agents 'x\n'; tput_ .clinerules/x.md 'x\n'; tput_ .cursorrules 'x\n'; run
+  rc_is 0 && hnone .clinerules/x.md && hrow referred .cursorrules ""; }
+h_case() { new; agents 'x\n'; tput_ gemini.md 'x\n'; tput_ .cursorrules 'x\n'; run
+  rc_is 0 && hnone gemini.md && hrow referred .cursorrules ""; }
+h_ordinary_import() { new; agents 'x\n\n@docs/missing.md\n'; run
+  rc_is 0 && none missing.md; }
+h_ordinary_import_neg() { new; agents '[m](docs/missing.md)\n'; run
+  rc_is 1 && row fail link "missing.md"; }
+h_malformed() { new; agents 'x\n'; tput_ GEMINI.md ''; printf '@AGENTS.md' > "$R/.cursorrules"; git -C "$R" add .cursorrules
+  tput_ CLAUDE.md '@AGENTS.md\r\n'; tput_ .windsurfrules "$(lines '```' @AGENTS.md)"; run
+  [ "$RC" != 2 ] && [ -z "$ERR" ] && hrow referred GEMINI.md "" && hrow pass CLAUDE.md "points at AGENTS.md" && hrow referred .windsurfrules "a separate copy"; }
+
+echo "== #300 per-harness copies =="
+case_ h_sym_ok "a harness symlink to ../AGENTS.md passes"
+case_ h_sym_other "a harness symlink to another file is referred"
+case_ h_sym_owndir "a harness symlink target resolves from its own directory"
+case_ h_sym_escape "a harness symlink leaving the repository is referred and never read"
+case_ h_sym_root "a root harness symlink to AGENTS.md passes"
+case_ h_sym_abs "an absolute harness symlink target is referred before normpath"
+case_ h_imp_abs "an absolute @ import is referred before normpath"
+case_ h_imp_ok "an own-line @AGENTS.md in CLAUDE.md passes"
+case_ h_copy_claude "a CLAUDE.md copy is referred and says it shadows AGENTS.md"
+case_ h_fence "a fenced @AGENTS.md does not count"
+case_ h_fence_neg "the same import outside a fence passes"
+case_ h_span "a code-spanned link does not count"
+case_ h_span_neg "the same link outside a span passes"
+case_ h_copilot_imp "an @ import in the Copilot file is not credited"
+case_ h_copilot_link "a link in the Copilot file is credited"
+case_ h_claude_link "a link in CLAUDE.md is not credited"
+case_ h_gemini_wind "an @ import is credited to GEMINI.md and not to .windsurfrules"
+case_ h_cursor_ok "a .cursor/rules import resolves from the rule file's directory"
+case_ h_cursor_neg "a .cursor/rules @AGENTS.md names the rules directory's file"
+case_ h_link_ok "a link to the root AGENTS.md passes"
+case_ h_link_neg "a link elsewhere is a separate copy, and a harness file is not scanned for links"
+case_ h_agents_link "AGENTS.md as a symlink to CLAUDE.md passes CLAUDE.md"
+case_ h_agents_link_neg "AGENTS.md linked elsewhere does not exempt a CLAUDE.md copy"
+case_ h_untracked "an untracked harness copy gets no row"
+case_ h_tracked_copy "a tracked harness copy gets exactly one referred row"
+case_ h_needs_agents "with AGENTS.md untracked there is no harness row"
+case_ h_needs_agents_neg "with AGENTS.md tracked a harness file gets its row"
+case_ h_index_unstaged "the index, not the working tree, decides"
+case_ h_docs_flag "--docs does not disable the check, and harness files are not scanned"
+case_ h_paths "the four other harness paths each get a row"
+case_ h_nested "a nested .cursor/rules file gets no row"
+case_ h_cline_dir "the .clinerules directory form gets no row"
+case_ h_case "a differently cased name gets no row"
+case_ h_ordinary_import "an @ line in AGENTS.md is no link"
+case_ h_ordinary_import_neg "a dead link in AGENTS.md still fails"
+case_ h_malformed "empty, unterminated, CRLF and unclosed-fence harness files never crash"
 
 # ---------------------------------------------------------------- check 3: commands
 c_build() { new; pkg '"build":"x"'; agents 'Run `npm run build`.\n'; run
@@ -1833,6 +1955,28 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "import: ignore rule not tested" c_imp_ignored 'if git check-ignore -q --no-index -- "$np" 2>/dev/null; then   # import: ignored' 'if false; then'
   mutant "import: trailing punctuation stripped" c_imp_punct '    w = substr(w, 2); gsub(/\001/, " ", w)' '    w = substr(w, 2); gsub(/\001/, " ", w); sub(/[.,;:!?)]+$/, "", w)'
   mutant "import: an untracked CLAUDE.md followed" c_imp_entry_untracked 'if [ -n "$(idx_mode CLAUDE.md)" ]; then   # import: entry' 'if [ -e CLAUDE.md ]; then'
+  # #300: harness-copy, one mutant per numbered acceptance item.
+  mutant "harness: a symlink to another file passes" h_sym_other 'else row referred harness-copy "$h" "symlink to a different file"; fi ;;' 'else row pass harness-copy "$h" "symlink to a different file"; fi ;;'
+  mutant "harness: an escaping symlink followed and judged" h_sym_escape 'np=$(normpath "$hdir" "$tgt") || { row referred harness-copy "$h" "symlink target leaves the repository"; return; }   # harness: escape' 'np=$(normpath "$hdir" "$tgt") || { cat "$h" > "$T/hdoc"; harness_judge_doc "$h"; return; }'
+  mutant "harness: a fenced import passes" h_fence '    code(line, 1); next' '    if (ENVIRON["IMPORTS"] == 1) imports(line); code(line, 1); next'
+  mutant "harness: a spanned link passes" h_span '  while ((i = index(rest, "](")) > 0) { rest = substr(rest, i + 2); link(target(rest)) }' '  rest = line; while ((i = index(rest, "](")) > 0) { rest = substr(rest, i + 2); link(target(rest)) }'
+  mutant "harness: an untracked copy emits a row" h_untracked '    p == ".windsurfrules"' '    p == ".windsurfrules" || p == "GEMINI.md" && 0' "' \"\$IDX\" > \"\$T/harness\"" "' <(cat \"\$IDX\"; ls -A) > \"\$T/harness\"" '    *) return ;;   # harness: untracked' "    '') cat \"\$h\" > \"\$T/hdoc\" && harness_judge_doc \"\$h\" ;; *) return ;;"
+  mutant "harness: referred becomes fail" h_copy_claude 'row referred harness-copy' 'row fail harness-copy'
+  mutant "harness: read from the working tree" h_index_unstaged 'git cat-file blob ":0:$h" > "$T/hdoc" 2>/dev/null || die "cannot read $h from the index"   # harness: index blob' 'cat "$h" > "$T/hdoc"'
+  mutant "harness: --docs disables the check" h_docs_flag 'if tracked AGENTS.md; then   # harness: entry' 'if tracked AGENTS.md && [ "$docs_set" = 0 ]; then'
+  mutant "harness: an import resolved from the root" h_cursor_neg 'np=$(normpath "$hdir" "$a") || continue   # harness: import from dir' 'np=$(normpath "" "$a") || continue'
+  mutant "harness: the .cursor/rules match crosses /" h_nested 'p ~ /^\.cursor\/rules\/[^\/]+\.mdc$/' 'p ~ /^\.cursor\/rules\/.+\.mdc$/'
+  mutant "harness: the .clinerules directory form matches" h_cline_dir 'p == ".clinerules" ||' 'p == ".clinerules" || p ~ /^\.clinerules\// ||'
+  mutant "harness: an @ line in an ordinary doc is read" h_ordinary_import '  imp=0; [ "$dmode" != 0 ] && imp=1' '  imp=1'
+  mutant "harness: an import credited to every harness" h_gemini_wind '    *) HC_IMP=0 HC_LINK=0 ;;' '    *) HC_IMP=1 HC_LINK=0 ;;'
+  mutant "harness: an import credited to Copilot" h_copilot_imp '.github/copilot-instructions.md) HC_IMP=0 HC_LINK=1 ;;' '.github/copilot-instructions.md) HC_IMP=1 HC_LINK=1 ;;'
+  mutant "harness: a link credited to every harness" h_claude_link 'CLAUDE.md|GEMINI.md|.cursor/rules/*.mdc) HC_IMP=1 HC_LINK=0 ;;' 'CLAUDE.md|GEMINI.md|.cursor/rules/*.mdc) HC_IMP=1 HC_LINK=1 ;;'
+  mutant "harness: the AGENTS.md-symlink rule absent" h_agents_link 'if [ -n "$agents_link" ] && [ "$agents_link" = "$h" ]; then row pass harness-copy "$h" "AGENTS.md is a symlink to this file"; return; fi   # harness: agents link' ':'
+  mutant "harness: any AGENTS.md symlink exempts" h_agents_link_neg 'if [ -n "$agents_link" ] && [ "$agents_link" = "$h" ]; then' 'if [ -n "$agents_link" ]; then'
+  mutant "harness: an absolute symlink target normalised" h_sym_abs 'case "$tgt" in /*) row referred harness-copy "$h" "absolute symlink target"; return ;; esac   # harness: absolute target' ':'
+  mutant "harness: an absolute import normalised" h_imp_abs 'case "$a" in /*) abs=1; continue ;; esac   # harness: absolute import' ':'
+  mutant "harness: a symlink target resolved from the root" h_sym_owndir 'np=$(normpath "$hdir" "$tgt") ||' 'np=$(normpath "" "$tgt") ||'
+  mutant "harness: names matched in any case" h_case '{ p = $0 }' '{ p = $0; if (toupper(p) == "GEMINI.MD") p = "GEMINI.md" }'
   mutant "presence instead of tracked" c_untracked 'if tracked AGENTS.md; then' 'if [ -e AGENTS.md ]; then'
   mutant "check-ignore without --no-index" c_ignored 'check-ignore -q --no-index' 'check-ignore -q'
   mutant "links resolved from the root" c_link_parent 'np=$(normpath "$dir" "$a")' 'np=$(normpath "" "$a")'
