@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 70 -->
+<!-- forge-adapt-version: 71 -->
 
 # forge-adapt
 
@@ -84,10 +84,9 @@ injected context.
 
 **S2. Locate AND refresh the forge-kit library** (marketplace checkout, then `~/forge-kit`, then clone),
 and separately determine whether the governance plugin is enabled. The skill self-updates in S1, but
-the component library is a SEPARATE checkout - if it is stale, new components (e.g. a newly added
-hook) are invisible to the catalogue and file-copy installs fail on missing sources. Always
-refresh it, INCLUDING the marketplace checkout (Claude Code does not auto-pull it between manual
-`/plugin marketplace update` runs).
+the component library is a SEPARATE checkout - if it is stale, new components are invisible to the
+catalogue and file-copy installs fail on missing sources. Always refresh it, INCLUDING the
+marketplace checkout (Claude Code never auto-pulls it).
 
 ```bash
 FORGE_KIT_DIR=""; FORGE_KIT_SRC=""
@@ -128,9 +127,9 @@ echo "governance-plugin-active=$GOVERNANCE_PLUGIN_ACTIVE"
 If `FORGE_KIT_DIR` is still empty, stop and tell the user to clone it manually
 (`git clone https://github.com/agigante80/forge-kit ~/forge-kit`) and re-run.
 
-**Every Bash call is a fresh shell**: nothing S2 set survives. Prefix `FORGE_KIT_DIR=<library>` (the
-path S2 printed) to each later block; one that stops naming `FORGE_KIT_DIR`, or `ls: cannot
-access`, lacks it. Take the governance flag from S2's `governance-plugin-active=` line.
+**Every Bash call is a fresh shell**: nothing S2 set survives. Prefix `FORGE_KIT_DIR=<library>
+FORGE_KIT_SRC=<source>` (both as S2 printed) to each later block; one that stops naming
+`FORGE_KIT_DIR`, or `ls: cannot access`, lacks it. Take the governance flag from S2's `governance-plugin-active=` line.
 
 **S3. Catalogue forge-kit** (the menu of what can be recommended). Run the shipped catalogue script
 VERBATIM - do NOT reimplement it inline. It prints every component's type, name, and
@@ -396,7 +395,8 @@ Rules for this step:
 ### Step 3: Install (register or adapt)
 
 ```bash
-"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-install-plan.sh <file> ${NO_MARKETPLACE:+--no-marketplace}
+[ "${FORGE_KIT_SRC:?}" = clone ] && NM=--no-marketplace
+"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-install-plan.sh <file> ${NM:-}
 ```
 
 `register`: tell the user to enable that plugin group, write NO copy, quote its reason.

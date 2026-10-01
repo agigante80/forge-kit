@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, reassess, close or triage a
 argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 13 -->
+<!-- phase-version: 14 -->
 
 # /phase
 
@@ -17,25 +17,29 @@ acting, and when a guard refuses something, quote its message rather than paraph
 here it expands to nothing. Resolve by
 search, in this order: the project's own copy; a forge-kit checkout's tree, which is newer than
 anything installed; then the highest `<name>-version` marker across installed copies, lexically
-last path as the tie-break. Print the pick.
+last path as the tie-break. `phase-env.sh` resolves the six assets so and writes them to a file:
 
 ```bash
 resolve() {  # resolve <asset.sh>
   [ -f "scripts/$1" ] && { echo "scripts/$1"; return; }
   ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/"$1" 2>/dev/null && return
   find ~/.claude/plugins -name "$1" -exec grep -m1 -Ho "${1%.sh}-version: [0-9]*" {} + 2>/dev/null \
-    | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1
+    | sed 's/:[a-z-]*-version: \([0-9]*\)$/	\1/' | sort -t"$(printf '\t')" -k2,2n -k1,1 | tail -1 | cut -f1
 }
-CP=$(resolve check-phases.sh); SP=$(resolve sync-phases.sh); echo "using ${CP:-none}, ${SP:-none}" | sed "s|$HOME|~|g"
+E=$(git rev-parse --git-path forge-kit-phase-env) && PE=$(resolve phase-env.sh) && bash "${PE:?}" > "$E" &&
+  sed -n 's/^\([A-Z][A-Z]\)=/using \1=/p' "$E" | sed "s|$HOME|~|g"
 ```
 
-If either is missing, say so and stop. Do not reimplement the checks in prose.
+**Every later Bash call is a fresh shell.** Each one reading `CP`, `SP`, `FL`, `RL`, `DD`, `RP` or
+a function `FL`/`RL` define, prose steps included, opens with
+`. "$(git rev-parse --git-path forge-kit-phase-env)" || exit 2`, which also sets forge-lib's
+`set -uo pipefail`. A missing asset stops only what reads it. Never reimplement the checks in prose.
 
 ## `/phase status`
 
 Answers "is the current phase complete, and is it marked done in both places?"
 
-1. Run `bash "$CP"`. Report its verdict verbatim; it is the authority.
+1. Run `bash "${CP:?}"`. Report its verdict verbatim; it is the authority.
 2. Name the one `open` phase and its plan.
 3. List that phase's tickets, open and closed, via the milestone.
 4. Read the plan's **Done looks like** and say plainly whether it is satisfied, and what is left.
@@ -74,7 +78,7 @@ The close review. Four steps, and the phase is not closed until all four are don
 3. **Move every remaining open ticket somewhere explicit.** Rule 4 refuses a `done` phase that still
    holds open tickets, and that refusal is the circuit breaker: the default is to **re-shape, never
    extend**.
-4. **Close it in both places**: the milestone via `bash "$SP"`, and the roadmap entry set to `done`.
+4. **Close it in both places**: the milestone via `bash "${SP:?}"`, and the roadmap entry set to `done`.
    One without the other is not closed.
 
 Record which of the three outcomes it was, in the roadmap prose:
@@ -85,7 +89,7 @@ Record which of the three outcomes it was, in the roadmap prose:
 
 **Abandoned is the one people skip.** Write it down.
 
-Finish by running `bash "$CP"` and reporting the result. If it refuses, the phase is not closed.
+Finish by running `bash "${CP:?}"` and reporting the result. If it refuses, the phase is not closed.
 
 ## `/phase review [name]`
 
@@ -93,25 +97,15 @@ The mid-phase alignment review. The `roadmap-phases` skill is canonical for ever
 which phase is reviewed, what a rewrite may destroy, and when a ticket is re-gated. This is the
 order of work and the mechanism only.
 
-Resolve three more assets the same way and for the same reason:
-
 ```bash
-FL=$(resolve forge-lib.sh); RL=$(resolve roadmap-lib.sh); DD=$(resolve check-doc-drift.sh)
-echo "using ${FL:-none}, ${RL:-none}, ${DD:-none}" | sed "s|$HOME|~|g"
+. "$(git rev-parse --git-path forge-kit-phase-env)" || exit 2
+grep -m1 -o 'forge-lib-version: [0-9]*' "${FL:?}"; : "${RL:?}"
 ```
 
-If `FL` or `RL` is empty, say which and stop before the next block: sourcing an empty path fails
-with a shell error rather than the missing-asset message the resolve above already printed.
+The two libraries are SOURCED, not run; an empty one stops here, naming it. The version must be 25
+or higher. `DD` is often empty, and the skill says what the review does then.
 
-```bash
-grep -m1 -o 'forge-lib-version: [0-9]*' "$FL"
-. "$FL"; . "$RL"
-```
-
-The two libraries are SOURCED, not run, and the version that prints must be 25 or higher.
-`${DD:-none}` is often `none`, and the skill says what the review does then.
-
-1. Run `bash "$CP"` and report its verdict verbatim. Then, before any write, snapshot
+1. Run `bash "${CP:?}"` and report its verdict verbatim. Then, before any write, snapshot
    the local paths the second-run proof covers: `docs/roadmap.md`, the plan `docs/plans/<phase>.md`
    and each document of step 4's `<documents>` (computed here, once). The listing is a FILE under the
    git dir (a shell variable does not survive the tool calls a run spans) holding one
@@ -137,9 +131,9 @@ The two libraries are SOURCED, not run, and the version that prints must be 25 o
    something that happened during this phase.
 3. Report each ticket against the tree: implemented, naming the commit or commits under the
    skill's rule above, partly implemented (naming what is missing), not started, or superseded.
-4. Run `bash "$DD" --range <base>^..HEAD --docs <documents>`, read its rows. `<base>` is derived
-   by the skill's range rule, never restated here. `<documents>` is a comma-separated
-   `<doc>[,<doc>...]`, the project's standing documents for which `git cat-file -e
+4. If `DD` is set, run `bash "$DD" --range <base>^..HEAD --docs <documents>`, read its rows.
+   `<base>` is derived by the skill's range rule, never restated here. `<documents>` is a
+   comma-separated `<doc>[,<doc>...]`, the project's standing documents for which `git cat-file -e
    HEAD:<doc>` succeeds, read from the snapshot file, not memory:
 
 ```bash
@@ -188,15 +182,7 @@ Reshapes the roadmap itself: reorder, split, merge, rename, refocus, delete or i
 plan of phases, where `/phase review` judges one phase. The `roadmap-phases` skill is canonical for every rule
 and refusal; this is the mechanism only.
 
-Resolve the script the same way:
-
-```bash
-RP=$(resolve reassess-phases.sh); echo "using ${RP:-none}" | sed "s|$HOME|~|g"
-```
-
-If empty, say so and stop.
-
-1. Ask the user which op and its arguments; do not guess. `bash "$RP" --help` prints the full
+1. Ask the user which op and its arguments; do not guess. `bash "${RP:?}" --help` prints the full
    synopsis of all seven ops (`reorder`, `split`, `merge`, `rename`, `refocus`, `delete`, `insert`)
    and their flags.
 2. Run it **with `--check` first**, always, and show the user exactly what it would do before
@@ -218,7 +204,7 @@ If empty, say so and stop.
 
 ## `/phase triage`
 
-1. Run `bash "$CP"` and read rule 1's findings: every open ticket with no phase.
+1. Run `bash "${CP:?}"` and read rule 1's findings: every open ticket with no phase.
 2. For each, propose a phase and say why in one line. A ticket whose home is genuinely unknown goes
    to `backlog`, which is a decision to decide later rather than no decision.
 3. **Assign only what the user confirms.** Never bulk-assign.
@@ -226,6 +212,6 @@ If empty, say so and stop.
 
 ## After any change to the roadmap
 
-Run `bash "$SP" --check` first and show what it would do, then `bash "$SP"` once the user agrees.
+Run `bash "${SP:?}" --check` first and show what it would do, then `bash "${SP:?}"` once the user agrees.
 It never deletes a milestone and never reopens a closed one, so anything beyond creating and closing
 is a manual step it will report rather than perform.

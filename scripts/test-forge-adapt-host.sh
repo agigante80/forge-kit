@@ -197,10 +197,10 @@ run_block() { local b="$1"; shift; PROJ=$(mktemp -d "$T/proj.XXXXXX")
 L=$(lib)
 for pat in 'forge-adapt-catalogue.sh' 'forge-adapt-neighbour-disposition.sh <name>' 'forge-adapt-install-plan.sh <file>' 'forge-adapt-agent-skills.sh --names'; do
   b=$(fill "$(fence "$pat")")
-  run_block "$b" FORGE_KIT_DIR="$L"
+  run_block "$b" FORGE_KIT_DIR="$L" FORGE_KIT_SRC=marketplace
   case "$bout" in ok*) ok "#321: '$pat' runs from the library" ;; *) bad "#321: '$pat' did not run from the library (out '$bout', rc $brc)" ;; esac
   expect "#321: '$pat' exits 0 with the library" 0 "$brc"
-  run_block "$b"
+  run_block "$b" FORGE_KIT_SRC=marketplace
   [ "$brc" != 0 ] && ok "#321: '$pat' unset: exits non-zero" || bad "#321: '$pat' unset: exited 0"
   case "$berr" in *FORGE_KIT_DIR*) ok "#321: '$pat' unset: stderr names FORGE_KIT_DIR" ;; *) bad "#321: '$pat' unset: stderr '$berr'" ;; esac
   case "$berr" in *"No such file or directory"*) bad "#321: '$pat' unset: a bare /scripts path was tried" ;; *) ok "#321: '$pat' unset: no bare /scripts path tried" ;; esac
@@ -272,7 +272,9 @@ lint=$(awk '
   inb { buf = buf $0 "\n" }' "$SKILL")
 expect "#321: lint: every later fenced read of the library is \${FORGE_KIT_DIR:?}" "" "$lint"
 after=$(awk 'index($0, "echo \"governance-plugin-active=") { on = 1; next } on' "$SKILL")
-expect "#321: no later text reads \$FORGE_KIT_SRC" 0 "$(printf '%s\n' "$after" | grep -c 'FORGE_KIT_SRC')"
+# #407: later text names FORGE_KIT_SRC only as the fresh-shell prefix or a guarded read.
+expect "#407: every later read of \$FORGE_KIT_SRC is \${FORGE_KIT_SRC:?}" 0 \
+  "$(printf '%s\n' "$after" | sed -e 's/\${FORGE_KIT_SRC:?}//g' -e 's/FORGE_KIT_SRC=<source>//g' | grep -c 'FORGE_KIT_SRC')"
 expect "#321: no later text reads GOVERNANCE_PLUGIN_ACTIVE (the hook branch reads the printed flag)" 0 "$(printf '%s\n' "$after" | grep -c 'GOVERNANCE_PLUGIN_ACTIVE')"
 grep -q '^\*\*Branch on S2.s printed `governance-plugin-active=` line' "$SKILL" && ok "#321: the hook branch names the printed flag" || bad "#321: the hook branch does not name the printed flag"
 # The lint can fail: one guard reverted on a copy.
@@ -288,6 +290,24 @@ mlint=$(SKILL="$T/skill-mut.md" awk '
     next }
   inb { buf = buf $0 "\n" }' "$T/skill-mut.md")
 case "$mlint" in "block at line "*": 1 unguarded read(s)") ok "#321: mutant: a reverted guard fails the lint and names its block" ;; *) bad "#321: mutant: the lint missed a reverted guard ('$mlint')" ;; esac
+
+# #407: Step 3 passes --no-marketplace exactly when S2 printed (clone), with the REAL install-plan
+# script and a scope: user agent of this repository, and stops naming FORGE_KIT_SRC when it is unset.
+echo "== #407: Step 3 reads S2's library source =="
+S3=$(fence 'forge-adapt-install-plan.sh <file>' | sed 's|<file>|plugins/forge-kit-governance/agents/ticket-gate.md|')
+s3() { bout=$(cd "$ROOT" && env -i PATH="$PATH" HOME="$EH" "$@" bash -c "$S3" 2>"$T/berr"); brc=$?; berr=$(cat "$T/berr"); }
+s3 FORGE_KIT_DIR="$ROOT" FORGE_KIT_SRC=clone
+case "$bout" in copy*"installed from a clone, so there is no marketplace to register with"*) ok "#407: a clone library gets copy" ;; *) bad "#407: a clone library: '$bout' (rc $brc)" ;; esac
+s3 FORGE_KIT_DIR="$ROOT" FORGE_KIT_SRC=marketplace
+case "$bout" in register*) ok "#407: a marketplace library gets register" ;; *) bad "#407: a marketplace library: '$bout' (rc $brc)" ;; esac
+s3 FORGE_KIT_DIR="$ROOT"
+[ "$brc" != 0 ] && [ -z "$bout" ] && case "$berr" in *FORGE_KIT_SRC*) true ;; *) false ;; esac \
+  && ok "#407: FORGE_KIT_SRC unset: exits non-zero naming it, printing neither register nor copy" \
+  || bad "#407: FORGE_KIT_SRC unset: rc $brc, out '$bout', stderr '$berr'"
+# Mutant: the never-assigned flag restored; a clone install then registers.
+S3=$(printf '%s\n' "$S3" | sed -e '/FORGE_KIT_SRC:?/d' -e 's/\${NM:-}/${NO_MARKETPLACE:+--no-marketplace}/')
+s3 FORGE_KIT_DIR="$ROOT" FORGE_KIT_SRC=clone
+case "$bout" in register*) ok "#407: mutant: the NO_MARKETPLACE form registers a clone install, so the copy row above dies on it" ;; *) bad "#407: mutant did not register: '$bout'" ;; esac
 
 echo ""
 echo "forge-adapt host probe tests: $pass passed, $fail failed"

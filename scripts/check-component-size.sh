@@ -235,6 +235,10 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-10-01: adapt 7154 to 7150 (#407). Step 3 reads S2's printed library source to pass
+# `--no-marketplace` on a clone (+7: a guarded `${FORGE_KIT_SRC:?}` test, the flag held in NM), and
+# the fresh-shell prefix names FORGE_KIT_SRC beside FORGE_KIT_DIR (+1); paid for by S2's
+# example parenthetical and a shorter auto-pull aside (-12), and the 4 left over are locked in.
 # LOWERED 2026-10-01: adapt 7199 to 7154 (#321). Every later read of the library became
 # ${FORGE_KIT_DIR:?} (no words), S2 now prints the library path and a governance-plugin-active line,
 # and one fresh-shell rule follows S2's stop rule; paid for by moving S2's 70-word refresh rationale
@@ -374,7 +378,7 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7154 ;;
+    adapt)       echo 7150 ;;
     ticket-gate) echo 5742 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;

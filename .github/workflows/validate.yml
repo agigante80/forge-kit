@@ -367,6 +367,10 @@ jobs:
       - name: CDPATH-safe cd contract tests
         run: bash scripts/test-cdpath.sh
 
+      # Issue #407: /phase's resolved values reach every later Bash call through phase-env.sh.
+      - name: /phase fresh-shell contract tests
+        run: bash scripts/test-phase-env.sh
+
       # Issue #394: /phase review's step 1, 4 and 7 snippets, extracted from the command and run in
       # throwaway repositories, so overlapping runs cannot print a false second-run proof again.
       - name: Phase review snapshot tests
