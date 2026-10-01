@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 8
+# check-contributor-docs-version: 9
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -87,6 +87,12 @@
 # from the root) and list items with no blank line between them are one paragraph; make's built-in
 # implicit rules are not modelled, so `make foo` built from foo.c by no written rule fails; a
 # percent-encoded non-ASCII link target is referred rather than decoded.
+#
+# A leading UTF-8 byte-order mark on line 1 of a doc is stripped before any fence, link or
+# reference-definition rule reads it (#374), so a BOM-led doc is judged as if it had none. Without
+# it a line-1 fence opener is read as prose and every later fence pairing inverts. Line 2 and later
+# are never stripped. Like judge_target, the doc reader runs awk without LC_ALL=C; the strip is the
+# octal form npmrc_scan uses, which gawk, mawk and busybox awk accept in either locale.
 #
 # Needs git; jq only when a command reaches resolution against package.json (#295). Portable to
 # bash 3.2 and BWK awk: no associative arrays, no mapfile, no ${x,,}, no readlink -f, and caller
@@ -204,6 +210,7 @@ is_template() {
 # code span or fenced line, and `L<TAB>line<TAB>target<TAB>flag` for each relative link target,
 # already stripped of its anchor and query and percent-decoded.
 EXTRACT='
+NR == 1 { sub(/^\357\273\277/, "") }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, rs) {
   # A command substitution as an assignment VALUE rescopes npm like any other value

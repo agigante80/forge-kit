@@ -206,6 +206,25 @@ c_just_bom_fallback() { new; tput_ justfile '\xef\xbb\xbfset fallback\nbuild:\n 
   rc_is 0 && row referred command "just ship: not literal in justfile, which includes or imports others" && at referred AGENTS.md:1 "just ship"; }
 c_just_bom_set_shell() { new; tput_ justfile '\xef\xbb\xbfset shell := ["bash", "-c"]\nbuild:\n  echo b\n'; agents '`just ship`\n'; run
   rc_is 1 && row fail command "just ship: no such target in justfile" && at fail AGENTS.md:1 "just ship: no such target in justfile"; }
+c_doc_bom_fence_neg() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents '\xef\xbb\xbf```sh\nmake nope\n```\n'; run
+  rc_is 1 && row fail command "make nope: no such target in Makefile" && at fail AGENTS.md:2 "make nope: no such target in Makefile"; }
+c_doc_bom_fence_pos() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents '\xef\xbb\xbf```sh\nmake all\n```\n'; run
+  rc_is 0 && row pass command "make all: defined in Makefile" && at pass AGENTS.md:2 "make all: defined in Makefile"; }
+c_doc_bom_pairing_neg() { new; tput_ Makefile 'all:\n\t@echo a\n'
+  agents '\xef\xbb\xbf```sh\nmake all\n```\n\nRead [guide](missing.md).\n\n```sh\nmake nope\n```\n'; run
+  rc_is 1 && at pass AGENTS.md:2 "make all" && at fail AGENTS.md:5 "missing.md is not a tracked path" && at fail AGENTS.md:8 "make nope"; }
+c_doc_bom_pairing_pos() { new; tput_ Makefile 'all:\n\t@echo a\n'; tput_ guide.md 'x\n'
+  agents '\xef\xbb\xbf```sh\nmake all\n```\n\nRead [guide](guide.md).\n\n```sh\nmake all\n```\n'; run
+  rc_is 0 && at pass AGENTS.md:2 "make all" && at pass AGENTS.md:5 "guide.md" && at pass AGENTS.md:8 "make all"; }
+c_doc_bom_refdef_neg() { new; agents '\xef\xbb\xbf[g]: missing.md\n'; run
+  rc_is 1 && at fail AGENTS.md:1 "missing.md is not a tracked path"; }
+c_doc_bom_line2_kept() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents 'intro\n\xef\xbb\xbf```sh\nmake nope\n```\n'; run
+  rc_is 0 && nostatus fail && ! grep -q "$(printf '\tcommand\t')" <<<"$OUT"; }
+c_doc_bom_prose() { new; agents '\xef\xbb\xbfJust prose, no fence.\n'; run
+  rc_is 0 && [ "$(grep -c . <<<"$OUT")" = 3 ] && row pass required "" && nostatus fail; }
+c_doc_bom_contributing() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents 'x\n'
+  tput_ CONTRIBUTING.md '\xef\xbb\xbf```sh\nmake nope\n```\n'; run --docs CONTRIBUTING.md
+  rc_is 1 && at fail CONTRIBUTING.md:2 "make nope: no such target in Makefile"; }
 c_cd_forms() { new; pkg '"x":"x"'
   agents '`cd x && npm run y`\n\n```\n(cd x; npm run y)\n```\n\n```sh\npushd x\n$ npm run y\n```\n'; run
   rc_is 0 && [ "$(count referred command)" = 3 ] && [ "$(grep -c 'directory change precedes' <<<"$OUT")" = 3 ]; }
@@ -237,6 +256,14 @@ case_ c_just_bom "a leading byte-order mark does not hide a justfile's first rec
 case_ c_just_bom_neg "a BOM justfile still fails an absent recipe"
 case_ c_just_bom_fallback "a BOM before set fallback is referred, never failed"
 case_ c_just_bom_set_shell "a BOM before a set that is not fallback still fails"
+case_ c_doc_bom_fence_neg "a leading BOM does not hide a doc's line-1 fence, so a broken command fails"
+case_ c_doc_bom_fence_pos "a BOM-led doc's fenced command that is defined passes"
+case_ c_doc_bom_pairing_neg "fence pairing after a BOM-led fence is not inverted (commands and a link fail)"
+case_ c_doc_bom_pairing_pos "fence pairing after a BOM-led fence is not inverted (commands and a link pass)"
+case_ c_doc_bom_refdef_neg "a BOM before a line-1 reference definition still yields its link row"
+case_ c_doc_bom_line2_kept "a BOM on line 2 is not stripped"
+case_ c_doc_bom_prose "no-regression: a BOM-led doc with no fence emits only the three required rows (passes with or without the strip)"
+case_ c_doc_bom_contributing "the BOM strip covers a doc passed with --docs"
 case_ c_cd_forms "cd in a span, a subshell in a fence and pushd in a fence each refer"
 case_ c_cd_other_fence "a cd in an earlier fence does not reach a later fence"
 case_ c_nopkg "no tracked root package.json refers"
@@ -1070,6 +1097,35 @@ NR == 1 { sub(/^\357\273\277/, "") }
   mutant "make strip not limited to line 1" c_make_bom_later_line 'MAKE_AWK='\''
 NR == 1 { sub(/' 'MAKE_AWK='\''
 { sub(/'
+  # #374. EXTRACT=' occurs once, so the opener is a unique anchor (the bare strip line is not: it
+  # also sits in npmrc_scan, MAKE_AWK and JUST_AWK, and mutant replaces every occurrence).
+  mutant "doc reader byte-order mark strip dropped" c_doc_bom_fence_neg 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip dropped (pass)" c_doc_bom_fence_pos 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip dropped (pairing, fail)" c_doc_bom_pairing_neg 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip dropped (pairing, pass)" c_doc_bom_pairing_pos 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip dropped (reference definition)" c_doc_bom_refdef_neg 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip dropped (--docs)" c_doc_bom_contributing 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip applied to every line" c_doc_bom_line2_kept 'EXTRACT='\''
+NR == 1 {' 'EXTRACT='\''
+{'
   mutant "section test after the indentation trim" c_npmrc_indented_section '    /^\[[^]]*\][ \t]*$/ { exit }
     { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }' '    { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
     /^\[[^]]*\][ \t]*$/ { exit }'
