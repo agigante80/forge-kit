@@ -11,6 +11,7 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`test-forge-lib.sh` pins the flag-off side of eight more `FORGE_DRY_RUN` guards** (#334, `scripts/test-forge-lib.sh`, test-only, no `forge-lib.sh` change). The library's contract is that only the exact value 1 is a dry run, but at HEAD 17 of the 18 guard mutants (`[ -n "${FORGE_DRY_RUN:-}" ]` and `[ "${FORGE_DRY_RUN:-0}" != 0 ]`, nine guards) passed every assertion, so a caller that restored the flag to 0, as `sync-labels.sh` does, could have been turned into a silent no-op that returns 0. A table-driven section now drives `forge_api`, `forge_api_paginate`, `_forge_region_write`, `forge_body_compose_preserving`, `forge_issue_edit`, `forge_issue_list`, `forge_issue_label` and `forge_issue_milestone` under `0`, `true` and `1`, and an in-suite ledger rewrites each guard with a function-scoped `awk` on a scratch copy, proving the `-n` form dies at `0` and the `!= 0` form dies only at `true`. `forge_milestone_close` stays with #319. The stale "six sites" comment is corrected to nine guards. Suite: 279 tests before, 357 after.
 - **gate-status tags the fingerprint algorithm in the stamp, and two test probes stop counting crashes
   as kills** (#330, gate-status v4, forge-kit-governance 0.28.0). The stamp is now
   `Judged body: sha256:<16 hex> (fp3). Full review: <url>.`; the tag follows the hash so every v1 to

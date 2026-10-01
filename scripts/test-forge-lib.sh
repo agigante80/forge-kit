@@ -412,7 +412,7 @@ for v in 0 no "" 2; do
     [ -s "$T/v.err" ] && exit 1
     exit 0
   )
-  # `= 1` and not `!= 0`, the shape FORGE_DRY_RUN uses at six sites in the library: under `!= 0`
+  # `= 1` and not `!= 0`, the shape FORGE_DRY_RUN uses at all nine guards in the library: under `!= 0`
   # the value `no` would turn debugging ON, which is the opposite of what typing it means.
   rc=$?   # captured BEFORE the case below, which would otherwise overwrite it and make this row vacuous
   case "$v" in
@@ -1955,6 +1955,132 @@ cmp -s "$LIB" "$MUT256" && bad "mutant ledger (#256): the sed did not apply" || 
 : > "$N256LOG"
 RC="$( ( . "$MUT256"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=gitea FORGE_REPO=o/r; forge_issue_close 1 >/dev/null 2>&1; echo $? ) )"
 expect "mutant (#256): without the refusal an invalid-host close returns 0, so the writer case can fail" 0 "$RC"
+
+# --- #334: the flag-OFF side of every FORGE_DRY_RUN guard -------------------------------------------
+# The library's contract is that ONLY the exact value 1 is a dry run. Eight guards are exercised here
+# (forge_milestone_close is #319's, which adds its own explicit-value cases). Before this section the
+# suite drove the flag-off side of exactly one of them (forge_api, with 0), so a guard rewritten to
+# `[ -n "${FORGE_DRY_RUN:-}" ]` or `[ "${FORGE_DRY_RUN:-0}" != 0 ]` passed everything at the other
+# seven. Two mutants, two values: the value 0 kills the `-n` form, and ONLY a non-numeric truthy-looking
+# value (`true`) kills the `!= 0` form, because `[ "0" != 0 ]` is false. Hence both values per site.
+# Not exercised here: forge_issue_label's forgejo shape (paginated name resolution). Its guard sits
+# above the host `case`, so the github shape's single POST reaches the same line.
+# dr_site <lib> <site> <value> <real|dry>: 0 when the site behaves as that mode says, else 1.
+# real = the request reached the transport and no [dry-run] line was printed; dry = nothing was sent
+# and the exact [dry-run] line was printed. A shadowed forge_api logs "$1 $2 ${3-}" and serves
+# canned pages, except at forge_api itself, which runs REAL against a stub gh.
+dr_site() {
+  local lib=$1 site=$2 v=$3 mode=$4
+  (
+    . "$lib"
+    DRLOG="$T/dr.log"; DRERR="$T/dr.err"; : > "$DRLOG"; : > "$DRERR"
+    export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN="$v"
+    case "$site" in forge_api|forge_issue_label) export FORGE_HOST=github ;; esac
+    if [ "$site" = forge_api ]; then
+      DRBIN="$T/dr-gh-bin"; mkdir -p "$DRBIN"
+      printf '#!/bin/sh\nprintf %%s '"'"'{"number":268,"body":"x"}'"'"'\n' > "$DRBIN/gh"; chmod +x "$DRBIN/gh"
+      export PATH="$DRBIN:$PATH"
+    else
+      forge_api() {
+        echo "$1 $2 ${3-}" >> "$DRLOG"
+        case "$1 $2" in
+          "GET "*milestones*page=1*) printf '[{"id":7,"title":"Phase A","state":"open"}]' ;;
+          "GET "*page=2*) printf '[]' ;;
+          "GET "*page=1*) printf '[{"number":1,"title":"a"}]' ;;
+          "GET /repos/o/r/issues/"*) printf '{"number":7,"body":"intro"}' ;;
+          *) printf '' ;;
+        esac
+      }
+    fi
+    case "$site" in
+      forge_api)                     out=$(forge_issue_view 268 2>"$DRERR"); rc=$? ;;
+      forge_api_paginate)            out=$(forge_api_paginate /repos/o/r/labels 2>"$DRERR"); rc=$? ;;
+      _forge_region_write)           out=$(forge_body_region_set 7 gate gate-verdict "some new content" 2>"$DRERR"); rc=$? ;;
+      forge_body_compose_preserving) out=$(forge_body_compose_preserving 7 "new body" 2>"$DRERR"); rc=$? ;;
+      forge_issue_edit)              out=$(forge_issue_edit 44 "new body" 2>"$DRERR"); rc=$? ;;
+      forge_issue_list)              out=$(forge_issue_list 2>"$DRERR"); rc=$? ;;
+      forge_issue_label)             out=$(forge_issue_label 7 bug 2>"$DRERR"); rc=$? ;;
+      forge_issue_milestone)         out=$(forge_issue_milestone 12 "Phase A" 2>"$DRERR"); rc=$? ;;
+    esac
+    [ "$rc" -eq 0 ] || exit 1
+    err=$(cat "$DRERR"); log=$(cat "$DRLOG")
+    if [ "$mode" = real ]; then
+      case "$err" in *'[dry-run]'*) exit 1 ;; esac
+      case "$site" in
+        forge_api)                     [ "$out" = '{"number":268,"body":"x"}' ] ;;
+        forge_api_paginate)            case "$out" in *'"number":1'*) ;; *) exit 1 ;; esac
+                                       [ "$log" = "GET /repos/o/r/labels?limit=50&page=1 
+GET /repos/o/r/labels?limit=50&page=2 " ] ;;
+        _forge_region_write)           case "$log" in *"PATCH /repos/o/r/issues/7 "*) ;; *) exit 1 ;; esac ;;
+        forge_body_compose_preserving) case "$log" in *"PATCH /repos/o/r/issues/7 "*) ;; *) exit 1 ;; esac ;;
+        forge_issue_edit)              case "$log" in *"PATCH /repos/o/r/issues/44 "*"new body"*) ;; *) exit 1 ;; esac ;;
+        forge_issue_list)              case "$out" in *'"number":1'*) ;; *) exit 1 ;; esac
+                                       case "$log" in "GET /repos/o/r/issues?state=open&type=issues&limit=50&page=1 "*) ;; *) exit 1 ;; esac ;;
+        forge_issue_label)             [ "$log" = 'POST /repos/o/r/issues/7/labels {"labels":["bug"]}' ] ;;
+        forge_issue_milestone)         case "$log" in *'PATCH /repos/o/r/issues/12 {"milestone":7}'*) ;; *) exit 1 ;; esac ;;
+      esac
+    else
+      case "$site" in
+        forge_api)                     want='[dry-run] GET https://api.github.com/repos/o/r/issues/268' ;;
+        forge_api_paginate)            want='' ;;   # the [dry-run] line is the REAL forge_api's, shadowed here: the paginator itself prints nothing
+        _forge_region_write)           want='[dry-run] set region gate-verdict of issue 7 on o/r (16 characters)' ;;
+        forge_body_compose_preserving) want='[dry-run] compose body of issue 7 on o/r (8 characters)' ;;
+        forge_issue_edit)              want='[dry-run] replace body of issue 44 on o/r (8 bytes)' ;;
+        forge_issue_list)              want='[dry-run] GET https://forge.example/api/v1/repos/o/r/issues?state=open (issues only, all pages)' ;;
+        forge_issue_label)             want='[dry-run] label issue 7 on o/r with: bug' ;;
+        forge_issue_milestone)         want='[dry-run] set milestone of issue 12 to Phase A on o/r' ;;
+      esac
+      [ "$err" = "$want" ] || exit 1
+      if [ "$site" = forge_api_paginate ]; then
+        # The dry branch calls the (shadowed) forge_api once for page 1, then prints [] and stops.
+        [ "$out" = '[]' ] && [ "$log" = "GET /repos/o/r/labels?limit=50&page=1 " ]
+      else
+        [ -z "$out" ] && [ -z "$log" ]
+      fi
+    fi
+  )
+}
+# dr_mutant <site> <n|b> <outfile>: rewrite THAT function's guard, the first one after its header, to
+# the `-n` form (n) or the `!= 0` form (b). Anchored by function name, so nothing moves when lines do,
+# and forge-lib.sh carries no anchor comment (which would force a version bump).
+dr_mutant() {
+  awk -v fn="$1" -v k="$2" '
+    $0 ~ "^" fn "\\(\\) *\\{" { inf = 1 }
+    inf && !done && index($0, "\"${FORGE_DRY_RUN:-0}\" = 1") {
+      if (k == "n") sub(/\[ "\$\{FORGE_DRY_RUN:-0\}" = 1 \]/, "[ -n \"${FORGE_DRY_RUN:-}\" ]")
+      else sub(/= 1 \]/, "!= 0 ]")
+      done = 1
+    }
+    { print }' "$LIB" > "$3"
+}
+DR_SITES="forge_api forge_api_paginate _forge_region_write forge_body_compose_preserving forge_issue_edit forge_issue_list forge_issue_label forge_issue_milestone"
+for site in $DR_SITES; do
+  # forge_api's values 0 and 1 are the pre-existing real-forge_api cases above; only `true` is new.
+  if [ "$site" = forge_api ]; then vals="true"; else vals="0 true 1"; fi
+  for v in $vals; do
+    if [ "$v" = 1 ]; then mode=dry; else mode=real; fi
+    dr_site "$LIB" "$site" "$v" "$mode" \
+      && ok "#334 $site: FORGE_DRY_RUN=$v is $([ $mode = dry ] && echo 'a dry run: nothing sent, the exact [dry-run] line' || echo 'NOT a dry run: the request reaches the transport')" \
+      || bad "#334 $site: FORGE_DRY_RUN=$v did not behave as a $([ $mode = dry ] && echo dry run || echo real call)"
+  done
+done
+# The mutant ledger. Per site: the `-n` mutant dies at FORGE_DRY_RUN=0; the `!= 0` mutant SURVIVES 0
+# (so 0 alone cannot protect the guard) and dies only at `true`. Each kill is run on a scratch copy,
+# sequentially, with the copy's absolute path, after `cmp` and a one-line `diff` prove the awk applied.
+for site in $DR_SITES; do
+  for form in n b; do
+    MUT334="$T/forge-lib-mut334-$site-$form.sh"
+    dr_mutant "$site" "$form" "$MUT334"
+    cmp -s "$LIB" "$MUT334" && bad "mutant ledger (#334): the $site $form mutant did not apply" || ok "mutant ledger (#334): the $site $form mutant differs from the lib"
+    [ "$(diff "$LIB" "$MUT334" | grep -c '^>')" = 1 ] && ok "mutant ledger (#334): the $site $form mutant changes exactly one line" || bad "mutant ledger (#334): the $site $form mutant changed a number of lines other than one"
+    if [ "$form" = n ]; then
+      dr_site "$MUT334" "$site" 0 real && bad "mutant (#334): a -n guard at $site survived FORGE_DRY_RUN=0" || ok "mutant (#334): a -n guard at $site is killed by FORGE_DRY_RUN=0"
+    else
+      dr_site "$MUT334" "$site" 0 real && ok "mutant (#334): a != 0 guard at $site passes the value 0, which is why the value true is needed" || bad "mutant (#334): a != 0 guard at $site failed the value 0 case, so the ledger's premise is wrong"
+      dr_site "$MUT334" "$site" true real && bad "mutant (#334): a != 0 guard at $site survived FORGE_DRY_RUN=true" || ok "mutant (#334): a != 0 guard at $site is killed by FORGE_DRY_RUN=true"
+    fi
+  done
+done
 
 # #291: every case removes the temp dirs it creates; the ls -A runs in the parent, after all cases.
 # 2>&1 so a vanished TMPDIR shows up as output and fails, rather than passing as empty.
