@@ -227,6 +227,11 @@ c_doc_bom_fence_neg() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents '\xef\xb
   rc_is 1 && row fail command "make nope: no such target in Makefile" && at fail AGENTS.md:2 "make nope: no such target in Makefile"; }
 c_doc_bom_fence_pos() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents '\xef\xbb\xbf```sh\nmake all\n```\n'; run
   rc_is 0 && row pass command "make all: defined in Makefile" && at pass AGENTS.md:2 "make all: defined in Makefile"; }
+# #385: the BOM strip and the CR strip together, a BOM-led doc with CRLF endings.
+c_doc_bom_crlf_neg() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents '\xef\xbb\xbf```sh\r\nmake nope\r\n```\r\n'; run
+  rc_is 1 && row fail command "make nope: no such target in Makefile" && at fail AGENTS.md:2 "make nope: no such target in Makefile"; }
+c_doc_bom_crlf_pos() { new; tput_ Makefile 'all:\n\t@echo a\n'; agents '\xef\xbb\xbf```sh\r\nmake all\r\n```\r\n'; run
+  rc_is 0 && row pass command "make all: defined in Makefile" && at pass AGENTS.md:2 "make all: defined in Makefile"; }
 c_doc_bom_pairing_neg() { new; tput_ Makefile 'all:\n\t@echo a\n'
   agents '\xef\xbb\xbf```sh\nmake all\n```\n\nRead [guide](missing.md).\n\n```sh\nmake nope\n```\n'; run
   rc_is 1 && at pass AGENTS.md:2 "make all" && at fail AGENTS.md:5 "missing.md is not a tracked path" && at fail AGENTS.md:8 "make nope"; }
@@ -281,6 +286,8 @@ case_ c_doc_bom_refdef_neg "a BOM before a line-1 reference definition still yie
 case_ c_doc_bom_line2_kept "a BOM on line 2 is not stripped"
 case_ c_doc_bom_prose "no-regression: a BOM-led doc with no fence emits only the three required rows (passes with or without the strip)"
 case_ c_doc_bom_contributing "the BOM strip covers a doc passed with --docs"
+case_ c_doc_bom_crlf_neg "a BOM-led doc with CRLF endings still fails a broken fenced command (#385)"
+case_ c_doc_bom_crlf_pos "a BOM-led doc with CRLF endings passes a defined fenced command (#385)"
 case_ c_cd_forms "cd in a span, a subshell in a fence and pushd in a fence each refer"
 case_ c_cd_other_fence "a cd in an earlier fence does not reach a later fence"
 case_ c_nopkg "no tracked root package.json refers"
@@ -1472,6 +1479,14 @@ NR == 1 { sub(/^\357\273\277/, "") }
 ' 'EXTRACT='\''
 '
   mutant "doc reader byte-order mark strip dropped (pass)" c_doc_bom_fence_pos 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip dropped (CRLF, fail)" c_doc_bom_crlf_neg 'EXTRACT='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'EXTRACT='\''
+'
+  mutant "doc reader byte-order mark strip dropped (CRLF, pass)" c_doc_bom_crlf_pos 'EXTRACT='\''
 NR == 1 { sub(/^\357\273\277/, "") }
 ' 'EXTRACT='\''
 '
