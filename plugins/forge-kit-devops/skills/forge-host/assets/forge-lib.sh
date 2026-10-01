@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 28
+# forge-lib-version: 29
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -96,7 +96,7 @@
 #       THE ANOMALY LINES ARE NOT GATED and must not be: the identical-page stop says the server
 #       is ignoring `page`, and the two rc-2 lines say the walk could not continue. A caller
 #       needs all three whether or not it asked for debugging.
-#       The test is `= 1`, matching FORGE_DRY_RUN at six sites in this file; `!= 0` would have
+#       The test is `= 1`, matching every FORGE_DRY_RUN guard in this file; `!= 0` would have
 #       made `FORGE_DEBUG=no` turn debugging on.
 #   v24 forge_body_region_get / _set / _clear and forge_body_compose_preserving are NEW (#248):
 #       the write-authority contract for the three components that edit a ticket body. Additive;
@@ -133,6 +133,21 @@
 #       returns 0, sending nothing. A caller that saw rc 2 under the flag now sees rc 0, and a
 #       title that does NOT exist also returns 0 under the flag (the caller resolved it from a
 #       real read; forge_issue_milestone makes the same trade). A real run is unchanged.
+#   v29 An INVALID host is refused instead of read as success (#256). forge_host refuses an
+#       invalid FORGE_HOST (printing nothing on stdout), and every consumer that matched its
+#       output with a `case` fell through: the writers returned 0 having sent nothing. Each now
+#       captures the host and returns 2, with exactly one stderr line (forge_host's own), and the
+#       capture sits ABOVE every dry-run guard, so FORGE_DRY_RUN=1 refuses too: no `[dry-run]`
+#       line, rc 2. Covers forge_api, forge_api_paginate, forge_issue_list, forge_issue_label,
+#       forge_milestone_list, forge_milestone_close, forge_issue_edit, _forge_region_write (so
+#       forge_body_region_set and _clear) and forge_body_compose_preserving; the writers that go through forge_api inherit
+#       it for real sends. Two exceptions to the literal `return 2`: forge_ci_status prints
+#       `not_configured` and returns 0, since that word is its documented "could not ask" answer
+#       and a caller acts on it (rc 2 with empty stdout would break that contract); the
+#       executed-directly `detect` CLI is top-level code, so it `exit 2`s with nothing on stdout.
+#       forge_tag_exists returns 2 under an invalid host (it hides stderr), which means "could
+#       not ask", NOT "tag absent". A caller that saw rc 0 from a write now sees rc 2; valid
+#       hosts are unchanged. forge_api_base already refused and is left alone.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -364,12 +379,14 @@ _forge_token() {
 # would be discarded.
 forge_api() {
   local method="$1" path="$2" body="${3-}"
+  local host
+  host="$(forge_host)" || return 2   # forge_api-host-capture: ABOVE the dry-run guard, so a dry run refuses an invalid host too (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     # to stderr, so it survives callers that redirect the JSON response to /dev/null
     printf '[dry-run] %s %s%s%s\n' "$method" "$(forge_api_base)" "$path" "${body:+  body=$body}" >&2
     return 0
   fi
-  case "$(forge_host)" in
+  case "$host" in
     github)
       if [ -n "$body" ]; then printf '%s' "$body" | gh api -X "$method" "${path#/}" --input -
       else gh api -X "$method" "${path#/}"; fi ;;
@@ -424,13 +441,14 @@ forge_api_paginate() {
   _forge_load_conf || true   # ONCE, in this shell: the per-page $(forge_api ...) subshells and
                              # their own $(forge_host) / $(_forge_token) subshells inherit the
                              # memo from here. Loading it deeper would be discarded each time.
-  local path="$1" sep page=1 chunk n tmp rc
+  local path="$1" sep page=1 chunk n tmp rc host
   case "$path" in *\?*) sep='&' ;; *) sep='?' ;; esac
+  host="$(forge_host)" || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     forge_api GET "${path}${sep}limit=50&page=1" >/dev/null   # prints the dry-run line
     printf '[]\n'; return 0
   fi
-  if [ "$(forge_host)" = github ]; then
+  if [ "$host" = github ]; then
     # gh --paginate emits each page as a SEPARATE JSON doc on modern gh (--slurp exists for
     # exactly this); older gh merged arrays into one. jq -s tolerates both shapes: slurp all
     # docs, box any non-array, flatten once.
@@ -716,6 +734,7 @@ _forge_region_write() {
     echo "forge-lib: refusing content that carries a region marker line; it would lock '$region'" >&2
     return 103
   fi
+  forge_host >/dev/null || return 2   # an invalid host refuses even under dry run (#256); stderr is the one line
   # THE DRY-RUN GUARD SITS HERE, BEFORE THE FETCH. forge_api short-circuits EVERY method including
   # GET under dry-run, returning 0 with an empty body, so a guard placed after the fetch would
   # splice against an empty string and report success.
@@ -759,6 +778,7 @@ forge_body_compose_preserving() {
   local n="${1-}" new="${2-}" body tmp out rc=0
   [ -n "$n" ] && [ -n "$new" ] || {
     echo "forge-lib: usage: forge_body_compose_preserving <issue> <new-body>" >&2; return 2; }
+  forge_host >/dev/null || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     printf '[dry-run] compose body of issue %s on %s (%s characters)\n' "$n" "$(forge_repo)" "${#new}" >&2
     return 0
@@ -852,6 +872,7 @@ forge_issue_close() {
 # an empty body rather than erasing a ticket on a caller's unset variable.
 forge_issue_edit() {
   [ -n "${2:-}" ] || { echo "forge_issue_edit: refusing to replace issue #${1:-?} with an empty body" >&2; return 2; }
+  forge_host >/dev/null || return 2   # above the dry-run guard (#256): both hosts PATCH, but an invalid one must not dry-run clean
   local payload; payload="$(jq -nc --arg b "$2" '{body:$b}')"
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     printf '[dry-run] replace body of issue %s on %s (%s bytes)\n' "$1" "$(forge_repo)" "${#2}" >&2
@@ -865,11 +886,12 @@ forge_issue_edit() {
 # GitHub's /issues includes PRs and is paginated, so the github path filters PRs and paginates;
 # Forgejo excludes PRs server-side with type=issues. Both return the same shape (a PR-free array).
 forge_issue_list() {
-  local repo state; repo="$(forge_repo)" || return 2; state="${1:-open}"
+  local repo state host; repo="$(forge_repo)" || return 2; state="${1:-open}"
+  host="$(forge_host)" || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     printf '[dry-run] GET %s/repos/%s/issues?state=%s (issues only, all pages)\n' "$(forge_api_base)" "$repo" "$state" >&2; return 0
   fi
-  case "$(forge_host)" in
+  case "$host" in
     # Shared pager on both hosts; its github arm normalises gh's page-doc output to ONE array,
     # so the PR filter runs over a guaranteed single array.
     github)  forge_api_paginate "/repos/$repo/issues?state=$state" | jq 'map(select(.pull_request | not))' ;;
@@ -896,9 +918,10 @@ forge_issue_create() {
 # typo). This is the host-aware way to set the labels forge_issue_create intentionally omits.
 forge_issue_label() {
   local n="$1"; shift; [ "$#" -gt 0 ] || return 0
-  local repo; repo="$(forge_repo)" || return 2
+  local repo host; repo="$(forge_repo)" || return 2
+  host="$(forge_host)" || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[dry-run] label issue %s on %s with: %s\n' "$n" "$repo" "$*" >&2; return 0; fi
-  case "$(forge_host)" in
+  case "$host" in
     github)
       forge_api POST "/repos/$repo/issues/$n/labels" "$(printf '%s\n' "$@" | jq -R . | jq -sc '{labels: .}')" >/dev/null ;;
     forgejo)
@@ -968,8 +991,9 @@ forge_milestone_list() {
   # global identifier that 404s on PATCH. Gitea and Forgejo have no `number` and address by `id`.
   # Normalised here so every caller sees one field, which is the whole reason this adapter exists.
   # Found by a live close failing, not by review.
-  local gh=false
-  [ "$(forge_host)" = github ] && gh=true
+  local gh=false host
+  host="$(forge_host)" || return 2   # captured, never a bare `= github` test (#256); no guard of its own, the paginator's follows
+  [ "$host" = github ] && gh=true
   forge_api_paginate "/repos/$repo/milestones?state=all" \
     | jq -c --argjson gh "$gh" '[.[] | {id: (if $gh then .number else .id end), title, state}]' || return 2
 }
@@ -996,6 +1020,7 @@ forge_milestone_close() {
   # returns a literal `[]` there. Clearing the flag around the resolution read is rejected: it
   # would perform a real GET inside a dry run. The accepted trade: a title that does not exist
   # also prints the line and returns 0, because the caller already resolved it from a real read.
+  forge_host >/dev/null || return 2   # above the dry-run guard: an invalid host must not dry-run clean (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     printf '[dry-run] close milestone %s on %s\n' "$title" "$repo" >&2
     return 0
@@ -1031,7 +1056,7 @@ forge_issue_milestone() {
   repo="$(forge_repo)" || return 2
   # The host is CAPTURED, never matched with a catch-all (review): forge_host refuses an invalid
   # FORGE_HOST by printing nothing, and a `*)` arm would read that refusal as "not forgejo" and
-  # send the other host's wire form. `_forge_api_base` refuses the same way for the same reason.
+  # send the other host's wire form. `forge_api_base` refuses the same way for the same reason.
   host="$(forge_host)" || return 2
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     if [ -n "$title" ]; then printf '[dry-run] set milestone of issue %s to %s on %s\n' "$n" "$title" "$repo" >&2
@@ -1115,7 +1140,11 @@ forge_release_create() {
 # which keeps the runner-less fallback exactly where v13 had it. The sha match is a PREFIX match,
 # because the ref falls back to its literal, possibly short, form for a sha in another repository.
 forge_ci_status() {
-  case "$(forge_host)" in
+  local host
+  # An invalid host is "could not ask": the one host line is already on stderr, and the answer is
+  # the documented word, rc 0, never empty stdout (#256). Not `return 2` like the other sites.
+  host="$(forge_host)" || { echo not_configured; return 0; }
+  case "$host" in
     github)  gh run list --branch "$1" --limit 1 --json status,conclusion \
                -q '.[0] | if . == null then "none" elif .status != "completed" then "pending" else (.conclusion // "none") end' 2>/dev/null || echo none ;;
     forgejo)
@@ -1170,7 +1199,8 @@ forge_ci_no_status_kind() {
 #   forge-lib.sh forge_issue_close 5
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   case "${1:-detect}" in
-    detect) h="$(forge_host)"; printf 'host=%s  repo=%s' "$h" "$(forge_repo)"
+    detect) h="$(forge_host)" || exit 2   # top-level code: exit, not return; nothing on stdout (#256)
+            printf 'host=%s  repo=%s' "$h" "$(forge_repo)"
             [ "$h" = forgejo ] && printf '  api=%s' "$(forge_api_base)"; printf '  ci=%s\n' "$(forge_ci_status "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)")" ;;
     *)      "$@" ;;
   esac

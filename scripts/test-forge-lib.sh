@@ -1846,6 +1846,109 @@ case $? in
   *) bad "the unknown-position case errored";;
 esac
 
+# --- #256: an INVALID host is refused, never read as success ------------------------------------
+# forge_host refuses FORGE_HOST=gitea and prints nothing on stdout, so a `case "$(forge_host)"` with
+# no catch-all fell through and returned 0 having sent nothing. These cases run the REAL forge_api
+# (not a per-subshell stub, which cannot see this bug) with gh and curl stubbed on PATH to LOG every
+# request, so "sent nothing" is observed rather than assumed. The host line must appear EXACTLY once.
+N256BIN="$T/n256-bin"; N256LOG="$T/n256.log"; mkdir -p "$N256BIN"
+cat > "$N256BIN/gh"   <<'STUB'
+#!/bin/sh
+echo "gh $*" >> "$N256LOG"
+echo '[]'
+STUB
+cat > "$N256BIN/curl" <<'STUB'
+#!/bin/sh
+echo "curl $*" | sed 's/token [^ ]*/token X/' >> "$N256LOG"   # never log a credential
+printf '[]\n200'
+STUB
+chmod +x "$N256BIN/gh" "$N256BIN/curl"
+N256LINE="forge-lib: FORGE_HOST='gitea' is invalid (use github|forgejo)"
+# inv256 <label> <want-rc> <want-stdout> <real|dry> <function> [args]: invalid host, then assert rc,
+# stdout, stderr (exactly the one line, so no [dry-run] and no second message) and an empty request log.
+inv256() {
+  local label="$1" wrc="$2" wout="$3" mode="$4"; shift 4
+  local out rc
+  : > "$N256LOG"
+  out="$( ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=gitea FORGE_REPO=o/r
+            [ "$mode" = dry ] && export FORGE_DRY_RUN=1
+            "$@" 2>"$T/n256.err" ) )"; rc=$?
+  if [ "$rc" = "$wrc" ] && [ "$out" = "$wout" ] && [ "$(cat "$T/n256.err")" = "$N256LINE" ] && [ ! -s "$N256LOG" ]; then
+    ok "invalid host ($mode): $label"
+  else
+    bad "invalid host ($mode): $label (rc=$rc want $wrc; stdout='$out'; stderr='$(tr '\n' '|' < "$T/n256.err")'; sent='$(tr '\n' '|' < "$N256LOG")')"
+  fi
+}
+for mode in real dry; do
+  inv256 "forge_api GET"                 2 "" $mode forge_api GET /repos/o/r/issues/1
+  inv256 "forge_api PATCH"               2 "" $mode forge_api PATCH /repos/o/r/issues/1 '{"state":"closed"}'
+  inv256 "forge_api_paginate"            2 "" $mode forge_api_paginate /repos/o/r/issues
+  inv256 "forge_issue_close"             2 "" $mode forge_issue_close 1
+  inv256 "forge_issue_comment"           2 "" $mode forge_issue_comment 1 hello
+  inv256 "forge_issue_edit"              2 "" $mode forge_issue_edit 1 body
+  inv256 "forge_issue_create"            2 "" $mode forge_issue_create title body
+  inv256 "forge_issue_label"             2 "" $mode forge_issue_label 1 bug
+  inv256 "forge_issue_list"              2 "" $mode forge_issue_list
+  inv256 "forge_issue_milestone_list"    2 "" $mode forge_issue_milestone_list
+  inv256 "forge_milestone_list"          2 "" $mode forge_milestone_list
+  inv256 "forge_milestone_create"        2 "" $mode forge_milestone_create "Phase A"
+  inv256 "forge_milestone_close"         2 "" $mode forge_milestone_close "Phase A"
+  inv256 "forge_issue_milestone"         2 "" $mode forge_issue_milestone 1 "Phase A"
+  inv256 "forge_release_create"          2 "" $mode forge_release_create v1
+  inv256 "forge_body_region_set"         2 "" $mode forge_body_region_set 1 gate gate-verdict "x"
+  inv256 "forge_body_region_clear"       2 "" $mode forge_body_region_clear 1 gate gate-verdict
+  inv256 "forge_body_compose_preserving" 2 "" $mode forge_body_compose_preserving 1 "new body"
+done
+# forge_ci_status is the one exception: its documented "could not ask" word, rc 0, never empty.
+inv256 "forge_ci_status answers not_configured, rc 0" 0 not_configured real forge_ci_status main
+inv256 "forge_ci_status answers not_configured, rc 0" 0 not_configured dry  forge_ci_status main
+# forge_tag_exists hides stderr, so only rc and "nothing sent" are observable. rc 2 means "could not
+# ask", NOT "tag absent" (a missing tag is rc 44 on forgejo).
+: > "$N256LOG"
+( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=gitea FORGE_REPO=o/r; forge_tag_exists v1 ) >/dev/null 2>&1; RC=$?
+expect "invalid host: forge_tag_exists returns 2 (could not ask)" 2 "$RC"
+[ ! -s "$N256LOG" ] && ok "invalid host: forge_tag_exists sent nothing" || bad "forge_tag_exists sent: $(cat "$N256LOG")"
+# The executed-directly CLI is top-level code: exit 2, NOTHING on stdout (it used to print `host=`).
+OUT="$(FORGE_HOST=gitea FORGE_REPO=o/r PATH="$N256BIN:$PATH" bash "$LIB" detect 2>"$T/n256.err")"; RC=$?
+expect "invalid host: detect exits 2" 2 "$RC"
+expect "invalid host: detect prints nothing on stdout" "" "$OUT"
+expect "invalid host: detect prints the one host line" "$N256LINE" "$(cat "$T/n256.err")"
+# The valid hosts are unchanged: the same calls still send, and a dry run still prints its real base.
+: > "$N256LOG"
+( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example \
+    FORGE_TOKEN_ENV=TK TK=tok FORGE_NO_GIT_CREDENTIALS=1
+  forge_issue_close 1 ) >/dev/null 2>&1; RC=$?
+expect "valid host: forgejo forge_issue_close still returns 0" 0 "$RC"
+case "$(cat "$N256LOG")" in
+  *"-X PATCH"*'{"state":"closed"}'*"https://forge.example/api/v1/repos/o/r/issues/1") ok "valid host: forgejo forge_issue_close sends one PATCH with state closed";;
+  *) bad "valid host: forgejo close request was: $(cat "$N256LOG")";; esac
+[ "$(grep -c '^curl' "$N256LOG")" = 1 ] && ok "valid host: and only that one request" || bad "valid host: request count $(grep -c '^curl' "$N256LOG")"
+OUT="$( ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
+          forge_issue_close 1 ) 2>&1 >/dev/null)"; RC=$?
+expect "valid host: forgejo dry run still returns 0" 0 "$RC"
+case "$OUT" in "[dry-run] PATCH https://forge.example/api/v1/repos/o/r/issues/1"*) ok "valid host: the dry-run line still names the real API base";; *) bad "valid host dry-run line: $OUT";; esac
+OUT="$( ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example \
+    FORGE_TOKEN_ENV=TK TK=tok FORGE_NO_GIT_CREDENTIALS=1
+          forge_issue_list ) 2>/dev/null)"
+expect "valid host: forgejo forge_issue_list still prints []" "[]" "$OUT"
+OUT="$( ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=github FORGE_REPO=o/r
+          forge_issue_list ) 2>/dev/null)"
+expect "valid host: github forge_issue_list still prints []" "[]" "$OUT"
+OUT="$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+          forge_api() { printf '{"state":"success","total_count":1}'; }
+          forge_ci_status main ) 2>/dev/null)"
+expect "valid host: forgejo forge_ci_status still answers success" success "$OUT"
+# The mutant: strip `|| return 2` from forge_api's host capture. forge_api then falls through and
+# returns 0 under an invalid host, so the writer case above must observe rc 0. Pinned to the capture
+# line by its trailing marker comment, so a second `host="$(forge_host)" || return 2` cannot be hit.
+MUT256="$T/forge-lib-mut256.sh"
+sed 's@^\( *host="$(forge_host)"\) || return 2\( *# forge_api-host-capture:\)@\1\2@' "$LIB" > "$MUT256"
+grep -q '# forge_api-host-capture: ' "$LIB" && ok "mutant ledger (#256): the forge_api host capture line exists" || bad "mutant ledger (#256): capture line not found"
+cmp -s "$LIB" "$MUT256" && bad "mutant ledger (#256): the sed did not apply" || ok "mutant ledger (#256): the mutant differs from the lib"
+: > "$N256LOG"
+RC="$( ( . "$MUT256"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=gitea FORGE_REPO=o/r; forge_issue_close 1 >/dev/null 2>&1; echo $? ) )"
+expect "mutant (#256): without the refusal an invalid-host close returns 0, so the writer case can fail" 0 "$RC"
+
 # #291: every case removes the temp dirs it creates; the ls -A runs in the parent, after all cases.
 # 2>&1 so a vanished TMPDIR shows up as output and fails, rather than passing as empty.
 expect "the suite leaves its dedicated TMPDIR empty" "" "$(ls -A "$T/tmp" 2>&1)"

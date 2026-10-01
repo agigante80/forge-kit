@@ -11,6 +11,13 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **forge-lib refuses an invalid `FORGE_HOST` instead of reporting success** (#256, forge-lib v29,
+  forge-host v31). `forge_host` prints nothing for an invalid host, and every consumer that matched
+  its output with a `case` fell through, so the writers returned 0 having sent nothing. Each one now
+  captures the host and returns 2, with the one `forge_host` line on stderr, and the check sits above
+  every dry-run guard, so `FORGE_DRY_RUN=1` refuses too. `forge_ci_status` answers `not_configured`
+  with rc 0 (its documented "could not ask" word), the `detect` CLI exits 2, and `forge_tag_exists`
+  returns 2, meaning "could not ask", not "tag absent". Valid hosts are unchanged.
 - **ticket-standards.md cites the gate checker by its catalogue name** (#322). Precedence items 3, 7,
   8 and 10 named `check-ticket-mechanics.sh` by bare filename, which `check-doc-drift.sh` cannot
   resolve, so a change to the checker never flagged those four claims. They now read

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 30 -->
+<!-- forge-host-version: 31 -->
 
 # forge-host: host-aware forge operations
 
@@ -60,7 +60,9 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_milestone_list <title>` | the open issues in a milestone, by title, PRs excluded |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
-| `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask |
+| `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask; an invalid `FORGE_HOST` also answers `not_configured` with rc 0, after the one host line on stderr (v29) |
+
+**`forge_api` on an invalid host (v29, either host):** returns 2 with the one `forge_host` line on stderr and sends nothing, under `FORGE_DRY_RUN=1` too. Every writer and reader that goes through it inherits this; `forge_tag_exists` returns 2 then, meaning *could not ask*, not *tag absent*.
 
 **`forge_api` exit codes (forgejo path, v5+):** 0 for 2xx, **44 for 404**, 22 for any other
 non-2xx (including a 3xx that survives `-L`), and curl's own code for a transport failure. A
