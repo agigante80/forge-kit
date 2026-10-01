@@ -1281,7 +1281,13 @@ expect "bounded: a command that returns at once is captured with status 0" 0 "$r
 # `set +m` (not its own group, so the kill misses it). The stdio detach alone is not a mutant: the
 # watcher kill already ends the capture, so removing only the detach is equivalent (#315 measured
 # 0 s), and the prompt-capture row above pins only the both-safeguards-removed form.
-# MUTANTS (2026-10-01, #402): all three killed; the escalation mutant costs about 8 s.
+# MUTANTS (2026-10-01, #402; re-run for #411): all three killed; the escalation mutant costs about 8 s.
+# #411: the watchers are found by their exact `sleep <secs>` text, so every copy of this suite used to
+# count and kill every other copy's (a shared literal 47): under 4 parallel copies a mutant row
+# failed in 8 runs of 12. B402 is this run's own duration: its PID, which no other live process
+# shares, at a fixed 8 digits (10000000 + up to a pid_max of 4194304), so no copy's is a prefix of
+# another's.
+B402=$(( 10000000 + $$ ))
 stray_sleeps() { ps -A -o args= 2>/dev/null | grep -cx "sleep $1"; }
 kill_stray() { local p; for p in $(ps -A -o pid=,args= 2>/dev/null | awk -v a="sleep $1" '{ p = $1; sub(/^[ \t]*[0-9]+[ \t]+/, ""); if ($0 == a) print p }'); do kill "$p" 2>/dev/null; done; }
 bmut() {  # bmut <name> <awk program over declare -f bounded>: defines <name> as a mutated bounded
@@ -1292,20 +1298,31 @@ bmut() {  # bmut <name> <awk program over declare -f bounded>: defines <name> as
 T402="$(date +%s)"; bounded 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?; T402="$(( $(date +%s) - T402 ))"
 expect "bounded: a command that ignores SIGALRM is escalated to SIGKILL and reads 137 (#402)" 137 "$rc"
 [ "$T402" -le 10 ] && ok "and it is stopped within the bound plus the 3 s grace (${T402} s) (#402)" || bad "the SIGALRM-ignoring command ran ${T402} s, past the bound plus grace (#402)"
-bounded 47 true >/dev/null 2>&1; sleep 1
-expect "bounded: no watcher survives an early return (#402)" 0 "$(stray_sleeps 47)"
-kill_stray 47
+bounded "$B402" true >/dev/null 2>&1; sleep 1
+expect "bounded: no watcher survives an early return (#402)" 0 "$(stray_sleeps "$B402")"
+kill_stray "$B402"
 if bmut b_noesc '{ sub(/kill -s KILL -- -"\$pid" 2> \/dev\/null/, "true") } 1' && bmut b_nowkill '!/kill -- -"\$w"/' \
    && bmut b_late 'index($0, "set +m;") { next } { print } index($0, "& pid=$!;") { print "    set +m;" }'; then
   b_noesc 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?
   [ "$rc" != 137 ] && ok "mutant: without the KILL escalation the SIGALRM-ignoring command is not stopped (rc $rc) (#402)" || bad "mutant: the escalation mutant still read 137 (#402)"
-  b_nowkill 47 true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps 47)"; kill_stray 47
+  b_nowkill "$B402" true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps "$B402")"; kill_stray "$B402"
   [ "$s" -ge 1 ] && ok "mutant: without the watcher kill a watcher survives the early return (#402)" || bad "mutant: the watcher-kill mutant left no watcher (#402)"
-  b_late 47 true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps 47)"; kill_stray 47
+  b_late "$B402" true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps "$B402")"; kill_stray "$B402"
   [ "$s" -ge 1 ] && ok "mutant: a watcher spawned after set +m survives the early return (#402)" || bad "mutant: the late-spawn mutant left no watcher (#402)"
 else
   bad "#402: a bounded() mutant did not apply"
 fi
+# #411: another run's watcher is neither counted nor killed. `${B402}.5` stands in for it: a
+# duration no copy can have. The pauses let a just-signalled process exit before `kill -0` asks.
+sleep "${B402}.5" & fpid=$!; sleep 1
+s="$(stray_sleeps "$B402")"; kill_stray "$B402"; sleep 1
+if [ "$s" = 0 ] && kill -0 "$fpid" 2>/dev/null; then ok "#411: another run's watcher is neither counted nor killed"
+else bad "#411: a foreign sleep was counted ($s) or killed by kill_stray"; fi
+kill_prefix() { local p; for p in $(ps -A -o pid=,args= 2>/dev/null | awk -v a="sleep $1" '{ p = $1; sub(/^[ \t]*[0-9]+[ \t]+/, ""); if (index($0, a) == 1) print p }'); do kill "$p" 2>/dev/null; done; }
+kill_prefix "$B402"; sleep 1
+if kill -0 "$fpid" 2>/dev/null; then bad "#411: mutant: a prefix-matching kill_stray left the foreign sleep alive"; kill "$fpid" 2>/dev/null
+else ok "#411: mutant: a prefix-matching kill_stray kills the foreign sleep, so the row above fails on it"; fi
+wait "$fpid" 2>/dev/null
 LONG="$WORK/long-spaced.md"; { head -c 1048576 /dev/zero | tr '\0' a; printf ' alice@corp.io\n'; } > "$LONG"
 GLUED="$WORK/long-glued.md"; { head -c 262144 /dev/zero | tr '\0' a; printf '@corp.io\n'; } > "$GLUED"
 # 1 MB spaced, 256 KB glued: the glued shape is the one that reaches bash, and at 1 MB the FIXED
