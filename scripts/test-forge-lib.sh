@@ -1245,14 +1245,20 @@ expect "an invalid FORGE_HOST refuses rather than guessing a wire form" 2 "$RC"
 RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
         : > "$T/ms5.log"; forge_api() { echo "SENT ${3-}" >> "$T/ms5.log"; }
         _forge_milestone_id() { printf '%s' null; }
-        forge_issue_milestone 12 "Phase A" >/dev/null 2>&1; echo $? ) )
+        forge_issue_milestone 12 "Phase A" >/dev/null 2>"$T/ms5.err"; echo $? ) )
 expect "a resolver yielding a JSON null refuses instead of CLEARING the field" 2 "$RC"
+# Pin the digit gate by ITS OWN line, not by an rc any refusal gives (#257): jq refuses `--argjson
+# abc` too, so rc 2 alone is satisfied by either guard and the gate could be deleted unseen.
+[ "$(cat "$T/ms5.err")" = "forge-lib: milestone id for 'Phase A' on o/r is not a number: null" ] \
+  && ok "and says so with the digit gate's own line (null)" || bad "null id stderr: $(cat "$T/ms5.err")"
 case "$(cat "$T/ms5.log")" in *milestone*) bad "a null id reached the payload: $(cat "$T/ms5.log")" ;; *) ok "and sends no payload" ;; esac
 RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
         : > "$T/ms6.log"; forge_api() { echo "SENT ${3-}" >> "$T/ms6.log"; }
         _forge_milestone_id() { printf '%s' 'abc'; }
-        forge_issue_milestone 12 "Phase A" >/dev/null 2>&1; echo $? ) )
+        forge_issue_milestone 12 "Phase A" >/dev/null 2>"$T/ms6.err"; echo $? ) )
 expect "a non-numeric id refuses instead of sending an empty body" 2 "$RC"
+[ "$(cat "$T/ms6.err")" = "forge-lib: milestone id for 'Phase A' on o/r is not a number: abc" ] \
+  && ok "and says so with the digit gate's own line (abc)" || bad "non-numeric id stderr: $(cat "$T/ms6.err")"
 [ -s "$T/ms6.log" ] && bad "it sent something for a non-numeric id" || ok "and sends nothing"
 
 # --- #237: the 404 line survives a `set -e` caller. `forge_api ... >/dev/null; rc=$?` let errexit
@@ -1894,6 +1900,7 @@ for mode in real dry; do
   inv256 "forge_milestone_create"        2 "" $mode forge_milestone_create "Phase A"
   inv256 "forge_milestone_close"         2 "" $mode forge_milestone_close "Phase A"
   inv256 "forge_issue_milestone"         2 "" $mode forge_issue_milestone 1 "Phase A"
+  inv256 "forge_issue_milestone (clear)" 2 "" $mode forge_issue_milestone 1 ""
   inv256 "forge_release_create"          2 "" $mode forge_release_create v1
   inv256 "forge_body_region_set"         2 "" $mode forge_body_region_set 1 gate gate-verdict "x"
   inv256 "forge_body_region_clear"       2 "" $mode forge_body_region_clear 1 gate gate-verdict

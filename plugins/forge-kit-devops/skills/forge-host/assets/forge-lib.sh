@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 29
+# forge-lib-version: 30
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -1057,6 +1057,10 @@ forge_issue_milestone() {
   # The host is CAPTURED, never matched with a catch-all (review): forge_host refuses an invalid
   # FORGE_HOST by printing nothing, and a `*)` arm would read that refusal as "not forgejo" and
   # send the other host's wire form. `forge_api_base` refuses the same way for the same reason.
+  # It sits ABOVE the dry-run block on purpose: a dry run against a host the library cannot
+  # address must refuse (rc 2, forge_host's one line) rather than pretend it would have worked
+  # (#256 AC4, #257). The ordering is pinned by inv256's dry-mode
+  # milestone cases (set and clear); the real-mode ones pin the refusal itself.
   host="$(forge_host)" || return 2
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     if [ -n "$title" ]; then printf '[dry-run] set milestone of issue %s to %s on %s\n' "$n" "$title" "$repo" >&2
@@ -1071,12 +1075,15 @@ forge_issue_milestone() {
     # An id must be DIGITS, and the check is not defensive clutter (review): `jq -r` renders a
     # JSON null as the four characters `null`, so a milestone object missing its id field would
     # otherwise build `{"milestone":null}` and a SET would silently CLEAR the field, which is the
-    # one thing this function's refusal contract promises not to do. A non-numeric token instead
-    # makes `--argjson` fail, leaving the payload empty and sending a body-less PATCH.
+    # one thing this function's refusal contract promises not to do. This gate is the SOLE guard:
+    # a digits-only token always parses as a JSON number (verified on jq 1.7), so the `jq` call
+    # below cannot fail on it, and a missing jq never gets this far because `_forge_milestone_id`
+    # pipes through jq and fails first. It also admits `0`, Forgejo's CLEAR form; neither host
+    # issues milestone id 0, so that is noted rather than guarded.
     case "$id" in
       ''|*[!0-9]*) echo "forge-lib: milestone id for '$title' on $repo is not a number: $id" >&2; return 2 ;;
     esac
-    payload="$(jq -nc --argjson m "$id" '{milestone:$m}')" || return 2
+    payload="$(jq -nc --argjson m "$id" '{milestone:$m}')"
   else
     case "$host" in
       forgejo) payload='{"milestone":0}' ;;

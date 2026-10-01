@@ -11,6 +11,13 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`forge_issue_milestone`'s digit gate is now pinned by its own stderr line, and its
+  unreachable `|| return 2` is gone** (#257, forge-lib v30, forge-kit-devops). The `abc` case
+  discarded stderr, so rc 2 from either guard satisfied it; the null and `abc` cases now assert
+  `is not a number: <token>`. The `jq -nc --argjson` guard could never run (a digits-only token
+  always parses on jq 1.7), so it is removed and the digit gate is documented as the sole guard.
+  The host capture's position above the dry-run block is recorded (#256 AC4) and pinned for both
+  the set and clear forms. No caller change.
 - **Host-divergent wording in ticket-standards rule 1 no longer reads as self-contradicting**
   (#325, doc-rules-version 18 to 19; supersedes the #255 wording "its negative is the shared
   write failure taken through that host's branch"). The paragraph said a wire-form divergence "has no
