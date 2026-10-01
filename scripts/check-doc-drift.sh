@@ -176,6 +176,10 @@ if [ -f "$ALLOW" ]; then
     # document it silently suppressed the row instead of refusing.
     _rest="${_ln#* }"; [ "$_rest" != "$_ln" ] || die "$ALLOW line $_n: entry is missing its document"
     _doc="${_rest%% *}"; [ -n "$_doc" ] || die "$ALLOW line $_n: entry is missing its document"
+    # Same consumed-nothing guard as the document split above (#308): with no path field at all
+    # `${_rest#* }` consumed nothing and returned the document itself, which then passed as the
+    # path and surfaced as a misleading "missing its anchor".
+    [ "${_rest#* }" != "$_rest" ] || die "$ALLOW line $_n: entry is missing its path"
     _rest="${_rest#* }"
     _path="${_rest%% *}"; [ -n "$_path" ] || die "$ALLOW line $_n: entry is missing its path"
     _anchor="${_rest#* }"

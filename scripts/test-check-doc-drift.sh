@@ -65,6 +65,14 @@
 # column-4 pins among them). The anchored regex run is by-hand evidence only: no committed test
 # builds a mutant.
 #
+# #308 ADDED THREE (so forty-one in all), run by hand on 2026-10-01 in a scratch copy, shown to
+# fail this suite: the path-split guard removed, leaving `_rest="${_rest#* }"` unguarded, so a
+# document with no path field is reused as the path and refuses as "missing its anchor" (2
+# failures, the bare entry's path-message and no-anchor-message pins). Two more by-hand mutants
+# kill the rest of the new cases: the pre-existing empty-path die reworded to the anchor message
+# (2, the trailing-space pair), and the new guard printing a line to stdout before dying (1, the
+# empty-stdout pin).
+#
 # One mutant is deliberately absent. A sha-equality branch for "the same commit addressed it" was
 # written, and no input could reach it: a line whose last commit IS the commit that changed the
 # path carries that commit timestamp, so the age test already decides it. It was removed rather
@@ -696,7 +704,10 @@ expect "an entry with no reason above it exits 2" 2 "$RC"
 contains "reason" "$ERR" "and says a reason is required"
 allow '# a reason' 'mention README.md'
 run --range "$BASE..$(sha HEAD)" --docs README.md
-expect "an entry missing its anchor exits 2" 2 "$RC"
+expect "an entry with a document and no path exits 2" 2 "$RC"
+contains "line 2: entry is missing its path" "$ERR" "and says the PATH is missing (#308)"
+lacks "missing its anchor" "$ERR" "and does not call it a missing anchor"
+expect "with nothing on stdout" "" "$OUT"
 
 echo "== #258: the anchor is LITERAL text, not a pattern =="
 (
@@ -828,6 +839,11 @@ expect "and both rows are suppressed" "" "$OUT"
 
 echo "== #258: an EMPTY field refuses, and an empty anchor never suppresses everything =="
 allowrepo empties
+allow '# r' 'mention README.md '
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a document with a trailing space and no path refuses" 2 "$RC"
+contains "line 2: entry is missing its path" "$ERR" "with the same path message as the bare form (#308)"
+lacks "missing its anchor" "$ERR" "and not the anchor message"
 allow '# r' 'mention README.md scripts/guard.sh '
 run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "a trailing space leaves an empty anchor, which refuses" 2 "$RC"
