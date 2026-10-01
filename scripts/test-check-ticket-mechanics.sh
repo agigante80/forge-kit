@@ -1011,6 +1011,25 @@ expect "#273: a missing example fails loudly" "documented gate-written scenario 
 grep -q 'Apply the rule-1 quality bar.*`\*\*Positive:\*\* <title>`' "$GATE_MD" \
   && ok "#273: the Step 0c-iii scenarios row states the label form beside its rule-1 anchor" || bad "#273: the scenarios row lacks the label form"
 
+echo "== no awk -v in the shipped asset, and a backslash label resolves (#259) =="
+# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
+# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
+awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
+expect "check-ticket-mechanics.sh carries no awk -v code line" 0 "$(awkv_count "$SCRIPT")"
+{ cat "$SCRIPT"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$WORK/awkv-mut.sh"
+n="$(awkv_count "$WORK/awkv-mut.sh")"
+[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in check-ticket-mechanics.sh" || bad "MUTANT: an added awk -F'\\t' -v line in check-ticket-mechanics.sh counted $n, not 1"
+# A template LABEL carrying backslash-t: under -v, section_of() looked for `Steps<TAB>x` and the
+# filled section read as empty.
+printf 'body:\n  - type: textarea\n    id: steps\n    attributes:\n      label: Steps\\tx\n    validations:\n      required: true\n' > "$WORK/bs.yml"
+printf '<!-- template-version: 6 -->\n\n## Steps\\tx\n\nreal content\n' > "$WORK/bs-full.md"
+printf '<!-- template-version: 6 -->\n\n## Steps\\tx\n\n' > "$WORK/bs-empty.md"
+grep -qF 'Steps\tx' "$WORK/bs.yml" && ok "#259: the fixture label carries a literal backslash-t (fixture sanity)" || bad "#259: the fixture label has no backslash-t"
+o="$(bash "$SCRIPT" --body "$WORK/bs-full.md" --template "$WORK/bs.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#259: a backslash-t label resolves to its filled section" pass "$(outcome "$o" sections)"
+o="$(bash "$SCRIPT" --body "$WORK/bs-empty.md" --template "$WORK/bs.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#259: and an empty one still fails, by its label as typed" 'required heading present but empty (1): Steps\tx' "$(sec_ev "$o")"
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

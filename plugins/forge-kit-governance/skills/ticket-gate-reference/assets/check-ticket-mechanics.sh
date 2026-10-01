@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 15
+# check-ticket-mechanics-version: 16
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -81,6 +81,16 @@
 # author text below a region is still judged; an unterminated region runs to the end of the body.
 # Region text is excluded as if absent, which is no more than an author could do by deleting it,
 # and the critic still reads the whole body.
+#
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline, so every value reaches awk through ENVIRON (`CTM_*`). Classified
+# per site: `want` (section_of, template_subheadings) and `l` (role_required) are field LABELS read
+# from the project's own --template, caller text, and a label `Steps\tx` read as `Steps<TAB>x`, so
+# its filled section was reported empty; `p` (role_label) receives only the literal role patterns,
+# and `any`/`neg`/`pos` are built by marker_re from literals, both moved as hardening (not
+# reproducible), which also removes the trap where a future `\.` in a regex silently became `.`.
+# scripts/test-check-ticket-mechanics.sh counts zero `awk ... -v` code lines; the count is
+# line-based, so a `-v` on an awk continuation line is banned too.
 #
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
@@ -189,8 +199,9 @@ row() {
 # section read as empty and every check failed. Found by running the suite with that awk (#205).
 TEMPLATE_LABELS=""
 section_of() {
-  CTM_LABELS="$TEMPLATE_LABELS" CTM_SUBS="$(template_subheadings "$1")" awk -v want="$1" '
-    BEGIN { n = split(ENVIRON["CTM_LABELS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1
+  CTM_LABELS="$TEMPLATE_LABELS" CTM_SUBS="$(template_subheadings "$1")" CTM_WANT="$1" awk '
+    BEGIN { want = ENVIRON["CTM_WANT"]
+            n = split(ENVIRON["CTM_LABELS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1
             n = split(ENVIRON["CTM_SUBS"], b, "\n");   for (i = 1; i <= n; i++) if (b[i] != "") issub[b[i]] = 1 }
     { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
     rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; next }
@@ -205,7 +216,8 @@ section_of() {
 }
 # The `#`-headed lines inside ONE field's `value:` or `placeholder:` block, heading marks stripped.
 template_subheadings() {
-  awk -v want="$1" '
+  CTM_WANT="$1" awk '
+    BEGIN { want = ENVIRON["CTM_WANT"] }
     /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ { label = ""; inblk = 0; next }
     /^      label: / { if (label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = l } }
     /^      (value|placeholder): \|/ { inblk = 1; next }
@@ -270,16 +282,16 @@ TEMPLATE_LABELS="$(printf '%s\n' "$TEMPLATE_FIELDS" | cut -f1)"
 role_label() {
   local pat hit
   for pat in "$@"; do
-    hit="$(printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' -v p="$pat" 'tolower($3) ~ p { print $1; exit }')"
+    hit="$(printf '%s\n' "$TEMPLATE_FIELDS" | CTM_P="$pat" awk -F'\t' 'tolower($3) ~ ENVIRON["CTM_P"] { print $1; exit }')"
     [ -n "$hit" ] && { printf '%s\n' "$hit"; return 0; }
-    hit="$(printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' -v p="$pat" 'tolower($1) ~ p { print $1; exit }')"
+    hit="$(printf '%s\n' "$TEMPLATE_FIELDS" | CTM_P="$pat" awk -F'\t' 'tolower($1) ~ ENVIRON["CTM_P"] { print $1; exit }')"
     [ -n "$hit" ] && { printf '%s\n' "$hit"; return 0; }
   done
   return 0
 }
 role_required() {
   [ -n "$1" ] || return 1
-  printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' -v l="$1" '$1 == l { print $2; exit }' | grep -q yes
+  printf '%s\n' "$TEMPLATE_FIELDS" | CTM_L="$1" awk -F'\t' '$1 == ENVIRON["CTM_L"] { print $2; exit }' | grep -q yes
 }
 # An OPTIONAL section left empty is what GitHub renders for a field the template did not demand,
 # so it is not a FAILURE. It is not `na` either: the rule still binds and only the critic can say
@@ -380,8 +392,8 @@ fi
 # trailing colon and nothing else, OR the word wrapped in bold or italic followed by anything.
 # `Positive (happy path)`, `**Negative** note` and `Positive:` are markers; `Positive outcome
 # expected here` is prose, and admitting it would make a block with no When and a false FAIL.
-# Bracket expressions rather than backslashes, because the string is handed to awk through -v,
-# which processes escapes. bash 3.2 has no function returning a string, so a variable per word.
+# Bracket expressions rather than backslashes: the string reaches awk through ENVIRON since #259,
+# which keeps a backslash, but a bracket expression reads the same however it travels. bash 3.2 has no function returning a string, so a variable per word.
 # The bold branch allows a parenthetical INSIDE the markup too (`**Negative (bad input)**`), the
 # shape the ticket's own scenario used; without it the block's lines fell into the previous block
 # and the author was told THAT block had two Whens (found in review).
@@ -429,7 +441,8 @@ else
       # else branch is safe: every line reaching it already matched MARK_ANY, so it is Positive.
       # The join is awk, not `paste -sd'; '`: paste cycles its delimiter LIST per character, so a
       # two-character separator yields `a;b c` from three items (#365). Do not simplify it back.
-      multi_when="$(printf '%s\n' "$SCENARIOS" | awk -v any="$MARK_ANY" -v neg="$MARK_NEG" '
+      multi_when="$(printf '%s\n' "$SCENARIOS" | CTM_ANY="$MARK_ANY" CTM_NEG="$MARK_NEG" awk '
+        BEGIN { any = ENVIRON["CTM_ANY"]; neg = ENVIRON["CTM_NEG"] }
         $0 ~ any {
           if (block != "" && whens != 1) { print block ": " whens " When lines" }
           block = ($0 ~ neg ? "Negative" : "Positive"); whens = 0; next
@@ -445,12 +458,14 @@ else
         # quoted message, or an UPPER_SNAKE identifier is specific enough; anything else is
         # REFERRED, never failed, because this heuristic is narrower than rule 1's quality
         # bar on purpose and must not reject a message the canonical doc allows.
-        vague="$(printf '%s\n' "$SCENARIOS" | awk -v neg="$MARK_NEG" -v pos="$MARK_POS" '
+        vague="$(printf '%s\n' "$SCENARIOS" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
+          BEGIN { neg = ENVIRON["CTM_NEG"]; pos = ENVIRON["CTM_POS"] }
           $0 ~ neg { inneg = 1; seen = 0; next }
           $0 ~ pos { inneg = 0; next }
           inneg && !seen && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1; print }
         ' | grep -vE '[0-9]|"[^"]+"|'"'"'[^'"'"']+'"'"'|[A-Z][A-Z0-9_]{2,}' | head -1)"
-        missing_then=$(printf '%s\n' "$SCENARIOS" | awk -v neg="$MARK_NEG" -v pos="$MARK_POS" '
+        missing_then=$(printf '%s\n' "$SCENARIOS" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
+          BEGIN { neg = ENVIRON["CTM_NEG"]; pos = ENVIRON["CTM_POS"] }
           $0 ~ neg { if (inneg && !seen) n++; inneg = 1; seen = 0; next }
           $0 ~ pos { if (inneg && !seen) n++; inneg = 0; next }
           inneg && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1 }
