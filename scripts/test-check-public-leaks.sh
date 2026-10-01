@@ -1232,10 +1232,18 @@ bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the
   # 143 (measured on bash 5.2.21), so mapping 143 would not discriminate; SIGALRM does, with no
   # state and no bash-4 feature (bash 3.2 behaviour is unmeasured). RESIDUAL: a command that dies
   # of its own SIGALRM also reads 124.
+  # ESCALATION (#402): a command that ignores or takes over SIGALRM (trap "" ALRM, its own alarm())
+  # would run past the bound and hang the suite with no tally, so the watcher follows ALRM with
+  # SIGKILL after a 3 s grace; such a survivor reads 137, which fails its row loudly. Once the
+  # command exits, `kill -- -"$w"` takes the watcher's group, its grace sleep included, so the
+  # KILL can never reach a recycled group. RESIDUALS: nothing can trap SIGKILL, so the grace is the
+  # only extra wall time; KILL skips the command's EXIT trap (test-check-contributor-docs.sh keeps
+  # its own TERM-based copy for that reason, #261); and a command that forks a child into ANOTHER
+  # process group escapes both signals, as it always did.
   local secs="$1"; shift
   ( set -m
     "$@" & pid=$!
-    ( sleep "$secs"; kill -s ALRM -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+    ( sleep "$secs"; kill -s ALRM -- -"$pid" 2>/dev/null; sleep 3; kill -s KILL -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
     set +m
     wait "$pid" 2>/dev/null; rc=$?
     kill -- -"$w" 2>/dev/null
@@ -1266,6 +1274,38 @@ expect "bounded: the residual, a command's own SIGALRM reads 124 (recorded above
 T315="$(date +%s)"; OUT="$(bounded 5 true)"; rc=$?; T315="$(( $(date +%s) - T315 ))"
 expect "bounded: a command that returns at once is captured with status 0" 0 "$rc"
 [ "$T315" -lt 5 ] && ok "and the capture returns well inside the 5 s bound (${T315} s)" || bad "capture blocked for the bound (${T315} s)"
+
+# #402: the escalation, and the watcher is gone after an early return. Each row has its mutant here,
+# built from `declare -f bounded` (bash's own reformatting, so the anchors are bash's, not this
+# file's): the KILL escalation removed, the watcher kill removed, and the watcher spawned after
+# `set +m` (not its own group, so the kill misses it). The stdio detach alone is not a mutant: the
+# watcher kill already ends the capture, so removing only the detach is equivalent (#315 measured
+# 0 s), and the prompt-capture row above pins only the both-safeguards-removed form.
+# MUTANTS (2026-10-01, #402): all three killed; the escalation mutant costs about 8 s.
+stray_sleeps() { ps -A -o args= 2>/dev/null | grep -cx "sleep $1"; }
+kill_stray() { local p; for p in $(ps -A -o pid=,args= 2>/dev/null | awk -v a="sleep $1" '{ p = $1; sub(/^[ \t]*[0-9]+[ \t]+/, ""); if ($0 == a) print p }'); do kill "$p" 2>/dev/null; done; }
+bmut() {  # bmut <name> <awk program over declare -f bounded>: defines <name> as a mutated bounded
+  local src; src="$(declare -f bounded | awk "$2")"
+  [ "$src" != "$(declare -f bounded)" ] || { echo "bmut: $1 did not apply" >&2; return 1; }
+  eval "$(printf '%s\n' "$src" | sed "1s/^bounded /$1 /")"
+}
+T402="$(date +%s)"; bounded 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?; T402="$(( $(date +%s) - T402 ))"
+expect "bounded: a command that ignores SIGALRM is escalated to SIGKILL and reads 137 (#402)" 137 "$rc"
+[ "$T402" -le 10 ] && ok "and it is stopped within the bound plus the 3 s grace (${T402} s) (#402)" || bad "the SIGALRM-ignoring command ran ${T402} s, past the bound plus grace (#402)"
+bounded 47 true >/dev/null 2>&1; sleep 1
+expect "bounded: no watcher survives an early return (#402)" 0 "$(stray_sleeps 47)"
+kill_stray 47
+if bmut b_noesc '{ sub(/kill -s KILL -- -"\$pid" 2> \/dev\/null/, "true") } 1' && bmut b_nowkill '!/kill -- -"\$w"/' \
+   && bmut b_late 'index($0, "set +m;") { next } { print } index($0, "& pid=$!;") { print "    set +m;" }'; then
+  b_noesc 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?
+  [ "$rc" != 137 ] && ok "mutant: without the KILL escalation the SIGALRM-ignoring command is not stopped (rc $rc) (#402)" || bad "mutant: the escalation mutant still read 137 (#402)"
+  b_nowkill 47 true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps 47)"; kill_stray 47
+  [ "$s" -ge 1 ] && ok "mutant: without the watcher kill a watcher survives the early return (#402)" || bad "mutant: the watcher-kill mutant left no watcher (#402)"
+  b_late 47 true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps 47)"; kill_stray 47
+  [ "$s" -ge 1 ] && ok "mutant: a watcher spawned after set +m survives the early return (#402)" || bad "mutant: the late-spawn mutant left no watcher (#402)"
+else
+  bad "#402: a bounded() mutant did not apply"
+fi
 LONG="$WORK/long-spaced.md"; { head -c 1048576 /dev/zero | tr '\0' a; printf ' alice@corp.io\n'; } > "$LONG"
 GLUED="$WORK/long-glued.md"; { head -c 262144 /dev/zero | tr '\0' a; printf '@corp.io\n'; } > "$GLUED"
 # 1 MB spaced, 256 KB glued: the glued shape is the one that reaches bash, and at 1 MB the FIXED
