@@ -42,8 +42,8 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 # TMPDIR: a hardcoded /tmp path in the library would leak past it.
 mkdir "$T/tmp"; export TMPDIR="$T/tmp"
 pass=0; fail=0
-ok()   { echo "  ok: $1"; pass=$((pass+1)); }
-bad()  { echo "  FAIL: $1"; fail=$((fail+1)); }
+ok()   { echo "  ok: $1"; printf '%s\n' "${1//$'\n'/\\n}" >> "$T/rows"; pass=$((pass+1)); }
+bad()  { echo "  FAIL: $1"; printf '%s\n' "${1//$'\n'/\\n}" >> "$T/rows"; fail=$((fail+1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
 
 # Each case runs in a subshell: source the lib, shadow forge_api with the stub, act, assert.
@@ -980,7 +980,7 @@ expect "and makes no call" "" "$(cat "$MCLOG")"
 mc_run 0 "No Such Phase"
 expect "a real run with an unresolvable title still returns 2" 2 "$MCRC"
 expect "and still refuses naming the title and repo" "forge-lib: no milestone titled 'No Such Phase' on o/r" "$MCERR"
-case "$(cat "$MCLOG")" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH" ;; esac
+case "$(cat "$MCLOG")" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH (mc_run, unresolvable title, real run)" ;; esac
 # The flag-off side (#319): only the exact value 1 is a dry run. mc_flagoff_ok is the one predicate the
 # mutant ledger at the end of the file uses; the direct cases below assert the same things inline, one
 # value per loop pass, and do not call it. It runs ONE value per call and is true iff the three
@@ -996,13 +996,13 @@ mc_flagoff_ok 0 && mc_flagoff_ok true && ok "mc_flagoff_ok accepts the real libr
 for v in 0 true; do
   mc_run "=$v" "Phase A" '[{"id":7,"title":"Phase A","state":"open"}]'
   expect "FORGE_DRY_RUN=$v close of an existing title returns 0" 0 "$MCRC"
-  case "$(cat "$MCLOG")" in *"PATCH /repos/o/r/milestones/7"*) ok "and sends PATCH /repos/o/r/milestones/7 (not a dry run)" ;; *) bad "FORGE_DRY_RUN=$v: no PATCH reached the transport: $(cat "$MCLOG")" ;; esac
-  case "$MCERR" in *'[dry-run]'*) bad "FORGE_DRY_RUN=$v printed a [dry-run] line: $MCERR" ;; *) ok "and prints no [dry-run] line" ;; esac
+  case "$(cat "$MCLOG")" in *"PATCH /repos/o/r/milestones/7"*) ok "and sends PATCH /repos/o/r/milestones/7 at FORGE_DRY_RUN=$v (not a dry run)" ;; *) bad "FORGE_DRY_RUN=$v: no PATCH reached the transport: $(cat "$MCLOG")" ;; esac
+  case "$MCERR" in *'[dry-run]'*) bad "FORGE_DRY_RUN=$v printed a [dry-run] line: $MCERR" ;; *) ok "and prints no [dry-run] line at FORGE_DRY_RUN=$v" ;; esac
 done
 mc_run =0 "No Such Phase"
 expect "an explicit FORGE_DRY_RUN=0 with an unresolvable title returns 2" 2 "$MCRC"
 expect "and refuses naming the title and repo" "forge-lib: no milestone titled 'No Such Phase' on o/r" "$MCERR"
-case "$(cat "$MCLOG")" in *PATCH*) bad "FORGE_DRY_RUN=0: a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH" ;; esac
+case "$(cat "$MCLOG")" in *PATCH*) bad "FORGE_DRY_RUN=0: a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH (mc_run, unresolvable title, FORGE_DRY_RUN=0)" ;; esac
 # An underivable repo under dry-run is still 2: the guard sits AFTER forge_repo.
 D="$(mktemp -d "$T/mcr.XXXXXX")"
 MCRC=$( cd "$D" && git init -q . && git remote add origin /some/local/path && ( . "$LIB"; unset FORGE_REPO; export FORGE_HOST=forgejo FORGE_DRY_RUN=1
@@ -1246,7 +1246,7 @@ case "$MSLOG" in *'"milestone":null'*) ok "and sends null, the only form GitHub 
 ms_run forgejo 12 "Phase Z"
 expect "an unresolvable title refuses with rc 2" 2 "$RC"
 case "$MSERR" in *"Phase Z"*) ok "and names the title" ;; *) bad "refusal message: $MSERR" ;; esac
-case "$MSLOG" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH" ;; esac
+case "$MSLOG" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH (forge_issue_milestone, unresolvable title)" ;; esac
 # The dry-run guard runs BEFORE the resolution, or every title is unresolvable under it: paginate
 # returns a literal [] in dry-run, so a real title would take the refusal path (gate round 1).
 RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
@@ -1269,7 +1269,7 @@ RC=$( ( . "$LIB"; export FORGE_HOST=gitea FORGE_REPO=o/r
         : > "$T/ms4.log"; forge_api() { echo "SENT $3" >> "$T/ms4.log"; }
         forge_issue_milestone 12 "" >/dev/null 2>&1; echo $? ) )
 expect "an invalid FORGE_HOST refuses rather than guessing a wire form" 2 "$RC"
-[ -s "$T/ms4.log" ] && bad "it sent a payload for an unknown host" || ok "and sends nothing"
+[ -s "$T/ms4.log" ] && bad "it sent a payload for an unknown host" || ok "and sends nothing (forge_issue_milestone, invalid FORGE_HOST)"
 RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
         : > "$T/ms5.log"; forge_api() { echo "SENT ${3-}" >> "$T/ms5.log"; }
         _forge_milestone_id() { printf '%s' null; }
@@ -1287,7 +1287,7 @@ RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r
 expect "a non-numeric id refuses instead of sending an empty body" 2 "$RC"
 [ "$(cat "$T/ms6.err")" = "forge-lib: milestone id for 'Phase A' on o/r is not a number: abc" ] \
   && ok "and says so with the digit gate's own line (abc)" || bad "non-numeric id stderr: $(cat "$T/ms6.err")"
-[ -s "$T/ms6.log" ] && bad "it sent something for a non-numeric id" || ok "and sends nothing"
+[ -s "$T/ms6.log" ] && bad "it sent something for a non-numeric id" || ok "and sends nothing (forge_issue_milestone, non-numeric id)"
 
 # --- #237: the 404 line survives a `set -e` caller. `forge_api ... >/dev/null; rc=$?` let errexit
 # fire on the forge_api line before rc=$? ran, so the one shell mode forge_api's own comment
@@ -2072,12 +2072,16 @@ dr_site() {
 # and forge-lib.sh carries no anchor comment (which would force a version bump).
 # Exits 0 when it FOUND a guard line and attempted the rewrite; sub() can still be a no-op on an
 # unfamiliar guard shape, so callers also cmp (the ledgers do). Exits 1, outfile written byte-identical
-# to the library, when the named function has no guard or does not exist. Any other failure (an
-# unreadable library) is awk's own non-zero status.
+# to the library, when the named function has no guard or does not exist. Any other failure is
+# non-zero but not necessarily distinct from 1: an unreadable library exits 2 (awk's own status),
+# while an unwritable outfile exits 1 (the shell's redirection failure), the same as "no guard".
+DR_GUARD='"${FORGE_DRY_RUN:-0}" = 1'
+DR_HDR='^[A-Za-z_][A-Za-z0-9_]*\(\) *\{'
 dr_mutant() {
-  awk -v fn="$1" -v k="$2" '
-    /^[A-Za-z_][A-Za-z0-9_]*\(\) *\{/ { inf = ($0 ~ "^" fn "\\(\\) *\\{") }
-    inf && !done && index($0, "\"${FORGE_DRY_RUN:-0}\" = 1") {
+  DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" awk -v fn="$1" -v k="$2" '
+    BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"] }
+    $0 ~ hdr { inf = ($0 ~ "^" fn "\\(\\) *\\{") }
+    inf && !done && index($0, guard) {
       if (k == "n") sub(/\[ "\$\{FORGE_DRY_RUN:-0\}" = 1 \]/, "[ -n \"${FORGE_DRY_RUN:-}\" ]")
       else sub(/= 1 \]/, "!= 0 ]")
       done = 1
@@ -2167,6 +2171,56 @@ for form in n b; do
   fi
 done
 unset MC_LIB
+
+# #370: every FORGE_DRY_RUN guard in the library is covered by a mutant ledger, so a new guard cannot
+# land unmutated and untested. The guarded set is DERIVED from $LIB (so a scratch library injected
+# through FORGE_LIB_UNDER_TEST is judged, which is how the negative proofs run), with dr_mutant's own
+# recognition: DR_HDR and DR_GUARD are defined once above and both awks read them through ENVIRON
+# (not -v, which would interpret the backslashes), so the two cannot disagree. Comment lines are not
+# counted. DR_COVERED is DR_SITES plus forge_milestone_close: that guard is covered by the #319 ledger
+# above (mc_run and mc_flagoff_ok), and dr_site has no case for it. dr_mutant mutates only the FIRST
+# guard in a function, so a function with two is refused by name (MULTI). The recognition is
+# spelling-blind, so a second check counts every non-comment FORGE_DRY_RUN occurrence and compares it
+# with the recognised guard count: a guard written as [[ "$FORGE_DRY_RUN" = 1 ]], ${FORGE_DRY_RUN-0}, or
+# a second reference on a guard line makes the two differ and fails. An empty derived set also fails,
+# because a vacuous pass would hide a library whose guards all changed shape.
+DR_COVERED="$DR_SITES forge_milestone_close"
+DR_SCAN=$(DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" awk '
+  BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"] }
+  $0 ~ hdr { flush(); name = $1; sub(/\(.*/, "", name); n = 0 }
+  $0 !~ /^[[:space:]]*#/ && index($0, guard) { g++; n++ }
+  function flush() { if (name != "" && n == 1) print name; else if (name != "" && n > 1) print "MULTI " name; n = 0 }
+  END { flush(); print "COUNT " g + 0 }' "$LIB" 2>&1); DR_SCAN_RC=$?
+DR_G=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^COUNT //p')
+DR_MULTI=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^MULTI //p')
+DR_FNS=$(printf '%s\n' "$DR_SCAN" | grep -v -e '^COUNT ' -e '^MULTI ')
+DR_R=$(grep -v '^[[:space:]]*#' "$LIB" | grep -o FORGE_DRY_RUN | wc -l)
+DR_BAD=0
+if [ "$DR_SCAN_RC" != 0 ]; then
+  bad "dry-run guard completeness: could not scan forge-lib.sh (awk exit $DR_SCAN_RC)"; DR_BAD=1
+else
+  if [ -z "$DR_FNS$DR_MULTI" ]; then
+    bad "dry-run guard completeness: no FORGE_DRY_RUN guard recognised in forge-lib.sh (derived set is empty)"; DR_BAD=1
+  fi
+  for fn in $DR_MULTI; do
+    bad "dry-run guard completeness: $fn has more than one FORGE_DRY_RUN guard; dr_mutant mutates only the first"; DR_BAD=1
+  done
+  for fn in $DR_FNS; do
+    case " $DR_COVERED " in
+      *" $fn "*) ;;
+      *) bad "dry-run guard completeness: $fn has a FORGE_DRY_RUN guard in forge-lib.sh but no DR_SITES (or #319 ledger) entry"; DR_BAD=1 ;;
+    esac
+  done
+  if [ "$DR_R" != "$DR_G" ]; then
+    bad "dry-run guard completeness: $DR_R FORGE_DRY_RUN reference(s) in forge-lib.sh does not match $DR_G canonical guard(s)"; DR_BAD=1
+  fi
+fi
+[ "$DR_BAD" = 0 ] && ok "dry-run guard completeness: every FORGE_DRY_RUN guard in forge-lib.sh is covered (DR_SITES plus the #319 forge_milestone_close ledger)"
+
+# #370: no two ok/FAIL rows share a text, so a failing row cannot be mistaken for its twin. ok() and
+# bad() append each text to $T/rows (not under $T/tmp, so the #291 check below still sees it empty),
+# which reaches rows printed from subshells that the pass/fail counters cannot. A repeat prints here.
+expect "no two ok/FAIL rows share a text" "" "$(sort "$T/rows" 2>&1 | uniq -d; [ "$(wc -l < "$T/rows" 2>/dev/null || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"
 
 # #291: every case removes the temp dirs it creates; the ls -A runs in the parent, after all cases.
 # 2>&1 so a vanished TMPDIR shows up as output and fails, rather than passing as empty.
