@@ -137,7 +137,7 @@ xhigh < max`.
 | architect-review | judgment | judgment, not measured, keeps today's behaviour by construction |
 | code-reviewer | judgment | as above |
 | security-auditor | security | Sonnet passed 3/3 on the planted issues and cost more than Opus (#289, below) |
-| api-security-tester | security | #289 could not judge it, since no run of either tier tested the hard-coded secret, and Sonnet cost more |
+| api-security-tester | security | #289 could not judge it, since no run of either tier tested the hard-coded secret; #292 re-ran it on a seed with a black-box witness: both tiers passed 3/3, and Sonnet's median output was higher than Opus's (15779 against 13287) though its cache reads were lower, so the cost rule did not move the role |
 | coding-standards-auditor | bounded-analysis | declares `inherit`: Sonnet FAILED its criterion, missing findings Opus rated high |
 | code-simplifier | bounded-analysis | declares `sonnet`: passed, weakly, since neither tier found anything at medium or above |
 | dep-auditor | bounded-analysis | declares `sonnet`: passed, weakly, since the input has no manifests and neither tier found anything |
@@ -296,6 +296,54 @@ the only black-box witness to it is "the token in the file works", which a teste
 for the fixture's credential rather than the defect. The rule fixed in advance says an Opus failure
 faults the seed or the criterion, not the cheaper tier. The cost rule would have kept the role anyway:
 Sonnet's medians were 30322 output and 1862k cache reads against Opus's 14163 and 614k.
+
+### The re-measurement (#292)
+
+#289 could not judge `api-security-tester`: its P3 was a hard-coded secret, which has no black-box
+witness, so the criterion failed on Opus and nothing was concluded. #292 re-ran the question on a seed
+written to have one. The fixture is `scripts/fixtures/tier-probe-security-tester/`, pre-registered in
+its own commit (`54f8600`) before any run: P1 an SQL injection, P2 a broken object-level authorization
+on `/orders/<id>`, and P3' a broken function-level authorization on `/admin/users`, which checks that
+the caller is authenticated and never that the caller is admin. P3' has a one-request witness: ben's
+valid token reads the admin listing and gets 200, where `server_fixed.py` answers 403. The harness is
+#289's: headless `claude -p` with the tree's `forge-kit-security` group through `--plugin-dir` and the
+installed copy disabled, `claudeMdExcludes` for this checkout's `CLAUDE.md`, a fresh directory under
+`/tmp/claude-1000/` outside the checkout holding `server.py` alone, the tier named at the dispatch
+site, effort `high`, the pinned #289 prompt verbatim, six runs one after another on port 8765. Each
+suite was then judged with `python3 -m pytest tests/` against `server.py` and against
+`server_fixed.py`, each started by hand on loopback. A planted issue counts as covered when at least
+one generated test fails on the seed and passes on the fix; for P3' that test must send a non-admin
+credential. Costs are from `scripts/measure-dispatch-cost.py`.
+
+| Agent | Model | Run | Turns | Output | Cache reads | Wall | P1 | P2 | P3' |
+|---|---|---|---|---|---|---|---|---|---|
+| `api-security-tester` | `claude-opus-5-5` | 1 | 19 | 13287 | 582k | 181 s | 4 tests | 3 tests | 1 test |
+| `api-security-tester` | `claude-opus-5-5` | 2 | 17 | 13193 | 509k | 185 s | 3 tests | 3 tests | 2 tests |
+| `api-security-tester` | `claude-opus-5-5` | 3 | 27 | 15294 | 898k | 227 s | 4 tests | 3 tests | 2 tests |
+| `api-security-tester` | `claude-sonnet-5-5` | 1 | 23 | 39081 | 1219k | 332 s | 18 tests | 5 tests | 2 tests |
+| `api-security-tester` | `claude-sonnet-5-5` | 2 | 10 | 15779 | 304k | 126 s | 10 tests | 2 tests | 2 tests |
+| `api-security-tester` | `claude-sonnet-5-5` | 3 | 8 | 9995 | 227k | 86 s | 7 tests | 4 tests | 1 test |
+
+A cell is the number of generated tests that fail against `server.py` and pass against
+`server_fixed.py`, grouped by test name (parametrized ids are counted as printed by pytest). Every cell
+is at least one, so every run covered all three planted issues. The suites held 21, 21 and 20 tests on
+Opus and 249, 113 and 99 on Sonnet; 1, 0 and 1 (Opus) and 15, 19 and 6 (Sonnet) failed against the
+fixed server as well, which decides nothing (the optional `Bearer` prefix, rate limiting, response
+headers, error-body shape). Every P3' test used ben's token (`tok-ben`). The Opus rows also report some
+turns on `claude-opus-4-8`, which `measure-dispatch-cost.py` lists beside the dispatched model and which
+are counted in the row. The Sonnet runs reported the model as `claude-sonnet-5-5`, not the
+`claude-sonnet-5` of the #289 rows; it is recorded as measured.
+
+**Both tiers passed 3/3, so the seed and the criterion worked.** No Opus run missed P3' (the
+pre-registered possible tester-agent gap did not occur), so there is no follow-up to file. The cost rule
+is the pre-registered one: a role moves to `sonnet` only when Sonnet passes 3/3 AND its median output
+tokens AND its median cache reads are both no higher than Opus's. Sonnet's median output was 15779
+against Opus's 13287, which is higher, and its median cache reads were 304k against 582k, which is
+lower. The rule needs both, so it does not move the role: `api-security-tester` stays in the `security`
+role on `inherit`. Three runs are too few to call either median stable: Sonnet's output ranged from
+9995 to 39081, so the comparison is a narrow miss on one axis and a wide spread, not a measured gap.
+Sonnet's largest suites (249 and 113 tests) are also noisier than Opus's, where most of the extra tests
+fail on both servers and decide nothing.
 
 ### Limits of this measurement
 
