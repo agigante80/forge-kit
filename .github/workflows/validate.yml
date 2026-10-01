@@ -44,9 +44,9 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     # The checks are seconds of work; the slow steps are the advisory npm install and the
-    # contributor-docs suite, which runs twice since #386 (about three minutes each). A cap well
-    # above normal turns a hung runner into a fast failure instead of a six-hour default wait.
-    timeout-minutes: 20
+    # contributor-docs suite, which runs three times since #406 (about three to four minutes each).
+    # A cap well above normal turns a hung runner into a fast failure instead of a six-hour wait.
+    timeout-minutes: 25
     steps:
       # Pinned to a full commit SHA, not a mutable tag: a tag can be repointed, which is the
       # supply-chain risk GitHub's hardening guide names first, and forge-kit ships components
@@ -344,6 +344,19 @@ jobs:
       - name: Contributor-docs check tests (mawk)
         env:
           AWK_UNDER_TEST: mawk
+        run: bash scripts/test-check-contributor-docs.sh
+
+      # Issue #406: BWK awk, the awk macOS ships, read a byte-order mark as one character in a UTF-8
+      # locale, so the octal BOM strip never matched there. The package registers no `awk`
+      # alternative, so every other step keeps mawk. The locale is set explicitly, since the
+      # locale-pin mutants run only under BWK in UTF-8 and a run that asked for it refuses otherwise.
+      - name: Install BWK awk for the contributor-docs run under macOS's awk
+        run: sudo apt-get install -y -qq original-awk >/dev/null && original-awk --version
+
+      - name: Contributor-docs check tests (BWK awk, C.UTF-8)
+        env:
+          AWK_UNDER_TEST: original-awk
+          LC_ALL: C.UTF-8
         run: bash scripts/test-check-contributor-docs.sh
 
       # Issue #394: /phase review's step 1, 4 and 7 snippets, extracted from the command and run in

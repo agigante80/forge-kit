@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 20
+# check-contributor-docs-version: 21
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -47,9 +47,9 @@
 #              invoked: make runs recipes while remaking makefiles. npm run X is also referred when a
 #              tracked root .npmrc sets workspace or workspaces (#339), or is a symlink.
 #              A leading UTF-8 byte-order mark on line 1 of a Makefile or justfile is stripped first
-#              (#364), as make and just both ignore it. judge_target runs awk without LC_ALL=C,
-#              unlike npmrc_scan; that is harmless on gawk, mawk and busybox awk, and BSD awk is
-#              untested.
+#              (#364), as make and just both ignore it. judge_target runs that awk under LC_ALL=C,
+#              as npmrc_scan does (#406): BWK awk, the awk macOS ships, matches the octal strip
+#              against no BOM in a UTF-8 locale, so a BOM-led Makefile lost its first target there.
 #   script-path  `node|sh|bash <path>`: tracked passes, anything else is referred (a build output
 #              is correct and untracked). A path leaving the repository is never read.
 #   link       Relative links, images and reference definitions resolve to a tracked path or to a
@@ -142,8 +142,9 @@
 # A leading UTF-8 byte-order mark on line 1 of a doc is stripped before any fence, link or
 # reference-definition rule reads it (#374), so a BOM-led doc is judged as if it had none. Without
 # it a line-1 fence opener is read as prose and every later fence pairing inverts. Line 2 and later
-# are never stripped. Like judge_target, the doc reader runs awk without LC_ALL=C; the strip is the
-# octal form npmrc_scan uses, which gawk, mawk and busybox awk accept in either locale.
+# are never stripped. Like judge_target, the doc reader runs awk under LC_ALL=C (#406), so the octal
+# strip matches bytes on every awk: BWK awk in a UTF-8 locale reads the BOM as one character and the
+# regex literal never matched it. CI runs the suite under BWK awk in C.UTF-8 to keep it so.
 #
 # Needs git; jq only when a command reaches resolution against package.json (#295). Portable to
 # bash 3.2 and BWK awk: no associative arrays, no mapfile, no ${x,,}, no readlink -f, and caller
@@ -859,7 +860,7 @@ judge_target() {   # <loc> <tool> <awk> <files...> ; the target is in $TGT
   f=$(first_file "$@") || { row referred command "$loc" "$tool $TGT: no tracked $1 to read"; return; }
   safe_open "$f" "$T/mk" || { row fail command "$loc" "$f is an unsafe link ($SO_WHY), not read"; return; }   # safe_open: make
   # An awk failure is exit 2 (could not run), never a `no such target` row built from nothing.
-  verdict=$(TGT=$TGT awk "$prog" "$T/mk") || die "could not read $f"   # safe_open: awk
+  verdict=$(TGT=$TGT LC_ALL=C awk "$prog" "$T/mk") || die "could not read $f"   # safe_open: awk
   case "$verdict" in
     found) row pass command "$loc" "$tool $TGT: defined in $f" ;;
     unsettled) row referred command "$loc" "$tool $TGT: not literal in $f, which includes or imports others" ;;
@@ -995,7 +996,7 @@ while [ "$qi" -lt "${#docs[@]}" ]; do
   dir=$(dirname "$d"); [ "$dir" = . ] && dir=""
   tmpl=0; is_template "$d" && tmpl=1
   imp=0; [ "$dmode" != 0 ] && imp=1
-  IMPORTS=$imp awk "$EXTRACT" "$T/doc" > "$T/rec" || die "could not scan $d"
+  IMPORTS=$imp LC_ALL=C awk "$EXTRACT" "$T/doc" > "$T/rec" || die "could not scan $d"
   while IFS=$'\t' read -r kind ln a b c; do
     loc="$d:$ln"
     if [ "$kind" = I ]; then

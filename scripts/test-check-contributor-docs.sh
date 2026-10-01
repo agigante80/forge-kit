@@ -1692,6 +1692,16 @@ have_gawk() { PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1 | grep -q 'GNU 
 # gawk_gate: run, skip, or refuse (#386). A run that ASKED for gawk (AWK_UNDER_TEST=gawk, as CI does)
 # and got an awk that is not GNU Awk must fail, never print a skip that counts as a pass.
 gawk_gate() { if have_gawk; then echo run; elif [ "${AWK_UNDER_TEST:-}" = gawk ]; then echo refuse; else echo skip; fi; }
+# bwk_gate: the same for the #406 locale-pin mutants, which only BWK awk (the one macOS ships) in a
+# UTF-8 locale can kill. BWK is named by its `awk --version` line, `awk version <date>`, probed
+# through AWKDIR as `run` resolves it; the locale by `locale charmap`. A run that asked for
+# original-awk (as CI does) and got another awk refuses rather than printing a skip.
+is_bwk() { PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1 | grep -q '^awk version [0-9]'; }
+bwk_gate() {
+  if is_bwk && [ "$(locale charmap 2>/dev/null)" = UTF-8 ]; then echo run
+  elif [ "${AWK_UNDER_TEST:-}" = original-awk ] && ! is_bwk; then echo refuse
+  else echo skip; fi
+}
 # Pinned with a non-GNU awk first on PATH (mawk, the Ubuntu default): asked for gawk, it refuses;
 # not asked, it skips.
 NONGNU="$(command -v mawk || true)"
@@ -1701,9 +1711,15 @@ if [ -n "$NONGNU" ]; then
   [ "$g" = refuse ] && ok "a requested gawk that is not GNU Awk refuses the strip mutant (#386)" || bad "a requested non-GNU gawk gave '$g', not refuse"
   g="$(AWKDIR="$W/nongnu" AWK_UNDER_TEST= gawk_gate)"
   [ "$g" = skip ] && ok "an unrequested non-GNU awk skips the strip mutant (#386)" || bad "an unrequested non-GNU awk gave '$g', not skip"
+  g="$(AWKDIR="$W/nongnu" AWK_UNDER_TEST=original-awk bwk_gate)"
+  [ "$g" = refuse ] && ok "a requested original-awk that is not BWK awk refuses the locale-pin mutants (#406)" || bad "a requested non-BWK original-awk gave '$g', not refuse"
+  g="$(AWKDIR="$W/nongnu" AWK_UNDER_TEST= bwk_gate)"
+  [ "$g" = skip ] && ok "an unrequested non-BWK awk skips the locale-pin mutants (#406)" || bad "an unrequested non-BWK awk gave '$g', not skip"
 else
   ok "a requested gawk that is not GNU Awk refuses the strip mutant: no mawk here, skipped"
   ok "an unrequested non-GNU awk skips the strip mutant: no mawk here, skipped"
+  ok "a requested original-awk that is not BWK awk refuses the locale-pin mutants: no mawk here, skipped"
+  ok "an unrequested non-BWK awk skips the locale-pin mutants: no mawk here, skipped"
 fi
 
 # #346 harness cases. They sit here, after the helpers above, because a function must be defined
@@ -1753,7 +1769,7 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "tracked list newline-split" c_tracked_newline_dir 'awk '"'"'{ print substr($0, index($0, "\t") + 1) }'"'"' "$IDXM" > "$IDX"' 'git ls-files -z | tr '"'"'\0'"'"' '"'"'\n'"'"' > "$IDX"'
   mutant "control-byte names kept" c_tracked_newline_dir '  if (LC_ALL=C; [[ $p == *[[:cntrl:]]* ]]); then continue; fi' '  :'
   mutant "index lookup by prefix" c_symlink_dir 'substr($0, i + 1) == ENVIRON["P"] { print' 'index(substr($0, i + 1), ENVIRON["P"]) == 1 { print'
-  mutant "awk failure swallowed" c_make_awk_fails 'verdict=$(TGT=$TGT awk "$prog" "$T/mk") || die "could not read $f"   # safe_open: awk' 'verdict=$(TGT=$TGT awk "$prog" "$T/mk")'
+  mutant "awk failure swallowed" c_make_awk_fails 'verdict=$(TGT=$TGT LC_ALL=C awk "$prog" "$T/mk") || die "could not read $f"   # safe_open: awk' 'verdict=$(TGT=$TGT LC_ALL=C awk "$prog" "$T/mk")'
   mutant "containment without separator" c_docs_sibling_prefix 'case "$real" in "$top"/*) ;;' 'case "$real" in "$top"*) ;;'
   mutant "index read-back by IFS" c_tracked_tab_name 'meta=${rec%%$'"'"'\t'"'"'*}; p=${rec#*$'"'"'\t'"'"'}   # safe_open: split' 'IFS=$'"'"'\t'"'"' read -r meta p <<<"$rec"'
   mutant "dash-led dirname" c_docs_dash_parent 'CDPATH= cd -- "$(dirname -- "./$p")"' 'CDPATH= cd "$(dirname "$p" 2>/dev/null)"'
@@ -1970,7 +1986,7 @@ first_file() {'
   mutant "substitution anywhere refers the row (argument)" c_subst_after_neg '  if (index(text, "=")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "=")) {'
   mutant "substitution rewrite not word-anchored" c_subst_flag_value 'gsub(/[ \t;&|(][A-Za-z_][A-Za-z0-9_]*=/' 'gsub(/[A-Za-z_][A-Za-z0-9_]*=/'
   mutant "a substitution body executed" c_pwned 'IDX=$T/index ROWS=$T/rows' 'IDX=$T/index ROWS=$T/rows; touch pwned'
-  mutant_needs make "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$T/mk")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$T/mk")'
+  mutant_needs make "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT LC_ALL=C awk "$prog" "$T/mk")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT LC_ALL=C awk "$prog" "$T/mk")'
   # #339. Each names the case written to kill it.
   mutant "npmrc never read" c_npmrc_ws_undef '    npmrc_scan
 ' ''
@@ -2182,6 +2198,17 @@ NR == 1 {' 'EXTRACT='\''
   # The strip loop is quadratic on gawk only in a way the 6 s bound can see: gawk pre-fix takes
   # about 34 s at 192000 words, but mawk takes about 3.1 s, under the bound, so the restored loop
   # would survive there and the mutant is skipped (re-measured at the 6 s default, #346).
+  case "$(bwk_gate)" in
+  run)
+    mutant "make locale pin dropped" c_make_bom 'verdict=$(TGT=$TGT LC_ALL=C awk "$prog" "$T/mk")' 'verdict=$(TGT=$TGT awk "$prog" "$T/mk")'
+    mutant "doc reader locale pin dropped" c_doc_bom_fence_neg 'IMPORTS=$imp LC_ALL=C awk "$EXTRACT"' 'IMPORTS=$imp awk "$EXTRACT"' ;;
+  refuse)
+    bad "mutant 'make locale pin dropped' cannot run: AWK_UNDER_TEST=original-awk was requested but the awk under test is not BWK awk"
+    bad "mutant 'doc reader locale pin dropped' cannot run: AWK_UNDER_TEST=original-awk was requested but the awk under test is not BWK awk" ;;
+  *)
+    ok "mutant 'make locale pin dropped' needs BWK awk in a UTF-8 locale: skipped"
+    ok "mutant 'doc reader locale pin dropped' needs BWK awk in a UTF-8 locale: skipped" ;;
+  esac
   case "$(gawk_gate)" in
   run)
     mutant "strip loop restored" c_strip_hostile_linear '    if (match(seg, /^([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)+/)) { seg = substr(seg, RLENGTH + 1); env = 1 }' '    while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) { sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", seg); env = 1 }'
