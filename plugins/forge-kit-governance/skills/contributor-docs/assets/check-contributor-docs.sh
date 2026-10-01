@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 19
+# check-contributor-docs-version: 20
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -58,6 +58,17 @@
 #              repository fails and is never read. In a PR template every relative link is
 #              referred, because GitHub copies the template into the PR body and it then resolves
 #              against the PR URL.
+#   import     (#301) Only when the root CLAUDE.md is TRACKED and --docs is not given. Each @-import
+#              token CLAUDE.md holds outside spans and fences must name a file a clone has: a
+#              tracked, unignored path, resolved from the importing file's directory, with a
+#              symlink judged by safe_resolve (the `required` rule). Untracked, absent, ignored or
+#              escaping fails; @~/ and @/ are referred and never opened. A markdown import (.md,
+#              .markdown, .mdx) is scanned like any doc and its own imports followed, breadth-first,
+#              to MAX_IMPORT_HOPS; past it an import is referred. CLAUDE.md itself is read for
+#              imports only. A token must START with @ and hold a / or a . (narrower than Claude
+#              Code, which tries any token, so @maintainer is prose). Limits: AGENTS.md's own @
+#              tokens are never followed, though Claude Code follows them; .claude/CLAUDE.md is not
+#              read; a non-markdown import is never opened; @scope/pkg in prose is a false positive.
 #
 # A SCOPE, for the cd rule: a fenced block is one scope; a code span's scope is its PARAGRAPH, so
 # "Run `cd client`, then `npm run dev`." is referred (#295). A cd AFTER the command changes nothing.
@@ -228,19 +239,28 @@ idx_mode() { P=$1 awk '{ i = index($0, "\t") } substr($0, i + 1) == ENVIRON["P"]
 # relative path that resolves from the link's own directory to a tracked REGULAR file: no chain, no
 # absolute target, no escape, no directory, no submodule, no dangling name. An untracked path must
 # be a regular file, not a symlink, whose physical directory lies inside the repository.
-SO_WHY="" SO_LINK=""
+# safe_resolve <path> does the deciding and reads no content: on success SO_PATH is the tracked
+# regular file to read from the index (the path itself, or a safe symlink's target), or empty for an
+# untracked regular file read from disk. The import walk (#301) resolves through it too, so there
+# is one definition of a safe symlink.
+SO_WHY="" SO_LINK="" SO_PATH=""
 safe_open() {
-  local p=$1 out=$2 mode tgt np tmode real
-  SO_WHY="" SO_LINK=""
+  safe_resolve "$1" || return 1
+  if [ -n "$SO_PATH" ]; then git cat-file blob ":0:$SO_PATH" > "$2" 2>/dev/null || die "cannot read $SO_PATH from the index"
+  else cat < "./$1" > "$2" 2>/dev/null || die "cannot read $1"; fi
+}
+safe_resolve() {
+  local p=$1 mode tgt np tmode real
+  SO_WHY="" SO_LINK="" SO_PATH=""
   mode=$(idx_mode "$p")
   case "$mode" in
-    100644|100755) git cat-file blob ":0:$p" > "$out" 2>/dev/null || die "cannot read $p from the index"; return 0 ;;
+    100644|100755) SO_PATH=$p; return 0 ;;
     160000) SO_WHY="a submodule, not a file"; return 1 ;;
     120000)
       tgt=$(git cat-file blob ":0:$p" 2>/dev/null; printf x) || die "cannot read $p from the index"; tgt=${tgt%x}
       if [ -z "$tgt" ]; then SO_WHY="an empty link"; return 1; fi
       if (LC_ALL=C; [[ $tgt == *[[:cntrl:]]* ]]); then SO_WHY="links to $tgt, which holds a control character"; return 1; fi
-      case "$tgt" in /*) SO_WHY="links to $tgt, which is absolute"; return 1 ;; esac   # safe_open: absolute
+      case "$tgt" in /*) SO_WHY="links to $tgt, which is an absolute path a clone does not have"; return 1 ;; esac   # safe_open: absolute
       np=${p%/*}; [ "$np" = "$p" ] && np=""
       np=$(normpath "$np" "$tgt") || { SO_WHY="links to $tgt, which escapes the repository"; return 1; }
       tmode=$(idx_mode "$np")
@@ -253,8 +273,7 @@ safe_open() {
             return 1 ;;
         *) SO_WHY="links to $np, which is not a tracked file"; return 1 ;;
       esac
-      git cat-file blob ":0:$np" > "$out" 2>/dev/null || die "cannot read $np from the index"
-      SO_LINK=$np; return 0 ;;
+      SO_LINK=$np SO_PATH=$np; return 0 ;;
   esac
   [ -L "$p" ] && { SO_WHY="an untracked symlink"; return 1; }
   { [ -e "$p" ] || [ -L "$p" ]; } || die "cannot read $p"
@@ -266,20 +285,19 @@ safe_open() {
   if [ "$real" != "$top" ]; then
     case "$real" in "$top"/*) ;; *) SO_WHY="resolves outside the repository"; return 1 ;; esac   # safe_open: contain
   fi
-  cat < "./$p" > "$out" 2>/dev/null || die "cannot read $p"
 }
 
 # ---- check 1: required and published, and check 2: size ----
 # A rejected AGENTS.md gets exactly one row, the required fail, and is never opened: no size row and
 # no doc-loop read is built from it (agents_ok stays 0).
-agents_ok=0
+agents_ok=0 agents_link=""
 if tracked AGENTS.md; then
   if git check-ignore -q --no-index AGENTS.md 2>/dev/null; then
     row fail required AGENTS.md "AGENTS.md is tracked but ignored; a fresh clone's tooling treats it as local"
   elif ! safe_open AGENTS.md "$T/agents"; then
     row fail required AGENTS.md "AGENTS.md $SO_WHY"
   elif [ -n "$SO_LINK" ]; then
-    row pass required AGENTS.md "AGENTS.md is tracked (symlink to tracked $SO_LINK)"; agents_ok=1
+    row pass required AGENTS.md "AGENTS.md is tracked (symlink to tracked $SO_LINK)"; agents_ok=1 agents_link=$SO_LINK
   else
     row pass required AGENTS.md "AGENTS.md is tracked"; agents_ok=1
   fi
@@ -471,6 +489,22 @@ function spans(s,    out, i, n, rest, pos, j, m, found) {
   }
   return out s
 }
+# imports(s): one `I<TAB>line<TAB>target<TAB>-` record per @-import token in a line whose spans are
+# already blanked and that sits outside a fence (#301). A token is a whitespace-delimited word whose
+# FIRST character is @ (so user@host and (@x.md) are not imports), an escaped space stays inside
+# it, and it is a path candidate only when what follows the @ holds a / or a . (so @maintainer is
+# prose). Trailing punctuation is KEPT: Claude Code 2.1.287 loads nothing for `@x.md.`.
+function imports(s,    n, i, w, ws) {
+  gsub(/\\ /, "\001", s)
+  n = split(s, ws, /[ \t]+/)
+  for (i = 1; i <= n; i++) {
+    w = ws[i]
+    if (substr(w, 1, 1) != "@") continue   # import: token start
+    w = substr(w, 2); gsub(/\001/, " ", w)
+    if (index(w, "/") == 0 && index(w, ".") == 0) continue   # import: path candidate
+    printf "I\t%d\t%s\t-\n", NR, w
+  }
+}
 BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0 }
 { sub(/\r$/, "") }
 {
@@ -489,6 +523,7 @@ BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0 }
   }
   if (trim(line) == "") { pcd = 0; penv = 0; next }
   rest = spans(line)
+  if (ENVIRON["IMPORTS"] == 1) imports(rest)
   if (substr(lead, 1, 1) == "[" && substr(lead, 2, 1) != "^" && (k = index(lead, "]:")) > 2) {
     label = substr(lead, 2, k - 2)
     if (index(label, "[") == 0 && index(label, "]") == 0) { link(target(substr(lead, k + 2))); next }
@@ -878,20 +913,95 @@ judge_script() {   # <loc> <cd> <tool> <args...>
   done
 }
 
-for d in "${docs[@]+"${docs[@]}"}"; do
+# ---- check: import (#301) ----
+# A tracked root CLAUDE.md's @-imports are followed, BREADTH-first, so each file is judged at its
+# shortest hop: the root CLAUDE.md is hop 0, read for imports only, and a markdown import that a
+# clone has (.md, .markdown, .mdx) is scanned like any doc and its own imports followed, up to
+# MAX_IMPORT_HOPS. Every other import gets its existence row only and is never opened. The walk is
+# the doc queue below: docs[i] with mode[i] (0 scan, 1 scan and follow imports, 2 follow imports
+# only) and hop[i], plus VIS, the resolved paths already queued, so a cycle or a repeat is scanned
+# once. Measured on Claude Code 2.1.287, 2026-10-01, in a scratch project: an import is loaded to
+# four hops; `\ ` keeps a space in the path; a quoted path, a token after (, a code span and a fence
+# load nothing; trailing punctuation is part of the path (`@x.md.` loads nothing); a relative
+# import inside a symlinked file resolves from the TARGET's directory.
+MAX_IMPORT_HOPS=4
+NL=$'\n' VIS=$'\n'
+visited() { case "$VIS" in *"$NL$1$NL"*) return 0 ;; esac; return 1; }   # import: visited
+visit() { VIS=$VIS$1$NL; }
+modes=() hops=()
+is_md() { case "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" in *.md|*.markdown|*.mdx) return 0 ;; esac; return 1; }
+# judge_import <loc> <importing file> <its dir> <target> <its hop>: one row, and the resolved
+# path queued when it is markdown and within the cap.
+judge_import() {
+  local loc=$1 f=$2 dir=$3 t=$4 h=$5 np mode rp tp
+  case "$t" in
+    "~"/*) row referred import "$loc" "$t: home path; a personal import, legitimately local"; return ;;
+    /*) row referred import "$loc" "$t: absolute path; machine specific"; return ;;
+  esac
+  np=$(normpath "$dir" "$t") || { row fail import "$loc" "$t: escapes the repository"; return; }   # import: escape
+  mode=""; [ -n "$np" ] && mode=$(idx_mode "$np")
+  # Past the cap nothing is loaded, unless a shorter route already reached the file.
+  if [ "$h" -ge "$MAX_IMPORT_HOPS" ] && ! { [ -n "$mode" ] && visited "$np"; }; then   # import: cap
+    row referred import "$loc" "$t: beyond Claude Code's depth of $MAX_IMPORT_HOPS; not loaded"; return
+  fi
+  if [ -z "$mode" ]; then   # import: tracked
+    tp=$t; trim_punct "$t"
+    if [ "$TP" != "$t" ] && [ -n "$TP" ] && np=$(normpath "$dir" "$TP") && [ -n "$np" ] && [ -n "$(idx_mode "$np")" ]; then
+      row fail import "$loc" "$tp: imported by $f but not in a clone; Claude Code reads the trailing punctuation as part of the path, so $np is not loaded"
+    else
+      row fail import "$loc" "$tp: imported by $f but not in a clone"
+    fi
+    return
+  fi
+  if git check-ignore -q --no-index -- "$np" 2>/dev/null; then   # import: ignored
+    row fail import "$loc" "$t: tracked but ignored; a fresh clone's tooling treats it as local"; return
+  fi
+  safe_resolve "$np" || { row fail import "$loc" "$t: $SO_WHY"; return; }
+  rp=$SO_PATH
+  if [ -n "$SO_LINK" ]; then row pass import "$loc" "$t: tracked (symlink to tracked $rp)"
+  else row pass import "$loc" "$t: tracked ($rp)"; fi
+  is_md "$rp" || return   # import: markdown only
+  visited "$rp" && return
+  [ "$h" -lt "$MAX_IMPORT_HOPS" ] || return
+  visit "$rp"
+  # The root AGENTS.md is never parsed for imports, however it is reached (a stated limit).
+  if [ "$rp" = AGENTS.md ]; then docs+=("$rp"); modes+=(0); else docs+=("$rp"); modes+=(1); fi   # import: queue
+  hops+=($((h + 1)))
+}
+
+for d in "${docs[@]+"${docs[@]}"}"; do modes+=(0); hops+=(0); done
+if [ "$docs_set" = 0 ]; then
+  for d in "${docs[@]+"${docs[@]}"}"; do visit "$d"; done
+  [ -n "$agents_link" ] && visit "$agents_link"
+  if [ -n "$(idx_mode CLAUDE.md)" ]; then   # import: entry
+    if ! safe_resolve CLAUDE.md; then row fail import CLAUDE.md "CLAUDE.md $SO_WHY"
+    elif [ "$SO_PATH" != AGENTS.md ] && ! visited "$SO_PATH"; then
+      visit "$SO_PATH"; docs+=("$SO_PATH"); modes+=(2); hops+=(0)
+    fi
+  fi
+fi
+
+qi=0
+while [ "$qi" -lt "${#docs[@]}" ]; do
+  d=${docs[$qi]} dmode=${modes[$qi]} dhop=${hops[$qi]}; qi=$((qi + 1))
   case "$d" in
     "$top"/*) d=${d#"$top"/} ;;
     /*) die "$d is outside the repository" ;;
-    *) d=$prefix$d ;;
+    *) [ "$dmode" = 0 ] && d=$prefix$d ;;
   esac
   d=$(normpath "" "$d") || die "$d is outside the repository"
   if [ "$d" = AGENTS.md ] && tracked AGENTS.md && [ "$agents_ok" = 0 ]; then continue; fi   # its required row says why
   safe_open "$d" "$T/doc" || { row fail link "$d" "$d: unsafe link ($SO_WHY), not read"; continue; }   # safe_open: loop
   dir=$(dirname "$d"); [ "$dir" = . ] && dir=""
   tmpl=0; is_template "$d" && tmpl=1
-  awk "$EXTRACT" "$T/doc" > "$T/rec" || die "could not scan $d"
+  imp=0; [ "$dmode" != 0 ] && imp=1
+  IMPORTS=$imp awk "$EXTRACT" "$T/doc" > "$T/rec" || die "could not scan $d"
   while IFS=$'\t' read -r kind ln a b c; do
     loc="$d:$ln"
+    if [ "$kind" = I ]; then
+      judge_import "$loc" "$d" "$dir" "$a" "$dhop"; continue
+    fi
+    [ "$dmode" = 2 ] && continue   # the root CLAUDE.md is read for imports only
     if [ "$kind" = C ]; then
       # shellcheck disable=SC2086
       set -- $b

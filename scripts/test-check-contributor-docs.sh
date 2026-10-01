@@ -209,11 +209,11 @@ c_symlink_escape_one() { new; lnk ../outside.md AGENTS.md; run
   rc_is 1 && row fail required "escapes the repository" && no_token \
     && [ "$(awk -F'\t' '$3 == "AGENTS.md" || index($3, "AGENTS.md:") == 1' <<<"$OUT" | grep -c .)" = 1 ]; }
 c_symlink_abs() { new; tput_ etc/hostname 'x\n'; lnk /etc/hostname AGENTS.md; run
-  rc_is 1 && row fail required "/etc/hostname, which is absolute" && [ "$(count pass required)" = 0 ] \
+  rc_is 1 && row fail required "/etc/hostname, which is an absolute path a clone does not have" && [ "$(count pass required)" = 0 ] \
     && [ "$(count pass max-bytes)" = 0 ] && [ "$(count fail max-bytes)" = 0 ] || return 1
   # #310: an absolute target whose path minus the slash is tracked as a decoy
   new; tput_ "${W#/}/outside.md" 'decoy\n'; lnk "$W/outside.md" AGENTS.md; run
-  rc_is 1 && row fail required "which is absolute" && no_token && none decoy; }
+  rc_is 1 && row fail required "which is an absolute path" && no_token && none decoy; }
 c_symlink_subdir() { new; agents 'x\n'; tput_ docs/guide.md 'See [r](../AGENTS.md).\n'; lnk guide.md docs/AGENTS.md; run --docs docs/AGENTS.md
   rc_is 0 && at pass docs/AGENTS.md:1 "../AGENTS.md"; }
 c_symlink_dir() { new; tput_ docs/guide.md 'x\n'; lnk docs AGENTS.md; run
@@ -313,6 +313,154 @@ case_ c_tracked_tab_name "a TAB-led file name cannot forge CLAUDE.md as tracked"
 case_ c_tracked_tab_inner "a file name with an inner TAB cannot forge CLAUDE.md as tracked"
 case_ c_tracked_tab_shadow "a TAB-led name cannot shadow a tracked CLAUDE.md symlink"
 case_ c_submodule_doc "a doc path that is a submodule is a fail row, never read"
+
+# ---------------------------------------------------------------- #301: CLAUDE.md @-imports
+# The grammar is Claude Code's, measured on 2.1.287 (see the script header). The exit-0 cases use
+# `agents`, since a missing AGENTS.md is itself a fail row.
+claudemd() { tput_ CLAUDE.md "$1"; }
+# lines <line>...: the lines joined as `put` text, one per argument (keeps an @ off a \n in the source).
+lines() { printf '%s\\n' "$@"; }
+nimp() { count "$1" import; }
+c_imp_pass() { new; agents 'x\n'; claudemd 'See @docs/DEV.md for setup.\n'; tput_ docs/DEV.md 'x\n'; run
+  rc_is 0 && at pass CLAUDE.md:1 "docs/DEV.md: tracked (docs/DEV.md)"; }
+c_imp_untracked() { new; agents 'x\n'; claudemd '@docs/DEV.md\n'; tput_ .gitignore 'docs/DEV.md\n'; put docs/DEV.md 'x\n'; run
+  rc_is 1 && at fail CLAUDE.md:1 "docs/DEV.md: imported by CLAUDE.md but not in a clone"; }
+c_imp_ignored() { new; agents 'x\n'; claudemd '@docs/DEV.md\n'; tput_ docs/DEV.md 'x\n'; git -C "$R" commit --quiet -m a; tput_ .gitignore 'docs/DEV.md\n'; run
+  rc_is 1 && at fail CLAUDE.md:1 "tracked but ignored"; }
+c_imp_scanned() { new; pkg '"build":"x"'; agents 'x\n'; claudemd '@docs/DEV.md\n'; tput_ docs/DEV.md 'a\n\n`npm run nope`\n'; run
+  rc_is 1 && at pass CLAUDE.md:1 "docs/DEV.md" && at fail docs/DEV.md:3 "npm run nope: no such script"; }
+c_imp_scanned_ok() { new; pkg '"build":"x"'; agents 'x\n'; claudemd '@docs/DEV.md\n'; tput_ docs/DEV.md '`npm run build`\n'; run
+  rc_is 0 && at pass CLAUDE.md:1 "docs/DEV.md" && at pass docs/DEV.md:1 "npm run build"; }
+c_imp_relative() { new; agents 'x\n'; claudemd '@docs/DEV.md\n'; tput_ docs/DEV.md '@sub/x.md\n'; tput_ docs/sub/x.md 'x\n'; run
+  rc_is 0 && at pass docs/DEV.md:1 "sub/x.md: tracked (docs/sub/x.md)"; }
+c_imp_relative_neg() { new; agents 'x\n'; claudemd '@docs/DEV.md\n'; tput_ docs/DEV.md '@sub/x.md\n'; tput_ sub/x.md 'x\n'; run
+  rc_is 1 && at fail docs/DEV.md:1 "sub/x.md: imported by docs/DEV.md but not in a clone"; }
+chain() { claudemd '@a1.md\n'; tput_ a1.md '@a2.md\n'; tput_ a2.md '@a3.md\n'; tput_ a3.md '@a4.md\n'; }
+c_imp_depth_pos() { new; agents 'x\n'; chain; tput_ a4.md 'See [d](dead.md).\n'; run
+  rc_is 1 && at fail a4.md:1 "dead.md is not a tracked path"; }
+c_imp_depth_neg() { new; agents 'x\n'; chain; tput_ a4.md '@a5.md\n'; tput_ a5.md 'See [d](dead.md).\n'; run
+  rc_is 0 && at referred a4.md:1 "beyond Claude Code's depth of 4; not loaded" && ! at fail a5.md ""; }
+bfs() { tput_ a1.md '@a2.md\n'; tput_ a2.md '@a3.md\n'; tput_ a3.md '@f.md\n'; tput_ s.md '@f.md\n'; tput_ f.md '@g1.md\n'; tput_ g1.md 'See [d](dead.md).\n'; }
+c_imp_bfs() { new; agents 'x\n'; claudemd "$(lines @s.md @a1.md)"; bfs; run
+  rc_is 1 && at fail g1.md:1 "dead.md is not a tracked path"; }
+c_imp_bfs_neg() { new; agents 'x\n'; claudemd '@a1.md\n'; bfs; run
+  rc_is 0 && at referred f.md:1 "beyond Claude Code's depth" && ! at fail g1.md ""; }
+c_imp_cycle() { new; agents 'x\n'; claudemd '@a.md\n'; tput_ a.md '@b.md\n'; tput_ b.md '@a.md\n\nSee [d](dead.md).\n'; run
+  rc_is 1 && [ "$(count fail link)" = 1 ] && [ "$(nimp pass)" = 3 ]; }
+c_imp_repeat() { new; agents 'x\n'; claudemd "$(lines @a.md @a.md)"; tput_ a.md 'See [d](dead.md).\n'; run
+  rc_is 1 && [ "$(nimp pass)" = 2 ] && [ "$(count fail link)" = 1 ]; }
+c_imp_punct_ok() { new; agents 'x\n'; claudemd 'Setup: @docs/DEV.md\n'; tput_ docs/DEV.md 'x\n'; run
+  rc_is 0 && at pass CLAUDE.md:1 "docs/DEV.md"; }
+c_imp_punct() { new; agents 'x\n'; claudemd 'Setup: @docs/DEV.md.\n'; tput_ docs/DEV.md 'x\n'; run
+  rc_is 1 && at fail CLAUDE.md:1 "docs/DEV.md.: imported by CLAUDE.md but not in a clone; Claude Code reads the trailing punctuation" && [ "$(nimp pass)" = 0 ]; }
+c_imp_not_tokens() { new; agents 'x\n'; claudemd "$(lines 'write to a.b@example.com' 'ask @maintainer' '' '`cat @missing.md now`' '' '```' '@missing.md' '```' '' 'see (@missing.md)')"; run
+  rc_is 0 && [ "$(grep -c "$(printf '\timport\t')" <<<"$OUT")" = 0 ]; }
+c_imp_escaped_space() { new; agents 'x\n'; claudemd '@docs/My\\ File.md\n'; tput_ "docs/My File.md" 'x\n'; run
+  rc_is 0 && [ "$(nimp pass)" = 1 ] && row pass import "docs/My File.md: tracked"; }
+c_imp_escaped_space_neg() { new; agents 'x\n'; claudemd '@docs/My\\ File.md\n'; run
+  rc_is 1 && [ "$(nimp fail)" = 1 ] && row fail import "docs/My File.md: imported by" && none 'My\'; }
+dead='`npm run nope`\n\n[dead](missing.md)\n\n@docs/missing.md\n'
+c_imp_nonmd() { new; pkg '"x":"x"'; agents 'x\n'; claudemd '@docs/DEV.md\n@src/x.ts\n'; tput_ docs/DEV.md "$dead"; tput_ src/x.ts "$dead"; run
+  rc_is 1 && [ "$(nimp pass)" = 2 ] && at fail docs/DEV.md:1 "npm run nope" && at fail docs/DEV.md:3 "missing.md" && at fail docs/DEV.md:5 "docs/missing.md" && ! at fail src/x.ts ""; }
+c_imp_nonmd_only() { new; pkg '"x":"x"'; agents 'x\n'; claudemd '@src/x.ts\n'; tput_ src/x.ts "$dead"; run
+  rc_is 0 && [ "$(nimp pass)" = 1 ] && at pass CLAUDE.md:1 "src/x.ts: tracked" && [ "$(grep -c . <<<"$OUT")" = 4 ]; }
+c_imp_nonmd_untracked() { new; agents 'x\n'; claudemd '@src/x.ts\n'; put src/x.ts 'x\n'; run
+  rc_is 1 && at fail CLAUDE.md:1 "src/x.ts: imported by CLAUDE.md but not in a clone"; }
+c_imp_symlink_ok() { new; agents 'x\n'; claudemd '@docs/link.md\n'; tput_ docs/real.md 'x\n'; lnk real.md docs/link.md; run
+  rc_is 0 && at pass CLAUDE.md:1 "symlink to tracked docs/real.md"; }
+c_imp_symlink_escape() { new; agents 'x\n'; claudemd '@docs/link.md\n'; lnk ../../outside.md docs/link.md; run
+  rc_is 1 && at fail CLAUDE.md:1 "escapes the repository" && no_token || return 1
+  new; agents 'x\n'; claudemd '@docs/link.md\n'; tput_ .gitignore 'docs/u.md\n'; put docs/u.md 'x\n'; lnk u.md docs/link.md; run
+  rc_is 1 && at fail CLAUDE.md:1 "docs/u.md, which is not tracked, so it is local only"; }
+c_imp_symlink_chain() { new; agents 'x\n'; claudemd '@docs/link.md\n'; lnk ../../outside.md docs/l2.md; lnk l2.md docs/link.md; run
+  rc_is 1 && at fail CLAUDE.md:1 "docs/l2.md, which is itself a symlink" && no_token; }
+c_imp_symlink_dir() { new; agents 'x\n'; claudemd '@docs/dir.md\n'; tput_ docs/sub/x.md 'x\n'; lnk sub docs/dir.md; run
+  rc_is 1 && at fail CLAUDE.md:1 "docs/sub, a directory, which is not a tracked file"; }
+c_imp_symlink_abs() { new; agents 'x\n'; claudemd '@docs/link.md\n'; tput_ "${W#/}/outside.md" 'decoy\n'; lnk "$W/outside.md" docs/link.md; run
+  rc_is 1 && at fail CLAUDE.md:1 "which is an absolute path a clone does not have" && no_token; }
+c_imp_symlink_target_dir() { new; agents 'x\n'; claudemd '@docs/link.md\n'; tput_ other/real.md '@rel.md\n'; tput_ other/rel.md 'x\n'; lnk ../other/real.md docs/link.md; run
+  rc_is 0 && at pass other/real.md:1 "rel.md: tracked (other/rel.md)"; }
+c_imp_visited_resolved() { new; agents 'x\n'; claudemd '@docs/link.md\n@docs/real.md\n'; tput_ docs/real.md 'See [d](dead.md).\n'; lnk real.md docs/link.md; run
+  rc_is 1 && [ "$(nimp pass)" = 2 ] && [ "$(count fail link)" = 1 ]; }
+c_imp_visited_two() { new; agents 'x\n'; claudemd '@docs/a.md\n@docs/b.md\n'; tput_ docs/a.md 'See [d](dead.md).\n'; tput_ docs/b.md 'See [d](dead.md).\n'; run
+  rc_is 1 && [ "$(nimp pass)" = 2 ] && [ "$(count fail link)" = 2 ]; }
+c_imp_deleted_worktree() { new; agents 'x\n'; claudemd '@docs/DEV.md\n@src/x.ts\n'; tput_ docs/DEV.md 'See [d](dead.md).\n'; tput_ src/x.ts 'x\n'
+  rm "$R/docs/DEV.md" "$R/src/x.ts"; run
+  rc_is 1 && at pass CLAUDE.md:1 "docs/DEV.md" && at pass CLAUDE.md:2 "src/x.ts" && at fail docs/DEV.md:1 "dead.md"; }
+c_imp_home_abs() { new; agents 'x\n'; claudemd '@~/.claude/my-rules.md\n@/etc/local-rules.md\n'; run
+  rc_is 0 && at referred CLAUDE.md:1 "home path; a personal import, legitimately local" && at referred CLAUDE.md:2 "absolute path; machine specific"; }
+c_imp_escape() { new; agents 'x\n'; claudemd '@../outside.md\n'; run
+  rc_is 1 && at fail CLAUDE.md:1 "../outside.md: escapes the repository" && no_token; }
+c_imp_agents_not_parsed() { new; agents 'Ask @docs/missing.md and @docs/t.md.\n'; claudemd '@AGENTS.md\n'; tput_ docs/t.md 'See [d](dead.md).\n'; run
+  rc_is 0 && [ "$(grep -c "$(printf '\timport\t')" <<<"$OUT")" = 1 ] && at pass CLAUDE.md:1 "AGENTS.md" && ! at fail docs/t.md ""; }
+c_imp_no_claude() { new; agents 'Ask @docs/missing.md here.\n'; run
+  rc_is 0 && [ "$(grep -c "$(printf '\timport\t')" <<<"$OUT")" = 0 ]; }
+c_imp_entry_tracked() { new; agents 'x\n'; claudemd '@docs/missing.md\n'; run
+  rc_is 1 && at fail CLAUDE.md:1 "docs/missing.md: imported by CLAUDE.md"; }
+c_imp_entry_untracked() { new; agents 'x\n'; tput_ .gitignore 'CLAUDE.md\n'; put CLAUDE.md '@docs/missing.md\n'; run
+  rc_is 0 && [ "$(grep -c "$(printf '\timport\t')" <<<"$OUT")" = 0 ]; }
+c_imp_docs_flag() { new; agents 'x\n'; claudemd '@docs/missing.md\n'; tput_ docs/g.md 'See [x](https://example.com/).\n'; run --docs docs/g.md
+  rc_is 0 && [ "$(grep -c "$(printf '\timport\t')" <<<"$OUT")" = 0 ]; }
+c_imp_dedupe() { new; pkg '"x":"x"'; agents '`npm run nope`\n'; claudemd '@AGENTS.md\n'; run
+  rc_is 1 && at pass CLAUDE.md:1 "AGENTS.md" && [ "$(count fail command)" = 1 ]; }
+c_imp_dedupe_neg() { new; pkg '"x":"x"'; agents 'x\n'; claudemd '@docs/DEV.md\n'; tput_ docs/DEV.md '`npm run nope`\n'; run
+  rc_is 1 && [ "$(count fail command)" = 1 ] && at fail docs/DEV.md:1 "nope"; }
+c_imp_injection() { new; agents 'x\n'; claudemd '@a$(touch${IFS}pwned).md\n@a;touch${IFS}pwned;.md\n'; run
+  rc_is 1 && [ "$(nimp fail)" = 2 ] && row fail import 'a$(touch${IFS}pwned).md' && row fail import 'a;touch${IFS}pwned;.md' && [ ! -e "$R/pwned" ]; }
+c_imp_malformed() { new; agents 'x\n'; claudemd "$(lines @ @. @/ '@docs/x\\' '```' @a.md)"; run
+  [ "$RC" != 2 ] && [ -z "$ERR" ] || return 1
+  new; agents 'x\n'; claudemd '@docs/DEV.md\r\n'; tput_ docs/DEV.md 'x\r\n'; run
+  rc_is 0 && at pass CLAUDE.md:1 "docs/DEV.md: tracked"; }
+c_imp_claude_symlink() { new; agents '`npm run nope`\n'; pkg '"x":"x"'; lnk AGENTS.md CLAUDE.md; run
+  rc_is 1 && [ "$(grep -c "$(printf '\timport\t')" <<<"$OUT")" = 0 ] && [ "$(count fail command)" = 1 ] || return 1
+  new; agents 'x\n'; lnk ../outside.md CLAUDE.md; run
+  rc_is 1 && at fail CLAUDE.md "CLAUDE.md links to ../outside.md, which escapes the repository" && no_token || return 1
+  new; agents 'x\n'; tput_ docs/main.md '@x.md\n'; tput_ docs/x.md 'x\n'; lnk docs/main.md CLAUDE.md; run
+  rc_is 0 && at pass docs/main.md:1 "x.md: tracked (docs/x.md)"; }
+
+echo "== #301 CLAUDE.md imports =="
+case_ c_imp_pass "a tracked import passes at the importing line"
+case_ c_imp_untracked "an import a clone does not have fails"
+case_ c_imp_ignored "a tracked import an ignore rule matches fails"
+case_ c_imp_scanned "an imported doc's broken command fails at its own line"
+case_ c_imp_scanned_ok "an imported doc's defined command passes at its own line"
+case_ c_imp_relative "a nested import resolves from the importing file's directory"
+case_ c_imp_relative_neg "a nested import is never resolved from the root"
+case_ c_imp_depth_pos "the hop-4 file is scanned"
+case_ c_imp_depth_neg "an import at hop 5 is referred and never scanned"
+case_ c_imp_bfs "a file reachable by a short route is judged at its shortest hop"
+case_ c_imp_bfs_neg "the same file reachable only by the long route stops at the cap"
+case_ c_imp_cycle "a cycle terminates and scans each file once"
+case_ c_imp_repeat "a repeated import gets a row each time and is scanned once"
+case_ c_imp_punct_ok "an import with no trailing punctuation passes"
+case_ c_imp_punct "trailing punctuation is part of the path, as Claude Code reads it"
+case_ c_imp_not_tokens "an email, a handle, a span, a fence and (@x) are not imports"
+case_ c_imp_escaped_space "an escaped space stays inside one token"
+case_ c_imp_escaped_space_neg "a missing escaped-space target is one fail row"
+case_ c_imp_nonmd "only a markdown import is scanned"
+case_ c_imp_nonmd_only "a non-markdown import gets its existence row only"
+case_ c_imp_nonmd_untracked "a non-markdown import a clone does not have fails"
+case_ c_imp_symlink_ok "a symlink import passes by its tracked target"
+case_ c_imp_symlink_escape "a symlink import escaping or to an untracked file fails, never read"
+case_ c_imp_symlink_chain "a symlink import chain fails at the first hop, never read"
+case_ c_imp_symlink_dir "a symlink import to a directory is a fail row"
+case_ c_imp_symlink_abs "an absolute symlink import target fails even with a decoy, never read"
+case_ c_imp_symlink_target_dir "imports inside a symlinked file resolve from the target's directory"
+case_ c_imp_visited_resolved "a link and its target are scanned once"
+case_ c_imp_visited_two "two distinct imports are each scanned"
+case_ c_imp_deleted_worktree "a tracked import deleted from the worktree is read from the index"
+case_ c_imp_home_abs "a home or absolute import is referred and never opened"
+case_ c_imp_escape "an escaping import fails and is never read"
+case_ c_imp_agents_not_parsed "AGENTS.md's own @ tokens are never followed"
+case_ c_imp_no_claude "with no CLAUDE.md there is no import row"
+case_ c_imp_entry_tracked "a tracked CLAUDE.md's missing import fails"
+case_ c_imp_entry_untracked "an untracked CLAUDE.md is not followed"
+case_ c_imp_docs_flag "--docs replaces the set, so imports are not followed"
+case_ c_imp_dedupe "@AGENTS.md is scanned once"
+case_ c_imp_dedupe_neg "an import's broken command is reported once at its own file"
+case_ c_imp_injection "an import holding shell syntax is data, never run"
+case_ c_imp_malformed "malformed tokens and CRLF give rows or nothing, never a crash"
+case_ c_imp_claude_symlink "a symlinked CLAUDE.md is judged by its target before it is read"
 
 # ---------------------------------------------------------------- check 3: commands
 c_build() { new; pkg '"build":"x"'; agents 'Run `npm run build`.\n'; run
@@ -1596,7 +1744,7 @@ if command -v python3 >/dev/null 2>&1; then
   # #309: each guard line carries a `# safe_open: <name>` or `# row: sanitise` tag, so no anchor can
   # match an unrelated line.
   mutant "chain check dropped" c_symlink_chain_escape '120000) SO_WHY="links to $np, which is itself a symlink"; return 1 ;;   # safe_open: chain' '120000) ;;'
-  mutant "absolute accepted" c_symlink_abs 'case "$tgt" in /*) SO_WHY="links to $tgt, which is absolute"; return 1 ;; esac   # safe_open: absolute' ':'
+  mutant "absolute accepted" c_symlink_abs 'case "$tgt" in /*) SO_WHY="links to $tgt, which is an absolute path a clone does not have"; return 1 ;; esac   # safe_open: absolute' ':'
   mutant "size guard bypassed" c_symlink_escape_one 'if [ "$agents_ok" = 1 ]; then   # safe_open: size' 'if [ -f AGENTS.md ]; then' 'n=$(wc -l < "$T/agents" | tr -d '"' '"') b=$(wc -c < "$T/agents" | tr -d '"' '"')' 'n=$(wc -l < AGENTS.md | tr -d '"' '"') b=$(wc -c < AGENTS.md | tr -d '"' '"')'
   mutant "doc-loop guard bypassed" c_contrib_symlink 'safe_open "$d" "$T/doc" || { row fail link "$d" "$d: unsafe link ($SO_WHY), not read"; continue; }   # safe_open: loop' 'cat "$d" > "$T/doc"'
   mutant "make read unguarded" c_make_symlink_passwd 'safe_open "$f" "$T/mk" || { row fail command "$loc" "$f is an unsafe link ($SO_WHY), not read"; return; }   # safe_open: make' 'cat "$f" > "$T/mk"'
@@ -1609,6 +1757,36 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "containment without separator" c_docs_sibling_prefix 'case "$real" in "$top"/*) ;;' 'case "$real" in "$top"*) ;;'
   mutant "index read-back by IFS" c_tracked_tab_name 'meta=${rec%%$'"'"'\t'"'"'*}; p=${rec#*$'"'"'\t'"'"'}   # safe_open: split' 'IFS=$'"'"'\t'"'"' read -r meta p <<<"$rec"'
   mutant "dash-led dirname" c_docs_dash_parent 'CDPATH= cd -- "$(dirname -- "./$p")"' 'CDPATH= cd "$(dirname "$p" 2>/dev/null)"'
+  # #301: the import walk. Each guard line carries an `# import: <name>` tag.
+  mutant "import: presence instead of tracked" c_imp_untracked 'if [ -z "$mode" ]; then   # import: tracked' 'if [ -z "$mode" ] && [ ! -e "$np" ]; then'
+  mutant "import: a span is extracted" c_imp_not_tokens '  if (ENVIRON["IMPORTS"] == 1) imports(rest)' '  if (ENVIRON["IMPORTS"] == 1) imports(line)'
+  mutant "import: a fence is extracted" c_imp_not_tokens '    code(line, 1); next' '    if (ENVIRON["IMPORTS"] == 1) imports(line); code(line, 1); next'
+  mutant "import: token-start anchor removed" c_imp_not_tokens 'if (substr(w, 1, 1) != "@") continue   # import: token start' 'sub(/^[^@]*/, "", w); if (w == "") continue'
+  mutant "import: path-candidate test removed" c_imp_not_tokens 'if (index(w, "/") == 0 && index(w, ".") == 0) continue   # import: path candidate' ''
+  mutant "import: depth cap removed" c_imp_depth_neg 'if [ "$h" -ge "$MAX_IMPORT_HOPS" ] && ! {' 'if false && ! {' '  [ "$h" -lt "$MAX_IMPORT_HOPS" ] || return' ''
+  mutant "import: depth cap off by one" c_imp_depth_neg 'MAX_IMPORT_HOPS=4' 'MAX_IMPORT_HOPS=5'
+  mutant "import: queue taken last-in-first-out" c_imp_bfs 'while [ "$qi" -lt "${#docs[@]}" ]; do
+  d=${docs[$qi]} dmode=${modes[$qi]} dhop=${hops[$qi]}; qi=$((qi + 1))' 'while [ "${#docs[@]}" -gt 0 ]; do
+  qi=$((${#docs[@]} - 1)); d=${docs[$qi]} dmode=${modes[$qi]} dhop=${hops[$qi]}; unset "docs[$qi]" "modes[$qi]" "hops[$qi]"'
+  mutant "import: visited set removed" c_imp_cycle 'visited() { case "$VIS" in *"$NL$1$NL"*) return 0 ;; esac; return 1; }   # import: visited' 'visited() { return 1; }'
+  mutant "import: an escaping import queued" c_imp_escape 'np=$(normpath "$dir" "$t") || { row fail import "$loc" "$t: escapes the repository"; return; }   # import: escape' 'np=$(normpath "$dir" "$t") || { row pass import "$loc" "$t: queued"; return; }'
+  mutant "import: escaped space splits the token" c_imp_escaped_space '  gsub(/\\ /, "\001", s)' ''
+  mutant "import: a non-markdown import scanned" c_imp_nonmd 'is_md "$rp" || return   # import: markdown only' ':'
+  mutant "import: a symlink judged by the link" c_imp_symlink_escape 'safe_resolve "$np" || { row fail import "$loc" "$t: $SO_WHY"; return; }' 'SO_LINK="" SO_PATH=$np'
+  mutant "import: chain check dropped" c_imp_symlink_chain '120000) SO_WHY="links to $np, which is itself a symlink"; return 1 ;;   # safe_open: chain' '120000) ;;'
+  mutant "import: a directory target passes" c_imp_symlink_dir 'tracked_dir "$np"; then SO_WHY="links to $np, a directory, which is not a tracked file"' 'tracked_dir "$np"; then SO_LINK=$np SO_PATH=$np; return 0'
+  mutant "import: visited keyed on the link path" c_imp_visited_resolved '  visited "$rp" && return' '  visited "$np" && return' '  visit "$rp"
+' '  visit "$np"
+'
+  mutant "import: absolute target read as repo-relative" c_imp_symlink_abs 'case "$tgt" in /*) SO_WHY="links to $tgt, which is an absolute path a clone does not have"; return 1 ;; esac   # safe_open: absolute' ':'
+  mutant "import: a home path failed" c_imp_home_abs '"~"/*) row referred import' '"~"/*) row fail import'
+  mutant "import: AGENTS.md parsed for imports" c_imp_agents_not_parsed 'for d in "${docs[@]+"${docs[@]}"}"; do modes+=(0); hops+=(0); done' 'for d in "${docs[@]+"${docs[@]}"}"; do modes+=(1); hops+=(0); done'
+  mutant "import: an import never scanned" c_imp_scanned 'if [ "$rp" = AGENTS.md ]; then docs+=("$rp"); modes+=(0); else docs+=("$rp"); modes+=(1); fi   # import: queue' 'return'
+  mutant "import: resolved from the root" c_imp_relative 'np=$(normpath "$dir" "$t") ||' 'np=$(normpath "" "$t") ||'
+  mutant "import: the default set not deduped" c_imp_dedupe '  for d in "${docs[@]+"${docs[@]}"}"; do visit "$d"; done' '  :'
+  mutant "import: ignore rule not tested" c_imp_ignored 'if git check-ignore -q --no-index -- "$np" 2>/dev/null; then   # import: ignored' 'if false; then'
+  mutant "import: trailing punctuation stripped" c_imp_punct '    w = substr(w, 2); gsub(/\001/, " ", w)' '    w = substr(w, 2); gsub(/\001/, " ", w); sub(/[.,;:!?)]+$/, "", w)'
+  mutant "import: an untracked CLAUDE.md followed" c_imp_entry_untracked 'if [ -n "$(idx_mode CLAUDE.md)" ]; then   # import: entry' 'if [ -e CLAUDE.md ]; then'
   mutant "presence instead of tracked" c_untracked 'if tracked AGENTS.md; then' 'if [ -e AGENTS.md ]; then'
   mutant "check-ignore without --no-index" c_ignored 'check-ignore -q --no-index' 'check-ignore -q'
   mutant "links resolved from the root" c_link_parent 'np=$(normpath "$dir" "$a")' 'np=$(normpath "" "$a")'

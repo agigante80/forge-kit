@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 14 -->
+<!-- contributor-docs-version: 15 -->
 
 # Contributor docs
 
@@ -47,7 +47,7 @@ Codex truncates the file at 32 KiB, and a file that long is a copy rather than a
   `https://github.com/<owner>/<repo>/blob/<branch>/AGENTS.md`, not `../AGENTS.md`.
 - **One source for Claude Code.** A local `CLAUDE.md` that restates `AGENTS.md` forks the shared
   facts. Put `@AGENTS.md` on its own line in `CLAUDE.md` so Claude Code imports it, and keep only
-  Claude-specific additions beside the import.
+  Claude-specific additions beside the import. The check follows that import, and every other one.
 
 ## Before the first commit of AGENTS.md
 
@@ -96,6 +96,13 @@ What it checks, all resolved against the git INDEX, never the disk:
 - **link**: a relative link or reference definition resolves to a tracked file, or a directory
   holding one. `/x` means the repository root, as GitHub renders it. A link leaving the
   repository fails and is never read.
+- **import** (#301): when the root `CLAUDE.md` is tracked and `--docs` is not given, each `@path`
+  token it holds outside spans and fences (a word starting with `@` whose path holds a `/` or a `.`)
+  must name a file a clone has, judged from the importing file's directory with the same safe-link
+  rule as `required`; an untracked, ignored or escaping target fails, `@~/...` and `@/...` are
+  referred. A markdown import is scanned like any doc and its own imports followed, breadth-first, to
+  Claude Code's four hops; a fifth is referred. Trailing punctuation is part of the path, as Claude
+  Code reads it, so `see @docs/DEV.md.` fails: that import never loads.
 
 **`referred` means "a person must look", and it never fails the run.** Everything the check cannot
 settle is referred rather than guessed. Under yarn, `yarn X` and `yarn run X` with X defined in the
@@ -143,7 +150,9 @@ scan stops at a `[section]` header, the key is case-sensitive and a trailing CR 
 around a key or a value is stripped. A symlinked `.npmrc` is referred without being read, so one holding
 `workspaces=false` with an explicit `-w` or `--workspace` form still passes.
 
-The limits, stated so they are not mistaken for coverage: spans and links are found within one
+The limits, stated so they are not mistaken for coverage: `AGENTS.md`'s own `@` tokens are never
+followed (Claude Code does follow them), `.claude/CLAUDE.md` is not read, a non-markdown import is
+never opened, and `@scope/pkg` in prose outside a span is read as an import. Spans and links are found within one
 line; indented code blocks are prose; the paragraph rule is order-dependent, and list items with
 no blank line between them form one paragraph; make's built-in implicit rules are not modelled; a
 percent-encoded non-ASCII target is referred. An export in a prose code span does not carry into a
