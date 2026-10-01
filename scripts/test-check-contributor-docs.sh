@@ -527,7 +527,22 @@ c_y_classic() { new; pkg '"check":"x","install":"x"'; agents '`yarn run check`\n
 c_yws() { new; mf packages/web/package.json web '"build":"x"'; agents '`yarn workspace web run build`\n\n`yarn workspace web build`\n'; run
   rc_is 0 && [ "$(count pass command)" = 2 ] && [ "$(grep -c 'defined in packages/web/package.json' <<<"$OUT")" = 2 ]; }
 c_yws_neg() { new; mf packages/web/package.json web '"x":"x"'; agents '`yarn workspace web run build`\n'; run
-  rc_is 0 && row referred command "workspace web" && row referred command "build" && nocmd fail && nocmd pass; }
+  rc_is 0 && row referred command "does not define build" && nocmd fail && nocmd pass; }
+# #317 items 1, 2 and 5: the yarn root with no manifest, the silent-flag exemption in both directions,
+# and the Berry built-ins (none of which yarn can fail on, so the effect is a stray referred or a false pass).
+c_y_noroot() { new; agents '`yarn run build`\n'; run
+  rc_is 0 && row referred command "yarn run build: no root package.json is tracked" && nocmd pass && nocmd fail; }
+c_silent_npm_ws() { new; mf packages/web/package.json web '"build":"x"'
+  agents '`npm -w web run build --silent`\n\n`pnpm --filter web run build -s`\n'; run
+  rc_is 0 && [ "$(count pass command)" = 2 ] && nocmd fail && none "may change which script runs"; }
+c_silent_yarn() { new; pkg '"build":"x"'; agents '`yarn run build -s`\n'; run
+  rc_is 0 && row referred command "yarn run build: -s may change which script runs" && nocmd pass; }
+c_y_berry() { new; pkg '"stage":"x"'; mf packages/web/package.json web '"x":"x"'
+  agents '`yarn unplug lodash`\n\n`yarn stage`\n\n`yarn patch-commit -s x`\n\n`yarn workspace web unplug x`\n\n`yarn search foo`\n'; run
+  rc_is 0 && nocmd pass && nocmd referred && nocmd fail; }
+# The built-in list is for the BARE form only: `yarn run stage` still reads the root script.
+c_y_berry_run() { new; pkg '"stage":"x"'; agents '`yarn run stage`\n'; run
+  rc_is 0 && row pass command "yarn run stage: defined in package.json" && nocmd referred; }
 c_yws_builtin() { new; mf packages/web/package.json web '"add":"x","check":"x"'
   agents '`yarn workspace web add lodash`\n\n`yarn workspace web check`\n\n`yarn workspace web check.`\n\n`yarn workspace web add.`\n'; run
   rc_is 0 && none "workspace web add" && row referred command "check may be a yarn built-in" \
@@ -663,6 +678,11 @@ case_ c_y_install "yarn run install passes; a bare yarn install is the built-in 
 case_ c_y_classic "a Yarn Classic built-in is referred even when the root defines it"
 case_ c_yws "yarn workspace <name> [run] X passes, naming the manifest"
 case_ c_yws_neg "yarn workspace with a script the manifest lacks is referred, never a fail"
+case_ c_y_noroot "a yarn root span with no tracked root package.json is referred, never an exit 2"
+case_ c_silent_npm_ws "npm and pnpm workspace spans exempt --silent and -s"
+case_ c_silent_yarn "yarn run X -s is referred, never a pass"
+case_ c_y_berry "Berry built-ins unplug, stage, patch-commit and search get no command row"
+case_ c_y_berry_run "the built-in list is bare-form only: yarn run stage passes"
 case_ c_yws_builtin "yarn workspace: a built-in stays silent, a Classic built-in refers"
 case_ c_scoped "a scoped workspace name resolves"
 case_ c_scoped_neg "a scoped name is never matched by prefix"
@@ -855,6 +875,18 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   mutant "workspace built-in message prints the raw word" c_yws_builtin '"$lab: $b1 may be a yarn built-in"' '"$lab: $1 may be a yarn built-in"'
   mutant "a second inline copy of the trim loop" c_trim_once 'first_file() {' 'X=; while :; do case "$X" in *[.,\;:!?]) X=${X%?} ;; *) break ;; esac; done
 first_file() {'
+  # #317. Each names the case written to kill it.
+  mutant "yarn root with no manifest dies" c_y_noroot 'tracked package.json || { row referred command "$loc" "$lab $name: no root package.json is tracked"; return; }' 'tracked package.json || die "no root manifest"'
+  mutant "yarn root no-manifest guard deleted" c_y_noroot '  tracked package.json || { row referred command "$loc" "$lab $name: no root package.json is tracked"; return; }
+' ''
+  mutant "yarn stops refusing a silent flag" c_silent_yarn '--silent|-s) [ "$ok" = 1 ] || { SC_FLAG=$w; break; } ;;' '--silent|-s) ;;'
+  mutant "npm or pnpm workspace stops exempting a silent flag" c_silent_npm_ws '--silent|-s) [ "$ok" = 1 ] || { SC_FLAG=$w; break; } ;;' '--silent|-s) SC_FLAG=$w; break ;;'
+  mutant "yarn workspace undefined script reported as no match" c_yws_neg 'row referred command "$loc" "$lab: workspace $ws ($WS_PATH) does not define $name; yarn may run a binary"' 'row referred command "$loc" "$lab: no tracked manifest is named $ws"'
+  mutant "yarn unplug resolved as a script" c_y_berry 'explain|unplug|stage|patch-commit|search)' 'explain|stage|patch-commit|search)'
+  mutant "yarn stage resolved as a script" c_y_berry 'explain|unplug|stage|patch-commit|search)' 'explain|unplug|patch-commit|search)'
+  mutant "yarn patch-commit resolved as a script" c_y_berry 'explain|unplug|stage|patch-commit|search)' 'explain|unplug|stage|search)'
+  mutant "yarn search resolved as a script" c_y_berry 'explain|unplug|stage|patch-commit|search)' 'explain|unplug|stage|patch-commit)'
+  mutant "yarn run consults the built-in list" c_y_berry_run 'run) [ $# -ge 2 ] || return; shift; judge_yarn_root' 'run) [ $# -ge 2 ] || return; shift; yarn_builtin "$1"; [ $? = 0 ] && return; judge_yarn_root'
   # #296. Each pair names the case written to kill it.
   mutant "export carry removed" c_export_carry '{ if (infence) fenv = 1; else penv = 1 }' '{ }'
   mutant "export carry widened to every variable" c_export_other_neg 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /=/'

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 5
+# check-contributor-docs-version: 6
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -556,7 +556,7 @@ judge_yarn_root() {
 yarn_builtin() {
   case "$1" in
     check|licenses|owner|tag|team|policies|autoclean|help|versions|import|prune|generate-lock-entry|upgrade-interactive) return 1 ;;
-    install|add|remove|upgrade|up|init|dlx|exec|set|config|workspaces|workspace|why|info|cache|global|link|unlink|pack|publish|npm|plugin|version|audit|outdated|list|bin|create|login|logout|constraints|dedupe|node|patch|rebuild|explain) return 0 ;;
+    install|add|remove|upgrade|up|init|dlx|exec|set|config|workspaces|workspace|why|info|cache|global|link|unlink|pack|publish|npm|plugin|version|audit|outdated|list|bin|create|login|logout|constraints|dedupe|node|patch|rebuild|explain|unplug|stage|patch-commit|search) return 0 ;;
   esac
   return 2
 }
