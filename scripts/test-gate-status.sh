@@ -232,14 +232,35 @@ withjudged "$FPNOW."
 expect "a hash and a bare full stop is an untagged stamp, read by hash" "current round 2 NEEDS-WORK" "$(GS 7)"
 withjudged "$FPNOW.x"
 expect "text glued to the full stop of an untagged stamp is no stamp" "unrecorded round 2" "$(GS 7)"
-# Shapes no writer produced: with the CURRENT hash each must read unrecorded, and --mark-stale must send nothing.
+# Shapes no writer produced: each must read unrecorded, and --mark-stale must send nothing. They carry
+# a STALE hash on purpose (#356): with the CURRENT hash a misread shape reads `current`, never
+# `stale`, so the --mark-stale rows could not fail; with a stale one a misread would PATCH.
+# probe_shape_patch below keeps that kill permanent.
 tab=$(printf '\t')
-for shape in "${FPNOW}(fp1). Full review: x." "$FPNOW  (fp1). Full review: x." "$FPNOW${tab}(fp1). Full review: x." \
-             "$FPNOW [fp1]. Full review: x." "${FPNOW}zz (fp3). Full review: x." "${FPNOW}.x" "$FPNOW"; do
+ZERO="sha256:0000000000000000"
+for shape in "${ZERO}(fp1). Full review: x." "$ZERO  (fp1). Full review: x." "$ZERO${tab}(fp1). Full review: x." \
+             "$ZERO [fp1]. Full review: x." "${ZERO}zz (fp3). Full review: x." "${ZERO}.x" "$ZERO"; do
   withjudged "$shape"
   out=$(GS 7); expect "a non-writer shape '$shape' is no stamp" "unrecorded round 2" "$out"
   rm -f "$S/patches"; GS 7 --mark-stale; expect "  and --mark-stale sends nothing for it" 0 "$(patches)"
 done
+# Untrusted text after the hash (#356). The state assertion carries the kill (the catch-all mutant
+# reads "current round 2 NEEDS-WORK"). The absent-file check is a SANITY check only: state_of never
+# evaluates the tail, so no plausible mutant makes it fail, and it is not claimed to pin the vector.
+# Both cases run inside the fresh scratch dir $T, never the caller's directory: a relative `x` there
+# would be deleted or misread in whatever folder the suite was started from.
+withjudged "$FPNOW ;touch x (fp3). Full review: x."
+out=$(cd "$T" && GS 7); expect "metacharacters after the hash, outside the parentheses, are no stamp" "unrecorded round 2" "$out"
+expect "  sanity: no file named x was created" "no" "$([ -e "$T/x" ] && echo yes || echo no)"
+withjudged "$FPNOW ;touch x
+(fp3). Full review: x."
+out=$(cd "$T" && GS 7); expect "a newline splitting the text after the hash is no stamp" "unrecorded round 2" "$out"
+# SANITY check, not a kill: the Judged line is read with sed -n '/^Judged body: sha256:/{p;q;}', so the
+# second line never reaches the parser and no plausible mutant fails this. "Only the first Judged
+# line is read" is pinned by the two `two Judged lines: the first wins` cases above.
+withjudged "$FPNOW (fp3).
+;touch x (fp3). Full review: x."
+out=$(GS 7); expect "a newline after a complete stamp: the stamp is its first line (sanity)" "current round 2 NEEDS-WORK" "$out"
 withjudged "$FPNOW (fp3)x Full review: https://x/c/3."
 expect "text glued to the closing parenthesis is no stamp" "unrecorded round 2" "$(GS 7)"
 withjudged "sha256: (fp3). Full review: https://x/c/3."
@@ -433,6 +454,9 @@ m "an untagged stamp is reported as an algorithm change" 's/\[ -n "$tag" \] && \
 m "fingerprint() changes without updating the pin" 's/^    { print n }/    { print n "x" }/' probe_golden
 m "the tag changes alone" 's/^FP_TAG="fp3"/FP_TAG="fp4"/' probe_golden
 m "no other shape is rejected (the catch-all arm deleted)" '/^      \*) judged="" ;;/d' probe_shape
+# A misread shape must reach --mark-stale as `stale` and PATCH (#356): the stale-hash shape loop above.
+probe_shape_patch() { withjudged "sha256:0000000000000000(fp1). Full review: x."; rm -f "$S/patches"; GS 7 --mark-stale >/dev/null 2>&1; [ "$(patches)" = 0 ]; }
+m "a misread shape would PATCH (the catch-all arm deleted)" '/^      \*) judged="" ;;/d' probe_shape_patch
 m "the untagged arm widened to .*" 's/^      \.|". "\*) ;;/      .*) ;;/' probe_glued
 m "the bare full stop arm dropped" 's/^      \.|". "\*) ;;/      ". "*) ;;/' probe_bare
 m "the untagged arm deleted entirely" '/^      \.|". "\*) ;;/d' probe_bare

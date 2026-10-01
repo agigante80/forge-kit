@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 5
+# gate-status-version: 6
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -44,15 +44,16 @@
 # <VERDICT> (fingerprint <old>, now <current>)`, whatever its hash says, because that hash came from
 # an algorithm this script no longer has. An UNTAGGED stamp (written by v1 to v3) behaves exactly
 # as before: its hash is compared, and it is never reported as an algorithm change, so no stamped
-# ticket changes state. Only two shapes follow the hash: a tag, ` (<1 to 16 of [a-z0-9]>)` then
-# `.` then end of line or a space and text (the tag needs exactly 16 hex before it); or no tag, `.`
-# then end of line or a space and text (the untagged shape does not count the hex digits, the hash
-# is just compared). Anything else after the hash is no stamp: `unrecorded`. The tag follows the hash on purpose: every v1 to
-# v3 reader keys on `^Judged body: sha256:` and ignores the rest of the line, so it still compares
-# the hash, `--unstamp` still removes the line and a re-stamp still replaces it. The one thing an
-# older reader cannot do is name an algorithm change: where the change altered a body's hash it
-# reads plain `stale`, and where it did not it reads by hash alone. The tag is diagnostic only, the
-# remedy for both kinds of stale is the same re-run of `/gate-ticket <N>`. No downgrade path exists.
+# ticket changes state. (v5, #342) Only two shapes follow the hash: a tag, ` (<1 to 16 of
+# [a-z0-9]>)` then `.` then end of line or a space and text (the tag needs exactly 16 hex before
+# it); or no tag, `.` then end of line or a space and text (the untagged shape does not count the
+# hex digits, the hash is just compared). Anything else after the hash is no stamp: `unrecorded`.
+# The tag follows the hash on purpose: every v1 to v3 reader keys on `^Judged body: sha256:` and
+# ignores the rest of the line, so it still compares the hash, `--unstamp` still removes the line
+# and a re-stamp still replaces it. The one thing an older reader cannot do is name an algorithm
+# change: where the change altered a body's hash it reads plain `stale`, and where it did not it
+# reads by hash alone. The tag is diagnostic only, the remedy for both kinds of stale is the same
+# re-run of `/gate-ticket <N>`. No downgrade path exists.
 #
 # An UNPAIRED marker (a start with no end, or an end with no start) refuses with exit 2, the
 # splice's 103 shape, rather than hashing to the end of the body and calling that an answer.
