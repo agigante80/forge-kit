@@ -40,9 +40,10 @@ def server():
         else:
             raise RuntimeError("server did not start on 127.0.0.1:8765")
         # The probe above only sees a listener that exists before it runs. The readiness loop
-        # accepts any 401, so a listener that appears after the probe (a concurrent run) can
-        # answer for a child that lost the bind and exits at once. poll() would run before
-        # that child has exited, so wait briefly for it instead (#355).
+        # accepts any HTTP error response (such as any 4xx or 5xx), so a listener that appears
+        # after the probe (a concurrent run) can answer for a child that lost the bind and exits
+        # at once. poll() would run before that child has exited, so wait briefly for it
+        # instead (#355).
         try:
             proc.wait(timeout=1)
         except subprocess.TimeoutExpired:

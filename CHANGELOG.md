@@ -15,6 +15,7 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **The tier-probe fixture's comment and README are accurate** (`scripts/fixtures/tier-probe-security-tester/reference_test.py` comment and `README.md` opening paragraph, repo-only, no component or plugin change, so no marker or semver bump). The readiness-loop comment said it accepts "any 401" while the loop catches every `urllib.error.HTTPError`; it now says any HTTP error response. The README opening paragraph said a bare `python3 -m pytest` reports `3 failed` by design without the reason; it now says `SERVER_FILE` defaults to the vulnerable `server.py`. No executable line and neither server changed (#367).
 - `test-gate-status.sh` now runs the third `;touch x` case inside the scratch dir `$T` like the first
   two, and the `gate-status.sh` header keeps two markdown code spans each on a single comment line
   (`gate-status-version` 6 to 7, `forge-kit-governance` patch). No behaviour change (#369).
