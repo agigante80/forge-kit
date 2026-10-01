@@ -733,6 +733,27 @@ printf 'mine\n' > "$TEMPLATE"
 expect "--init refuses to overwrite an existing list" 2 "$?"
 expect "and leaves it untouched" "mine" "$(cat "$TEMPLATE")"
 
+echo "== no awk -v in the shipped asset, and a backslash TMPDIR still finds a leak (#259) =="
+# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
+# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
+awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
+expect "check-private-leaks.sh carries no awk -v code line" 0 "$(awkv_count "$SCRIPT")"
+{ cat "$SCRIPT"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$WORK/awkv-mut.sh"
+n="$(awkv_count "$WORK/awkv-mut.sh")"
+[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in check-private-leaks.sh" || bad "MUTANT: an added awk -F'\\t' -v line in check-private-leaks.sh counted $n, not 1"
+# The temp paths come from mktemp -d under the caller's TMPDIR. Under -v a TMPDIR named `t\tx`
+# (backslash, t) read back with a TAB, every getline failed, and --history reported CLEAN.
+mkdir -p "$WORK/tA" "$WORK/t\\tx"
+[ -d "$WORK/t\\tx" ] && ok "#259: the backslash TMPDIR fixture exists (fixture sanity)" || bad "#259: no backslash TMPDIR fixture"
+mkrepo bs-leak
+( cd "$HREPO" && printf 'work on secretproj today\n' > notes.md && git add notes.md && git commit -qm add ) >/dev/null 2>&1
+TMPDIR="$WORK/tA" hrun --history; expect "#259: control TMPDIR: the committed name is reported" 1 "$RC"
+TMPDIR="$WORK/t\\tx" hrun --history; expect "#259: backslash TMPDIR: the committed name is still reported" 1 "$RC"
+contains "notes.md@" "$OUT" "#259: and the finding names the file"
+mkrepo bs-clean
+TMPDIR="$WORK/t\\tx" hrun --history; expect "#259: backslash TMPDIR over a clean history exits 0" 0 "$RC"
+expect "#259: and reports nothing" "" "$OUT"
+
 echo ""
 echo "passed: $passed  failed: $failed"
 [ "$failed" -eq 0 ]

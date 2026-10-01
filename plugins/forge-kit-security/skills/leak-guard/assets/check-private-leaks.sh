@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 16
+# check-private-leaks-version: 17
+#
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
+# paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
+# whatever the caller's TMPDIR is named. Under a TMPDIR named `t\tx` (backslash, t) the paths read
+# back with a TAB, every `getline` failed, and `--history` reported CLEAN over a committed finding.
+# Every value now reaches awk through ENVIRON (`LG_*`); the 0-or-1 flags (`orphans`, `show`) moved as
+# hardening only. The suite counts zero `awk ... -v` code lines; that count is line-based, so a
+# `-v` on an awk continuation line is banned too.
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -431,6 +439,7 @@ violations=0
 # The "r < 0 {" line is the load-bearing one, and the contract test mutates exactly it.
 READER='
 BEGIN {
+  labels = ENVIRON["LG_LABELS"]; orphans = ENVIRON["LG_ORPHANS"] + 0
   r = -1
   while ((getline l < labels) > 0) {
     split(l, a, "\t"); label[a[1]] = a[2]
@@ -546,8 +555,8 @@ history_scan() {
     LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects" \
     && LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
   } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
-    | LC_ALL=C awk -F'\t' -v types="$types" '
-        BEGIN { while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
+    | LC_ALL=C LG_TYPES="$types" awk -F'\t' '
+        BEGIN { types = ENVIRON["LG_TYPES"]; while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
         t[$1] == "blob" { seen[$1] = 1; n = split($3, b, "/"); print $1 "\t" $3 "\t" tolower(b[n]) }
         END { for (o in t) if (t[o] == "blob" && !(o in seen)) print o "\t\t" }' > "$merged"; pipe_ok "the object merge" "${PIPESTATUS[@]}"
   local oid type path lower cur="" keep="" selfnamed=0 first="" selfbase="${SELF##*/}"
@@ -589,11 +598,11 @@ history_scan() {
   # occurrence. -a on the grep: the stream carries raw bytes. No process runs per finding.
   git cat-file --batch < "$oids" \
     | LC_ALL=C tr '\0' '\001' \
-    | LC_ALL=C awk -v labels="$labels" -v orphans="$ORPHANS" "$READER" > "$tagged"; pipe_ok "the history reader" "${PIPESTATUS[@]}"
+    | LC_ALL=C LG_LABELS="$labels" LG_ORPHANS="$ORPHANS" awk "$READER" > "$tagged"; pipe_ok "the history reader" "${PIPESTATUS[@]}"
   LC_ALL=C grep -aiF -f "$PATFILE" "$tagged" > "$hits" || true
   [ -s "$hits" ] || return 0
   local found
-  found="$(LC_ALL=C awk -v names="$PATFILE" -v show="$SHOW_NAMES" '
+  found="$(LC_ALL=C LG_NAMES="$PATFILE" LG_SHOW="$SHOW_NAMES" awk '
     function redact(n,  i, o) { o = substr(n, 1, 2); for (i = 3; i <= length(n); i++) o = o "*"; return o }
     function hide(p,  k, lp, ln, i, out) {   # redact every listed name inside a path, case-insensitively
       if (show) return p
@@ -608,6 +617,7 @@ history_scan() {
     # name in a path (never "se****proj") and reports one finding per occurrence, as grep -o
     # does in the tree mode. Insertion sort: the list is short and this runs once.
     BEGIN {
+      names = ENVIRON["LG_NAMES"]; show = ENVIRON["LG_SHOW"] + 0
       while ((getline l < names) > 0) { name[++nn] = l }
       close(names)
       for (i = 2; i <= nn; i++) { v = name[i]; j = i - 1; while (j > 0 && length(name[j]) < length(v)) { name[j + 1] = name[j]; j-- } name[j + 1] = v }

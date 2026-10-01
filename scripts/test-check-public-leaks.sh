@@ -1553,6 +1553,27 @@ for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/asset
     && ok "$a canonicalises with a POSIX fallback" || bad "$a canonicalises with a POSIX fallback"
 done
 
+echo "== no awk -v in the shipped asset, and a backslash TMPDIR still finds a leak (#259) =="
+# Code lines only; line-based, so a -v on an awk continuation line is banned as well. The pattern
+# also sees `awk -F'\t' -v`, which a fixed-string `awk -v` check would miss.
+awkv_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE 'awk[^|]*[[:space:]]-v[[:space:]]*[A-Za-z_]'; }
+expect "check-public-leaks.sh carries no awk -v code line" 0 "$(awkv_count "$SCRIPT")"
+{ cat "$SCRIPT"; printf '%s\n' "x=\$(printf a | awk -F'\\t' -v x=\"\$ROADMAP\" '{print x}')"; } > "$WORK/awkv-mut.sh"
+n="$(awkv_count "$WORK/awkv-mut.sh")"
+[ "$n" = 1 ] && ok "MUTANT: one added awk -F'\\t' -v line counts one in check-public-leaks.sh" || bad "MUTANT: an added awk -F'\\t' -v line in check-public-leaks.sh counted $n, not 1"
+# The temp paths come from mktemp -d under the caller's TMPDIR. Under -v a TMPDIR named `t\tx`
+# (backslash, t) read back with a TAB, every getline failed, and --history reported CLEAN.
+mkdir -p "$WORK/tA" "$WORK/t\\tx"
+[ -d "$WORK/t\\tx" ] && ok "#259: the backslash TMPDIR fixture exists (fixture sanity)" || bad "#259: no backslash TMPDIR fixture"
+mkrepo bs-leak
+hcommit note.md 'const p = "/home/alice/notes"\n'
+TMPDIR="$WORK/tA" hrun --history; expect "#259: control TMPDIR: the committed home path is reported" 1 "$RC"
+TMPDIR="$WORK/t\\tx" hrun --history; expect "#259: backslash TMPDIR: the committed home path is still reported" 1 "$RC"
+contains "home-path" "$OUT" "#259: and the finding is the home path"
+mkrepo bs-clean
+TMPDIR="$WORK/t\\tx" hrun --history; expect "#259: backslash TMPDIR over a clean history exits 0" 0 "$RC"
+expect "#259: and reports nothing" "" "$OUT"
+
 echo ""
 echo "passed: $passed  failed: $failed"
 [ "$failed" -eq 0 ]

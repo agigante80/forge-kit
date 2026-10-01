@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 25
+# check-public-leaks-version: 26
+#
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
+# paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
+# whatever the caller's TMPDIR is named. Under a TMPDIR named `t\tx` (backslash, t) the paths read
+# back with a TAB, every `getline` failed, and `--history` reported CLEAN over a committed finding.
+# Every value now reaches awk through ENVIRON (`LG_*`); the 0-or-1 flags (`orphans`) moved as
+# hardening only. The suite counts zero `awk ... -v` code lines; that count is line-based, so a
+# `-v` on an awk continuation line is banned too.
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -655,6 +663,7 @@ judge() {
 # The "r < 0 {" line is the load-bearing one, and the contract test mutates exactly it.
 READER='
 BEGIN {
+  labels = ENVIRON["LG_LABELS"]; orphans = ENVIRON["LG_ORPHANS"] + 0
   r = -1
   while ((getline l < labels) > 0) {
     split(l, a, "\t"); label[a[1]] = a[2]
@@ -770,8 +779,8 @@ history_scan() {
     LC_ALL=C awk '{ i = index($0, " "); p = i ? substr($0, i + 1) : ""; if (p != "") print $1 "\t0\t" p }' "$objects" \
     && LC_ALL=C awk -F'\t' '{ print $1 "\t1\t" $2 }' "$pathmap"
   } | LC_ALL=C sort -t'	' -k1,1 -k2,2 -k3,3 -u \
-    | LC_ALL=C awk -F'\t' -v types="$types" '
-        BEGIN { while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
+    | LC_ALL=C LG_TYPES="$types" awk -F'\t' '
+        BEGIN { types = ENVIRON["LG_TYPES"]; while ((getline l < types) > 0) { split(l, a, " "); t[a[1]] = a[2] } close(types) }
         t[$1] == "blob" { seen[$1] = 1; n = split($3, b, "/"); print $1 "\t" $3 "\t" tolower(b[n]) }
         END { for (o in t) if (t[o] == "blob" && !(o in seen)) print o "\t\t" }' > "$merged"; pipe_ok "the object merge" "${PIPESTATUS[@]}"
   local oid type path lower cur="" keep="" selfnamed=0 first="" selfbase="${SELF##*/}"
@@ -804,7 +813,7 @@ history_scan() {
   # match arrive in order and no process runs per hit. -a on both: the stream carries raw bytes.
   git cat-file --batch < "$oids" \
     | LC_ALL=C tr '\0' '\001' \
-    | LC_ALL=C awk -v labels="$labels" -v orphans="$ORPHANS" "$READER" > "$tagged"; pipe_ok "the history reader" "${PIPESTATUS[@]}"
+    | LC_ALL=C LG_LABELS="$labels" LG_ORPHANS="$ORPHANS" awk "$READER" > "$tagged"; pipe_ok "the history reader" "${PIPESTATUS[@]}"
   LC_ALL=C grep -aE "$RE_ANY" "$tagged" > "$hits" || true
   # Into a file, not a process substitution: bash reads a pipe one byte per syscall, and this loop
   # read 25x slower from one on the store this was measured on.
