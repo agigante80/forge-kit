@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 23
+# check-contributor-docs-version: 24
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -64,7 +64,7 @@
 #              AGENTS.md by a mechanism that harness documents, and is referred otherwise. See the
 #              check's own section for the table and its limits.
 #   import     (#301) Only when the root CLAUDE.md is TRACKED and --docs is not given. Each @-import
-#              token CLAUDE.md holds outside spans and fences must name a file a clone has: a
+#              token CLAUDE.md holds outside spans, fences and HTML comments must name a file a clone has: a
 #              tracked, unignored path, resolved from the importing file's directory, with a
 #              symlink judged by safe_resolve (the `required` rule). Untracked, absent, ignored or
 #              escaping fails; @~/ and @/ are referred and never opened. A markdown import (.md,
@@ -74,6 +74,10 @@
 #              Code, which tries any token, so @maintainer is prose). Limits: AGENTS.md's own @
 #              tokens are never followed, though Claude Code follows them; .claude/CLAUDE.md is not
 #              read; a non-markdown import is never opened; @scope/pkg in prose is a false positive.
+#
+# BLOCK HTML COMMENTS are skipped before anything else is read (#408): no import, link or command
+# is taken from inside `<!-- ... -->`, on one line or across lines, as no reader sees it, and a fence
+# line inside an open comment opens nothing. A comment inside a fence is fence text.
 #
 # A SCOPE, for the cd rule: a fenced block is one scope; a code span's scope is its PARAGRAPH, so
 # "Run `cd client`, then `npm run dev`." is referred (#295). A cd AFTER the command changes nothing.
@@ -519,8 +523,30 @@ function imports(s,    n, i, w, ws, k) {
     printf "I\t%d\t%s\t%s\n", NR, w, (k == 1 ? "own" : "-")
   }
 }
-BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0 }
+# uncomment(s): s without its block HTML comments (#408). Nothing inside a comment is an import, a
+# link or a command, since GitHub hides it and Claude Code 2.1.287 strips it before reading
+# imports; an unclosed `<!--` sets `incomment` and the comment runs on to the next `-->`. A `<!--`
+# after an odd number of backticks sits in a code span and opens nothing (a stated limit: a span
+# delimited by a run of two backticks is not told apart).
+function uncomment(s,    out, i, j, pre, bt) {
+  out = ""; bt = 0
+  while ((i = index(s, "<!--")) > 0) {
+    pre = substr(s, 1, i - 1); bt += gsub(/`/, "`", pre)
+    if (bt % 2) { out = out substr(s, 1, i + 3); s = substr(s, i + 4); continue }   # html comment: span
+    j = index(substr(s, i + 4), "-->")
+    if (!j) { incomment = 1; return out pre }
+    out = out pre " "; s = substr(s, i + 4 + j + 2)
+  }
+  return out s
+}
+BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0; incomment = 0 }
 { sub(/\r$/, "") }
+# A comment is tested BEFORE fences and spans: a fence line inside an open comment opens no fence,
+# and a comment opened inside a fence is fence text.
+{
+  if (incomment) { k = index($0, "-->"); if (!k) next; $0 = substr($0, k + 3); incomment = 0 }   # html comment: close
+  if (!infence) $0 = uncomment($0)
+}
 {
   line = $0; lead = line; sub(/^ ? ? ?/, "", lead)
   c3 = substr(lead, 1, 3)
@@ -1064,7 +1090,8 @@ harness_credit() {
     *) HC_IMP=0 HC_LINK=0 ;;
   esac
 }
-# harness_judge_doc <path>: judge the blob already in $T/hdoc. Fences and spans are skipped by EXTRACT.
+# harness_judge_doc <path>: judge the blob already in $T/hdoc. Fences, spans and HTML comments are
+# skipped by EXTRACT (#408), so a commented-out @AGENTS.md does not pass.
 harness_judge_doc() {
   local h=$1 hdir np kind ln a b c imp=0 lnk=0 abs=0 uimp=0 ulnk=0 why
   hdir=${h%/*}; [ "$hdir" = "$h" ] && hdir=""

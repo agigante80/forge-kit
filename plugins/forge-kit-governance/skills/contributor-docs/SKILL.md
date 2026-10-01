@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 17 -->
+<!-- contributor-docs-version: 18 -->
 
 # Contributor docs
 
@@ -90,7 +90,8 @@ default set is `AGENTS.md`, `CONTRIBUTING.md` at its three locations, and every 
 reads (`.md`, `.txt` or extensionless, plus files inside a `PULL_REQUEST_TEMPLATE/` directory),
 each scanned only if tracked. `--docs` replaces the set; `AGENTS.md` and `harness-copy` run regardless.
 
-What it checks, all resolved against the git INDEX, never the disk:
+What it checks, all resolved against the git INDEX, never the disk. Nothing inside a block HTML
+comment is read:
 
 - **required**: `AGENTS.md` is tracked and no ignore rule matches it. A tracked symlink passes only
   when its relative target names a tracked regular file, so `AGENTS.md -> CLAUDE.md` fails when
@@ -115,7 +116,7 @@ What it checks, all resolved against the git INDEX, never the disk:
 - **harness-copy** (#300): a tracked per-harness file passes when it reaches `AGENTS.md` by a
   credited mechanism (table above), read from the index, and is `referred` otherwise. It never fails.
 - **import** (#301): with a tracked root `CLAUDE.md` and no `--docs`, each `@path` token outside
-  spans and fences must name a file a clone has, resolved from the importing file under the
+  spans, fences and HTML comments must name a file a clone has, resolved from the importing file under the
   `required` link rule; `@~/` and `@/` are referred. Markdown imports are scanned too, breadth-first
   to Claude Code's four hops. Trailing punctuation is part of the path, as Claude Code reads it, so
   `see @docs/DEV.md.` fails.

@@ -584,6 +584,39 @@ case_ h_ordinary_import "an @ line in AGENTS.md is no link"
 case_ h_ordinary_import_neg "a dead link in AGENTS.md still fails"
 case_ h_malformed "empty, unterminated, CRLF and unclosed-fence harness files never crash"
 
+# ---------------------------------------------------------------- #408: block HTML comments
+nimprow() { grep -c "$(printf '\timport\t')" <<<"$OUT"; }
+c_imp_html_comment() { new; agents 'x\n'; claudemd "$(lines '<!--' '@docs/old.md' '-->')"; run
+  rc_is 0 && [ "$(nimprow)" = 0 ] || return 1
+  new; agents 'x\n'; claudemd "$(lines '<!-- @docs/old.md -->')"; run
+  rc_is 0 && [ "$(nimprow)" = 0 ]; }
+c_imp_html_comment_after() { new; agents 'x\n'; claudemd "$(lines '<!--' 'old' '--> @docs/old.md')"; run
+  rc_is 1 && at fail CLAUDE.md:3 "docs/old.md: imported by CLAUDE.md" || return 1
+  new; agents 'x\n'; claudemd "$(lines '<!--' 'old' '-->' '@docs/old.md')"; run
+  rc_is 1 && at fail CLAUDE.md:4 "docs/old.md: imported by CLAUDE.md"; }
+c_imp_html_comment_fence() { new; agents 'x\n'; claudemd "$(lines '<!--' '```' '-->' '@docs/old.md')"; run
+  rc_is 1 && at fail CLAUDE.md:4 "docs/old.md: imported by CLAUDE.md"; }
+c_imp_html_comment_span() { new; agents 'x\n'; claudemd "$(lines 'see `<!--` here' '@docs/old.md')"; run
+  rc_is 1 && at fail CLAUDE.md:2 "docs/old.md: imported by CLAUDE.md"; }
+c_imp_html_comment_unclosed() { new; agents 'x\n'; claudemd "$(lines '<!-- never closed' '@docs/old.md' '' '@docs/older.md')"; run
+  rc_is 0 && [ "$(nimprow)" = 0 ]; }
+c_imp_html_comment_inline() { new; agents 'x\n'; claudemd "$(lines 'See <!-- @docs/old.md --> here.')"; run
+  rc_is 0 && [ "$(nimprow)" = 0 ]; }
+c_imp_html_comment_link() { new; pkg '"x":"x"'; agents "$(lines '<!--' '[d](gone.md)' '`npm run nope`' '[y]: ./gone2.md' '-->' '[e](gone3.md)')"; run
+  rc_is 1 && ! grep -q 'gone.md\|nope\|gone2' <<<"$OUT" && at fail AGENTS.md:6 "gone3.md is not a tracked path"; }
+h_html_comment() { new; agents 'x\n'; tput_ CLAUDE.md "$(lines '<!--' '@AGENTS.md' '-->')"; run
+  rc_is 0 && hrow referred CLAUDE.md "a separate copy" && ! hrow pass CLAUDE.md ""; }
+
+echo "== #408 block HTML comments =="
+case_ c_imp_html_comment "an import inside a block HTML comment, multi-line or one-line, is not followed"
+case_ c_imp_html_comment_after "a token after the comment closes, on its line or the next, is an import"
+case_ c_imp_html_comment_fence "a fence line inside an open comment opens no fence"
+case_ c_imp_html_comment_span "a <!-- inside a code span opens no comment"
+case_ c_imp_html_comment_unclosed "an unclosed comment runs to the end of the file"
+case_ c_imp_html_comment_inline "a comment inside a paragraph hides its import"
+case_ c_imp_html_comment_link "a link, a command and a reference definition inside a comment give no row"
+case_ h_html_comment "a commented-out @AGENTS.md does not make a harness file pass"
+
 # ---------------------------------------------------------------- check 3: commands
 c_build() { new; pkg '"build":"x"'; agents 'Run `npm run build`.\n'; run
   rc_is 0 && row pass command "npm run build"; }
@@ -1977,6 +2010,11 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "harness: an absolute import normalised" h_imp_abs 'case "$a" in /*) abs=1; continue ;; esac   # harness: absolute import' ':'
   mutant "harness: a symlink target resolved from the root" h_sym_owndir 'np=$(normpath "$hdir" "$tgt") ||' 'np=$(normpath "" "$tgt") ||'
   mutant "harness: names matched in any case" h_case '{ p = $0 }' '{ p = $0; if (toupper(p) == "GEMINI.MD") p = "GEMINI.md" }'
+  # #408: block HTML comments.
+  mutant "html comment: the skip removed" c_imp_html_comment '  if (!infence) $0 = uncomment($0)' ''
+  mutant "html comment: the whole --> line skipped" c_imp_html_comment_after 'if (!k) next; $0 = substr($0, k + 3); incomment = 0 }' 'next }'
+  mutant "html comment: a fence wins inside a comment" c_imp_html_comment_fence 'if (incomment) { k = index($0, "-->");' 'if (incomment) { if ($0 ~ /^ ? ? ?(```|~~~)/) { incomment = 0; infence = 1; next } k = index($0, "-->");'
+  mutant "html comment: a span's <!-- opens a comment" c_imp_html_comment_span '    if (bt % 2) { out = out substr(s, 1, i + 3); s = substr(s, i + 4); continue }   # html comment: span' ''
   mutant "presence instead of tracked" c_untracked 'if tracked AGENTS.md; then' 'if [ -e AGENTS.md ]; then'
   mutant "check-ignore without --no-index" c_ignored 'check-ignore -q --no-index' 'check-ignore -q'
   mutant "links resolved from the root" c_link_parent 'np=$(normpath "$dir" "$a")' 'np=$(normpath "" "$a")'
@@ -2024,9 +2062,7 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   mutant ".txt templates dropped" c_tmpl_txt '(\.md|\.txt)?$' '(\.md)?$'
   mutant "scripts read from the working tree" c_index_blob 'git show :package.json >' 'cat package.json >'
   mutant "CR kept on blank lines" c_para_crlf '{ sub(/\r$/, "") }
-{
-  line' '{
-  line'
+# A comment is tested BEFORE' '# A comment is tested BEFORE'
   mutant "a fence closed by a blank line" c_fence_unclosed '    code(line, 1); next' '    if (trim(line) == "") { infence = 0; next }
     code(line, 1); next'
   mutant "an escaping link read from disk" c_escape 'row fail link "$loc" "$a: escapes the repository"' 'row fail link "$loc" "$a: escapes the repository"; cat "${dir:-.}/$a" >/dev/null 2>&1'
