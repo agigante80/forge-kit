@@ -11,6 +11,11 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **test-check-contributor-docs.sh: `c_escape` no longer depends on access times** (#305,
+  test-only, no component or plugin version change). The outside sentinel is now a FIFO with a
+  parked writer, so any read of it is observed directly by a bounded probe, and a watchdog
+  releases a second opener rather than letting the suite hang. A `noatime` or `relatime` mount
+  can no longer turn the escape check into a false green. The suite stays at 157 tests.
 - **`forge_issue_milestone`'s digit gate is now pinned by its own stderr line, and its
   unreachable `|| return 2` is gone** (#257, forge-lib v30, forge-kit-devops). The `abc` case
   discarded stderr, so rc 2 from either guard satisfied it; the null and `abc` cases now assert

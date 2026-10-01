@@ -172,17 +172,43 @@ c_link_misc() { new; tput_ docs/X.md 'x\n'; tput_ 'docs/a b.md' 'x\n'
   agents 'x\n'; run
   rc_is 1 && row pass link "/docs/X.md: tracked" && row pass link "a b.md: tracked" \
     && [ "$(count pass link)" = 4 ] && row fail link "gone.md is not a tracked path" && none nope.md; }
-# A read is proved by access time: with atime set BEFORE mtime, even relatime records the next
-# read. A noatime mount records nothing, which the calibration below detects and says.
-atime() { stat -c %X "$1" 2>/dev/null || stat -f %a "$1"; }
-ATIME_OK=0
-printf 'c\n' > "$W/calib"; touch -a -t 200001010000 "$W/calib"; a0=$(atime "$W/calib")
-cat "$W/calib" >/dev/null; [ "$(atime "$W/calib")" != "$a0" ] && ATIME_OK=1
-[ "$ATIME_OK" = 1 ] || echo "  note: this filesystem records no reads; the sentinel's access time proves nothing here"
+# A read of a path outside the repository is proved by a FIFO, never by file timestamps and never
+# by content. Access time is vacuous on a mount that records no reads, which made this suite
+# falsely RED there (#305); content cannot work either, because the mutant below discards what it
+# reads. So the sentinel is a named pipe with a writer parked on it: that writer blocks in open()
+# until something opens the FIFO for read. The shipped script classifies the escape lexically and
+# never opens the path, so after the run the writer is still parked and a bounded probe read
+# succeeds. A script that opens the path (cat, head, read, even `: <`) consumes the writer, so the
+# probe finds none and times out, and the case fails. A stat is deliberately not an open.
+# The probe and the cleanup run BEFORE the assertion chain, so a failing assertion cannot skip them.
+# A script that opens the path TWICE would block its second open forever and hang `run`, so a
+# watchdog releases that opener after a bound; the probe then finds no writer and fails the case
+# instead of hanging the suite. The sentinel is removed before mkfifo because this case runs twice
+# (shipped script, then mutant) in one $W. A TMPDIR without FIFO support fails mkfifo, and the case
+# fails loudly with it.
+bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it.
+  # The same helper as scripts/test-forge-lib.sh and scripts/test-check-public-leaks.sh carry,
+  # copied for the reason they give: stock macOS ships no GNU `timeout`.
+  local secs="$1"; shift
+  ( set -m
+    "$@" & pid=$!
+    ( sleep "$secs"; kill -- -"$pid" 2>/dev/null ) >/dev/null 2>&1 & w=$!
+    set +m
+    wait "$pid" 2>/dev/null; rc=$?
+    kill -- -"$w" 2>/dev/null
+    [ "$rc" -ge 128 ] && rc=124; exit "$rc" )
+}
+ESCAPE_WATCHDOG_SECS=${ESCAPE_WATCHDOG_SECS:-10}
 c_escape() { new; agents 'See [s](../sentinel) and [h](../../etc/hosts) and [g](docs/guide.md).\n'; tput_ docs/guide.md 'x\n'
-  printf 'secret\n' > "$W/sentinel"; touch -a -t 200001010000 "$W/sentinel"; local a0; a0=$(atime "$W/sentinel"); run
-  rc_is 1 && row fail link "../sentinel: escapes the repository" && row fail link "../../etc/hosts: escapes" \
-    && row pass link "docs/guide.md" && none secret && { [ "$ATIME_OK" = 0 ] || [ "$(atime "$W/sentinel")" = "$a0" ]; }; }
+  rm -f "$W/sentinel"; mkfifo "$W/sentinel" || return 1
+  { printf 'secret\n' > "$W/sentinel"; } & local wpid=$!
+  { sleep "$ESCAPE_WATCHDOG_SECS"; printf 'x\n' > "$W/sentinel"; } >/dev/null 2>&1 & local dpid=$!
+  run
+  { pkill -P "$dpid"; kill "$dpid"; wait "$dpid"; } 2>/dev/null
+  local probe=0; bounded 2 cat "$W/sentinel" >/dev/null 2>&1 && probe=1
+  { kill "$wpid"; wait "$wpid"; } 2>/dev/null
+  [ "$probe" = 1 ] && rc_is 1 && row fail link "../sentinel: escapes the repository" \
+    && row fail link "../../etc/hosts: escapes" && row pass link "docs/guide.md" && none secret; }
 c_ref_title() { new; tput_ docs/guide.md 'x\n'; agents '[g]: docs/guide.md "Guide"\n'; run
   rc_is 0 && row pass link "docs/guide.md" && none Guide; }
 c_ref_title_fail() { new; agents "[g]: gone.md 'Guide'\n"; run
@@ -556,7 +582,7 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   line'
   mutant "a fence closed by a blank line" c_fence_unclosed '    code(line, 1); next' '    if (trim(line) == "") { infence = 0; next }
     code(line, 1); next'
-  mutant "an escaping link read from disk" c_escape 'row fail link "$loc" "$a: escapes the repository"' 'row fail link "$loc" "$a: escapes the repository"; cat "${dir:-.}/$a" >/dev/null 2>\&1'
+  mutant "an escaping link read from disk" c_escape 'row fail link "$loc" "$a: escapes the repository"' 'row fail link "$loc" "$a: escapes the repository"; cat "${dir:-.}/$a" >/dev/null 2>&1'
   mutant "an assignment prefix skipped silently" c_env_prefix '+ 2 * env' '+ 0 * env'
   mutant "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$f")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$f")'
 else
