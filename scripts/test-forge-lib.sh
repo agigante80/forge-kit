@@ -1985,11 +1985,11 @@ RC="$( ( . "$MUT256"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=gitea FORG
 expect "mutant (#256): without the refusal an invalid-host close returns 0, so the writer case can fail" 0 "$RC"
 
 # --- #334: the flag-OFF side of every FORGE_DRY_RUN guard -------------------------------------------
-# The library's contract is that ONLY the exact value 1 is a dry run. Eight guards are exercised here
+# The library's contract is that ONLY the exact value 1 is a dry run. Every DR_SITES guard is exercised here
 # (forge_milestone_close is #319's: its explicit-value cases sit with mc_run, its ledger at the end). Before this section the
 # suite drove the flag-off side of exactly one of them (forge_api, with 0), so a guard rewritten to
-# `[ -n "${FORGE_DRY_RUN:-}" ]` or `[ "${FORGE_DRY_RUN:-0}" != 0 ]` passed everything at the other
-# seven. Two mutants, two values: the value 0 kills the `-n` form, and ONLY a non-numeric truthy-looking
+# `[ -n "${FORGE_DRY_RUN:-}" ]` or `[ "${FORGE_DRY_RUN:-0}" != 0 ]` passed everything at the others.
+# Two mutants, two values: the value 0 kills the `-n` form, and ONLY a non-numeric truthy-looking
 # value (`true`) kills the `!= 0` form, because `[ "0" != 0 ]` is false. Hence both values per site.
 # Not exercised here: forge_issue_label's forgejo shape (paginated name resolution). Its guard sits
 # above the host `case`, so the github shape's single POST reaches the same line.
@@ -2070,6 +2070,10 @@ dr_site() {
 # dr_mutant <site> <n|b> <outfile>: rewrite THAT function's guard, the first one after its header, to
 # the `-n` form (n) or the `!= 0` form (b). Anchored by function name, so nothing moves when lines do,
 # and forge-lib.sh carries no anchor comment (which would force a version bump).
+# Exits 0 when it FOUND a guard line and attempted the rewrite; sub() can still be a no-op on an
+# unfamiliar guard shape, so callers also cmp (the ledgers do). Exits 1, outfile written byte-identical
+# to the library, when the named function has no guard or does not exist. Any other failure (an
+# unreadable library) is awk's own non-zero status.
 dr_mutant() {
   awk -v fn="$1" -v k="$2" '
     /^[A-Za-z_][A-Za-z0-9_]*\(\) *\{/ { inf = ($0 ~ "^" fn "\\(\\) *\\{") }
@@ -2125,7 +2129,7 @@ done
 for site in $DR_SITES; do
   for form in n b; do
     MUT334="$T/forge-lib-mut334-$site-$form.sh"
-    dr_mutant "$site" "$form" "$MUT334" && ok "mutant ledger (#334): dr_mutant found the $site guard" || bad "mutant ledger (#334): dr_mutant found no guard at $site"
+    dr_mutant "$site" "$form" "$MUT334" && ok "mutant ledger (#334): dr_mutant found the $site guard for the $form mutant" || bad "mutant ledger (#334): dr_mutant found no guard at $site for the $form mutant"
     cmp -s "$LIB" "$MUT334" && bad "mutant ledger (#334): the $site $form mutant did not apply" || ok "mutant ledger (#334): the $site $form mutant differs from the lib"
     [ "$(diff "$LIB" "$MUT334" | grep -c '^>')" = 1 ] && ok "mutant ledger (#334): the $site $form mutant changes exactly one line" || bad "mutant ledger (#334): the $site $form mutant changed a number of lines other than one"
     if [ "$form" = n ]; then
@@ -2150,7 +2154,7 @@ mc_cleanly_dry() {
 # and dies only at =true.
 for form in n b; do
   MUT319="$T/forge-lib-mut319-$form.sh"
-  dr_mutant forge_milestone_close "$form" "$MUT319" && ok "mutant ledger (#319): dr_mutant found the forge_milestone_close guard" || bad "mutant ledger (#319): dr_mutant found no guard at forge_milestone_close"
+  dr_mutant forge_milestone_close "$form" "$MUT319" && ok "mutant ledger (#319): dr_mutant found the forge_milestone_close guard for the $form mutant" || bad "mutant ledger (#319): dr_mutant found no guard at forge_milestone_close for the $form mutant"
   cmp -s "$LIB" "$MUT319" && bad "mutant ledger (#319): the forge_milestone_close $form mutant did not apply" || ok "mutant ledger (#319): the forge_milestone_close $form mutant differs from the lib"
   [ "$(diff "$LIB" "$MUT319" | grep -c '^>')" = 1 ] && ok "mutant ledger (#319): the forge_milestone_close $form mutant changes exactly one line" || bad "mutant ledger (#319): the forge_milestone_close $form mutant changed a number of lines other than one"
   if [ "$form" = n ]; then

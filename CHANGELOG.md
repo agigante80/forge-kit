@@ -11,6 +11,9 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- `scripts/test-forge-lib.sh`: the #334 and #319 `dr_mutant` ledger rows now name the mutant form, so
+  the n and b rows are distinct. The `dr_mutant` contract comment now states its exit status, and the
+  comments no longer carry a guard count. Test-only, suite count unchanged (#358).
 - **`gate-status.sh` dates its v5 shape rule and `test-gate-status.sh` makes the shape loop's `--mark-stale` rows able to fail** (#356, `gate-status-version` 5 to 6 (header comment only, no behaviour change), `forge-kit-governance` 0.28.6 to 0.28.7; the suite goes from 176 to 181 passed, 0 failed). The v5 sentence now opens "(v5, #342) Only two shapes" and the `THE TAG` paragraph is reflowed so no line passes 100 columns (line 50 was 125). The seven non-writer shapes now carry the stale hash `sha256:0000000000000000`, because with the current hash a misread shape read `current` and its `--mark-stale sends nothing for it` row could not fail; a new `probe_shape_patch` plus an `m` line keeps the catch-all-deleted kill permanent. Three new cases: metacharacters outside the parentheses and a newline splitting the text after the hash both read `unrecorded round 2` (the catch-all mutant kills both), and a newline after a complete stamp reads `current`, labelled a sanity check together with the absent-file `x` check, since neither can be failed by a plausible mutant.
 - The pre-push hook's leak message no longer says "NOT one of the CI checks; nothing server-side will
   catch it for you", which was false for the public scan: CI runs `check-public-leaks.sh --all`. The
