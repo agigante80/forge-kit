@@ -941,8 +941,10 @@ forge-adapt carrying the decisions into installed copies (#281). Per-dispatch ef
 scripts was considered and deferred to Backlog (#282).
 
 ## Phase: What contributor-docs still cannot see
-state: open
+state: done
 plan: docs/plans/what-contributor-docs-cannot-see.md
+
+Closed 2026-10-01, outcome **re-shaped**. Five of the seven planned tickets landed in the planned order, #309, #406, #398, #301 and #300, and one appeared: #408, found by #297's research, which showed Claude Code strips block HTML comments before it reads imports. The two that did not land each wait on the maintainer, not on work: #297 (startup context as a budget) moved to its own planned phase, *What a session loads before work begins*, with its prior-art research done and recorded on the ticket, and #302 (the line budget) moved to `backlog` until a choice among its three options is recorded. None of the premortem's clauses fired: the security fix shipped first, #301 resolved its symlink imports through #309's `safe_resolve` rather than a second definition, #297 measured and edited nothing, #302 was not implemented, and #300's trip wire held at one more round. What the phase learned is that the installed CLI is the only source to believe: probing Claude Code 2.1.287 reversed two of #301's rules (trailing punctuation is part of an import path, and an import inside a symlinked file resolves from the target's directory), and the free `/context` call turned out to report what #297 wanted to measure. The suite went from 607 to 805 cases, and CI now also runs it under BWK awk in a UTF-8 locale.
 
 Opened 2026-10-01, when no phase was open and 28 open tickets had none. Seven of them are about one check, `check-contributor-docs.sh`, and they share a cause: the check reads a line well now (#385 to #395 saw to that), but it follows a tracked symlink out of the repository (#309), never follows a `CLAUDE.md`'s `@`-imports (#301), never looks at per-harness copies of `AGENTS.md` (#300), and never counts what a session loads before any work begins (#297), which one downstream repository measured at 258 KB. #302's line budget waits on a maintainer decision, and #398 and #406 are the Lows and the Apple-awk gap the last batches left.
 
@@ -959,8 +961,10 @@ plan:
 A bucket, filed 2026-10-01. Suites that pass alone and fail under load (#404, #378, #331, #219), and mutant harnesses outside test-forge-lib.sh that count a crashing mutant as killed (#360). A suite that flakes teaches people to re-run it, and a mutant that crashes proves nothing; both make a green run mean less than it says. The plan, when it opens, has to say what a flake's root cause is in each case rather than raise a timeout.
 
 ## Phase: The gate's own correctness
-state: planned
-plan: 
+state: open
+plan: docs/plans/the-gates-own-correctness.md
+
+Opened 2026-10-01, when *What contributor-docs still cannot see* closed; plan: `docs/plans/the-gates-own-correctness.md`. Two of its four tickets were partly done by work that landed while they waited (fd05cba skips a region to its own end marker, #335's open choice), and #320's first gate passed the day it opened.
 
 A bucket, filed 2026-10-01. The gate failing its own critic's advice (#349: a 'Control (...)' scenario the critic recommends trips the scenario counter), the #283 review Lows and a forge_issue_comment jq failure (#347), and the #304 review Lows in check-ticket-mechanics.sh (#320, #335). ticket-gate.md sits at its size ratchet with zero headroom, so the plan has to say where each fix's words come from.
 
