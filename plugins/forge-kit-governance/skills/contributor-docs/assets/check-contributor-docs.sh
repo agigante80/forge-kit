@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 7
+# check-contributor-docs-version: 8
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -34,6 +34,10 @@
 #              Everything else is referred or silent. make and just are read as TEXT and never
 #              invoked: make runs recipes while remaking makefiles. npm run X is also referred when a
 #              tracked root .npmrc sets workspace or workspaces (#339), or is a symlink.
+#              A leading UTF-8 byte-order mark on line 1 of a Makefile or justfile is stripped first
+#              (#364), as make and just both ignore it. judge_target runs awk without LC_ALL=C,
+#              unlike npmrc_scan; that is harmless on gawk, mawk and busybox awk, and BSD awk is
+#              untested.
 #   script-path  `node|sh|bash <path>`: tracked passes, anything else is referred (a build output
 #              is correct and untracked). A path leaving the repository is never read.
 #   link       Relative links, images and reference definitions resolve to a tracked path or to a
@@ -318,6 +322,7 @@ BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0 }
 }'
 
 MAKE_AWK='
+NR == 1 { sub(/^\357\273\277/, "") }
 { sub(/\r$/, "") }
 /^\t/ { next }
 /^[ \t]*(-?include|sinclude)[ \t]/ { unsettled = 1; next }
@@ -334,6 +339,7 @@ MAKE_AWK='
 END { print (found ? "found" : (unsettled ? "unsettled" : "absent")) }'
 
 JUST_AWK='
+NR == 1 { sub(/^\357\273\277/, "") }
 { sub(/\r$/, "") }
 /^[ \t]/ { next }
 /^(import|mod)[ \t?]/ || /^set[ \t]+fallback/ { unsettled = 1; next }

@@ -188,6 +188,24 @@ c_make_absent() { new; tput_ Makefile 'build:\n\techo b\n'; agents '`make deploy
   rc_is 1 && row fail command "make deploy: no such target in Makefile"; }
 c_just() { new; tput_ justfile 'build:\n  echo b\n'; agents '`just build`\n\n`just ship`\n'; run
   rc_is 1 && row pass command "just build" && row fail command "just ship"; }
+c_make_bom() { new; tput_ Makefile '\xef\xbb\xbfdev:\n\t@echo x\n'; agents '`make dev`\n'; run
+  rc_is 0 && row pass command "make dev: defined in Makefile" && at pass AGENTS.md:1 "make dev: defined in Makefile"; }
+c_make_bom_neg() { new; tput_ Makefile '\xef\xbb\xbfbuild:\n\t@echo x\n'; agents '`make deploy`\n'; run
+  rc_is 1 && row fail command "make deploy: no such target in Makefile" && at fail AGENTS.md:1 "make deploy: no such target in Makefile"; }
+c_make_bom_include() { new; tput_ Makefile '\xef\xbb\xbfinclude common.mk\nbuild:\n\techo b\n'; agents '`make release`\n'; run
+  rc_is 0 && row referred command "make release: not literal in Makefile, which includes or imports others" && at referred AGENTS.md:1 "make release"; }
+c_make_bom_later_line() { new; tput_ Makefile 'build:\n\t@echo x\n\xef\xbb\xbfdev:\n\t@echo y\n'; agents '`make dev`\n'; run
+  rc_is 1 && row fail command "make dev: no such target in Makefile" && at fail AGENTS.md:1 "make dev: no such target in Makefile"; }
+c_make_bom_crlf() { new; tput_ Makefile '\xef\xbb\xbfdev:\r\n\t@echo x\r\n'; agents '`make dev`\n'; run
+  rc_is 0 && row pass command "make dev: defined in Makefile"; }
+c_just_bom() { new; tput_ justfile '\xef\xbb\xbfbuild:\n  echo b\n'; agents '`just build`\n'; run
+  rc_is 0 && row pass command "just build: defined in justfile" && at pass AGENTS.md:1 "just build: defined in justfile"; }
+c_just_bom_neg() { new; tput_ justfile '\xef\xbb\xbfbuild:\n  echo b\n'; agents '`just ship`\n'; run
+  rc_is 1 && row fail command "just ship: no such target in justfile" && at fail AGENTS.md:1 "just ship: no such target in justfile"; }
+c_just_bom_fallback() { new; tput_ justfile '\xef\xbb\xbfset fallback\nbuild:\n  echo b\n'; agents '`just ship`\n'; run
+  rc_is 0 && row referred command "just ship: not literal in justfile, which includes or imports others" && at referred AGENTS.md:1 "just ship"; }
+c_just_bom_set_shell() { new; tput_ justfile '\xef\xbb\xbfset shell := ["bash", "-c"]\nbuild:\n  echo b\n'; agents '`just ship`\n'; run
+  rc_is 1 && row fail command "just ship: no such target in justfile" && at fail AGENTS.md:1 "just ship: no such target in justfile"; }
 c_cd_forms() { new; pkg '"x":"x"'
   agents '`cd x && npm run y`\n\n```\n(cd x; npm run y)\n```\n\n```sh\npushd x\n$ npm run y\n```\n'; run
   rc_is 0 && [ "$(count referred command)" = 3 ] && [ "$(grep -c 'directory change precedes' <<<"$OUT")" = 3 ]; }
@@ -210,6 +228,15 @@ case_ c_pnpm "pnpm run lint fails; npm run -s lint. fails as lint"
 case_ c_make_include "make with include is referred, a literal target passes, make never runs"
 case_ c_make_absent "make with no such target fails"
 case_ c_just "just: a defined recipe passes, an absent one fails"
+case_ c_make_bom "a leading byte-order mark does not hide a Makefile's first target"
+case_ c_make_bom_neg "a BOM Makefile still fails an absent target"
+case_ c_make_bom_include "a BOM before include is referred, never failed"
+case_ c_make_bom_later_line "a BOM on a later Makefile line is not stripped"
+case_ c_make_bom_crlf "a Makefile with a BOM and CRLF line endings passes"
+case_ c_just_bom "a leading byte-order mark does not hide a justfile's first recipe"
+case_ c_just_bom_neg "a BOM justfile still fails an absent recipe"
+case_ c_just_bom_fallback "a BOM before set fallback is referred, never failed"
+case_ c_just_bom_set_shell "a BOM before a set that is not fallback still fails"
 case_ c_cd_forms "cd in a span, a subshell in a fence and pushd in a fence each refer"
 case_ c_cd_other_fence "a cd in an earlier fence does not reach a later fence"
 case_ c_nopkg "no tracked root package.json refers"
@@ -1016,6 +1043,33 @@ first_file() {'
 ' ''
   mutant "byte-order mark strip dropped" c_npmrc_bom '    NR == 1 { sub(/^\357\273\277/, "") }
 ' ''
+  mutant "make byte-order mark strip dropped" c_make_bom 'MAKE_AWK='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'MAKE_AWK='\''
+'
+  mutant "just byte-order mark strip dropped" c_just_bom 'JUST_AWK='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'JUST_AWK='\''
+'
+  mutant "make strip placed after the include rule" c_make_bom_include 'MAKE_AWK='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'MAKE_AWK='\''
+' '/^[ \t]*(-?include|sinclude)[ \t]/ { unsettled = 1; next }
+' '/^[ \t]*(-?include|sinclude)[ \t]/ { unsettled = 1; next }
+NR == 1 { sub(/^\357\273\277/, "") }
+'
+  mutant "just strip placed after the set fallback rule" c_just_bom_fallback 'JUST_AWK='\''
+NR == 1 { sub(/^\357\273\277/, "") }
+' 'JUST_AWK='\''
+' '/^(import|mod)[ \t?]/ || /^set[ \t]+fallback/ { unsettled = 1; next }
+' '/^(import|mod)[ \t?]/ || /^set[ \t]+fallback/ { unsettled = 1; next }
+NR == 1 { sub(/^\357\273\277/, "") }
+'
+  # No just twin of this mutant: #364 declined it, because both readers share the one-line
+  # NR == 1 shape and this make case pins it. A just-only drift of that shape would survive.
+  mutant "make strip not limited to line 1" c_make_bom_later_line 'MAKE_AWK='\''
+NR == 1 { sub(/' 'MAKE_AWK='\''
+{ sub(/'
   mutant "section test after the indentation trim" c_npmrc_indented_section '    /^\[[^]]*\][ \t]*$/ { exit }
     { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }' '    { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
     /^\[[^]]*\][ \t]*$/ { exit }'
