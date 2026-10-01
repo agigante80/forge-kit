@@ -51,19 +51,39 @@
 # #372 ADDED SEVEN MORE (so thirty-eight in all), run by hand on 2026-10-01 in a scratch copy, each
 # shown to fail this suite. (a) the ambiguity exit, `; exit 1` after the ambiguity printf (3
 # failures, the three bare-dup full-path assertions), and the same exit placed after the `warned`
-# block's closing brace (also 3); (b) the ANCHORED regex lookup, `tok ~ ("^" k "$")` with `.` in the
+# block's closing brace (also 3), which are two runs of ONE mutant, so the count of seven counts
+# mutants and not runs; (b) the ANCHORED regex lookup, `tok ~ ("^" k "$")` with `.` in the
 # key a wildcard, which SURVIVED the pre-#372 suite (224 passed, 0 failed) because `demo-assetXsh`
 # has no `demo-asset.sh` to miss, and dies after the near-miss became `demo-checkXsh` (2); (c) M3,
 # the token expanded through a shell or a git pathspec: the bare lookup becomes
 # `"git ls-files -- \"scripts/" tok "\"" | getline` with NO .sh suffix guard, which is the only
-# shape meta-subst-unresolved kills because its token `$(touch pwned-two)` has no .sh (15 failures,
-# among them meta-subst, meta-subst-unresolved and meta-glob-absent); (d) the reverse regex,
-# `k ~ tok`, killed by meta-glob-literal's column 4 (6); (e) the program name put back to the
+# shape meta-subst-unresolved kills because its token `$(touch pwned-two)` has no .sh (see the
+# literal edit below; 15 failures, among them meta-subst, meta-subst-unresolved and
+# meta-glob-absent); (d) the reverse regex, `k ~ tok`, killed by meta-glob-literal's column 4 (see
+# the literal edit below; 7 failures); (e) the program name put back to the
 # literal "check-doc-drift" in the ambiguity printf (2, the PROG scratch copy); (f) the root-level
 # exception sentence reworded so it no longer says "resolves only when the range changed it" (1);
 # and (g) the printed sha taken from a path other than the resolved one (5, the three live-range
 # column-4 pins among them). The anchored regex run is by-hand evidence only: no committed test
 # builds a mutant.
+#
+# #382 RECORDS THE LITERAL EDITS for (c) and (d) above, measured against the suite as it stood
+# before the #382 rows (measured at 5363792), under GNU Awk 5.2.1. Each is
+# applied to scripts/check-doc-drift.sh in a scratch copy.
+#  (c) INSERT, immediately above the awk line `if (path == "" && tok in bn) {`, this one line:
+#      if (path == "") { cmd = "git ls-files -- \"scripts/" tok "\""; if ((cmd | getline lf) > 0) path = lf; close(cmd) }
+#      15 failures (17 against the suite with the #382 rows). The PLACEMENT matters: the same line
+#      put directly above `if (path == "") continue`, as a fallback, gives 6 failures, because a
+#      token the table already resolved never reaches it: meta-subst PASSES (it survives), and only
+#      meta-subst-unresolved and meta-glob-absent fail, with the four bare-dup rows still green.
+#  (d) REPLACE the two awk lines `if (path == "" && tok in bn) {` and
+#      `if (bn[tok] == 1) path = bfirst[tok]` with these three:
+#      lk = ""; if (path == "") for (k in bn) if (k ~ tok) lk = k
+#      if (path == "" && lk != "") {
+#      if (bn[lk] == 1) path = bfirst[lk]
+#      7 failures: meta-subst's two rows, meta-glob-literal's column 4, meta-glob-absent's two, and
+#      the live-range forge-lib.sh column-4 pins of ranges f15dd74e and 9416a77b. The last two read
+#      HEAD's README, so the count can move with it. The earlier figure of 6 did not reproduce.
 #
 # #308 ADDED THREE (so forty-one in all), run by hand on 2026-10-01 in a scratch copy, shown to
 # fail this suite: the path-split guard removed, leaving `_rest="${_rest#* }"` unguarded, so a
@@ -72,6 +92,15 @@
 # kill the rest of the new cases: the pre-existing empty-path die reworded to the anchor message
 # (2, the trailing-space pair), and the new guard printing a line to stdout before dying (1, the
 # empty-stdout pin).
+#
+# #382 ADDED TWO MORE (so forty-three in all: the last paragraph's total plus two), run by hand on
+# 2026-10-01 in a scratch copy, each measured under GNU Awk 5.2.1 against the suite as it stood
+# before the #382 rows (at 5363792) and against the suite with them. The ambiguity branch run
+# even when a changed root path already won, the awk edit `if (path == "" && tok in bn) {` to
+# `if (tok in bn) {` and `if (bn[tok] == 1) path = bfirst[tok]` to
+# `if (bn[tok] == 1) { if (path == "") path = bfirst[tok] }`: 0 failures before, 2 after (the
+# bare-root-dup one-row-summary row and its range-3 no-ambiguity row). And the `[ -n "$2" ] && `
+# guard deleted from col4_is: 0 failures before, 1 after (the empty-sha control).
 #
 # One mutant is deliberately absent. A sha-equality branch for "the same commit addressed it" was
 # written, and no input could reach it: a line whose last commit IS the commit that changed the
@@ -473,6 +502,26 @@ run --range "$ROOT_HEAD..$(sha HEAD)" --docs README.md
 expect "a later range that did not change the root file yields no row" "" "$OUT"
 expect "with exactly the zero-claims summary and no ambiguity line" "$ZERO" "$ERR"
 
+# #382: the root file beside an AMBIGUOUS table. bare-root has one table candidate, so a table lookup
+# would resolve it without any ambiguity and could not tell the two orders apart; this fixture has two.
+mkrepo bare-root-dup
+bare_group demo-group demo-rootdup.sh
+printf 'x\n' > "$R/scripts/demo-rootdup.sh"; printf 'x\n' > "$R/demo-rootdup.sh"
+printf '# Doc\n\nThe demo is `demo-rootdup.sh` here.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/demo-rootdup.sh"; snap "$T2" "change the root file"; RD_ROOT=$(sha HEAD)
+run --range "$BASE..$RD_ROOT" --docs README.md
+expect "a changed root file beside two table candidates yields exactly its row" "README.md	3	demo-rootdup.sh	$RD_ROOT" "$OUT"
+expect "with only the one-row summary, so the root path won ahead of the ambiguity branch" "check-doc-drift: 1 suspected stale claim(s) across the documents given." "$ERR"
+bare_touch "$R/scripts/demo-rootdup.sh"; snap "$T2" "change the scripts/ file"; RD_SCRIPT=$(sha HEAD)
+run --range "$RD_ROOT..$RD_SCRIPT" --docs README.md
+expect "a range changing only a candidate yields no row" "" "$OUT"
+contains "ambiguous bare name 'demo-rootdup.sh' (matches plugins/demo-group/skills/demo-group-skill/assets/demo-rootdup.sh, scripts/demo-rootdup.sh); cite the full path" "$ERR" "and the ambiguity line lists exactly the asset and the scripts/ file, never the root file"
+run --range "$BASE..$RD_SCRIPT" --docs README.md
+expect "a range changing both resolves to the root file, pinned to its commit" "README.md	3	demo-rootdup.sh	$RD_ROOT" "$OUT"
+lacks "ambiguous" "$ERR" "with no ambiguity line in that range"
+if grep -qF -- 'a root file is never listed as a candidate' "$SUT"; then ok "the script header states that a root file is never listed as a candidate"; else bad "the script header lacks the never-listed-as-a-candidate sentence"; fi
+
 # #372: a token is only ever an awk array key. M3 is the mutant that expands it through a shell or a
 # git pathspec (the bare lookup becoming "git ls-files -- \"scripts/" tok "\"" | getline, with no
 # .sh suffix guard); meta-subst, meta-subst-unresolved and meta-glob-absent kill it.
@@ -825,6 +874,7 @@ done
 WANT_CTL="$(git -C "$ROOT" log -1 --format=%H 106a4531..9416a77b -- "$FL")"
 if col4_is "$(printf 'README.md\t77\tforge-lib.sh\t%040d\n' 0)" "$WANT_CTL"; then bad "the column-4 helper accepted a doctored row"; else ok "the column-4 helper rejects a doctored row (right token, wrong sha)"; fi
 if col4_is "$(printf 'README.md\t77\tforge-lib.sh\t%s\n' "$WANT_CTL")" "$WANT_CTL"; then ok "and accepts the same row with the right sha"; else bad "the helper rejected a correct row"; fi
+if col4_is "$(printf 'README.md\t77\tforge-lib.sh\t\n')" ""; then bad "the column-4 helper accepted an empty expected sha against an empty column 4"; else ok "the column-4 helper rejects an empty expected sha, even against an empty column 4"; fi
 
 echo "== #258: the reason is required PER ENTRY, not once per block =="
 allowrepo reason2

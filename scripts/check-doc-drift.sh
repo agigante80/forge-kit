@@ -59,7 +59,9 @@
 # naming every candidate, exit still 0. Ambiguity is decided from what exists, never from what the
 # range changed, so a document's result does not flip with the range. Zero candidates is ignored.
 # The one exception is a root-level `<name>.sh`: it resolves only when the range changed it, because
-# the token is then itself a changed path and wins ahead of the table (#372).
+# the token is then itself a changed path and wins ahead of the table, so in that range no ambiguity
+# line prints either; a root file is never listed as a candidate, because the table is deliberately
+# limited to catalogue assets and scripts/*.sh (#372 Option A, #382).
 # The `scripts/` listing is read from HEAD (`git ls-tree`); the asset half follows the working
 # tree, like the catalogue-name lookup above, so an uncommitted or deleted asset can add or
 # suppress a row as well as change the ambiguity line. A duplicate catalogue NAME still takes the
