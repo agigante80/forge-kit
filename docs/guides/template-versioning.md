@@ -73,7 +73,7 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
      as `## <label>` and follows the scenarios `placeholder:` shape (never its placeholder text), so
      its first output passes the heading and Given / When / Then checks without a second copy of
      either (#361)
-4. **Updates the issue body** via `gh issue edit` with the synthesised content
+4. **Writes the enriched body back** through the forge-host adapter: it clears the gate's own regions with `forge_body_region_clear` (synthesis voids the prior verdict) and writes the body with `forge_body_compose_preserving`, which re-threads every other marked region the new body does not restate, so it works on GitHub and Forgejo alike
 5. **Posts a comment** explaining what was synthesised and voiding the prior verdict
 6. **Re-runs the full review** against the enriched body (nothing carries forward)
 
