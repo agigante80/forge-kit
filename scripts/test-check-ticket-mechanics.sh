@@ -761,7 +761,8 @@ open(sys.argv[4],"w").write(s.replace(dep,"",1).replace(bd,bd+"Auto-populated by
 PY
 o="$(run "$WORK/g304-nocc.md" bug)"
 expect "#304: a bug body lacking only Codebase Context passes sections" pass "$(outcome "$o" sections)"
-case "$(sec_ev "$o")" in *"; gate-filled, not charged: Codebase Context") ok "#304: and its evidence ends naming Codebase Context as gate-filled" ;; *) bad "#304: evidence does not name the gate-filled field: $(sec_ev "$o")" ;; esac
+expect "#304, #320: its evidence names the exempt field with a count and claims no more than the charged sections" "every charged section present, every required one filled (headings at ###); gate-filled, absent and not charged (1): Codebase Context" "$(sec_ev "$o")"
+expect "#320: with nothing exempt the evidence is unchanged" "every template section present, every required one filled (headings at ###)" "$(sec_ev "$(run "$B" bug)")"
 sed 's/^### /## /' "$WORK/g304-nocc.md" > "$WORK/g304-nocc2.md"
 expect "#304: the same body at ## headings passes too" pass "$(outcome "$(run "$WORK/g304-nocc2.md" bug)" sections)"
 expect "#304: an author-owned optional heading is still charged, by name and alone" "heading absent (1): Dependencies" "$(sec_ev "$(run "$WORK/g304-nodeps.md" bug)")"
@@ -809,13 +810,40 @@ expect "#304: a region of any prefix ends the section (brief-*)" fail "$(outcome
 B="$(mkbody feature "g304-p.md" "" "" "" 'Updates `docs/guides/labels.md`')"
 { sed 's/^### /## /' "$B" | no_cc; printf '%s\n' "$REGION"; } > "$WORK/g304-p2.md"
 expect "#304: the author's own docs line is judged and quoted, not the region's" "$(printf 'pass\tUpdates `docs/guides/labels.md`')" "$(docs_row "$(run "$WORK/g304-p2.md" feature)")"
-# Mutant 1: the gate-filled clause deleted (one line altered); the positive case must flip.
-CL1="'\$4 == \"yes\" && \$2 == \"no\" { print \$1 }'"
+# Mutant 1: the gate-filled clause deleted (one line altered); the positive case must flip. Since
+# #320 the clause is the per-row test in check 3's loop.
+CL1='if [ "$gate" = yes ] && [ "$required" = no ]; then   # check 3: per-row gate flag'
 grep -qF "$CL1" "$SCRIPT" && ok "mutant ledger: the script carries the gate-filled clause (#304)" || bad "mutant ledger: #304 gate-filled clause not found"
-sed "s/'\$4 == \"yes\" && \$2 == \"no\" { print \$1 }'/'0 { print \$1 }'/" "$SCRIPT" > "$MUT"
+sed 's/if \[ "\$gate" = yes \] && \[ "\$required" = no \]; then   # check 3/if false; then   # check 3/' "$SCRIPT" > "$MUT"
 cmp -s "$SCRIPT" "$MUT" && bad "#304: the gate-filled mutant did not apply"
 ev="$(sec_ev "$(bash "$MUT" --body "$WORK/g304-nocc.md" --template "$TPLDIR/bug.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
 expect "mutant: with the gate-filled clause deleted, Codebase Context is charged (the #304 case can fail)" "heading absent (1): Codebase Context" "$ev"
+# #320 finding 1: a required field and a gate-filled optional field may share a label (GitHub forms
+# allow it when one has an id); the required one is charged. And a gate-filled field with no `id:`
+# keeps its exemption: a TAB-IFS read would collapse the empty id column and shift the flag.
+mktpl "$WORK/g320-dup.yml" "summary|Summary|true" "notes_author|Notes|true" "notes_gate|Notes|false|Auto-populated by ticket-gate. Do not edit manually."
+printf '<!-- template-version: 6 -->\n\n### Summary\n\nx\n' > "$WORK/g320-dup.md"
+o="$(bash "$SCRIPT" --body "$WORK/g320-dup.md" --template "$WORK/g320-dup.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#320: a required field sharing its label with a gate-filled one is charged" "heading absent (1): Notes" "$(sec_ev "$o")"
+printf 'body:\n  - type: textarea\n    id: summary\n    attributes:\n      label: Summary\n    validations:\n      required: true\n  - type: textarea\n    attributes:\n      label: Gate notes\n      description: Auto-populated by ticket-gate. Do not edit manually.\n    validations:\n      required: false\n' > "$WORK/g320-noid.yml"
+o="$(bash "$SCRIPT" --body "$WORK/g320-dup.md" --template "$WORK/g320-noid.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "#320: a gate-filled field with no id keeps its exemption" "every charged section present, every required one filled (headings at ###); gate-filled, absent and not charged (1): Gate notes" "$(sec_ev "$o")"
+sed 's/if \[ "\$gate" = yes \] && \[ "\$required" = no \]; then   # check 3/if printf "%s\\n" "$TEMPLATE_FIELDS" | awk -F"\\t" '"'"'$4 == "yes" \&\& $2 == "no" { print $1 }'"'"' | grep -qxF -- "$label"; then   # check 3/' "$SCRIPT" > "$MUT"
+cmp -s "$SCRIPT" "$MUT" && bad "#320: the label-lookup mutant did not apply"
+o="$(bash "$MUT" --body "$WORK/g320-dup.md" --template "$WORK/g320-dup.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
+expect "mutant: the exemption looked up by label passes the shared-label template (#320 can fail)" pass "$(outcome "$o" sections)"
+# #320 finding 2: only a WHOLE-LINE start marker opens a region; text after it on the line is author text.
+B="$(mkbody feature "g320-r.md" "" "" "" '<!-- gate-context:start --> is the marker the gate writes')"
+{ sed 's/^### /## /' "$B" | no_cc; } > "$WORK/g320-same.md"
+printf 'Updates `docs/guides/labels.md`\n' >> "$WORK/g320-same.md"
+expect "#320: text after a start marker on its line is author content" pass "$(outcome "$(run "$WORK/g320-same.md" feature)" docs_impact)"
+B="$(mkbody feature "g320-w.md" "" "" "" 'x')"
+{ sed 's/^### /## /' "$B" | no_cc | sed '/^## Documentation impact$/,$d'; printf '## Documentation impact\n\n<!-- gate-context:start -->\nUpdates `docs/guides/labels.md`\n<!-- gate-context:end -->\n'; } > "$WORK/g320-whole.md"
+expect "#320: a whole-line start marker still hides its region" "$(printf 'fail\tno content in Documentation impact')" "$(docs_row "$(run "$WORK/g320-whole.md" feature)")"
+sed 's|l ~ /^<!-- \[^ \\t\]+:start -->\$/|l ~ /^<!-- [^ \\t]+:start -->/|' "$SCRIPT" > "$MUT"
+cmp -s "$SCRIPT" "$MUT" && bad "#320: the anchor mutant did not apply"
+o="$(bash "$MUT" --body "$WORK/g320-same.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,feature 2>/dev/null)"
+expect "mutant: the start marker's end anchor dropped hides same-line author text (#320 can fail)" fail "$(outcome "$o" docs_impact)"
 # Mutant 2: the region-start rule removed from section_of(); the region case must flip to pass.
 CL2='l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }'
 grep -qF "$CL2" "$SCRIPT" && ok "mutant ledger: section_of() carries the region boundary (#304)" || bad "mutant ledger: #304 region boundary not found"

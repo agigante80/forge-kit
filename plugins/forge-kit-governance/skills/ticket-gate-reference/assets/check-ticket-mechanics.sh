@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 16
+# check-ticket-mechanics-version: 17
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -358,14 +358,20 @@ fi
 # `required: true` needs CONTENT: GitHub renders an unfilled optional field as `_No response_`,
 # and faulting that failed a template-perfect ticket in the first version. An OPTIONAL field the
 # template marks gate-filled is not charged when its heading is absent (#304, see the header).
-GATE_FILLED="$(printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' '$4 == "yes" && $2 == "no" { print $1 }')"
+# The flag is read PER ROW (#320): a lookup by label exempted a required field that shared its label
+# with a gate-filled optional one, which GitHub forms allow when one of them has an id. Each row is
+# split by position, never by `read` with a TAB IFS, which collapses the empty id column of a field
+# with no `id:` and shifts the flag. role_required() and section_of() still look fields up by
+# label (out of scope; two same-label sections are one heading to a reader anyway).
+TAB="$(printf '\t')"
 missing=""; empty=""; skipped=""; at2=""; at3=""
-while IFS="$(printf '\t')" read -r label required _; do
+while IFS= read -r frow; do
+  label=${frow%%"$TAB"*}; frest=${frow#*"$TAB"}; required=${frest%%"$TAB"*}; gate=${frow##*"$TAB"}
   grep -qxF "## $label" "$BODY" && at2="##"
   grep -qxF "### $label" "$BODY" && at3="###"
   [ -n "$label" ] || continue
   if ! grep -qxF -e "## $label" -e "### $label" "$BODY"; then
-    if printf '%s\n' "$GATE_FILLED" | grep -qxF -- "$label"; then
+    if [ "$gate" = yes ] && [ "$required" = no ]; then   # check 3: per-row gate flag
       skipped="$skipped${skipped:+; }$label"
     else
       missing="$missing${missing:+; }$label"
@@ -382,7 +388,12 @@ if [ -n "$missing" ]; then
 elif [ -n "$empty" ]; then
   row sections fail "required heading present but empty ($(count_items "$empty")): $empty"
 else
-  row sections pass "every template section present, every required one filled (headings at ${at2}${at2:+${at3:+ and }}${at3})${skipped:+; gate-filled, not charged: $skipped}"
+  # With a field exempt the evidence must not claim every section is present (#320).
+  if [ -n "$skipped" ]; then
+    row sections pass "every charged section present, every required one filled (headings at ${at2}${at2:+${at3:+ and }}${at3}); gate-filled, absent and not charged ($(count_items "$skipped")): $skipped"
+  else
+    row sections pass "every template section present, every required one filled (headings at ${at2}${at2:+${at3:+ and }}${at3})"
+  fi
 fi
 
 # --- check 4: GWT structure (rule 1, the checkable half) --------------------------------
