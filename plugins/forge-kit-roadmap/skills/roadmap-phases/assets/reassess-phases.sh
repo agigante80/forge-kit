@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 2
+# reassess-phases-version: 3
 #
 # Reshapes docs/roadmap.md itself: the level above /phase review (#244), which asks whether ONE
 # phase is still aligned. This asks whether the ROADMAP is still the right plan (#249).
@@ -298,6 +298,27 @@ op_refocus() {
   [ -n "$REASON" ] && prose="$PROSE
 
 Refocused: $REASON"
+  # #328: DRY-RUN BOTH WRITERS ON A COPY BEFORE THE FIRST act. The prose write lands before the plan
+  # write can refuse (two column-0 plan lines; a plan path the parse-back rejects, which the library
+  # reports as rc 3 and this script deliberately reports as 5, since this script's own 3 means
+  # "already malformed"), so a refused refocus --plan used to leave the roadmap half changed, and
+  # --check, whose act never calls a writer, exited 0 where the real run refuses. Reordering plan
+  # before prose is not enough: roadmap_set_prose refuses too (prose opening a '## ' section). The
+  # library is its own oracle here, so no refusal condition is copied into this script and a refusal
+  # added to either writer later is covered. The copy lives under TMPDIR, never beside the roadmap,
+  # so --check writes nothing next to it and works on a read-only directory. refuse, die and finalize
+  # all exit directly, so cleanup is an EXIT trap set BEFORE the copy exists, not an rm before each
+  # exit. An unusable TMPDIR means the dry run cannot run, so the refocus is refused whole (exit 5).
+  local scratch=""
+  trap 'rm -f "$scratch"' EXIT
+  scratch="$(mktemp "${TMPDIR:-/tmp}/reassess-refocus.XXXXXX" 2>/dev/null)" \
+    || refuse "cannot make a scratch copy under '${TMPDIR:-/tmp}' to validate the refocus; nothing written"
+  cp "$ROADMAP" "$scratch" 2>/dev/null \
+    || refuse "cannot copy the roadmap to '$scratch' to validate the refocus; nothing written"
+  roadmap_set_prose "$scratch" "$phase" "$prose" >/dev/null || refuse "refocus failed; nothing written"
+  if [ -n "$PLAN" ]; then
+    roadmap_set_plan "$scratch" "$phase" "$PLAN" >/dev/null || refuse "setting the plan failed; nothing written"
+  fi
   act "refocus '$phase' with new prose" roadmap_set_prose "$ROADMAP" "$phase" "$prose" || refuse "refocus failed"
   if [ -n "$PLAN" ]; then
     act "point '$phase' at plan $PLAN" roadmap_set_plan "$ROADMAP" "$phase" "$PLAN" || refuse "setting the plan failed"

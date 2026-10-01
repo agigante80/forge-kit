@@ -11,6 +11,7 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+`reassess-phases.sh refocus <phase> --prose TEXT --plan PATH` no longer leaves the roadmap half changed when the plan cannot be set: `op_refocus` now dry-runs `roadmap_set_prose` and then `roadmap_set_plan` on a scratch copy under `${TMPDIR:-/tmp}` before its first write, so a refusal (two column-0 `plan:` lines, a plan path the parse-back rejects, prose opening a `## ` section) exits 5 with the roadmap byte-identical, and `--check` now refuses identically instead of exiting 0. The library is its own oracle, so no refusal condition is copied into the script. The copy is removed by an EXIT trap set before it exists; a missing or unusable `TMPDIR` refuses the refocus whole (exit 5, "nothing written"), including a prose-only refocus. `reassess-phases` marker 2 to 3; `test-reassess-phases` gains 42 assertions covering both writers, `--check`, and an empty-`TMPDIR` check (#328)
 - **contributor-docs refers a row rescoped by an exported npm_config_ variable or a `$(...)`
   assignment value** (#296, check-contributor-docs v3, contributor-docs v3). An `export`,
   `declare -x` or `typeset -x` of a `NAME=value` whose NAME starts with `npm_config_` (any case, any

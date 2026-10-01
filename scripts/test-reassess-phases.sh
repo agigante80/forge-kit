@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 3
+# test-reassess-phases-version: 4
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.
@@ -153,7 +153,9 @@ out=""; sout=""; serr=""; rc=0; REQLOG="$T/req.log"; READLOG="$T/read.log"
 # one; $out is both joined, which is what every older assertion reads.
 run() {
   : > "$REQLOG"; : > "$READLOG"
-  (cd "$T" && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" REQLOG="$REQLOG" READLOG="$READLOG" \
+  # #328: RUN_TMPDIR, when set (even empty), becomes TMPDIR for this one invocation only. The suite's
+  # own `mktemp -d` and EXIT trap above honour TMPDIR, so it is never exported at file level.
+  (cd "$T" && { [ -z "${RUN_TMPDIR+x}" ] || export TMPDIR="$RUN_TMPDIR"; } && STUB_MILESTONES="$T/ms.json" STUB_ISSUES="$T/iss.json" REQLOG="$REQLOG" READLOG="$READLOG" \
         FAIL_MOVE="${FAIL_MOVE:-}" bash ./reassess-phases.sh "$@" >"$T/run.out" 2>"$T/run.err"); rc=$?
   sout=$(cat "$T/run.out"); serr=$(cat "$T/run.err"); out="$sout
 $serr"
@@ -433,6 +435,157 @@ expect "and nothing is sent to the host" "" "$(cat "$REQLOG")"
 
 out=$(cd "$T" && bash ./reassess-phases.sh --help 2>&1)
 contains "reassess-phases.sh" "$out" "--help prints the synopsis"
+
+# #328: a refused refocus --plan writes nothing. The prose write used to land before the plan write
+# could refuse, and --check (whose act never calls a writer) exited 0 where the real run refuses.
+# Fixtures are one-off roadmaps in the base_roadmap shape: Dup has two column-0 plan lines, Solo has
+# exactly one. $T/rm.before is a saved copy so "byte-identical" is a real cmp, not a $(cat) compare.
+dup_roadmap() {
+  roadmap <<'MD'
+## Phase: Dup
+state: planned
+plan: docs/plans/a.md
+plan: docs/plans/b.md
+
+Dup's prose.
+
+## Phase: Solo
+state: planned
+plan: docs/plans/a.md
+
+Solo's prose.
+
+## Phase: Zeta
+state: done
+plan: docs/plans/zeta.md
+
+Zeta's prose, already closed.
+
+## Phase: Beta
+state: planned
+
+Beta's prose.
+MD
+}
+unchanged() {  # unchanged <label>: the roadmap is byte-identical to $T/rm.before
+  if cmp -s "$T/rm.before" "$T/docs/roadmap.md"; then ok "$1: roadmap byte-identical"
+  else bad "$1: roadmap changed ($(diff "$T/rm.before" "$T/docs/roadmap.md" | head -4 | tr '\n' ';'))"; fi
+}
+snap() { cp "$T/docs/roadmap.md" "$T/rm.before"; }
+# Lines that differ between the saved copy and the roadmap, as "<>" lines only.
+difflines() { diff "$T/rm.before" "$T/docs/roadmap.md" | grep '^[<>]' || true; }
+empty_dir() {  # empty_dir <label> <dir>: no entries at all, dotfiles included
+  if [ -z "$(find "$2" -mindepth 1 2>/dev/null)" ]; then ok "$1: TMPDIR left empty"
+  else bad "$1: TMPDIR holds $(find "$2" -mindepth 1 | tr '\n' ' ')"; fi
+}
+
+echo "== #328 a refused refocus --plan writes nothing =="
+dup_roadmap; base_milestones; base_issues; snap
+run refocus Dup --prose "New prose" --plan docs/plans/x.md
+expect "duplicate plan lines refuse" 5 "$rc"
+contains "single column-0 plan line" "$serr" "and stderr names the cause"
+unchanged "duplicate plan lines, live"
+
+dup_roadmap; snap
+run refocus Dup --prose "New prose" --plan docs/plans/x.md --check
+expect "--check refuses duplicate plan lines" 5 "$rc"
+contains "single column-0 plan line" "$serr" "and stderr names the same cause"
+unchanged "duplicate plan lines, --check"
+
+dup_roadmap; snap
+run refocus Solo --prose "New prose" --plan docs/plans/x.md
+expect "a single plan line succeeds" 0 "$rc"
+contains "New prose" "$(cat "$T/docs/roadmap.md")" "Solo's prose landed"
+contains "plan: docs/plans/x.md" "$(cat "$T/docs/roadmap.md")" "and its plan line"
+expect "exactly Solo's prose and plan lines differ" 4 "$(difflines | wc -l | tr -d ' ')"
+absent "Dup's prose" "$(difflines)" "and no other phase's lines differ"
+
+# The plan dry run must run on the copy the PROSE dry run already modified. Here the new prose is
+# itself a column-0 plan line, so only the prose-modified copy has two plan lines; a plan dry run on
+# a fresh copy of the roadmap would pass and the live prose write would then land before the refusal.
+dup_roadmap; snap
+run refocus Solo --prose "plan: docs/plans/a.md" --plan docs/plans/x.md
+expect "prose that adds a plan line refuses the plan live" 5 "$rc"
+contains "single column-0 plan line" "$serr" "and stderr names the cause"
+unchanged "prose-added plan line, live"
+
+dup_roadmap; snap
+run refocus Solo --prose "plan: docs/plans/a.md" --plan docs/plans/x.md --check
+expect "--check refuses prose that adds a plan line" 5 "$rc"
+contains "single column-0 plan line" "$serr" "and stderr names the same cause"
+unchanged "prose-added plan line, --check"
+
+dup_roadmap; snap
+run refocus Solo --prose "New prose" --plan "docs/plans/a.md " --check
+expect "--check refuses the trailing-space plan path" 5 "$rc"
+contains "reads the result differently" "$serr" "and stderr names the parse-back"
+unchanged "trailing-space plan path, --check"
+
+dup_roadmap; snap
+run refocus Solo --prose "New prose" --plan docs/plans/x.md --check
+expect "--check on a valid input exits 0" 0 "$rc"
+contains "would refocus 'Solo'" "$sout" "and says what it would do"
+unchanged "valid input, --check"
+
+dup_roadmap; snap
+run refocus Solo --prose "New prose" --plan "docs/plans/a.md "
+expect "a trailing-space plan path refuses whole" 5 "$rc"
+contains "reads the result differently" "$serr" "and stderr names the parse-back"
+unchanged "trailing-space plan path, live (prose included)"
+
+dup_roadmap; snap
+run refocus Solo --prose "New prose" --plan docs/plans/b.md
+expect "a clean plan path succeeds" 0 "$rc"
+expect "exactly Solo's prose and plan lines differ" 4 "$(difflines | wc -l | tr -d ' ')"
+
+base_roadmap; snap
+run refocus Beta --prose "New prose"
+expect "refocus without --plan still succeeds" 0 "$rc"
+expect "and exactly Beta's prose lines differ" "< Beta's prose.
+> New prose" "$(difflines)"
+
+dup_roadmap; snap
+run refocus Zeta --prose "New prose" --plan docs/plans/z.md
+expect "a done phase is still refused" 5 "$rc"
+contains "is done" "$serr" "and says why"
+unchanged "done phase"
+
+echo "== #328 prose the library refuses is caught live and under --check =="
+dup_roadmap; snap
+run refocus Solo --prose "## Bad"
+expect "'## ' prose refuses live (regression guard)" 5 "$rc"
+contains "opens a '## ' section" "$serr" "and says why"
+unchanged "'## ' prose, live"
+
+dup_roadmap; snap
+run refocus Solo --prose "## Bad" --check
+expect "'## ' prose refuses under --check" 5 "$rc"
+contains "opens a '## ' section" "$serr" "and says why"
+unchanged "'## ' prose, --check"
+
+dup_roadmap; snap
+run refocus Solo --prose "Plain prose"
+expect "ordinary prose succeeds" 0 "$rc"
+expect "and exactly Solo's prose lines differ" "< Solo's prose.
+> Plain prose" "$(difflines)"
+
+echo "== #328 no temp file is left behind, and an unusable TMPDIR is refused =="
+mkdir -p "$T/tmp328"
+dup_roadmap; snap
+RUN_TMPDIR="$T/tmp328" run refocus Dup --prose "New prose" --plan docs/plans/x.md
+expect "a refused run exits 5" 5 "$rc"
+empty_dir "refused run" "$T/tmp328"
+
+dup_roadmap; snap
+RUN_TMPDIR="$T/tmp328" run refocus Solo --prose "New prose" --plan docs/plans/x.md
+expect "a successful run exits 0" 0 "$rc"
+empty_dir "successful run" "$T/tmp328"
+
+dup_roadmap; snap
+RUN_TMPDIR="$T/no-such-dir" run refocus Solo --prose "New prose" --plan docs/plans/x.md
+expect "a missing TMPDIR is refused" 5 "$rc"
+contains "nothing written" "$serr" "and says nothing was written"
+unchanged "missing TMPDIR"
 
 base_roadmap; base_milestones; base_issues
 run bogus-op Alpha
