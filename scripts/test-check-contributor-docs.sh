@@ -1070,6 +1070,32 @@ c_run_script_flag_between() { new; pkg '"x":"x"'; agents '`pnpm -r run-script bu
   rc_is 0 && nocmd fail && row referred command "pnpm -r run-script build: a flag between pnpm and run-script may change which script runs" \
     && row referred command "npm -s run-script x: a flag between npm and run-script may change which script runs" \
     && row referred command "npm -w web --silent run-script nope: a flag between npm and run-script may change which script runs"; }
+# #390: the flag prefix ends at the first word that is neither a flag nor a flag's value.
+c_flag_between_stops_at_word() { new; pkg '"x":"x"'; agents '`npm -g install run-script`\n\n`npm -g install run`\n\n`npm -g install foo -- run`\n\n`npm -g # run`\n'; run
+  rc_is 0 && nocmd fail && nocmd referred && nocmd pass; }
+c_flag_between_value_unchanged() { new; pkg '"x":"x"'; agents '`npm --prefix dir run build`\n\n`npm -w web --silent run nope`\n'; run
+  rc_is 0 && nocmd fail && row referred command "npm --prefix dir run build: a flag between npm and run may change which script runs" \
+    && row referred command "npm -w web --silent run nope: a flag between npm and run may change which script runs"; }
+c_flag_between_prefix_value_verb() { new; pkg '"x":"x"'; agents '`npm --prefix run-script run build`\n'; run
+  rc_is 0 && nocmd fail && row referred command "npm --prefix run-script run build: a flag between npm and run may change which script runs" && ! row referred command "and run-script"; }
+c_flag_between_unknown_value_flag() { new; pkg '"x":"x"'; agents '`npm --loglevel verbose run x`\n'; run
+  rc_is 0 && nocmd fail && nocmd referred; }
+c_flag_between_pnpm_install_bareword() { new; pkg '"x":"x"'; agents '`pnpm -g install run`\n'; run
+  rc_is 0 && nocmd fail && row referred command "pnpm -g install run: may be a script, a built-in or a binary" && ! row referred command "a flag between pnpm"; }
+c_vskip_npm_w() { new; pkg '"x":"x"'; agents '`npm -w run-script --silent run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "npm -w run-script --silent run x: a flag between npm and run may change which script runs" && ! row referred command "and run-script"; }
+c_vskip_npm_workspace() { new; pkg '"x":"x"'; agents '`npm --workspace run-script --silent run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "npm --workspace run-script --silent run x: a flag between npm and run may change which script runs" && ! row referred command "and run-script"; }
+c_vskip_npm_prefix() { new; pkg '"x":"x"'; agents '`npm --prefix run-script run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "npm --prefix run-script run x: a flag between npm and run may change which script runs" && ! row referred command "and run-script"; }
+c_vskip_pnpm_filter() { new; pkg '"x":"x"'; agents '`pnpm --filter run-script --silent run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "pnpm --filter run-script --silent run x: a flag between pnpm and run may change which script runs" && ! row referred command "and run-script"; }
+c_vskip_pnpm_F() { new; pkg '"x":"x"'; agents '`pnpm -F run-script --silent run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "pnpm -F run-script --silent run x: a flag between pnpm and run may change which script runs" && ! row referred command "and run-script"; }
+c_vskip_pnpm_C() { new; pkg '"x":"x"'; agents '`pnpm -C run-script run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "pnpm -C run-script run x: a flag between pnpm and run may change which script runs" && ! row referred command "and run-script"; }
+c_vskip_pnpm_dir() { new; pkg '"x":"x"'; agents '`pnpm --dir run-script run x`\n'; run
+  rc_is 0 && nocmd fail && row referred command "pnpm --dir run-script run x: a flag between pnpm and run may change which script runs" && ! row referred command "and run-script"; }
 c_run_flag_between_unchanged() { new; pkg '"x":"x"'; agents '`pnpm -r run build`\n\n`npm -s run x`\n'; run
   rc_is 0 && nocmd fail && row referred command "pnpm -r run build: a flag between pnpm and run may change which script runs" \
     && row referred command "npm -s run x: a flag between npm and run may change which script runs"; }
@@ -1152,7 +1178,7 @@ c_count_zero() { new; manifests200; agents '`yarn --cwd p build`\n'; run_stub
 c_edge_silent() { new; mf packages/web/package.json web '"build":"x"'; agents '`yarn workspace web`\n\n`npm -w`\n'; run
   rc_is 0 && [ "$(count referred command)" = 0 ] && nocmd pass && nocmd fail; }
 c_edge_referred() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w run build`\n\n`pnpm --filter= run build`\n'; run
-  rc_is 0 && [ "$(count referred command)" = 2 ] && nocmd pass && nocmd fail; }
+  rc_is 0 && [ "$(count referred command)" = 1 ] && row referred command "pnpm --filter= run build: not a literal package name" && nocmd pass && nocmd fail; }
 
 echo "== #299 yarn and workspaces =="
 case_ c_y_bare "a bare yarn X defined in the root passes"
@@ -1232,7 +1258,19 @@ case_ c_nojq_nocand "no jq and no candidate manifest: nomatch, exit 0"
 case_ c_count_linear "200 manifests and 50 commands cost a bounded number of jq calls"
 case_ c_count_zero "no command reaching resolution means no table and no jq call"
 case_ c_edge_silent "yarn workspace with no script and a bare npm -w are silent"
-case_ c_edge_referred "npm -w run build and an empty --filter= are referred"
+case_ c_edge_referred "an empty --filter= is referred, and npm -w run build is silent (run is the workspace value, #390)"
+case_ c_flag_between_stops_at_word "a run after an install target, a positional or a # word is not the verb (#390)"
+case_ c_flag_between_value_unchanged "the flag-between rows for --prefix dir and -w web --silent are unchanged (#390)"
+case_ c_flag_between_prefix_value_verb "a flag's value is never printed as the verb (#390)"
+case_ c_flag_between_unknown_value_flag "an unknown value flag ends the search, silent and never a fail (#390)"
+case_ c_flag_between_pnpm_install_bareword "pnpm -g install run takes the bare-word row (#390)"
+case_ c_vskip_npm_w "npm -w skips its value, so its run-script value is not the verb (#390)"
+case_ c_vskip_npm_workspace "npm --workspace skips its value, so its run-script value is not the verb (#390)"
+case_ c_vskip_npm_prefix "npm --prefix skips its value, so its run-script value is not the verb (#390)"
+case_ c_vskip_pnpm_filter "pnpm --filter skips its value, so its run-script value is not the verb (#390)"
+case_ c_vskip_pnpm_F "pnpm -F skips its value, so its run-script value is not the verb (#390)"
+case_ c_vskip_pnpm_C "pnpm -C skips its value, so its run-script value is not the verb (#390)"
+case_ c_vskip_pnpm_dir "pnpm --dir skips its value, so its run-script value is not the verb (#390)"
 
 # ---------------------------------------------------------------- could not run, and arguments
 c_nogit() { R="$W/plain"; mkdir -p "$R"; run; rc_is 2 && [ -z "$OUT" ] && [ -n "$ERR" ]; }
@@ -1475,7 +1513,17 @@ for d in "${docs[@]+"${docs[@]}"}"; do'
   mutant "pnpm --filter= arm reverted to run only" c_pm_run_script_ws_pnpm 'pnpm:--filter=*) [ $# -ge 2 ] && is_run "$2"' 'pnpm:--filter=*) [ $# -ge 2 ] && [ "$2" = run ]'
   mutant "workspace is_run accepts run-scripts" c_pm_run_script_ws_near 'is_run() { [ "$1" = run ] || [ "$1" = run-script ]; }' 'is_run() { [ "$1" = run ] || case "$1" in run-script*) true ;; *) false ;; esac; }'
   mutant "workspace label rewritten to run" c_pm_run_script_ws_npm 'judge_ws "$loc" "$cd" "$pm $*" "$pm"' 'judge_ws "$loc" "$cd" "$pm run" "$pm"'
-  mutant "flag loop reverted to run only" c_run_script_flag_between 'for w in "$@"; do is_run "$w" &&' 'for w in "$@"; do [ "$w" = run ] &&'
+  mutant "flag loop reverted to run only" c_run_script_flag_between 'is_run "$w" && { row referred command "$loc" "$pm $*: a flag between' '[ "$w" = run ] && { row referred command "$loc" "$pm $*: a flag between'
+  # #390: the flag loop stops at a non-flag word and skips the value of exactly seven flags.
+  mutant "flag loop does not stop at a non-flag word" c_flag_between_stops_at_word '            *:-*) ;;' '            *) ;;'
+  mutant "flag loop never clears the skip" c_flag_between_value_unchanged 'then skip=0; continue; fi' 'then continue; fi'
+  mutant "value skip drops npm -w" c_vskip_npm_w 'npm:-w|npm:--workspace|npm:--prefix|' 'npm:--workspace|npm:--prefix|'
+  mutant "value skip drops npm --workspace" c_vskip_npm_workspace 'npm:--workspace|npm:--prefix|' 'npm:--prefix|'
+  mutant "value skip drops npm --prefix" c_vskip_npm_prefix 'npm:--prefix|pnpm:--filter|' 'pnpm:--filter|'
+  mutant "value skip drops pnpm --filter" c_vskip_pnpm_filter 'npm:--prefix|pnpm:--filter|pnpm:-F|' 'npm:--prefix|pnpm:-F|'
+  mutant "value skip drops pnpm -F" c_vskip_pnpm_F 'pnpm:--filter|pnpm:-F|pnpm:-C|' 'pnpm:--filter|pnpm:-C|'
+  mutant "value skip drops pnpm -C" c_vskip_pnpm_C 'pnpm:-F|pnpm:-C|pnpm:--dir)' 'pnpm:-F|pnpm:--dir)'
+  mutant "value skip drops pnpm --dir" c_vskip_pnpm_dir '|pnpm:-C|pnpm:--dir)' '|pnpm:-C)'
   mutant "flag loop prints a fixed run" c_run_script_flag_between 'a flag between $pm and $w may' 'a flag between $pm and run may'
   mutant "flag loop prints a fixed run-script" c_run_flag_between_unchanged 'a flag between $pm and $w may' 'a flag between $pm and run-script may'
   mutant "flag row prints run" c_pm_run_script_flag '"$pm $v ${name:-...}: $flag may change' '"$pm run ${name:-...}: $flag may change'

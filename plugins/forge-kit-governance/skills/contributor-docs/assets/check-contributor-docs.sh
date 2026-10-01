@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 15
+# check-contributor-docs-version: 16
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -544,7 +544,7 @@ npmrc_scan() {
 is_run() { [ "$1" = run ] || [ "$1" = run-script ]; }
 
 judge_pm() {   # <loc> <cd> <pm> <args...>
-  local loc=$1 cd=$2 pm=$3 w name="" flag="" extra wsv="" wsn=0 v=run
+  local loc=$1 cd=$2 pm=$3 w name="" flag="" extra wsv="" wsn=0 v=run skip=0
   shift 3
   if [ $# -eq 0 ]; then return; fi
   case "$1" in
@@ -556,7 +556,21 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
           pnpm:--filter=*) [ $# -ge 2 ] && is_run "$2" && { wsv=${1#--filter=}; wsn=2; } ;;
         esac
         if [ "$wsn" != 0 ]; then judge_ws "$loc" "$cd" "$pm $*" "$pm" "$wsv" "${@:$((wsn + 1))}"; return; fi
-        for w in "$@"; do is_run "$w" && { row referred command "$loc" "$pm $*: a flag between $pm and $w may change which script runs"; return; }; done
+        # The flag prefix ends at the first word that is neither a flag nor a flag's value (#390): a
+        # run or run-script after it (`npm -g install run`) is an argument, not the verb, and a
+        # flag's VALUE (`npm --prefix run-script run build`) is never the verb either. Exactly
+        # these seven take a value; every other dash word is read as a boolean, as npm 10.9.7 reads
+        # an unknown --flag and pnpm 10.33.3 refuses one, so `npm --loglevel verbose run x` ends
+        # the search at `verbose` (silent, never a fail). Words are compared to literals only.
+        for w in "$@"; do
+          if [ "$skip" = 1 ]; then skip=0; continue; fi
+          is_run "$w" && { row referred command "$loc" "$pm $*: a flag between $pm and $w may change which script runs"; return; }
+          case "$pm:$w" in
+            npm:-w|npm:--workspace|npm:--prefix|pnpm:--filter|pnpm:-F|pnpm:-C|pnpm:--dir) skip=1 ;;
+            *:-*) ;;
+            *) break ;;
+          esac
+        done
         # pnpm runs a bare word as a script, so `pnpm -r build` may be one; npm never does.
         [ "$pm" = pnpm ] && for w in "$@"; do case "$w" in -*) ;; *) row referred command "$loc" "pnpm $*: may be a script, a built-in or a binary"; return ;; esac; done
         return ;;
