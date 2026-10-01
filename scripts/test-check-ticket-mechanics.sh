@@ -506,6 +506,112 @@ case "${o#*	}" in *"server, proto, client)"*) ok "and the trailing space inside 
 o="$(lbldoc "nope,feature" --labels-doc "$ROOT/docs/guides/labels.md")"
 case "${o#*	}" in *"api, privacy, web, mobile, backend, database, components, tooling, governance"*) ok "this repository's own labels.md reads as exactly the nine, in order (parity with check-label-taxonomy.sh)" ;; *) bad "parity: read '${o#*	}'" ;; esac
 
+echo "check-ticket-mechanics: the template's own scenarios placeholder is a format check 4 accepts (#361)"
+# Step 0c-iii tells the synthesis sub-agent to copy each `label:` verbatim and follow the
+# scenarios `placeholder:` of the template. That instruction is only sound if the placeholder IS a
+# shape check 4 parses, so each real template is read at test time (no copy of the format here)
+# and its placeholder is run through the checker under its own label.
+cat > "$WORK/ph.py" <<'PY'
+import re, sys
+# usage: ph.py <template> <mode> ; prints "<label>\n<placeholder>" of the scenarios field
+lines = open(sys.argv[1]).read().split("\n")
+label = None; ph = []; infield = False; inph = False
+for ln in lines:
+    if re.match(r'\s*id:\s*scenarios\s*$', ln): infield = True; continue
+    if infield and re.match(r'      label: ', ln): label = ln.split("label: ", 1)[1].rstrip()
+    if infield and re.match(r'      placeholder: \|', ln): inph = True; continue
+    if inph:
+        if ln.startswith("        "): ph.append(ln[8:])
+        elif ln.strip() == "": ph.append("")
+        else: break
+print(label); print("\n".join(ph).rstrip())
+PY
+# ph_gwt <template-name> <variant> [placeholder-source.yml] -> the gwt row's outcome and evidence
+# ("outcome<TAB>evidence"). The body is generated from the real template, with its scenarios
+# content replaced by the placeholder read from the template (or from a mutated copy of it).
+ph_gwt() {
+  local tag="$1" variant="$2" tf="${3:-$TPLDIR/$1.yml}"
+  python3 "$WORK/ph.py" "$tf" > "$WORK/ph-$tag.txt"
+  local ph; ph="$(tail -n +2 "$WORK/ph-$tag.txt")"
+  case "$variant" in
+    quoted) ph="$(printf '%s' "$ph" | sed 's/\[expected error \/ rejection message\]/rejected with "INVALID_EMAIL"/')" ;;
+    verbatim) : ;;
+    twowhen) ph="$(printf '%s' "$ph" | sed '0,/^- When: \[action is performed\]$/s//&\n- When: [a second action]/' | sed 's/\[expected error \/ rejection message\]/rejected with "INVALID_EMAIL"/')" ;;
+  esac
+  local b; b="$(mkbody "$tag" "ph-$tag-$variant.md" "$ph")"
+  run "$b" "$tag" | awk -F'\t' '$1 == "gwt" { print $2 "\t" $3 }'
+}
+for tpl in bug feature security infrastructure design; do
+  r="$(ph_gwt "$tpl" quoted)"
+  expect "#361: $tpl: the placeholder with a quoted negative message passes" pass "${r%%$'\t'*}"
+  case "$r" in *"1 positive and 1 negative blocks"*) ok "#361: $tpl: and it counts 1 positive and 1 negative" ;; *) bad "#361: $tpl: evidence: $r" ;; esac
+  r="$(ph_gwt "$tpl" verbatim)"
+  expect "#361: $tpl: the placeholder left verbatim is referred" referred "${r%%$'\t'*}"
+  case "$r" in *"not mechanically specific:"*"[expected error / rejection message]"*) ok "#361: $tpl: and says the negative Then is not specific, quoting the bracketed placeholder" ;; *) bad "#361: $tpl: evidence: $r" ;; esac
+  r="$(ph_gwt "$tpl" twowhen)"
+  expect "#361: $tpl: a second When in the Positive block fails" fail "${r%%$'\t'*}"
+  case "$r" in *"each scenario block needs exactly one When (Positive: 2 When lines)"*) ok "#361: $tpl: and says the Positive block has 2 When lines" ;; *) bad "#361: $tpl: evidence: $r" ;; esac
+  # The label ph.py read from the template is the heading gen.py wrote, so the two cannot diverge.
+  grep -qxF "### $(head -n 1 "$WORK/ph-$tpl.txt")" "$WORK/ph-$tpl-quoted.md" \
+    && ok "#361: $tpl: the template's scenarios label is the heading the body carries" \
+    || bad "#361: $tpl: label '$(head -n 1 "$WORK/ph-$tpl.txt")' is not a heading in the generated body"
+done
+# MUTANT: a copy of bug.yml whose placeholder lost its Negative marker line must NOT pass, which
+# shows the loop above can fail (a mutation of the input, since the script is not under test here).
+sed '0,/^        Negative$/{/^        Negative$/d}' "$TPLDIR/bug.yml" > "$WORK/mut-bug.yml"
+r="$(ph_gwt bug quoted "$WORK/mut-bug.yml")"
+[ "${r%%$'\t'*}" = fail ] && ok "#361: MUTANT: a placeholder with no Negative marker no longer passes" \
+  || bad "#361: MUTANT survived: a placeholder with no Negative marker still passes ($r)"
+# The heading absent (what a synthesis never told the label produces).
+python3 - "$(mkbody bug nohead.md)" <<'PY'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+s = re.sub(r'### Test scenarios \(Given / When / Then\)\n\n.*?(?=### )', '', s, count=1, flags=re.S)
+open(p, "w").write(s)
+PY
+o="$(run "$WORK/nohead.md" bug)"
+case "$(printf '%s\n' "$o" | awk -F'\t' '$1=="sections"{print $3}')" in *"heading absent"*"Test scenarios (Given / When / Then)"*) ok "#361: a body without the scenarios heading names it as absent" ;; *) bad "#361: heading-absent evidence: $(printf '%s\n' "$o" | awk -F'\t' '$1=="sections"{print $3}')" ;; esac
+case "$(gwt_ev "$o")" in *"no content in Test scenarios (Given / When / Then)"*) ok "#361: and the gwt row says there is no content under it" ;; *) bad "#361: gwt evidence: $(gwt_ev "$o")" ;; esac
+
+echo "check-ticket-mechanics: Step 0c's variant-heading rule is scoped to non-target sections (#361)"
+# Why this matters: checks 4 to 7 read only the text under the template-label heading, so a
+# one-line pointer under `## Unit tests` fails unit_tests (the failure the scoped rule prevents),
+# while real content under that label passes.
+B1="$(mkbody bug cond4-pointer.md "" 'See "Tests" below.')"
+printf '\n### Tests\n\n- `scripts/test-foo.sh` with input x expects error E\n' >> "$B1"
+o="$(run "$B1" bug)"
+expect "#361: a pointer line under the Unit tests label fails unit_tests" fail "$(outcome "$o" unit_tests)"
+case "$(printf '%s\n' "$o" | awk -F'\t' '$1=="unit_tests"{print $3}')" in *'unit tests name no file path: See "Tests" below.'*) ok "#361: and the evidence is the checker's own, quoting the pointer" ;; *) bad "#361: unit_tests evidence: $(printf '%s\n' "$o" | awk -F'\t' '$1=="unit_tests"{print $3}')" ;; esac
+B2="$(mkbody bug cond4-synth.md "" '- [ ] `scripts/test-foo.sh` input x expects error E')"
+printf '\n### Tests\n\n- `scripts/test-foo.sh` with input x expects error E\n' >> "$B2"
+o="$(run "$B2" bug)"
+expect "#361: the synthesised section under the label passes with the author's Tests section left in place" pass "$(outcome "$o" unit_tests)"
+case "$(printf '%s\n' "$o" | awk -F'\t' '$1=="unit_tests"{print $3}')" in *"name no file path"*) bad "#361: a pass row still carries the failure evidence" ;; *) ok "#361: and the pass row carries no failure evidence" ;; esac
+# The prose pins. The scope sentence must survive a rewrite, and the dispatch must stay a pointer
+# to the template: a literal copy of the format would be a second source (Condition 2).
+GATE="$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md"
+scope_pin() { grep -qF "outside Step 0c's target set" "$1"; }
+scope_pin "$GATE" && ok "#361: ticket-gate.md states the rule is outside Step 0c's target set" || bad "#361: ticket-gate.md lost the scope sentence"
+sed "s/outside Step 0c's target set/everywhere/" "$GATE" > "$WORK/gate-mut.md"
+scope_pin "$WORK/gate-mut.md" && bad "#361: MUTANT survived: the scope pin passes with the phrase removed" || ok "#361: MUTANT: removing the scope phrase fails the pin"
+# Fails loudly (prints MISSING, never a count) when a path or glob does not exist, so a moved
+# reference cannot make the "no copies" assertion pass vacuously.
+gwt_copies() {
+  local f n=0 c
+  for f in "$@"; do
+    [ -f "$f" ] || { echo MISSING; return; }
+    c="$(grep -c 'Given / When / Then' "$f")"; n=$((n + c))
+  done
+  echo "$n"
+}
+GREF="$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference"
+expect "#361: no prose copy of the scenarios label in the gate or its reference (derived, never copied)" 0 "$(gwt_copies "$GATE" "$GREF/SKILL.md" "$GREF"/references/*.md)"
+printf 'Test scenarios (Given / When / Then)\n' >> "$WORK/gate-mut.md"
+[ "$(gwt_copies "$WORK/gate-mut.md")" -ge 1 ] && ok "#361: MUTANT: a pasted label is countable by gwt_copies" || bad "#361: gwt_copies cannot see a pasted label"
+[ "$(gwt_copies "$GATE" "$GREF/references/no-such-file.md")" = MISSING ] && ok "#361: MUTANT: a nonexistent path makes gwt_copies fail rather than count 0" || bad "#361: gwt_copies passes vacuously on a missing path"
+grep -qF 'The absolute path `$PWD/$TPL_DIR/<type>.yml`' "$GATE" && ok "#361: the 0c-iii dispatch names the template path" || bad "#361: the dispatch does not name the template path"
+grep -qF 'never placeholder text' "$GATE" && ok "#361: the never-placeholder-text instruction is kept" || bad "#361: never placeholder text was dropped"
+
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"
 expect "emits exactly one row per check" 7 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"

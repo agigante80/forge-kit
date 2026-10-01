@@ -69,9 +69,21 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
    - The issue's problem description
    - The acceptance criteria
    - Referenced files and route names
+   - The absolute path of the template file (`$PWD/$TPL_DIR/<type>.yml`), from which it copies each section's `label:` verbatim
+     as `## <label>` and follows the scenarios `placeholder:` shape (never its placeholder text), so
+     its first output passes the heading and Given / When / Then checks without a second copy of
+     either (#361)
 4. **Updates the issue body** via `gh issue edit` with the synthesised content
 5. **Posts a comment** explaining what was synthesised and voiding the prior verdict
 6. **Re-runs the full review** against the enriched body (nothing carries forward)
+
+An author section written under a variant heading ("Problem" for "Bug description") is handled
+only OUTSIDE Step 0c's target set (`scenarios`, `unit_tests`, `e2e_tests`, `docs_impact`,
+`personal_data`). The gate counts it as present when exactly one template label fits it by meaning
+(an empty one is Missing, so is an ambiguous one), and adds the template heading above it with the
+single line `See "<variant heading>" below.`, leaving the author's text untouched. A target section
+under another heading is classified Missing and synthesised under the template label with no
+pointer, because the mechanical checks on those sections read only the text under the label.
 
 The synthesised content is real and concrete - not placeholder text. The sub-agent reads the
 full issue body and any linked external URLs to derive specific test cases.

@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 63 -->
+<!-- ticket-gate-version: 64 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -93,61 +93,62 @@ gh issue view <NUMBER> --repo "$REPO" --json body --jq '.body' | grep -oP 'templ
 
 #### 0c. Auto-synthesis (runs when version is missing or outdated)
 
-Synthesise the missing content rather than blocking:
-
 **0c-i. Parse current template structure**
 
 ```bash
 grep -E "id:|label:|description:|placeholder:|value:" "$TPL_DIR/<type>.yml"
 ```
 
-Identify every section `id` from the template file (`$TPL_DIR` resolved in 0a). Determine template type from issue labels
+Identify every section `id` in that file. Determine template type from labels
 (`bug` label -> bug.yml, `enhancement`/`feature` -> feature.yml, `security` -> security.yml,
 `infrastructure` -> infrastructure.yml, `design` -> design.yml).
 
 **0c-ii. Identify gaps in the issue body**
 
-For each template section `id`, classify the corresponding content in the issue body as:
-- **Present and sufficient** - substantive content that satisfies the current template's requirements
-- **Present but thin** - heading exists but content is vague or placeholder-only
-- **Missing** - no corresponding heading or content in the body at all
+Classify each template section `id`'s content in the body as:
+- **Present and sufficient** - substantive content meeting the current template
+- **Present but thin** - heading exists, content vague or placeholder-only
+- **Missing** - no corresponding heading or content
 
-Target sections for synthesis (always check these):
+Target sections (always check):
 - `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact`, `personal_data`
-  (what each derives from is the 0c-iii rules table below, stated once; `personal_data` is rule
-  4's seven facts, and on a pre-v6 ticket lives under a heading containing GDPR, matched
-  case-insensitively)
+  (`personal_data` is the seven facts, and on a pre-v6 ticket lives under a heading
+  containing GDPR, matched case-insensitively)
+
+A non-target section under a variant heading counts as present when, by meaning (the orchestrator's call, not the sub-agent's), exactly one
+template label fits; an empty one, or a target section under another heading (bar `personal_data`'s GDPR match), is Missing.
 
 **0c-iii. Synthesise real content**
 
-Fast path: when the ONLY gap is `docs_impact`, synthesise that one paragraph inline from the
-ticket's own file list and continue to 0c-iv; a batch of pre-v5 tickets
-must not burn one sub-agent context each for a single self-derivable paragraph.
+Write each section, inline or dispatched, as `## <label>` copied verbatim from the
+template's `label:`, scenarios following its `placeholder:` shape, never placeholder text; where
+the body cannot support a specific case, write the most concrete one and note the assumption.
+
+Fast path: when the ONLY gap is `docs_impact`, synthesise that one paragraph inline and continue to 0c-iv.
 
 Spawn a `general-purpose` sub-agent (`model: sonnet`) with:
 - The full issue body
 - The list of gaps identified in 0c-ii
-- Any external URLs referenced in the issue body (the sub-agent may WebFetch these)
+- The absolute path `$PWD/$TPL_DIR/<type>.yml`
+- Any external URLs in the issue body (the sub-agent may WebFetch these)
 
 Synthesis rules per section:
 
 | Section | Derived from |
 |---|---|
-| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Reference specific route names, model names, and screen names where evident from the issue body. Apply the rule-1 quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. |
+| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Apply the rule-1 quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. |
 | `unit_tests` | Acceptance criteria + referenced files -> specific test file path, concrete input value, expected output or error code. |
-| `e2e_tests` | UI-visible behaviour -> specific test suite file, setup steps, action, assertion. Mark N/A with justification for API-only tickets. |
-| `docs_impact` | The ticket's own file list -> the docs and README sections it plausibly touches, or "none" with the reason derived from the change surface. |
+| `e2e_tests` | UI-visible behaviour -> specific test suite file, setup steps, action, assertion. N/A with reason for API-only tickets. |
+| `docs_impact` | The ticket's own file list -> the docs and README sections it plausibly touches, or "none" with the reason. |
 | `personal_data` | The ticket's file list -> the seven facts, or N/A with reason. NEVER invent a legal basis. |
-| Thin sections | Preserve existing text verbatim, append what the current template version now requires. |
-
-The sub-agent produces one heading per synthesised section, substantive and never placeholder
-text; where the body cannot support a specific test case, write the most concrete one it does and
-note the assumption.
+| Thin sections | Keep existing text verbatim, append what the current template requires. |
 
 **0c-iv. Build updated body**
 
-Merge synthesised content into the existing issue body, preserving all prior AUTHOR text
-verbatim, and clear the gate's regions (Step 6's lifecycle). Replace or add
+Merge synthesised content into the issue body, preserving all prior AUTHOR text
+verbatim, and clear the gate's regions (Step 6's lifecycle). Only outside Step 0c's target set
+(checks 4 to 7 read just the text under a label), add `## <label>` above a mapped author section
+with the one line `See "<variant>" below.` (new, so WRITE ONCE allows it). Replace or add
 `template-version: $CURRENT_TPL_VER` (0a's value; never a hardcoded literal).
 
 Write it with Step 6's primitives, minus the verdict block.
