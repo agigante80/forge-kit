@@ -11,6 +11,11 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- The pre-push hook no longer presents itself as a preview of CI. It names where CI's base differs
+  (the PR's target branch on a pull request, the previous tip on a push), says a push to any other
+  branch gets no push-time run, and stops claiming the roadmap guard's host rules run in CI: they
+  run from `/phase`. A stale component index now prints WHICH region is stale, as
+  "<file> (<region id>)", instead of a summary pointing at nothing (#311).
 - `check-doc-drift.sh` accepted no allow-file entry whose anchor equals its path: the
   missing-anchor test compared the anchor with the path, so the real fourth field read as absent.
   It now compares with the remainder, and CRLF line endings in the allow-file are stripped before

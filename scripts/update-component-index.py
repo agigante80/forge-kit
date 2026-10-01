@@ -15,7 +15,7 @@ Usage:
   update-component-index.py [--check] [--root DIR]
 
   default   rewrite the regions in place, report what changed
-  --check   exit 1 if any region is stale, printing the offending region (for CI)
+  --check   exit 1 if any region is stale, printing each as "<file> (<region id>)" (for CI)
 """
 import argparse
 import ast
@@ -352,7 +352,7 @@ def main():
         if updated == text:
             continue
         if args.check:
-            stale.append(filename)
+            stale.append("%s (%s)" % (filename, region_id))
         else:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(updated)

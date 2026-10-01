@@ -7,8 +7,12 @@
 # pushing. Running it at commit time either asks a narrower question or pays for a range diff on
 # every commit.
 #
-# It gives the answer BEFORE the push. Both range guards also run in CI, on `pull_request` AND on
-# `push` (#158), so this hook duplicates CI rather than substituting for it.
+# It gives an early answer BEFORE the push; it is not a preview of CI's verdict. Both range guards
+# also run in CI, on `pull_request` AND on pushes to main and develop (#158), and CI compares
+# against a different base from this hook: the PR's target branch on a pull request, the pushed
+# branch's previous tip on a push (scripts/resolve-range-base.sh). The two overlap without being
+# the same check, so an answer here can differ from CI's. A push to any other branch gets no
+# push-time CI run.
 #
 # Option (a) from the ticket: a committed hook, no framework. Adopting `pre-commit` (the tool)
 # would give a one-command two-stage install and would be the first package-manager dependency in
@@ -87,15 +91,15 @@ scan "$lg/check-private-leaks.sh" --all
 
 # The roadmap guard, OFFLINE half only. A push must never depend on the host being reachable, and
 # rule 2 (an open phase has a plan carrying a Fails if section) needs only the files. The host rules
-# run from CI and from /phase, where failing to reach the forge is worth stopping for.
+# run from /phase, where failing to reach the forge is worth stopping for; CI runs only the guard's
+# contract tests, never the guard itself.
 #
 # Opt-in by the presence of docs/roadmap.md: with none, the script exits 0 saying so, and a project
-# that declines the optional planning group is unaffected. It shares the leak guard's counter and
-# message on purpose: both are "this tree carries something it should not", and both are checks
-# nothing server-side repeats.
-# Its OWN counter and message. Sharing the leak guard's reported a roadmap finding in the leak
-# guard's words, which is the wrong-message defect round 2 of that guard's review was about, made
-# once already and not again.
+# that declines the optional planning group is unaffected. The guard has its OWN counter and
+# message, below, and does not share the leak guard's. Sharing it reported a roadmap finding in
+# the leak guard's words, which is the wrong-message defect round 2 of that guard's review was
+# about, made once already and not again. Only its file-only rule repeats nowhere server-side; the
+# host rules are the half /phase runs, as the paragraph above says.
 phase_problems=0
 cp_="$ROOT/plugins/forge-kit-roadmap/skills/roadmap-phases/assets/check-phases.sh"
 if [ -f "$cp_" ]; then
@@ -105,7 +109,7 @@ fi
 if [ "$phase_problems" -gt 0 ]; then
   echo ""
   echo "forge-kit: the roadmap does not satisfy check-phases.sh (see above)."
-  echo "Only the file-only rule runs here; the host rules run in CI and from /phase."
+  echo "Only the file-only rule runs here; the host rules run from /phase; CI runs only the guard's contract tests."
   echo "Fix the roadmap or the phase plan, or push anyway with: git push --no-verify"
   exit 1
 fi
@@ -130,14 +134,14 @@ fi
 # here depends on that exit, and a rule below it is SILENTLY skipped on a clone that has not
 # fetched, which is the defect recorded at the top of this file for the leak guard.
 #
-# WHY THIS RUNS NOWHERE ELSE. CLAUDE.md stopped being published on 2026-09-16, so the twelve
+# WHY THIS RUNS NOWHERE ELSE. CLAUDE.md stopped being published on 2026-09-16, so the
 # `scripts/test-X`, N tests claims it carries, and the plugin-groups region generated into it, are
 # in no CI checkout. The CI step that checked the counts could no longer fail for any input and was
 # deleted; this is where the question can still be asked, on the machine that has the file.
 #
-# WHY --changed. Every claim is checked by RUNNING its suite: 93 s for all twelve here, against a
-# 0.035 s baseline for this whole hook. A rule that slow is one people push past, which is the
-# failure this repo keeps naming. The range decides which suites run, so a push touching none of
+# WHY --changed. Every claim is checked by RUNNING its suite: 93 s, measured when there were twelve
+# counted suites (there are more now), against a 0.035 s baseline for this whole hook. A rule that
+# slow is one people push past, which is the failure this repo keeps naming. The range decides which suites run, so a push touching none of
 # them costs 0.3 s. The range comes from this hook's own stdin (the remote tip captured above), not
 # from origin/main, so it needs no fetch and survives the missing-base-ref path below.
 #
@@ -186,7 +190,19 @@ if command -v python3 >/dev/null 2>&1; then
   fi
   idx_="$ROOT/scripts/update-component-index.py"
   if [ -f "$idx_" ]; then
-    python3 "$idx_" --check >/dev/null || doc_problems=$((doc_problems + 1))
+    # The generator's report is NOT discarded (#311, L5). It names each stale region as
+    # "<file> (<region id>)" on stdout, which is the only place that says WHICH one is stale, so
+    # the old `>/dev/null` left the summary below pointing at "see above" with nothing above it.
+    # This hook composes its own stderr line and quotes the generator's report under it. A
+    # missing-marker SystemExit already goes to stderr and is left alone, so it stays visible. A
+    # current index stays silent here: nothing is printed on success.
+    idx_out_="$(python3 "$idx_" --check)"
+    idx_rc_=$?
+    if [ "$idx_rc_" -ne 0 ]; then
+      doc_problems=$((doc_problems + 1))
+      echo "  ! pre-push: update-component-index.py --check failed (exit $idx_rc_):" >&2
+      printf '%s\n' "$idx_out_" | sed 's/^/  !   /' >&2
+    fi
   else
     echo "  ! pre-push: scripts/update-component-index.py is missing; the generated regions were NOT checked." >&2
   fi
@@ -204,9 +220,10 @@ if [ "$doc_problems" -gt 0 ]; then
   exit 1
 fi
 
-# Compare against the remote's default branch, which is what CI passes at PR time
-# (origin/$BASE_REF). Pushing the default branch itself makes this the server's current tip, so
-# the audited range is exactly the commits being added, which is the path CI never sees.
+# Compare against the remote's default branch (origin/HEAD, else origin/main). CI's base differs:
+# at PR time it passes origin/$BASE_REF, the PR's target branch, which is this default branch only
+# for a PR into it. Pushing the default branch itself makes this the server's current tip, so the
+# audited range is exactly the commits being added, which is the path CI's PR trigger never sees.
 base="$(git symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null || true)"
 [ -n "$base" ] || base="$remote/main"
 
@@ -215,10 +232,13 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   # for a missing jq.
   #
   # Between 2026-09-08 and #158 the range guards were `pull_request`-only and nothing server-side
-  # checked them, so this message said so. Since #158 they also run on `push`, so it says that.
+  # checked them, so this message said so. Since #158 they also run on pushes to main and develop,
+  # so it says that, without promising CI reaches the same verdict or runs for every branch.
   echo "  ! pre-push: base ref '$base' not found locally; range checks SKIPPED." >&2
-  echo "  !           CI runs both range guards on pull_request AND push (see #158), so the push" >&2
-  echo "  !           is still checked there, after the fact." >&2
+  echo "  !           CI also runs both range guards (see #158): on pull requests against the PR's" >&2
+  echo "  !           target branch, and on pushes to main and develop against the previous tip of" >&2
+  echo "  !           the pushed branch. Its answer can differ from this hook's. A push to any other" >&2
+  echo "  !           branch gets no push-time CI run." >&2
   echo "  !           run 'git fetch $remote' to enable them locally." >&2
   exit 0
 fi
@@ -237,8 +257,11 @@ done
 if [ "$violations" -gt 0 ]; then
   echo ""
   echo "forge-kit: $violations range check(s) failed against $base."
-  echo "CI runs both range guards on pull_request AND push (see #158), so pushing anyway will"
-  echo "fail there too; this hook gives the same answer before the push."
+  echo "CI also runs both range guards, on pull requests and on pushes to main and develop (#158)."
+  echo "On a pull request it compares against the PR's target branch, and on a push against the"
+  echo "pushed branch's previous tip (the default branch for a new ref or a force push), so its"
+  echo "answer can differ from this one against $base. A push to another branch triggers no"
+  echo "push-time CI run, though an open PR for it still triggers one."
   echo "Fix it, or push anyway with: git push --no-verify"
   exit 1
 fi

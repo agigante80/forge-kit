@@ -35,8 +35,8 @@ Usage:
   --changed PATH...  narrow whichever of the above ran to the claims whose suite is in PATH...
 
 --changed is a FILTER, not a third mode, and it exists because the full run is expensive: every
-claim is checked by RUNNING its suite, which is 93 s across every counted suite, so a git hook can only
-afford the suites the push actually touched (#218). Paths are compared after normalising to the
+claim is checked by RUNNING its suite, which was 93 s, measured when there were twelve counted
+suites, so a git hook can only afford the suites the push actually touched (#218). Paths are compared after normalising to the
 repo-relative form, so `scripts/test-x.sh`, `./scripts/test-x.sh` and an absolute path under the
 root all match the same claim.
 

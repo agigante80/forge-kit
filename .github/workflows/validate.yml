@@ -11,8 +11,9 @@ name: Validate
 # `develop` is listed because work now lands there and merges to main without a PR (2026-09-08).
 # Without it the develop branch got NO CI at all, not merely no range guards: `pull_request` never
 # fires and `push` only matched main, so every check ran for the first time AFTER the merge. The
-# range guards below are still `pull_request`-only and so still run nowhere; #158 covers that
-# separately, because it needs a base-ref decision rather than a branch name.
+# range guards below were `pull_request`-only at the time; #158 made them run on `push` too, with
+# the base chosen per trigger by scripts/resolve-range-base.sh (a base-ref decision, not a branch
+# name).
 on:
   pull_request:
   push:
@@ -202,8 +203,9 @@ jobs:
         run: bash scripts/check-component-size.sh
 
       # Issue #98 item 3: the local hooks are split by stage, and the pre-push half runs the same
-      # range guards CI runs here. It is the only local gate on a direct push to main, which
-      # neither range guard below covers (both are pull_request-only).
+      # range guards CI runs here. It gives an early answer, not CI's: on a push the guards below
+      # compare against the branch's previous tip, and on a pull request against the PR's target
+      # branch (scripts/resolve-range-base.sh), where the hook compares against origin's default.
       # Issue #112: four consumers decide what counts as a component and cannot share one
       # implementation (a glob is not a regex). This is what keeps them agreeing.
       # Issue #76: the last two shipped shell assets with no tests. version-lib.sh is the

@@ -28,6 +28,20 @@ git remote add origin "$BARE"
 git push --quiet origin main 2>/dev/null
 git remote set-head origin main >/dev/null 2>&1
 
+# run_hook_stdout / run_hook_stderr: ONE stream each, because the hook's CI wording sits on stdout
+# on the violation path and on stderr on the missing-base path (#311). A merged capture would pass
+# wording that sits on the wrong stream.
+run_hook_stdout() {
+  local ref="$1" sha; sha=$(git rev-parse HEAD)
+  printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" \
+    "0000000000000000000000000000000000000000" | bash .githooks/pre-push origin "$BARE" 2>/dev/null
+}
+run_hook_stderr() {
+  local ref="$1" sha; sha=$(git rev-parse HEAD)
+  printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" \
+    "0000000000000000000000000000000000000000" | bash .githooks/pre-push origin "$BARE" 2>&1 >/dev/null
+}
+
 # push_stdin <ref>: the four fields git feeds a pre-push hook for a new branch.
 run_hook() {
   local ref="$1" sha; sha=$(git rev-parse HEAD)
@@ -51,6 +65,26 @@ out=$(run_hook unbumped); rc=$?
   || bad "an unbumped component marker fails the push (rc=$rc)"
 printf '%s' "$out" | grep -q 'bump the <name>-version marker' \
   && ok "the marker failure names the fix" || bad "the marker failure names the fix"
+
+# The CI wording on the violation path is on STDOUT (#311). It must say what CI really does and
+# must not promise an identical answer: a PR compares against the PR's target branch and a push
+# against the branch's previous tip (scripts/resolve-range-base.sh), so the two bases differ.
+so="$(run_hook_stdout unbumped)"
+printf '%s' "$so" | grep -q 'range check(s) failed' \
+  && ok "the violation summary is on stdout" || bad "the violation summary is on stdout"
+for frag in 'pull requests' "PR's target branch" 'pushes to main and develop' 'previous tip' 'can differ' 'new ref or a force push' 'triggers no'; do
+  printf '%s' "$so" | grep -q "$frag" \
+    && ok "stdout states the real CI behaviour: $frag" || bad "stdout states the real CI behaviour: $frag"
+done
+for frag in 'same answer' 'will fail there too'; do
+  printf '%s' "$so" | grep -q "$frag" \
+    && bad "stdout no longer promises CI agreement: $frag" || ok "stdout no longer promises CI agreement: $frag"
+done
+hdr="$(sed -n '1,/^set -uo/p' "$ROOT/.githooks/pre-push")"
+printf '%s' "$hdr" | grep -q 'duplicates CI' \
+  && bad "the header no longer says the hook duplicates CI" || ok "the header no longer says the hook duplicates CI"
+printf '%s' "$hdr" | grep -q 'not a preview of CI' \
+  && ok "the header says this is an early check, not a preview of CI" || bad "the header says this is an early check, not a preview of CI"
 
 # --- 3. bumping the marker but NOT the plugin semver is still caught ---------------------------
 printf '<!-- a-version: 2 -->\nCHANGED body\n' > plugins/g/agents/a.md
@@ -96,6 +130,14 @@ printf '%s' "$out" | grep -q 'range checks SKIPPED' \
   && ok "a missing base ref says so LOUDLY" || bad "a missing base ref says so loudly"
 printf '%s' "$out" | grep -q 'git fetch origin' \
   && ok "the skip message says how to fix it" || bad "the skip message says how to fix it"
+# The CI claim on this path is on STDERR (#311): stderr alone, and no promise that CI checks it.
+se="$(run_hook_stderr unbumped)"
+printf '%s' "$se" | grep -q 'is still checked there' \
+  && bad "the skip message no longer promises the push is still checked" || ok "the skip message no longer promises the push is still checked"
+for frag in "target branch" 'previous tip' 'can differ' 'no push-time CI run' 'pull requests' 'pushes to main and develop'; do
+  printf '%s' "$se" | grep -q "$frag" \
+    && ok "the skip message states the real CI behaviour: $frag" || bad "the skip message states the real CI behaviour: $frag"
+done
 
 # --- the leak guard runs even when the range guards cannot -----------------------------------
 # It used to sit BELOW the missing-base-ref exit, so a clone that had not fetched origin/main
@@ -170,7 +212,7 @@ rm -rf docs plugins/forge-kit-roadmap; git add -A >/dev/null; git commit --quiet
 cd "$ROOT"
 
 echo "== the local-doc claims are checked here, because nowhere else can (#218) =="
-# CLAUDE.md stopped being published on 2026-09-16, so its twelve suite-count claims and its
+# CLAUDE.md stopped being published on 2026-09-16, so its suite-count claims and its
 # generated plugin-groups region are in no CI checkout. The step that checked the counts was
 # deleted rather than disabled, and this rule is where the question is asked instead. The cases
 # that matter most are the negative ones: a checkout WITHOUT the doc must not be blocked, and a
@@ -286,20 +328,19 @@ push_range_err() {  # push_range_err <base-sha>: the hook's stderr only
   printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1" \
     | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1 >/dev/null
 }
-# The exit code needs its own run, since a command substitution of the stderr-only capture above
-# reports the pipeline's status and the two must not be conflated.
-push_range_rc() {
-  local sha; sha=$(git rev-parse HEAD)
-  printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1" \
-    | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" >/dev/null 2>&1
-}
+# The exit code is read with `rc=$?` IMMEDIATELY after `err="$(push_range_err ...)"`. Under
+# pipefail the status of that assignment is the pipeline's, and the hook is the pipeline's last
+# stage, so it IS the hook's status: no second run is needed (#311 corrected an earlier comment
+# that said otherwise). `local err=...` would break this, since `local` returns its own status,
+# which is why these are plain assignments. The "exits through the index check" case below proves
+# the status is the hook's and not a constant, since all the others assert 0.
 base=$(git rev-parse HEAD)
 printf 'prose two\n' > notes.md; git add -A >/dev/null; git commit --quiet -m "prose for the generator cases"
 cp scripts/update-suite-counts.py "$TMP/cnt.bak"
 cp scripts/update-component-index.py "$TMP/idx.bak"
 
 rm scripts/update-suite-counts.py
-err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "a missing update-suite-counts.py does not block the push" || bad "a missing update-suite-counts.py does not block the push (rc $rc)"
 printf '%s' "$err" | grep -q '^  ! pre-push: .*update-suite-counts.py' && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
 printf '%s' "$err" | grep 'update-suite-counts.py' | grep -q 'NOT checked' && ok "that says the suite-count claims were NOT checked" || bad "that says the suite-count claims were NOT checked"
@@ -307,7 +348,7 @@ printf '%s' "$err" | grep -q 'update-component-index.py' && bad "and does not na
 cp "$TMP/cnt.bak" scripts/update-suite-counts.py
 
 rm scripts/update-component-index.py
-err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "a missing update-component-index.py does not block the push" || bad "a missing update-component-index.py does not block the push (rc $rc)"
 printf '%s' "$err" | grep -q '^  ! pre-push: .*update-component-index.py' && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
 printf '%s' "$err" | grep 'update-component-index.py' | grep -q 'NOT checked' && ok "that says the generated regions were NOT checked" || bad "that says the generated regions were NOT checked"
@@ -315,17 +356,20 @@ printf '%s' "$err" | grep -q 'update-suite-counts.py' && bad "and does not name 
 cp "$TMP/idx.bak" scripts/update-component-index.py
 
 rm scripts/update-suite-counts.py scripts/update-component-index.py
-err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "both generators missing does not block the push" || bad "both generators missing does not block the push (rc $rc)"
 if printf '%s' "$err" | grep -q '^  ! pre-push: .*update-suite-counts.py' && printf '%s' "$err" | grep -q '^  ! pre-push: .*update-component-index.py'; then
   ok "and two skips are named, one per generator"; else bad "and two skips are named, one per generator ($err)"; fi
 cp "$TMP/cnt.bak" scripts/update-suite-counts.py
 cp "$TMP/idx.bak" scripts/update-component-index.py
 
-err="$(push_range_err "$base")"; push_range_rc "$base"; rc=$?
+err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "with both generators present the push passes" || bad "with both generators present the push passes (rc $rc)"
 if printf '%s' "$err" | grep -q 'update-suite-counts.py\|update-component-index.py'; then
   bad "and stderr carries no generator skip line ($err)"; else ok "and stderr carries no generator skip line"; fi
+# Current regions: no stale notice at all, and never a region name (#311, L5).
+if printf '%s' "$err" | grep -q 'plugin-catalogue\|component-index\|STALE'; then
+  bad "and a current index names no region and no STALE ($err)"; else ok "and a current index names no region and no STALE"; fi
 
 # The skip covers only an ABSENT script; it never replaces the real check.
 sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/' README.md
@@ -335,6 +379,43 @@ out="$(push_range "$base")"; rc=$?
 printf '%s' "$out" | grep -q 'a generated claim in a LOCAL doc is stale or could not be checked' && ok "with the stale-claim message" || bad "with the stale-claim message"
 python3 scripts/update-component-index.py >/dev/null 2>&1
 git add -A >/dev/null; git commit --quiet -m "regenerate the region again"
+
+# A STALE REGION IS NAMED ON STDERR, and the exit status is the hook's (#311, L5 and L3). One hand
+# edit, committed, captured through push_range_err: stderr alone, rc taken at once. rc is 1 here and
+# 0 everywhere above, so a hardcoded `rc=0` or a capture that dropped the status fails this case.
+sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/' README.md
+git add -A >/dev/null; git commit --quiet -m "hand-edit the plugin-catalogue region"
+err="$(push_range_err "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "a stale generated region exits 1 through the stderr-only capture" || bad "a stale generated region exits 1 through the stderr-only capture (rc $rc)"
+printf '%s' "$err" | grep -q 'update-component-index.py' && ok "stderr names the generator that reported it" || bad "stderr names the generator that reported it ($err)"
+printf '%s' "$err" | grep -q 'README.md (plugin-catalogue)' && ok "and the stale region, as file and id" || bad "and the stale region, as file and id ($err)"
+printf '%s' "$err" | grep -q 'component-index)' && bad "and does not name a region that is current" || ok "and does not name a region that is current"
+python3 scripts/update-component-index.py >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "regenerate the plugin-catalogue region"
+
+# BOTH README regions stale: both are named, each once, as two distinct entries. Before #311 the
+# list carried the bare file name, which would have printed README.md twice with nothing to tell
+# the two apart.
+sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/; s/component-index:start -->/component-index:start -->\nhand-edited/' README.md
+git add -A >/dev/null; git commit --quiet -m "hand-edit both README regions"
+err="$(push_range_err "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "two stale regions exit 1" || bad "two stale regions exit 1 (rc $rc)"
+printf '%s' "$err" | grep -q 'README.md (plugin-catalogue)' && ok "the first stale region is named" || bad "the first stale region is named ($err)"
+printf '%s' "$err" | grep -q 'README.md (component-index)' && ok "the second stale region is named" || bad "the second stale region is named ($err)"
+[ "$(printf '%s' "$err" | grep -o 'README.md (' | wc -l)" -eq 2 ] && ok "each exactly once" || bad "each exactly once ($err)"
+python3 scripts/update-component-index.py >/dev/null 2>&1
+git add -A >/dev/null; git commit --quiet -m "regenerate both README regions"
+
+# A region whose marker pair is gone is a generator SystemExit on stderr. It is not swallowed by
+# the capture, so the reason (which file, which marker) stays visible next to the hook's own line.
+cp README.md "$TMP/readme.bak"
+sed -i '/plugin-catalogue:end -->/d' README.md
+git add -A >/dev/null; git commit --quiet -m "remove a region marker"
+err="$(push_range_err "$base")"; rc=$?
+[ "$rc" -eq 1 ] && ok "a missing region marker exits 1" || bad "a missing region marker exits 1 (rc $rc)"
+printf '%s' "$err" | grep -q "has no 'plugin-catalogue' region" && ok "and the generator's own reason stays visible on stderr" || bad "and the generator's own reason stays visible on stderr ($err)"
+cp "$TMP/readme.bak" README.md
+git add -A >/dev/null; git commit --quiet -m "restore the region marker"
 
 # THE PLACEMENT ITSELF (review round 1 on #218). Every case above runs with origin/main intact, so
 # moving the whole block below the base-ref exit at the end of this hook left the suite green. The

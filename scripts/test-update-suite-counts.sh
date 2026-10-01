@@ -166,8 +166,8 @@ contains "no such doc" "$out" "naming it"
 lacks "Traceback" "$out" "without a traceback"
 
 echo "== --changed narrows the run to the suites a push touched (#218) =="
-# Every claim is checked by RUNNING its suite, which is 93 s for the twelve in this repository, so
-# a git hook can only afford the ones the range touched. A sentinel file per suite is what proves
+# Every claim is checked by RUNNING its suite, which was 93 s, measured when there were twelve
+# counted suites, so a git hook can only afford the ones the range touched. A sentinel file per suite is what proves
 # which ran: wall time would flake on a loaded machine, the failure #219 is already about.
 SENT="$FIX/sent"; mkdir -p "$SENT"
 cat > "$FIX/scripts/test-sent-a.sh" <<'SA'
@@ -231,7 +231,7 @@ echo "== a doc shaped like this repository's own: every claim is seen, and nothi
 # This used to read $ROOT/CLAUDE.md and skip when it was absent, which made the suite's OWN total
 # environment-dependent: 48 cases in a CI checkout, 52 on a machine that has the doc (#218). A
 # suite whose count depends on a file that is in no checkout cannot state a stable count, and that
-# count is itself one of the twelve claims the generator checks. So the cases below always run,
+# count is itself one of the claims the generator checks. So the cases below always run,
 # against the real doc where it exists and against a fixture carrying the same shapes where it does
 # not: the wrapped claim, the .py suite, and a dozen claims in one file.
 # Both branches emit exactly one line, so the suite's own total is the same either way, which is

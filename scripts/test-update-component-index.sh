@@ -102,6 +102,20 @@ after=$(cat "$FIX/README.md" "$FIX/CLAUDE.md")
 sed -i 's/alpha-agent/alpha-AGENT-hand-edited/' "$FIX/README.md"
 python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
 [ $? -ne 0 ] && ok "--check catches a hand-edited region" || bad "--check catches a hand-edited region"
+# The report names the REGION, not only the file (#311): README.md carries two, and a bare file
+# name cannot say which is stale. Stdout is asserted, since that is where the report is printed,
+# and the pre-push hook quotes it.
+out="$(python3 "$GEN" --check --root "$FIX" 2>/dev/null)"
+printf '%s' "$out" | grep -q 'STALE region(s): README.md (component-index)$' \
+  && ok "--check names the stale region as file and id, and only that one" \
+  || bad "--check names the stale region as file and id, and only that one ($out)"
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+# Two stale regions in the SAME file are two distinct entries, in REGIONS order.
+sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/; s/component-index:start -->/component-index:start -->\nhand-edited/' "$FIX/README.md"
+out="$(python3 "$GEN" --check --root "$FIX" 2>/dev/null)"
+printf '%s' "$out" | grep -q 'STALE region(s): README.md (plugin-catalogue), README.md (component-index)$' \
+  && ok "--check lists both stale regions of one file as distinct entries" \
+  || bad "--check lists both stale regions of one file as distinct entries ($out)"
 python3 "$GEN" --root "$FIX" >/dev/null 2>&1
 
 # --- 6. a NEW component makes the region stale, and regenerating picks it up --------------------
