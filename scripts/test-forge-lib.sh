@@ -1513,7 +1513,7 @@ echo "== #248: a region is spliced and nothing else moves =="
   exit 0
 )
 case $? in
-  0) ok "and the foreign region and every line of author text survive byte for byte";;
+  0) ok "and the foreign region and every line of author text survive (grep and count; the exact bytes are pinned by the #264 L5 case)";;
   1) bad "the new content is not in the written body";;
   2) bad "the old content of the region survived";;
   3) bad "the foreign brief-decision region was destroyed";;
@@ -1809,7 +1809,7 @@ echo "== #248: a dry run decides BEFORE it would have fetched =="echo "== #248: 
   exit 0
 )
 case $? in
-  0) ok "dry-run names the region and the ARGUMENT byte count, and makes no request at all";;
+  0) ok "dry-run names the region and the ARGUMENT character count, and makes no request at all";;
   1) bad "dry-run did not return 0";;
   2) bad "dry-run called forge_api, so the guard sits after the fetch (the shape #254 fixed)";;
   3) bad "dry-run did not name the region";;
@@ -1831,6 +1831,231 @@ topstub() {  # topstub <body>: serve <body> on GET, record the PATCH
     esac
   }
 }
+
+echo "== #264: the end-before-start guard, the exact-prefix arm, exact bytes, wording and whitespace =="
+# L1: an end marker that precedes its start marker is refused by set AND by clear. Proven to die
+# against a copy of the library with `if (nstart == 1 && si > ei) exit 103` deleted from _forge_splice.
+INVERTED_FIXTURE='Author text above.
+
+<!-- gate-verdict:end -->
+x
+<!-- gate-verdict:start -->
+
+Author text below.'
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE="$INVERTED_FIXTURE"
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 103 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "#264 L1: set refuses an end-before-start body with 103 and sends nothing";;
+  1) bad "#264 L1: set on an end-before-start body did not return 103";;
+  2) bad "#264 L1: set on an end-before-start body sent a PATCH";;
+  *) bad "the #264 L1 set case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE="$INVERTED_FIXTURE"
+  forge_body_region_clear 7 gate gate-verdict >/dev/null 2>&1; rc=$?
+  [ "$rc" = 103 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "#264 L1: clear refuses an end-before-start body with 103 and sends nothing";;
+  1) bad "#264 L1: clear on an end-before-start body did not return 103";;
+  2) bad "#264 L1: clear on an end-before-start body sent a PATCH";;
+  *) bad "the #264 L1 clear case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE='Author text above.
+
+<!-- gate-verdict:start -->
+x
+<!-- gate-verdict:end -->
+
+Author text below.'
+  forge_body_region_clear 7 gate gate-verdict >/dev/null 2>&1; rc=$?
+  [ "$rc" = 0 ] || exit 1
+  [ -f "$T/patch.json" ] || exit 2
+  patched | grep -q 'gate-verdict' && exit 3
+  exit 0
+)
+case $? in
+  0) ok "#264 L1 control: the same markers in the correct order are cleared with rc 0, so the ORDER caused the refusal";;
+  1) bad "#264 L1 control: the correct-order body was refused";;
+  2) bad "#264 L1 control: the correct-order body sent no PATCH";;
+  3) bad "#264 L1 control: the correct-order body kept its markers";;
+  *) bad "the #264 L1 control case errored";;
+esac
+
+# L2: a region named exactly the prefix is owned by it. Proven to die against a copy with the arm
+# `"$prefix"-*|"$prefix") ;;` in _forge_region_write reduced to `"$prefix"-*) ;;`.
+EXACT_FIXTURE='Author text above.
+
+<!-- gate:start -->
+the exact-prefix region
+<!-- gate:end -->
+
+<!-- gate-verdict:start -->
+the verdict
+<!-- gate-verdict:end -->
+
+Author text below.'
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE="$EXACT_FIXTURE"
+  forge_body_region_clear 7 gate gate >/dev/null 2>&1; rc=$?
+  [ "$rc" = 0 ] || exit 1
+  out="$(patched)"
+  printf '%s' "$out" | grep -q 'gate:start' && exit 2
+  printf '%s' "$out" | grep -q 'the exact-prefix region' && exit 2
+  printf '%s' "$out" | grep -q '<!-- gate-verdict:start -->' || exit 3
+  printf '%s' "$out" | grep -q 'the verdict' || exit 3
+  exit 0
+)
+case $? in
+  0) ok "#264 L2: a caller with prefix gate clears the region named exactly gate and leaves gate-verdict intact";;
+  1) bad "#264 L2: the exact-prefix region was refused (the ownership arm lost its exact-match half)";;
+  2) bad "#264 L2: the exact-prefix region survived the clear";;
+  3) bad "#264 L2: the clear destroyed the gate-verdict region beside it";;
+  *) bad "the #264 L2 case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE="$EXACT_FIXTURE"
+  forge_body_region_clear 7 brief gate >/dev/null 2>&1; rc=$?
+  [ "$rc" = 101 ] || exit 1
+  [ -f "$T/patch.json" ] && exit 2
+  exit 0
+)
+case $? in
+  0) ok "#264 L2 control: a caller with prefix brief is refused the region named gate with 101 (a control, not a detector)";;
+  1) bad "#264 L2 control: prefix brief was not refused with 101";;
+  2) bad "#264 L2 control: the refused clear sent a PATCH";;
+  *) bad "the #264 L2 control case errored";;
+esac
+
+# L5: the exact bytes of the written body, compared as files so no command substitution strips a
+# trailing newline. A foreign region, every author line and the new region all land as expected.
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  forge_body_region_set 7 gate gate-verdict "new verdict" >/dev/null 2>&1 || exit 9
+  jq -j '.body' < "$T/patch.json" > "$T/l5.got"
+  # The fixture has no trailing newline; the splice always writes exactly one (see the #264 header).
+  printf '%s\n' "$BODY_FIXTURE" | sed 's/old verdict/new verdict/' > "$T/l5.want"
+  cmp -s "$T/l5.got" "$T/l5.want" || exit 1
+  exit 0
+)
+case $? in
+  0) ok "#264 L5: the written body equals the original except the one replaced line and one added trailing newline (file comparison)";;
+  1) bad "#264 L5: the written body differs from the original beyond the replaced region";;
+  *) bad "the #264 L5 case errored";;
+esac
+
+# L3: forge_issue_edit's dry-run line counts characters. The count depends on the locale, so the
+# case pins C.UTF-8 and asserts that precondition first: a runner without it fails loudly here
+# instead of silently counting 5 bytes.
+UTF_X='aé b'
+if [ "$(LC_ALL=C.UTF-8 bash -c 'x=$1; echo ${#x}' _ "$UTF_X" 2>/dev/null)" != 4 ]; then
+  bad "#264 L3 precondition: LC_ALL=C.UTF-8 is not available on this runner (\${#x} of 'aé b' is not 4), so the character-count case cannot run"
+else
+  (
+    . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+    forge_api() { exit 7; }
+    err="$(LC_ALL=C.UTF-8 forge_issue_edit 7 "$UTF_X" 2>&1 >/dev/null)"; rc=$?
+    [ "$rc" = 0 ] || exit 1
+    printf '%s' "$err" | grep -qF '(4 characters)' || exit 2
+    printf '%s' "$err" | grep -q 'bytes' && exit 3
+    exit 0
+  )
+  case $? in
+    0) ok "#264 L3: forge_issue_edit's dry-run line says (4 characters) for aé b under C.UTF-8 and never says bytes";;
+    1) bad "#264 L3: the dry-run did not return 0";;
+    2) bad "#264 L3: the dry-run line does not say (4 characters)";;
+    3) bad "#264 L3: the dry-run line still says bytes";;
+    *) bad "the #264 L3 case errored";;
+  esac
+fi
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+  err="$(forge_issue_edit 7 "" 2>&1)"; rc=$?
+  [ "$rc" = 2 ] || exit 1
+  printf '%s' "$err" | grep -qF 'refusing to replace issue #7 with an empty body' || exit 2
+  printf '%s' "$err" | grep -q 'characters\|bytes' && exit 3
+  exit 0
+)
+case $? in
+  0) ok "#264 L3 control: an empty body returns 2 with the refusal message and prints no count line";;
+  1) bad "#264 L3 control: an empty body did not return 2";;
+  2) bad "#264 L3 control: the refusal message changed";;
+  3) bad "#264 L3 control: a count line was printed for a refused empty body";;
+  *) bad "the #264 L3 control case errored";;
+esac
+
+# L6: a CRLF body keeps its CRLF author lines, and the splice writes LF markers and LF content, so
+# the body is mixed. Pinned so the header's statement matches the code and a later normalisation is
+# a deliberate change.
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE=$'Author above.\r\n\r\n<!-- gate-verdict:start -->\r\nold\r\n<!-- gate-verdict:end -->\r\nAuthor below.\r\n'
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1 || exit 9
+  jq -j '.body' < "$T/patch.json" > "$T/l6.got"
+  printf 'Author above.\r\n\r\n<!-- gate-verdict:start -->\nx\n<!-- gate-verdict:end -->\nAuthor below.\r\n' > "$T/l6.want"
+  cmp -s "$T/l6.got" "$T/l6.want" || exit 1
+  exit 0
+)
+case $? in
+  0) ok "#264 L6: a CRLF body keeps CRLF on author lines while the written markers and content are LF";;
+  1) bad "#264 L6: the CRLF body's written bytes changed from the documented mixed endings";;
+  *) bad "the #264 L6 case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE=$'Author above.\n\n<!-- gate-verdict:start -->\nold\n<!-- gate-verdict:end -->\nAuthor below.\n'
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1 || exit 9
+  jq -j '.body' < "$T/patch.json" > "$T/l6.got"
+  printf 'Author above.\n\n<!-- gate-verdict:start -->\nx\n<!-- gate-verdict:end -->\nAuthor below.\n' > "$T/l6.want"
+  cmp -s "$T/l6.got" "$T/l6.want" || exit 1
+  exit 0
+)
+case $? in
+  0) ok "#264 L6 control: an LF body is written back with no CR anywhere";;
+  1) bad "#264 L6 control: the LF body's written bytes changed";;
+  *) bad "the #264 L6 control case errored";;
+esac
+
+# L4: an empty body gains exactly one leading blank line before the start marker.
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE=''
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1 || exit 9
+  jq -j '.body' < "$T/patch.json" > "$T/l4.got"
+  printf '\n<!-- gate-verdict:start -->\nx\n<!-- gate-verdict:end -->\n' > "$T/l4.want"
+  cmp -s "$T/l4.got" "$T/l4.want" || exit 1
+  exit 0
+)
+case $? in
+  0) ok "#264 L4: an empty body gains exactly one leading blank line before the start marker";;
+  1) bad "#264 L4: the empty body's written bytes changed from the documented leading blank line";;
+  *) bad "the #264 L4 case errored";;
+esac
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
+  BODY_FIXTURE='Some text.'
+  forge_body_region_set 7 gate gate-verdict "x" >/dev/null 2>&1 || exit 9
+  [ "$(jq -j '.body' < "$T/patch.json" | head -c 1)" = "S" ] || exit 1
+  exit 0
+)
+case $? in
+  0) ok "#264 L4 control: a non-empty body gains no leading blank line";;
+  1) bad "#264 L4 control: a non-empty body was written with a leading blank line";;
+  *) bad "the #264 L4 control case errored";;
+esac
 
 echo "== #284: top moves an existing region below the template marker =="
 (
@@ -2086,7 +2311,7 @@ dr_site() {
         forge_api_paginate)            want='' ;;   # the [dry-run] line is the REAL forge_api's, shadowed here: the paginator itself prints nothing
         _forge_region_write)           want='[dry-run] set region gate-verdict of issue 7 on o/r (16 characters)' ;;
         forge_body_compose_preserving) want='[dry-run] compose body of issue 7 on o/r (8 characters)' ;;
-        forge_issue_edit)              want='[dry-run] replace body of issue 44 on o/r (8 bytes)' ;;
+        forge_issue_edit)              want='[dry-run] replace body of issue 44 on o/r (8 characters)' ;;
         forge_issue_list)              want='[dry-run] GET https://forge.example/api/v1/repos/o/r/issues?state=open (issues only, all pages)' ;;
         forge_issue_label)             want='[dry-run] label issue 7 on o/r with: bug' ;;
         forge_issue_milestone)         want='[dry-run] set milestone of issue 12 to Phase A on o/r' ;;

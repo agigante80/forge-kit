@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 31
+# forge-lib-version: 32
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -148,6 +148,10 @@
 #       forge_tag_exists returns 2 under an invalid host (it hides stderr), which means "could
 #       not ask", NOT "tag absent". A caller that saw rc 0 from a write now sees rc 2; valid
 #       hosts are unchanged. forge_api_base already refused and is left alone.
+#   v32 No caller changes (#264). forge_issue_edit's dry-run line says `characters` where it said
+#       `bytes`: the number was always `${#2}`, a character count in a multibyte locale, and
+#       nothing parses the line. The splice's whitespace and line-ending behaviour is now stated
+#       (see the body-region block) and pinned by tests; the code behind it is unchanged.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -587,6 +591,17 @@ forge_issue_view() { forge_api GET "/repos/$(forge_repo)/issues/$1"; }
 # not own. That is acceptable because the failure prevented is a full-body overwrite by a buggy
 # component, not impersonation by a hostile one.
 #
+# WHAT THE SPLICE DOES TO WHITESPACE AND LINE ENDINGS IT DID NOT AUTHOR (#264). It writes LF, and
+# it does not normalise what is around a region. A body filed through the GitHub web form is CRLF,
+# so after a set the author's lines keep their CRLF while the marker lines and the content are LF:
+# the body ends up with mixed line endings, and every marker still matches (a trailing CR is
+# stripped before comparison). An EMPTY body gains exactly one leading blank line before the start
+# marker. The body's trailing newlines collapse to exactly one (the read is a command substitution),
+# so an author's trailing blank lines are dropped. Compose (forge_body_compose_preserving), not this
+# splice, decides the spacing before a re-threaded region. Line endings are documented rather than
+# normalised on purpose: normalising would rewrite author lines the splice has no business touching.
+# Tests pin the CRLF, empty-body and trailing-newline behaviours, so changing one is deliberate.
+#
 # LAST-WRITER-WINS IS STRUCTURAL. GitHub offers no If-Match on an issue-body PATCH, so the re-read
 # before the write NARROWS the window and cannot close it. Do not propose a lock as the fix.
 #
@@ -870,13 +885,14 @@ forge_issue_close() {
 # forge_issue_edit <n> <body>   REPLACES the issue body on either host (#129).
 # Both hosts PATCH the issue itself, so there is no host branch here. It is the one write in this
 # library that DESTROYS what was there, and the host's edit history is the only copy, so it refuses
-# an empty body rather than erasing a ticket on a caller's unset variable.
+# an empty body rather than erasing a ticket on a caller's unset variable. The dry-run line counts
+# CHARACTERS in the caller's locale (`${#2}`), not bytes: `aé b` is 4 under a UTF-8 locale, 5 under C.
 forge_issue_edit() {
   [ -n "${2:-}" ] || { echo "forge_issue_edit: refusing to replace issue #${1:-?} with an empty body" >&2; return 2; }
   forge_host >/dev/null || return 2   # above the dry-run guard (#256): both hosts PATCH, but an invalid one must not dry-run clean
   local payload; payload="$(jq -nc --arg b "$2" '{body:$b}')"
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    printf '[dry-run] replace body of issue %s on %s (%s bytes)\n' "$1" "$(forge_repo)" "${#2}" >&2
+    printf '[dry-run] replace body of issue %s on %s (%s characters)\n' "$1" "$(forge_repo)" "${#2}" >&2
     return 0
   fi
   local rc=0; forge_api PATCH "/repos/$(forge_repo)/issues/$1" "$payload" >/dev/null || rc=$?   # #237, see forge_issue_comment
