@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 5
+# roadmap-lib-version: 6
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -37,6 +37,10 @@
 # two-argument set_prose passed the check and ERASED the phase prose with rc 0, and
 # set_plan could not clear a plan that rule 2 does not require. And the bounded symlink
 # walk stopped at the tenth hop and wrote there, severing a link mid-chain; it now refuses.
+#
+# v6 (#270) makes EMPTY prose a fixed point. set_prose "" used to emit its leading blank, an
+# empty prose line and a trailing blank, so a keyed-only block gained blank lines on every
+# call and the no-op short-circuit never fired. See the comments in set_prose and insert_at.
 
 # --- portability ------------------------------------------------------------
 # macOS still ships bash 3.2 and a BSD readlink with no -f, and this is installed into other
@@ -356,12 +360,22 @@ roadmap_set_prose() {
   # The hand-written format puts one blank line between the last keyed line and the prose, and
   # one between the prose and the next heading (or none at EOF): the leading "\n" below is what
   # makes an unchanged prose round-trip byte-identical on the FIRST call rather than only the second.
+  # EMPTY prose has ONE canonical shape (#270): a keyed-only block, then ONE blank line before the
+  # next heading and NONE at EOF, so the file ends with the `plan:` line and a single newline.
+  # roadmap_insert_at emits the same shape, which is what makes set_prose "" a no-op on a block
+  # insert_at just created. Two consequences are deliberate, written here so a later review does
+  # not re-litigate them. (1) A file whose last prose has no final newline is NORMALISED: the
+  # first call appends it and the second is a fixed point. Every awk writer in this library
+  # already does that (set_state included), so preserving it would be a library-wide change, not
+  # a set_prose fix. (2) A keyed-only block at EOF followed by one or two trailing blank lines is
+  # normalised once to the canonical shape and is a fixed point after that; two trailing blanks
+  # used to be the fixed point and no longer are. Empty prose over existing prose is a real edit.
   RM_PROSE="$prose" awk -v s="$RM_START" -v e="$RM_END" '
     NR <= s { print; next }
-    NR >= e { if (!done) { printf "\n%s\n\n", ENVIRON["RM_PROSE"]; done = 1 } print; next }
+    NR >= e { if (!done) { if (ENVIRON["RM_PROSE"] != "") printf "\n%s\n\n", ENVIRON["RM_PROSE"]; else print ""; done = 1 } print; next }
     index($0, "state:") == 1 || index($0, "plan:") == 1 { print; next }
     { next }
-    END { if (!done) printf "\n%s\n", ENVIRON["RM_PROSE"] }
+    END { if (!done && ENVIRON["RM_PROSE"] != "") printf "\n%s\n", ENVIRON["RM_PROSE"] }
   ' "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
@@ -403,9 +417,14 @@ roadmap_insert_at() {
   fi
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
   RM_NAME="$name" RM_STATE="$st" RM_PLAN="$plan" RM_PROSE="$prose" awk -v at="$at" '
+    # Empty prose emits no lead blank and no prose line (the canonical shape set_prose also
+    # writes, #270). The separators stay position-owned, below. With --end on a file whose last
+    # line is not blank the insert therefore ends at the plan line; remove restores the original
+    # bytes only for a non-blank last line, because it strips the separator before an EOF block.
     function block() {
-      printf "## Phase: %s\nstate: %s\nplan: %s\n\n%s\n",
-             ENVIRON["RM_NAME"], ENVIRON["RM_STATE"], ENVIRON["RM_PLAN"], ENVIRON["RM_PROSE"]
+      printf "## Phase: %s\nstate: %s\nplan: %s\n",
+             ENVIRON["RM_NAME"], ENVIRON["RM_STATE"], ENVIRON["RM_PLAN"]
+      if (ENVIRON["RM_PROSE"] != "") printf "\n%s\n", ENVIRON["RM_PROSE"]
     }
     NR == at { block(); print ""; done = 1 }
     { prev = $0; print }

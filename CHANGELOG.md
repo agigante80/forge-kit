@@ -11,6 +11,12 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **`roadmap_set_prose ""` is a fixed point** (#270, roadmap-lib v6). Empty prose used to emit a
+  leading blank, an empty prose line and a trailing blank, so a keyed-only phase block gained blank
+  lines on every call and the no-op short-circuit never fired. Empty prose now has one canonical
+  shape (no prose lines, one blank before the next heading, none at EOF), which
+  `roadmap_insert_at` also writes. A file whose last line has no final newline is normalised once
+  and is a fixed point after that.
 - **`FORGE_DRY_RUN` and reads, corrected** (#254, #269). The v0.7.0 line "`FORGE_DRY_RUN=1` fakes
   writes only, never reads (#268)" described the docs, not the library: `forge_api` short-circuits
   every method under the flag, GET included, so a read returns an empty result. `sync-phases.sh`

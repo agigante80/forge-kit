@@ -24,7 +24,12 @@
 # again; an empty plan written as `plan: ` with a trailing space; remove going back to its own
 # asymmetric strip; the bounded walk severing a link mid-chain; and the read-only refusal made
 # silent. From #266's fix: `_rm_commit`'s byte-identical no-op check (`cmp -s "$real" "$cand"`)
-# removed, which the same-inode case and the mode-444-file case both catch.
+# removed, which the same-inode case and the mode-444-file case both catch. From #270 (empty prose
+# is a fixed point), each shown to fail this suite: set_prose keeping its blank lines at EOF for
+# empty prose; set_prose emitting no separator before the next heading for empty prose; insert_at's
+# END branch still emitting the blank lines for empty prose; insert_at's mid-file path still
+# emitting them; insert_at left untouched while set_prose is fixed; and set_prose normalising
+# nothing (a missing final newline preserved by a printf without its newline).
 #
 # FIVE OF THOSE ARE THIS SUITE'S OWN HISTORY rather than hypotheticals, and they are the reason the
 # ledger is worth keeping. A first battery left three mutants alive: one ambiguity case had been
@@ -289,6 +294,112 @@ fixture "$T/nopreal.md"; ln -sf "$T/nopreal.md" "$T/noplink.md"
 run roadmap_set_prose "$T/noplink.md" Beta "$BETA_PROSE"
 expect "an unchanged prose write through a symlink also returns 0" 0 "$RC"
 [ -L "$T/noplink.md" ] && ok "and the symlink survives, unreplaced" || bad "the symlink was replaced by a regular file"
+
+echo "== empty prose is a fixed point, and one shape across both writers (#270) =="
+# v5 emitted a lead blank, an empty prose line and a trailing blank for set_prose "", so a keyed-only
+# block gained blank lines on every call and the no-op short-circuit never fired. The canonical
+# empty-prose shape is ONE blank before the next heading and NONE at EOF, written by BOTH
+# set_prose and insert_at. A missing final newline is NORMALISED (appended by the first call, a
+# fixed point on the second), matching every other awk writer here. Every case asserts BYTES (cmp)
+# and the inode, never the rc alone: the pre-existing arity case checked only rc 0 for set_prose "",
+# which is how this defect passed. Test 3 and the no-op clause of 4 below also pass on v5: they
+# guard the decisions, they do not pin the fix. Tests 5, 6 and 7 fail on v5.
+keyed_mid() {  # Beta is keyed-only, one blank, then the next heading
+  printf '%s\n' '# r' '' '## Phase: Alpha' 'state: done' 'plan: docs/plans/alpha.md' '' 'Alpha prose.' '' \
+    '## Phase: Beta' 'state: planned' 'plan: docs/plans/beta.md' '' '## Phase: Gamma' 'state: backlog' \
+    'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$1"
+}
+keyed_eof() {  # the LAST phase is keyed-only and the file ends with its plan line
+  printf '%s\n' '# r' '' '## Phase: Alpha' 'state: done' 'plan: docs/plans/alpha.md' '' 'Alpha prose.' '' \
+    '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' > "$1"
+}
+same() {  # same <label> <file> <expected-file> <inode-before>
+  if cmp -s "$2" "$3"; then ok "$1: bytes unchanged"; else bad "$1: bytes changed"; fi
+  expect "$1: inode unchanged" "$4" "$(inode "$2")"
+}
+# 1. mid-file
+keyed_mid "$T/e1.md"; cp "$T/e1.md" "$T/e1b.md"; i1="$(inode "$T/e1.md")"
+run roadmap_set_prose "$T/e1.md" Beta ""
+expect "1. set_prose \"\" on a keyed-only block before a heading returns 0" 0 "$RC"
+same "1." "$T/e1.md" "$T/e1b.md" "$i1"
+# 2. at EOF
+keyed_eof "$T/e2.md"; cp "$T/e2.md" "$T/e2b.md"; i2="$(inode "$T/e2.md")"
+run roadmap_set_prose "$T/e2.md" Gamma ""
+expect "2. set_prose \"\" on a keyed-only block at EOF returns 0" 0 "$RC"
+same "2." "$T/e2.md" "$T/e2b.md" "$i2"
+# 3. missing EOF newline is normalised once
+printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' > "$T/e3.md"
+printf 'Gamma prose.' >> "$T/e3.md"
+{ cat "$T/e3.md"; printf '\n'; } > "$T/e3want.md"
+run roadmap_set_prose "$T/e3.md" Gamma "Gamma prose."
+expect "3. a missing final newline: the first call returns 0" 0 "$RC"
+if cmp -s "$T/e3.md" "$T/e3want.md"; then ok "3. and it appended exactly one newline"; else bad "3. the first call did not append exactly one newline"; fi
+i3="$(inode "$T/e3.md")"; cp "$T/e3.md" "$T/e3b.md"
+run roadmap_set_prose "$T/e3.md" Gamma "Gamma prose."
+expect "3. the second identical call returns 0" 0 "$RC"
+same "3. second call" "$T/e3.md" "$T/e3b.md" "$i3"
+# 4. insert_at then set_prose "" is a no-op, and the insert's own bytes are the canonical shape
+keyed_mid "$T/e4.md"; cp "$T/e4.md" "$T/e4orig.md"
+run roadmap_insert_at "$T/e4.md" --before Gamma Zed planned "" ""
+expect "4. insert_at --before with empty prose returns 0" 0 "$RC"
+printf '%s\n' '# r' '' '## Phase: Alpha' 'state: done' 'plan: docs/plans/alpha.md' '' 'Alpha prose.' '' \
+  '## Phase: Beta' 'state: planned' 'plan: docs/plans/beta.md' '' '## Phase: Zed' 'state: planned' 'plan: ' '' \
+  '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$T/e4want.md"
+if cmp -s "$T/e4.md" "$T/e4want.md"; then ok "4. and the block is the canonical shape: one blank before the next heading"; else bad "4. insert_at --before wrote a different shape than the canonical one"; fi
+i4="$(inode "$T/e4.md")"; cp "$T/e4.md" "$T/e4b.md"
+run roadmap_set_prose "$T/e4.md" Zed ""
+expect "4. set_prose \"\" on the insert_at-created block returns 0" 0 "$RC"
+same "4." "$T/e4.md" "$T/e4b.md" "$i4"
+# 5. insert_at --end, empty prose, a fixture with NO trailing section and a NON-BLANK last line.
+# The standard fixture() ends in a `## Notes` section, so --end never reaches the END branch there.
+# The first assertion is the one that pins the fix: remove strips the blanks before an EOF block, so
+# the round trip alone passes on v5. The restore needs a non-blank last line: remove strips the
+# separator blank before an EOF block, so a file ending in a blank line would not come back.
+printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$T/e5.md"
+cp "$T/e5.md" "$T/e5orig.md"
+run roadmap_insert_at "$T/e5.md" --end Zed planned "" ""
+expect "5. insert_at --end with empty prose returns 0" 0 "$RC"
+{ cat "$T/e5orig.md"; printf '%s\n' '' '## Phase: Zed' 'state: planned' 'plan: '; } > "$T/e5want.md"
+if cmp -s "$T/e5.md" "$T/e5want.md"; then ok "5. the file is the original plus one blank, the Zed heading, state and the literal 'plan: ' line, no blank at EOF"
+else bad "5. insert_at --end left a different tail than one separator blank and Zed's plan line"; fi
+run roadmap_remove "$T/e5.md" Zed --milestone-empty
+expect "5. remove --milestone-empty returns 0" 0 "$RC"
+if cmp -s "$T/e5.md" "$T/e5orig.md"; then ok "5. and the original bytes are restored (non-blank last line)"; else bad "5. remove did not restore the original bytes"; fi
+# 6. shape (d): trailing blanks after a keyed-only EOF block normalise once
+for n in 1 2; do
+  keyed_eof "$T/e6.md"; cp "$T/e6.md" "$T/e6canon.md"
+  i=0; while [ "$i" -lt "$n" ]; do printf '\n' >> "$T/e6.md"; i=$((i + 1)); done
+  run roadmap_set_prose "$T/e6.md" Gamma ""
+  expect "6. $n trailing blank(s): the first set_prose \"\" returns 0" 0 "$RC"
+  if cmp -s "$T/e6.md" "$T/e6canon.md"; then ok "6. and the file now ends with the plan line and one newline"; else bad "6. $n trailing blank(s) were not normalised to the canonical shape"; fi
+  i6="$(inode "$T/e6.md")"; cp "$T/e6.md" "$T/e6b.md"
+  run roadmap_set_prose "$T/e6.md" Gamma ""
+  same "6. $n trailing blank(s), second call" "$T/e6.md" "$T/e6b.md" "$i6"
+done
+# 7. empty prose over existing prose is a real edit, to the canonical shape, mid-file and at EOF
+fixture "$T/e7.md"
+run roadmap_set_prose "$T/e7.md" Beta ""
+expect "7. set_prose \"\" over existing prose mid-file returns 0" 0 "$RC"
+expect "7. and Beta is the keyed lines, one blank, then the next heading" \
+  "## Phase: Beta|state: planned|plan: docs/plans/beta.md||## Phase: Gamma" \
+  "$(sed -n '/^## Phase: Beta/,/^## Phase: Gamma/p' "$T/e7.md" | paste -sd'|')"
+printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$T/e7b.md"
+printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' > "$T/e7bwant.md"
+run roadmap_set_prose "$T/e7b.md" Gamma ""
+expect "7. set_prose \"\" over existing prose at EOF returns 0" 0 "$RC"
+if cmp -s "$T/e7b.md" "$T/e7bwant.md"; then ok "7. and the file ends with the plan line and one newline"; else bad "7. the EOF block is not the canonical keyed-only shape"; fi
+# 8. non-empty prose on a keyed-only block still writes
+keyed_mid "$T/e8.md"; cp "$T/e8.md" "$T/e8b.md"; i8="$(inode "$T/e8.md")"
+run roadmap_set_prose "$T/e8.md" Beta "Now it has prose."
+expect "8. non-empty prose on a keyed-only block returns 0" 0 "$RC"
+if cmp -s "$T/e8.md" "$T/e8b.md"; then bad "8. the file did not change"; else ok "8. and the bytes changed"; fi
+contains "Now it has prose." "$(cat "$T/e8.md")" "8. and the prose is present"
+# 9. the section guard is untouched
+keyed_mid "$T/e9.md"; cp "$T/e9.md" "$T/e9b.md"
+run roadmap_set_prose "$T/e9.md" Beta $'x\n## y'
+expect "9. prose carrying a '## ' line is still refused with 5" 5 "$RC"
+contains "that prose opens a '## ' section, which would silently end the block" "$ERR" "9. with the unchanged message"
+expect "9. and the file is untouched" "" "$(diff "$T/e9b.md" "$T/e9.md")"
 
 echo "== a short call RETURNS, it does not kill the caller (the header promises this) =="
 # NOT through run(), which wraps every call in a subshell and would hide exactly this. Both
