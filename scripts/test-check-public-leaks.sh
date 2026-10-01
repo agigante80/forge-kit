@@ -1014,6 +1014,26 @@ bounded 10 "$MUT239A" "$DOTS" >/dev/null 2>&1
 expect "the byte-loop mutant is killed at the bound (exit 124), where the scanner takes under a second" 124 "$?"
 bounded 10 "$MUT239A" "$ALLP" >/dev/null 2>&1
 expect "and killed on the entirely-punctuation shape too" 124 "$?"
+# --- #243: the segment strip is pinned too ---------------------------------------------------
+# `seg="${raw##*/}"` is quadratic in the segment: 6.3 s at 64 KB, 21.6 s at 128 KB, 119 s at 256 KB.
+# The 64 KB DOTS fixture above lets it finish inside the bound, so it survived. 262144 bytes under
+# `bounded 10` is the size where the mutant is killed and the scanner (about 1 s) is far inside.
+# NOT 1 MB: the mutant would run for tens of minutes, and a killed mutant on bash 3.2 overshoots
+# the bound because a fatal signal waits for the expansion it is inside (see above). The assertion
+# is on exit 124, not on wall time, which keeps it clear of load flakes (#219).
+echo "== #243: a 256 KB dot tail after a user, and the strip mutant =="
+DOTS256="$WORK/dot-tail-256k.txt"; printf '/home/alice%s\n' "$(head -c 262144 /dev/zero | tr '\0' .)" > "$DOTS256"
+OUT="$(bounded 10 "$SCRIPT" "$DOTS256" 2>/dev/null)"; rc=$?
+expect "a 256 KB punctuation tail after a user is reported within the bound (exit 1, not 124)" 1 "$rc"
+case "$OUT" in *"home-path: /home/alice."*) ok "and the evidence is the raw match, tail and all (256 KB)" ;; *) bad "256 KB evidence shape: ${OUT%%$'\n'*}" ;; esac
+MUT243="$WORK/mutant-segment-strip.sh"
+sed 's|^\([[:space:]]*\)seg="\${raw#/\*/}"|\1seg="${raw##*/}"|' "$SCRIPT" > "$MUT243"; chmod +x "$MUT243"
+# The ledger asserts the EXECUTABLE line only: the comment above it also spells the `##` form.
+grep -qE '^[[:space:]]*seg="\$[{]raw#/\*/[}]"' "$SCRIPT" && ok "mutant ledger (#243): the scanner strips the segment with a shortest-match strip" || bad "mutant ledger (#243): the scanner lost its shortest-match strip"
+grep -qE '^[[:space:]]*seg="\$[{]raw#/\*/[}]"' "$MUT243" && bad "mutant ledger (#243): the mutant still carries the scanner's strip" || ok "mutant ledger (#243): the mutant no longer carries the scanner's strip"
+bounded 10 "$MUT243" "$DOTS256" >/dev/null 2>&1
+expect "the longest-match strip mutant is killed at the bound (exit 124)" 124 "$?"
+
 # Every TAIL_PUNCT byte is a tail, not only the dot.
 while IFS= read -r b; do
   [ -n "$b" ] || continue

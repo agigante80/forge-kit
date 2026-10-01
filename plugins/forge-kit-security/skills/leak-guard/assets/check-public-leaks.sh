@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 19
+# check-public-leaks-version: 20
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -60,10 +60,11 @@
 #
 # COST AND ITS LIMITS (#211, #239). Rules A and B are linear in the line length in TREE mode and
 # under `--history --show-evidence`: the tail walk is one anchored match rather than a per-byte
-# loop, the segment is cut with a literal prefix strip rather than `${raw##*/}`, and a trailing
+# loop, the segment is cut with a shortest-match strip (`${raw#/*/}`) rather than `${raw##*/}`, which
+# a 262144-byte dot-tail case in the suite pins with a mutant, and a trailing
 # slash is tested before it is stripped rather than through `${m%/}`, which tries every suffix when
-# the string does not end in one. A 64 KB punctuation tail cost 40 s and now costs 0.15 s; 1 MB is
-# 2 s. The REDACTED `--history` report is still quadratic in the match, which is #217 and is not
+# the string does not end in one. A 64 KB punctuation tail cost 40 s and now costs 0.15 s; 1 MB took
+# 2 s unloaded and 3.7 s under load. The REDACTED `--history` report is still quadratic in the match, which is #217 and is not
 # claimed here. Measured on bash 5.2.21 and glibc; this repository's stated floor is bash 3.2.57,
 # where the COST is unmeasured. Correctness does not rest on that floor behaving: a failed tail
 # match falls back to the byte loop, so an engine that does not reload the locale the way
@@ -529,15 +530,13 @@ judge() {
       # NOT `seg="${raw##*/}"` (#239): a longest-match strip tries every prefix, so it is quadratic
       # in the segment and a 64 KB punctuation tail cost 3.3 s of the 3.5 s a scan took. RE_HOME
       # matches `(/home|/Users)/` followed by a class that excludes `/`, so the segment is exactly
-      # the text after that literal prefix, and a shortest-match strip of a literal is linear.
+      # the text after the first two slashes. A shortest-match strip, linear because the segment
+      # excludes `/`; not `##` (#239, #243). It holds for any single-segment root, so a third root
+      # needs no new arm.
       # `${m%/}` is quadratic when the string does NOT end in `/`: bash tries every suffix and the
       # match fails at each (2.5 s at 256 KB, #239). Test the last byte first, then strip one.
       case "$m" in */) raw="${m%?}" ;; *) raw="$m" ;; esac
-      case "$raw" in
-        /home/*)  seg="${raw#/home/}" ;;
-        /Users/*) seg="${raw#/Users/}" ;;
-        *)        seg="${raw##*/}" ;;   # unreachable while RE_HOME keeps its two roots: a guard, not a path
-      esac
+      seg="${raw#/*/}"
       # Checked at every strip step: "..." is entirely punctuation, so stripping the trailing dots
       # would leave nothing to compare and the guard would reject its own documented placeholder,
       # and "[redacted]." holds its marker one step in (#227).
