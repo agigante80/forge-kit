@@ -955,8 +955,10 @@ plan:
 Split from "What contributor-docs still cannot see": A bucket, split out 2026-10-01 when What contributor-docs still cannot see closed. #297 asks forge-kit to treat startup context (a project's CLAUDE.md, its transitive @-imports, ancestors, rules and the auto-memory MEMORY.md) as a budget the way check-component-size.sh budgets component bodies. Its prior-art research is done (comment on #297): nothing existing budgets it per project, and `claude -p --output-format json "/context"` reports exact per-file memory tokens at no cost. What blocks it is the maintainer's: where the measurement lives, the warn and fail levels, the escape-hatch form, and which of R1 to R11 are enforced. The plan gets written from those answers.
 
 ## Phase: Tests that can be believed
-state: planned
-plan: 
+state: open
+plan: docs/plans/tests-that-can-be-believed.md
+
+Opened 2026-10-01, when *Portable shell, everywhere* closed; plan: `docs/plans/tests-that-can-be-believed.md`. #411, filed while gathering this phase's load evidence, landed the day before it opened, and its acceptance run reproduced two of this bucket's flakes on demand (the compose own-region row, the glued case).
 
 A bucket, filed 2026-10-01. Suites that pass alone and fail under load (#404, #378, #331, #219), and mutant harnesses outside test-forge-lib.sh that count a crashing mutant as killed (#360). A suite that flakes teaches people to re-run it, and a mutant that crashes proves nothing; both make a green run mean less than it says. The plan, when it opens, has to say what a flake's root cause is in each case rather than raise a timeout.
 
@@ -971,8 +973,10 @@ Opened 2026-10-01, when *What contributor-docs still cannot see* closed; plan: `
 A bucket, filed 2026-10-01. The gate failing its own critic's advice (#349: a 'Control (...)' scenario the critic recommends trips the scenario counter), the #283 review Lows and a forge_issue_comment jq failure (#347), and the #304 review Lows in check-ticket-mechanics.sh (#320, #335). ticket-gate.md sits at its size ratchet with zero headroom, so the plan has to say where each fix's words come from.
 
 ## Phase: Portable shell, everywhere
-state: open
+state: done
 plan: docs/plans/portable-shell-everywhere.md
+
+Closed 2026-10-01, outcome **done**. All five planned tickets landed, in the planned order: #410 (one word-count rule, the index generator's, in every locale; no baseline moved), #377 (30 `cd` sites to `CDPATH= cd --`, pinned by `scripts/test-cdpath.sh`), #379 (the `check-cdpath-cd.sh` CI guard; the four sites #377 had called immune were converted rather than exempted), #405 (31 awk file operands to redirects, and one shared `scripts/awkv-count.sh` for the zero-`-v` and no-operand rules), and #407 (`/phase`'s values through the shipped `phase-env.sh`; forge-adapt's `NO_MARKETPLACE` assigned from S2). Two tickets appeared: #411, a parallel-copy flake found while gathering load evidence for the next phase, landed there ahead of it; #412, roadmap-lib's 11 remaining `awk -v` values, which #405 pinned as a ratchet, went to backlog. The premortem held: #379's guard is a stated text rule with no `# not a cd` exemptions; each sweep closed its class with a guard or a shared check, not a list (#379, #405's `awk_operand_lines`); the guard runs under gawk, mawk, BWK awk and busybox, which caught a BWK `match()` bug on a `substr()` temporary before it shipped; and #407 verified #347's ticket-gate share rather than redoing it.
 
 Opened 2026-10-01, when *The gate's own correctness* closed, ahead of *Tests that can be believed*: every ticket here is mechanical, while that phase's flakes still need a load recipe two gate rounds could not settle. #410 joined the bucket the day it opened, and #347 already landed ticket-gate's share of #407.
 

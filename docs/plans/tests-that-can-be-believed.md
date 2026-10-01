@@ -1,7 +1,7 @@
 # Plan: Tests that can be believed
 
-Written 2026-10-01 from the roadmap prose and the six tickets in the bucket, opened when *Portable
-shell, everywhere* closed. The roadmap asked that the plan say what each flake's root cause is
+Written 2026-10-01 from the roadmap prose and the six tickets in the bucket (#411 landed before it
+opened), opened when *Portable shell, everywhere* closed. The roadmap asked that the plan say what each flake's root cause is
 rather than raise a timeout; where a cause is not yet known, the plan says how it will be found.
 
 ## Goal
@@ -41,9 +41,9 @@ A premortem: it is the end of this phase and it failed. What happened?
 
 In order:
 
-1. **#411**, already gated: per-run watcher durations in both #402 blocks. It removes the one flake
-   this phase has reproduced on demand (8 of 12 runs under 4 parallel copies), so the later soaks
-   are not polluted by it.
+1. **#411**, DONE before the phase opened (ce5b192): per-run watcher durations in both #402 blocks.
+   It removed the one flake reproduced on demand (8 of 12 runs under 4 parallel copies; 0 of 24
+   after), so the later soaks are not polluted by it.
 2. **One load recipe**, written into #404 before any of its rows are judged: N parallel copies held
    for the whole soak, with the measured load average recorded, and the control run named. #378 and
    #331 item 1 are judged against the same recipe; if they are #404's rows, they close into it.
@@ -53,9 +53,10 @@ In order:
 
 Evidence already in hand (2026-10-01, this phase's opening): under 4 parallel copies for 3 rounds,
 only the #402 rows failed in `test-forge-lib.sh` (8 of 12 runs); the compose and `crlf` rows did not
-fail. During #411's gate, `test-check-public-leaks.sh`'s `the glued one too` failed in 4 of 12
-parallel copies, and one `test-reassess-phases.sh` run failed a row beside a running leak suite (not
-reproduced in 3 idle runs).
+fail. #411's acceptance run (4 parallel copies x 3 rounds, after its fix) then saw `compose dropped
+the caller's own region` in 1 of 12 forge-lib copies (#331 item 1, #404) and `the glued one too` in
+3 of 12 public-leaks copies (#219; 4 of 12 during #411's gate). One `test-reassess-phases.sh` run
+failed a row beside a running leak suite (not reproduced in 3 idle runs; the row was not captured).
 
 ## Out of scope
 
