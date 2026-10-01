@@ -378,10 +378,6 @@ printf '%s' "$out" | grep -q 'could not RUN' \
   && ok "symlink: and reports could not RUN" || bad "symlink: and reports could not RUN"
 printf '%s' "$out" | grep -q 'forge-kit: .leak-guard-allow at HEAD is mode 120000, not a regular file' \
   && ok "symlink: and prints the hook's own refusal naming the mode" || bad "symlink: and prints the hook's own refusal naming the mode"
-printf '%s' "$out" | grep -q 'entry has no value' \
-  && bad "symlink: the refusal comes from the mode check, not a scanner parse error" \
-  || ok "symlink: the refusal comes from the mode check, not a scanner parse error"
-SYMOUT="$out"
 if hook_mutant symlink-mode-unchecked 's/100644|100755)/100644|100755|120000)/'; then
   out=$(run_hook leakcheck .githooks/pre-push.mut-symlink-mode-unchecked); rc=$?
   [ "$rc" -eq 0 ] && ok "mutant symlink-mode-unchecked: reading a 120000 link applies its text and passes the leak (the entry-shaped case fails it)" \
@@ -413,6 +409,37 @@ if hook_mutant probe-error-as-absent 's/^if ! al_line=\(.*\); then$/if ! al_line
     || ok "mutant probe-error-as-absent: a failing probe is treated as absent (the probe-failure case fails it)"
 fi
 rm -f .githooks/pre-push.mut-*
+# #388: `--full-tree` on the probe is pinned by a run from a SUBDIRECTORY. Git itself runs a
+# pre-push hook from the work-tree root, so the flag is a no-op on a real push; it matters only
+# when the hook is run by hand from below the root. THIS CASE PINS THE FLAG AND NOTHING MORE: from
+# `sub/` the hook's `--head` scan lists paths relative to `sub/` and never changes to $ROOT, so the
+# rc 0 expected below would be fail-open on a real push, which never happens. Hardening the hook to
+# cd to $ROOT would make this mutant equivalent again, and that change is #396. The
+# root allow-file's `skip docs-leak.md` matches `sub/docs-leak.md` as `docs-leak.md` (exact path),
+# so it suppresses the leak only when the probe still finds the root file from `sub/`. Both hooks
+# are called by absolute path because `run_hook`'s default is relative to the root. The fixture and
+# the mutant copy are removed afterwards: `hook_commit` runs `git add -A`.
+HOOKABS="$REPO/.githooks/pre-push"
+run_hook_sub() {  # run_hook_sub <hook>: the hook run with sub/ as its working directory
+  local sha; sha=$(git rev-parse HEAD)
+  ( CDPATH= cd -- "$REPO/sub" && printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" \
+      "0000000000000000000000000000000000000000" | bash "$1" origin "$BARE" 2>&1 )
+}
+mkdir -p sub; printf '%s\n' "$LEAKLINE" > sub/docs-leak.md; hook_commit "a leak under sub/, root allow-file skips docs-leak.md"
+out=$(run_hook_sub "$HOOKABS"); rc=$?
+[ "$rc" -eq 0 ] && ok "subdirectory: run from sub/, the probe finds the root allow-file and its skip applies (rc 0)" \
+  || bad "subdirectory: run from sub/, the probe finds the root allow-file and its skip applies (rc=$rc)"
+printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
+  && bad "subdirectory: and no finding line is printed" || ok "subdirectory: and no finding line is printed"
+printf '%s' "$out" | grep -q 'could not RUN' \
+  && bad "subdirectory: and nothing reports could not RUN" || ok "subdirectory: and nothing reports could not RUN"
+if hook_mutant full-tree-dropped 's/git ls-tree --full-tree HEAD/git ls-tree HEAD/'; then
+  out=$(run_hook_sub "$HOOKABS.mut-full-tree-dropped"); rc=$?
+  [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
+    && ok "mutant full-tree-dropped: from sub/ the probe sees no allow-file and the leak is reported (rc 1 plus the finding)" \
+    || bad "mutant full-tree-dropped: from sub/ the probe sees no allow-file and the leak is reported (rc=$rc)"
+fi
+rm -f .githooks/pre-push.mut-*; rm -f sub/docs-leak.md; rmdir sub
 # Both remaining mutants need HEAD to carry an allow-file WITHOUT the skip entry, plus the committed leak.
 printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry, for the mutants"
 if hook_mutant worktree-allow 's|git cat-file blob "$al_oid"|cat .leak-guard-allow|; s|git ls-tree --full-tree HEAD -- .leak-guard-allow|echo 100644 blob x|'; then

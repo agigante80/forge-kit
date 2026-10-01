@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 22
+# check-public-leaks-version: 23
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -20,17 +20,18 @@
 # enumerates `git ls-files`: tracked files in the WORKING TREE. `--head` reads HEAD's COMMITTED
 # tree (#375; `git ls-tree -r -z HEAD`, each blob by `git show "HEAD:./$f"`), so an uncommitted
 # edit, or a tracked file deleted in the working tree, cannot mask what a push publishes: the
-# pre-push hook uses it. It is HEAD's tree and not every pushed commit. `--staged` reads the index. `--range`
-# enumerates `git diff --no-renames --name-only --diff-filter=ACMT` between two endpoints and reads
-# each file at HEAD, so a file added AND deleted inside the range is excluded at both ends. A home
-# path committed in one commit and removed in the next is invisible to all four, in the public
-# repository where it stays readable forever, and that is exactly the going-public moment this
-# component exists for. `--no-renames` and the `T` are load-bearing (#208): with rename detection
-# on, a renamed-and-edited file is status R and was listed by nothing, so the commit hook said
-# clean on an ordinary `git mv` plus an appended leak; a symlink replaced by a file is T and was
-# invisible the same way. The tree modes also FAIL CLOSED like `--history` now: a temp directory
-# that cannot be made, a blob git has but cannot write, a tracked file this process cannot open,
-# are each exit 2 with the file named, where every one used to be exit 0.
+# pre-push hook uses it. It is HEAD's tree and not every pushed commit. `--staged` reads the
+# index. `--range` enumerates `git diff --no-renames --name-only --diff-filter=ACMT` between two
+# endpoints and reads each file at HEAD, so a file added AND deleted inside the range is excluded
+# at both ends. A home path committed in one commit and removed in the next is invisible to all
+# four, in the public repository where it stays readable forever, and that is exactly the
+# going-public moment this component exists for. `--no-renames` and the `T` are load-bearing
+# (#208): with rename detection on, a renamed-and-edited file is status R and was listed by
+# nothing, so the commit hook said clean on an ordinary `git mv` plus an appended leak; a symlink
+# replaced by a file is T and was invisible the same way. The tree modes also FAIL CLOSED like
+# `--history` now: a temp directory that cannot be made, a blob git has but cannot write, a
+# tracked file this process cannot open, are each exit 2 with the file named, where every one
+# used to be exit 0.
 #
 # `--history` reads the publishable history: every blob reachable from EVERY REF EXCEPT refs/stash,
 # plus every worktree's HEAD (`--exclude=refs/stash --all`, the exclude BEFORE the selector it

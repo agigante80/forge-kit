@@ -626,6 +626,11 @@ expect "the blobless clone starts with one missing blob" 1 "$(pc_missing)"
 expect "--head in a partial clone with a reachable remote exits 0" 0 "$rc"
 expect "and has fetched the missing blob lazily" 0 "$(pc_missing)"
 pc_clone offline
+# GIT_NO_LAZY_FETCH=1 stops git fetching a missing blob from the promisor remote (honoured by git
+# 2.45.0 and by the 2.39.4 and later security releases that carry it, and by distro builds that
+# backport it, whatever version string they report). On a git without it the lazy fetch from the
+# file:// remote succeeds, the scan exits 0, and the exit-2 expectation below FAILS LOUDLY. That is
+# the signal to use a newer git: never loosen the expectation to make an older git green.
 OUT="$( cd "$PCLONE" && GIT_NO_LAZY_FETCH=1 "$SCRIPT" --list "$WORK/hlist" --head 2>&1 )"; rc=$?
 expect "--head with lazy fetch unavailable exits 2" 2 "$rc"
 contains "check-private-leaks: could not read a.md" "$OUT" "naming the file"
