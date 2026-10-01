@@ -711,11 +711,54 @@ c_npmrc_wsfalse_explicit_neg() { npmrc_case 'workspaces=true\n' 'npm -w client r
   rc_is 0 && row pass command "npm -w client run dev"; }
 c_npmrc_wsfalse_pnpm_unchanged() { npmrc_case 'workspaces=false\n' 'pnpm --filter client run dev'
   rc_is 0 && row pass command "pnpm --filter client run dev" && nostatus referred; }
+# The named, minimal statement of the no-.npmrc contract (#381): the older plain `npm -w` cases that
+# set no .npmrc die under the same mutant, so this one is partly redundant on purpose.
 c_npmrc_wsfalse_none_neg() { npmrc_case - 'npm -w client run dev'; rc_is 0 && row pass command "npm -w client run dev" && nostatus referred; }
 c_npmrc_plain_false_then_true() { npmrc_case 'workspaces=false\nworkspaces=true\n'; rc_is 0 && row referred command "a tracked .npmrc sets workspaces"; }
 c_npmrc_plain_true_then_false_wskey() { npmrc_case 'workspaces=true\nworkspaces=false\nworkspace=client\n'
-  rc_is 0 && row referred command "a tracked .npmrc sets workspace"; }
+  rc_is 0 && row referred command "a tracked .npmrc sets workspace" && ! row referred command "sets workspaces"; }
 c_npmrc_plain_true_then_false_neg() { npmrc_case 'workspaces=true\nworkspaces=false\n'; rc_is 1 && row fail command "no such script" && nostatus referred; }
+
+# #381: numeric-zero values, inline comments and quoted keys, each checked against npm 10.9.7 (the
+# differential matrix is in the issue). A numeric zero reads as false (nopt coerces with !!(+val)).
+EXPL='npm -w client run dev'
+c_npmrc_zero_plain() { npmrc_case 'workspaces=0\n'
+  rc_is 1 && row fail command "npm run dev: no such script in package.json" && nostatus referred; }
+c_npmrc_zero_explicit() { npmrc_case 'workspaces=0\n' "$EXPL"
+  rc_is 0 && row referred command "npm -w client run dev: a tracked .npmrc sets workspaces=false" && nocmd pass; }
+c_npmrc_zero_spellings_explicit() { local v
+  for v in 00 -0 +0 0.0 .0 '"0"'; do npmrc_case "workspaces=$v\n" "$EXPL"
+    row referred command "npm -w client run dev: a tracked .npmrc sets workspaces=false" || { printf '      | spelling %s\n' "$v"; return 1; }; done; }
+c_npmrc_one_neg() { npmrc_case 'workspaces=1\n' "$EXPL"
+  row pass command "npm -w client run dev: dev is defined in client/package.json" && nostatus referred || return 1
+  npmrc_case 'workspaces=1\n'; rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces"; }
+# Documented limit: npm reads 0x0 and 0e0 as false and refuses the explicit form; the asset does not model it.
+c_npmrc_zero_hex_limit() { local v
+  for v in 0x0 0e0; do npmrc_case "workspaces=$v\n" "$EXPL"
+    row pass command "npm -w client run dev" && nostatus referred || return 1
+    npmrc_case "workspaces=$v\n"; row referred command "npm run dev: a tracked .npmrc sets workspaces" || return 1; done; }
+c_npmrc_inline_comment_explicit() { local v
+  for v in 'false # c' 'false;c' 'false#c' '0 ; c'; do npmrc_case "workspaces=$v\n" "$EXPL"
+    row referred command "npm -w client run dev: a tracked .npmrc sets workspaces=false" || { printf '      | value %s\n' "$v"; return 1; }
+    npmrc_case "workspaces=$v\n"; rc_is 1 && row fail command "no such script" || { printf '      | plain %s\n' "$v"; return 1; }; done; }
+c_npmrc_inline_comment_true_neg() { npmrc_case 'workspaces=true # c\n'
+  rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspaces" && nostatus fail; }
+# npm reads `"false" # c` as a truthy string, so the explicit form is not refused.
+c_npmrc_quoted_value_comment_neg() { npmrc_case 'workspaces="false" # c\n' "$EXPL"
+  row pass command "npm -w client run dev: dev is defined in client/package.json" && nostatus referred; }
+# Regression pin, no killing mutant: a value holding a backslash is never false in either parser.
+c_npmrc_escaped_comment_neg() { npmrc_case 'workspaces=false\;x\n' "$EXPL"; row pass command "npm -w client run dev"; }
+c_npmrc_quoted_key_explicit() { local k
+  for k in '"workspaces"' "'workspaces'"; do npmrc_case "$k=false\n" "$EXPL"
+    row referred command "npm -w client run dev: a tracked .npmrc sets workspaces=false" || { printf '      | key %s\n' "$k"; return 1; }; done; }
+# One file per key: in one file the plain `workspace` key would mask a mutant that fails to unquote the second.
+c_npmrc_quoted_key_ws() { local k
+  for k in '"workspace"' '"workspace[]"'; do npmrc_case "$k=client\n"
+    rc_is 0 && row referred command "npm run dev: a tracked .npmrc sets workspace" && nostatus fail || { printf '      | key %s\n' "$k"; return 1; }; done; }
+c_npmrc_quoted_key_mismatch_neg() { npmrc_case "\"workspace'=client\n"
+  rc_is 1 && row fail command "no such script" && nostatus referred; }
+# Documented limit: npm reads `" false"` as false and refuses the explicit form; the asset does not model it.
+c_npmrc_quoted_space_limit() { npmrc_case 'workspaces=" false"\n' "$EXPL"; row pass command "npm -w client run dev"; }
 
 echo "== #339 a tracked root .npmrc =="
 case_ c_npmrc_ws_undef "workspace=client refers an npm run the root lacks, naming the key"
@@ -764,6 +807,19 @@ case_ c_npmrc_wsfalse_none_neg "no .npmrc: an explicit form is a pass"
 case_ c_npmrc_plain_false_then_true "false then true refers a plain run"
 case_ c_npmrc_plain_true_then_false_wskey "true, false, then a workspace key refers a plain run"
 case_ c_npmrc_plain_true_then_false_neg "true then false with no workspace key is judged at the root"
+case_ c_npmrc_zero_plain "workspaces=0 reads as false: a plain run is judged at the root"
+case_ c_npmrc_zero_explicit "workspaces=0 refers an explicit -w form"
+case_ c_npmrc_zero_spellings_explicit "00, -0, +0, 0.0, .0 and \"0\" read as false and refer an explicit form"
+case_ c_npmrc_one_neg "workspaces=1 is not false: explicit passes, plain refers"
+case_ c_npmrc_zero_hex_limit "pinned limit: 0x0 and 0e0 are not modelled"
+case_ c_npmrc_inline_comment_explicit "an inline ; or # comment after a false value is cut"
+case_ c_npmrc_inline_comment_true_neg "a comment after true never makes the value false"
+case_ c_npmrc_quoted_value_comment_neg "a quoted false followed by a comment is truthy to npm"
+case_ c_npmrc_escaped_comment_neg "false\\;x is not false"
+case_ c_npmrc_quoted_key_explicit "a quoted workspaces key is read, double and single"
+case_ c_npmrc_quoted_key_ws "a quoted workspace key and a quoted workspace[] key refer, never fail"
+case_ c_npmrc_quoted_key_mismatch_neg "mismatched key quotes are not stripped"
+case_ c_npmrc_quoted_space_limit "pinned limit: whitespace inside quotes is not modelled"
 
 # ---------------------------------------------------------------- #299: yarn and workspaces
 # mf <path> <name> <scripts-json>: write and track a workspace manifest.
@@ -1445,7 +1501,7 @@ NR == 1 {' 'EXTRACT='\''
   mutant "[] strip dropped" c_npmrc_bracket 'sub(/\[\]$/, "", key); ' ''
   mutant "detail always workspace" c_npmrc_workspaces 'sets $NPMRC_KEY"' 'sets workspace"'
   mutant "final line without a newline dropped" c_npmrc_no_final_newline 'git show :.npmrc 2>/dev/null |' 'git show :.npmrc 2>/dev/null | while IFS= read -r l; do printf "%s\n" "$l"; done |'
-  mutant "exact workspace= string match" c_npmrc_spaced 'sub(/[ \t]+$/, "", key); sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)' 'sub(/\[\]$/, "", key)'
+  mutant "exact workspace= string match" c_npmrc_spaced 'sub(/[ \t]+$/, "", key); kn = length(key)' 'kn = length(key)' 'sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)' 'sub(/\[\]$/, "", key)'
   mutant "refers when no .npmrc exists" c_npmrc_none_neg '    [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm $v' '    [ -z "$NPMRC_KEY" ] && { row referred command "$loc" "npm $v'
   mutant "the .npmrc rule leaks into the explicit workspace forms" c_npmrc_unchanged_forms '  [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }' '  npmrc_scan; [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "$lab: a tracked .npmrc sets $NPMRC_KEY"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }'
@@ -1476,6 +1532,19 @@ NR == 1 {' 'EXTRACT='\''
   mutant "judge_ws npm-only guard dropped" c_npmrc_wsfalse_pnpm_unchanged 'if [ "$pm" = npm ]; then npmrc_scan; [ "$NPMRC_LAST"' 'if true; then npmrc_scan; [ "$NPMRC_LAST"'
   mutant "workspace key ignored when workspaces ends false" c_npmrc_plain_true_then_false_wskey 'if (key == "workspace") hasws = 1' 'if (key == "workspace" && val != "client") hasws = 1'
   mutant "any seen workspaces value refers a plain run" c_npmrc_plain_true_then_false_neg 'seen && last != "false" ? "workspaces"' 'seen ? "workspaces"'
+  # #381. Anchors are exact substrings of npmrc_scan's awk and of judge_ws.
+  mutant "both keys report the plural" c_npmrc_plain_true_then_false_wskey 'print (hasws ? "workspace" :' 'print (hasws ? (seen ? "workspaces" : "workspace") :'
+  mutant "symlinked .npmrc refuses an explicit form" c_npmrc_symlink_explicit_limit 'npmrc_scan; [ "$NPMRC_LAST" = wsfalse ] && { row referred' 'npmrc_scan; { [ "$NPMRC_LAST" = wsfalse ] || [ "$NPMRC_KEY" = symlink ]; } && { row referred'
+  mutant "an explicit form is referred with no .npmrc" c_npmrc_wsfalse_none_neg 'npmrc_scan; [ "$NPMRC_LAST" = wsfalse ] && { row referred' 'npmrc_scan; [ "$NPMRC_LAST" != - ] && { row referred'
+  mutant "numeric zero not read as false" c_npmrc_zero_explicit 'if (val ~ /^[-+]?(0+\.?0*|\.0+)$/) val = "false"' 'if (0) val = "false"'
+  mutant "any number read as false" c_npmrc_one_neg '/^[-+]?(0+\.?0*|\.0+)$/' '/^[0-9.]+$/'
+  mutant "zero regex accepts only a single 0" c_npmrc_zero_spellings_explicit '/^[-+]?(0+\.?0*|\.0+)$/' '/^0$/'
+  mutant "inline comment kept in the value" c_npmrc_inline_comment_explicit 'else if (match(val, /[;#]/))' 'else if (0)'
+  mutant "inline comment makes the value false" c_npmrc_inline_comment_true_neg 'val = substr(val, 1, RSTART - 1); sub(/[ \t]+$/, "", val) }' 'val = "false" }'
+  mutant "comment cut before unquote" c_npmrc_quoted_value_comment_neg 'sub(/^[ \t]+/, "", val); n = length(val); c = substr(val, 1, 1)' 'sub(/^[ \t]+/, "", val); if (match(val, /[;#]/)) { val = substr(val, 1, RSTART - 1); sub(/[ \t]+$/, "", val) } n = length(val); c = substr(val, 1, 1)'
+  mutant "quote strip after the [] strip" c_npmrc_quoted_key_ws '      sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)' '      sub(/[ \t]+$/, "", key)' 'kn = length(key); kc = substr(key, 1, 1)' 'sub(/\[\]$/, "", key); kn = length(key); kc = substr(key, 1, 1)'
+  mutant "quoted key not unquoted" c_npmrc_quoted_key_explicit 'if (kn > 1 && (kc' 'if (0 && (kc'
+  mutant "closing key quote not checked" c_npmrc_quoted_key_mismatch_neg '&& substr(key, kn, 1) == kc) key =' ') key ='
   # #346. Anchors are exact substrings of code() in the shipped script.
   mutant "carry applied to every runner" c_export_make_neg '    if (w != "npm" && w != "pnpm" && w != "yarn") carry = 0
 ' ''

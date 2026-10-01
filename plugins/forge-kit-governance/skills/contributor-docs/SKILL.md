@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 8 -->
+<!-- contributor-docs-version: 9 -->
 
 # Contributor docs
 
@@ -120,13 +120,22 @@ voids the whole line. The guards count quotes rather than parse them, so a `#` o
 quoted value, mixed quote kinds and an escaped quote can misjudge a line. Still a false `fail`: `$VAR` or
 `${...}` before a substitution (`npm_config_workspace=$HOME$(echo c) npm run dev`), and
 `export "npm_config_x"=y`, whose quote closes before the `=`.
-A tracked root `.npmrc` that sets `workspace` (any value, `workspace[]=` and `workspace = x`
-included) or `workspaces` whose last value is not exactly `false` (npm takes the last value of a repeated key) refers every `npm run X` the same way,
-whether or not the root defines X, because npm then runs the workspace's script (#339). The detail
-names only the key, never the file's text. Only npm: `pnpm run` and the yarn forms are judged as before.
-The explicit `-w` and `--workspace` forms are referred only when the last `workspaces` value is exactly `false`, because npm then stops with an error ("Can not use --no-workspaces and --workspace at the same time"); that refusal and the last-value rule are verified on npm 10.9.7 only. The file is read from the index and parsed as npm's
-ini does: `;` and `#` lines are skipped, the scan stops at a `[section]` header, the key is
-case-sensitive and a trailing CR is ignored. Surrounding quotes on a value are stripped. A symlinked `.npmrc` is referred without being read, so a symlinked `.npmrc` holding `workspaces=false` with an explicit `-w` or `--workspace` form still passes.
+A tracked root `.npmrc` refers every `npm run X`, whether or not the root defines X, because npm then
+runs the workspace's script (#339). That happens when it sets `workspace` (any value; `workspace[]=`,
+`workspace = x` and a quoted key included) or sets `workspaces` to anything but false. npm takes the
+last value of a repeated key, so the last `workspaces` value decides. The detail names only the key,
+never the file's text. Only npm: `pnpm run` and the yarn forms are judged as before.
+
+The explicit `-w` and `--workspace` forms are referred only when the last `workspaces` value is false,
+because npm then stops with an error ("Can not use --no-workspaces and --workspace at the same time").
+False means `false` or a numeric zero (`0`, `00`, `-0`, `+0`, `0.0`, `.0`, `"0"`), which npm reads the
+same way; an inline `;` or `#` comment after the value is cut first. That refusal and the last-value
+rule are verified on npm 10.9.7 only.
+
+The file is read from the index as data and parsed as npm's ini does: `;` and `#` lines are skipped, the
+scan stops at a `[section]` header, the key is case-sensitive and a trailing CR is ignored. A quote pair
+around a key or a value is stripped. A symlinked `.npmrc` is referred without being read, so one holding
+`workspaces=false` with an explicit `-w` or `--workspace` form still passes.
 
 The limits, stated so they are not mistaken for coverage: spans and links are found within one
 line; indented code blocks are prose; the paragraph rule is order-dependent, and list items with
@@ -137,8 +146,10 @@ word (referred), with a space inside the row is simply absent. Not modelled, so 
 stays possible: nested-paren substitution values, `pnpm_config_*`, `JUST_JUSTFILE` and `JUST_WORKING_DIRECTORY`, `unset`,
 `set -a`, `env VAR=... cmd`, the user and global `.npmrc`, `NPM_CONFIG_USERCONFIG` and a non-root
 `.npmrc` (npm never reads it for a run from the root). Where npm would run the root or stop with an error, a tracked `.npmrc` still refers
-(safe side): `workspaces=0`, `workspaces=null`, `workspace []=x`, an inline comment after `false`, and `workspace` with no
-root `workspaces` field. Explicit forms under `workspaces=0` or `false # c`, and other npm versions, are not specified. Workspaces are matched by `name` among tracked
+(safe side): `workspaces=null`, `workspace []=x` and `workspace` with no root `workspaces` field.
+Not modelled, so an explicit form passes where npm refuses: `workspaces=0x0`, `0e0` and a value with
+whitespace inside quotes (`" false"`). The array form `workspaces[]=false` is unmodelled too, and
+other npm versions are not specified. Workspaces are matched by `name` among tracked
 manifests, not against `package.json#workspaces` or `pnpm-workspace.yaml`, so a same-named manifest
 outside the workspace folders (a fixture or example package) can produce a false `fail` when it lacks
 the script, or a false `pass` when it defines one the real package lacks; two such manifests are

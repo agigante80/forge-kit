@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 12
+# check-contributor-docs-version: 13
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -87,15 +87,20 @@
 # the INDEX as data (never executed or expanded) and none of its text is ever printed: the detail
 # names only the fixed key. Parsed as npm's ini does: a trailing CR is stripped, `;` and `#` lines
 # skipped, the scan stops at a [section] header, the key is case-sensitive. Surrounding quotes on a
-# value are stripped, so `workspaces="false"` and `'false'` read as false. A tracked symlinked
+# value are stripped, so `workspaces="false"` and `'false'` read as false. An unquoted value is cut
+# at the first `;` or `#` (an inline comment, #381), and a numeric zero (`0`, `00`, `-0`, `+0`, `0.0`,
+# `.0`, `"0"`) reads as false, as npm 10.9.7 does (the issue's "true" premise was wrong). A key's
+# surrounding quote pair is stripped before its `[]`, so `"workspace[]"` is a key. A tracked symlinked
 # .npmrc is referred without being read, so a symlinked .npmrc holding `workspaces=false` with an
 # explicit -w or --workspace form still passes. Limits: user and global .npmrc, NPM_CONFIG_USERCONFIG
 # and a non-root .npmrc are never read (npm never reads a non-root .npmrc for a run from the root;
 # the user and global files and NPM_CONFIG_USERCONFIG are outside the repository); safe-side
-# referrals where npm would run the root or stop with an error: `workspaces=0`, `workspaces=null`,
-# `workspace []=x`, an inline comment after `false`, and `workspace` with no root `workspaces`
-# field. Explicit forms under `workspaces=0` or `false # c` are not specified (npm behaviour not
-# run). The -w refusal and the last-value rule are verified on npm 10.9.7 only.
+# referrals where npm would run the root or stop with an error: `workspaces=null`, `workspace []=x`
+# and `workspace` with no root `workspaces` field. Not modelled, so an explicit -w form passes
+# where npm refuses: `workspaces=0x0`, `0e0` and a value with whitespace inside quotes
+# (`" false"`), which npm reads as false. Also unmodelled, and still a false fail or pass:
+# `workspaces[]=false`, an array form npm reads through a different path (#395). The -w
+# refusal and the last-value rule are verified on npm 10.9.7 only.
 #
 # Deliberate limits: code spans and links are found within one line; indented code blocks are
 # prose; the paragraph rule is order-dependent ("Run `npm run dev` (after `cd client`)." judges dev
@@ -473,7 +478,7 @@ first_file() { local f; for f in "$@"; do tracked "$f" && { printf '%s' "$f"; re
 # never through $(...), so the memo survives. The awk prints only fixed literals, never file text,
 # and its stderr is discarded, so no .npmrc content can reach either stream. A symlinked .npmrc is
 # detected from the index mode and never read or followed: the link target could be a user's
-# ~/.npmrc holding a token, so the checker resolves nothing from disk and refers (decision A).
+# ~/.npmrc holding a token, so the checker resolves nothing from disk and refers.
 # npm takes the LAST value of a repeated key (verified on npm 10.9.7 only), so the awk records
 # whether any `workspace` key exists and the last `workspaces` value, and judges them in END.
 NPMRC_DONE="" NPMRC_KEY="" NPMRC_LAST="" NPMRC_MODE=""
@@ -493,9 +498,13 @@ npmrc_scan() {
     $0 == "" || /^[;#]/ { next }
     {
       eq = index($0, "="); key = eq ? substr($0, 1, eq - 1) : $0; val = eq ? substr($0, eq + 1) : ""
-      sub(/[ \t]+$/, "", key); sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)
+      sub(/[ \t]+$/, "", key); kn = length(key); kc = substr(key, 1, 1)
+      if (kn > 1 && (kc == "\"" || kc == "\047") && substr(key, kn, 1) == kc) key = substr(key, 2, kn - 2)
+      sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)
       sub(/^[ \t]+/, "", val); n = length(val); c = substr(val, 1, 1)
       if (n > 1 && (c == "\"" || c == "\047") && substr(val, n, 1) == c) val = substr(val, 2, n - 2)
+      else if (match(val, /[;#]/)) { val = substr(val, 1, RSTART - 1); sub(/[ \t]+$/, "", val) }
+      if (val ~ /^[-+]?(0+\.?0*|\.0+)$/) val = "false"
       if (key == "workspace") hasws = 1
       if (key == "workspaces") { last = val; seen = 1 }
     }
