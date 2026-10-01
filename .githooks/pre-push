@@ -57,9 +57,9 @@ done
 # both scanners were silently skipped, and the private half runs nowhere else at all. Found by
 # review, not by the guard.
 #
-# The FULL-TREE scan of HEAD's tree is the right question here, not the range. A range scan asks "did this push
-# add a leak", which is the wrong question the moment a history rewrite is needed: what matters
-# then is whether the tree is clean, not whether this push made it worse.
+# The FULL-TREE scan of HEAD's tree is the right question here, not the range. A range scan asks
+# "did this push add a leak", which is the wrong question the moment a history rewrite is needed:
+# what matters then is whether the tree is clean, not whether this push made it worse.
 #
 # Its counter is its own. Sharing the range guards' counter reported a leak as "1 range check(s)
 # failed ... this is what CI will run on the PR" and offered --no-verify, which is wrong three
@@ -77,9 +77,24 @@ done
 # exists ONLY in an uncommitted edit no longer blocks, because it is never published and the next
 # commit is caught by pre-commit (`--staged`). It is HEAD's tree, not every pushed commit: a leak
 # added and removed inside one push is published and invisible to a tree scan.
-# `.leak-guard-allow` is read from HEAD for the same reason: a `skip` entry drops a whole file, so an
-# uncommitted entry would mask a committed leak exactly as an uncommitted edit does. A read failure
-# is a could-not-RUN, never a fallback to the working-tree copy.
+# `.leak-guard-allow` is read from HEAD for the same reason: a `skip` entry drops a whole file, so
+# an uncommitted entry would mask a committed leak exactly as an uncommitted edit does. A read
+# failure is a could-not-RUN, never a fallback to the working-tree copy.
+#
+# THE ALLOW-FILE PROBE IS A MODE CHECK (#384). `git ls-tree --full-tree HEAD -- .leak-guard-allow`
+# tells three things apart that `git cat-file -e` collapsed into one exit 128: empty output is
+# ABSENT (no allow-file), a non-zero exit is a git failure (could-not-RUN), and a line is a tree
+# entry whose MODE decides what happens. Only 100644 and 100755 are read. Any other mode is refused
+# as could-not-RUN, and that is a decision, not a guess: a committed symlink (120000) reads back as
+# its LINK TEXT, so a link whose text is itself a valid entry (`skip docs-leak.md`) was applied as
+# a skip and the scan exited 0 over a committed leak. That failed OPEN. The key is the MODE field,
+# never the type field, because a symlink lists as `120000 blob`. The read is `git cat-file blob`
+# on the oid from that same line, so the object read is the object whose mode was checked, and
+# `--full-tree` keeps the probe root-relative whatever directory the hook runs from. So no link
+# shape is ever read here; do not describe this as "fails closed for every link shape" (an entry
+# such as a link whose text is not a valid entry would have exited 2 only by accident). CI differs:
+# it runs `--allow-file .leak-guard-allow` on the worktree, where `[ -f ]` follows a link, so a
+# deliberately symlinked allow-file is refused here and followed there.
 #
 # "Once it is published", never "this push has published it" (#368): the hook cannot tell whether
 # HEAD is already on the remote, and the public CI scan runs only after publication, so a leak
@@ -99,16 +114,35 @@ leaks=0
 leak_errors=0
 # The allow-file comes from HEAD's tree, not the working tree (#375, D2). Absent at HEAD means no
 # allow-file, even when one sits in the working tree. The temp name says where it came from, so a
-# scanner error on a malformed committed entry names a path that reads as the HEAD copy.
-if git cat-file -e HEAD:.leak-guard-allow 2>/dev/null; then
-  if allow_tmp="$(mktemp "${TMPDIR:-/tmp}/leak-guard-allow.HEAD.XXXXXX" 2>/dev/null)" \
-     && git show HEAD:.leak-guard-allow > "$allow_tmp" 2>/dev/null; then
-    allow_args=(--allow-file "$allow_tmp")
-  else
-    echo "forge-kit: could not read .leak-guard-allow at HEAD"
-    leak_errors=$((leak_errors + 1))
-  fi
+# scanner error on a malformed committed entry names a path that reads as the HEAD copy. The probe
+# is explained in the paragraph above (#384).
+if ! al_line="$(git ls-tree --full-tree HEAD -- .leak-guard-allow 2>/dev/null)"; then
+  echo "forge-kit: could not read .leak-guard-allow at HEAD"
+  leak_errors=$((leak_errors + 1))
+elif [ -n "$al_line" ]; then
+  read -r al_mode _ al_oid _ <<< "$al_line"
+  case "$al_mode" in
+    100644|100755)
+      if allow_tmp="$(mktemp "${TMPDIR:-/tmp}/leak-guard-allow.HEAD.XXXXXX" 2>/dev/null)" \
+         && git cat-file blob "$al_oid" > "$allow_tmp" 2>/dev/null; then
+        allow_args=(--allow-file "$allow_tmp")
+      else
+        echo "forge-kit: could not read .leak-guard-allow at HEAD"
+        leak_errors=$((leak_errors + 1))
+      fi ;;
+    *)
+      echo "forge-kit: .leak-guard-allow at HEAD is mode $al_mode, not a regular file;" \
+           "refusing to read it"
+      leak_errors=$((leak_errors + 1)) ;;
+  esac
 fi
+# Item 6 of #384, recorded rather than changed. The `[ -f "$script" ] || return 0` below skips an
+# ABSENT scanner on purpose: absent means the project has not adopted the guard, which needs no
+# announcement. Under `--head` the scanner itself still runs from the WORKING TREE (only the files
+# it scans come from HEAD), so an uncommitted edit to a scanner is what runs; that is accepted.
+# The roadmap guard's `exit 1` further down precedes the leak summary, so a roadmap failure plus a
+# leak prints the roadmap wording and not the leak wording while offering --no-verify: also
+# pre-existing and accepted, since the leak finding itself still prints above it.
 scan() {
   local script="$1"; shift
   # PRESENCE, not the exec bit: this invokes via `bash`, so the bit is not needed to run the

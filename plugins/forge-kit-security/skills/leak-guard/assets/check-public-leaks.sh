@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 21
+# check-public-leaks-version: 22
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -17,10 +17,10 @@
 # guard that overstates its reach is worse than a narrow one that admits it.
 #
 # THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
-# enumerates `git ls-files`: tracked files in the WORKING TREE. `--head` reads HEAD's COMMITTED tree
-# (#375; `git ls-tree -r -z HEAD`, each blob by `git show "HEAD:./$f"`), so an uncommitted edit, or a
-# tracked file deleted in the working tree, cannot mask what a push publishes: the pre-push hook
-# uses it. It is HEAD's tree and not every pushed commit. `--staged` reads the index. `--range`
+# enumerates `git ls-files`: tracked files in the WORKING TREE. `--head` reads HEAD's COMMITTED
+# tree (#375; `git ls-tree -r -z HEAD`, each blob by `git show "HEAD:./$f"`), so an uncommitted
+# edit, or a tracked file deleted in the working tree, cannot mask what a push publishes: the
+# pre-push hook uses it. It is HEAD's tree and not every pushed commit. `--staged` reads the index. `--range`
 # enumerates `git diff --no-renames --name-only --diff-filter=ACMT` between two endpoints and reads
 # each file at HEAD, so a file added AND deleted inside the range is excluded at both ends. A home
 # path committed in one commit and removed in the next is invisible to all four, in the public
@@ -143,7 +143,8 @@
 # half of the leak. Catching those needs the name, which is the private half's job. This was found
 # by review AFTER the paragraph above shipped, which is the argument for the paragraph.
 #
-#   check-public-leaks.sh [--staged | --range <base> | --head | --all] [--allow-file <path>] [paths...]
+#   check-public-leaks.sh [--staged | --range <base> | --head | --all] [--allow-file <path>]
+#                         [paths...]
 #   check-public-leaks.sh --history [--orphans] [--show-evidence] [--allow-file <path>]
 #
 # Exit 0 clean, 1 when something was found, 2 when it could not run. One line per violation:
@@ -206,7 +207,9 @@ die() { printf 'check-public-leaks: %s\n' "$1" >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
     # One mode per run. The last flag used to win silently, so "--history --staged" scanned the
-    # index and reported clean on the history the user asked about.
+    # index and reported clean on the history the user asked about. The five mode arms below carry
+    # the same one-line refusal as their siblings and stay over 100 columns on purpose: they are
+    # meant to be read as a column, and wrapping one would hide that they are identical (#384).
     --all)        [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=all ;;
     --staged)     [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=staged ;;
     --range)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1
@@ -818,6 +821,7 @@ for f in "${FILES[@]}"; do
     # never "HEAD:$f": `ls-tree` paths are relative to the current directory and a bare
     # "HEAD:<path>" is root-relative, so from a subdirectory the bare form reads the ROOT file of
     # the same name (a leaking sub/README.md judged by the clean ./README.md). Same failure rule.
+    # The arm stays on one line like the `range` arm above it (#384).
     head)   { git show "HEAD:./$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac

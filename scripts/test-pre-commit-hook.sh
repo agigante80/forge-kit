@@ -22,6 +22,12 @@ bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+# HOME is isolated (#384, item 7): the private scanner's default list is
+# "$HOME/.claude/forge-kit/private-names.txt" and the hook passes no --list, so without this the
+# staged fixture is judged against the DEVELOPER'S REAL list on a host that has one.
+REAL_HOME="${HOME:-}"
+export HOME="$TMP/fakehome"
+mkdir -p "$HOME"
 REPO="$TMP/repo"
 LG=plugins/forge-kit-security/skills/leak-guard/assets
 
@@ -60,6 +66,35 @@ run_hook >/dev/null 2>&1
 expect_rc=$?
 [ "$expect_rc" -eq 0 ] && ok "a clean docs-only commit is not blocked" \
   || bad "a clean docs-only commit is not blocked (rc=$expect_rc)"
+
+echo "== the private scan reads the fixture's list, not the developer's (#384) =="
+printf 'clean\n' > NOTES.md; git add NOTES.md
+out="$(run_hook)"
+printf '%s' "$out" | grep -q 'NOT BEING CHECKED' \
+  && ok "an isolated HOME with no list: the private scan says its names are not being checked" \
+  || bad "an isolated HOME with no list: the private scan says its names are not being checked"
+# The isolation is asserted BEFORE anything is written under $HOME.
+if [ "$HOME" = "$TMP/fakehome" ] && [ "$HOME" != "$REAL_HOME" ]; then
+  ok "HOME is isolated to the fixture directory"
+  mkdir -p "$HOME/.claude/forge-kit"
+  printf 'zq384token\n' > "$HOME/.claude/forge-kit/private-names.txt"
+  printf 'notes mentioning zq384token here\n' > NOTES.md; git add NOTES.md
+  out="$(run_hook)"; rc=$?
+  [ "$rc" -eq 1 ] && ok "the fixture list is the one consulted: a staged private name blocks (rc exactly 1)" \
+    || bad "the fixture list is the one consulted: a staged private name blocks (rc=$rc)"
+  printf '%s' "$out" | grep -q 'NOTES.md:1: private-name:' \
+    && ok "and the private-name finding is shown" || bad "and the private-name finding is shown"
+  # Mutant home-not-isolated: a different, empty HOME stands for the export removed.
+  mkdir -p "$TMP/otherhome"
+  out="$(HOME="$TMP/otherhome" run_hook)"
+  printf '%s' "$out" | grep -q 'NOTES.md:1: private-name:' \
+    && bad "mutant home-not-isolated: the fixture list is still consulted" \
+    || ok "mutant home-not-isolated: without the fixture HOME the finding vanishes (the private-name case fails it)"
+  rm -f "$HOME/.claude/forge-kit/private-names.txt"
+else
+  bad "HOME is isolated to the fixture directory (HOME=$HOME)"
+fi
+printf 'clean\n' > NOTES.md; git add NOTES.md
 
 echo "== the scanner scans STAGED content, not the worktree =="
 leaky > NOTES.md                                                # written, NOT staged

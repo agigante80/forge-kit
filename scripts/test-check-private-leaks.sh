@@ -607,6 +607,29 @@ expect "a blob the scanner cannot write refuses --head" 2 "$(cat "$WORK/wrc.txt"
 contains "could not read big.md" "$(cat "$WORK/werr.txt")" "naming the file"
 lacks "$ROOT" "$(cat "$WORK/werr.txt")" "and never the script's path"
 
+echo "== --head in a partial clone (#384) =="
+# Not refused (unlike --history): git fetches the missing blobs lazily. A reachable promisor remote
+# scans clean and fetches them; with lazy fetch off, which is what an unreachable remote looks like,
+# the read fails and the scan exits 2 naming the file rather than reporting clean.
+PCSRC="$WORK/pc-src"; rm -rf "$PCSRC"; mkdir -p "$PCSRC"
+( cd "$PCSRC" && git init -q . && git config user.email t@t.invalid && git config user.name t \
+  && git config uploadpack.allowFilter true && printf 'clean\n' > a.md && git add a.md \
+  && git commit -qm a ) >/dev/null 2>&1
+pc_clone() {  # pc_clone <name>: a blobless clone with the one blob missing; sets PCLONE
+  PCLONE="$WORK/pc-$1"; rm -rf "$PCLONE"
+  git clone -q --no-checkout --filter=blob:none "file://$PCSRC" "$PCLONE" >/dev/null 2>&1
+}
+pc_missing() { git -C "$PCLONE" rev-list --objects --missing=print --all 2>/dev/null | grep -c '^?'; }
+pc_clone ok
+expect "the blobless clone starts with one missing blob" 1 "$(pc_missing)"
+( cd "$PCLONE" && "$SCRIPT" --list "$WORK/hlist" --head ) >/dev/null 2>&1; rc=$?
+expect "--head in a partial clone with a reachable remote exits 0" 0 "$rc"
+expect "and has fetched the missing blob lazily" 0 "$(pc_missing)"
+pc_clone offline
+OUT="$( cd "$PCLONE" && GIT_NO_LAZY_FETCH=1 "$SCRIPT" --list "$WORK/hlist" --head 2>&1 )"; rc=$?
+expect "--head with lazy fetch unavailable exits 2" 2 "$rc"
+contains "check-private-leaks: could not read a.md" "$OUT" "naming the file"
+
 echo "== --head: the mutants, each applied (cmp -s) and each killed =="
 head_mutant() {  # head_mutant <name> <sed script>: scratch copy in $HMUT; returns 1 when the edit changed nothing
   HMUT="$WORK/mutant-head-$1.sh"; sed "$2" "$SCRIPT" > "$HMUT"; chmod +x "$HMUT"
@@ -628,6 +651,12 @@ fi
 if head_mutant no-unborn-check 's|^        \|\| die "HEAD not found: no commits yet.*$|        \|\| true|'; then
   OUT="$( cd "$WORK/h-unborn" && "$HMUT" --list "$WORK/hlist" --head 2>&1 )"
   lacks "HEAD not found" "$OUT" "mutant: without the unborn-HEAD refusal the C2 message is gone"
+fi
+if head_mutant read-error-swallowed '/^    head)/s/|| die "could not read \$f"/|| true/'; then
+  pc_clone offline-mut
+  OUT="$( cd "$PCLONE" && GIT_NO_LAZY_FETCH=1 "$HMUT" --list "$WORK/hlist" --head 2>&1 )"; rc=$?
+  [ "$rc" != 2 ] && ok "mutant: without the read failure a missing blob no longer exits 2 (the lazy-fetch case fails it)" \
+    || bad "mutant: without the read failure a missing blob no longer exits 2"
 fi
 if head_mutant no-precheck 's|^      git ls-tree -r -z HEAD >/dev/null 2>&1 .*$|      :|'; then
   ( cd "$HREPO" && PATH="$SHIM:$PATH" "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1

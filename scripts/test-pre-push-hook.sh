@@ -13,6 +13,13 @@ bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+# HOME is isolated for the whole run (#384, item 7). The private scanner's default list is
+# "$HOME/.claude/forge-kit/private-names.txt" and the hook passes no --list, so without this the
+# fixture's content is judged against the DEVELOPER'S REAL list on a host that has one, and the
+# suite's result differs between hosts. Nothing is written under it until the isolation is asserted.
+REAL_HOME="${HOME:-}"
+export HOME="$TMP/fakehome"
+mkdir -p "$HOME"
 REPO="$TMP/repo"; BARE="$TMP/remote.git"
 git init --quiet --bare "$BARE"
 git init --quiet -b main "$REPO"
@@ -248,12 +255,45 @@ out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 0 ] && ok "an uncommitted-only leak over a clean HEAD passes (never published)" \
   || bad "an uncommitted-only leak over a clean HEAD passes (rc=$rc)"
 printf 'clean\n' > docs-leak.md
+printf '%s' "$out" | grep -q 'NOT BEING CHECKED' \
+  && ok "an isolated HOME with no list: the private scan says its names are not being checked" \
+  || bad "an isolated HOME with no list: the private scan says its names are not being checked"
+# #384 item 7: the default list is the fixture's, never the developer's. The isolation is asserted
+# BEFORE anything is written under $HOME, so a missed isolation cannot touch a real list.
+if [ "$HOME" = "$TMP/fakehome" ] && [ "$HOME" != "$REAL_HOME" ]; then
+  ok "HOME is isolated to the fixture directory"
+  mkdir -p "$HOME/.claude/forge-kit"
+  printf 'zq384token\n' > "$HOME/.claude/forge-kit/private-names.txt"
+  printf 'notes mentioning zq384token here\n' > names-leak.md; hook_commit "a private name at HEAD"
+  out=$(run_hook leakcheck); rc=$?
+  [ "$rc" -eq 1 ] && ok "the fixture list is the one consulted: a private name at HEAD blocks (rc exactly 1)" \
+    || bad "the fixture list is the one consulted: a private name at HEAD blocks (rc=$rc)"
+  printf '%s' "$out" | grep -q 'names-leak.md:1: private-name:' \
+    && ok "and the private-name finding is shown" || bad "and the private-name finding is shown"
+  # Mutant home-not-isolated: a different, empty HOME stands for the export removed. The fixture
+  # list is no longer consulted, so the finding disappears and the case above fails it.
+  mkdir -p "$TMP/otherhome"
+  out=$(HOME="$TMP/otherhome" run_hook leakcheck)
+  printf '%s' "$out" | grep -q 'names-leak.md:1: private-name:' \
+    && bad "mutant home-not-isolated: the fixture list is still consulted" \
+    || ok "mutant home-not-isolated: without the fixture HOME the finding vanishes (the private-name case fails it)"
+  rm -f names-leak.md "$HOME/.claude/forge-kit/private-names.txt"; hook_commit "drop the private name"
+else
+  bad "HOME is isolated to the fixture directory (HOME=$HOME)"
+fi
 # F1: an allow-file entry that exists only in the working tree must not suppress a committed leak.
 printf '%s\n' "$LEAKLINE" > docs-leak.md; hook_commit "a committed leak again"
 printf 'skip docs-leak.md\n' > .leak-guard-allow
 out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "F1: an uncommitted skip entry does not mask a committed leak (no allow-file at HEAD)" \
   || bad "F1: an uncommitted skip entry does not mask a committed leak (no allow-file at HEAD) (rc=$rc)"
+# #384 item 2, positive: ABSENT at HEAD is not a read failure. rc is exactly 1 on the finding, and
+# neither the read-failure line nor a mode refusal is printed.
+printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
+  && ok "probe: with no allow-file at HEAD the finding is reported" || bad "probe: with no allow-file at HEAD the finding is reported"
+printf '%s' "$out" | grep -q 'could not read .leak-guard-allow at HEAD' \
+  && bad "probe: an allow-file absent at HEAD is not reported as unreadable" \
+  || ok "probe: an allow-file absent at HEAD is not reported as unreadable"
 printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry"
 printf 'root nowhere\nskip docs-leak.md\n' > .leak-guard-allow
 out=$(run_hook leakcheck); rc=$?
@@ -273,8 +313,15 @@ out=$(run_hook leakcheck); rc=$?
 # F3: an unreadable HEAD allow-file is a could-not-run, never a silent drop of the allow-file.
 GSHIM="$TMP/gshim"; mkdir -p "$GSHIM"
 REALGIT="$(command -v git)"
-printf '#!/bin/sh\n[ "$1" = show ] && [ "$2" = "HEAD:.leak-guard-allow" ] && exit 1\nexec "%s" "$@"\n' "$REALGIT" > "$GSHIM/git"
+# The read is `git cat-file blob <oid>` (#384), so that is the call the shim fails. The scanners
+# stream blobs with `cat-file --batch`, which this does not match.
+printf '#!/bin/sh\n[ "$1" = cat-file ] && [ "$2" = blob ] && exit 1\nexec "%s" "$@"\n' "$REALGIT" > "$GSHIM/git"
 chmod +x "$GSHIM/git"
+# A second shim for the PROBE: `ls-tree` naming the allow-file exits 128. The scanners' own ls-tree
+# calls carry no such path, so they are untouched and the scan still runs.
+PSHIM="$TMP/pshim"; mkdir -p "$PSHIM"
+printf '#!/bin/sh\n[ "$1" = ls-tree ] && case "$*" in *.leak-guard-allow*) exit 128;; esac\nexec "%s" "$@"\n' "$REALGIT" > "$PSHIM/git"
+chmod +x "$PSHIM/git"
 out=$(PATH="$GSHIM:$PATH" run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "F3: a failing read of .leak-guard-allow at HEAD blocks (rc exactly 1)" \
   || bad "F3: a failing read of .leak-guard-allow at HEAD blocks (rc=$rc)"
@@ -301,9 +348,74 @@ if hook_mutant swallow-read-error '/could not read .leak-guard-allow at HEAD/{n;
     && bad "mutant: swallowing the read failure still reports could not RUN" \
     || ok "mutant: swallowing the read failure drops could not RUN (the F3 case fails it)"
 fi
+# #384: the allow-file probe is a MODE check on `git ls-tree --full-tree HEAD -- .leak-guard-allow`.
+# State here: HEAD carries a regular skip entry over a committed leak in docs-leak.md.
+# 100755 is read like 100644 (100644 is F2 above).
+printf 'skip docs-leak.md\n' > .leak-guard-allow; chmod +x .leak-guard-allow; hook_commit "an executable allow-file"
+git ls-tree HEAD -- .leak-guard-allow | grep -q '^100755 ' \
+  && ok "probe ledger: the committed allow-file is mode 100755" || bad "probe ledger: the committed allow-file is mode 100755"
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 0 ] && ok "probe: a 100755 allow-file at HEAD is read and its skip applies (rc 0)" \
+  || bad "probe: a 100755 allow-file at HEAD is read and its skip applies (rc=$rc)"
+# A failing PROBE is could-not-RUN, never an absent allow-file; the scan itself still runs.
+out=$(PATH="$PSHIM:$PATH" run_hook leakcheck); rc=$?
+[ "$rc" -eq 1 ] && ok "probe: a failing ls-tree probe blocks (rc exactly 1)" \
+  || bad "probe: a failing ls-tree probe blocks (rc=$rc)"
+printf '%s' "$out" | grep -q 'forge-kit: could not read .leak-guard-allow at HEAD' \
+  && ok "probe: and names the unreadable allow-file" || bad "probe: and names the unreadable allow-file"
+printf '%s' "$out" | grep -q 'could not RUN' \
+  && ok "probe: and reports could not RUN" || bad "probe: and reports could not RUN"
+printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
+  && ok "probe: and the scan still ran over the committed leak" || bad "probe: and the scan still ran over the committed leak"
+# A symlink at HEAD, entry-shaped link text: the case that failed OPEN (exit 0 over a leak).
+rm -f .leak-guard-allow; ln -s 'skip docs-leak.md' .leak-guard-allow; hook_commit "a symlinked allow-file, entry-shaped text"
+git ls-tree HEAD -- .leak-guard-allow | grep -q '^120000 ' \
+  && ok "probe ledger: the committed allow-file is mode 120000" || bad "probe ledger: the committed allow-file is mode 120000"
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 1 ] && ok "symlink: a 120000 allow-file whose text is a valid entry blocks (rc exactly 1, never 0)" \
+  || bad "symlink: a 120000 allow-file whose text is a valid entry blocks (rc=$rc)"
+printf '%s' "$out" | grep -q 'could not RUN' \
+  && ok "symlink: and reports could not RUN" || bad "symlink: and reports could not RUN"
+printf '%s' "$out" | grep -q 'forge-kit: .leak-guard-allow at HEAD is mode 120000, not a regular file' \
+  && ok "symlink: and prints the hook's own refusal naming the mode" || bad "symlink: and prints the hook's own refusal naming the mode"
+printf '%s' "$out" | grep -q 'entry has no value' \
+  && bad "symlink: the refusal comes from the mode check, not a scanner parse error" \
+  || ok "symlink: the refusal comes from the mode check, not a scanner parse error"
+SYMOUT="$out"
+if hook_mutant symlink-mode-unchecked 's/100644|100755)/100644|100755|120000)/'; then
+  out=$(run_hook leakcheck .githooks/pre-push.mut-symlink-mode-unchecked); rc=$?
+  [ "$rc" -eq 0 ] && ok "mutant symlink-mode-unchecked: reading a 120000 link applies its text and passes the leak (the entry-shaped case fails it)" \
+    || bad "mutant symlink-mode-unchecked: reading a 120000 link applies its text and passes the leak (rc=$rc)"
+fi
+# A symlink whose text is NOT an entry: refused by the same mode check, with no scanner parse error.
+rm -f .githooks/pre-push.mut-* .leak-guard-allow; ln -s real-allow.txt .leak-guard-allow; hook_commit "a symlinked allow-file, plain text"
+out=$(run_hook leakcheck); rc=$?
+[ "$rc" -eq 1 ] && ok "symlink: a 120000 allow-file to real-allow.txt blocks (rc exactly 1)" \
+  || bad "symlink: a 120000 allow-file to real-allow.txt blocks (rc=$rc)"
+printf '%s' "$out" | grep -q 'could not RUN' && ok "symlink: and reports could not RUN" || bad "symlink: and reports could not RUN"
+printf '%s' "$out" | grep -q 'is mode 120000, not a regular file' \
+  && ok "symlink: the refusal line names mode 120000" || bad "symlink: the refusal line names mode 120000"
+printf '%s' "$out" | grep -q 'entry has no value' \
+  && bad "symlink: no scanner parse error for a non-entry link" || ok "symlink: no scanner parse error for a non-entry link"
+if hook_mutant symlink-mode-unchecked-b 's/100644|100755)/100644|100755|120000)/'; then
+  out=$(run_hook leakcheck .githooks/pre-push.mut-symlink-mode-unchecked-b)
+  printf '%s' "$out" | grep -q 'entry has no value' \
+    && ok "mutant symlink-mode-unchecked: a non-entry link reaches the scanner's parse error (the no-parse-error assertion fails it)" \
+    || bad "mutant symlink-mode-unchecked: a non-entry link reaches the scanner's parse error"
+fi
+# probe-error-as-absent: a failing probe falls through to "no allow-file". Needs HEAD to carry a
+# regular allow-file so the shimmed probe has something to lose.
+rm -f .githooks/pre-push.mut-* .leak-guard-allow; printf 'skip docs-leak.md\n' > .leak-guard-allow; hook_commit "a regular skip allow-file again"
+if hook_mutant probe-error-as-absent 's/^if ! al_line=\(.*\); then$/if ! al_line=\1 \&\& false; then/'; then
+  out=$(PATH="$PSHIM:$PATH" run_hook leakcheck .githooks/pre-push.mut-probe-error-as-absent)
+  printf '%s' "$out" | grep -q 'could not read .leak-guard-allow at HEAD' \
+    && bad "mutant probe-error-as-absent: a failing probe is treated as absent and the report is lost" \
+    || ok "mutant probe-error-as-absent: a failing probe is treated as absent (the probe-failure case fails it)"
+fi
+rm -f .githooks/pre-push.mut-*
 # Both remaining mutants need HEAD to carry an allow-file WITHOUT the skip entry, plus the committed leak.
 printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry, for the mutants"
-if hook_mutant worktree-allow 's|git show HEAD:.leak-guard-allow|cat .leak-guard-allow|; s|git cat-file -e HEAD:.leak-guard-allow|test -e .leak-guard-allow|'; then
+if hook_mutant worktree-allow 's|git cat-file blob "$al_oid"|cat .leak-guard-allow|; s|git ls-tree --full-tree HEAD -- .leak-guard-allow|echo 100644 blob x|'; then
   printf 'root nowhere\nskip docs-leak.md\n' > .leak-guard-allow
   out=$(run_hook leakcheck .githooks/pre-push.mut-worktree-allow); rc=$?
   [ "$rc" -eq 0 ] && ok "mutant: reading the allow-file from the worktree lets an uncommitted skip mask the leak (F1 fails it)" \

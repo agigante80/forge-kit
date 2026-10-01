@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 15
+# check-private-leaks-version: 16
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -15,9 +15,10 @@
 # THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
 # enumerates tracked files in the WORKING TREE, `--head` reads HEAD's COMMITTED tree (#375; the
 # pre-push hook's mode, so an uncommitted edit or a file deleted only in the working tree cannot
-# mask what a push publishes; HEAD's tree, not every pushed commit), `--staged` reads the index, and `--range` enumerates
-# two endpoints (`--no-renames --diff-filter=ACMT`, so a renamed-and-edited file and a symlink
-# replaced by a file are listed; both were invisible before #208) and reads each file at HEAD, so a
+# mask what a push publishes; HEAD's tree, not every pushed commit), `--staged` reads the index,
+# and `--range` enumerates two endpoints (`--no-renames --diff-filter=ACMT`, so a renamed-and-edited
+# file and a symlink replaced by a file are listed; both were invisible before #208) and reads each
+# file at HEAD, so a
 # name added and removed inside the range is invisible at both ends. The tree modes fail closed
 # like `--history` (#208): a temp directory that cannot be made, a names file or blob that cannot
 # be written, a tracked file this process cannot open, are each exit 2 naming the file. A private folder name committed once and deleted later stays readable
@@ -139,7 +140,9 @@ warn() { printf 'check-private-leaks: %s\n' "$1" >&2; }
 while [ $# -gt 0 ]; do
   case "$1" in
     # One mode per run. The last flag used to win silently, so "--history --staged" scanned the
-    # index and reported clean on the history the user asked about.
+    # index and reported clean on the history the user asked about. The five mode arms below carry
+    # the same one-line refusal as their siblings and stay over 100 columns on purpose: they are
+    # meant to be read as a column, and wrapping one would hide that they are identical (#384).
     --all)         [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=all ;;
     --staged)      [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1; MODE=staged ;;
     --range)       [ "$MODESET" = 0 ] || die "one mode only: --all, --staged, --range, --head or --history"; MODESET=1
@@ -667,6 +670,7 @@ for f in "${FILES[@]}"; do
     # never "HEAD:$f": `ls-tree` paths are relative to the current directory and a bare
     # "HEAD:<path>" is root-relative, so from a subdirectory the bare form reads the ROOT file of
     # the same name (a leaking sub/README.md judged by the clean ./README.md). Same failure rule.
+    # The arm stays on one line like the `range` arm above it (#384).
     head)   { git show "HEAD:./$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;
   esac
