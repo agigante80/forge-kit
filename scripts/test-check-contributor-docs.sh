@@ -73,6 +73,8 @@ row() { S_=$1 C_=$2 X_=$3 awk -F'\t' '$1 == ENVIRON["S_"] && $2 == ENVIRON["C_"]
 at() { S_=$1 L_=$2 X_=$3 awk -F'\t' '$1 == ENVIRON["S_"] && index($3, ENVIRON["L_"]) == 1 && index($4, ENVIRON["X_"]) { f = 1 } END { exit !f }' <<<"$OUT"; }
 none() { ! grep -qF -- "$1" <<<"$OUT"; }
 nostatus() { ! awk -F'\t' -v s="$1" '$1 == s { f = 1 } END { exit !f }' <<<"$OUT"; }
+# nocmd <status>: no command row carries that status (AGENTS.md's own required rows pass).
+nocmd() { [ "$(count "$1" command)" = 0 ]; }
 count() { awk -F'\t' -v s="$1" -v c="$2" '$1 == s && $2 == c { k++ } END { print k + 0 }' <<<"$OUT"; }
 
 # case_ <predicate function> <label>: must hold against the shipped script.
@@ -230,9 +232,12 @@ c_pkg_untracked() { new; put package.json '{"scripts":{"lint":"x"}}\n'; agents '
   rc_is 0 && row referred command "no root package.json" && ! row pass command lint; }
 c_index_blob() { new; pkg '"x":"x"'; put package.json '{"scripts":{"lint":"x"}}\n'; agents '`npm run lint`\n'; run
   rc_is 1 && row fail command "npm run lint: no such"; }
-c_nojq_yarn() { new; pkg '"x":"x"'; agents '`yarn run lint`\n\n`npm run --prefix p lint`\n'; run_nojq
-  rc_is 0 && row referred command "yarn run lint"; }
-c_nojq_npm() { new; pkg '"x":"x"'; agents '`yarn run a`\n\n`npm run lint`\n'; run_nojq
+# #299 moved both: `yarn run lint` now resolves against package.json, so it needs jq, and the
+# early-referred shapes below are what still decide without it.
+c_nojq_yarn() { new; pkg '"x":"x"'
+  agents '`yarn --cwd p build`\n\n`pnpm --filter "web*" run x`\n\n`npm -ws run lint`\n'; run_nojq
+  rc_is 0 && [ "$(count referred command)" = 3 ] && [ -z "$ERR" ]; }
+c_nojq_npm() { new; pkg '"x":"x"'; agents '`yarn --cwd p a`\n\n`npm run lint`\n'; run_nojq
   rc_is 2 && [ -z "$OUT" ] && grep -q jq <<<"$ERR"; }
 c_malformed() { new; tput_ package.json '[1, 2]\n'; agents '`npm run lint`\n'; run
   rc_is 2 && [ -z "$OUT" ] && grep -q malformed <<<"$ERR"; }
@@ -263,6 +268,194 @@ case_ c_fence_unclosed "an unclosed fence runs to EOF, so its tail is never a li
 case_ c_fence_backtick "a backticked command inside a fence refers"
 case_ c_env_prefix "an assignment before npm run refers the row"
 case_ c_env_bare "a bare npm run after a prompt still fails"
+
+
+# ---------------------------------------------------------------- #299: yarn and workspaces
+# mf <path> <name> <scripts-json>: write and track a workspace manifest.
+mf() { tput_ "$1" "{\"name\":\"$2\",\"scripts\":{$3}}\n"; }
+# A jq that counts its own invocations, for the linear-cost cases (a counting stub, never a timer).
+STUB="$W/stubjq"; mkdir -p "$STUB"
+printf '#!/bin/sh\necho x >> "$JQ_COUNT"\nexec %s "$@"\n' "$(command -v jq)" > "$STUB/jq"; chmod +x "$STUB/jq"
+run_stub() {
+  local p="$PATH"; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
+  : > "$W/count"
+  OUT=$(cd "$R" && JQ_COUNT="$W/count" PATH="$STUB:$p" "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
+  ERR=$(cat "$W/err"); JQN=$(wc -l < "$W/count" | tr -d ' ')
+}
+
+c_y_bare() { new; pkg '"build":"x"'; agents '`yarn build`\n'; run
+  rc_is 0 && row pass command "yarn build: defined in package.json"; }
+c_y_bare_neg() { new; pkg '"build":"x"'; agents '`yarn prettier`\n'; run
+  rc_is 0 && row referred command "yarn prettier" && nocmd fail && nocmd pass; }
+c_y_run() { new; pkg '"lint":"x"'; agents '`yarn run lint`\n'; run
+  rc_is 0 && row pass command "yarn run lint: defined in package.json"; }
+c_y_run_neg() { new; pkg '"build":"x"'; agents '`yarn run lint`\n'; run
+  rc_is 0 && row referred command "yarn run lint" && nocmd fail && nocmd pass; }
+c_y_install() { new; pkg '"install":"x"'; agents '`yarn run install`\n\n`yarn install`\n'; run
+  rc_is 0 && row pass command "yarn run install: defined" && none "yarn install" && [ "$(count pass command)" = 1 ] \
+    && [ "$(count referred command)" = 0 ]; }
+c_y_classic() { new; pkg '"check":"x","install":"x"'; agents '`yarn run check`\n\n`yarn check`\n\n`yarn check.`\n\n`yarn install.`\n'; run
+  rc_is 0 && row pass command "yarn run check: defined" && row referred command "yarn check: may be a yarn built-in" \
+    && row referred command "yarn check.: may be a yarn built-in" && none "yarn install." \
+    && [ "$(count pass command)" = 1 ] && nocmd fail; }
+c_yws() { new; mf packages/web/package.json web '"build":"x"'; agents '`yarn workspace web run build`\n\n`yarn workspace web build`\n'; run
+  rc_is 0 && [ "$(count pass command)" = 2 ] && [ "$(grep -c 'defined in packages/web/package.json' <<<"$OUT")" = 2 ]; }
+c_yws_neg() { new; mf packages/web/package.json web '"x":"x"'; agents '`yarn workspace web run build`\n'; run
+  rc_is 0 && row referred command "workspace web" && row referred command "build" && nocmd fail && nocmd pass; }
+c_yws_builtin() { new; mf packages/web/package.json web '"add":"x","check":"x"'
+  agents '`yarn workspace web add lodash`\n\n`yarn workspace web check`\n\n`yarn workspace web check.`\n\n`yarn workspace web add.`\n'; run
+  rc_is 0 && none "workspace web add" && row referred command "check may be a yarn built-in" \
+    && row referred command "check. may be a yarn built-in" && none "add." && nocmd pass; }
+c_scoped() { new; mf packages/api/package.json @acme/api '"test":"x"'; agents '`yarn workspace @acme/api run test`\n'; run
+  rc_is 0 && row pass command "test is defined in packages/api/package.json"; }
+c_scoped_neg() { new; mf packages/api/package.json @acme/apis '"test":"x"'; agents '`yarn workspace @acme/api run test`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named @acme/api" && nocmd pass && nocmd fail; }
+c_npm_ws() { new; mf packages/web/package.json web '"build":"x"'
+  agents '`npm -w web run build`\n\n`npm --workspace web run build`\n\n`npm --workspace=web run build`\n'; run
+  rc_is 0 && [ "$(count pass command)" = 3 ] && nocmd fail; }
+c_npm_ws_neg() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm --workspace=web run deploy`\n'; run
+  rc_is 1 && row fail command "deploy is not a script of web (packages/web/package.json)" && nocmd pass; }
+c_pnpm_ws() { new; mf packages/web/package.json web '"build":"x"'
+  agents '`pnpm --filter web run build`\n\n`pnpm -F web run build`\n\n`pnpm --filter=web run build`\n'; run
+  rc_is 0 && [ "$(count pass command)" = 3 ] && nocmd fail; }
+c_pnpm_ws_neg() { new; mf packages/web/package.json web '"build":"x"'; agents '`pnpm -F web run deploy`\n'; run
+  rc_is 1 && row fail command "deploy is not a script of web" && nocmd pass; }
+# Manifests literally carry the selector text, so equality alone would match; only the literal-name
+# gate refers. The npm spans die a regex-only removal on a status, the `web...` span the pnpm-only test.
+c_selectors() { new
+  mf packages/a1/package.json 'web*' '"x":"x"'; mf packages/a2/package.json '...web' '"x":"x"'
+  mf packages/a3/package.json 'web...' '"x":"x"'; mf packages/a4/package.json '^web' '"x":"x"'
+  mf packages/a5/package.json '!web' '"x":"x"'
+  agents '`pnpm --filter web* run deploy`\n\n`pnpm --filter ...web run deploy`\n\n`pnpm --filter web... run deploy`\n\n`pnpm --filter ^web run deploy`\n\n`pnpm --filter !web run deploy`\n\n`npm -w web* run deploy`\n\n`npm -w ^web run deploy`\n'; run
+  rc_is 0 && [ "$(count referred command)" = 7 ] && [ "$(grep -c 'not a literal package name' <<<"$OUT")" = 7 ] \
+    && nocmd pass && nocmd fail; }
+c_quoted() { new; mf packages/web/package.json web '"x":"x"'; agents '`pnpm --filter "web" run deploy`\n'; run
+  rc_is 0 && row referred command "not a literal package name" && nocmd fail && nocmd pass; }
+c_dot_eq() { new; mf packages/ab/package.json a.b '"build":"x"'; agents '`npm -w a.b run build`\n'; run
+  rc_is 0 && row pass command "build is defined in packages/ab/package.json"; }
+c_dot_regex() { new; mf packages/axb/package.json axb '"build":"x"'; agents '`npm -w a.b run build`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named a.b" && nocmd pass; }
+c_ghost() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w ghost run build`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named ghost" && nocmd fail; }
+c_dupe() { new; mf a/package.json web '"build":"x"'; mf b/package.json web '"x":"x"'; agents '`npm -w web run build`\n'; run
+  rc_is 0 && row referred command "2 tracked manifests are named web" && nocmd pass && nocmd fail; }
+c_ws_notrim() { new; mf packages/web/package.json web '"build":"x"'
+  agents '`npm -w web. run build`\n\n`yarn workspace web, run build`\n'; run
+  rc_is 0 && nocmd pass && nocmd fail && [ "$(count referred command)" = 2 ]; }
+# Index, never the working tree: the blob and the file on disk disagree, in both directions.
+c_idx_ws_fail() { new; mf packages/web/package.json web '"x":"x"'; put packages/web/package.json '{"name":"web","scripts":{"deploy":"x"}}\n'
+  agents '`npm -w web run deploy`\n'; run
+  rc_is 1 && row fail command "deploy is not a script of web"; }
+c_idx_ws_pass() { new; mf packages/web/package.json web '"deploy":"x"'; put packages/web/package.json '{"name":"web","scripts":{}}\n'
+  agents '`npm -w web run deploy`\n'; run
+  rc_is 0 && row pass command "deploy is defined in"; }
+c_idx_ws_name() { new; mf packages/web/package.json web '"deploy":"x"'; put packages/web/package.json '{"name":"other","scripts":{"deploy":"x"}}\n'
+  agents '`npm -w web run deploy`\n'; run
+  rc_is 0 && row pass command "deploy is defined in"; }
+c_ws_untracked() { new; put packages/web/package.json '{"name":"web","scripts":{"build":"x"}}\n'; agents '`npm -w web run build`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named web" && nocmd pass; }
+c_nm_pos() { new; mf packages/web/package.json web '"build":"x"'; mf node_modules/web/package.json web '"x":"x"'
+  agents '`npm -w web run build`\n'; run
+  rc_is 0 && row pass command "build is defined in packages/web/package.json"; }
+c_nm_neg() { new; mf packages/x/node_modules/web/package.json web '"build":"x"'; agents '`npm -w web run build`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named web" && nocmd fail && nocmd pass; }
+c_notpkg() { new; mf packages/web/notpackage.json web '"build":"x"'; agents '`npm -w web run build`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named web" && nocmd pass; }
+# The manifest-side name is untrusted too: a forged second row would point `ghost` at web, which lacks build.
+c_forged() { new; mf packages/web/package.json web '"x":"x"'
+  printf '%s\n' '{"name":"a\tb\npackages/web/package.json\tghost","scripts":{}}' > "$R/packages/evil.json"
+  mkdir -p "$R/packages/evil"; mv "$R/packages/evil.json" "$R/packages/evil/package.json"; git -C "$R" add packages/evil/package.json
+  agents '`npm -w ghost run build`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named ghost" && nocmd fail && [ -z "$ERR" ]; }
+c_scripts_obj() { new; mf packages/web/package.json web '"build":"x"'; agents '`pnpm -F web run build`\n'; run
+  rc_is 0 && row pass command "build is defined"; }
+c_scripts_nonobj() { new; tput_ packages/web/package.json '{"name":"web","scripts":[]}\n'; agents '`pnpm -F web run build`\n'; run
+  rc_is 0 && row referred command "pnpm -F web run build" && nocmd fail && nocmd pass; }
+c_root_not_cand() { new; tput_ package.json '{"name":"acme","scripts":{"build":"x"}}\n'; agents '`yarn workspace acme run build`\n'; run
+  rc_is 0 && row referred command "no tracked manifest is named acme" && nocmd pass; }
+c_root_unread() { new; tput_ package.json '[1, 2]\n'; mf packages/web/package.json web '"build":"x"'; agents '`npm -w web run build`\n'; run
+  rc_is 0 && row pass command "build is defined in packages/web/package.json"; }
+c_junk_manifest() { new; tput_ packages/junk/package.json '[1, 2]\n'; mf packages/web/package.json web '"build":"x"'
+  agents '`npm -w web run build`\n'; run
+  rc_is 0 && row pass command "build is defined in packages/web/package.json"; }
+c_malformed_yarn() { new; tput_ package.json '[1, 2]\n'; agents '`yarn build`\n'; run
+  rc_is 2 && [ -z "$OUT" ] && grep -q malformed <<<"$ERR"; }
+c_shapes_pos() { new; mf packages/web/package.json web '"build":"x"'
+  agents '`npm run build -w web`\n\n`npm run build --workspace=web`\n'; run
+  rc_is 0 && [ "$(count referred command)" = 2 ] && nocmd pass && nocmd fail; }
+# build is defined in the root AND in web, so a flag ignored after the name yields a pass or a fail.
+c_shapes_neg() { new; pkg '"build":"x"'; mf packages/web/package.json web '"build":"x"'
+  agents '`pnpm --filter web deploy`\n\n`yarn workspace web build --watch`\n\n`yarn build --foo`\n\n`npm -w web run deploy --if-present`\n'; run
+  rc_is 0 && [ "$(count referred command)" = 4 ] && nocmd pass && nocmd fail; }
+c_cd_yarn() { new; pkg '"build":"x"'; mf packages/web/package.json web '"build":"x"'
+  agents '```\ncd client\nyarn build\nyarn workspace web run build\n```\n\n```\nFOO=1 yarn build\n```\n'; run
+  rc_is 0 && [ "$(grep -c 'a directory change precedes it' <<<"$OUT")" = 2 ] && row referred command "yarn build: an environment assignment" \
+    && nocmd pass; }
+c_cd_ws_env() { new; mf packages/web/package.json web '"build":"x"'
+  agents '```\nnpm_config_workspace=other npm -w web run build\n```\n'; run
+  rc_is 0 && row referred command "an environment assignment precedes it" && nocmd pass && nocmd fail; }
+c_nojq_ws() { new; mf packages/web/package.json web '"build":"x"'; agents '`yarn workspace web run build`\n'; run_nojq
+  rc_is 2 && [ -z "$OUT" ] && grep -q jq <<<"$ERR"; }
+c_nojq_nocand() { new; pkg '"x":"x"'; agents '`yarn workspace web run build`\n'; run_nojq
+  rc_is 0 && row referred command "no tracked manifest is named web" && [ -z "$ERR" ]; }
+manifests200() { local i; for i in $(seq 1 200); do put "packages/w$i/package.json" "{\"name\":\"w$i\",\"scripts\":{\"build\":\"x\"}}\n"; done; git -C "$R" add -A; }
+c_count_linear() { new; manifests200
+  agents "$(for i in $(seq 1 50); do printf '`yarn workspace w%d run build`\n\n' "$i"; done)"; run_stub
+  rc_is 0 && [ "$(count pass command)" = 50 ] && [ "$JQN" -ge 1 ] && [ "$JQN" -le 300 ]; }
+c_count_zero() { new; manifests200; agents '`yarn --cwd p build`\n'; run_stub
+  rc_is 0 && [ "$JQN" = 0 ]; }
+c_edge_silent() { new; mf packages/web/package.json web '"build":"x"'; agents '`yarn workspace web`\n\n`npm -w`\n'; run
+  rc_is 0 && [ "$(count referred command)" = 0 ] && nocmd pass && nocmd fail; }
+c_edge_referred() { new; mf packages/web/package.json web '"build":"x"'; agents '`npm -w run build`\n\n`pnpm --filter= run build`\n'; run
+  rc_is 0 && [ "$(count referred command)" = 2 ] && nocmd pass && nocmd fail; }
+
+echo "== #299 yarn and workspaces =="
+case_ c_y_bare "a bare yarn X defined in the root passes"
+case_ c_y_bare_neg "a bare yarn X the root lacks is referred, never a fail"
+case_ c_y_run "yarn run X defined in the root passes"
+case_ c_y_run_neg "yarn run X the root lacks is referred, never a fail"
+case_ c_y_install "yarn run install passes; a bare yarn install is the built-in and gets no row"
+case_ c_y_classic "a Yarn Classic built-in is referred even when the root defines it"
+case_ c_yws "yarn workspace <name> [run] X passes, naming the manifest"
+case_ c_yws_neg "yarn workspace with a script the manifest lacks is referred, never a fail"
+case_ c_yws_builtin "yarn workspace: a built-in stays silent, a Classic built-in refers"
+case_ c_scoped "a scoped workspace name resolves"
+case_ c_scoped_neg "a scoped name is never matched by prefix"
+case_ c_npm_ws "npm -w, --workspace and --workspace= pass"
+case_ c_npm_ws_neg "npm --workspace=web run deploy fails when web lacks it"
+case_ c_pnpm_ws "pnpm --filter, -F and --filter= pass"
+case_ c_pnpm_ws_neg "pnpm -F web run deploy fails when web lacks it"
+case_ c_selectors "a glob, selector or exclusion is referred even when a manifest is literally so named"
+case_ c_quoted "a quoted filter is never resolved"
+case_ c_dot_eq "a dotted name matches itself"
+case_ c_dot_regex "a workspace name is equality, not a pattern"
+case_ c_ghost "a name matching no manifest is referred"
+case_ c_dupe "a name matching two manifests is referred"
+case_ c_ws_notrim "a workspace name is never punctuation-trimmed"
+case_ c_idx_ws_fail "the index lacks the script, the disk has it: fail"
+case_ c_idx_ws_pass "the index has the script, the disk lacks it: pass"
+case_ c_idx_ws_name "the index name decides, not the disk name"
+case_ c_ws_untracked "an untracked manifest is not a manifest"
+case_ c_nm_pos "a tracked node_modules manifest is excluded, so one match remains"
+case_ c_nm_neg "a node_modules manifest alone matches nothing"
+case_ c_notpkg "only a file named exactly package.json is a manifest"
+case_ c_forged "a manifest-side name cannot forge a table row"
+case_ c_scripts_obj "an object scripts passes"
+case_ c_scripts_nonobj "a non-object scripts never fails"
+case_ c_root_not_cand "the root is not a workspace candidate"
+case_ c_root_unread "a workspace form never reads a malformed root"
+case_ c_junk_manifest "a malformed non-target manifest is ignored"
+case_ c_malformed_yarn "a malformed root exits 2 for a yarn root form"
+case_ c_shapes_pos "flag-after npm spellings stay referred"
+case_ c_shapes_neg "a flag after the script name refers, never passes or fails"
+case_ c_cd_yarn "a preceding cd or assignment keeps yarn rows referred"
+case_ c_cd_ws_env "an assignment keeps a workspace row referred"
+case_ c_nojq_ws "no jq and a resolving workspace command: exit 2, empty stdout"
+case_ c_nojq_nocand "no jq and no candidate manifest: nomatch, exit 0"
+case_ c_count_linear "200 manifests and 50 commands cost a bounded number of jq calls"
+case_ c_count_zero "no command reaching resolution means no table and no jq call"
+case_ c_edge_silent "yarn workspace with no script and a bare npm -w are silent"
+case_ c_edge_referred "npm -w run build and an empty --filter= are referred"
 
 # ---------------------------------------------------------------- could not run, and arguments
 c_nogit() { R="$W/plain"; mkdir -p "$R"; run; rc_is 2 && [ -z "$OUT" ] && [ -n "$ERR" ]; }
@@ -322,9 +515,39 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "[ -f package.json ] in place of tracked" c_pkg_untracked 'tracked package.json ||' '[ -f package.json ] ||'
   mutant "a cd ignored when the root defines the script" c_cd_root_defined '[ "$cd" != 0 ] && { row referred command "$loc" "$pm run' '[ "$cd" != 0 ] && ! { tracked package.json && resolve_script "$name"; } && { row referred command "$loc" "$pm run'
   mutant "a PR-template link that passes" c_tmpl 'if [ "$tmpl" = 1 ]; then' 'if false; then'
-  mutant "yarn run in the fail set" c_yarn_run 'row referred command "$loc" "yarn run $2' 'row fail command "$loc" "yarn run $2'
+  mutant "an undefined yarn script fails (bare)" c_y_bare_neg 'else row referred command "$loc" "$lab $name: not defined' 'else row fail command "$loc" "$lab $name: not defined'
+  mutant "an undefined yarn script fails (run)" c_y_run_neg 'else row referred command "$loc" "$lab $name: not defined' 'else row fail command "$loc" "$lab $name: not defined'
   mutant "flags after the name ignored" c_flag_after '-*) flag=$w; break ;;' '-*) ;;'
   mutant "jq checked eagerly" c_nojq_yarn $'set -f\n' $'set -f\ncommand -v jq >/dev/null 2>&1 || die "jq missing"\n'
+  mutant "a missing workspace script passes" c_npm_ws_neg 'row fail command "$loc" "$lab: $name is not a script of' 'row pass command "$loc" "$lab: $name is not a script of'
+  mutant "yarn workspace emits fail" c_yws_neg '      if [ "$pm" = yarn ]; then
+        row referred' '      if false; then
+        row referred'
+  mutant "literal-name gate removed" c_selectors '[[ $ws =~ $wre ]] || {' 'true || {'
+  mutant "pnpm dots selector passes" c_selectors '[ "$pm" = pnpm ] && case "$ws" in *...*)' 'false && case "$ws" in *...*)'
+  mutant "workspace match by regex" c_dot_regex '$2 == ENVIRON["WS"]' '$2 ~ ENVIRON["WS"]'
+  mutant "workspace match by prefix" c_scoped_neg '$2 == ENVIRON["WS"]' 'index($2, ENVIRON["WS"]) == 1'
+  mutant "two manifests resolve to the last" c_dupe '*) WS_STATE=ambiguous; return ;;' '*) WS_STATE=nomatch; return ;;'
+  mutant "manifest script read from the working tree" c_idx_ws_fail 'git show ":0:$WS_PATH" 2>/dev/null |' 'cat "$WS_PATH" 2>/dev/null |'
+  mutant "manifest script read from the working tree (pass)" c_idx_ws_pass 'git show ":0:$WS_PATH" 2>/dev/null |' 'cat "$WS_PATH" 2>/dev/null |'
+  mutant "manifest name read from the working tree" c_idx_ws_name 'git show ":0:$p" 2>/dev/null |' 'cat "$p" 2>/dev/null |'
+  mutant "node_modules manifests not excluded" c_nm_pos '$0 !~ /(^|\/)node_modules\// && ' ''
+  mutant "basename loosened to a suffix" c_notpkg '$0 ~ /(^|\/)package\.json$/' '$0 ~ /package\.json$/'
+  mutant "root manifest taken as a candidate" c_root_not_cand '    $0 == "package.json" { next }
+' ''
+  mutant "workspace form validates the root" c_root_unread '[ -n "$ws_built" ] || build_ws_table "$1"' 'resolve_script x; [ -n "$ws_built" ] || build_ws_table "$1"'
+  mutant "manifest name emitted raw" c_forged '[.name] | @tsv' '.name'
+  mutant "a workspace name punctuation-trimmed" c_ws_notrim '  [[ $ws =~ $wre ]] ||' '  while :; do case "$ws" in *[.,]) ws=${ws%?} ;; *) break ;; esac; done; [[ $ws =~ $wre ]] ||'
+  mutant "cd flag ignored by judge_yarn" c_cd_yarn 'judge_yarn "$loc" "$a" "$@" ;;' 'judge_yarn "$loc" 0 "$@" ;;'
+  mutant "a flag after the script name ignored (scan)" c_shapes_neg '-*) SC_FLAG=$w; break ;;' '-*) ;;'
+  mutant "resolver captured with command substitution" c_nojq_ws '  resolve_workspace "$ws" "$name"
+' '  _x=$(resolve_workspace "$ws" "$name")
+'
+  mutant "table rebuilt per command" c_count_linear '[ -n "$ws_built" ] || build_ws_table "$1"' 'build_ws_table "$1"'
+  mutant "table built at startup" c_count_zero 'for d in "${docs[@]+"${docs[@]}"}"; do' 'build_ws_table startup
+for d in "${docs[@]+"${docs[@]}"}"; do'
+  mutant "a yarn built-in resolved as a script" c_y_install 'install|add|remove|upgrade|up|init|dlx' 'add|remove|upgrade|up|init|dlx'
+  mutant "a Yarn Classic built-in resolved as a script" c_y_classic 'check|licenses|owner' 'licenses|owner'
   mutant ".txt templates dropped" c_tmpl_txt '(\.md|\.txt)?$' '(\.md)?$'
   mutant "scripts read from the working tree" c_index_blob 'git show :package.json >' 'cat package.json >'
   mutant "CR kept on blank lines" c_para_crlf '{ sub(/\r$/, "") }

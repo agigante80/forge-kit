@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 1
+# check-contributor-docs-version: 2
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -24,11 +24,15 @@
 #              symlink is judged by its target, so AGENTS.md -> an untracked CLAUDE.md fails.
 #   max-lines  AGENTS.md within --max-lines (150, counted as wc -l counts).
 #   max-bytes  AGENTS.md within --max-bytes (32768: Codex truncates the file at 32 KiB).
-#   command    Only inside code spans and fenced blocks. The FAIL set is a closed allowlist of two
-#              shapes, `npm run X` and `pnpm run X`, with `run` straight after the package manager,
-#              a literal name, no flag but --silent/-s, a tracked root package.json, and no cd or
-#              pushd earlier in the same scope. Everything else is referred or silent. make and
-#              just are read as TEXT and never invoked: make runs recipes while remaking makefiles.
+#   command    Only inside code spans and fenced blocks. The FAIL set is a closed allowlist: the two
+#              root shapes `npm run X` and `pnpm run X` (`run` straight after the package manager, a
+#              literal name, no flag but --silent/-s, a tracked root package.json, no cd or pushd
+#              earlier in the same scope), plus six workspace spellings resolved against the ONE
+#              tracked manifest of that name (#299): npm -w, --workspace and --workspace=, pnpm
+#              --filter, -F and --filter=, each followed by `run X`. Yarn never fails, because yarn
+#              falls through to a binary: a defined root script is a pass, anything else referred.
+#              Everything else is referred or silent. make and just are read as TEXT and never
+#              invoked: make runs recipes while remaking makefiles.
 #   script-path  `node|sh|bash <path>`: tracked passes, anything else is referred (a build output
 #              is correct and untracked). A path leaving the repository is never read.
 #   link       Relative links, images and reference definitions resolve to a tracked path or to a
@@ -309,6 +313,46 @@ resolve_script() {
   NAME=$1 jq -e '(.scripts // {}) | has(env.NAME)' "$T/package.json" >/dev/null 2>&1
 }
 
+# Workspace resolution (#299). The match is by `name` among tracked manifests, read from the INDEX.
+# The table is built on first use, into <manifest path><TAB><name>, and only when a non-root
+# manifest exists, so jq is still needed only when a command reaches resolution. It is called
+# DIRECTLY, never through $(...): die is exit 2 and would end a subshell alone. Results come back in
+# WS_STATE (defined, undefined, unreadable, nomatch or ambiguous), WS_PATH and WS_COUNT.
+# A candidate is a file named exactly package.json, outside node_modules, not the root (a workspace
+# form never reads the root), with no TAB in its path. `@tsv` escapes a TAB, a newline and a
+# backslash in a manifest-side name, so a name cannot forge a second row.
+ws_built="" WS_STATE="" WS_PATH="" WS_COUNT=0
+build_ws_table() {
+  local p nm
+  awk '
+    $0 == "package.json" { next }
+    index($0, "\t") { next }
+    $0 !~ /(^|\/)node_modules\// && $0 ~ /(^|\/)package\.json$/ { print }' "$IDX" > "$T/wscand"
+  : > "$T/wstable"
+  if [ -s "$T/wscand" ]; then
+    command -v jq >/dev/null 2>&1 || die "jq is required to resolve workspace '$1' against package.json"
+    while IFS= read -r p; do
+      nm=$(git show ":0:$p" 2>/dev/null | jq -r 'select(type=="object" and ((.scripts // {}) | type=="object")) | select(.name|type=="string") | [.name] | @tsv' 2>/dev/null)
+      [ -n "$nm" ] && printf '%s\t%s\n' "$p" "$nm" >> "$T/wstable"
+    done < "$T/wscand"
+  fi
+  ws_built=1
+}
+resolve_workspace() {   # <name> <script>
+  local res
+  [ -n "$ws_built" ] || build_ws_table "$1"
+  res=$(WS=$1 awk -F'\t' '$2 == ENVIRON["WS"] { c++; p = $1 } END { print c + 0; print p }' "$T/wstable")
+  WS_COUNT=${res%%$'\n'*}; WS_PATH=${res#*$'\n'}
+  case "$WS_COUNT" in
+    0) WS_STATE=nomatch; WS_PATH=""; return ;;
+    1) ;;
+    *) WS_STATE=ambiguous; return ;;
+  esac
+  # exit 0 defined, 1 undefined, anything else (jq exits 5 on a non-object scripts) is never a fail
+  git show ":0:$WS_PATH" 2>/dev/null | NAME=$2 jq -e '(.scripts // {}) | has(env.NAME)' >/dev/null 2>&1
+  case $? in 0) WS_STATE=defined ;; 1) WS_STATE=undefined ;; *) WS_STATE=unreadable ;; esac
+}
+
 # why_cd <flag>: what precedes a command whose flag is not 0.
 why_cd() { if [ "$1" = 2 ]; then printf 'an environment assignment precedes it'; else printf 'a directory change precedes it'; fi; }
 
@@ -316,13 +360,20 @@ why_cd() { if [ "$1" = 2 ]; then printf 'an environment assignment precedes it';
 first_file() { local f; for f in "$@"; do tracked "$f" && { printf '%s' "$f"; return 0; }; done; return 1; }
 
 judge_pm() {   # <loc> <cd> <pm> <args...>
-  local loc=$1 cd=$2 pm=$3 w name="" flag="" extra
+  local loc=$1 cd=$2 pm=$3 w name="" flag="" extra wsv="" wsn=0
   shift 3
   if [ $# -eq 0 ]; then return; fi
   case "$1" in
     run) shift ;;
     test|start|run-script|t|tst) row referred command "$loc" "$pm $1: runs a lifecycle script; not checked"; return ;;
-    -*) for w in "$@"; do [ "$w" = run ] && { row referred command "$loc" "$pm $*: a flag between $pm and run may change which script runs"; return; }; done
+    -*) # The six workspace spellings, each with `run` straight after the value (#299).
+        case "$pm:$1" in
+          npm:-w|npm:--workspace|pnpm:--filter|pnpm:-F) [ $# -ge 3 ] && [ "$3" = run ] && { wsv=$2; wsn=3; } ;;
+          npm:--workspace=*) [ $# -ge 2 ] && [ "$2" = run ] && { wsv=${1#--workspace=}; wsn=2; } ;;
+          pnpm:--filter=*) [ $# -ge 2 ] && [ "$2" = run ] && { wsv=${1#--filter=}; wsn=2; } ;;
+        esac
+        if [ "$wsn" != 0 ]; then judge_ws "$loc" "$cd" "$pm $*" "$pm" "$wsv" "${@:$((wsn + 1))}"; return; fi
+        for w in "$@"; do [ "$w" = run ] && { row referred command "$loc" "$pm $*: a flag between $pm and run may change which script runs"; return; }; done
         # pnpm runs a bare word as a script, so `pnpm -r build` may be one; npm never does.
         [ "$pm" = pnpm ] && for w in "$@"; do case "$w" in -*) ;; *) row referred command "$loc" "pnpm $*: may be a script, a built-in or a binary"; return ;; esac; done
         return ;;
@@ -352,17 +403,111 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
   else row fail command "$loc" "$pm run $name: no such script in package.json"; fi
 }
 
-judge_yarn() {   # <loc> <args...>
-  local loc=$1 w
+# scan_script <silent-ok> <args...>: the first non-flag word is the script; a `-` flag before `--`
+# (past the script name too) is SC_FLAG. --silent and -s are exempt only for npm and pnpm.
+scan_script() {
+  local ok=$1 w
   shift
+  SC_NAME="" SC_FLAG=""
+  for w in "$@"; do
+    [ "$w" = -- ] && break
+    case "$w" in
+      '#'*|'\') break ;;
+      --silent|-s) [ "$ok" = 1 ] || { SC_FLAG=$w; break; } ;;
+      -*) SC_FLAG=$w; break ;;
+      *) [ -z "$SC_NAME" ] && SC_NAME=$w ;;
+    esac
+  done
+}
+
+# judge_ws <loc> <cd> <label> <pm> <workspace> <args from the script name on...> (#299)
+# npm and pnpm error on a missing script, so `undefined` fails there; yarn falls through to a
+# binary, so it is referred. A workspace name is NEVER punctuation-trimmed: it is matched whole.
+judge_ws() {
+  local loc=$1 cd=$2 lab=$3 pm=$4 ws=$5 name
+  shift 5
+  local wre='^(@[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*$'
+  local sre='^[A-Za-z0-9][A-Za-z0-9:_.-]*$'
+  [[ $ws =~ $wre ]] || { row referred command "$loc" "$lab: not a literal package name"; return; }
+  # a pnpm filter ending in `...` selects dependencies, and the regex above allows dots
+  [ "$pm" = pnpm ] && case "$ws" in *...*) row referred command "$loc" "$lab: not a literal package name"; return ;; esac
+  if [ "$pm" = yarn ]; then scan_script 0 "$@"; else scan_script 1 "$@"; fi
+  [ -n "$SC_FLAG" ] && { row referred command "$loc" "$lab: $SC_FLAG may change which script runs"; return; }
+  name=$SC_NAME
+  [ -z "$name" ] && return
+  while :; do case "$name" in *[.,\;:!?]) name=${name%?} ;; *) break ;; esac; done
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: $name is not a literal script name"; return; }
+  [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }
+  resolve_workspace "$ws" "$name"
+  case "$WS_STATE" in
+    defined) row pass command "$loc" "$lab: $name is defined in $WS_PATH" ;;
+    undefined)
+      if [ "$pm" = yarn ]; then
+        row referred command "$loc" "$lab: workspace $ws ($WS_PATH) does not define $name; yarn may run a binary"
+      else
+        row fail command "$loc" "$lab: $name is not a script of $ws ($WS_PATH)"
+      fi ;;
+    unreadable) row referred command "$loc" "$lab: could not read the scripts of workspace $ws ($WS_PATH)" ;;
+    ambiguous) row referred command "$loc" "$lab: $WS_COUNT tracked manifests are named $ws" ;;
+    *) row referred command "$loc" "$lab: no tracked manifest is named $ws" ;;
+  esac
+}
+
+# judge_yarn_root <loc> <cd> <prefix: yarn or yarn run> <args from the script name on...>. Yarn never
+# fails: an undefined script may be a node_modules/.bin binary, which yarn runs.
+judge_yarn_root() {
+  local loc=$1 cd=$2 lab=$3 name
+  shift 3
+  local sre='^[A-Za-z0-9][A-Za-z0-9:_.-]*$'
+  scan_script 0 "$@"
+  [ -n "$SC_FLAG" ] && { row referred command "$loc" "$lab ${SC_NAME:-...}: $SC_FLAG may change which script runs"; return; }
+  name=$SC_NAME
+  [ -z "$name" ] && return
+  while :; do case "$name" in *[.,\;:!?]) name=${name%?} ;; *) break ;; esac; done
+  [[ $name =~ $sre ]] || { row referred command "$loc" "$lab $name: not a literal script name"; return; }
+  [ "$cd" != 0 ] && { row referred command "$loc" "$lab $name: $(why_cd "$cd")"; return; }
+  tracked package.json || { row referred command "$loc" "$lab $name: no root package.json is tracked"; return; }
+  if resolve_script "$name"; then row pass command "$loc" "$lab $name: defined in package.json"
+  else row referred command "$loc" "$lab $name: not defined in package.json; yarn may run a node_modules/.bin binary of that name"; fi
+}
+
+# yarn_builtin <name>: 0 when a bare `yarn <name>` is a built-in the check stays silent on, 1 when it
+# is a Yarn Classic built-in that shadows a script of that name under yarn 1 (so it is referred even
+# when the root defines it), 2 otherwise. Both lists apply to the BARE form only.
+yarn_builtin() {
+  case "$1" in
+    check|licenses|owner|tag|team|policies|autoclean|help|versions|import|prune|generate-lock-entry|upgrade-interactive) return 1 ;;
+    install|add|remove|upgrade|up|init|dlx|exec|set|config|workspaces|workspace|why|info|cache|global|link|unlink|pack|publish|npm|plugin|version|audit|outdated|list|bin|create|login|logout|constraints|dedupe|node|patch|rebuild|explain) return 0 ;;
+  esac
+  return 2
+}
+
+judge_yarn() {   # <loc> <cd> <args...>
+  local loc=$1 cd=$2 w lab ws b b1
+  shift 2
+  lab="yarn $*"
   [ $# -eq 0 ] && return
   case "$1" in
-    run) [ $# -ge 2 ] && row referred command "$loc" "yarn run $2: yarn also runs a node_modules/.bin binary of that name"; return ;;
+    run) [ $# -ge 2 ] || return; shift; judge_yarn_root "$loc" "$cd" "yarn run" "$@"; return ;;
+    workspace)
+      shift; [ $# -ge 2 ] || return
+      ws=$1; shift
+      if [ "$1" = run ]; then shift; [ $# -ge 1 ] || return
+      else
+        b1=$1; while :; do case "$b1" in *[.,\;:!?]) b1=${b1%?} ;; *) break ;; esac; done   # `yarn check.` is still the built-in
+        yarn_builtin "$b1"; b=$?
+        [ "$b" = 0 ] && return
+        [ "$b" = 1 ] && { row referred command "$loc" "$lab: $1 may be a yarn built-in"; return; }
+      fi
+      judge_ws "$loc" "$cd" "$lab" yarn "$ws" "$@"; return ;;
     -*) for w in "$@"; do case "$w" in -*) ;; *) row referred command "$loc" "yarn $*: may be a script, a built-in or a binary"; return ;; esac; done
         return ;;
-    install|add|remove|upgrade|up|init|dlx|exec|set|config|workspaces|workspace|why|info|cache|global|link|unlink|pack|publish|npm|plugin|version|audit|outdated|list|bin|create|login|logout|constraints|dedupe|node|patch|rebuild|explain) return ;;
   esac
-  row referred command "$loc" "yarn $1: may be a script, a built-in or a binary"
+  b1=$1; while :; do case "$b1" in *[.,\;:!?]) b1=${b1%?} ;; *) break ;; esac; done   # trailing punctuation never hides a built-in
+  yarn_builtin "$b1"; b=$?
+  [ "$b" = 0 ] && return
+  [ "$b" = 1 ] && { row referred command "$loc" "yarn $1: may be a yarn built-in, which shadows a script of that name under yarn 1"; return; }
+  judge_yarn_root "$loc" "$cd" yarn "$@"
 }
 
 judge_target() {   # <loc> <tool> <awk> <files...> ; the target is in $TGT
@@ -441,7 +586,7 @@ for d in "${docs[@]+"${docs[@]}"}"; do
       set -- $b
       case "$1" in
         npm|pnpm) judge_pm "$loc" "$a" "$@" ;;
-        yarn) shift; judge_yarn "$loc" "$@" ;;
+        yarn) shift; judge_yarn "$loc" "$a" "$@" ;;
         make) shift; judge_make "$loc" "$a" "$@" ;;
         just) shift; judge_just "$loc" "$a" "$@" ;;
         node|sh|bash) t=$1; shift; judge_script "$loc" "$a" "$t" "$@" ;;

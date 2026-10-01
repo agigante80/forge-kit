@@ -11,6 +11,13 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **contributor-docs resolves bare yarn scripts and workspace-scoped commands** (#299,
+  check-contributor-docs v2, contributor-docs v2). `npm -w`/`--workspace` and `pnpm --filter`/`-F`
+  with `run X` now resolve against the one tracked manifest of that name and fail when it lacks X;
+  `yarn X`, `yarn run X` and `yarn workspace <name> [run] X` pass when the script is defined and are
+  otherwise referred, since yarn falls back to a binary. A Yarn Classic built-in (`yarn check`) is
+  referred even when the root defines it, including with trailing punctuation (`yarn check.`).
+  Ambiguous or unmatched workspace names, globs, selectors and paths stay referred.
 - **Host-divergent conditions in ticket-standards rule 1** (#255, doc-rules-version 17 to 18).
   A condition whose behaviour differs by forge host is one independent condition per branch, each
   with its own positive and its own failure negative; a pure wire-form divergence takes the shared
