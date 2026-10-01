@@ -126,19 +126,73 @@ def remove_index_line(project_dir, slug):
     write_index(project_dir, pattern.sub("", existing))
 
 
+_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
+def _refuse(slug, reason):
+    print(f"memory.py: refusing slug '{slug}': {reason}", file=sys.stderr)
+    return 1
+
+
+def is_owned(content, slug):
+    """True if content carries the frontmatter render_memory generates."""
+    lines = content.split("\n")
+    if not lines or lines[0] != "---":
+        return False
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return False
+    head = lines[1:end]
+    if f"name: {slug}" not in head or "metadata:" not in head:
+        return False
+    block = []
+    for ln in head[head.index("metadata:") + 1:]:
+        if not ln.startswith(" "):
+            break
+        block.append(ln)
+    return any(re.match(r"^  type: \S", ln) for ln in block)
+
+
+def check_ownership(project_dir, slug):
+    """Return an error message, or None when acting on slug is allowed."""
+    if not _SLUG_RE.fullmatch(slug.lower()) or ".." in slug:
+        return "not a plain slug: use letters, digits, '.', '_' or '-', no path parts"
+    if slug.lower() == INDEX_NAME[:-3].lower():
+        return "reserved: it would collide with the MEMORY.md index"
+    path = memory_path(project_dir, slug)
+    if os.path.isdir(path):
+        return f"{os.path.join(MEMORY_SUBDIR, slug + '.md')} is a directory"
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        if is_owned(f.read(), slug):
+            return None
+    return (f"{os.path.join(MEMORY_SUBDIR, slug + '.md')} exists without the "
+            "frontmatter this helper writes, so it is not ours to change")
+
+
 def cmd_write(args):
+    err = check_ownership(args.project_dir, args.slug)
+    if err:
+        return _refuse(args.slug, err)
     body = sys.stdin.read()
     os.makedirs(memory_dir(args.project_dir), exist_ok=True)
     with open(memory_path(args.project_dir, args.slug), "w", encoding="utf-8") as f:
         f.write(render_memory(args.slug, args.type, args.description, body))
     upsert_index_line(args.project_dir, args.title, args.slug, args.description)
+    return 0
 
 
 def cmd_remove(args):
+    err = check_ownership(args.project_dir, args.slug)
+    if err:
+        return _refuse(args.slug, err)
     path = memory_path(args.project_dir, args.slug)
     if os.path.exists(path):
         os.remove(path)
     remove_index_line(args.project_dir, args.slug)
+    return 0
 
 
 def build_parser():
@@ -165,8 +219,7 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    args.func(args)
-    return 0
+    return args.func(args)
 
 
 if __name__ == "__main__":

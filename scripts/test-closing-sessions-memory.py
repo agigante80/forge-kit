@@ -149,5 +149,149 @@ class RemoveTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class OwnershipTests(unittest.TestCase):
+    """memory.py acts only on files it wrote (its generated frontmatter)."""
+
+    def _seed(self, d, name, text, index="- [Other](other.md) - x\n"):
+        mem = os.path.join(d, ".claude", "memory")
+        os.makedirs(mem, exist_ok=True)
+        with open(os.path.join(mem, name), "w", encoding="utf-8") as f:
+            f.write(text)
+        if index is not None:
+            with open(os.path.join(mem, "MEMORY.md"), "w", encoding="utf-8") as f:
+                f.write(index)
+
+    def _snapshot(self, d):
+        mem = os.path.join(d, ".claude", "memory")
+        out = {}
+        for root, dirs, files in os.walk(d):
+            for n in dirs:
+                out[os.path.relpath(os.path.join(root, n), d)] = None
+            for n in files:
+                full = os.path.join(root, n)
+                with open(full, "rb") as f:
+                    out[os.path.relpath(full, d)] = f.read()
+        return out
+
+    def _refused(self, d, args, body=""):
+        before = self._snapshot(d)
+        r = run(d, args, body=body)
+        self.assertNotEqual(r.returncode, 0, "expected refusal")
+        self.assertIn("memory.py: refusing", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(self._snapshot(d), before, "refusal must change nothing")
+        return r
+
+    WRITE = ["write", "--title", "T", "--type", "project", "--description", "d"]
+
+    def test_remove_refuses_file_without_frontmatter(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "topic-hooks.md", "# Hooks\n\nexec form\n",
+                       index="- [Hooks](topic-hooks.md) - h\n")
+            r = self._refused(d, ["remove", "--slug", "topic-hooks"])
+            self.assertIn("topic-hooks", r.stderr)
+
+    def test_write_refuses_file_without_frontmatter(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "topic-hooks.md", "# Hooks\n\nexec form\n")
+            r = self._refused(d, self.WRITE[:1] + ["--slug", "topic-hooks"] + self.WRITE[1:],
+                              body="new")
+            self.assertIn("topic-hooks", r.stderr)
+            self.assertNotIn("topic-hooks.md", read(d, "MEMORY.md"))
+
+    def test_refuses_name_mismatch(self):
+        with tempfile.TemporaryDirectory() as d:
+            text = "---\nname: other-name\ndescription: d\nmetadata:\n  type: user\n---\n\nb\n"
+            self._seed(d, "a.md", text)
+            self._refused(d, ["remove", "--slug", "a"])
+            self._refused(d, self.WRITE[:1] + ["--slug", "a"] + self.WRITE[1:], body="n")
+
+    def test_refuses_top_level_type_without_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            text = "---\nname: a\ndescription: d\ntype: user\n---\n\nb\n"
+            self._seed(d, "a.md", text)
+            self._refused(d, ["remove", "--slug", "a"])
+            self._refused(d, self.WRITE[:1] + ["--slug", "a"] + self.WRITE[1:], body="n")
+
+    def test_refuses_unclosed_frontmatter(self):
+        with tempfile.TemporaryDirectory() as d:
+            text = "---\nname: a\ndescription: d\nmetadata:\n  type: user\n\nb\n"
+            self._seed(d, "a.md", text)
+            self._refused(d, ["remove", "--slug", "a"])
+            self._refused(d, self.WRITE[:1] + ["--slug", "a"] + self.WRITE[1:], body="n")
+
+    def test_refuses_type_outside_metadata(self):
+        bad = {
+            "indented-under-other-key": "---\nname: a\nextra:\n  type: user\n---\n\nb\n",
+            "type-under-extra-before-metadata": "---\nname: a\nextra:\n  type: user\nmetadata:\n  other: x\n---\n\nb\n",
+            "type-under-key-after-metadata": "---\nname: a\nmetadata:\n  other: x\nextra:\n  type: user\n---\n\nb\n",
+            "flat-type-after-metadata": "---\nname: a\nmetadata:\n  other: x\ntype: user\n---\n\nb\n",
+        }
+        for label, text in bad.items():
+            with tempfile.TemporaryDirectory() as d:
+                self._seed(d, "a.md", text)
+                self._refused(d, ["remove", "--slug", "a"])
+                self._refused(d, self.WRITE[:1] + ["--slug", "a"] + self.WRITE[1:], body="n")
+
+    def test_refuses_frontmatter_not_on_first_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            text = "# Title\nname: a\nmetadata:\n  type: user\n---\n\nb\n"
+            self._seed(d, "a.md", text)
+            self._refused(d, ["remove", "--slug", "a"])
+            self._refused(d, self.WRITE[:1] + ["--slug", "a"] + self.WRITE[1:], body="n")
+
+    def test_reserved_slug_memory_refused_with_no_index(self):
+        with tempfile.TemporaryDirectory() as d:
+            for slug in ("MEMORY", "memory", "Memory"):
+                r = run(d, ["write", "--slug", slug] + self.WRITE[1:], body="b")
+                self.assertNotEqual(r.returncode, 0, slug)
+                r = run(d, ["remove", "--slug", slug])
+                self.assertNotEqual(r.returncode, 0, slug)
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "MEMORY.md")))
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "memory.md")))
+
+    def test_path_spelled_reserved_slug_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            for slug in ("./MEMORY", "../memory/MEMORY", "./memory"):
+                self._refused(d, ["write", "--slug", slug] + self.WRITE[1:], body="b")
+                self._refused(d, ["remove", "--slug", slug])
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "MEMORY.md")))
+
+    def test_non_plain_slugs_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            for slug in ("../x", "/etc/x", "a/b", "a..b", ".hid", ""):
+                self._refused(d, ["write", "--slug", slug] + self.WRITE[1:], body="b")
+                self._refused(d, ["remove", "--slug", slug])
+
+    def test_directory_named_like_slug_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".claude", "memory", "a.md"))
+            self._refused(d, ["remove", "--slug", "a"])
+            self._refused(d, ["write", "--slug", "a"] + self.WRITE[1:], body="b")
+
+    def test_reserved_slug_memory_refused_with_index(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "a.md", "# x\n", index="- [A](a.md) - x\n")
+            self._refused(d, ["remove", "--slug", "MEMORY"])
+            self._refused(d, ["write", "--slug", "MEMORY"] + self.WRITE[1:], body="b")
+
+    def test_own_file_still_updates_and_removes(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "mine"] + self.WRITE[1:], body="one")
+            r = run(d, ["write", "--slug", "mine"] + self.WRITE[1:], body="two")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("two", read(d, "mine.md"))
+            r = run(d, ["remove", "--slug", "mine"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude", "memory", "mine.md")))
+
+    def test_remove_missing_slug_still_cleans_index_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "other.md", "# x\n", index="- [Gone](gone.md) - x\n")
+            r = run(d, ["remove", "--slug", "gone"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("(gone.md)", read(d, "MEMORY.md"))
+
+
 if __name__ == "__main__":
     unittest.main()
