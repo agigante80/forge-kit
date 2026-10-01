@@ -2356,6 +2356,7 @@ dr_mutant() {
   DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" DR_CMT="$DR_CMT" awk -v fn="$1" -v k="$2" '
     BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"]; cmt = ENVIRON["DR_CMT"] }
     $0 ~ hdr { inf = ($0 ~ "^" fn "\\(\\) *\\{") }
+    /^}/ { inf = 0 }
     inf && !done && $0 !~ cmt && index($0, guard) {
       if (k == "n") sub(/\[ "\$\{FORGE_DRY_RUN:-0\}" = 1 \]/, "[ -n \"${FORGE_DRY_RUN:-}\" ]")
       else sub(/= 1 \]/, "!= 0 ]")
@@ -2450,9 +2451,12 @@ unset MC_LIB
 # #370: every FORGE_DRY_RUN guard in the library is covered by a mutant ledger, so a new guard cannot
 # land unmutated and untested. The guarded set is DERIVED from $LIB (so a scratch library injected
 # through FORGE_LIB_UNDER_TEST is judged, which is how the negative proofs run), with dr_mutant's own
-# recognition: DR_HDR and DR_GUARD are defined once above and both awks read them through ENVIRON
-# (not -v, which would interpret the backslashes), so the two cannot disagree. Comment lines are not
-# counted. DR_COVERED is DR_SITES plus forge_milestone_close: that guard is covered by the #319 ledger
+# recognition. Three patterns are defined once above, DR_GUARD, DR_HDR and DR_CMT, and read through
+# ENVIRON (not -v, which would interpret the backslashes) by all three consumers: dr_mutant, the
+# scan below (dr_scan) and the DR_R reference count. Both awks also end a function at a column-0 `}`
+# (#399: dr_mutant's in-function flag used to survive it, so a `}` inside a heredoc above a guard
+# made the scan report ORPHAN while dr_mutant still mutated the guard). So the two cannot disagree.
+# Comment lines are not counted. DR_COVERED is DR_SITES plus forge_milestone_close: that guard is covered by the #319 ledger
 # above (mc_run and mc_flagoff_ok), and dr_site has no case for it. dr_mutant mutates only the FIRST
 # guard in a function, so a function with two is refused by name (MULTI). The recognition is
 # spelling-blind, so a second check counts every non-comment FORGE_DRY_RUN occurrence and compares it
@@ -2464,13 +2468,17 @@ DR_COVERED="$DR_SITES forge_milestone_close"
 # DR_HDR does not recognise (`function f {`, `f () {`) or before the first header has no name and
 # prints ORPHAN <line> instead of being credited to the previous function or counted silently. g is
 # still incremented for an orphan, so the reference count agrees and exactly one failure fires.
-DR_SCAN=$(DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" DR_CMT="$DR_CMT" awk '
+# #399: the scan program is a variable and dr_scan <file> runs it, so the row below can run it on a
+# fixture and on mutated copies of the program, not only on the library (which has no orphan guard).
+DR_SCAN_AWK='
   BEGIN { guard = ENVIRON["DR_GUARD"]; hdr = ENVIRON["DR_HDR"]; cmt = ENVIRON["DR_CMT"] }
   $0 ~ hdr { flush(); name = $1; sub(/\(.*/, "", name); n = 0 }
   /^}/ { flush(); name = "" }
   $0 !~ cmt && index($0, guard) { g++; if (name == "") print "ORPHAN " NR; else n++ }
   function flush() { if (name != "" && n == 1) print name; else if (name != "" && n > 1) print "MULTI " name; n = 0 }
-  END { flush(); print "COUNT " g + 0 }' "$LIB" 2>&1); DR_SCAN_RC=$?
+  END { flush(); print "COUNT " g + 0 }'
+dr_scan() { DR_GUARD="$DR_GUARD" DR_HDR="$DR_HDR" DR_CMT="$DR_CMT" awk "${DR_SCAN_PROG:-$DR_SCAN_AWK}" "$1" 2>&1; }
+DR_SCAN=$(dr_scan "$LIB"); DR_SCAN_RC=$?
 DR_G=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^COUNT //p')
 DR_MULTI=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^MULTI //p')
 DR_ORPHAN=$(printf '%s\n' "$DR_SCAN" | sed -n 's/^ORPHAN //p')
@@ -2501,15 +2509,42 @@ else
 fi
 [ "$DR_BAD" = 0 ] && ok "dry-run guard completeness: every FORGE_DRY_RUN guard in forge-lib.sh is covered (DR_SITES plus the #319 forge_milestone_close ledger)"
 
+# #399: the ORPHAN branch and the column-0 `}` reset, on a fixture, since the library has neither an
+# orphan guard nor a guard after a closing brace. Lines: 1 orphan before any header, 2 to 4 a
+# recognised function, 5 an orphan after its `}`, 6 to 8 a guard under `function f {` (DR_HDR does
+# not recognise that form).
+DRFX="$T/dr-orphan.sh"
+printf '%s\n' '[ "${FORGE_DRY_RUN:-0}" = 1 ] && echo a' 'good() {' '  [ "${FORGE_DRY_RUN:-0}" = 1 ] && return 0' '}' \
+  '[ "${FORGE_DRY_RUN:-0}" = 1 ] && echo b' 'function f {' '  [ "${FORGE_DRY_RUN:-0}" = 1 ] && return 0' '}' > "$DRFX"
+DR_FX_WANT="$(printf 'ORPHAN 1\ngood\nORPHAN 5\nORPHAN 7\nCOUNT 4')"
+expect "dry-run scan names each orphan guard and credits the recognised function (#399)" "$DR_FX_WANT" "$(dr_scan "$DRFX")"
+for m in reset orphan; do
+  case $m in
+    reset)  prog=$(printf '%s' "$DR_SCAN_AWK" | sed '/^  \/\^}\/ { flush(); name = "" }$/d') ;;
+    orphan) prog=$(printf '%s' "$DR_SCAN_AWK" | sed 's/if (name == "") print "ORPHAN " NR; else n++/n++/') ;;
+  esac
+  if [ "$prog" = "$DR_SCAN_AWK" ]; then bad "dry-run scan mutant '$m' did not apply (#399)"; continue; fi
+  got=$(DR_SCAN_PROG="$prog" dr_scan "$DRFX")
+  [ "$got" != "$DR_FX_WANT" ] && ok "dry-run scan mutant '$m' changes the fixture's scan (#399)" || bad "dry-run scan mutant '$m' survived the fixture (#399)"
+done
+# dr_mutant agrees with the scan: a column-0 `}` inside a body (a heredoc line) ends the function for
+# both, so the guard below it is an ORPHAN to the scan and not h's guard to dr_mutant (exit 1).
+DRFX2="$T/dr-heredoc.sh"
+printf '%s\n' 'h() {' '  cat <<EOF' '}' 'EOF' '  [ "${FORGE_DRY_RUN:-0}" = 1 ] && return 0' '}' > "$DRFX2"
+expect "dry-run scan reads a guard below a column-0 } in a body as ORPHAN (#399)" "$(printf 'ORPHAN 5\nCOUNT 1')" "$(dr_scan "$DRFX2")"
+(LIB="$DRFX2"; dr_mutant h n "$T/dr-heredoc.out"); rc=$?
+expect "dr_mutant refuses that guard too, so the two recognisers agree (#399)" 1 "$rc"
+rm -f "$DRFX" "$DRFX2" "$T/dr-heredoc.out"
+
 # #291: every case removes the temp dirs it creates; the ls -A runs in the parent, after all cases.
 # 2>&1 so a vanished TMPDIR shows up as output and fails, rather than passing as empty.
 expect "the suite leaves its dedicated TMPDIR empty" "" "$(ls -A "$T/tmp" 2>&1)"
 
 # #380: bad()'s recorder half. In a green run bad() is never called, so dropping its printf alone
-# would pass. Call it in a command substitution (a subshell, so the real fail counter stays 0) on a
+# would pass. Call it in a subshell (so the real fail counter stays 0) on a
 # unique probe text and look that text up in the recorder. The probe line is one the counters never
 # saw, which the row-count check below tolerates (it fails only on FEWER rows than the counters).
-probe=$(bad "bad() recorder probe (#380)")
+( bad "bad() recorder probe (#380)" ) >/dev/null
 if grep -qxF -- "bad() recorder probe (#380)" "$T/rows"; then ok "bad() records its text in the row recorder"; else bad "bad() records its text in the row recorder"; fi
 
 # #370: no two ok/FAIL rows share a text, so a failing row cannot be mistaken for its twin. ok() and
