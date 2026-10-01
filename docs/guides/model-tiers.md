@@ -243,7 +243,8 @@ while finding less: the turn-count warning from superpowers, observed.
 
 ### The re-measurement (#289)
 
-The paragraph above ends by naming what would move the security roles. #289 did that: a seed written for
+The security-roles paragraph above the Haiku note ("Why the security roles stay on `inherit` although
+Sonnet passed", #250) ends by naming what would move the security roles. #289 did that: a seed written for
 the question, a criterion fixed before any run, and three runs per cell. The seed is
 `scripts/fixtures/tier-probe-security/`, a 58-line loopback HTTP service with three planted issues (P1 an
 SQL injection, P2 a broken object-level authorization, P3 a hard-coded admin secret), plus a variant with
@@ -268,7 +269,9 @@ harness was the one above, run headless with the tree's `forge-kit-security` gro
 | `api-security-tester` | `claude-sonnet-5` | 3 | 31 | 38061 | 1862k | 428 s | 5 tests | 3 tests | none |
 
 For the auditor a cell is the severity the run gave the planted issue; for the tester it is the number of
-generated tests that fail against `server.py` and pass against `server_fixed.py`. The tester's suites
+generated tests that fail against `server.py` and pass against `server_fixed.py`. `none` in the P3 column
+does not mean no test was generated: each suite's admin test passed on the seed and failed on the fixed
+server, so it counts in neither direction. The tester's suites
 held 23, 35 and 22 tests on Opus and 46, 35 and 78 on Sonnet, and 2, 0, 0 and 7, 8, 11 of them failed
 against both servers (rate limiting, error-body shape, the optional `Bearer` prefix), which decides
 nothing. The three Opus tester sessions also report some turns on `claude-opus-4-8`, which

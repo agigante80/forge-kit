@@ -4,8 +4,14 @@
 tier the two security agents need. It binds to `127.0.0.1` only, nothing in this repository starts
 it (no workflow, hook, install path or test suite), and its tokens are fake literals, not
 credentials. Start it by hand, on loopback, and only to reproduce the measurement.
+Never bind it to a non-loopback address and never deploy it anywhere.
 
-`server_fixed.py` is the same service with the three planted issues fixed and nothing else changed.
+`server.py:14` holds a fake token that a generic entropy rule (for example gitleaks `generic-api-key`)
+may flag in a downstream scan. No inline allow comment was added on purpose: it would change what the
+measured agents read and hint at P3.
+
+`server_fixed.py` is the same service with the three planted issues fixed. Besides those fixes
+(including the `hmac` and `os` imports for P3), only its module docstring differs.
 It keeps, deliberately, every weakness that is not planted: no `Host` check and no rate limit.
 
 ## The planted issues
