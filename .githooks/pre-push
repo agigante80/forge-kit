@@ -12,7 +12,7 @@
 # against a different base from this hook: the PR's target branch on a pull request, the pushed
 # branch's previous tip on a push (scripts/resolve-range-base.sh). The two overlap without being
 # the same check, so an answer here can differ from CI's. A push to any other branch gets no
-# push-time CI run.
+# push-time CI run, though an open PR for it still triggers one.
 #
 # Option (a) from the ticket: a committed hook, no framework. Adopting `pre-commit` (the tool)
 # would give a one-command two-stage install and would be the first package-manager dependency in
@@ -246,7 +246,7 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   echo "  !           CI also runs both range guards (see #158): on pull requests against the PR's" >&2
   echo "  !           target branch, and on pushes to main and develop against the previous tip of" >&2
   echo "  !           the pushed branch. Its answer can differ from this hook's. A push to any other" >&2
-  echo "  !           branch gets no push-time CI run." >&2
+  echo "  !           branch gets no push-time CI run, though an open PR for it still triggers one." >&2
   echo "  !           run 'git fetch $remote' to enable them locally." >&2
   exit 0
 fi

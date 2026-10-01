@@ -37,17 +37,17 @@ run_hook_stdout() {
     "0000000000000000000000000000000000000000" | bash .githooks/pre-push origin "$BARE" 2>/dev/null
 }
 run_hook_stderr() {
-  local ref="$1" sha; sha=$(git rev-parse HEAD)
+  local ref="$1" hook="${2:-.githooks/pre-push}" sha; sha=$(git rev-parse HEAD)
   printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" \
-    "0000000000000000000000000000000000000000" | bash .githooks/pre-push origin "$BARE" 2>&1 >/dev/null
+    "0000000000000000000000000000000000000000" | bash "$hook" origin "$BARE" 2>&1 >/dev/null
 }
 
 # push_stdin <ref>: the four fields git feeds a pre-push hook for a new branch.
 run_hook() {
-  local ref="$1" sha; sha=$(git rev-parse HEAD)
+  local ref="$1" hook="${2:-.githooks/pre-push}" sha; sha=$(git rev-parse HEAD)
   printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" \
     "0000000000000000000000000000000000000000" \
-    | bash .githooks/pre-push origin "$BARE" 2>&1
+    | bash "$hook" origin "$BARE" 2>&1
 }
 
 # --- 1. a clean branch passes ------------------------------------------------------------------
@@ -85,6 +85,25 @@ printf '%s' "$hdr" | grep -q 'duplicates CI' \
   && bad "the header no longer says the hook duplicates CI" || ok "the header no longer says the hook duplicates CI"
 printf '%s' "$hdr" | grep -q 'not a preview of CI' \
   && ok "the header says this is an early check, not a preview of CI" || bad "the header says this is an early check, not a preview of CI"
+# #366: the header must not say a push to another branch gets no run WITHOUT the open-PR caveat
+# (validate.yml has an unfiltered `pull_request:`, so a branch with an open PR does get a run).
+printf '%s' "$hdr" | grep -q 'push-time CI run' \
+  && ok "the header still speaks of the push-time CI run" || bad "the header still speaks of the push-time CI run"
+printf '%s' "$hdr" | grep -q 'open PR' \
+  && ok "the header says an open PR still triggers a CI run" || bad "the header says an open PR still triggers a CI run"
+# Permanent mutant (scratch copy under $TMP, the tracked hook is never touched). The ledger is
+# scoped to the HEADER: the caveat also exists on stdout, so a whole-file grep would pass vacuously.
+mut_hdr="$TMP/mut-header.sh"
+sed '/^# push-time CI run, though/s/, though an open PR for it still triggers one\././' "$ROOT/.githooks/pre-push" > "$mut_hdr"
+if printf '%s' "$hdr" | grep -q 'though an open PR for it still triggers one' \
+   && ! cmp -s "$mut_hdr" "$ROOT/.githooks/pre-push"; then
+  mhdr="$(sed -n '1,/^set -uo/p' "$mut_hdr")"
+  printf '%s' "$mhdr" | grep -q 'open PR' \
+    && bad "the header open-PR check detects a header without the caveat" \
+    || ok "the header open-PR check detects a header without the caveat"
+else
+  bad "the header open-PR check detects a header without the caveat (ledger or mutant failed)"
+fi
 
 # --- 3. bumping the marker but NOT the plugin semver is still caught ---------------------------
 printf '<!-- a-version: 2 -->\nCHANGED body\n' > plugins/g/agents/a.md
@@ -134,10 +153,23 @@ printf '%s' "$out" | grep -q 'git fetch origin' \
 se="$(run_hook_stderr unbumped)"
 printf '%s' "$se" | grep -q 'is still checked there' \
   && bad "the skip message no longer promises the push is still checked" || ok "the skip message no longer promises the push is still checked"
-for frag in "target branch" 'previous tip' 'can differ' 'no push-time CI run' 'pull requests' 'pushes to main and develop'; do
+for frag in "target branch" 'previous tip' 'can differ' 'no push-time CI run' 'pull requests' 'pushes to main and develop' 'open PR'; do
   printf '%s' "$se" | grep -q "$frag" \
     && ok "the skip message states the real CI behaviour: $frag" || bad "the skip message states the real CI behaviour: $frag"
 done
+# Permanent mutant (#366): the stderr caveat removed, on a scratch copy run from this fixture.
+# Only `>&2` lines are touched, so the stdout and header copies of the caveat stay intact.
+mut_se="$TMP/mut-stderr.sh"
+sed '/>&2$/s/, though an open PR for it still triggers one\././' "$ROOT/.githooks/pre-push" > "$mut_se"
+if grep -q 'no push-time CI run, though an open PR for it still triggers one' "$ROOT/.githooks/pre-push" \
+   && ! cmp -s "$mut_se" "$ROOT/.githooks/pre-push"; then
+  mse="$(run_hook_stderr unbumped "$mut_se")"
+  printf '%s' "$mse" | grep -q 'open PR' \
+    && bad "the stderr open-PR check detects a hook without the caveat" \
+    || ok "the stderr open-PR check detects a hook without the caveat"
+else
+  bad "the stderr open-PR check detects a hook without the caveat (ledger or mutant failed)"
+fi
 
 # --- the leak guard runs even when the range guards cannot -----------------------------------
 # It used to sit BELOW the missing-base-ref exit, so a clone that had not fetched origin/main
@@ -228,6 +260,26 @@ printf '%s' "$out" | grep -qi 'from this machine' \
   || ok "a roadmap failure is not reported as a leak"
 printf '%s' "$out" | grep -qi 'roadmap' \
   && ok "and is reported in its own words" || bad "and is reported in its own words"
+# #311: the host rules run from /phase, not in CI (CI runs only the guard's contract tests).
+printf '%s' "$out" | grep -q 'host rules run in CI' \
+  && bad "a roadmap failure does not claim the host rules run in CI" \
+  || ok "a roadmap failure does not claim the host rules run in CI"
+# Permanent mutant (#366): the restored claim, on a scratch copy outside the fixture's tree, so
+# it can never be committed by the `git add -A` below.
+mut_rm="$TMP/mut-roadmap.sh"
+sed "/host rules run from \\/phase;/s/the host rules run from \/phase; CI runs only the guard's contract tests\./the host rules run in CI and from \/phase./" \
+  "$ROOT/.githooks/pre-push" > "$mut_rm"
+if grep -q "the host rules run from /phase; CI runs only the guard's contract tests" "$ROOT/.githooks/pre-push" \
+   && ! cmp -s "$mut_rm" "$ROOT/.githooks/pre-push"; then
+  # Captured, not piped: under pipefail a `grep -q` that exits early SIGPIPEs the hook and the
+  # pipeline then reports failure although the pattern matched.
+  mout="$(run_hook roadmapbad "$mut_rm")"
+  printf '%s' "$mout" | grep -q 'host rules run in CI' \
+    && ok "the roadmap check detects the restored claim" \
+    || bad "the roadmap check detects the restored claim"
+else
+  bad "the roadmap check detects the restored claim (ledger or mutant failed)"
+fi
 rm -rf docs plugins/forge-kit-roadmap; git add -A >/dev/null; git commit --quiet -m cleanup
 
 cd "$ROOT"

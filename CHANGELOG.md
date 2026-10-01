@@ -15,6 +15,7 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **The pre-push hook's header and missing-base-ref stderr now say an open PR still triggers CI, and the suite pins the three claims it left untested** (#366, `.githooks/pre-push` and `scripts/test-pre-push-hook.sh`; neither is a versioned component, so no marker or semver bump; the suite goes from 96 to 103 passed, 0 failed). Both said a push to any other branch gets no push-time CI run with no exception, but `validate.yml` has an unfiltered `pull_request:`, so a branch with an open PR does get a run; each now ends ", though an open PR for it still triggers one", as the stdout sibling already did. New assertions: `'open PR'` in the stderr fragment loop, `'push-time CI run'` and `'open PR'` on the header, and a negative grep for `host rules run in CI` on the roadmap-failure output. Each is proven by a permanent in-suite mutant on a scratch copy of the hook under `$TMP`, behind a `grep -q` ledger (scoped to the header for the header mutant, since the caveat also sits on stdout) and a `cmp -s` guard so a `sed` matching nothing cannot pass. The roadmap line at `.githooks/pre-push:117` is left unwrapped: 16 lines of the hook passed 100 columns at HEAD.
 - **`check-contributor-docs.sh` knows four more Berry built-ins, and its yarn paths gain the missing test pins** (`check-contributor-docs-version` 5 to 6, forge-kit-governance 0.28.9 to 0.28.10; #317, the low findings of the #299 review). `yarn unplug`, `yarn stage`, `yarn patch-commit` and `yarn search` joined the silent built-in list, so a mention of one no longer yields a spurious `referred` row or, when the root defines a script of that name, a false `pass` (yarn never emits `fail`, so no run could start failing). New cases pin the yarn root with no tracked `package.json`, the `-s`/`--silent` exemption in both directions, the Berry names and the bare-form-only rule, and `c_yws_neg` now asserts the data-carrying `does not define build` instead of the row label; ten new mutants each die on their case, and the suite goes from 288 to 303 passed, 0 failed (gawk, mawk and busybox awk). Finding 3 (the `judge_ws` trim) was already closed by #326.
 - **The tier-probe fixture's comment and README are accurate** (`scripts/fixtures/tier-probe-security-tester/reference_test.py` comment and `README.md` opening paragraph, repo-only, no component or plugin change, so no marker or semver bump). The readiness-loop comment said it accepts "any 401" while the loop catches every `urllib.error.HTTPError`; it now says any HTTP error response. The README opening paragraph said a bare `python3 -m pytest` reports `3 failed` by design without the reason; it now says `SERVER_FILE` defaults to the vulnerable `server.py`. No executable line and neither server changed (#367).
 - `test-gate-status.sh` now runs the third `;touch x` case inside the scratch dir `$T` like the first
@@ -50,9 +51,10 @@ tracks the repository, so users are already served from the default branch.
   rewrapped and says a bare repo-root `python3 -m pytest` reports `3 failed` by design (#355).
 - The pre-push hook no longer presents itself as a preview of CI. It names where CI's base differs
   (the PR's target branch on a pull request, the previous tip on a push), says a push to any other
-  branch gets no push-time run, and stops claiming the roadmap guard's host rules run in CI: they
-  run from `/phase`. A stale component index now prints WHICH region is stale, as
-  "<file> (<region id>)", instead of a summary pointing at nothing (#311).
+  branch gets no push-time run (corrected by #366: unless an open PR exists for it), and stops
+  claiming the roadmap guard's host rules run in CI: they run from `/phase`. A stale component
+  index now prints WHICH region is stale, as "<file> (<region id>)", instead of a summary
+  pointing at nothing (#311).
 - `check-doc-drift.sh` accepted no allow-file entry whose anchor equals its path: the
   missing-anchor test compared the anchor with the path, so the real fourth field read as absent.
   It now compares with the remainder, and CRLF line endings in the allow-file are stripped before
