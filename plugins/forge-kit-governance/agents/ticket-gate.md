@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 65 -->
+<!-- ticket-gate-version: 66 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -137,7 +137,7 @@ Synthesis rules per section:
 
 | Section | Derived from |
 |---|---|
-| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Apply the rule-1 quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. |
+| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Apply the rule-1 quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. Label lines `**Positive:** <title>` or `**Negative:** <title>`. |
 | `unit_tests` | Acceptance criteria + referenced files -> specific test file path, concrete input value, expected output or error code. |
 | `e2e_tests` | UI-visible behaviour -> specific test suite file, setup steps, action, assertion. N/A with reason for API-only tickets. |
 | `docs_impact` | The ticket's own file list -> the docs and README sections it plausibly touches, or "none" with the reason. |
@@ -400,9 +400,9 @@ the 2026-08-27 backlog reviews this design was validated on):
    - test-case quality and edge cases, including integration and regression coverage where
      the change touches shared code
    - a 3+-affected-areas ticket earns a split recommendation (ADVISORY, never blocking,
-     even under the `critical` label's maximum scrutiny)
+     even under `critical`)
    - documentation currency (rule 7) judged against the ticket's own file list (or
-     areas/screens fields where the template has no file-list field)
+     areas/screens fields absent a file-list field)
    - rule 3's emulator clause where the project runs an emulator or simulator suite: a
      user-journey ticket names the scenario it adds or extends, or why the standing suite
      already covers it (N/A on projects with no such suite)
@@ -410,7 +410,7 @@ the 2026-08-27 backlog reviews this design was validated on):
    (derived scope: an N/A claim is legitimate only where no behaviour delta exists, and
    the claim itself is judged); where scenarios are weak, WRITE the improved ones.
 4. **Pros and cons** - of the ticket's proposed approach, honestly weighed.
-5. **Researched best practices** - compose this from the Step 2.7 findings supplied in
+5. **Researched best practices** - compose from the Step 2.7 findings in
    your context; issue a WebSearch yourself ONLY for a gap those findings do not cover, and
    name the gap. Cite sources inline; skip with a stated reason when the ticket is routine.
 6. **Suggested approach** - the concrete way to implement, or to fix the ticket.
@@ -434,8 +434,8 @@ The `class` field is the JUDGING AGENT's call (critic or lens, each for its own 
 fundamental = the approach itself is rejected, not its details). The orchestrator keys the
 alternatives generation and the no-override rule on the classes from BOTH sources; it never
 re-derives severity from prose. A critic OR lens result missing `class` fields is a malformed
-run: first re-ask CLASSIFICATION ONLY, on the same model (hand the agent back its own item list and request
-the class values; no re-analysis). If still malformed, the orchestrator WRITES
+run: first re-ask CLASSIFICATION ONLY, on the same model (hand back its item list; class values only, no
+re-analysis). If still malformed, the orchestrator WRITES
 `"class": "fundamental"` onto each of those items itself (fail safe, never guess
 downward), so everything keyed on the class field, the Step 4 alternatives and the
 no-override rule included, fires for them like any other fundamental.
@@ -554,7 +554,8 @@ alike), per Step 3B. A **fundamental** item's architecture alternatives were gen
 Under the lifecycle above, one region per call:
 1. Replace `gate-required-changes` with the blocking items as a checklist
 2. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, insert them into
-   the corresponding section per WRITE ONCE above, marked as gate-written
+   the corresponding section per WRITE ONCE above, each scenario label
+   `**Negative:** <title> (gate-written, round N)` or `**Positive:**`
 3. If architecture alternatives were generated, replace `gate-alternatives` with the
    2 to 3 options
 

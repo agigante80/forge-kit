@@ -884,6 +884,46 @@ printf '%s' "$helptext" | grep -q 'referred' \
 printf '%s' "$helptext" | grep -q -- '--dump-fields' \
   && ok "--help documents every flag it accepts" || bad "--help omits a flag"
 
+echo "check-ticket-mechanics: the label shape the gate writes is one check 4 reads (#273)"
+# The gate is constrained (ticket-gate.md Step 6 item 2 and the Step 0c-iii scenarios row);
+# marker_re is NOT widened, so the #267 shapes stay pinned to the narrow outcomes below.
+gwt_row() { printf '%s\n' "$1" | awk -F'\t' '$1=="gwt"{print $2 "\t" $3}'; }
+blk() { printf '%s\n- Given: g\n- When: w\n- Then: 401 AUTH_FAILED\n\n' "$@"; }
+B="$(mkbody feature "g273-a.md" "$(blk '**Positive:** first' '**Negative:** bad input (gate-written, round 1)' '**Positive:** changed body (gate-written, round 1)')")"
+expect "#273: bold-colon labels with trailing provenance are markers" "$(printf 'pass\t2 positive and 1 negative blocks, each Then specific')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g273-b.md" "$(blk '**Positive:** first' 'Negative (gate-written, round 1 critic)' 'Positive (changed body, gate-written, round 1 critic)')")"
+expect "#273: a bare marker with one comma-bearing parenthetical is a marker" "$(printf 'pass\t2 positive and 1 negative blocks, each Then specific')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g273-c.md" "$(blk '**Positive:** first' 'Negative *(gate-written, round 1 critic)*')")"
+expect "#273: the #267 Negative label is not a marker (literal string 1)" "$(printf 'fail\tneeds at least one Positive and one Negative block (found 1 positive, 0 negative)')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g273-d.md" "$(blk '**Positive:** first' 'Negative *(gate-written, round 1 critic)*' 'Positive, changed body *(gate-written, round 1 critic)*' '**Negative:** later')")"
+expect "#273: the #267 pair before a real Negative folds into the author Positive (literal strings 1 and 2)" "$(printf 'fail\teach scenario block needs exactly one When (Positive: 3 When lines)')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g273-e.md" "$(blk '**Positive:** first' '**Negative** *(gate-written, round 1 critic)*' '**Positive, changed body** *(gate-written, round 1 critic)*')")"
+expect "#273: a comma inside the bold is not a marker" "$(printf 'fail\teach scenario block needs exactly one When (Negative: 2 When lines)')" "$(gwt_row "$(run "$B" feature)")"
+B="$(mkbody feature "g273-f.md" "$(blk '**Positive:** x' '**Negative: bad input (gate-written, round 1)**')")"
+expect "#273: a colon inside the bold followed by text is not a marker" "$(printf 'fail\tneeds at least one Positive and one Negative block (found 1 positive, 0 negative)')" "$(gwt_row "$(run "$B" feature)")"
+# Drift: the example ticket-gate.md documents is the one the checker is run on. The example is
+# the first backticked span containing `gate-written` in Step 6 item 2.
+GATE_MD="$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md"
+gw_example() {
+  local ex
+  ex="$(awk '/^2\. Where the critic WROTE/ { on = 1 } on && /^3\. / { exit } on { printf "%s ", $0 }' "$1" \
+    | grep -o '`[^`]*gate-written[^`]*`' | head -1 | tr -d '`')"
+  [ -n "$ex" ] || { echo "documented gate-written scenario example not found" >&2; return 1; }
+  printf '%s\n' "$ex"
+}
+ex="$(gw_example "$GATE_MD")"
+case "$ex" in "**Negative:** <title> (gate-written, round N)") ok "#273: the Step 6 item 2 example is extracted whole" ;; *) bad "#273: unexpected Step 6 item 2 example: '$ex'" ;; esac
+ex="$(printf '%s' "$ex" | sed 's/<title>/bad input/; s/round N/round 1/')"
+B="$(mkbody feature "g273-g.md" "$(blk '**Positive:** first' '**Negative:** author case' "$ex")")"
+case "$(gwt_row "$(run "$B" feature)")" in pass*) ok "#273: the documented example beside an author pair passes check 4" ;; *) bad "#273: the documented example fails check 4: $(gwt_row "$(run "$B" feature)")" ;; esac
+sed 's/`\*\*Negative:\*\* <title> (gate-written, round N)`/a gate-written label/' "$GATE_MD" > "$WORK/gate-noex.md"
+cmp -s "$GATE_MD" "$WORK/gate-noex.md" && bad "#273: the no-example copy did not apply"
+msg="$(gw_example "$WORK/gate-noex.md" 2>&1 >/dev/null)"; rc=$?
+expect "#273: a missing example fails loudly" "documented gate-written scenario example not found" "$msg"
+[ "$rc" -ne 0 ] && ok "#273: and returns non-zero" || bad "#273: a missing example returned 0"
+grep -q 'Apply the rule-1 quality bar.*`\*\*Positive:\*\* <title>`' "$GATE_MD" \
+  && ok "#273: the Step 0c-iii scenarios row states the label form beside its rule-1 anchor" || bad "#273: the scenarios row lacks the label form"
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
