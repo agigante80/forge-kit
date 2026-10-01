@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 11
+# check-ticket-mechanics-version: 12
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -392,6 +392,8 @@ else
       # Polarity comes from the anchored MARK_NEG, the same regex the counts and sibling awks use
       # (#359). A substring test named a Negative block Positive when its label held the word. The
       # else branch is safe: every line reaching it already matched MARK_ANY, so it is Positive.
+      # The join is awk, not `paste -sd'; '`: paste cycles its delimiter LIST per character, so a
+      # two-character separator yields `a;b c` from three items (#365). Do not simplify it back.
       multi_when="$(printf '%s\n' "$SCENARIOS" | awk -v any="$MARK_ANY" -v neg="$MARK_NEG" '
         $0 ~ any {
           if (block != "" && whens != 1) { print block ": " whens " When lines" }
@@ -399,7 +401,7 @@ else
         }
         block != "" && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { whens++ }
         END { if (block != "" && whens != 1) { print block ": " whens " When lines" } }
-      ' | head -3 | paste -sd'; ' -)"
+      ' | head -3 | awk 'NR>1{printf "; "} {printf "%s", $0} END{print ""}')"
       if [ -n "$multi_when" ]; then
         row gwt fail "each scenario block needs exactly one When ($multi_when)"
       else

@@ -330,7 +330,13 @@ case "$ev" in *"(Negative: 2 When lines)"*) ok "#359: a bold Negative marker wit
 ev="$(wc_ev wc3.md "$(printf "Positive\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N1")")"
 case "$ev" in *"(Positive: 2 When lines)"*) ok "#359: an unlabelled two-When Positive is still reported Positive" ;; *) bad "#359: Positive regressed: $ev" ;; esac
 ev="$(wc_ev wc4.md "$(printf "Positive\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N2")")"
-case "$ev" in *"Positive: 2 When lines;Negative: 2 When lines"*) ok "#359: both blocks at two Whens are named in order, joined by ';'" ;; *) bad "#359: two-block evidence wrong: $ev" ;; esac
+[ "$ev" = "each scenario block needs exactly one When (Positive: 2 When lines; Negative: 2 When lines)" ] && ok "#359/#365: both blocks at two Whens are named in order, joined by '; ' (whole-field equality)" || bad "#359/#365: two-block evidence wrong: $ev"
+P2='Positive\n- Given: a\n- When: b\n- When: bb\n- Then: c'
+ev="$(wc_ev wc8.md "$(printf "$P2\n\n$N2\n\n$P2")")"
+W3="each scenario block needs exactly one When (Positive: 2 When lines; Negative: 2 When lines; Positive: 2 When lines)"
+[ "$ev" = "$W3" ] && ok "#365: three offending blocks are joined by '; ' with no run-on pair (whole-field equality)" || bad "#365: three-block evidence wrong: $ev"
+ev="$(wc_ev wc9.md "$(printf "$P2\n\n$N2\n\n$P2\n\n$N2")")"
+[ "$ev" = "$W3" ] && ok "#365: four offending blocks name the first three only (the head -3 cap, whole-field equality)" || bad "#365: four-block evidence wrong: $ev"
 ev="$(wc_ev wc5.md "$(printf "Positive (the Negative path is not taken)\n- Given: a\n- When: b\n- When: bb\n- Then: c\n\n$N1")")"
 case "$ev" in *"(Positive: 2 When lines)"*"Negative: "*|*"Negative: "*) bad "#359: a Positive label naming Negative was misnamed: $ev" ;; *"(Positive: 2 When lines)"*) ok "#359: a Positive block whose label names Negative keeps its own name" ;; *) bad "#359: mirror case evidence wrong: $ev" ;; esac
 expect "#359: the one-When mirror (Positive labelled with Negative) passes" pass "$(outcome "$(run "$(mkbody feature wc6.md "$(printf 'Positive (the Negative path is not taken)\n- Given: a\n- When: b\n- Then: c\n\n%b' "$N1")")" feature)" gwt)"
@@ -439,6 +445,14 @@ grep -q 'block = (\$0 ~ neg ? "Negative" : "Positive")' "$SCRIPT" && ok "mutant 
 sed 's/(\$0 ~ neg ? "Negative" : "Positive")/(index($0, "Positive") ? "Positive" : "Negative")/' "$SCRIPT" > "$MUT"
 ev="$(bash "$MUT" --body "$WORK/wc1.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="gwt"{print $3}')"
 case "$ev" in *"(Positive: 2 When lines)"*) ok "mutant: the substring test names the labelled Negative Positive (the #359 companion can fail)" ;; *) bad "mutant: substring test not detected: $ev" ;; esac
+
+# #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.
+grep -q 'NR>1{printf "; "}' "$SCRIPT" && ok "mutant ledger: the script carries the awk join (#365)" || bad "mutant ledger: #365 awk join not found"
+sed "s/awk 'NR>1{printf \"; \"} {printf \"%s\", \$0} END{print \"\"}'/paste -sd'; ' -/" "$SCRIPT" > "$MUT"
+ev="$(bash "$MUT" --body "$WORK/wc8.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="gwt"{print $3}')"
+case "$ev" in *"lines;Negative: 2 When lines Positive"*) ok "mutant: paste restored, the three-block pin flips to the run-on join (the #365 companion can fail)" ;; *) bad "mutant: paste restoration not detected: $ev" ;; esac
+ev="$(bash "$MUT" --body "$WORK/wc9.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="gwt"{print $3}')"
+case "$ev" in *"lines;Negative: 2 When lines Positive"*) ok "mutant: paste restored, the four-block pin flips to the run-on join" ;; *) bad "mutant: paste restoration not detected on four blocks: $ev" ;; esac
 
 # The fifth fix (lists via ENVIRON) is invisible to gawk, which accepts a newline in -v; only BWK
 # awk refuses it, and CI has no BWK awk. Running the whole script under a second awk is still the
