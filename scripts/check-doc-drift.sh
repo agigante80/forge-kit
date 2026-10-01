@@ -58,6 +58,8 @@
 # ordinary age test runs on it; two or more make the token AMBIGUOUS: no row, one stderr line
 # naming every candidate, exit still 0. Ambiguity is decided from what exists, never from what the
 # range changed, so a document's result does not flip with the range. Zero candidates is ignored.
+# The one exception is a root-level `<name>.sh`: it resolves only when the range changed it, because
+# the token is then itself a changed path and wins ahead of the table (#372).
 # The `scripts/` listing is read from HEAD (`git ls-tree`); the asset half follows the working
 # tree, like the catalogue-name lookup above, so an uncommitted or deleted asset can add or
 # suppress a row as well as change the ambiguity line. A duplicate catalogue NAME still takes the
@@ -275,7 +277,7 @@ for doc in $DOCS; do
       ' > "$TMP/blame" || die "cannot blame '$doc' at HEAD"
 
   rows="$(
-    awk -v doc="$doc" -v regions="$REGION_IDS" -F'\t' '
+    awk -v doc="$doc" -v regions="$REGION_IDS" -v prog="$PROG" -F'\t' '
       FILENAME == ARGV[1] { csha[$1] = $2; cct[$1] = $3; next }
       FILENAME == ARGV[2] { npath[$1] = $2; next }
       FILENAME == ARGV[3] { bsha[$1] = $2; bct[$1] = $3; next }
@@ -306,7 +308,7 @@ for doc in $DOCS; do
               # Ambiguous (#332): never guess. Once per token per document, whatever the range.
               if (!(tok in warned)) {
                 warned[tok] = 1
-                printf "%s: ambiguous bare name \047%s\047 (matches %s); cite the full path\n", "check-doc-drift", tok, bp[tok] > "/dev/stderr"
+                printf "%s: ambiguous bare name \047%s\047 (matches %s); cite the full path\n", prog, tok, bp[tok] > "/dev/stderr"
               }
               # path stays empty, so the line below skips the token
             }

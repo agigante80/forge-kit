@@ -48,6 +48,23 @@
 # its old place), so a refused run still warns (1, re-measured in the #354 round-2 review). The
 # first ten ran on 2026-09-23, four more under #265 and ten under #332, both on 2026-10-01.
 #
+# #372 ADDED SEVEN MORE (so thirty-eight in all), run by hand on 2026-10-01 in a scratch copy, each
+# shown to fail this suite. (a) the ambiguity exit, `; exit 1` after the ambiguity printf (3
+# failures, the three bare-dup full-path assertions), and the same exit placed after the `warned`
+# block's closing brace (also 3); (b) the ANCHORED regex lookup, `tok ~ ("^" k "$")` with `.` in the
+# key a wildcard, which SURVIVED the pre-#372 suite (224 passed, 0 failed) because `demo-assetXsh`
+# has no `demo-asset.sh` to miss, and dies after the near-miss became `demo-checkXsh` (2); (c) M3,
+# the token expanded through a shell or a git pathspec: the bare lookup becomes
+# `"git ls-files -- \"scripts/" tok "\"" | getline` with NO .sh suffix guard, which is the only
+# shape meta-subst-unresolved kills because its token `$(touch pwned-two)` has no .sh (15 failures,
+# among them meta-subst, meta-subst-unresolved and meta-glob-absent); (d) the reverse regex,
+# `k ~ tok`, killed by meta-glob-literal's column 4 (6); (e) the program name put back to the
+# literal "check-doc-drift" in the ambiguity printf (2, the PROG scratch copy); (f) the root-level
+# exception sentence reworded so it no longer says "resolves only when the range changed it" (1);
+# and (g) the printed sha taken from a path other than the resolved one (5, the three live-range
+# column-4 pins among them). The anchored regex run is by-hand evidence only: no committed test
+# builds a mutant.
+#
 # One mutant is deliberately absent. A sha-equality branch for "the same commit addressed it" was
 # written, and no input could reach it: a line whose last commit IS the commit that changed the
 # path carries that commit timestamp, so the age test already decides it. It was removed rather
@@ -366,7 +383,7 @@ lacks "ambiguous" "$ERR" "nor an ambiguity line"
 expect "exit 0" 0 "$RC"
 mkrepo bare-none
 printf 'x\n' > "$R/scripts/demo-check.sh"
-printf '# Doc\n\nRun `demo-missing.sh`, `demo-assetXsh` and `demo-check.shx`.\n' > "$R/README.md"
+printf '# Doc\n\nRun `demo-missing.sh`, `demo-checkXsh` and `demo-check.shx`.\n' > "$R/README.md"
 snap "$T1" "base"; BASE=$(sha HEAD)
 bare_touch "$R/scripts/demo-check.sh"; snap "$T2" "change the script"
 run --range "$BASE..$(sha HEAD)" --docs README.md
@@ -400,6 +417,18 @@ run --range "$DUP_SCRIPT..$(sha HEAD)" --docs README.md
 expect "ambiguity does not depend on the range: a range changing neither candidate yields no row" "" "$OUT"
 contains "ambiguous bare name 'demo-dup.sh'" "$ERR" "and still prints the ambiguity line"
 expect "once, not once per mention" 1 "$(printf '%s\n' "$ERR" | grep -c 'ambiguous bare name')"
+# #372: the program name in the ambiguity line comes from $PROG. A scratch copy with PROG edited is
+# the only way to see it; the edit fails loudly when its anchor matches nothing.
+cpdir prog372 1
+sed 's/^PROG="check-doc-drift"$/PROG="renamed-drift"/' "$D/scripts/check-doc-drift.sh" > "$D/scripts/renamed.tmp"
+if cmp -s "$D/scripts/renamed.tmp" "$D/scripts/check-doc-drift.sh"; then
+  bad "the PROG= edit changed nothing: its anchor no longer matches, so the two checks below are not run"
+else
+  mv "$D/scripts/renamed.tmp" "$D/scripts/check-doc-drift.sh"
+  cdoc "$R" "$D/scripts/check-doc-drift.sh" --range "$DUP_SCRIPT..$(sha HEAD)" --docs README.md
+  contains "renamed-drift: ambiguous bare name 'demo-dup.sh'" "$ERR" "the ambiguity line carries the program name from PROG"
+  lacks "check-doc-drift: ambiguous" "$ERR" "and no line still carries the literal name"
+fi
 mkrepo bare-dup-assets
 bare_group group-one demo-twin.sh; bare_group group-two demo-twin.sh
 printf '# Doc\n\nTwice shipped: `demo-twin.sh`.\n' > "$R/README.md"
@@ -428,6 +457,55 @@ snap "$T1" "base"; BASE=$(sha HEAD)
 bare_touch "$R/demo-root.sh"; snap "$T2" "change the root file"
 run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "a token that is itself a changed path keeps resolving to it, ahead of the bare-name table" 1 "$(rows)"
+# #372, Option A: the root-level exception is range dependent by design and the header says so.
+if grep -qF -- 'resolves only when the range changed it' "$SUT"; then ok "the script header states the root-level, range-dependent exception"; else bad "the script header lacks the root-level exception sentence"; fi
+ROOT_HEAD=$(sha HEAD)
+printf 'z\n' > "$R/other.txt"; snap "$T2" "change neither root candidate"
+run --range "$ROOT_HEAD..$(sha HEAD)" --docs README.md
+expect "a later range that did not change the root file yields no row" "" "$OUT"
+expect "with exactly the zero-claims summary and no ambiguity line" "$ZERO" "$ERR"
+
+# #372: a token is only ever an awk array key. M3 is the mutant that expands it through a shell or a
+# git pathspec (the bare lookup becoming "git ls-files -- \"scripts/" tok "\"" | getline, with no
+# .sh suffix guard); meta-subst, meta-subst-unresolved and meta-glob-absent kill it.
+mkrepo meta-subst
+printf 'x\n' > "$R/scripts/\$(touch pwned).sh"
+printf '# Doc\n\nRun `$(touch pwned).sh`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/scripts/\$(touch pwned).sh"; snap "$T2" "change the metacharacter-named script"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a command-substitution filename resolves to exactly one row" 1 "$(rows)"
+contains '	$(touch pwned).sh	' "$OUT" "whose token column is the literal text"
+lacks "ambiguous" "$ERR" "with no ambiguity line"
+if [ ! -e "$R/pwned" ]; then ok "and no pwned file was created, so nothing was executed"; else bad "a pwned file exists: the token was executed"; fi
+mkrepo meta-subst-unresolved
+printf 'x\n' > "$R/scripts/demo-check.sh"
+printf '# Doc\n\nRun `$(touch pwned-two)`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/scripts/demo-check.sh"; snap "$T2" "change the script"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "an unresolved command-substitution span yields no row" "" "$OUT"
+expect "with exactly the zero-claims summary" "$ZERO" "$ERR"
+if [ ! -e "$R/pwned-two" ]; then ok "and no pwned-two file was created"; else bad "a pwned-two file exists: the token was executed"; fi
+mkrepo meta-glob-literal
+printf 'a\n' > "$R/scripts/a.sh"; printf 'ab\n' > "$R/scripts/[ab].sh"
+printf '# Doc\n\nRun `[ab].sh`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/scripts/a.sh"; snap "$T2" "change a.sh"; GLOB_A=$(sha HEAD)
+bare_touch "$R/scripts/[ab].sh"; snap "$T2" "change [ab].sh"; GLOB_AB=$(sha HEAD)
+run --range "$BASE..$GLOB_AB" --docs README.md
+expect "a literal [ab].sh file yields exactly one row" 1 "$(rows)"
+expect "whose commit is the [ab].sh commit, not the a.sh commit (kills the reverse-regex mutant)" "$GLOB_AB" "$(printf '%s' "$OUT" | cut -f4)"
+if [ "$GLOB_A" != "$GLOB_AB" ]; then ok "the two commits differ, so the check above can tell them apart"; else bad "the a.sh and [ab].sh commits are the same"; fi
+lacks "ambiguous" "$ERR" "with no ambiguity line"
+mkrepo meta-glob-absent
+printf 'a\n' > "$R/scripts/a.sh"
+printf '# Doc\n\nRun `[ab].sh`.\n' > "$R/README.md"
+snap "$T1" "base"; BASE=$(sha HEAD)
+bare_touch "$R/scripts/a.sh"; snap "$T2" "change a.sh"
+run --range "$BASE..$(sha HEAD)" --docs README.md
+expect "a glob citation with no literal file yields no row, so [ab].sh did not match a.sh" "" "$OUT"
+expect "with exactly the zero-claims summary" "$ZERO" "$ERR"
 
 # Condition D: an allow-file mention suppresses a bare-name line, keyed on the RESOLVED path.
 mkrepo bare-allow
@@ -699,9 +777,22 @@ ranges_expect() {  # ranges_expect <range> <expected-row-count> <claim-anchor-th
   done
   case "$txt" in *"$keep"*) ok "range ${r%%..*} still reports the claim '$keep'" ;;
                  *) bad "range ${r%%..*} lost the claim '$keep'" ;; esac
-  RANGE_TXT="$txt"
+  RANGE_TXT="$txt"; RANGE_OUT="$out"
+}
+# #372: column 3 is the token as cited, so a wrong-file resolution still prints it. Column 4 is the
+# newest in-range commit that changed the RESOLVED path, which is what pins the file. The helper
+# RETURNS non-zero on a mismatch and never calls bad(), so a control can assert the status.
+FL=plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh
+col4_is() {  # col4_is <rows> <expected-sha>: 0 only when the forge-lib.sh row's column 4 equals it
+  [ -n "$2" ] && [ "$(printf '%s\n' "$1" | awk -F'\t' '$3 == "forge-lib.sh" { print $4 }')" = "$2" ]
+}
+pin_forge_lib() {  # pin_forge_lib <range>: the row from the last ranges_expect names the right commit
+  local want; want="$(git -C "$ROOT" log -1 --format=%H "$1" -- "$FL")"
+  if col4_is "$RANGE_OUT" "$want"; then ok "range ${1%%..*} pins the forge-lib.sh row to the commit that changed the asset"
+  else bad "range ${1%%..*} forge-lib.sh row column 4 is not $want"; fi
 }
 ranges_expect f15dd74e..106a4531 4 'The canonical rules'
+pin_forge_lib f15dd74e..106a4531
 for a in 'canonical ready-ticket rules' 'what is being worked on now'; do
   case "$RANGE_TXT" in *"$a"*) ok "range 1 still reports the claim '$a'" ;; *) bad "range 1 lost the claim '$a'" ;; esac
 done
@@ -710,6 +801,7 @@ for a in 'block-dashes` hook stays dormant' 'the group stays inert' 'you copy th
 done
 for r in 106a4531..9416a77b 9416a77b..c15150c4; do
   ranges_expect "$r" 2 'what is being worked on now'
+  pin_forge_lib "$r"
   # Only the two roadmap mentions exist in these ranges; the ticket-standards one does not, so
   # asserting its absence here would pass whatever the code did.
   for a in 'block-dashes` hook stays dormant' 'the group stays inert'; do
@@ -717,6 +809,11 @@ for r in 106a4531..9416a77b 9416a77b..c15150c4; do
                          *) ok "range ${r%%..*} no longer reports '$a'" ;; esac
   done
 done
+
+# Negative control for the helper: right token, wrong sha, must be refused with a non-zero status.
+WANT_CTL="$(git -C "$ROOT" log -1 --format=%H 106a4531..9416a77b -- "$FL")"
+if col4_is "$(printf 'README.md\t77\tforge-lib.sh\t%040d\n' 0)" "$WANT_CTL"; then bad "the column-4 helper accepted a doctored row"; else ok "the column-4 helper rejects a doctored row (right token, wrong sha)"; fi
+if col4_is "$(printf 'README.md\t77\tforge-lib.sh\t%s\n' "$WANT_CTL")" "$WANT_CTL"; then ok "and accepts the same row with the right sha"; else bad "the helper rejected a correct row"; fi
 
 echo "== #258: the reason is required PER ENTRY, not once per block =="
 allowrepo reason2
