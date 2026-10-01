@@ -414,7 +414,7 @@ for v in 0 no "" 2; do
     [ -s "$T/v.err" ] && exit 1
     exit 0
   )
-  # `= 1` and not `!= 0`, the shape FORGE_DRY_RUN uses at all nine guards in the library: under `!= 0`
+  # `= 1` and not `!= 0`, the shape FORGE_DRY_RUN uses at every guard in the library: under `!= 0`
   # the value `no` would turn debugging ON, which is the opposite of what typing it means.
   rc=$?   # captured BEFORE the case below, which would otherwise overwrite it and make this row vacuous
   case "$v" in
@@ -2037,8 +2037,7 @@ dr_site() {
       case "$site" in
         forge_api)                     [ "$out" = '{"number":268,"body":"x"}' ] ;;
         forge_api_paginate)            case "$out" in *'"number":1'*) ;; *) exit 1 ;; esac
-                                       [ "$log" = "GET /repos/o/r/labels?limit=50&page=1 
-GET /repos/o/r/labels?limit=50&page=2 " ] ;;
+                                       [ "$log" = "$(printf '%s\n' 'GET /repos/o/r/labels?limit=50&page=1 ' 'GET /repos/o/r/labels?limit=50&page=2 ')" ] ;;
         _forge_region_write)           case "$log" in *"PATCH /repos/o/r/issues/7 "*) ;; *) exit 1 ;; esac ;;
         forge_body_compose_preserving) case "$log" in *"PATCH /repos/o/r/issues/7 "*) ;; *) exit 1 ;; esac ;;
         forge_issue_edit)              case "$log" in *"PATCH /repos/o/r/issues/44 "*"new body"*) ;; *) exit 1 ;; esac ;;
@@ -2073,23 +2072,35 @@ GET /repos/o/r/labels?limit=50&page=2 " ] ;;
 # and forge-lib.sh carries no anchor comment (which would force a version bump).
 dr_mutant() {
   awk -v fn="$1" -v k="$2" '
-    $0 ~ "^" fn "\\(\\) *\\{" { inf = 1 }
+    /^[A-Za-z_][A-Za-z0-9_]*\(\) *\{/ { inf = ($0 ~ "^" fn "\\(\\) *\\{") }
     inf && !done && index($0, "\"${FORGE_DRY_RUN:-0}\" = 1") {
       if (k == "n") sub(/\[ "\$\{FORGE_DRY_RUN:-0\}" = 1 \]/, "[ -n \"${FORGE_DRY_RUN:-}\" ]")
       else sub(/= 1 \]/, "!= 0 ]")
       done = 1
     }
-    { print }' "$LIB" > "$3"
+    { print }
+    END { exit !done }' "$LIB" > "$3"
 }
+# The permanent proof that dr_mutant refuses (exit 1, output unchanged) a function with no guard and a
+# name absent from the library. forge_body_region_get is real, guard-less, and precedes guarded
+# functions: the old awk never cleared its in-function flag at the next header, so it rewrote a LATER
+# function's guard and exited 0. The per-call-site assertions below cannot catch that regression,
+# because every real site names a guarded function.
+for name in forge_body_region_get NoSuchFn; do
+  dr_mutant "$name" n "$T/refuse-$name.sh"; rc=$?
+  [ "$rc" = 1 ] && cmp -s "$LIB" "$T/refuse-$name.sh" \
+    && ok "dr_mutant refuses $name: no guard, exit 1, output byte-identical to the library" \
+    || bad "dr_mutant refuses $name: no guard, exit 1, output byte-identical to the library"
+done
 DR_SITES="forge_api forge_api_paginate _forge_region_write forge_body_compose_preserving forge_issue_edit forge_issue_list forge_issue_label forge_issue_milestone"
 for site in $DR_SITES; do
-  # forge_api's values 0 and 1 are the pre-existing real-forge_api cases above; only `true` is new.
-  if [ "$site" = forge_api ]; then vals="true"; else vals="0 true 1"; fi
+  # forge_api's value 0 is the pre-existing real-forge_api case above; `true` and 1 are both run here.
+  if [ "$site" = forge_api ]; then vals="true 1"; else vals="0 true 1"; fi
   for v in $vals; do
     if [ "$v" = 1 ]; then mode=dry; else mode=real; fi
     dr_site "$LIB" "$site" "$v" "$mode" \
-      && ok "#334 $site: FORGE_DRY_RUN=$v is $([ $mode = dry ] && echo 'a dry run: nothing sent, the exact [dry-run] line' || echo 'NOT a dry run: the request reaches the transport')" \
-      || bad "#334 $site: FORGE_DRY_RUN=$v did not behave as a $([ $mode = dry ] && echo dry run || echo real call)"
+      && ok "#334 $site: FORGE_DRY_RUN=$v is $([ $mode = dry ] && { [ "$site" = forge_api_paginate ] && echo 'a dry run: page 1 read only, then [] and no further page' || echo 'a dry run: nothing sent, the exact [dry-run] line'; } || echo 'NOT a dry run: the request reaches the transport')" \
+      || bad "#334 $site: FORGE_DRY_RUN=$v did not behave as a $([ $mode = dry ] && { [ "$site" = forge_api_paginate ] && echo 'dry run (page 1 read only, then [] and no further page)' || echo dry run; } || echo real call)"
   done
 done
 # The mutant ledger. Per site: the `-n` mutant dies at FORGE_DRY_RUN=0; the `!= 0` mutant SURVIVES 0
@@ -2098,7 +2109,7 @@ done
 for site in $DR_SITES; do
   for form in n b; do
     MUT334="$T/forge-lib-mut334-$site-$form.sh"
-    dr_mutant "$site" "$form" "$MUT334"
+    dr_mutant "$site" "$form" "$MUT334" && ok "mutant ledger (#334): dr_mutant found the $site guard" || bad "mutant ledger (#334): dr_mutant found no guard at $site"
     cmp -s "$LIB" "$MUT334" && bad "mutant ledger (#334): the $site $form mutant did not apply" || ok "mutant ledger (#334): the $site $form mutant differs from the lib"
     [ "$(diff "$LIB" "$MUT334" | grep -c '^>')" = 1 ] && ok "mutant ledger (#334): the $site $form mutant changes exactly one line" || bad "mutant ledger (#334): the $site $form mutant changed a number of lines other than one"
     if [ "$form" = n ]; then
@@ -2123,7 +2134,7 @@ mc_cleanly_dry() {
 # and dies only at =true.
 for form in n b; do
   MUT319="$T/forge-lib-mut319-$form.sh"
-  dr_mutant forge_milestone_close "$form" "$MUT319"
+  dr_mutant forge_milestone_close "$form" "$MUT319" && ok "mutant ledger (#319): dr_mutant found the forge_milestone_close guard" || bad "mutant ledger (#319): dr_mutant found no guard at forge_milestone_close"
   cmp -s "$LIB" "$MUT319" && bad "mutant ledger (#319): the forge_milestone_close $form mutant did not apply" || ok "mutant ledger (#319): the forge_milestone_close $form mutant differs from the lib"
   [ "$(diff "$LIB" "$MUT319" | grep -c '^>')" = 1 ] && ok "mutant ledger (#319): the forge_milestone_close $form mutant changes exactly one line" || bad "mutant ledger (#319): the forge_milestone_close $form mutant changed a number of lines other than one"
   if [ "$form" = n ]; then
