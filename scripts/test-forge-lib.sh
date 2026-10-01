@@ -15,6 +15,8 @@
 #     stubbed curl), and the temp dir (created once, trapped when the caller has no trap,
 #     removed on the normal path)
 #   - #291: the suite points TMPDIR at its own scratch folder and asserts it is empty at the end
+#   - #303: a failed file mktemp in forge_api_paginate or forge_issue_label still releases
+#     the temp dir, and never removes a concurrent holder's file
 # The github branches shell out to `gh` and are unchanged by #62/#63; they are exercised by
 # real use, not stubbed here.
 #
@@ -757,6 +759,38 @@ line2'
 )
 [ $? -eq 0 ] && ok "the temp dir is gone after a completed paginate (#78.3 leak fix)" \
   || bad "temp dir removed after paginate"
+
+# #303: a FILE mktemp that fails after _forge_tmp_init made the directory used to return 2 and leave
+# that empty directory behind whenever the caller had its own EXIT trap (so the library's trap was
+# not installed). Each site gets its own case, with a mktemp shim failing ONLY that site's template
+# (a shim failing every file mktemp would die inside the inner paginate and never reach the label
+# site), a per-case TMPDIR so a red case cannot trip the #291 end-of-suite assertion, and a caller
+# EXIT trap. The holder cases are green on the unfixed library too: they guard against an over-eager
+# fix (rm -rf of the directory) that would delete a concurrent holder's file, and the rm -rf mutant
+# is what kills them.
+leak303() {  # leak303 <site: paginate|labels> <held: 0|1>  -> prints "rc|leftover|held-survived"
+  local site="$1" held="$2" D="$T/leak303-$1-$2"
+  rm -rf "$D"; mkdir -p "$D"
+  (
+    export TMPDIR="$D" FORGE_HOST=forgejo FORGE_REPO=o/r
+    trap ':' EXIT
+    . "$LIB"
+    mktemp() { case "$*" in *"$site".*) return 1 ;; esac; command mktemp "$@"; }
+    forge_api() { case "$2" in *page=1*) printf '[{"name":"bug","id":1}]' ;; *) printf '[]' ;; esac; }
+    if [ "$held" = 1 ]; then _forge_tmp_init; : > "$_FORGE_TMPDIR/held.txt"; fi
+    if [ "$site" = paginate ]; then forge_api_paginate /repos/o/r/issues >/dev/null 2>&1
+    else forge_issue_label 7 bug >/dev/null 2>&1; fi
+    rc=$?
+    left=$(ls -A "$D" | wc -l)
+    surv=0; [ -f "${_FORGE_TMPDIR-/nonexistent}/held.txt" ] && surv=1
+    printf '%s|%s|%s' "$rc" "$left" "$surv"
+  )
+  rm -rf "$D"
+}
+expect "a failed paginate file mktemp returns 2 and leaves no temp dir (#303)" "2|0|0" "$(leak303 paginate 0)"
+expect "a failed label file mktemp returns 2 and leaves no temp dir (#303)" "2|0|0" "$(leak303 labels 0)"
+expect "a failed paginate file mktemp leaves a concurrent holder's file and directory (#303)" "2|1|1" "$(leak303 paginate 1)"
+expect "a failed label file mktemp leaves a concurrent holder's file and directory (#303)" "2|1|1" "$(leak303 labels 1)"
 
 # --- round-2 M4: the H1 fix (unique temp files) had NO behavioural coverage ---------------------
 # Reverting mktemp to "paginate.$$" passed all 32 tests. $$ is the PARENT pid in every subshell, so

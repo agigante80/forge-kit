@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 30
+# forge-lib-version: 31
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -458,9 +458,10 @@ forge_api_paginate() {
   local cap="${FORGE_PAGINATE_MAX_PAGES:-500}"
   case "$cap" in ''|*[!0-9]*) cap=500 ;; esac   # a non-numeric override must not void the spin guard
   _forge_tmp_init || return 2
+  # A failed file mktemp must still release the directory _forge_tmp_init just made (#303).
   # mktemp, NOT "paginate.$$": $$ is the PARENT pid inside every subshell, so two concurrent
   # paginations in one process shared a path and each returned the union of both streams, exit 0.
-  tmp="$(mktemp "$_FORGE_TMPDIR/paginate.XXXXXX")" || return 2
+  tmp="$(mktemp "$_FORGE_TMPDIR/paginate.XXXXXX")" || { _forge_tmp_done ""; return 2; }
   local prev="" sig
   while :; do
     chunk="$(forge_api GET "${path}${sep}limit=50&page=${page}")" || { rc=$?; _forge_tmp_done "$tmp"; return "$rc"; }
@@ -936,7 +937,7 @@ forge_issue_label() {
       local all org org_failed=0 resolved nmissing missing ids nlabels tmp
       all="$(forge_api_paginate "/repos/$repo/labels")" || return 2
       _forge_tmp_init || return 2
-      tmp="$(mktemp "$_FORGE_TMPDIR/labels.XXXXXX")" || return 2
+      tmp="$(mktemp "$_FORGE_TMPDIR/labels.XXXXXX")" || { _forge_tmp_done ""; return 2; }
       printf '%s\n' "$all" > "$tmp"
       resolved="$(_forge_resolve_names "$tmp" "$@")"
       if [ "$(printf '%s' "$resolved" | jq '[.[] | select(.id == null)] | length')" -gt 0 ]; then
