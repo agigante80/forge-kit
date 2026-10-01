@@ -961,16 +961,20 @@ plan:
 A bucket, filed 2026-10-01. Suites that pass alone and fail under load (#404, #378, #331, #219), and mutant harnesses outside test-forge-lib.sh that count a crashing mutant as killed (#360). A suite that flakes teaches people to re-run it, and a mutant that crashes proves nothing; both make a green run mean less than it says. The plan, when it opens, has to say what a flake's root cause is in each case rather than raise a timeout.
 
 ## Phase: The gate's own correctness
-state: open
+state: done
 plan: docs/plans/the-gates-own-correctness.md
+
+Closed 2026-10-01, outcome **done**. All four planned tickets landed, in the planned order (#335, #320, #349, #347), and one appeared: #409, #347's item 6 split out as round 1 advised, since it was a forge-lib change with its own tests (bodies over 128 KiB were built empty with rc 0). One more was filed for later: #410, the word count's locale dependence, which made the first ticket-gate baseline right locally and wrong in CI for two commits. None of the premortem's clauses fired: the ratchet was LOWERED (5754 to 5742), not raised, because #347 moved Step 5's resolver into the shipped `gate-env.sh` and that paid for every other line; #349 moved the guidance, not the checker; the fresh-shell fixes are a sourced asset with a contract suite, not prose; #347's forge-lib half shipped separately as #409 and stalled nothing; and #335 was closed on its missing cases, not on a stale reading.
 
 Opened 2026-10-01, when *What contributor-docs still cannot see* closed; plan: `docs/plans/the-gates-own-correctness.md`. Two of its four tickets were partly done by work that landed while they waited (fd05cba skips a region to its own end marker, #335's open choice), and #320's first gate passed the day it opened.
 
 A bucket, filed 2026-10-01. The gate failing its own critic's advice (#349: a 'Control (...)' scenario the critic recommends trips the scenario counter), the #283 review Lows and a forge_issue_comment jq failure (#347), and the #304 review Lows in check-ticket-mechanics.sh (#320, #335). ticket-gate.md sits at its size ratchet with zero headroom, so the plan has to say where each fix's words come from.
 
 ## Phase: Portable shell, everywhere
-state: planned
-plan: 
+state: open
+plan: docs/plans/portable-shell-everywhere.md
+
+Opened 2026-10-01, when *The gate's own correctness* closed, ahead of *Tests that can be believed*: every ticket here is mechanical, while that phase's flakes still need a load recipe two gate rounds could not settle. #410 joined the bucket the day it opened, and #347 already landed ticket-gate's share of #407.
 
 A bucket, filed 2026-10-01. The sweeps #259 and #321 started and did not finish: a cd that echoes under CDPATH (#377) and the guard that would stop it coming back (#379), awk file operands shaped name=value and the blind spots in the zero-awk-v count (#405), and the lost-variable class outside forge-adapt (#407). Each is a class, so each wants a guard, not just a fix.
 
