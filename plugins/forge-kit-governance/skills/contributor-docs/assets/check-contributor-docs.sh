@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 9
+# check-contributor-docs-version: 10
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -54,14 +54,28 @@
 # VAR=val prefix is skipped to find the runner but refers the row, since npm_config_workspace=client
 # rescopes npm. Backticks there are literal, so a backticked name is referred.
 #
-# EXPORTS AND SUBSTITUTIONS (#296). An `export`, `declare -x` or `typeset -x` of a NAME=value whose
-# NAME starts with npm_config_ (any case, any key, an empty value too: referring is the safe side)
-# refers every LATER runner of the same fence or code-span paragraph, and a later segment of its own
-# line, exactly as a cd does and with the same resets. `export FOO=1` rescopes nothing and still
-# fails. A NAME=$(...) assignment value whose parentheses do not nest is read as a plain assignment.
-# Limits: an export in a prose code span does not carry into a following fence (the carry resets at
-# a fence open, as a cd does); nested-paren and backtick substitution values; pnpm_config_*;
-# JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a; `env VAR=... cmd`.
+# EXPORTS AND SUBSTITUTIONS (#296, #346). An `export`, `declare -x` or `typeset -x` of a NAME=value
+# whose NAME starts with npm_config_ (any case, any key, an empty value too: referring is the safe
+# side) refers every LATER npm, pnpm or yarn runner of the same fence or code-span paragraph, and a
+# later segment of its own line, exactly as a cd does and with the same resets. Only those three
+# read the variable, so a failing make target or just recipe stays a fail. Also carried: declare or
+# typeset with any dash word holding an x (-gx, -g -x), a quoted argument (export "npm_config_x=y")
+# and a bare name (npm_config_x=y; export npm_config_x). Only those spellings carry. An npm_config_
+# word (a bare name or a NAME=value) after a word starting with # (a comment) or after an odd
+# number of quote characters (inside a quoted value) carries nothing, and a dash word holding an n
+# anywhere on the line (export -n un-exports) makes the whole line carry nothing. These guards
+# count quotes, they do not parse them, so a # or -n inside a quoted value, mixed quote kinds and
+# an escaped quote can still misjudge a line. `export FOO=1` and `declare -g npm_config_x=y`
+# rescope nothing and still fail. A NAME=value assignment whose value holds one or
+# more non-nested $(...) groups, with literal text before, between or after them, is read as a plain
+# assignment, in one linear pass.
+# Limits: `$VAR` or `${...}` before a substitution (npm_config_workspace=$HOME$(echo c) npm run
+# dev) is still a false fail, as is `export "npm_config_x"=y`, whose quote closes before the `=`;
+# an export in a prose code span does not carry into a following fence (the carry resets at
+# a fence open, as a cd does); nested-paren substitution values; a backtick value is not rewritten
+# (with no space inside it is an ordinary assignment word and is referred, with a space inside the
+# row is simply absent); pnpm_config_*; JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a;
+# `env VAR=... cmd`.
 #
 # A TRACKED ROOT .npmrc (#339). npm rescopes `npm run X` when that file sets `workspace` (any value,
 # `workspace[]=` and spaces around `=` included) or `workspaces` whose LAST value is not exactly
@@ -212,15 +226,22 @@ is_template() {
 EXTRACT='
 NR == 1 { sub(/^\357\273\277/, "") }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, rs) {
-  # A command substitution as an assignment VALUE rescopes npm like any other value
+function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, isx) {
+  # A command substitution in an assignment VALUE rescopes npm like any other value
   # (npm_config_workspace=$(echo client) npm run dev, #296), but the split below would cut it at
-  # its parentheses and leave a bare runner. Rewrite a NAME=$(...) WORD, whose parentheses do not
-  # nest, to NAME=X first, so the assignment strip sets env. Anchored at the start of a word, so
-  # --workspace=$(...) is left alone. A $( anywhere else rescopes nothing and stays judged.
-  while (match(text, /(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=\$\([^()]*\)/)) {
-    rs = substr(text, RSTART, RLENGTH); sub(/=\$\([^()]*\)$/, "=X", rs)
-    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)
+  # its parentheses and leave a bare runner. Rewrite the value of a NAME=value WORD to X when it
+  # holds one or more $(...) groups whose parentheses do not nest, with optional literal text
+  # before, between and after them (pre$(a), $(a)$(b), #346), so the assignment strip sets env.
+  # ONE left-to-right pass, linear in the line: a marker byte (\001, any real one removed first) is
+  # dropped after each word-start NAME=, the marked values that hold a $( become X, and the rest of
+  # the markers go. A restart-from-the-front loop is quadratic on a hostile line. Anchored at the
+  # start of a word, so --workspace=$(...) is left alone. A $( anywhere else rescopes nothing and
+  # stays judged.
+  if (index(text, "$(")) {
+    gsub(/\001/, "", text)
+    gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)
+    gsub(/\001[^ \t;&|()$\001]*\$\([^()]*\)([^ \t;&|()$\001]|\$\([^()]*\))*/, "X", text)
+    gsub(/\001/, "", text)
   }
   gsub(/&&|\|\||[;|()]/, "\n", text)
   n = split(text, segs, "\n")
@@ -233,18 +254,36 @@ function code(text, infence,    n, i, j, k, nw, ws, segs, seg, w, env, carry, rs
     # An assignment in front can rescope the run (npm_config_workspace=client), so it refers the
     # row as a directory change does. The flag is 1 for a cd, 2 for an assignment, 3 for both.
     env = 0
-    while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) { sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", seg); env = 1 }
+    # One match, not a loop: a loop copies the segment once per leading word, quadratic (#346).
+    if (match(seg, /^([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)+/)) { seg = substr(seg, RLENGTH + 1); env = 1 }
     w = seg; sub(/[ \t].*/, "", w)
     # An exported npm_config_ variable (any case, any key, an empty value too) rescopes every later
     # npm in the same fence or paragraph, so it is carried like a cd and applied from the NEXT
-    # segment on, never to an earlier one (#296). export, declare -x and typeset -x set it.
+    # segment on, never to an earlier one (#296). export, declare -x and typeset -x set it, and so
+    # do the spellings #346 added: any leading dash word holding an x (-gx, or -g -x), a quoted
+    # name ("npm_config_x=y"), and a bare name (npm_config_x, which exports an earlier assignment).
+    # The quote class is \047 because this program sits inside a single-quoted shell variable.
     nw = split(seg, ws, /[ \t]+/)
-    if (w == "export" || ((w == "declare" || w == "typeset") && ws[2] == "-x")) {
-      for (j = 2; j <= nw; j++)
-        if (ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/) { if (infence) fenv = 1; else penv = 1 }
+    isx = (w == "export")
+    if (w == "declare" || w == "typeset") for (j = 2; j <= nw && ws[j] ~ /^-/; j++) if (ws[j] ~ /^-[A-Za-z]*x/) isx = 1
+    if (isx) {
+      # Three guards keep an npm_config_ match honest: a word starting with # ends the command (a
+      # comment), a word after an odd number of quote characters sits inside a quoted value, and a
+      # dash word holding an n anywhere on the line (export -n) un-exports the whole line.
+      hit = 0; unexp = 0; qn = 0
+      for (j = 2; j <= nw; j++) {
+        if (ws[j] ~ /^#/) break
+        if (ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
+        if (qn % 2 == 0 && ws[j] ~ /^["\047]?[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=|["\047]?$)/) hit = 1
+        qw = ws[j]; qn += gsub(/["\047]/, "", qw)
+      }
+      if (hit && !unexp) { if (infence) fenv = 1; else penv = 1 }
       continue
     }
     carry = infence ? fenv : penv
+    # Only the package managers that read npm_config_ are rescoped by it; make and just are not,
+    # and carrying it there would mask a failing target (#346).
+    if (w != "npm" && w != "pnpm" && w != "yarn") carry = 0
     if (w == "cd" || w == "pushd") { if (infence) fcd = 1; else pcd = 1; continue }
     if (w == "npm" || w == "pnpm" || w == "yarn" || w == "make" || w == "just" || w == "node" || w == "sh" || w == "bash")
       printf "C\t%d\t%d\t%s\n", NR, (infence ? fcd : pcd) + 2 * (env || carry), seg

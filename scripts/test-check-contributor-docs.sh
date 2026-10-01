@@ -18,6 +18,10 @@
 # on every run of the script under test (that value plus 5 s), so a script that hangs on the
 # sentinel fails its case instead of hanging the suite. Any other non-empty value is refused up
 # front with exit 1.
+#
+# HOSTILE_WATCHDOG_SECS (integer from 1 to 60, default 6, #346) bounds the hostile-input cases: a
+# long line must be judged within it, so a quadratic rewrite or strip is killed by the bound rather
+# than hanging the suite. The same validation as above applies.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -33,6 +37,12 @@ ESCAPE_WATCHDOG_SECS=${ESCAPE_WATCHDOG_SECS:-10}
 case $ESCAPE_WATCHDOG_SECS in
   [1-9]|[1-5][0-9]|60) ;;
   *) echo "ESCAPE_WATCHDOG_SECS must be an integer from 1 to 60, got '$ESCAPE_WATCHDOG_SECS'" >&2; exit 1 ;;
+esac
+
+HOSTILE_WATCHDOG_SECS=${HOSTILE_WATCHDOG_SECS:-6}
+case $HOSTILE_WATCHDOG_SECS in
+  [1-9]|[1-5][0-9]|60) ;;
+  *) echo "HOSTILE_WATCHDOG_SECS must be an integer from 1 to 60, got '$HOSTILE_WATCHDOG_SECS'" >&2; exit 1 ;;
 esac
 
 pass=0; fail=0
@@ -116,6 +126,13 @@ OUT=""; ERR=""; RC=0
 run() {
   local p="$PATH"; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
   OUT=$(cd "$R" && PATH="$p" bounded $((ESCAPE_WATCHDOG_SECS + 5)) "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
+  ERR=$(cat "$W/err")
+}
+# run_bounded <secs> [args...]: run with a caller-chosen bound (124 when it expires). OUT, ERR and RC
+# are set here, in the suite's own shell: only the script's stdout is captured through $( ).
+run_bounded() {
+  local secs=$1 p="$PATH"; shift; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
+  OUT=$(cd "$R" && PATH="$p" bounded "$secs" "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
   ERR=$(cat "$W/err")
 }
 run_nojq() {
@@ -485,6 +502,127 @@ case_ c_subst_after_neg "a substitution argument after the runner still fails"
 case_ c_subst_flag_value "a flag value substitution is not rewritten"
 case_ c_pwned "a substitution body in the document is never executed"
 case_ c_export_malformed "bare, unterminated and CRLF shapes yield no awk error"
+
+# ---------------------------------------------------------------- #346: follow-ups to #296
+# Same convention as the #296 block: a root with no `dev` and no `nope`, so `referred` can only come
+# from a carry or a rewrite and `fail` proves it did not apply.
+# rep_ <count> <unit>: <unit> repeated <count> times, for the hostile lines.
+rep_() { awk -v n="$1" -v u="$2" 'BEGIN { for (i = 0; i < n; i++) printf "%s", u }'; }
+# anc <fence line>: a NAME=$(...) assignment that must be found after the anchor the line holds.
+anc() { exp "\`\`\`\n$1\n\`\`\`\n"
+  rc_is 0 && at referred AGENTS.md:2 "npm run dev: an environment assignment precedes it" && nostatus fail; }
+
+# Item 1: only npm, pnpm and yarn read npm_config_, so the carry must not mask make or just.
+c_export_make_neg() { new; pkg '"x":"x"'; tput_ Makefile 'build:\n\t@:\n'; agents '```\nexport npm_config_prefix=x\nmake nosuch\n```\n'; run
+  rc_is 1 && row fail command "make nosuch: no such target in Makefile" && nocmd referred; }
+c_export_just_neg() { new; pkg '"x":"x"'; tput_ justfile 'build:\n  echo b\n'; agents '```\nexport npm_config_prefix=x\njust ship\n```\n'; run
+  rc_is 1 && row fail command "just ship: no such target in justfile" && nocmd referred; }
+c_export_pnpm() { exp '```\nexport npm_config_workspace=c\npnpm run dev\n```\n'
+  rc_is 0 && row referred command "pnpm run dev: an environment assignment precedes it" && nostatus fail; }
+c_export_yarn() { exp '```\nexport npm_config_workspace=c\nyarn dev\n```\n'
+  rc_is 0 && row referred command "yarn dev: an environment assignment precedes it" && nostatus fail; }
+
+# Item 2: a value with literal text around, or several, substitutions is one assignment. Backtick
+# values are not rewritten: no space inside is an ordinary assignment word, a space inside leaves
+# no runner (no row at all). The header and SKILL.md say so.
+c_subst_prefix_value() { exp '```\nnpm_config_workspace=pre$(echo c) npm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_subst_double_value() { exp '```\nnpm_config_workspace=$(echo a)$(echo b) npm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_subst_backtick_nospace() { exp '```\nnpm_config_workspace=`x` npm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_subst_backtick_space() { exp '```\nnpm_config_workspace=`echo c` npm run dev\n```\n'
+  rc_is 0 && nocmd fail && nocmd referred; }
+
+# Item 3: the other spellings of an npm_config_ export.
+c_export_declare_gx() { exp '```\ndeclare -gx npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_export_declare_g_x() { exp '```\ndeclare -g -x npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_declare_g_plain_neg() { exp '```\ndeclare -g npm_config_workspace=c\nnpm run dev\n```\n'
+  rc_is 1 && row fail command "npm run dev: no such script"; }
+c_export_quoted_dq() { exp '```\nexport "npm_config_workspace=c"\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_export_quoted_sq() { exp "\`\`\`\nexport 'npm_config_workspace=c'\nnpm run dev\n\`\`\`\n"
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_export_bare_name() { exp '```\nnpm_config_workspace=c; export npm_config_workspace\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_export_bare_name_lines() { exp '```\nnpm_config_workspace=c\nexport npm_config_workspace\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_export_bare_quoted() { exp '```\nexport "npm_config_workspace"\nnpm run dev\n```\n'
+  rc_is 0 && row referred command "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_export_bare_other_neg() { exp '```\nexport FOO\nexport "FOO=c"\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+
+# Item 3 follow-up: a bare-name match must not accept a later word of an export line that is a
+# comment, sits inside a quoted value, or follows an un-exporting -n.
+c_export_comment_neg() { exp '```\nexport PATH=$PATH:bin  # unlike npm_config_prefix\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_export_span_comment_neg() { exp 'Run `export NODE_ENV=dev # not npm_config_x`, then `npm run nope`.\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_export_quoted_value_neg() { exp '```\nexport MSG="set npm_config_workspace"\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+c_export_n_neg() { exp '```\nexport -n npm_config_workspace\nnpm run nope\n```\n'
+  rc_is 1 && row fail command "npm run nope: no such script" && nocmd referred; }
+
+# Item 4: the rewrite and the strip are linear. The hostile lines are a few hundred KB, past the
+# default 32768-byte AGENTS.md budget, hence --max-bytes. run_bounded kills a quadratic script.
+c_subst_hostile_linear() { new; pkg '"x":"x"'; agents "\`\`\`\n$(rep_ 24000 'a=$(x) ')npm run dev\n\`\`\`\n"
+  run_bounded "$HOSTILE_WATCHDOG_SECS" --max-bytes 1000000
+  rc_is 0 && at referred AGENTS.md:2 "npm run dev: an environment assignment precedes it" && nostatus fail; }
+c_subst_hostile_arg_neg() { new; pkg '"x":"x"'; agents "\`\`\`\n$(rep_ 24000 'a=$(x); ')npm run nope\n\`\`\`\n"
+  run_bounded "$HOSTILE_WATCHDOG_SECS" --max-bytes 1000000
+  rc_is 1 && row fail command "npm run nope: no such script in package.json" && nocmd referred; }
+c_strip_hostile_linear() { new; pkg '"x":"x"'; agents "\`\`\`\n$(rep_ 192000 'a=b ')npm run dev\n\`\`\`\n"
+  run_bounded "$HOSTILE_WATCHDOG_SECS" --max-bytes 9000000
+  rc_is 0 && at referred AGENTS.md:2 "npm run dev: an environment assignment precedes it" && nostatus fail; }
+
+# Item 5: every member of the anchor class, and a line needing more than one rewrite.
+c_anchor_start() { anc 'npm_config_workspace=$(echo c) npm run dev'; }
+c_anchor_space() { anc 'A=1 npm_config_workspace=$(echo c) npm run dev'; }
+c_anchor_tab() { anc 'A=1\tnpm_config_workspace=$(echo c) npm run dev'; }
+c_anchor_semi() { anc 'echo hi;npm_config_workspace=$(echo c) npm run dev'; }
+c_anchor_amp() { anc 'echo hi&&npm_config_workspace=$(echo c) npm run dev'; }
+c_anchor_pipe() { anc 'echo hi|npm_config_workspace=$(echo c) npm run dev'; }
+c_anchor_paren() { anc '(npm_config_workspace=$(echo c) npm run dev)'; }
+c_subst_while_multi() { anc 'A=$(echo a) npm_config_workspace=$(echo c) npm run dev'; }
+c_subst_multi_neg() { exp '```\necho $(date); echo $(date); npm run dev\n```\n'
+  rc_is 1 && row fail command "npm run dev: no such script in package.json" && nocmd referred; }
+
+echo "== #346 follow-ups to #296 =="
+case_ c_export_make_neg "an npm_config_ export does not mask a failing make target"
+case_ c_export_just_neg "an npm_config_ export does not mask a failing just recipe"
+case_ c_export_pnpm "an npm_config_ export refers a later pnpm run"
+case_ c_export_yarn "an npm_config_ export refers a later yarn script, naming the assignment"
+case_ c_subst_prefix_value "a value with literal text before a substitution is an assignment"
+case_ c_subst_double_value "a value of two substitutions is one assignment"
+case_ c_subst_backtick_nospace "a backtick value with no space is an ordinary assignment word"
+case_ c_subst_backtick_space "a backtick value with a space inside gives no row (stated limit)"
+case_ c_export_declare_gx "declare -gx carries"
+case_ c_export_declare_g_x "declare -g -x carries"
+case_ c_declare_g_plain_neg "declare -g without an x exports nothing"
+case_ c_export_quoted_dq "a double-quoted export argument carries"
+case_ c_export_quoted_sq "a single-quoted export argument carries"
+case_ c_export_bare_name "assignment then export of the bare name on one line carries"
+case_ c_export_bare_name_lines "assignment then export of the bare name on two lines carries"
+case_ c_export_bare_quoted "a quoted bare name carries"
+case_ c_export_bare_other_neg "export of other bare or quoted names rescopes nothing"
+case_ c_export_comment_neg "a name in a trailing comment of an export line rescopes nothing"
+case_ c_export_span_comment_neg "a name in a trailing comment of a code-span export rescopes nothing"
+case_ c_export_quoted_value_neg "a name inside a quoted export value rescopes nothing"
+case_ c_export_n_neg "export -n of the name un-exports it and rescopes nothing"
+case_ c_subst_hostile_linear "24000 NAME=\$(..) words are rewritten within the bound"
+case_ c_subst_hostile_arg_neg "24000 separate NAME=\$(..); commands still leave a failing runner failing, within the bound"
+case_ c_strip_hostile_linear "192000 leading assignment words are stripped within the bound"
+case_ c_anchor_start "the rewrite anchor holds at the start of a line"
+case_ c_anchor_space "the rewrite anchor holds after a space"
+case_ c_anchor_tab "the rewrite anchor holds after a tab"
+case_ c_anchor_semi "the rewrite anchor holds after a semicolon"
+case_ c_anchor_amp "the rewrite anchor holds after &&"
+case_ c_anchor_pipe "the rewrite anchor holds after a pipe"
+case_ c_anchor_paren "the rewrite anchor holds after an open parenthesis"
+case_ c_subst_while_multi "a line needing a second rewrite gets it"
+case_ c_subst_multi_neg "substitutions that are not assignment values still fail"
 
 # ---------------------------------------------------------------- #339: a tracked root .npmrc
 # npm rescopes `npm run X` when the project .npmrc sets workspace(s), so the root manifest cannot
@@ -894,8 +1032,14 @@ case_ c_becf "becf395d exits 0 with its two PR-template links referred"
 # <old> replaced by <new> (and <old2> by <new2>, <old3> by <new3>, for a defect that needs two or three edits). A replacement that matches nothing is itself a failure, so a refactor cannot quietly turn
 # a mutant into a no-op that "dies" for the wrong reason.
 M="$W/mutant.sh"
-mutant() {
-  if ! python3 - "$SCRIPT" "$M" "${@:3}" <<'EOF'
+# build_mutant <src> <dst> <old> <new> [<old> <new>...]: write <dst> as <src> with each <old> replaced
+# by its <new>. Exit 2 with `unpaired` on stderr, and no file, for an odd or a zero count of edit
+# arguments (#346: the python zip below would silently drop a trailing <old>, building and running
+# a mutant with fewer edits than the caller wrote). Exit 1 when an <old> is not in <src>.
+build_mutant() {
+  local src=$1 dst=$2; shift 2
+  if [ $# -eq 0 ] || [ $(($# % 2)) -ne 0 ]; then echo "build_mutant: unpaired argument" >&2; return 2; fi
+  python3 - "$src" "$dst" "$@" <<'EOF'
 import sys
 src, dst, *pairs = sys.argv[1:]
 s = open(src).read()
@@ -904,11 +1048,60 @@ for old, new in zip(pairs[0::2], pairs[1::2]):
     s = s.replace(old, new)
 open(dst, "w").write(s)
 EOF
-  then bad "mutant '$1': its anchor no longer matches the script"; return; fi
+}
+mutant() {
+  local brc
+  build_mutant "$SCRIPT" "$M" "${@:3}" 2>/dev/null; brc=$?
+  if [ "$brc" = 2 ]; then bad "mutant '$1': unpaired argument"; return; fi
+  if [ "$brc" != 0 ]; then bad "mutant '$1': its anchor no longer matches the script"; return; fi
   S="$M"; if "$2"; then bad "mutant '$1' survived $2"; else ok "mutant '$1' dies on $2"; fi; S="$SCRIPT"
 }
+# mutant_needs <tool> <label> <case> <old> <new> [...]: mutant, but on a machine without <tool> the
+# mutant is skipped and counted as passed, so the printed total is the same everywhere (#346). The
+# guard is existence by `command -v`, deliberately: a stub that exits 127 is FOUND.
+mutant_needs() {
+  local tool=$1; shift
+  if command -v "$tool" >/dev/null 2>&1; then mutant "$@"; else ok "mutant '$1' needs $tool: skipped"; fi
+}
+# have_gawk: the awk `run` uses is GNU Awk. mawk is only mildly superlinear on the strip site, so a
+# mutant that needs a clear margin over the bound is skipped there. The probe prepends AWKDIR like
+# `run` does; a bare `awk --version` would see the system gawk under AWK_UNDER_TEST=mawk.
+have_gawk() { PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1 | grep -q 'GNU Awk'; }
+
+# #346 harness cases. They sit here, after the helpers above, because a function must be defined
+# before the line that calls it runs. Neither can be killed by a mutant (mutant() mutates only the
+# checker, never this suite); each was proved by deleting the guard from a cp copy of the suite.
+c_mutant_not_run() { : > "$W/mutant_ran"; return 0; }
+c_mutant_odd_pairs() {
+  local dst="$W/odd.sh" err rc out p0 f0
+  rm -f "$dst" "$W/mutant_ran"
+  build_mutant "$SCRIPT" "$dst" 'usage() {' 'usage2() {' 'die() {' 'die2() {' 2>/dev/null; rc=$?
+  [ "$rc" = 0 ] && [ "$(diff "$SCRIPT" "$dst" | grep -c '^>')" = 2 ] && grep -q 'usage2() {' "$dst" && grep -q 'die2() {' "$dst" || return 1
+  rm -f "$dst"
+  err=$(build_mutant "$SCRIPT" "$dst" 'old1' 'new1' 'old2' 2>&1 >/dev/null); rc=$?
+  [ "$rc" = 2 ] && grep -q unpaired <<<"$err" && [ ! -e "$dst" ] || return 1
+  err=$(build_mutant "$SCRIPT" "$dst" 2>&1 >/dev/null); rc=$?
+  [ "$rc" = 2 ] && grep -q unpaired <<<"$err" && [ ! -e "$dst" ] || return 1
+  rm -f "$M"; p0=$pass f0=$fail
+  out=$(mutant "odd label" c_mutant_not_run 'old1' 'new1' 'old2'; echo "inside: $pass $fail")
+  [ ! -e "$M" ] && [ ! -e "$W/mutant_ran" ] && grep -q "FAIL: mutant 'odd label': unpaired argument" <<<"$out" \
+    && [ "$pass" = "$p0" ] && [ "$fail" = "$f0" ]
+}
+c_mutant_skip_absent() {
+  local out p0
+  rm -f "$M" "$W/mutant_ran"; p0=$pass
+  out=$(mutant_needs nosuchtool_346 "absent label" c_mutant_not_run 'old' 'new'; echo "inside: $pass")
+  [ ! -e "$M" ] && [ ! -e "$W/mutant_ran" ] && grep -qF "ok: mutant 'absent label' needs nosuchtool_346: skipped" <<<"$out" \
+    && ! grep -q 'FAIL' <<<"$out" && grep -qF "inside: $((p0 + 1))" <<<"$out"
+}
+echo "== #346 mutant harness =="
+case_ c_mutant_odd_pairs "an unpaired mutant argument fails loudly and builds nothing"
+case_ c_mutant_skip_absent "a mutant that needs an absent tool is skipped as a pass, never built"
 
 echo "== mutants =="
+# The export-name test in code(), for the mutants that edit it. \047 is literal: the awk program sits
+# inside a single-quoted shell variable.
+XRE='ws[j] ~ /^["\047]?[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*(=|["\047]?$)/'
 if command -v python3 >/dev/null 2>&1; then
   mutant "presence instead of tracked" c_untracked 'if tracked AGENTS.md; then' 'if [ -e AGENTS.md ]; then'
   mutant "check-ignore without --no-index" c_ignored 'check-ignore -q --no-index' 'check-ignore -q'
@@ -1020,30 +1213,30 @@ first_file() {'
   mutant "yarn run consults the built-in list" c_y_berry_run 'run) [ $# -ge 2 ] || return; shift; judge_yarn_root' 'run) [ $# -ge 2 ] || return; shift; yarn_builtin "$1"; [ $? = 0 ] && return; judge_yarn_root'
   # #296. Each pair names the case written to kill it.
   mutant "export carry removed" c_export_carry '{ if (infence) fenv = 1; else penv = 1 }' '{ }'
-  mutant "export carry widened to every variable" c_export_other_neg 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /=/'
-  mutant "export carry widened (NODE_ENV)" c_export_node_env_neg 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /=/'
+  mutant "export carry widened to every variable" c_export_other_neg "$XRE" 'ws[j] ~ /=/'
+  mutant "export carry widened (NODE_ENV)" c_export_node_env_neg "$XRE" 'ws[j] ~ /=/'
   mutant "export carry cleared by an intervening line" c_export_gap 'carry = infence ? fenv : penv' 'carry = infence ? fenv : penv; if (w != "npm") { fenv = 0; penv = 0 }'
   mutant "export carry not reset at fence open" c_export_next_fence 'fcd = 0; fenv = 0; pcd = 0; penv = 0; next' 'fcd = 0; pcd = 0; penv = 0; next'
-  mutant "export name match unanchored" c_export_name_neg 'ws[j] ~ /^[Nn][Pp][Mm]_' 'ws[j] ~ /[Nn][Pp][Mm]_'
-  mutant "export match lowercase only" c_export_mixed 'ws[j] ~ /^[Nn][Pp][Mm]_[Cc][Oo][Nn][Ff][Ii][Gg]_[A-Za-z0-9_]*=/' 'ws[j] ~ /^npm_config_[A-Za-z0-9_]*=/'
-  mutant "export match workspace key only" c_export_loglevel '[Ff][Ii][Gg]_[A-Za-z0-9_]*=/' '[Ff][Ii][Gg]_workspace=/'
-  mutant "empty-valued export not carried" c_export_empty '[Ff][Ii][Gg]_[A-Za-z0-9_]*=/' '[Ff][Ii][Gg]_[A-Za-z0-9_]*=[^ \t]/'
+  mutant "export name match unanchored" c_export_name_neg 'ws[j] ~ /^["\047]?[Nn][Pp][Mm]_' 'ws[j] ~ /["\047]?[Nn][Pp][Mm]_'
+  mutant "export match lowercase only" c_export_mixed "$XRE" 'ws[j] ~ /^npm_config_[A-Za-z0-9_]*=/'
+  mutant "export match workspace key only" c_export_loglevel '[Ff][Ii][Gg]_[A-Za-z0-9_]*(=|' '[Ff][Ii][Gg]_workspace(=|'
+  mutant "empty-valued export not carried" c_export_empty '[Ff][Ii][Gg]_[A-Za-z0-9_]*(=|' '[Ff][Ii][Gg]_[A-Za-z0-9_]*(=[^ \t]|'
   mutant "paragraph carry removed" c_export_span 'fenv = 1; else penv = 1' 'fenv = 1; else penv = 0'
   mutant "paragraph carry not reset at blank line" c_export_span_blank_neg 'trim(line) == "") { pcd = 0; penv = 0; next }' 'trim(line) == "") { pcd = 0; next }'
   mutant "prose carry leaks into a following fence" c_export_span_fence 'fcd = 0; fenv = 0; pcd' 'fcd = 0; fenv = penv; pcd'
-  mutant "export carry applied only to later lines" c_export_andand '  while (match(text, /(^|' $'  cin_ = infence ? fenv : penv\n  while (match(text, /(^|' 'carry = infence ? fenv : penv' 'carry = cin_'
+  mutant "export carry applied only to later lines" c_export_andand '  for (i = 1; i <= n; i++) {' $'  cin_ = infence ? fenv : penv\n  for (i = 1; i <= n; i++) {' 'carry = infence ? fenv : penv' 'carry = cin_'
   mutant "carry applied before the export segment" c_export_after_neg 'carry = infence ? fenv : penv' 'carry = (infence ? fenv : penv) || (text ~ /export[ \t]+[Nn][Pp][Mm]_/)'
   mutant "carry overrides a cd" c_export_cd '(infence ? fcd : pcd) + 2 * (env || carry)' '((env || carry) ? 2 : (infence ? fcd : pcd))'
   mutant "carry reported as a directory change" c_export_no_cd_reason '2 * (env || carry)' '2 * env + 3 * carry'
-  mutant "declare -x dropped" c_export_declare '((w == "declare" || w == "typeset")' '((w == "typeset")'
-  mutant "typeset -x dropped" c_export_typeset '((w == "declare" || w == "typeset")' '((w == "declare")'
-  mutant "declare without -x carried" c_declare_plain_neg ' && ws[2] == "-x"))' '))'
-  mutant "assignment-value rewrite removed" c_subst_value '  while (match(text, /(^|' '  while (0 && match(text, /(^|'
-  mutant "substitution anywhere refers the row (other)" c_subst_other_neg '  while (match(text, /(^|' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  while (match(text, /(^|'
-  mutant "substitution anywhere refers the row (argument)" c_subst_after_neg '  while (match(text, /(^|' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  while (match(text, /(^|'
-  mutant "substitution rewrite not word-anchored" c_subst_flag_value '/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=\$\(' '/[A-Za-z_][A-Za-z0-9_]*=\$\('
+  mutant "declare -x dropped" c_export_declare 'if (w == "declare" || w == "typeset") for' 'if (w == "typeset") for'
+  mutant "typeset -x dropped" c_export_typeset 'if (w == "declare" || w == "typeset") for' 'if (w == "declare") for'
+  mutant "declare without -x carried" c_declare_plain_neg 'isx = (w == "export")' 'isx = (w == "export" || w == "declare")'
+  mutant "assignment-value rewrite removed" c_subst_value '  if (index(text, "$(")) {' '  if (0) {'
+  mutant "substitution anywhere refers the row (other)" c_subst_other_neg '  if (index(text, "$(")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "$(")) {'
+  mutant "substitution anywhere refers the row (argument)" c_subst_after_neg '  if (index(text, "$(")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "$(")) {'
+  mutant "substitution rewrite not word-anchored" c_subst_flag_value 'gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/' 'gsub(/[A-Za-z_][A-Za-z0-9_]*=/'
   mutant "a substitution body executed" c_pwned 'IDX=$T/index ROWS=$T/rows' 'IDX=$T/index ROWS=$T/rows; touch pwned'
-  mutant "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$f")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$f")'
+  mutant_needs make "make invoked to find a target" c_make_include 'verdict=$(TGT=$TGT awk "$prog" "$f")' 'make -n -f "$f" "$TGT" >/dev/null 2>&1; verdict=$(TGT=$TGT awk "$prog" "$f")'
   # #339. Each names the case written to kill it.
   mutant "npmrc never read" c_npmrc_ws_undef '    npmrc_scan
 ' ''
@@ -1164,6 +1357,50 @@ NR == 1 {' 'EXTRACT='\''
   mutant "judge_ws npm-only guard dropped" c_npmrc_wsfalse_pnpm_unchanged 'if [ "$pm" = npm ]; then npmrc_scan; [ "$NPMRC_LAST"' 'if true; then npmrc_scan; [ "$NPMRC_LAST"'
   mutant "workspace key ignored when workspaces ends false" c_npmrc_plain_true_then_false_wskey 'if (key == "workspace") hasws = 1' 'if (key == "workspace" && val != "client") hasws = 1'
   mutant "any seen workspaces value refers a plain run" c_npmrc_plain_true_then_false_neg 'seen && last != "false" ? "workspaces"' 'seen ? "workspaces"'
+  # #346. Anchors are exact substrings of code() in the shipped script.
+  mutant "carry applied to every runner" c_export_make_neg '    if (w != "npm" && w != "pnpm" && w != "yarn") carry = 0
+' ''
+  mutant "carry kept for make" c_export_make_neg 'w != "npm" && w != "pnpm" && w != "yarn"' 'w != "npm" && w != "pnpm" && w != "yarn" && w != "make"'
+  mutant "carry kept for just" c_export_just_neg 'w != "npm" && w != "pnpm" && w != "yarn"' 'w != "npm" && w != "pnpm" && w != "yarn" && w != "just"'
+  mutant "pnpm dropped from carry" c_export_pnpm 'w != "npm" && w != "pnpm" && w != "yarn"' 'w != "npm" && w != "yarn"'
+  mutant "yarn dropped from carry" c_export_yarn 'w != "npm" && w != "pnpm" && w != "yarn"' 'w != "npm" && w != "pnpm"'
+  mutant "substitution prefix text not rewritten" c_subst_prefix_value '\001[^ \t;&|()$\001]*\$\(' '\001\$\('
+  mutant "second substitution of a value not rewritten" c_subst_double_value '\)([^ \t;&|()$\001]|\$\([^()]*\))*/, "X", text)' '\)/, "X", text)'
+  mutant "assignment value stops at a backtick" c_subst_backtick_nospace '=[^ \t]*[ \t]+)+/' '=[^ \t`]*[ \t]+)+/'
+  mutant "backtick pairs rewritten as a value" c_subst_backtick_space '  if (index(text, "$(")) {' $'  gsub(/`[^`]*`/, "X", text)\n  if (index(text, "$(")) {'
+  mutant "declare -x flag test is exactly -x" c_export_declare_gx '/^-[A-Za-z]*x/' '/^-x$/'
+  mutant "declare checks only the first dash word" c_export_declare_g_x 'j <= nw && ws[j] ~ /^-/' 'j <= 2 && ws[j] ~ /^-/'
+  mutant "declare carries on any dash word" c_declare_g_plain_neg '/^-[A-Za-z]*x/' '/^-/'
+  mutant "double-quoted export argument not accepted" c_export_quoted_dq 'ws[j] ~ /^["\047]?[Nn]' 'ws[j] ~ /^[\047]?[Nn]'
+  mutant "single-quoted export argument not accepted" c_export_quoted_sq 'ws[j] ~ /^["\047]?[Nn]' 'ws[j] ~ /^["]?[Nn]'
+  mutant "bare export name not accepted (same line)" c_export_bare_name '_[A-Za-z0-9_]*(=|["\047]?$)/' '_[A-Za-z0-9_]*(=)/'
+  mutant "bare export name not accepted (two lines)" c_export_bare_name_lines '_[A-Za-z0-9_]*(=|["\047]?$)/' '_[A-Za-z0-9_]*(=)/'
+  mutant "closing quote of a bare name not accepted" c_export_bare_quoted '(=|["\047]?$)/' '(=|$)/'
+  mutant "export of any bare name carried" c_export_bare_other_neg "$XRE" 'ws[j] ~ /^["\047]?[A-Za-z0-9_]*(=|["\047]?$)/'
+  mutant "export comment guard removed" c_export_comment_neg '        if (ws[j] ~ /^#/) break
+' ''
+  mutant "export comment guard removed (code span)" c_export_span_comment_neg '        if (ws[j] ~ /^#/) break
+' ''
+  mutant "export quote-parity guard removed" c_export_quoted_value_neg 'qn % 2 == 0 && ' ''
+  mutant "export -n guard removed" c_export_n_neg '        if (ws[j] ~ /^-[A-Za-z]*n/) unexp = 1
+' ''
+  mutant "restart-from-start rewrite loop" c_subst_hostile_linear '  if (index(text, "$(")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "$(")) {'
+  mutant "restart-from-start rewrite loop (separate commands)" c_subst_hostile_arg_neg '  if (index(text, "$(")) {' $'  while (match(text, /(^|[ \\t;&|(])[A-Za-z_][A-Za-z0-9_]*=\\$\\([^()]*\\)/)) {\n    rs = substr(text, RSTART, RLENGTH); sub(/=\\$\\([^()]*\\)$/, "=X", rs)\n    text = substr(text, 1, RSTART - 1) rs substr(text, RSTART + RLENGTH)\n  }\n  if (index(text, "$(")) {'
+  # The strip loop is quadratic on gawk only in a way the 6 s bound can see: gawk pre-fix takes
+  # about 34 s at 192000 words, but mawk takes about 3.1 s, under the bound, so the restored loop
+  # would survive there and the mutant is skipped (re-measured at the 6 s default, #346).
+  if have_gawk; then
+    mutant "strip loop restored" c_strip_hostile_linear '    if (match(seg, /^([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)+/)) { seg = substr(seg, RLENGTH + 1); env = 1 }' '    while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) { sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", seg); env = 1 }'
+  else ok "mutant 'strip loop restored' needs gawk: skipped"; fi
+  mutant "rewrite marker pass handles one match" c_subst_while_multi 'gsub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)' 'sub(/(^|[ \t;&|(])[A-Za-z_][A-Za-z0-9_]*=/, "&\001", text)'
+  mutant "anchor class loses the start of a line" c_anchor_start 'gsub(/(^|[ \t;&|(])' 'gsub(/([ \t;&|(])'
+  mutant "anchor class loses the space" c_anchor_space 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[\t;&|(])'
+  mutant "anchor class loses the tab" c_anchor_tab 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ ;&|(])'
+  mutant "anchor class loses the semicolon" c_anchor_semi 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ \t&|(])'
+  mutant "anchor class loses the ampersand" c_anchor_amp 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ \t;|(])'
+  mutant "anchor class loses the pipe" c_anchor_pipe 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ \t;&(])'
+  mutant "anchor class loses the open parenthesis" c_anchor_paren 'gsub(/(^|[ \t;&|(])' 'gsub(/(^|[ \t;&|])'
+  mutant "substitution anywhere refers the row (two segments)" c_subst_multi_neg '  if (index(text, "$(")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "$(")) {'
 else
   bad "python3 is needed to build the mutants"
 fi

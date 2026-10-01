@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 5 -->
+<!-- contributor-docs-version: 6 -->
 
 # Contributor docs
 
@@ -103,11 +103,22 @@ next command referred even when the root defines it**, because what then runs is
 script. Its scope is the fenced block, or for a code span the paragraph, so "Run `cd client`, then
 `npm run dev`." is referred and a `cd` in an earlier block reaches nothing. An assignment in front of the
 runner refers its own row the same way, since `npm_config_workspace=client npm run dev` runs a
-workspace's script, and so does an assignment whose value is a `$(...)` substitution (#296). An
+workspace's script, and so does an assignment whose value holds one or more non-nested `$(...)`
+substitutions, with or without literal text around them (`pre$(a)`, `$(a)$(b)`; #296, #346). An
 `export`, `declare -x` or `typeset -x` of an `npm_config_` variable (any case, any key, an empty
 value too, since referring is the safe side) refers every later runner of the same fenced block or
-code-span paragraph, and a later segment of its own line, never an earlier one. `export FOO=1` and
-`export NODE_ENV=production` rescope nothing and still fail.
+code-span paragraph, and a later segment of its own line, never an earlier one. Also carried:
+`declare` or `typeset` with any dash word holding an `x` (`-gx`, or `-g -x`), a quoted argument
+(`export "npm_config_x=y"`), and a bare name (`npm_config_x=y; export npm_config_x`). Only a later
+`npm`, `pnpm` or `yarn` runner is rescoped, since only those read the variable: a failing `make`
+target or `just` recipe stays a `fail`. `export FOO=1`, `export NODE_ENV=production` and
+`declare -g npm_config_x=y` (no `x`) rescope nothing and still fail. Only the listed spellings
+carry: an `npm_config_` word after a word starting with `#` (a comment) or inside a quoted value
+carries nothing, and a dash word holding an `n` anywhere on the line (`export -n` un-exports)
+voids the whole line. The guards count quotes rather than parse them, so a `#` or `-n` inside a
+quoted value, mixed quote kinds and an escaped quote can misjudge a line. Still a false `fail`: `$VAR` or
+`${...}` before a substitution (`npm_config_workspace=$HOME$(echo c) npm run dev`), and
+`export "npm_config_x"=y`, whose quote closes before the `=`.
 A tracked root `.npmrc` that sets `workspace` (any value, `workspace[]=` and `workspace = x`
 included) or `workspaces` whose last value is not exactly `false` (npm takes the last value of a repeated key) refers every `npm run X` the same way,
 whether or not the root defines X, because npm then runs the workspace's script (#339). The detail
@@ -120,8 +131,9 @@ The limits, stated so they are not mistaken for coverage: spans and links are fo
 line; indented code blocks are prose; the paragraph rule is order-dependent, and list items with
 no blank line between them form one paragraph; make's built-in implicit rules are not modelled; a
 percent-encoded non-ASCII target is referred. An export in a prose code span does not carry into a
-following fence. Not modelled, so a false `fail` stays possible: nested-paren and backtick
-substitution values, `pnpm_config_*`, `JUST_JUSTFILE` and `JUST_WORKING_DIRECTORY`, `unset`,
+following fence. A backtick value is not rewritten: with no space inside it is an ordinary assignment
+word (referred), with a space inside the row is simply absent. Not modelled, so a false `fail`
+stays possible: nested-paren substitution values, `pnpm_config_*`, `JUST_JUSTFILE` and `JUST_WORKING_DIRECTORY`, `unset`,
 `set -a`, `env VAR=... cmd`, the user and global `.npmrc`, `NPM_CONFIG_USERCONFIG` and a non-root
 `.npmrc` (npm never reads it for a run from the root). Where npm would run the root or stop with an error, a tracked `.npmrc` still refers
 (safe side): `workspaces=0`, `workspaces=null`, `workspace []=x`, an inline comment after `false`, and `workspace` with no
