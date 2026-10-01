@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 6
+# check-contributor-docs-version: 7
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -32,7 +32,8 @@
 #              --filter, -F and --filter=, each followed by `run X`. Yarn never fails, because yarn
 #              falls through to a binary: a defined root script is a pass, anything else referred.
 #              Everything else is referred or silent. make and just are read as TEXT and never
-#              invoked: make runs recipes while remaking makefiles.
+#              invoked: make runs recipes while remaking makefiles. npm run X is also referred when a
+#              tracked root .npmrc sets workspace or workspaces (#339), or is a symlink.
 #   script-path  `node|sh|bash <path>`: tracked passes, anything else is referred (a build output
 #              is correct and untracked). A path leaving the repository is never read.
 #   link       Relative links, images and reference definitions resolve to a tracked path or to a
@@ -59,15 +60,23 @@
 # JUST_JUSTFILE and JUST_WORKING_DIRECTORY; unset; set -a; `env VAR=... cmd`.
 #
 # A TRACKED ROOT .npmrc (#339). npm rescopes `npm run X` when that file sets `workspace` (any value,
-# `workspace[]=` and spaces around `=` included) or `workspaces` with any value but exactly `false`,
-# so such an `npm run X` is referred whether or not the root defines X. Only npm: pnpm and yarn
-# ignore those keys, and an explicit -w or --workspace replaces the rc value. The file is read from
+# `workspace[]=` and spaces around `=` included) or `workspaces` whose LAST value is not exactly
+# `false` (npm takes the last value of a repeated key), so such an `npm run X` is referred whether
+# or not the root defines X. Only npm: pnpm and yarn
+# ignore those keys, and an explicit -w or --workspace is refused by npm when the last `workspaces`
+# value is false, so that form is referred (see below). The file is read from
 # the INDEX as data (never executed or expanded) and none of its text is ever printed: the detail
 # names only the fixed key. Parsed as npm's ini does: a trailing CR is stripped, `;` and `#` lines
-# skipped, the scan stops at a [section] header, the key is case-sensitive. Limits: user and global
-# .npmrc, NPM_CONFIG_USERCONFIG and a non-root .npmrc are never read (a clone does not receive
-# them); safe-side referrals where npm would run the root: `workspaces=0`, an inline comment after
-# `false`, `true` then `false`, and `workspace` with no root `workspaces` field.
+# skipped, the scan stops at a [section] header, the key is case-sensitive. Surrounding quotes on a
+# value are stripped, so `workspaces="false"` and `'false'` read as false. A tracked symlinked
+# .npmrc is referred without being read, so a symlinked .npmrc holding `workspaces=false` with an
+# explicit -w or --workspace form still passes. Limits: user and global .npmrc, NPM_CONFIG_USERCONFIG
+# and a non-root .npmrc are never read (npm never reads a non-root .npmrc for a run from the root;
+# the user and global files and NPM_CONFIG_USERCONFIG are outside the repository); safe-side
+# referrals where npm would run the root or stop with an error: `workspaces=0`, `workspaces=null`,
+# `workspace []=x`, an inline comment after `false`, and `workspace` with no root `workspaces`
+# field. Explicit forms under `workspaces=0` or `false # c` are not specified (npm behaviour not
+# run). The -w refusal and the last-value rule are verified on npm 10.9.7 only.
 #
 # Deliberate limits: code spans and links are found within one line; indented code blocks are
 # prose; the paragraph rule is order-dependent ("Run `npm run dev` (after `cd client`)." judges dev
@@ -404,17 +413,25 @@ trim_punct() { TP=$1; while :; do case "$TP" in *[.,\;:!?]) TP=${TP%?} ;; *) bre
 # first_file <candidates...>: the first one that is tracked.
 first_file() { local f; for f in "$@"; do tracked "$f" && { printf '%s' "$f"; return 0; }; done; return 1; }
 
-# npmrc_scan: sets NPMRC_KEY to `workspace`, `workspaces` or empty, once (#339). Called DIRECTLY,
-# never through $(...), so the memo survives. The awk prints only a fixed literal, never file text,
-# and its stderr is discarded, so no .npmrc content can reach either stream.
-NPMRC_DONE="" NPMRC_KEY=""
+# npmrc_scan: sets NPMRC_KEY to `workspace`, `workspaces`, `symlink` or empty, and NPMRC_LAST to
+# `wsfalse` when the LAST `workspaces` value is exactly `false`, once (#339, #357). Called DIRECTLY,
+# never through $(...), so the memo survives. The awk prints only fixed literals, never file text,
+# and its stderr is discarded, so no .npmrc content can reach either stream. A symlinked .npmrc is
+# detected from the index mode and never read or followed: the link target could be a user's
+# ~/.npmrc holding a token, so the checker resolves nothing from disk and refers (decision A).
+# npm takes the LAST value of a repeated key (verified on npm 10.9.7 only), so the awk records
+# whether any `workspace` key exists and the last `workspaces` value, and judges them in END.
+NPMRC_DONE="" NPMRC_KEY="" NPMRC_LAST="" NPMRC_MODE=""
 npmrc_scan() {
   [ -n "$NPMRC_DONE" ] && return
   NPMRC_DONE=1
   tracked .npmrc || return
+  NPMRC_MODE=$(git ls-files -s -- .npmrc 2>/dev/null); NPMRC_MODE=${NPMRC_MODE%% *}
+  if [ "$NPMRC_MODE" = 120000 ]; then NPMRC_KEY=symlink; return; fi
+  local out
   # npm splits on a lone CR too and trims a leading byte-order mark, and only a `[` that starts the
   # line opens a section, so the header test runs before the indentation trim (#339 review M1).
-  NPMRC_KEY=$(git show :.npmrc 2>/dev/null | tr '\r' '\n' | LC_ALL=C awk '
+  out=$(git show :.npmrc 2>/dev/null | tr '\r' '\n' | LC_ALL=C awk '
     NR == 1 { sub(/^\357\273\277/, "") }
     /^\[[^]]*\][ \t]*$/ { exit }
     { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
@@ -424,9 +441,12 @@ npmrc_scan() {
       sub(/[ \t]+$/, "", key); sub(/\[\]$/, "", key); sub(/[ \t]+$/, "", key)
       sub(/^[ \t]+/, "", val); n = length(val); c = substr(val, 1, 1)
       if (n > 1 && (c == "\"" || c == "\047") && substr(val, n, 1) == c) val = substr(val, 2, n - 2)
-      if (key == "workspace") { print "workspace"; exit }
-      if (key == "workspaces" && val != "false") { print "workspaces"; exit }
-    }' 2>/dev/null)
+      if (key == "workspace") hasws = 1
+      if (key == "workspaces") { last = val; seen = 1 }
+    }
+    END { print (hasws ? "workspace" : seen && last != "false" ? "workspaces" : "none"), (seen && last == "false" ? "wsfalse" : "-") }' 2>/dev/null)
+  read -r NPMRC_KEY NPMRC_LAST <<<"$out"
+  [ "$NPMRC_KEY" = none ] && NPMRC_KEY=""
 }
 
 judge_pm() {   # <loc> <cd> <pm> <args...>
@@ -475,6 +495,7 @@ judge_pm() {   # <loc> <cd> <pm> <args...>
   [ "$cd" != 0 ] && { row referred command "$loc" "$pm run $name: $(why_cd "$cd")"; return; }
   if [ "$pm" = npm ]; then
     npmrc_scan
+    [ "$NPMRC_KEY" = symlink ] && { row referred command "$loc" "npm run $name: a tracked .npmrc is a symlink"; return; }
     [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm run $name: a tracked .npmrc sets $NPMRC_KEY"; return; }
   fi
   tracked package.json || { row referred command "$loc" "$pm run $name: no root package.json is tracked"; return; }
@@ -517,6 +538,7 @@ judge_ws() {
   trim_punct "$name"; name=$TP
   [[ $name =~ $sre ]] || { row referred command "$loc" "$lab: $name is not a literal script name"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }
+  if [ "$pm" = npm ]; then npmrc_scan; [ "$NPMRC_LAST" = wsfalse ] && { row referred command "$loc" "$lab: a tracked .npmrc sets workspaces=false"; return; }; fi
   resolve_workspace "$ws" "$name"
   case "$WS_STATE" in
     defined) row pass command "$loc" "$lab: $name is defined in $WS_PATH" ;;

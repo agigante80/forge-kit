@@ -472,6 +472,59 @@ c_npmrc_token() { npmrc_case '//registry.example/:_authToken=SECRETTOKEN\nworksp
 c_npmrc_unchanged_forms() { npmrc_case 'workspace=client\n' 'npm -w client run nope'
   rc_is 1 && row fail command "npm -w client run nope: nope is not a script of client (client/package.json)" && nostatus referred; }
 
+# #357: a symlinked root .npmrc is referred from the index mode and never followed or printed.
+# npmrc_link <text the link target holds> [doc line] [target path, default cfg/npmrc]: as npmrc_case,
+# but .npmrc is a tracked mode 120000 link. A relative target is tracked too; an absolute one lies
+# outside the repository and is only ever written to disk.
+npmrc_link() { local t=${3:-cfg/npmrc}; new; pkg '"x":"x"'; tput_ client/package.json '{"name":"client","scripts":{"dev":"x"}}\n'
+  case "$t" in /*) printf '%b' "$1" > "$t" ;; *) tput_ "$t" "$1" ;; esac
+  ln -s "$t" "$R/.npmrc"; git -C "$R" add .npmrc
+  agents "\`\`\`\n${2:-npm run dev}\n\`\`\`\n"; run; }
+linkmode() { [ "$(git -C "$R" ls-files -s -- .npmrc | cut -d' ' -f1)" = 120000 ]; }
+c_npmrc_symlink() { npmrc_link 'workspace=client\n'
+  linkmode && rc_is 0 && row referred command "npm run dev: a tracked .npmrc is a symlink" && nocmd fail && nocmd pass && none "cfg/npmrc"; }
+c_npmrc_symlink_nofollow() { npmrc_link '_authToken=SECRETTOKEN\nworkspace=client\n' 'npm run dev' "$W/outside$n"
+  linkmode && row referred command "is a symlink" && ! row referred command "sets workspace" && none SECRETTOKEN && none "$W/outside" \
+    && ! grep -qF SECRETTOKEN <<<"$ERR" && ! grep -qF "$W/outside" <<<"$ERR"; }
+c_npmrc_symlink_text_neg() { npmrc_case 'cfg/npmrc\n'; rc_is 1 && row fail command "no such script" && nostatus referred; }
+c_npmrc_symlink_subdir_neg() { npmrc_case -; tput_ cfg/npmrc 'workspace=client\n'; ln -s ../cfg/npmrc "$R/client/.npmrc"; git -C "$R" add client/.npmrc; run
+  rc_is 1 && row fail command "no such script" && nostatus referred; }
+c_npmrc_symlink_pnpm_unchanged() { npmrc_link 'workspace=client\n' 'pnpm run dev'
+  linkmode && rc_is 1 && row fail command "pnpm run dev: no such script in package.json" && nostatus referred; }
+c_npmrc_symlink_explicit_limit() { npmrc_link 'workspaces=false\n' 'npm -w client run dev'
+  linkmode && rc_is 0 && row pass command "npm -w client run dev"; }
+
+# #357: quote stripping and the leading-space trim.
+c_npmrc_ws_false_quoted() { npmrc_case 'workspaces="false"\n'; rc_is 1 && row fail command "no such script" && nostatus referred; }
+c_npmrc_ws_false_squoted() { npmrc_case "workspaces='false'\n"; rc_is 1 && row fail command "no such script" && nostatus referred; }
+c_npmrc_quote_mismatch() { npmrc_case "workspaces=\"false'\n"; rc_is 0 && row referred command "a tracked .npmrc sets workspaces"; }
+c_npmrc_indented_key() { npmrc_case '  workspace=client\n'; rc_is 0 && row referred command "a tracked .npmrc sets workspace" && nostatus fail; }
+c_npmrc_indented_key_tab() { npmrc_case '\tworkspace=client\n'; rc_is 0 && row referred command "a tracked .npmrc sets workspace" && nostatus fail; }
+c_npmrc_indented_nonkey_neg() { npmrc_case '  registry=x\n'; rc_is 1 && row fail command "no such script" && nostatus referred; }
+
+# #357: workspaces=false refuses an explicit workspace run; npm takes the LAST value (npm 10.9.7).
+c_npmrc_wsfalse_explicit_w() { npmrc_case 'workspaces=false\n' 'npm -w client run dev'
+  rc_is 0 && row referred command "npm -w client run dev: a tracked .npmrc sets workspaces=false" && nocmd pass && nostatus fail; }
+c_npmrc_wsfalse_explicit_workspace() { npmrc_case 'workspaces=false\n' 'npm --workspace client run dev'
+  rc_is 0 && row referred command "npm --workspace client run dev: a tracked .npmrc sets workspaces=false" && nocmd pass && nostatus fail; }
+c_npmrc_wsfalse_explicit_eq() { npmrc_case 'workspaces=false\n' 'npm --workspace=client run dev'
+  rc_is 0 && row referred command "npm --workspace=client run dev: a tracked .npmrc sets workspaces=false" && nocmd pass && nostatus fail; }
+c_npmrc_wsfalse_last_true_then_false() { npmrc_case 'workspaces=true\nworkspaces=false\n' 'npm -w client run dev'
+  rc_is 0 && row referred command "sets workspaces=false"; }
+c_npmrc_wsfalse_last_false_then_true() { npmrc_case 'workspaces=false\nworkspaces=true\n' 'npm -w client run dev'
+  rc_is 0 && row pass command "npm -w client run dev" && nostatus referred; }
+c_npmrc_wsfalse_with_wskey_explicit() { npmrc_case 'workspaces=false\nworkspace=client\n' 'npm -w client run dev'
+  rc_is 0 && row referred command "sets workspaces=false"; }
+c_npmrc_wsfalse_explicit_neg() { npmrc_case 'workspaces=true\n' 'npm -w client run dev'
+  rc_is 0 && row pass command "npm -w client run dev"; }
+c_npmrc_wsfalse_pnpm_unchanged() { npmrc_case 'workspaces=false\n' 'pnpm --filter client run dev'
+  rc_is 0 && row pass command "pnpm --filter client run dev" && nostatus referred; }
+c_npmrc_wsfalse_none_neg() { npmrc_case - 'npm -w client run dev'; rc_is 0 && row pass command "npm -w client run dev" && nostatus referred; }
+c_npmrc_plain_false_then_true() { npmrc_case 'workspaces=false\nworkspaces=true\n'; rc_is 0 && row referred command "a tracked .npmrc sets workspaces"; }
+c_npmrc_plain_true_then_false_wskey() { npmrc_case 'workspaces=true\nworkspaces=false\nworkspace=client\n'
+  rc_is 0 && row referred command "a tracked .npmrc sets workspace"; }
+c_npmrc_plain_true_then_false_neg() { npmrc_case 'workspaces=true\nworkspaces=false\n'; rc_is 1 && row fail command "no such script" && nostatus referred; }
+
 echo "== #339 a tracked root .npmrc =="
 case_ c_npmrc_ws_undef "workspace=client refers an npm run the root lacks, naming the key"
 case_ c_npmrc_ws_defined "workspace=client refers an npm run the root defines, never a pass"
@@ -495,6 +548,30 @@ case_ c_npmrc_untracked "an untracked .npmrc is not read"
 case_ c_npmrc_subdir_neg "a non-root .npmrc is not read"
 case_ c_npmrc_token "no .npmrc text, token or matched line, reaches stdout or stderr"
 case_ c_npmrc_unchanged_forms "the explicit npm -w form is judged as before"
+case_ c_npmrc_symlink "a tracked symlinked .npmrc is referred, never read"
+case_ c_npmrc_symlink_nofollow "a symlinked .npmrc never leaks its target path or text"
+case_ c_npmrc_symlink_text_neg "a regular .npmrc whose text looks like a path is judged normally"
+case_ c_npmrc_symlink_subdir_neg "a symlinked non-root .npmrc is not read"
+case_ c_npmrc_symlink_pnpm_unchanged "pnpm run is untouched by a symlinked .npmrc"
+case_ c_npmrc_symlink_explicit_limit "pinned limit: a symlinked .npmrc with an explicit -w form passes"
+case_ c_npmrc_ws_false_quoted "workspaces=\"false\" is stripped to false, no referral"
+case_ c_npmrc_ws_false_squoted "workspaces='false' is stripped to false, no referral"
+case_ c_npmrc_quote_mismatch "mismatched quotes are not stripped, so it refers"
+case_ c_npmrc_indented_key "an indented workspace key refers"
+case_ c_npmrc_indented_key_tab "a tab-indented workspace key refers"
+case_ c_npmrc_indented_nonkey_neg "an indented unrelated key does not refer"
+case_ c_npmrc_wsfalse_explicit_w "workspaces=false refers npm -w"
+case_ c_npmrc_wsfalse_explicit_workspace "workspaces=false refers npm --workspace"
+case_ c_npmrc_wsfalse_explicit_eq "workspaces=false refers npm --workspace="
+case_ c_npmrc_wsfalse_last_true_then_false "true then false: the last value refers an explicit form"
+case_ c_npmrc_wsfalse_last_false_then_true "false then true: the last value passes an explicit form"
+case_ c_npmrc_wsfalse_with_wskey_explicit "workspaces=false plus a workspace key still refers an explicit form"
+case_ c_npmrc_wsfalse_explicit_neg "workspaces=true leaves an explicit form a pass"
+case_ c_npmrc_wsfalse_pnpm_unchanged "pnpm --filter ignores workspaces=false"
+case_ c_npmrc_wsfalse_none_neg "no .npmrc: an explicit form is a pass"
+case_ c_npmrc_plain_false_then_true "false then true refers a plain run"
+case_ c_npmrc_plain_true_then_false_wskey "true, false, then a workspace key refers a plain run"
+case_ c_npmrc_plain_true_then_false_neg "true then false with no workspace key is judged at the root"
 
 # ---------------------------------------------------------------- #299: yarn and workspaces
 # mf <path> <name> <scripts-json>: write and track a workspace manifest.
@@ -759,8 +836,8 @@ case_ c_ea "ea508164 fails on test:unit, format and lint in .github/CONTRIBUTING
 case_ c_becf "becf395d exits 0 with its two PR-template links referred"
 
 # ---------------------------------------------------------------- mutants
-# mutant <label> <case> <old> <new> [<old2> <new2>]: the case must FAIL against the script with
-# <old> replaced by <new> (and <old2> by <new2>, for a defect that needs two edits). A replacement that matches nothing is itself a failure, so a refactor cannot quietly turn
+# mutant <label> <case> <old> <new> [<old2> <new2> [<old3> <new3>]]: the case must FAIL against the script with
+# <old> replaced by <new> (and <old2> by <new2>, <old3> by <new3>, for a defect that needs two or three edits). A replacement that matches nothing is itself a failure, so a refactor cannot quietly turn
 # a mutant into a no-op that "dies" for the wrong reason.
 M="$W/mutant.sh"
 mutant() {
@@ -924,16 +1001,16 @@ first_file() {'
     { print "workspace"; exit }'
   mutant "comment lines count as the key" c_npmrc_comment_neg '$0 == "" || /^[;#]/ { next }' '$0 == "" { next }
     { sub(/^[;#][ \t]*/, "") }'
-  mutant "substring match on workspace" c_npmrc_key_neg 'if (key == "workspace") {' 'if (index(key, "workspace")) {'
-  mutant "workspaces key ignored" c_npmrc_workspaces 'if (key == "workspaces" && val != "false")' 'if (0)'
+  mutant "substring match on workspace" c_npmrc_key_neg 'if (key == "workspace") hasws = 1' 'if (index(key, "workspace")) hasws = 1'
+  mutant "workspaces key ignored" c_npmrc_workspaces 'if (key == "workspaces") { last = val; seen = 1 }' 'if (0) { last = val; seen = 1 }'
   mutant "only a would-be fail becomes referred" c_npmrc_ws_defined '[ -n "$NPMRC_KEY" ] && { row referred' '[ -n "$NPMRC_KEY" ] && ! { tracked package.json && resolve_script "$name"; } && { row referred'
-  mutant "a non-root .npmrc is read" c_npmrc_subdir_neg 'tracked .npmrc || return' 'tracked client/.npmrc || return' 'git show :.npmrc 2>/dev/null |' 'git show :client/.npmrc 2>/dev/null |'
+  mutant "a non-root .npmrc is read" c_npmrc_subdir_neg 'tracked .npmrc || return' 'tracked client/.npmrc || return' 'git ls-files -s -- .npmrc' 'git ls-files -s -- client/.npmrc' 'git show :.npmrc 2>/dev/null |' 'git show :client/.npmrc 2>/dev/null |'
   mutant "the whole .npmrc is echoed" c_npmrc_token '"npm run $name: a tracked .npmrc sets $NPMRC_KEY"; return; }' '"npm run $name: a tracked .npmrc sets $NPMRC_KEY"; git show :.npmrc; return; }'
-  mutant "the matched .npmrc line is echoed" c_npmrc_token 'if (key == "workspace") { print "workspace"; exit }' 'if (key == "workspace") { print "workspace " $0; exit }'
+  mutant "the matched .npmrc line is echoed" c_npmrc_token 'if (key == "workspace") hasws = 1' 'if (key == "workspace") { hasws = 1; wsl = $0 }' 'print (hasws ? "workspace" :' 'print (hasws ? wsl :'
   mutant "npm-only guard dropped" c_npmrc_pnpm_unchanged '  if [ "$pm" = npm ]; then
     npmrc_scan' '  if true; then
     npmrc_scan'
-  mutant "refer on workspaces=false" c_npmrc_ws_false 'key == "workspaces" && val != "false"' 'key == "workspaces"'
+  mutant "refer on workspaces=false" c_npmrc_ws_false 'seen && last != "false" ? "workspaces"' 'seen ? "workspaces"'
   mutant "CR strip dropped" c_npmrc_ws_false_crlf "| tr '\\r' '\\n' |" '|'
   mutant "section stop dropped" c_npmrc_section_neg '    /^\[[^]]*\][ \t]*$/ { exit }
 ' ''
@@ -942,7 +1019,7 @@ first_file() {'
   mutant "section test after the indentation trim" c_npmrc_indented_section '    /^\[[^]]*\][ \t]*$/ { exit }
     { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }' '    { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
     /^\[[^]]*\][ \t]*$/ { exit }'
-  mutant "case-insensitive key" c_npmrc_case_neg 'if (key == "workspace") {' 'if (tolower(key) == "workspace") {'
+  mutant "case-insensitive key" c_npmrc_case_neg 'if (key == "workspace") hasws = 1' 'if (tolower(key) == "workspace") hasws = 1'
   mutant "[] strip dropped" c_npmrc_bracket 'sub(/\[\]$/, "", key); ' ''
   mutant "detail always workspace" c_npmrc_workspaces 'sets $NPMRC_KEY"' 'sets workspace"'
   mutant "final line without a newline dropped" c_npmrc_no_final_newline 'git show :.npmrc 2>/dev/null |' 'git show :.npmrc 2>/dev/null | while IFS= read -r l; do printf "%s\n" "$l"; done |'
@@ -950,6 +1027,33 @@ first_file() {'
   mutant "refers when no .npmrc exists" c_npmrc_none_neg '    [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "npm run' '    [ -z "$NPMRC_KEY" ] && { row referred command "$loc" "npm run'
   mutant "the .npmrc rule leaks into the explicit workspace forms" c_npmrc_unchanged_forms '  [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }' '  npmrc_scan; [ -n "$NPMRC_KEY" ] && { row referred command "$loc" "$lab: a tracked .npmrc sets $NPMRC_KEY"; return; }
   [ "$cd" != 0 ] && { row referred command "$loc" "$lab: $(why_cd "$cd")"; return; }'
+  # #357. Anchors are exact substrings of the awk and the functions around it.
+  mutant "quote strip dropped" c_npmrc_ws_false_quoted 'if (n > 1 && (c == "\"" || c == "\047") && substr(val, n, 1) == c) val = substr(val, 2, n - 2)' 'if (0) val = substr(val, 2, n - 2)'
+  mutant "single quote not stripped" c_npmrc_ws_false_squoted '(c == "\"" || c == "\047")' '(c == "\"")'
+  mutant "closing quote not checked" c_npmrc_quote_mismatch '&& substr(val, n, 1) == c) val =' ') val ='
+  mutant "leading trim dropped" c_npmrc_indented_key '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }' '{ sub(/[ \t]+$/, "") }'
+  mutant "trim narrowed to spaces" c_npmrc_indented_key_tab '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }' '{ sub(/^ +/, ""); sub(/[ \t]+$/, "") }'
+  mutant "any .npmrc refers regardless of key (indented)" c_npmrc_indented_nonkey_neg '    $0 == "" || /^[;#]/ { next }' '    $0 == "" || /^[;#]/ { next }
+    { print "workspace"; exit }'
+  mutant "symlink check removed" c_npmrc_symlink 'if [ "$NPMRC_MODE" = 120000 ]; then' 'if [ "$NPMRC_MODE" = never ]; then'
+  mutant "link followed on disk and printed" c_npmrc_symlink_nofollow 'NPMRC_KEY=symlink; return; fi' 'NPMRC_KEY=symlink; cat .npmrc; return; fi'
+  mutant "target echoed" c_npmrc_symlink_nofollow 'NPMRC_KEY=symlink; return; fi' 'NPMRC_KEY=symlink; readlink .npmrc; return; fi'
+  mutant "link detected by content" c_npmrc_symlink_text_neg 'if [ "$NPMRC_MODE" = 120000 ]; then' 'if [ "$NPMRC_MODE" = 120000 ] || git show :.npmrc 2>/dev/null | grep -q /; then'
+  mutant "a non-root .npmrc is read through the mode probe" c_npmrc_symlink_subdir_neg 'tracked .npmrc || return' 'tracked client/.npmrc || return' 'git ls-files -s -- .npmrc' 'git ls-files -s -- client/.npmrc' 'git show :.npmrc 2>/dev/null |' 'git show :client/.npmrc 2>/dev/null |'
+  mutant "npm-only guard dropped (symlink)" c_npmrc_symlink_pnpm_unchanged '  if [ "$pm" = npm ]; then
+    npmrc_scan' '  if true; then
+    npmrc_scan'
+  mutant "explicit form not consulted (-w)" c_npmrc_wsfalse_explicit_w '[ "$NPMRC_LAST" = wsfalse ] && { row referred command "$loc" "$lab: a tracked .npmrc sets workspaces=false"; return; }; fi' 'true; fi'
+  mutant "explicit form not consulted (--workspace)" c_npmrc_wsfalse_explicit_workspace '[ "$NPMRC_LAST" = wsfalse ] && { row referred command "$loc" "$lab: a tracked .npmrc sets workspaces=false"; return; }; fi' 'true; fi'
+  mutant "explicit form not consulted (--workspace=)" c_npmrc_wsfalse_explicit_eq '[ "$NPMRC_LAST" = wsfalse ] && { row referred command "$loc" "$lab: a tracked .npmrc sets workspaces=false"; return; }; fi' 'true; fi'
+  mutant "first value wins (true then false)" c_npmrc_wsfalse_last_true_then_false 'if (key == "workspaces") { last = val; seen = 1 }' 'if (key == "workspaces" && !seen) { last = val; seen = 1 }'
+  mutant "first value wins (false then true)" c_npmrc_wsfalse_last_false_then_true 'if (key == "workspaces") { last = val; seen = 1 }' 'if (key == "workspaces" && !seen) { last = val; seen = 1 }'
+  mutant "first value wins (plain)" c_npmrc_plain_false_then_true 'if (key == "workspaces") { last = val; seen = 1 }' 'if (key == "workspaces" && !seen) { last = val; seen = 1 }'
+  mutant "workspace key masks the false state" c_npmrc_wsfalse_with_wskey_explicit '(seen && last == "false" ? "wsfalse" : "-")' '(!hasws && seen && last == "false" ? "wsfalse" : "-")'
+  mutant "any workspaces value refers an explicit form" c_npmrc_wsfalse_explicit_neg '(seen && last == "false" ? "wsfalse" : "-")' '(seen ? "wsfalse" : "-")'
+  mutant "judge_ws npm-only guard dropped" c_npmrc_wsfalse_pnpm_unchanged 'if [ "$pm" = npm ]; then npmrc_scan; [ "$NPMRC_LAST"' 'if true; then npmrc_scan; [ "$NPMRC_LAST"'
+  mutant "workspace key ignored when workspaces ends false" c_npmrc_plain_true_then_false_wskey 'if (key == "workspace") hasws = 1' 'if (key == "workspace" && val != "client") hasws = 1'
+  mutant "any seen workspaces value refers a plain run" c_npmrc_plain_true_then_false_neg 'seen && last != "false" ? "workspaces"' 'seen ? "workspaces"'
 else
   bad "python3 is needed to build the mutants"
 fi
