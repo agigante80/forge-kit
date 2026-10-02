@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-labels-version: 13
+# sync-labels-version: 14
 # sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not.
 #
 # NO `awk -v` IN THIS FILE (#259). Its one site carried the compiled-in separator `$'\x1f'`, a
@@ -29,7 +29,9 @@
 # Exit codes are distinguishable, because this runs from automation:
 #   0  in sync (or synced successfully)
 #   1  --check found drift (the repo needs syncing; nothing is wrong with the tooling)
-#   2  usage or environment error (bad flag, no labels file, no jq, bash < 4, unresolvable repo)
+#   2  usage or environment error (bad flag, no labels file, no jq, bash < 4, unresolvable repo,
+#      unrecognised forge host; that refusal comes before the declaration is parsed, so a
+#      malformed declaration on an unrecognised host exits 2, not 3)
 #   3  the declaration is malformed; NOTHING was written
 #   4  a write failed part-way; the host may be partially synced
 #
@@ -81,6 +83,14 @@ command -v jq >/dev/null 2>&1 || { echo "sync-labels: jq is required" >&2; exit 
 
 REPO="${REPO_OVERRIDE:-$(forge_repo)}"
 [ -n "$REPO" ] || { echo "sync-labels: could not resolve the repo" >&2; exit 2; }
+# The host is asked ONCE, and anything but the two known answers is refused before any request
+# (#331): an empty answer is what forge_host prints when it refuses an invalid FORGE_HOST, and the
+# update dispatch below used to send it a GitHub PATCH through a `*)` fallthrough.
+HOST="$(forge_host)"
+case "$HOST" in
+  github|forgejo) ;;
+  *) echo "sync-labels: unrecognised forge host '$HOST' (expected github or forgejo)" >&2; exit 2 ;;
+esac
 
 # --- 1. parse the declaration ------------------------------------------------------------------
 # Deliberately strict. The accepted shape is what forge-kit ships:
@@ -284,14 +294,14 @@ while IFS="$US" read -r name color desc unterm; do
       else
         body=$(jq -nc --arg n "$name" --arg c "$color" --arg d "$desc" \
                  '{name:$n, color:$c, description:$d}')
-        case "$(forge_host)" in
+        case "$HOST" in
           forgejo) id=$(host_field "$name" id)
                    [ -n "$id" ] || { echo "sync-labels: no id for '$name' on forgejo" >&2; exit 4; }
                    forge_api PATCH "/repos/$REPO/labels/$id" "$body" >/dev/null ;;
           # GitHub addresses the label by NAME in the PATH, so it MUST be percent-encoded: a stock
           # name like `help wanted` puts a raw space in the URL, and a `#` would open a fragment
           # and silently target a different label (round-1 finding M2).
-          *)       enc=$(jq -rn --arg n "$name" '$n|@uri')
+          github)  enc=$(jq -rn --arg n "$name" '$n|@uri')
                    forge_api PATCH "/repos/$REPO/labels/$enc" "$body" >/dev/null ;;
         esac || { echo "sync-labels: failed to update '$name'; the host may be partially synced" >&2; exit 4; }
       fi

@@ -30,7 +30,7 @@ cp "$SRC" "$T/sync-labels.sh"
 
 cat > "$T/forge-lib.sh" <<'STUB'
 forge_repo() { printf 'o/r'; }
-forge_host() { printf '%s' "${STUB_HOST:-github}"; }
+forge_host() { printf '%s' "${STUB_HOST-github}"; }
 forge_api_paginate() {
   # Mirrors the REAL forge-lib: it short-circuits to [] under dry run. The old stub ignored the
   # flag, which is exactly why H2 (a dry run reporting every label missing) was invisible to the
@@ -144,6 +144,33 @@ out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" STUB_HOST=forgejo \
       bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
 grep -q '^PATCH /repos/o/r/labels/42 ' "$REQLOG" \
   && ok "forgejo updates a label by id" || bad "forgejo updates by id (log: $(cat "$REQLOG"))"
+
+# --- 8b. an unrecognised host is refused before any request (#331) ----------------------------
+# The real forge_host prints nothing when it refuses an invalid FORGE_HOST; the `*)` fallthrough
+# used to send that a GitHub PATCH. Same drifted host_json as above, sync mode, not a dry run.
+hrun() {  # hrun <script> <STUB_HOST value> [args...]
+  local sc="$1" h="$2"; shift 2; REQLOG="$T/req.log"; : > "$REQLOG"
+  out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" STUB_HOST="$h" \
+        bash "$sc" --labels "$T/labels.yml" "$@" 2>&1); rc=$?; }
+hrun ./sync-labels.sh bogus
+[ "$rc" = 2 ] && [[ $out == *"unrecognised forge host 'bogus'"* ]] && [ ! -s "$REQLOG" ] \
+  && ok "#331: an unrecognised host exits 2, names it, and sends nothing" \
+  || bad "#331: STUB_HOST=bogus gave rc $rc, out '$out', log '$(cat "$REQLOG")'"
+hrun ./sync-labels.sh ''
+[ "$rc" = 2 ] && [[ $out == *"unrecognised forge host ''"* ]] && [ ! -s "$REQLOG" ] \
+  && ok "#331: an empty host answer (forge_host's refusal) exits 2 and sends nothing" \
+  || bad "#331: an empty host answer gave rc $rc, out '$out'"
+hrun ./sync-labels.sh bogus --check
+[ "$rc" = 2 ] && ok "#331: --check on an unrecognised host exits 2, not 1 (which would read as drift)" \
+  || bad "#331: --check on bogus gave rc $rc"
+# Mutant: the up-front refusal removed and the `*)` GitHub fallthrough restored -> a bogus host PATCHes.
+awk '/^HOST="\$\(forge_host\)"$/ { print "HOST=\"$(forge_host)\""; skip = 4; next } skip > 0 { skip--; next }
+     /^          github\)  enc=/ { sub(/github\)/, "*)     ") } 1' "$T/sync-labels.sh" > "$T/sl-mut.sh"
+hrun ./sl-mut.sh bogus
+if cmp -s "$T/sync-labels.sh" "$T/sl-mut.sh"; then bad "#331: mutant: nothing changed"
+elif [ "$rc" = 0 ] && grep -q '^PATCH /repos/o/r/labels/security ' "$REQLOG"; then
+  ok "#331: mutant: without the refusal a bogus host gets a GitHub PATCH, so the rows above catch it"
+else bad "#331: mutant did not reproduce the fallthrough (rc $rc, log '$(cat "$REQLOG")')"; fi
 
 # --- 9. dry run sends nothing -----------------------------------------------------------------
 host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'

@@ -33,8 +33,14 @@ set -uo pipefail
 # 6, and FORGE_DEBUG=1 fails 1. The person most likely to have any of them exported is the one
 # debugging forge-lib.sh, and each failure accuses the library rather than the environment.
 # MC_LIB is this suite's own scratch-library switch (#319): exported ambiently it reroutes every
-# mc_run and fails 13 cases.
-unset FORGE_DEBUG FORGE_DRY_RUN FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE MC_LIB
+# mc_run and fails 13 cases. #331 widened the list to every public FORGE_* name forge-lib.sh reads,
+# plus FORGEJO_TOKEN (its default token variable): a hostile six-variable environment failed 47 of
+# 452 rows with the old four. _FORGE_CONF_PWD, _FORGE_FROM_FILE and _FORGE_TMPDIR need no entry,
+# because forge-lib.sh unsets them each time it is sourced; the _FORGE_FILEVAL_* memo it does not,
+# so it is cleared here. FORGE_LIB_UNDER_TEST is read just below on purpose and never unset. The
+# "unset line covers forge-lib's names" row near the top keeps this line complete.
+unset FORGE_API_URL FORGE_DEBUG FORGE_DRY_RUN FORGE_HOST FORGE_NO_GIT_CREDENTIALS FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE FORGE_REPO FORGE_TOKEN_ENV FORGEJO_TOKEN MC_LIB
+unset "${!_FORGE_FILEVAL_@}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -47,6 +53,20 @@ pass=0; fail=0
 ok()   { echo "  ok: $1"; printf '%s\n' "${1//$'\n'/\\n}" >> "$T/rows"; pass=$((pass+1)); }
 bad()  { echo "  FAIL: $1"; printf '%s\n' "${1//$'\n'/\\n}" >> "$T/rows"; fail=$((fail+1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
+
+# --- #331: the unset line above covers every public FORGE_* name the library reads -------------
+# unset_gaps <suite-file> <lib>: the public names in <lib> (anchored, so the _FORGE_* internals do
+# not leak in as FORGE_TMPDIR and friends) missing from <suite-file>'s first `unset FORGE_` line.
+unset_gaps() {
+  local line; line=$(grep -m1 '^unset FORGE_' "$1")
+  grep -oE '(^|[^A-Za-z0-9_])FORGE_[A-Z_]+' "$2" | sed -E 's/^[^F]//' | sort -u | while IFS= read -r n; do
+    [[ " ${line#unset } " == *" $n "* ]] || printf '%s\n' "$n"; done
+}
+expect "#331: the unset line covers every public FORGE_* name forge-lib.sh reads" "" "$(unset_gaps "$HERE/test-forge-lib.sh" "$LIB")"
+sed 's/^unset FORGE_API_URL /unset /' "$HERE/test-forge-lib.sh" > "$T/suite-mut.sh"
+expect "#331: mutant: an unset line without FORGE_API_URL is named, and no _FORGE_* internal is" FORGE_API_URL "$(unset_gaps "$T/suite-mut.sh" "$LIB")"
+{ cat "$LIB"; printf '%s\n' ': "${FORGE_NEW_KNOB:-}"'; } > "$T/lib-mut.sh"
+expect "#331: mutant: a new public FORGE_* name in the library is named until it is unset" FORGE_NEW_KNOB "$(unset_gaps "$HERE/test-forge-lib.sh" "$T/lib-mut.sh")"
 
 # Each case runs in a subshell: source the lib, shadow forge_api with the stub, act, assert.
 # The stub logs every request to REQLOG and serves canned pages keyed on the query string.
