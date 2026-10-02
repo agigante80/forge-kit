@@ -43,12 +43,18 @@ unset FORGE_API_URL FORGE_DEBUG FORGE_DRY_RUN FORGE_HOST FORGE_NO_GIT_CREDENTIAL
 unset "${!_FORGE_FILEVAL_@}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+# Fail fast on an unusable TMPDIR (#404). Without this, a failed `mktemp -d` left T empty, every
+# `$T/...` path became a path under `/`, and a run as root scattered its scratch there while the
+# trap's `rm -rf ""` removed nothing (measured: rc 1 with the files left behind).
+T=$(mktemp -d 2>/dev/null) && [ -n "$T" ] && [ -d "$T" ] \
+  || { echo "test-forge-lib: cannot create scratch directory under ${TMPDIR:-/tmp}" >&2; exit 2; }
+trap 'rm -rf "$T"' EXIT
 # A dedicated TMPDIR inside $T (#291): every library temp dir lands here, so the final check can
 # assert the suite removed what it made. $T's trap would hide a leak from an outside observer,
 # which is why that check is load-bearing and must stay. It sees only temp dirs that honour
 # TMPDIR: a hardcoded /tmp path in the library would leak past it.
-mkdir "$T/tmp"; export TMPDIR="$T/tmp"
+mkdir "$T/tmp" || { echo "test-forge-lib: cannot create $T/tmp" >&2; exit 2; }
+export TMPDIR="$T/tmp"
 pass=0; fail=0
 ok()   { echo "  ok: $1"; printf '%s\n' "${1//$'\n'/\\n}" >> "$T/rows"; pass=$((pass+1)); }
 bad()  { echo "  FAIL: $1"; printf '%s\n' "${1//$'\n'/\\n}" >> "$T/rows"; fail=$((fail+1)); }
@@ -67,6 +73,27 @@ sed 's/^unset FORGE_API_URL /unset /' "$HERE/test-forge-lib.sh" > "$T/suite-mut.
 expect "#331: mutant: an unset line without FORGE_API_URL is named, and no _FORGE_* internal is" FORGE_API_URL "$(unset_gaps "$T/suite-mut.sh" "$LIB")"
 { cat "$LIB"; printf '%s\n' ': "${FORGE_NEW_KNOB:-}"'; } > "$T/lib-mut.sh"
 expect "#331: mutant: a new public FORGE_* name in the library is named until it is unset" FORGE_NEW_KNOB "$(unset_gaps "$HERE/test-forge-lib.sh" "$T/lib-mut.sh")"
+
+# --- #404: an unusable TMPDIR stops the suite before it writes anything -----------------------
+# Only the suite's preamble (through the scratch-dir lines) is run, never the whole suite: a
+# preamble that lost its guard must not be able to recurse into this file or write under `/`.
+# `echo REACHED` stands in for the first row.
+pre=$(sed -n '1,/^export TMPDIR="\$T\/tmp"$/p' "$HERE/test-forge-lib.sh")
+pout=$(TMPDIR=/nonexistent_gate404 bash -c "$pre
+echo REACHED" 2>&1); prc=$?
+[ "$prc" = 2 ] && [[ $pout == *"test-forge-lib: cannot create scratch directory under /nonexistent_gate404"* ]] && [[ $pout != *REACHED* ]] \
+  && ok "#404: an unusable TMPDIR exits 2 before any row, naming it" || bad "#404: unusable TMPDIR: rc $prc, out '$pout'"
+pout=$(bash -c "$pre
+echo REACHED" 2>&1); prc=$?
+[ "$prc" = 0 ] && [[ $pout == *REACHED* ]] && ok "#404: a usable TMPDIR passes the guard" || bad "#404: usable TMPDIR: rc $prc, out '$pout'"
+# Mutant: the guard reduced to the old bare `T=$(mktemp -d)`; run with T's paths sent under a
+# scratch dir rather than `/`, so the guard-less preamble reaches its first row.
+mpre=$(printf '%s\n' "$pre" | awk '/^T=\$\(mktemp -d 2>\/dev\/null\)/ { print "T=$(mktemp -d)"; skip = 1; next } skip { skip = 0; next } 1' \
+  | sed 's|^mkdir "\$T/tmp" .*|mkdir -p "${T:-'"$T"'/mutroot}/tmp"|')
+pout=$(TMPDIR=/nonexistent_gate404 bash -c "$mpre
+echo REACHED" 2>&1); prc=$?
+[[ $pout == *REACHED* ]] && ok "#404: mutant: without the guard the preamble runs on to its first row" \
+  || bad "#404: mutant did not reach its first row (rc $prc, out '$pout')"
 
 # Each case runs in a subshell: source the lib, shadow forge_api with the stub, act, assert.
 # The stub logs every request to REQLOG and serves canned pages keyed on the query string.
