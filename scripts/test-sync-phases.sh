@@ -407,6 +407,20 @@ fi
 echo "== no awk -v in the shipped asset, and a backslash path is printed as typed (#259) =="
 # #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
 . "$ROOT/scripts/awkv-count.sh"; awkv_checks sync-phases.sh "$SRC" "$T"
+# #413: a MALFORMED phase FIRST, then 2000 well-formed ones, so parse_roadmap prints over 64 KiB.
+# `printf | grep -q '^MALFORMED'` under pipefail lost that first-row match in 186 to 198 runs of 200
+# unloaded (grep exits at the match, printf takes SIGPIPE, the pipeline reads 141, the refusal is
+# skipped). Three calls must each refuse; a scratch copy with the pipe form restored must not.
+awk 'BEGIN { printf "## Phase: Bad one\nstate: bogus\n\nWhy.\n\n"; for (i = 0; i < 2000; i++) printf "## Phase: P%d\nstate: planned\nplan: docs/plans/a-long-plan-name-that-grows-the-parse-output-past-64k.md\n\nWhy %d.\n\n", i, i }' > "$T/big.md"
+printf '[]' > "$T/ms.json"
+n3=0; for i in 1 2 3; do run --roadmap big.md </dev/null; [ "$rc" = 3 ] && [ ! -s "$REQLOG" ] && n3=$((n3 + 1)); done
+expect "#413: a large roadmap with its MALFORMED phase first exits 3 and creates nothing, on each of three runs" 3 "$n3"
+cp "$T/sync-phases.sh" "$T/sp-keep.sh"; sed "s/if grep -q '^MALFORMED' <<< \"\$PHASES\"; then/if printf '%s\\\\n' \"\$PHASES\" | grep -q '^MALFORMED'; then/" "$T/sp-keep.sh" > "$T/sync-phases.sh"
+n3=0; for i in 1 2 3; do run --roadmap big.md </dev/null; [ "$rc" = 3 ] && [ ! -s "$REQLOG" ] && n3=$((n3 + 1)); done
+if cmp -s "$T/sp-keep.sh" "$T/sync-phases.sh"; then bad "#413: mutant: the pipe form was not restored"
+elif [ "$n3" -lt 3 ]; then ok "#413: mutant: the pipe form syncs the malformed roadmap ($((3 - n3)) of 3 runs)"
+else bad "#413: mutant: the pipe form still refused all three runs"; fi
+cp "$T/sp-keep.sh" "$T/sync-phases.sh"; rm -f "$T/sp-keep.sh" "$T/big.md"
 # #405: a roadmap named name=value reads the same as the plain name (the path text aside).
 printf '## Phase: A\nstate: open\nplan: docs/plans/a.md\n\nWhy A.\n\n## Phase: B\nstate: planned\nplan:\n\nWhy B.\n' > "$T/x.md"
 cp "$T/x.md" "$T/r=x.md"; [ -f "$T/ms.json" ] || printf '[]' > "$T/ms.json"

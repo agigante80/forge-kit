@@ -30,7 +30,7 @@ for pj in plugins/*/.claude-plugin/plugin.json; do
   [ -n "$(jq -r '.description // empty' "$pj")" ] || fail "$pj: missing description"
   ver=$(jq -r '.version // empty' "$pj")
   if [ -z "$ver" ]; then fail "$pj: missing version"
-  elif ! echo "$ver" | grep -qE "$SEMVER"; then fail "$pj: version '$ver' is not semver"; fi
+  elif ! grep -qE "$SEMVER" <<< "$ver"; then fail "$pj: version '$ver' is not semver"; fi
 
   # ATTRIBUTION IS REQUIRED HERE, not merely suggested by the advisory step (#173). Every group
   # was missing it, so `claude plugin validate` printed eight warnings on every build and nobody
@@ -119,7 +119,7 @@ for pj in plugins/*/.claude-plugin/plugin.json; do
       echo "  note: $group depends on '$dep', in another marketplace; this tree cannot verify it." >&2
       continue
     fi
-    printf '%s\n' "$mkt_plugins" | grep -qxF "$dep_plugin" \
+    grep -qxF "$dep_plugin" <<< "$mkt_plugins" \
       || fail "$group declares dependency '$dep', but marketplace.json lists no plugin named '$dep_plugin'"
   done < <(jq -r '.dependencies[] | select(type == "string")' "$pj")
   # A non-string entry inside the array is caught here rather than ignored.
@@ -144,7 +144,7 @@ agents=$(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/a
 while IFS= read -r target; do
   [ -n "$target" ] || continue
   [ "$target" = general-purpose ] && continue
-  printf '%s\n' "$agents" | grep -qxF "$target" || {
+  grep -qxF "$target" <<< "$agents" || {
     where=$(grep -rlP "subagent_type[\":[:space:]=]+$target\\b" plugins/ 2>/dev/null | head -1)
     fail "${where:-plugins/} dispatches subagent_type '$target', which no agent in this tree provides (it would fail silently at runtime)"
   }
@@ -159,7 +159,7 @@ while IFS= read -r f; do
   a=$(component_frontmatter_field "$f" agent)
   a=${a#\"}; a=${a%\"}; a=${a#\'}; a=${a%\'}; a=${a##*:}
   [ -n "$a" ] && [ "$a" != general-purpose ] || continue
-  printf '%s\n' "$agents" | grep -qxF "$a" ||
+  grep -qxF "$a" <<< "$agents" ||
     fail "$f declares agent: '$a', which no agent in this tree provides (it would fail silently at runtime)"
 done < <(find plugins -type f -regextype posix-extended \
            -regex '^plugins/[^/]+/commands/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$' 2>/dev/null | sort)
@@ -235,7 +235,7 @@ tier_table() {  # tier_table <heading>: the rows of the first table after it, ce
 }
 effort_rank() { case "$1" in low) echo 1;; medium) echo 2;; high) echo 3;; xhigh) echo 4;; max) echo 5;; *) echo 0;; esac; }
 in_models() {  # in_models <value> <models-cell>
-  printf '%s\n' "$2" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -qxF "$1"
+  grep -qxF "$1" <<< "$(printf '%s\n' "$2" | tr ',' '\n' | sed 's/^ *//; s/ *$//')"
 }
 in_effort() {  # in_effort <value> <effort-cell>, the cell already validated
   local v lo hi
@@ -298,7 +298,7 @@ else
   done < <(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/(agents|commands)/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$' | sort)
   while IFS=$'\t' read -r n _; do
     [ -n "$n" ] || continue
-    printf '%s' "$names" | grep -qxF "$n" || fail "$TIERS: Components row '$n' names no component in this tree"
+    grep -qxF "$n" <<< "$names" || fail "$TIERS: Components row '$n' names no component in this tree"
   done <<< "$comps"
 
   # The dispatch scanner: one TSV row per dispatch, <file> <line> <type> <model-or-empty>.

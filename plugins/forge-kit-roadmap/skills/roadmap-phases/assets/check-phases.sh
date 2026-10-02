@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-phases-version: 9
+# check-phases-version: 10
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
@@ -86,7 +86,7 @@ fi
 
 
 PHASES="$(parse_roadmap "$ROADMAP")"
-if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
+if grep -q '^MALFORMED' <<< "$PHASES"; then
   printf '%s\n' "$PHASES" \
     | CP_F="$ROADMAP" awk -F'\t' '/^MALFORMED/ {printf("check-phases: %s: phase \"%s\": %s\n", ENVIRON["CP_F"], $2, $3)}' >&2
   echo "check-phases: state must be one of: planned, open, done, backlog." >&2

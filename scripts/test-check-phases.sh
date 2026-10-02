@@ -539,6 +539,19 @@ fi
 echo "== no awk -v in the shipped asset, and a backslash path is printed as typed (#259) =="
 # #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
 . "$ROOT/scripts/awkv-count.sh"; awkv_checks check-phases.sh "$SRC" "$T"
+# #413: a MALFORMED phase FIRST, then 2000 well-formed ones, so parse_roadmap prints over 64 KiB.
+# `printf | grep -q '^MALFORMED'` under pipefail lost that first-row match in 186 to 198 runs of 200
+# unloaded (grep exits at the match, printf takes SIGPIPE, the pipeline reads 141, the refusal is
+# skipped). Three calls must each refuse; a scratch copy with the pipe form restored must not.
+awk 'BEGIN { printf "## Phase: Bad one\nstate: bogus\n\nWhy.\n\n"; for (i = 0; i < 2000; i++) printf "## Phase: P%d\nstate: planned\nplan: docs/plans/a-long-plan-name-that-grows-the-parse-output-past-64k.md\n\nWhy %d.\n\n", i, i }' > "$T/big.md"
+n3=0; for i in 1 2 3; do run --offline --roadmap big.md </dev/null; [ "$rc" = 3 ] && n3=$((n3 + 1)); done
+expect "#413: a large roadmap with its MALFORMED phase first exits 3 on each of three runs" 3 "$n3"
+cp "$T/check-phases.sh" "$T/cp-keep.sh"; sed "s/if grep -q '^MALFORMED' <<< \"\$PHASES\"; then/if printf '%s\\\\n' \"\$PHASES\" | grep -q '^MALFORMED'; then/" "$T/cp-keep.sh" > "$T/check-phases.sh"
+n3=0; for i in 1 2 3; do run --offline --roadmap big.md </dev/null; [ "$rc" = 3 ] && n3=$((n3 + 1)); done
+if cmp -s "$T/cp-keep.sh" "$T/check-phases.sh"; then bad "#413: mutant: the pipe form was not restored"
+elif [ "$n3" -lt 3 ]; then ok "#413: mutant: the pipe form lets the malformed roadmap through ($((3 - n3)) of 3 runs)"
+else bad "#413: mutant: the pipe form still refused all three runs"; fi
+cp "$T/cp-keep.sh" "$T/check-phases.sh"; rm -f "$T/cp-keep.sh" "$T/big.md"
 # #405: a roadmap whose name is shaped name=value is still read as a file. Before, awk took
 # `r=bad.md` for an assignment, read stdin instead, and a malformed roadmap passed with rc 0.
 printf '## Phase: A\n\nx\n' > "$T/r=bad.md"; cp "$T/r=bad.md" "$T/rbad.md"

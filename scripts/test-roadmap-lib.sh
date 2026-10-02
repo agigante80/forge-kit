@@ -602,6 +602,22 @@ echo "== awk -v ratchet and no awk file operand (#405) =="
 # roadmap-lib.sh still passes 11 values through `awk -v` (a follow-up moves them to ENVIRON and
 # lowers this pin to 0); the count may fall, never rise. Its file operands are all redirects.
 . "$ROOT/scripts/awkv-count.sh"; awkv_checks roadmap-lib.sh "$LIB" "$T" 11
+# #413: a MALFORMED phase FIRST, then 2000 well-formed ones, so parse_roadmap prints over 64 KiB.
+# `printf | grep -q '^MALFORMED'` under pipefail lost that first-row match in 186 to 198 runs of 200
+# unloaded (grep exits at the match, printf takes SIGPIPE, the pipeline reads 141, the refusal is
+# skipped). Three calls must each refuse; a scratch copy with the pipe form restored must not.
+awk 'BEGIN { printf "## Phase: Bad one\nstate: bogus\n\nWhy.\n\n"; for (i = 0; i < 2000; i++) printf "## Phase: P%d\nstate: planned\nplan: docs/plans/a-long-plan-name-that-grows-the-parse-output-past-64k.md\n\nWhy %d.\n\n", i, i }' > "$T/big.md"
+[ "$(bash -c '. "$1"; parse_roadmap "$2"' _ "$LIB" "$T/big.md" | wc -c)" -gt 65536 ] && ok "#413: the fixture's parse output is over 64 KiB (fixture sanity)" || bad "#413: the fixture's parse output is not over 64 KiB"
+cp "$T/big.md" "$T/big.orig"
+# Sourced, so pipefail is the CALLER's: every shipped caller sets it, so the calls run with it.
+n3=0; for i in 1 2 3; do bash -o pipefail -c '. "$1"; roadmap_set_state "$2" P1 open' _ "$LIB" "$T/big.md" >/dev/null 2>&1; [ "$?" = 3 ] && cmp -s "$T/big.md" "$T/big.orig" && n3=$((n3 + 1)); done
+expect "#413: _rm_check refuses a large roadmap with its MALFORMED phase first (rc 3, file unchanged) on each of three calls" 3 "$n3"
+sed "s/grep -q '^MALFORMED' <<< \"\$out\" \&\& return 3/printf '%s\\\\n' \"\$out\" | grep -q '^MALFORMED' \&\& return 3/" "$LIB" > "$T/rl-pipe.sh"
+n3=0; for i in 1 2 3; do cp "$T/big.orig" "$T/big.md"; bash -o pipefail -c '. "$1"; roadmap_set_state "$2" P1 open' _ "$T/rl-pipe.sh" "$T/big.md" >/dev/null 2>&1; [ "$?" = 3 ] && n3=$((n3 + 1)); done
+if cmp -s "$LIB" "$T/rl-pipe.sh"; then bad "#413: mutant: the pipe form was not restored"
+elif [ "$n3" -lt 3 ]; then ok "#413: mutant: the pipe form lets a writer through ($((3 - n3)) of 3 calls)"
+else bad "#413: mutant: the pipe form still refused all three calls"; fi
+rm -f "$T/big.md" "$T/big.orig" "$T/rl-pipe.sh"
 expect "roadmap-lib.sh counts exactly the 11 pinned awk -v lines today" 11 "$(awkv_count "$LIB")"
 { cat "$LIB"; printf '%s\n' "x=\$(awk -v y=1 '{print y}' < /dev/null)"; } > "$T/rl-ratchet.sh"
 n=$(awkv_count "$T/rl-ratchet.sh")

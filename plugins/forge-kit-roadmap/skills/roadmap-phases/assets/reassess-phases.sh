@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 6
+# reassess-phases-version: 7
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline. Every site that took a value reads it through ENVIRON instead:
@@ -166,7 +166,7 @@ LIB="$(find_forge_lib)" || {
 . "$LIB"
 
 PHASES="$(parse_roadmap "$ROADMAP")"
-if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
+if grep -q '^MALFORMED' <<< "$PHASES"; then
   printf '%s\n' "$PHASES" \
     | RP_F="$ROADMAP" awk -F'\t' '/^MALFORMED/ {printf("reassess-phases: %s: phase \"%s\": %s\n", ENVIRON["RP_F"], $2, $3)}' >&2
   echo "reassess-phases: state must be one of: planned, open, done, backlog." >&2
@@ -439,7 +439,7 @@ op_merge() {
     local wprose sentence newprose
     wprose="$(_read_prose "$winner")" || wprose=""
     sentence="Merged \"$loser\" in: $REASON"
-    if printf '%s\n' "$wprose" | grep -qxF -- "$sentence"; then
+    if grep -qxF -- "$sentence" <<< "$wprose"; then
       echo "'$winner' prose already carries the merge reason; not appending again"
     else
       if [ -n "$wprose" ]; then newprose="$wprose

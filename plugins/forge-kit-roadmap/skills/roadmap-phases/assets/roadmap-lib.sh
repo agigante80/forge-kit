@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 8
+# roadmap-lib-version: 9
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -215,7 +215,7 @@ _rm_split() {
 _rm_check() {
   local out
   out="$(parse_roadmap "$1")" || return 3
-  printf '%s\n' "$out" | grep -q '^MALFORMED' && return 3
+  grep -q '^MALFORMED' <<< "$out" && return 3
   return 0
 }
 

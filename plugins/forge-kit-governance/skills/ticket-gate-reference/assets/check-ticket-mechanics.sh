@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 18
+# check-ticket-mechanics-version: 19
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -292,7 +292,7 @@ role_label() {
 }
 role_required() {
   [ -n "$1" ] || return 1
-  printf '%s\n' "$TEMPLATE_FIELDS" | CTM_L="$1" awk -F'\t' '$1 == ENVIRON["CTM_L"] { print $2; exit }' | grep -q yes
+  grep -q yes <<< "$(printf '%s\n' "$TEMPLATE_FIELDS" | CTM_L="$1" awk -F'\t' '$1 == ENVIRON["CTM_L"] { print $2; exit }')"
 }
 # An OPTIONAL section left empty is what GitHub renders for a field the template did not demand,
 # so it is not a FAILURE. It is not `na` either: the rule still binds and only the critic can say
@@ -413,9 +413,9 @@ marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[
 MARK_ANY="$(marker_re 'Positive|Negative')"; MARK_POS="$(marker_re Positive)"; MARK_NEG="$(marker_re Negative)"
 # Defined here, above their first use: check 4 reads them since #241, and bash resolves a
 # function at call time.
-looks_na()   { printf '%s' "$1" | grep -qiE '(^|[^a-z])n/?a([^a-z]|$)|not applicable'; }
+looks_na()   { grep -qiE '(^|[^a-z])n/?a([^a-z]|$)|not applicable' <<< "$1"; }
 long_enough() { [ "$(printf '%s' "$1" | tr -d '[:space:]' | wc -c)" -gt 12 ]; }
-names_path() { printf '%s' "$1" | grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rb|rs|java|kt|php|cs|sh|sql|md|yml|yaml)([^A-Za-z0-9]|$)'; }
+names_path() { grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rb|rs|java|kt|php|cs|sh|sql|md|yml|yaml)([^A-Za-z0-9]|$)' <<< "$1"; }
 # A ONE-LINE scenario (#233): after an optional list marker, optional bold or italic markup and
 # whitespace, the marker word followed by `.` or `:`, with Given, When and Then inline. It is a
 # complete scenario this check cannot read (the marker must stand alone on its line), so it is
@@ -551,7 +551,7 @@ else
     row docs_impact "$(empty_outcome "$DOCS_LABEL")" "no content in $DOCS_LABEL"
   elif names_path "$DOCS"; then
     row docs_impact pass "$(first_line "$DOCS")"
-  elif printf '%s' "$DOCS" | grep -qiE 'none|no doc'; then
+  elif grep -qiE 'none|no doc' <<< "$DOCS"; then
     if long_enough "$DOCS"; then
       row docs_impact referred "claims no docs needed; rule 7 applies to every work ticket: $(first_line "$DOCS")"
     else

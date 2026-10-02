@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 9
+# gate-status-version: 10
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -216,7 +216,7 @@ case "$MODE" in
     echo "$st"; exit 0 ;;
 
   --unstamp)
-    printf '%s\n' "$verdict" | grep -q '^Judged body: sha256:' || exit 0
+    grep -q '^Judged body: sha256:' <<< "$verdict" || exit 0
     write_retry gate-verdict "$(printf '%s\n' "$verdict" | grep -v '^Judged body: sha256:')" || {
       echo "gate-status: could not unstamp issue #$ISSUE" >&2; exit 1; }
     exit 0 ;;
@@ -247,7 +247,7 @@ Judged body: $fp ($FP_TAG). Full review: ${url:-no review comment found}." || {
     case "$st" in stale*) ;; *) exit 0 ;; esac
     mark() {  # mark <region> <content>: heading gets ": STALE"; the verdict also gets the Stale line
       local out rc=0
-      printf '%s\n' "$2" | sed -n '/^### /{p;q;}' | grep -q ': STALE[[:space:]]*$' && return 0
+      grep -q ': STALE[[:space:]]*$' <<< "$(printf '%s\n' "$2" | sed -n '/^### /{p;q;}')" && return 0
       out="$(printf '%s\n' "$2" | GS_ADD="$3" awk '
         BEGIN { first = 1; add = ENVIRON["GS_ADD"] }
         /^### / && first { first = 0; sub(/[ \t]+$/, ""); print $0 ": STALE"; if (add != "") print add; next }

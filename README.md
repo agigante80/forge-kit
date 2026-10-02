@@ -56,10 +56,10 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
 | `forge-kit-adapt` | 0.8.2 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.20.7 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.30.7 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
+| `forge-kit-devops` | 0.20.8 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
+| `forge-kit-governance` | 0.30.8 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
 | `forge-kit-review` | 0.7.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
-| `forge-kit-roadmap` | 0.15.9 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
+| `forge-kit-roadmap` | 0.15.10 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.14.8 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
@@ -248,7 +248,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | skill | `release-automation` | v9 | 1555 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
 | `forge-kit-devops` | shell asset | `forge-lib` | v33 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
-| `forge-kit-devops` | shell asset | `release-run` | v2 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
+| `forge-kit-devops` | shell asset | `release-run` | v3 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v14 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
 | `forge-kit-governance` | agent | `ticket-gate` | v68 | 5228 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
@@ -262,11 +262,11 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |
 | `forge-kit-governance` | hook | `overnight-guard` | v4 |  | PreToolUse Bash guard for an armed working-overnight run. |
 | `forge-kit-governance` | shell asset | `check-contributor-docs` | v25 |  | check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who |
-| `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v18 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
+| `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v19 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
 | `forge-kit-governance` | shell asset | `count-gate-rounds` | v3 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
 | `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v5 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
 | `forge-kit-governance` | shell asset | `gate-env` | v1 |  | gate-env.sh: what each ticket-gate Bash call must rebuild, because every call is a fresh shell |
-| `forge-kit-governance` | shell asset | `gate-status` | v9 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
+| `forge-kit-governance` | shell asset | `gate-status` | v10 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
 | `forge-kit-review` | agent | `architect-review` | v3 | 1059 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
 | `forge-kit-review` | agent | `code-reviewer` | v14 | 1810 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v3 | 450 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
@@ -276,11 +276,11 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |
 | `forge-kit-roadmap` | command | `phase` | v14 | 1989 | Work the roadmap. |
 | `forge-kit-roadmap` | skill | `roadmap-phases` | v13 | 3408 | Rolling wave planning made mechanical. |
-| `forge-kit-roadmap` | shell asset | `check-phases` | v9 |  | NO `awk -v` IN THIS FILE (#259). |
+| `forge-kit-roadmap` | shell asset | `check-phases` | v10 |  | NO `awk -v` IN THIS FILE (#259). |
 | `forge-kit-roadmap` | shell asset | `phase-env` | v1 |  | phase-env.sh: what each /phase Bash call must rebuild, because every call is a fresh shell (#407). |
-| `forge-kit-roadmap` | shell asset | `reassess-phases` | v6 |  | NO `awk -v` IN THIS FILE (#259). |
-| `forge-kit-roadmap` | shell asset | `roadmap-lib` | v8 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
-| `forge-kit-roadmap` | shell asset | `sync-phases` | v10 |  | NO `awk -v` IN THIS FILE (#259). |
+| `forge-kit-roadmap` | shell asset | `reassess-phases` | v7 |  | NO `awk -v` IN THIS FILE (#259). |
+| `forge-kit-roadmap` | shell asset | `roadmap-lib` | v9 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
+| `forge-kit-roadmap` | shell asset | `sync-phases` | v11 |  | NO `awk -v` IN THIS FILE (#259). |
 | `forge-kit-security` | agent | `api-security-tester` | v2 | 674 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `security-auditor` | v6 | 1347 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
 | `forge-kit-security` | skill | `leak-guard` | v22 | 3093 | Stop the developer's own machine leaking into a repository that is about to be made public. |

@@ -49,7 +49,7 @@ if [ "${1:-}" = "--staged" ]; then
   show_new()     { git show ":$1" 2>/dev/null; }
   show_old()     { git show "HEAD:$1" 2>/dev/null; }
   old_exists()   { git cat-file -e "HEAD:$1" 2>/dev/null; }
-  group_alive()  { git ls-files -- "$1" | grep -q .; }   # index state = post-commit truth
+  group_alive()  { [ -n "$(git ls-files -- "$1")" ]; }   # index state = post-commit truth
   label="staged"
 else
   base="${1:-origin/main}"
@@ -61,7 +61,7 @@ else
   show_new()     { git show "HEAD:$1" 2>/dev/null; }
   show_old()     { git show "$base:$1" 2>/dev/null; }
   old_exists()   { git cat-file -e "$base:$1" 2>/dev/null; }
-  group_alive()  { git ls-tree -d --name-only HEAD "$1" 2>/dev/null | grep -q .; }
+  group_alive()  { [ -n "$(git ls-tree -d --name-only HEAD "$1" 2>/dev/null)" ]; }
   label="vs $base"
 fi
 
@@ -80,7 +80,7 @@ while IFS= read -r g; do
     fi
     continue
   fi
-  if ! printf '%s\n' "$new" | grep -qE "$SEMVER"; then
+  if ! grep -qE "$SEMVER" <<< "$new"; then
     echo "  ✗ $g: plugin.json version '$new' is not semver"; violations=$((violations + 1))
     continue
   fi

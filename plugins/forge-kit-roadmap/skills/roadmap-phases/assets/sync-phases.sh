@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-phases-version: 10
+# sync-phases-version: 11
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
@@ -124,7 +124,7 @@ fi
 . "$LIB"
 
 PHASES="$(parse_roadmap "$ROADMAP")"
-if printf '%s\n' "$PHASES" | grep -q '^MALFORMED'; then
+if grep -q '^MALFORMED' <<< "$PHASES"; then
   printf '%s\n' "$PHASES" \
     | SP_F="$ROADMAP" awk -F'\t' '/^MALFORMED/ {printf("sync-phases: %s: phase \"%s\": %s\n", ENVIRON["SP_F"], $2, $3)}' >&2
   echo "sync-phases: state must be one of: planned, open, done, backlog." >&2
@@ -180,7 +180,7 @@ EOF
 declared="$(printf '%s\n' "$PHASES" | cut -f1)"
 while read -r t; do
   [ -n "$t" ] || continue
-  printf '%s\n' "$declared" | grep -qxF "$t" \
+  grep -qxF "$t" <<< "$declared" \
     || echo "note: milestone \"$t\" is on the host but not in $ROADMAP. Left alone; nothing is ever deleted."
 done <<EOF
 $(printf '%s' "$MS" | jq -r '.[] | select(.state == "open") | .title')

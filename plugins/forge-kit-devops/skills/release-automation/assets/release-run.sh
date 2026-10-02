@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# release-run-version: 2
+# release-run-version: 3
 # release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). It
 # single-sources the release MECHANICS so a fix lands once, not copy-pasted per lane. `version-lib.sh`
 # (sourced) decides the version<->tag verdict; this applies the lane policy: recursion guard, an
@@ -50,7 +50,7 @@ if [ "$REQUIRE_DEP_SCOPE" = 1 ]; then
   set -f                                   # keep [bot] / *.txt literal during word-split
   is_bot=false
   for b in ${BOT_LOGINS:-}; do
-    printf '%s\n' "$authors" | grep -qxF "$b" && is_bot=true
+    grep -qxF "$b" <<< "$authors" && is_bot=true
     [ "${ACTOR:-}" = "$b" ] && is_bot=true
   done
   only_deps=true; dep_hits=0
