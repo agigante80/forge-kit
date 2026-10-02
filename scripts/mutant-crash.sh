@@ -1,9 +1,11 @@
 # mutant-crash.sh: one crash classification for the mutant harnesses (#360).
 # SOURCED by test-gate-status.sh, test-check-contributor-docs.sh, test-forge-adapt-tier-diff.sh,
 # test-measure-dispatch-cost.sh, test-check-private-leaks.sh, test-gate-env.sh, test-phase-env.sh,
-# test-phase-review-snapshot.sh, test-cdpath.sh, test-component-size.sh and test-mutant-crash.sh;
+# test-phase-review-snapshot.sh, test-cdpath.sh, test-component-size.sh and test-mutant-crash.sh
+# (#360), and by test-pre-push-hook.sh, test-check-public-leaks.sh, test-check-ticket-mechanics.sh
+# and test-forge-lib.sh (#414), which also adds the head-mutant kills of test-check-private-leaks.sh;
 # one definition, so they cannot drift apart. test-forge-lib.sh's #319 ledger keeps its own
-# positive predicate (mc_cleanly_dry), and #414 extends this list to the rest of the class.
+# positive predicate (mc_cleanly_dry).
 # This file is not a suite and holds no ok/bad rows.
 #
 # #330 ruled that a crash is not a kill: a mutant is credited as killed only when it ran and failed

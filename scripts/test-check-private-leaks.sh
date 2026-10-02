@@ -661,6 +661,34 @@ expect "--head with lazy fetch unavailable exits 2" 2 "$rc"
 contains "check-private-leaks: could not read a.md" "$OUT" "naming the file"
 
 echo "== --head: the mutants, each applied (cmp -s) and each killed =="
+# #414: the four kills a crash can satisfy are classified first. hm_kill <name> runs
+# scripts/mutant-crash.sh (sourced above, #360) on $HMUT against hm_live and, on a reason, prints
+# `mutant <name> crashed (<reason>)` and returns 1, so the kill line never runs. Each case captures
+# its status in rc on the line that runs the build, because hm_kill overwrites $?.
+mkrepo hm-live
+( CDPATH= cd -- "$HREPO" && git rm -q seed.md && printf 'clean\n' > a.md && git add a.md \
+  && git commit -q --amend -m a ) >/dev/null 2>&1
+HMLIVE="$HREPO"
+# hm_live <build>: in a one-commit repository holding a clean a.md, --head with the suite's list
+# (never the developer's default one) exits 0 with empty stdout.
+hm_live() { local o; o="$( CDPATH= cd -- "$HMLIVE" && "$1" --list "$WORK/hlist" --head )" || return 1; [ -z "$o" ]; }
+hm_kill() {  # hm_kill <name>: 0 when $HMUT is live; else the crashed FAIL and 1
+  local why; why=$(mutant_crash_reason_live "$HMUT" hm_live "$HMUT")
+  [ -z "$why" ] && return 0
+  bad "mutant $1 crashed ($why)"; return 1
+}
+hm_c2() {  # hm_c2 <name>: the C2 case (an unborn HEAD) on $HMUT, then its kill
+  OUT="$( CDPATH= cd -- "$WORK/h-unborn" && "$HMUT" --list "$WORK/hlist" --head 2>&1 )"; rc=$?
+  hm_kill "$1" || return 0
+  lacks "HEAD not found" "$OUT" "mutant: without the unborn-HEAD refusal the C2 message is gone"
+}
+hm_c5() {  # hm_c5 <name>: the C5 case (--head with a path, over a committed name) on $HMUT, then its kill
+  mkrepo hm-paths; hcommit leak.md 'secretproj\n'
+  ( CDPATH= cd -- "$HREPO" && "$HMUT" --list "$WORK/hlist" --head leak.md ) >/dev/null 2>&1; rc=$?
+  hm_kill "$1" || return 0
+  [ "$rc" != 2 ] && ok "mutant: without the refusal --head with a path no longer exits 2 (C5 fails it)" \
+    || bad "mutant: without the refusal --head with a path no longer exits 2"
+}
 head_mutant() {  # head_mutant <name> <sed script>: scratch copy in $HMUT; returns 1 when the edit changed nothing
   HMUT="$WORK/mutant-head-$1.sh"; sed "$2" "$SCRIPT" > "$HMUT"; chmod +x "$HMUT"
   if cmp -s "$HMUT" "$SCRIPT"; then bad "mutant ledger ($1): the edit changed nothing"; return 1; fi
@@ -679,24 +707,20 @@ if head_mutant no-dot-slash 's|"HEAD:\./\$f"|"HEAD:$f"|'; then
   expect "mutant: HEAD:\$f without ./ reads the ROOT README.md and reports clean (G1 fails it)" 0 "$?"
 fi
 if head_mutant no-unborn-check 's|^        \|\| die "HEAD not found: no commits yet.*$|        \|\| true|'; then
-  OUT="$( cd "$WORK/h-unborn" && "$HMUT" --list "$WORK/hlist" --head 2>&1 )"
-  lacks "HEAD not found" "$OUT" "mutant: without the unborn-HEAD refusal the C2 message is gone"
+  hm_c2 no-unborn-check
 fi
 if head_mutant read-error-swallowed '/^    head)/s/|| die "could not read \$f"/|| true/'; then
   pc_clone offline-mut
   OUT="$( cd "$PCLONE" && GIT_NO_LAZY_FETCH=1 "$HMUT" --list "$WORK/hlist" --head 2>&1 )"; rc=$?
-  [ "$rc" != 2 ] && ok "mutant: without the read failure a missing blob no longer exits 2 (the lazy-fetch case fails it)" \
-    || bad "mutant: without the read failure a missing blob no longer exits 2"
+  hm_kill read-error-swallowed && { [ "$rc" != 2 ] && ok "mutant: without the read failure a missing blob no longer exits 2 (the lazy-fetch case fails it)" \
+    || bad "mutant: without the read failure a missing blob no longer exits 2"; }
 fi
 if head_mutant no-precheck 's|^      git ls-tree -r -z HEAD >/dev/null 2>&1 .*$|      :|'; then
   ( cd "$HREPO" && PATH="$SHIM:$PATH" "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
   expect "mutant: without the ls-tree pre-check a failing listing reads as clean (C6 fails it)" 0 "$?"
 fi
 if head_mutant no-paths-refusal 's|^\[ "\$MODE" != head \].*$|:|'; then
-  mkrepo hm-paths; hcommit leak.md 'secretproj\n'
-  ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head leak.md ) >/dev/null 2>&1
-  [ "$?" != 2 ] && ok "mutant: without the refusal --head with a path no longer exits 2 (C5 fails it)" \
-    || bad "mutant: without the refusal --head with a path no longer exits 2"
+  hm_c5 no-paths-refusal
 fi
 if head_mutant gitlink-admitted 's/100644|100755|120000/100644|100755|120000|160000/'; then
   mkrepo hm-gitlink
@@ -704,9 +728,26 @@ if head_mutant gitlink-admitted 's/100644|100755|120000/100644|100755|120000|160
     && git commit -qm gitlink ) >/dev/null 2>&1
   ( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
   expect "(the real scanner skips an absent-commit gitlink)" 0 "$?"
-  ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
-  expect "mutant: admitting 160000 makes a gitlink a refusal (the gitlink case fails it)" 2 "$?"
+  ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1; rc=$?
+  hm_kill gitlink-admitted && expect "mutant: admitting 160000 makes a gitlink a refusal (the gitlink case fails it)" 2 "$rc"
 fi
+# Crash control (#414): an exit 127 scanner prints no `HEAD not found`, the C2 kill's evidence.
+# head_mutant and hm_c2 run in $( ), so this adds one row, and the capture is not echoed.
+cap=$(head_mutant crash-control '1a\
+exit 127' && hm_c2 crash-control)
+crash_ok=1
+cmp -s "$WORK/mutant-head-crash-control.sh" "$SCRIPT" && crash_ok=0
+case "$cap" in *"C2 message is gone"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: hm_kill reports a crashing scanner as crashed, never as a kill" \
+  || bad "crash control: hm_kill credited or missed a crashing scanner"
+# Survivor control (#414): a plain copy of the scanner is live and still refuses --head with a path
+# (exit 2), so the C5 kill, which reads the case's own rc and never hm_kill's 0, must not credit it.
+cap=$(HMUT="$WORK/mutant-head-survivor.sh"; cp "$SCRIPT" "$HMUT"; hm_c5 survivor-control)
+surv_ok=1
+cmp -s "$WORK/mutant-head-survivor.sh" "$SCRIPT" || surv_ok=0
+case "$cap" in *"ok: mutant: without the refusal"*) surv_ok=0 ;; *"FAIL: mutant: without the refusal --head with a path no longer exits 2"*) ;; *) surv_ok=0 ;; esac
+[ "$surv_ok" = 1 ] && ok "survivor control: a live build that still exits 2 is not credited on no-paths-refusal" \
+  || bad "survivor control: a live build that still exits 2 was credited on no-paths-refusal"
 
 echo "== the owner drop applies only where its rationale is true (#209) =="
 own() {  # own <origin-url> <list-name> <mode...>: fresh repo naming the listed name in README; OUT/ERR/RC

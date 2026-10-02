@@ -164,19 +164,43 @@ for frag in "target branch" 'previous tip' 'can differ' 'no push-time CI run' 'p
   grep -q "$frag" <<< "$se" \
     && ok "the skip message states the real CI behaviour: $frag" || bad "the skip message states the real CI behaviour: $frag"
 done
+# #414: a mutant kill is credited only when the copy ran (#330). Each kill below runs its case,
+# classifies the copy with scripts/mutant-crash.sh against a liveness run the genuine mutant passes,
+# and prints `mutant <name> crashed (<reason>)` instead of a kill when a reason fires. No liveness
+# run pipes into grep -q (#413): each captures its output and matches it with `case`.
+. "$ROOT/scripts/mutant-crash.sh"
+# pp_live_se <copy>: run on `unbumped`, the copy's stderr still names the push-time CI wording.
+pp_live_se() { local e; e="$(run_hook_stderr unbumped "$1")"; case "$e" in *"no push-time CI run"*) return 0 ;; esac; return 1; }
+pp_se_kill() {  # pp_se_kill <name> <copy>: the stderr case on <copy>; a kill is stderr without `open PR`
+  local se why
+  se="$(run_hook_stderr unbumped "$2")"
+  why=$(mutant_crash_reason_live "$2" pp_live_se "$2")
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"; return; fi
+  case "$se" in
+    *"open PR"*) bad "the stderr open-PR check detects a hook without the caveat" ;;
+    *) ok "the stderr open-PR check detects a hook without the caveat" ;;
+  esac
+}
 # Permanent mutant (#366): the stderr caveat removed, on a scratch copy run from this fixture.
 # Only `>&2` lines are touched, so the stdout and header copies of the caveat stay intact.
 mut_se="$TMP/mut-stderr.sh"
 sed '/>&2$/s/, though an open PR for it still triggers one\././' "$ROOT/.githooks/pre-push" > "$mut_se"
 if grep -q 'no push-time CI run, though an open PR for it still triggers one' "$ROOT/.githooks/pre-push" \
    && ! cmp -s "$mut_se" "$ROOT/.githooks/pre-push"; then
-  mse="$(run_hook_stderr unbumped "$mut_se")"
-  grep -q 'open PR' <<< "$mse" \
-    && bad "the stderr open-PR check detects a hook without the caveat" \
-    || ok "the stderr open-PR check detects a hook without the caveat"
+  pp_se_kill stderr-caveat "$mut_se"
 else
   bad "the stderr open-PR check detects a hook without the caveat (ledger or mutant failed)"
 fi
+# Crash control (#414): an exit 127 copy of $mut_se prints no `open PR` either, so it must read as
+# crashed. pp_se_kill runs in $( ), so its row stays out of the total, and the capture is not echoed.
+sed '1a\
+exit 127' "$mut_se" > "$TMP/mut-stderr-crash.sh"
+crash_ok=1
+cmp -s "$TMP/mut-stderr-crash.sh" "$mut_se" && crash_ok=0
+cap=$(pp_se_kill crash-control "$TMP/mut-stderr-crash.sh")
+case "$cap" in *"detects a hook without the caveat"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: pp_se_kill reports a crashing hook as crashed, never as a kill" \
+  || bad "crash control: pp_se_kill credited or missed a crashing hook"
 
 # --- the leak guard runs even when the range guards cannot -----------------------------------
 # It used to sit BELOW the missing-base-ref exit, so a clone that had not fetched origin/main
@@ -342,11 +366,34 @@ hook_mutant() {  # hook_mutant <name> <sed>: writes .githooks/pre-push.mut-<name
   if cmp -s "$HM" .githooks/pre-push; then bad "hook mutant ledger ($1): the edit changed nothing"; return 1; fi
   ok "hook mutant ledger ($1): the scratch copy differs from the hook"
 }
+# pp_live_read <copy>: under $GSHIM the copy still names the read failure, which the swallow mutant
+# keeps (it drops only the count behind could not RUN) and a crashed copy never prints.
+pp_live_read() {
+  local o; o=$(PATH="$GSHIM:$PATH" run_hook leakcheck "$1")
+  case "$o" in *"forge-kit: could not read .leak-guard-allow at HEAD"*) return 0 ;; esac; return 1
+}
+# pp_live_probe <copy>: run with no shim, the copy exits 0 and prints exactly PP_PROBE_WANT, the
+# genuine hook's output in the same state. The probe mutant's kill IS the absence of the read-failure
+# line, so pp_live_read cannot judge it.
+pp_live_probe() { local o rc; o=$(run_hook leakcheck "$1"); rc=$?; [ "$rc" = 0 ] && [ "$o" = "$PP_PROBE_WANT" ]; }
+# pp_kill <name> <shim dir> <absent text> <liveness>: runs .githooks/pre-push.mut-<name> under the
+# shim; a kill is output without <absent text>. The row texts belong to the case, which the liveness
+# run names, so a control on another copy prints the same kill text the genuine mutant would.
+pp_kill() {
+  local copy=".githooks/pre-push.mut-$1" out why kill surv
+  case "$4" in
+    pp_live_read) kill="mutant: swallowing the read failure drops could not RUN (the F3 case fails it)"
+                  surv="mutant: swallowing the read failure still reports could not RUN" ;;
+    *) kill="mutant probe-error-as-absent: a failing probe is treated as absent (the probe-failure case fails it)"
+       surv="mutant probe-error-as-absent: a failing probe is treated as absent and the report is lost" ;;
+  esac
+  out=$(PATH="$2:$PATH" run_hook leakcheck "$copy")
+  why=$(mutant_crash_reason_live "$copy" "$4" "$copy")
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"; return; fi
+  case "$out" in *"$3"*) bad "$surv" ;; *) ok "$kill" ;; esac
+}
 if hook_mutant swallow-read-error '/could not read .leak-guard-allow at HEAD/{n;s/leak_errors=\$((leak_errors + 1))/:/}'; then
-  out=$(PATH="$GSHIM:$PATH" run_hook leakcheck .githooks/pre-push.mut-swallow-read-error)
-  grep -q 'could not RUN' <<< "$out" \
-    && bad "mutant: swallowing the read failure still reports could not RUN" \
-    || ok "mutant: swallowing the read failure drops could not RUN (the F3 case fails it)"
+  pp_kill swallow-read-error "$GSHIM" 'could not RUN' pp_live_read
 fi
 # #384: the allow-file probe is a MODE check on `git ls-tree --full-tree HEAD -- .leak-guard-allow`.
 # State here: HEAD carries a regular skip entry over a committed leak in docs-leak.md.
@@ -402,12 +449,22 @@ fi
 # probe-error-as-absent: a failing probe falls through to "no allow-file". Needs HEAD to carry a
 # regular allow-file so the shimmed probe has something to lose.
 rm -f .githooks/pre-push.mut-* .leak-guard-allow; printf 'skip docs-leak.md\n' > .leak-guard-allow; hook_commit "a regular skip allow-file again"
+PP_PROBE_WANT=$(run_hook leakcheck)
 if hook_mutant probe-error-as-absent 's/^if ! al_line=\(.*\); then$/if ! al_line=\1 \&\& false; then/'; then
-  out=$(PATH="$PSHIM:$PATH" run_hook leakcheck .githooks/pre-push.mut-probe-error-as-absent)
-  grep -q 'could not read .leak-guard-allow at HEAD' <<< "$out" \
-    && bad "mutant probe-error-as-absent: a failing probe is treated as absent and the report is lost" \
-    || ok "mutant probe-error-as-absent: a failing probe is treated as absent (the probe-failure case fails it)"
+  pp_kill probe-error-as-absent "$PSHIM" 'could not read .leak-guard-allow at HEAD' pp_live_probe
 fi
+# Crash control (#414): an exit 127 copy prints neither could not RUN nor the read-failure line, the
+# kill evidence of both cases, so each liveness run must read it as crashed. hook_mutant and both
+# pp_kill calls run in $( ), so this adds one row, and the capture is not echoed.
+cap=$(hook_mutant crash-control '1a\
+exit 127' && pp_kill crash-control "$GSHIM" 'could not RUN' pp_live_read \
+  && pp_kill crash-control "$PSHIM" 'could not read .leak-guard-allow at HEAD' pp_live_probe)
+crash_ok=1
+cmp -s .githooks/pre-push.mut-crash-control .githooks/pre-push && crash_ok=0
+[ "$(grep -c -F 'FAIL: mutant crash-control crashed (the liveness run failed)' <<< "$cap")" = 2 ] || crash_ok=0
+case "$cap" in *"drops could not RUN"*|*"treated as absent"*) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: pp_kill reports a crashing hook as crashed, never as a kill" \
+  || bad "crash control: pp_kill credited or missed a crashing hook"
 rm -f .githooks/pre-push.mut-*
 # #396: the hook changes to the work-tree root before every directory-relative step, so a hand run
 # from a SUBDIRECTORY scans the whole of HEAD, exactly as a run from the root does. Git itself runs

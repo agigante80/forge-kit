@@ -600,11 +600,33 @@ done
 # function, never through bad(), so a surviving mutant is the failure and a killed one is an ok.
 sed 's/label = ln.split("label: ", 1)\[1\].rstrip()/label = "Unit tests"/' "$WORK/ph.py" > "$WORK/ph-mut.py"
 cmp -s "$WORK/ph.py" "$WORK/ph-mut.py" && bad "#383: the ph.py mutant did not apply (sed matched nothing)"
+# #414: a ph.py that exits fails label_ok too, so ph_kill classifies the build with
+# scripts/mutant-crash.sh (Python compile() as the parse check) against ph_live and prints
+# `mutant <name> crashed (<reason>)` instead of the kill when a reason fires (#330).
+. "$ROOT/scripts/mutant-crash.sh"
+# ph_live <build>: on bug.yml the build exits 0 and prints at least 2 lines.
+ph_live() { local o; o="$(python3 "$1" "$TPLDIR/bug.yml")" || return 1; [ "$(grep -c '' <<< "$o")" -ge 2 ]; }
+ph_kill() {  # ph_kill <tpl> <build>: the label_ok case on <build>, classified, then its kill
+  local held=0 why
+  label_ok "$1" "$2" && held=1
+  why=$(mutant_crash_reason "$2" /dev/null ph_live "$2")
+  if [ -n "$why" ]; then bad "mutant #383 $1 crashed ($why)"; return; fi
+  [ "$held" = 1 ] && bad "#383: $1: MUTANT survived: an always-Unit-tests ph.py still passes label_ok" \
+    || ok "#383: $1: MUTANT: an always-Unit-tests ph.py fails label_ok"
+}
 for tpl in bug feature security infrastructure design; do
-  label_ok "$tpl" "$WORK/ph-mut.py" \
-    && bad "#383: $tpl: MUTANT survived: an always-Unit-tests ph.py still passes label_ok" \
-    || ok "#383: $tpl: MUTANT: an always-Unit-tests ph.py fails label_ok"
+  ph_kill "$tpl" "$WORK/ph-mut.py"
 done
+# Crash control (#414): its own copy, so ph-mut.py is never overwritten. ph_kill runs in $( ), so
+# its row stays out of the total, and the capture is not echoed.
+sed '1a\
+raise SystemExit(2)' "$WORK/ph-mut.py" > "$WORK/ph-crash.py"
+crash_ok=1
+cmp -s "$WORK/ph-crash.py" "$WORK/ph-mut.py" && crash_ok=0
+cap=$(ph_kill bug "$WORK/ph-crash.py")
+case "$cap" in *"fails label_ok"*) crash_ok=0 ;; *"FAIL: mutant #383 bug crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: ph_kill reports a crashing ph.py as crashed, never as a kill" \
+  || bad "crash control: ph_kill credited or missed a crashing ph.py"
 # MUTANT: a copy of bug.yml whose placeholder lost its Negative marker line must NOT pass, which
 # shows the loop above can fail (a mutation of the input, since the script is not under test here).
 sed '0,/^        Negative$/{/^        Negative$/d}' "$TPLDIR/bug.yml" > "$WORK/mut-bug.yml"
@@ -906,20 +928,44 @@ expect "#304: author text below a region's end marker is still judged (an N/A th
 GWTREG="$(printf 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED\n\n<!-- brief-extra:start -->\nx\n<!-- brief-extra:end -->\n\nNegative\n- Given: f\n- When: g\n- When: h\n- Then: 400 BAD')"
 B="$(mkbody feature "g304-g.md" "$GWTREG")"
 expect "#304: a malformed block below a region still fails check 4" "$(printf 'fail\teach scenario block needs exactly one When (Negative: 2 When lines)')" "$(printf '%s\n' "$(run "$B" feature)" | awk -F'\t' '$1=="gwt"{print $2 "\t" $3}')"
+# #414: a script that exits changes the evidence too, so m304_kill classifies the build with
+# mutant_crash_reason "<build>" /dev/null tm_live "<build>" before it credits the kill (#330).
+# tm_live <build>: on the bare body and the feature template the build prints one sections row.
+tm_live() {
+  local o; o="$(bash "$1" --body "$WORK/bare.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null)"
+  [ "$(grep -c "^sections$(printf '\t')" <<< "$o")" = 1 ]
+}
+m304_kill() {  # m304_kill <name> <build> <ok text>: the g304-cmt case on <build>, classified, then its kill
+  local ev why
+  ev="$(sec_ev "$(bash "$2" --body "$WORK/g304-cmt.md" --template "$WORK/g304-blk.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
+  why=$(mutant_crash_reason "$2" /dev/null tm_live "$2")
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"; return; fi
+  [ "$ev" != "heading absent (2): Notes; Deps" ] && ok "$3" || bad "mutant: the $1 mutant survived"
+}
 # Mutant 3: the description anchor dropped (the phrase matched on any template line).
 CL3='/^      description: / && index($0, "Auto-populated by ticket-gate") { gate = 1 }'
 grep -qF "$CL3" "$SCRIPT" && ok "mutant ledger: the description match is anchored to the field's description line (#304)" || bad "mutant ledger: #304 description anchor not found"
 awk -v c="$CL3" 'index($0, c) { sub(/\/\^      description: \/ && /, "") } { print }' "$SCRIPT" > "$MUT"
 cmp -s "$SCRIPT" "$MUT" && bad "#304: the description-anchor mutant did not apply"
-ev="$(sec_ev "$(bash "$MUT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-blk.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
-[ "$ev" != "heading absent (2): Notes; Deps" ] && ok "mutant: with the description anchor dropped, placeholder text exempts Notes (the #304 case can fail)" || bad "mutant: the description-anchor mutant survived"
+M304_OK3="mutant: with the description anchor dropped, placeholder text exempts Notes (the #304 case can fail)"
+m304_kill description-anchor "$MUT" "$M304_OK3"
 # Mutant 4: the gate-owned comment matched at any indent.
 CL4='/^    # gate-owned[[:space:]]*$/ { gate = 1 }'
 grep -qF "$CL4" "$SCRIPT" && ok "mutant ledger: the gate-owned comment is anchored to the key indent (#304)" || bad "mutant ledger: #304 comment anchor not found"
 awk -v c="$CL4" 'index($0, c) { sub(/\/\^    # gate-owned/, "/^[[:space:]]*# gate-owned") } { print }' "$SCRIPT" > "$MUT"
 cmp -s "$SCRIPT" "$MUT" && bad "#304: the comment-anchor mutant did not apply"
-ev="$(sec_ev "$(bash "$MUT" --body "$WORK/g304-cmt.md" --template "$WORK/g304-blk.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)")"
-[ "$ev" != "heading absent (2): Notes; Deps" ] && ok "mutant: with the comment matched at any indent, the wrong fields are exempt (the #304 case can fail)" || bad "mutant: the comment-anchor mutant survived"
+m304_kill comment-anchor "$MUT" "mutant: with the comment matched at any indent, the wrong fields are exempt (the #304 case can fail)"
+# Crash control (#414): its own copy, so $MUT is never overwritten. Its empty evidence differs from
+# the expected text, which the kill alone would credit. m304_kill runs in $( ), so its row stays out
+# of the total, and the capture is not echoed.
+sed '1a\
+exit 127' "$MUT" > "$WORK/m304-crash.sh"
+crash_ok=1
+cmp -s "$WORK/m304-crash.sh" "$MUT" && crash_ok=0
+cap=$(m304_kill crash-control "$WORK/m304-crash.sh" "$M304_OK3")
+case "$cap" in *"the #304 case can fail"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: m304_kill reports a crashing script as crashed, never as a kill" \
+  || bad "crash control: m304_kill credited or missed a crashing script"
 
 echo "check-ticket-mechanics: the runner itself"
 out="$(run "$B" feature)"

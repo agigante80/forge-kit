@@ -101,7 +101,36 @@ MUT230="$WORK/mutant-230.sh"; sed "s#^RE_HOME='(^|\[^A-Za-z0-9_.~\])(/home#RE_HO
 expect "mutant ledger (#230): the anchored RE_HOME line exists" 1 "$(grep -c "^RE_HOME='(^|\[^A-Za-z0-9_.~\])(/home" "$SCRIPT")"
 expect "mutant ledger (#230): the anchor is gone from the mutant" 0 "$(grep -c "^RE_HOME='(^|" "$MUT230")"
 printf '%s\n' "import Foo from './home/Foo.vue'" > "$WORK/m230.txt"
-"$MUT230" "$WORK/m230.txt" >/dev/null 2>&1; expect "mutant (#230): without the anchor the relative import is reported again" 1 "$?"
+# #414: a crash is not a kill (#330). lk_expect runs the build, classifies it with
+# scripts/mutant-crash.sh against lk_live, and only then calls expect; a crash prints
+# `mutant #<name> crashed (<reason>)`. A message and exit 1 is exactly the 1 both cases expect.
+. "$ROOT/scripts/mutant-crash.sh"
+printf 'nothing to see here\n' > "$WORK/lk-clean.txt"
+# lk_live <build> [options]: the build, with the case's leading options, on a one-line clean text
+# file exits 0 with empty stdout and empty stderr.
+lk_live() { local o; o="$("$@" "$WORK/lk-clean.txt" 2>&1)" || return 1; [ -z "$o" ]; }
+lk_expect() {  # lk_expect <name> <rc> <build> <args...>: the last arg is the file, the rest options
+  local name="$1" want="$2" build="$3" rc why text; shift 3
+  case "$name" in
+    230) text="mutant (#230): without the anchor the relative import is reported again" ;;
+    *) text="mutant (#227): with a stripped-only compare the bracketed entry no longer matches as written" ;;
+  esac
+  "$build" "$@" >/dev/null 2>&1; rc=$?
+  why=$(mutant_crash_reason_live "$build" lk_live "$build" "${@:1:$#-1}")
+  if [ -n "$why" ]; then bad "mutant #$name crashed ($why)"; return; fi
+  expect "$text" "$want" "$rc"
+}
+lk_expect 230 1 "$MUT230" "$WORK/m230.txt"
+# Crash control (#414): $MUT230 plus a message and exit 1, the status the case expects. lk_expect
+# runs in $( ), so its row stays out of the total, and the capture is not echoed.
+sed '1a\
+echo "boom360" >\&2; exit 1' "$MUT230" > "$WORK/mutant-230-crash.sh"; chmod +x "$WORK/mutant-230-crash.sh"
+crash_ok=1
+cmp -s "$WORK/mutant-230-crash.sh" "$MUT230" && crash_ok=0
+cap=$(lk_expect 230 1 "$WORK/mutant-230-crash.sh" "$WORK/m230.txt")
+case "$cap" in *"ok: mutant (#230)"*) crash_ok=0 ;; *"FAIL: mutant #230 crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: lk_expect reports a crashing scanner as crashed, never as a kill" \
+  || bad "crash control: lk_expect credited or missed a crashing scanner"
 
 echo "== rule B: ~/ roots, by allowlist =="
 expect "an unlisted ~/ root trips"              yes "$(trips 'cloned into ~/secret-clients/thing')"
@@ -141,7 +170,7 @@ MUT227="$WORK/mutant-227.sh"; sed 's/^      in_list_stripping "$rawroot" "${ALLO
 expect "mutant ledger (#227): the stepwise compare line exists" 1 "$(grep -c '^      in_list_stripping "$rawroot" "${ALLOW_ROOTS\[@\]}" && return 0   # every step (#227)' "$SCRIPT")"
 cmp -s "$SCRIPT" "$MUT227" && bad "mutant ledger (#227): the sed did not apply" || ok "mutant ledger (#227): the mutant differs from the script"
 printf 'see ~/[redacted-other]/notes\n' > "$WORK/m227.txt"
-"$MUT227" --allow-file "$WORK/allow-marker-other" "$WORK/m227.txt" >/dev/null 2>&1; expect "mutant (#227): with a stripped-only compare the bracketed entry no longer matches as written" 1 "$?"
+lk_expect 227 1 "$MUT227" --allow-file "$WORK/allow-marker-other" "$WORK/m227.txt"
 expect "~/projects survives"                    no  "$(trips 'cloned into ~/projects/thing')"
 expect "~/.claude survives"                     no  "$(trips 'edit ~/.claude/settings.json')"
 expect "~/.config survives"                     no  "$(trips 'edit ~/.config/app.toml')"
@@ -1138,6 +1167,33 @@ expect "--head with lazy fetch unavailable exits 2" 2 "$rc"
 contains "check-public-leaks: could not read a.md" "$OUT" "naming the file"
 
 echo "== --head: the mutants, each applied (cmp -s) and each killed =="
+# #414: the four kills a crash can satisfy are classified first. hm_kill <name> runs
+# scripts/mutant-crash.sh on $HMUT against hm_live and, on a reason, prints
+# `mutant <name> crashed (<reason>)` and returns 1, so the kill line never runs. Each case captures
+# its status in rc on the line that runs the build, because hm_kill overwrites $?.
+mkrepo hm-live
+( CDPATH= cd -- "$HREPO" && git rm -q seed.md && printf 'clean\n' > a.md && git add a.md \
+  && git commit -q --amend -m a ) >/dev/null 2>&1
+HMLIVE="$HREPO"
+# hm_live <build>: in a one-commit repository holding a clean a.md, --head exits 0 with empty stdout.
+hm_live() { local o; o="$( CDPATH= cd -- "$HMLIVE" && "$1" --head )" || return 1; [ -z "$o" ]; }
+hm_kill() {  # hm_kill <name>: 0 when $HMUT is live; else the crashed FAIL and 1
+  local why; why=$(mutant_crash_reason_live "$HMUT" hm_live "$HMUT")
+  [ -z "$why" ] && return 0
+  bad "mutant $1 crashed ($why)"; return 1
+}
+hm_c2() {  # hm_c2 <name>: the C2 case (an unborn HEAD) on $HMUT, then its kill
+  OUT="$( CDPATH= cd -- "$WORK/h-unborn" && "$HMUT" --head 2>&1 )"; rc=$?
+  hm_kill "$1" || return 0
+  lacks "HEAD not found" "$OUT" "mutant: without the unborn-HEAD refusal the C2 message is gone"
+}
+hm_c5() {  # hm_c5 <name>: the C5 case (--head with a path, over a committed leak) on $HMUT, then its kill
+  mkrepo hm-paths; hcommit leak.md "$(printf '%s/alice/x' /home)\n"
+  ( CDPATH= cd -- "$HREPO" && "$HMUT" --head leak.md ) >/dev/null 2>&1; rc=$?
+  hm_kill "$1" || return 0
+  [ "$rc" != 2 ] && ok "mutant: without the refusal --head with a path no longer exits 2 (C5 fails it)" \
+    || bad "mutant: without the refusal --head with a path no longer exits 2"
+}
 head_mutant() {  # head_mutant <name> <sed script>: scratch copy in $HMUT; returns 1 when the edit changed nothing
   HMUT="$WORK/mutant-head-$1.sh"; sed "$2" "$SCRIPT" > "$HMUT"; chmod +x "$HMUT"
   if cmp -s "$HMUT" "$SCRIPT"; then bad "mutant ledger ($1): the edit changed nothing"; return 1; fi
@@ -1156,24 +1212,20 @@ if head_mutant no-dot-slash 's|"HEAD:\./\$f"|"HEAD:$f"|'; then
   expect "mutant: HEAD:\$f without ./ reads the ROOT README.md and reports clean (G1 fails it)" 0 "$?"
 fi
 if head_mutant no-unborn-check 's|^        \|\| die "HEAD not found: no commits yet.*$|        \|\| true|'; then
-  OUT="$( cd "$WORK/h-unborn" && "$HMUT" --head 2>&1 )"
-  lacks "HEAD not found" "$OUT" "mutant: without the unborn-HEAD refusal the C2 message is gone"
+  hm_c2 no-unborn-check
 fi
 if head_mutant read-error-swallowed '/^    head)/s/|| die "could not read \$f"/|| true/'; then
   pc_clone offline-mut
   OUT="$( cd "$PCLONE" && GIT_NO_LAZY_FETCH=1 "$HMUT" --head 2>&1 )"; rc=$?
-  [ "$rc" != 2 ] && ok "mutant: without the read failure a missing blob no longer exits 2 (the lazy-fetch case fails it)" \
-    || bad "mutant: without the read failure a missing blob no longer exits 2"
+  hm_kill read-error-swallowed && { [ "$rc" != 2 ] && ok "mutant: without the read failure a missing blob no longer exits 2 (the lazy-fetch case fails it)" \
+    || bad "mutant: without the read failure a missing blob no longer exits 2"; }
 fi
 if head_mutant no-precheck 's|^      git ls-tree -r -z HEAD >/dev/null 2>&1 .*$|      :|'; then
   ( cd "$HREPO" && PATH="$SHIM:$PATH" "$HMUT" --head ) >/dev/null 2>&1
   expect "mutant: without the ls-tree pre-check a failing listing reads as clean (C6 fails it)" 0 "$?"
 fi
 if head_mutant no-paths-refusal 's|^\[ "\$MODE" != head \].*$|:|'; then
-  mkrepo hm-paths; hcommit leak.md '/home/alice/x\n'
-  ( cd "$HREPO" && "$HMUT" --head leak.md ) >/dev/null 2>&1
-  [ "$?" != 2 ] && ok "mutant: without the refusal --head with a path no longer exits 2 (C5 fails it)" \
-    || bad "mutant: without the refusal --head with a path no longer exits 2"
+  hm_c5 no-paths-refusal
 fi
 if head_mutant gitlink-admitted 's/100644|100755|120000/100644|100755|120000|160000/'; then
   mkrepo hm-gitlink
@@ -1181,9 +1233,26 @@ if head_mutant gitlink-admitted 's/100644|100755|120000/100644|100755|120000|160
     && git commit -qm gitlink ) >/dev/null 2>&1
   ( cd "$HREPO" && "$SCRIPT" --head ) >/dev/null 2>&1
   expect "(the real scanner skips an absent-commit gitlink)" 0 "$?"
-  ( cd "$HREPO" && "$HMUT" --head ) >/dev/null 2>&1
-  expect "mutant: admitting 160000 makes a gitlink a refusal (the gitlink case fails it)" 2 "$?"
+  ( cd "$HREPO" && "$HMUT" --head ) >/dev/null 2>&1; rc=$?
+  hm_kill gitlink-admitted && expect "mutant: admitting 160000 makes a gitlink a refusal (the gitlink case fails it)" 2 "$rc"
 fi
+# Crash control (#414): an exit 127 scanner prints no `HEAD not found`, the C2 kill's evidence.
+# head_mutant and hm_c2 run in $( ), so this adds one row, and the capture is not echoed.
+cap=$(head_mutant crash-control '1a\
+exit 127' && hm_c2 crash-control)
+crash_ok=1
+cmp -s "$WORK/mutant-head-crash-control.sh" "$SCRIPT" && crash_ok=0
+case "$cap" in *"C2 message is gone"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: hm_kill reports a crashing scanner as crashed, never as a kill" \
+  || bad "crash control: hm_kill credited or missed a crashing scanner"
+# Survivor control (#414): a plain copy of the scanner is live and still refuses --head with a path
+# (exit 2), so the C5 kill, which reads the case's own rc and never hm_kill's 0, must not credit it.
+cap=$(HMUT="$WORK/mutant-head-survivor.sh"; cp "$SCRIPT" "$HMUT"; hm_c5 survivor-control)
+surv_ok=1
+cmp -s "$WORK/mutant-head-survivor.sh" "$SCRIPT" || surv_ok=0
+case "$cap" in *"ok: mutant: without the refusal"*) surv_ok=0 ;; *"FAIL: mutant: without the refusal --head with a path no longer exits 2"*) ;; *) surv_ok=0 ;; esac
+[ "$surv_ok" = 1 ] && ok "survivor control: a live build that still exits 2 is not credited on no-paths-refusal" \
+  || bad "survivor control: a live build that still exits 2 was credited on no-paths-refusal"
 
 echo "== --help does not go stale when the header is edited =="
 # It printed a hardcoded line range, so growing the header by seven lines truncated the output
@@ -1301,10 +1370,28 @@ expect "bounded: a command that ignores SIGALRM is escalated to SIGKILL and read
 bounded "$B402" true >/dev/null 2>&1; sleep 1
 expect "bounded: no watcher survives an early return (#402)" 0 "$(stray_sleeps "$B402")"
 kill_stray "$B402"
+# #414: the escalation kill (rc not 137) is met by a b_noesc that fails before its command, so
+# b_kill classifies b_noesc first. The case sends its stderr to /dev/null and leaves no log, so the
+# classification is mutant_crash_reason_live on a build file written from `declare -f b_noesc`.
+# b_live: the build bounds a plain command, 124 at the bound and 0 on a quick exit, with no stderr.
+b_live() {
+  local e r
+  e="$(b_noesc 1 sleep 5 2>&1 >/dev/null)"; r=$?; printf '%s' "$e" >&2
+  [ "$r" = 124 ] && [ -z "$e" ] || return 1
+  e="$(b_noesc 5 true 2>&1 >/dev/null)"; r=$?; printf '%s' "$e" >&2
+  [ "$r" = 0 ] && [ -z "$e" ]
+}
+b_kill() {  # b_kill <name>: the escalation case on b_noesc, classified, then its kill
+  local rc why bf="$WORK/b-kill-$1.sh"
+  b_noesc 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?
+  declare -f b_noesc > "$bf"
+  why=$(mutant_crash_reason_live "$bf" b_live); rm -f "$bf"
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"; return; fi
+  [ "$rc" != 137 ] && ok "mutant: without the KILL escalation the SIGALRM-ignoring command is not stopped (rc $rc) (#402)" || bad "mutant: the escalation mutant still read 137 (#402)"
+}
 if bmut b_noesc '{ sub(/kill -s KILL -- -"\$pid" 2> \/dev\/null/, "true") } 1' && bmut b_nowkill '!/kill -- -"\$w"/' \
    && bmut b_late 'index($0, "set +m;") { next } { print } index($0, "& pid=$!;") { print "    set +m;" }'; then
-  b_noesc 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?
-  [ "$rc" != 137 ] && ok "mutant: without the KILL escalation the SIGALRM-ignoring command is not stopped (rc $rc) (#402)" || bad "mutant: the escalation mutant still read 137 (#402)"
+  b_kill b_noesc
   b_nowkill "$B402" true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps "$B402")"; kill_stray "$B402"
   [ "$s" -ge 1 ] && ok "mutant: without the watcher kill a watcher survives the early return (#402)" || bad "mutant: the watcher-kill mutant left no watcher (#402)"
   b_late "$B402" true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps "$B402")"; kill_stray "$B402"
@@ -1312,6 +1399,16 @@ if bmut b_noesc '{ sub(/kill -s KILL -- -"\$pid" 2> \/dev\/null/, "true") } 1' &
 else
   bad "#402: a bounded() mutant did not apply"
 fi
+# Crash control (#414): a b_noesc whose first statement fails returns 127 before its command, which
+# the != 137 kill would credit. bmut and b_kill run in $( ), so this adds one row, the redefined
+# b_noesc stays in the subshell, and the capture is not echoed.
+B402_CRASH='NR == 2 { print; print "    boom360;"; print "    return 127;"; next } 1'
+crash_ok=1
+cmp -s <(declare -f bounded | awk "$B402_CRASH") <(declare -f bounded) && crash_ok=0
+cap=$(bmut b_noesc "$B402_CRASH" && b_kill crash-control-402)
+case "$cap" in *"is not stopped"*) crash_ok=0 ;; *"FAIL: mutant crash-control-402 crashed ("*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: b_kill reports a crashing bounded() as crashed, never as a kill" \
+  || bad "crash control: b_kill credited or missed a crashing bounded()"
 # #411: another run's watcher is neither counted nor killed. `${B402}.5` stands in for it: a
 # duration no copy can have. The pauses let a just-signalled process exit before `kill -0` asks.
 sleep "${B402}.5" & fpid=$!; sleep 1

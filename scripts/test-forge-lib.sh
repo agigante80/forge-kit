@@ -390,10 +390,30 @@ expect "bounded: a command that ignores SIGALRM is escalated to SIGKILL and read
 bounded "$B402" true >/dev/null 2>&1; sleep 1
 expect "bounded: no watcher survives an early return (#402)" 0 "$(stray_sleeps "$B402")"
 kill_stray "$B402"
+# #414: the escalation kill (rc not 137) is met by a b_noesc that fails before its command, so
+# b_kill classifies b_noesc first (#330). The case sends its stderr to /dev/null and leaves no log,
+# so the classification is mutant_crash_reason_live on a build file written from `declare -f
+# b_noesc`, under $T and never under $T/tmp, and removed at once (the #291 row needs $T/tmp empty).
+. "$HERE/mutant-crash.sh"
+# b_live: the build bounds a plain command, 124 at the bound and 0 on a quick exit, with no stderr.
+b_live() {
+  local e r
+  e="$(b_noesc 1 sleep 5 2>&1 >/dev/null)"; r=$?; printf '%s' "$e" >&2
+  [ "$r" = 124 ] && [ -z "$e" ] || return 1
+  e="$(b_noesc 5 true 2>&1 >/dev/null)"; r=$?; printf '%s' "$e" >&2
+  [ "$r" = 0 ] && [ -z "$e" ]
+}
+b_kill() {  # b_kill <name>: the escalation case on b_noesc, classified, then its kill
+  local rc why bf="$T/b-kill-$1.sh"
+  b_noesc 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?
+  declare -f b_noesc > "$bf"
+  why=$(mutant_crash_reason_live "$bf" b_live); rm -f "$bf"
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"; return; fi
+  [ "$rc" != 137 ] && ok "mutant: without the KILL escalation the SIGALRM-ignoring command is not stopped (rc $rc) (#402)" || bad "mutant: the escalation mutant still read 137 (#402)"
+}
 if bmut b_noesc '{ sub(/kill -s KILL -- -"\$pid" 2> \/dev\/null/, "true") } 1' && bmut b_nowkill '!/kill -- -"\$w"/' \
    && bmut b_late 'index($0, "set +m;") { next } { print } index($0, "& pid=$!;") { print "    set +m;" }'; then
-  b_noesc 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?
-  [ "$rc" != 137 ] && ok "mutant: without the KILL escalation the SIGALRM-ignoring command is not stopped (rc $rc) (#402)" || bad "mutant: the escalation mutant still read 137 (#402)"
+  b_kill b_noesc
   b_nowkill "$B402" true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps "$B402")"; kill_stray "$B402"
   [ "$s" -ge 1 ] && ok "mutant: without the watcher kill a watcher survives the early return (#402)" || bad "mutant: the watcher-kill mutant left no watcher (#402)"
   b_late "$B402" true >/dev/null 2>&1; sleep 1; s="$(stray_sleeps "$B402")"; kill_stray "$B402"
@@ -401,6 +421,17 @@ if bmut b_noesc '{ sub(/kill -s KILL -- -"\$pid" 2> \/dev\/null/, "true") } 1' &
 else
   bad "#402: a bounded() mutant did not apply"
 fi
+# Crash control (#414): a b_noesc whose first statement fails returns 127 before its command, which
+# the != 137 kill would credit. bmut and b_kill run in $( ), so the counters and the redefined
+# b_noesc stay in the subshell; its inner row reaches $T/rows under its own name, crash-control-402,
+# so no row text repeats (#370). The capture is not echoed.
+B402_CRASH='NR == 2 { print; print "    boom360;"; print "    return 127;"; next } 1'
+crash_ok=1
+cmp -s <(declare -f bounded | awk "$B402_CRASH") <(declare -f bounded) && crash_ok=0
+cap=$(bmut b_noesc "$B402_CRASH" && b_kill crash-control-402)
+case "$cap" in *"is not stopped"*) crash_ok=0 ;; *"FAIL: mutant crash-control-402 crashed ("*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: b_kill reports a crashing bounded() as crashed, never as a kill" \
+  || bad "crash control: b_kill credited or missed a crashing bounded()"
 # #411: another run's watcher is neither counted nor killed. `${B402}.5` stands in for it: a
 # duration no copy can have. The pauses let a just-signalled process exit before `kill -0` asks.
 sleep "${B402}.5" & fpid=$!; sleep 1
@@ -2657,15 +2688,37 @@ printf '%s\n' '[ "${FORGE_DRY_RUN:-0}" = 1 ] && echo a' 'good() {' '  [ "${FORGE
   '[ "${FORGE_DRY_RUN:-0}" = 1 ] && echo b' 'function f {' '  [ "${FORGE_DRY_RUN:-0}" = 1 ] && return 0' '}' > "$DRFX"
 DR_FX_WANT="$(printf 'ORPHAN 1\ngood\nORPHAN 5\nORPHAN 7\nCOUNT 4')"
 expect "dry-run scan names each orphan guard and credits the recognised function (#399)" "$DR_FX_WANT" "$(dr_scan "$DRFX")"
+# #414: a scan program awk refuses changes the fixture's scan too. dr_scan_kill classifies the
+# program with mutant_crash_reason_live /dev/null dr_live <prog>: the build is an awk program, which
+# bash -n cannot judge, and dr_scan's 2>&1 puts awk's diagnostic on stdout, never on the liveness
+# log, so the liveness run alone catches a broken program (it prints no COUNT line).
+dr_live() { local o; o=$(DR_SCAN_PROG="$1" dr_scan "$LIB"); [ "$(grep -c '^COUNT [0-9][0-9]*$' <<< "$o")" = 1 ]; }
+dr_scan_kill() {  # dr_scan_kill <m> <prog>: the fixture scan with <prog>, classified, then its kill
+  local got why
+  got=$(DR_SCAN_PROG="$2" dr_scan "$DRFX")
+  why=$(mutant_crash_reason_live /dev/null dr_live "$2")
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"; return; fi
+  [ "$got" != "$DR_FX_WANT" ] && ok "dry-run scan mutant '$1' changes the fixture's scan (#399)" || bad "dry-run scan mutant '$1' survived the fixture (#399)"
+}
+DR_RESET_PROG=""
 for m in reset orphan; do
   case $m in
-    reset)  prog=$(printf '%s' "$DR_SCAN_AWK" | sed '/^  \/\^}\/ { flush(); name = "" }$/d') ;;
+    reset)  prog=$(printf '%s' "$DR_SCAN_AWK" | sed '/^  \/\^}\/ { flush(); name = "" }$/d'); DR_RESET_PROG=$prog ;;
     orphan) prog=$(printf '%s' "$DR_SCAN_AWK" | sed 's/if (name == "") print "ORPHAN " NR; else n++/n++/') ;;
   esac
   if [ "$prog" = "$DR_SCAN_AWK" ]; then bad "dry-run scan mutant '$m' did not apply (#399)"; continue; fi
-  got=$(DR_SCAN_PROG="$prog" dr_scan "$DRFX")
-  [ "$got" != "$DR_FX_WANT" ] && ok "dry-run scan mutant '$m' changes the fixture's scan (#399)" || bad "dry-run scan mutant '$m' survived the fixture (#399)"
+  dr_scan_kill "$m" "$prog"
 done
+# Crash control (#414): the reset program behind a BEGIN that awk refuses. dr_scan_kill runs in
+# $( ); its inner row reaches $T/rows under its own name, crash-control-399, so no row text repeats
+# (#370), and the capture is not echoed.
+DR_CRASH_PROG="BEGIN { x = ( }$DR_RESET_PROG"
+crash_ok=1
+cmp -s <(printf '%s' "$DR_CRASH_PROG") <(printf '%s' "$DR_RESET_PROG") && crash_ok=0
+cap=$(dr_scan_kill crash-control-399 "$DR_CRASH_PROG")
+case "$cap" in *"changes the fixture's scan"*) crash_ok=0 ;; *"FAIL: mutant crash-control-399 crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: dr_scan_kill reports a broken scan program as crashed, never as a kill" \
+  || bad "crash control: dr_scan_kill credited or missed a broken scan program"
 # dr_mutant agrees with the scan: a column-0 `}` inside a body (a heredoc line) ends the function for
 # both, so the guard below it is an ORPHAN to the scan and not h's guard to dr_mutant (exit 1).
 DRFX2="$T/dr-heredoc.sh"
@@ -2752,16 +2805,27 @@ for fn in forge_issue_comment forge_issue_edit forge_issue_create forge_release_
 done
 c409_fj "$LIB" && ok "#409: Forgejo sends the body on curl's stdin (--data-binary @-), whole" || bad "#409: the Forgejo arm did not send a large body on stdin"
 c409_compose "$LIB" && ok "#409: forge_body_compose_preserving sends a 140000-byte body whole on Forgejo" || bad "#409: compose lost a large body on Forgejo"
-# m409 <name> <anchor> <replacement> <case...>: the case must FAIL on a copy with one edit.
+# m409_live <build>: sourcing the build in a subshell returns 0 and defines the four functions the
+# cases call (#414); a build that exits on source ends the subshell non-zero.
+m409_live() {
+  ( . "$1" >/dev/null 2>&1 || exit 1
+    declare -F forge_issue_comment forge_issue_edit forge_issue_create forge_release_create >/dev/null )
+}
+# m409 <name> <anchor> <replacement> <case...>: the case must FAIL on a copy with one edit. The copy
+# is classified after the case with mutant_crash_reason "$T/s409/mut.sh" /dev/null m409_live
+# "$T/s409/mut.sh", and a reason prints `mutant <name> crashed (<reason>)`, never dies (#330).
 m409() {
-  local name=$1 a=$2 b=$3; shift 3
+  local name=$1 a=$2 b=$3 r why; shift 3
   A409="$a" B409="$b" python3 - "$LIB" "$T/s409/mut.sh" <<'PY' || { bad "#409 mutant '$name': anchor not found once"; return; }
 import os, sys
 s = open(sys.argv[1]).read(); a = os.environ["A409"]
 if s.count(a) != 1: sys.exit(1)
 open(sys.argv[2], "w").write(s.replace(a, os.environ["B409"]))
 PY
-  if "$@"; then bad "#409 mutant '$name' survived $*"; else ok "#409 mutant '$name' dies"; fi
+  "$@"; r=$?
+  why=$(mutant_crash_reason "$T/s409/mut.sh" /dev/null m409_live "$T/s409/mut.sh")
+  if [ -n "$why" ]; then bad "mutant $name crashed ($why)"; return; fi
+  if [ "$r" = 0 ]; then bad "#409 mutant '$name' survived $*"; else ok "#409 mutant '$name' dies"; fi
 }
 M=$T/s409/mut.sh
 m409 "comment built with --arg" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_comment '{body:\$b}')\" || return 2" "payload=\"\$(jq -nc --arg b \"\$2\" '{body:\$b}')\"" c409_gh "$M" forge_issue_comment 131072
@@ -2770,6 +2834,15 @@ m409 "create built with --arg" "payload=\"\$(printf '%s' \"\$2\" | _forge_payloa
 m409 "release built with --arg" "payload=\"\$(printf '%s' \"\${3-}\" | _forge_payload forge_release_create '{tag_name:\$t,name:\$n,body:\$b}' --arg t \"\$1\" --arg n \"\${2:-\$1}\")\" || return 2" "payload=\"\$(jq -nc --arg t \"\$1\" --arg n \"\${2:-\$1}\" --arg b \"\${3-}\" '{tag_name:\$t,name:\$n,body:\$b}')\"" c409_gh "$M" forge_release_create 131072
 m409 "Forgejo body back on -d" "out=\"\$(printf '%s' \"\$body\" | curl -sSL -w '\\n%{http_code}' -X \"\$method\" -H \"Authorization: token \$tok\" -H 'Content-Type: application/json' --data-binary @- \"\$base\$path\")\"" "out=\"\$(curl -sSL -w '\\n%{http_code}' -X \"\$method\" -H \"Authorization: token \$tok\" -H 'Content-Type: application/json' -d \"\$body\" \"\$base\$path\")\"" c409_fj "$M"
 m409 "build failure not checked" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_edit '{body:\$b}')\" || return 2" "payload=\"\$(printf '%s' \"\$2\" | _forge_payload forge_issue_edit '{body:\$b}')\"" c409_nojq "$M" forge_issue_edit
+# Crash control (#414): the library's shebang (it occurs once) followed by exit 127, so sourcing the
+# copy exits and every case fails. m409 runs in $( ); its inner row reaches $T/rows under its own
+# name, crash-control-409, so no row text repeats (#370), and the capture is not echoed.
+cap=$(m409 crash-control-409 '#!/usr/bin/env bash' "$(printf '#!/usr/bin/env bash\nexit 127')" c409_gh "$M" forge_issue_comment 131072)
+crash_ok=1
+cmp -s "$M" "$LIB" && crash_ok=0
+case "$cap" in *" dies"*) crash_ok=0 ;; *"FAIL: mutant crash-control-409 crashed (the liveness run failed)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control: m409 reports a crashing library as crashed, never as dies" \
+  || bad "crash control: m409 credited or missed a crashing library"
 
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"
