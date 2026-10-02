@@ -59,8 +59,8 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
-lacks() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1' in output)"; else ok "$3"; fi; }
+contains() { if grep -qF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+lacks() { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1' in output)"; else ok "$3"; fi; }
 
 [ -f "$LIB" ] || { echo "missing library: $LIB"; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -612,7 +612,7 @@ cp "$T/big.md" "$T/big.orig"
 # Sourced, so pipefail is the CALLER's: every shipped caller sets it, so the calls run with it.
 n3=0; for i in 1 2 3; do bash -o pipefail -c '. "$1"; roadmap_set_state "$2" P1 open' _ "$LIB" "$T/big.md" >/dev/null 2>&1; [ "$?" = 3 ] && cmp -s "$T/big.md" "$T/big.orig" && n3=$((n3 + 1)); done
 expect "#413: _rm_check refuses a large roadmap with its MALFORMED phase first (rc 3, file unchanged) on each of three calls" 3 "$n3"
-sed "s/grep -q '^MALFORMED' <<< \"\$out\" \&\& return 3/printf '%s\\\\n' \"\$out\" | grep -q '^MALFORMED' \&\& return 3/" "$LIB" > "$T/rl-pipe.sh"
+P='|'; sed "s/grep -q '^MALFORMED' <<< \"\$out\" \&\& return 3/printf '%s\\\\n' \"\$out\" $P grep -q '^MALFORMED' \&\& return 3/" "$LIB" > "$T/rl-pipe.sh"
 n3=0; for i in 1 2 3; do cp "$T/big.orig" "$T/big.md"; bash -o pipefail -c '. "$1"; roadmap_set_state "$2" P1 open' _ "$T/rl-pipe.sh" "$T/big.md" >/dev/null 2>&1; [ "$?" = 3 ] && n3=$((n3 + 1)); done
 if cmp -s "$LIB" "$T/rl-pipe.sh"; then bad "#413: mutant: the pipe form was not restored"
 elif [ "$n3" -lt 3 ]; then ok "#413: mutant: the pipe form lets a writer through ($((3 - n3)) of 3 calls)"

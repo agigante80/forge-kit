@@ -119,8 +119,8 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect()   { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
-lacks()    { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1' in output)"; else ok "$3"; fi; }
+contains() { if grep -qF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+lacks()    { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1' in output)"; else ok "$3"; fi; }
 
 [ -f "$SUT" ] || { echo "missing script: $SUT"; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -799,8 +799,8 @@ echo "== #258: an exemption is per PATH, not per line =="
   printf '%s\n' '# a reason' 'mention README.md scripts/guard.sh described on this one line' > "$R/.doc-drift-allow"
   out="$(cd "$R" && bash "$SUT" --range "$BASE..$(sha HEAD)" --docs README.md 2>/dev/null)"
   [ "$(printf '%s' "$out" | grep -c .)" = 1 ] || exit 1
-  printf '%s' "$out" | grep -q 'scripts/other.sh' || exit 2
-  printf '%s' "$out" | grep -q 'scripts/guard.sh' && exit 3
+  grep -q 'scripts/other.sh' <<< "$out" || exit 2
+  grep -q 'scripts/guard.sh' <<< "$out" && exit 3
   exit 0
 )
 case $? in

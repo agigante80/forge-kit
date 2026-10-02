@@ -26,7 +26,7 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+contains() { if grep -qiF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
 
@@ -66,7 +66,7 @@ contains "marketplace update" "$out" "and names the command that fixes it"
 contains "forge-kit" "$out" "and names the marketplace, not an absolute path"
 # The message is printed to a human and may be pasted. A home path in it is the shape
 # check-public-leaks.sh exists to catch, so the detail must not carry one.
-if printf '%s' "$out" | grep -q "$HOME"; then bad "the message leaks a home path"; else ok "and no home path appears in the message"; fi
+if grep -q "$HOME" <<< "$out"; then bad "the message leaks a home path"; else ok "and no home path appears in the message"; fi
 
 echo "== the shapes that are not a failure =="
 run forge-kit --dir "$T/nowhere"

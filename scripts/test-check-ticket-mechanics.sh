@@ -665,7 +665,7 @@ r="$(sec_ev "$(run "$WORK/gdpr-nohead.md" bug)")"
 # the whole file with newlines joined to spaces, so a re-wrap of the paragraph cannot hide it.
 DOC="$ROOT/docs/guides/template-versioning.md"
 DOC_PHRASE='The one exception is the four target sections `scenarios`, `unit_tests`, `e2e_tests` and `docs_impact`'
-doc_pin() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qF "$DOC_PHRASE"; }
+doc_pin() { grep -qF "$DOC_PHRASE" <<< "$(tr '\n' ' ' < "$1" | tr -s ' ')"; }
 doc_pin "$DOC" && ok "#383: template-versioning.md names the four no-pointer sections" || bad "#383: template-versioning.md lost the four-section exception"
 sed 's/The one exception is the four target sections/The exception is every target section/' "$DOC" > "$WORK/doc-mut.md"
 cmp -s "$DOC" "$WORK/doc-mut.md" && bad "#383: the doc mutant did not apply"
@@ -696,7 +696,7 @@ scope_pin "$WORK/gate-mut-old.md" && bad "#383: MUTANT survived: the moved scope
 # deliberately not edited: ticket-gate.md plus its preloaded skill sit at the 5754-word ratchet with
 # zero headroom, so the doc declares itself a reading and both sides are pinned. A pin on the doc
 # alone would never fail when the agent's Thin row changed, which is the drift this guards.
-doc_has() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qF -- "$2"; }
+doc_has() { grep -qF -- "$2" <<< "$(tr '\n' ' ' < "$1" | tr -s ' ')"; }
 P392_READ='a reading of the Thin row'
 P392_NA='unless it states N/A with a reason'
 P392_PLACE="appended after the author's text, inside the author's section"
@@ -848,7 +848,7 @@ expect "#320: a required field sharing its label with a gate-filled one is charg
 printf 'body:\n  - type: textarea\n    id: summary\n    attributes:\n      label: Summary\n    validations:\n      required: true\n  - type: textarea\n    attributes:\n      label: Gate notes\n      description: Auto-populated by ticket-gate. Do not edit manually.\n    validations:\n      required: false\n' > "$WORK/g320-noid.yml"
 o="$(bash "$SCRIPT" --body "$WORK/g320-dup.md" --template "$WORK/g320-noid.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
 expect "#320: a gate-filled field with no id keeps its exemption" "every charged section present, every required one filled (headings at ###); gate-filled, absent and not charged (1): Gate notes" "$(sec_ev "$o")"
-sed 's/if \[ "\$gate" = yes \] && \[ "\$required" = no \]; then   # check 3/if printf "%s\\n" "$TEMPLATE_FIELDS" | awk -F"\\t" '"'"'$4 == "yes" \&\& $2 == "no" { print $1 }'"'"' | grep -qxF -- "$label"; then   # check 3/' "$SCRIPT" > "$MUT"
+sed 's/if \[ "\$gate" = yes \] && \[ "\$required" = no \]; then   # check 3/if grep -qxF -- "$label" <<< "$(printf "%s\\n" "$TEMPLATE_FIELDS" | awk -F"\\t" '"'"'$4 == "yes" \&\& $2 == "no" { print $1 }'"'"')"; then   # check 3/' "$SCRIPT" > "$MUT"
 cmp -s "$SCRIPT" "$MUT" && bad "#320: the label-lookup mutant did not apply"
 o="$(bash "$MUT" --body "$WORK/g320-dup.md" --template "$WORK/g320-dup.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,bug 2>/dev/null)"
 expect "mutant: the exemption looked up by label passes the shared-label template (#320 can fail)" pass "$(outcome "$o" sections)"
@@ -939,14 +939,14 @@ out="$(run "$WORK/hh2.md" feature)"
 offenders="$(printf '%s\n' "$out" | awk -F'\t' '$2 == "fail" { printf "%s=%s ", $1, $2 }')"
 [ -z "$offenders" ] && ok "a compliant ticket at ## headings has no spurious FAIL" || bad "## body: $offenders"
 expect "and its sections row passes" pass "$(outcome "$out" sections)"
-printf '%s\n' "$out" | awk -F'\t' '$1 == "sections"' | grep -q '##' \
+grep -q '##' <<< "$(printf '%s\n' "$out" | awk -F'\t' '$1 == "sections"')" \
   && ok "and the sections evidence names the heading level it keyed on" || bad "sections evidence does not name the ## level"
 expect "and GWT is judged on its content, not referred for a missing section" pass "$(outcome "$out" gwt)"
 # Not loosened: a section that IS absent at ## still fails, by name.
 grep -v '^## Documentation impact' "$WORK/hh2.md" > "$WORK/hh2-missing.md"
 out="$(run "$WORK/hh2-missing.md" feature)"
 expect "a genuinely absent section at ## still FAILS" fail "$(outcome "$out" sections)"
-printf '%s\n' "$out" | awk -F'\t' '$1 == "sections"' | grep -q 'Documentation impact' \
+grep -q 'Documentation impact' <<< "$(printf '%s\n' "$out" | awk -F'\t' '$1 == "sections"')" \
   && ok "and names the absent section" || bad "the absent section is not named"
 # A ## section runs to the next ## heading, so ### subsections inside it are CONTENT.
 python3 - "$WORK/hh2.md" "$WORK/hh2-sub.md" <<'PY'
@@ -1014,9 +1014,9 @@ run "$B" feature >/dev/null 2>&1
 grep -q '# check-ticket-mechanics-version: [0-9]' "$SCRIPT" && ok "carries a version marker" || bad "no version marker"
 # --help prints the header verbatim, so a stale header is a lie told to the caller.
 helptext="$(bash "$SCRIPT" --help)"
-printf '%s' "$helptext" | grep -q 'referred' \
+grep -q 'referred' <<< "$helptext" \
   && ok "--help describes the current referred-not-na rule" || bad "--help header is stale"
-printf '%s' "$helptext" | grep -q -- '--dump-fields' \
+grep -q -- '--dump-fields' <<< "$helptext" \
   && ok "--help documents every flag it accepts" || bad "--help omits a flag"
 
 echo "check-ticket-mechanics: the label shape the gate writes is one check 4 reads (#273)"

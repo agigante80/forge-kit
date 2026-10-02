@@ -51,8 +51,9 @@ In order:
 3. **#378 then #413**, the SIGPIPE class: `printf | grep -q` under pipefail returns 141 on a match
    when grep exits first (49 of 400 loaded runs; the here-string form 0 of 400). Re-diagnosed by
    #219's round-4 gate, which closed #219 into #413: the cause is a pipe, not a bound, so no bound
-   moves. #378 converts `test-forge-lib.sh`; #413 converts the other 249 sites (shipped assets
-   included) and adds the guard, which starts green only after #378.
+   moves. #378 converts `test-forge-lib.sh`; #413 converts the other 282 lines its guard's rule
+   counted at 7f8e87c (shipped assets included) and adds the guard, `check-pipe-grep-q.sh`, which
+   starts green only after #378.
 4. **#360**, one crash classification for the harnesses outside `test-forge-lib.sh`.
 5. **#331 items 2 and 3**, the env reset and the host dispatch (item 1 moved to #378).
 

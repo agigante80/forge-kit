@@ -52,11 +52,11 @@ $1" 2>"$T/err"); rc=$?; err=$(cat "$T/err"); }
 
 echo "== every asset present =="
 fixture
-[ "$resolve_rc" = 0 ] && printf '%s' "$resolve_out" | grep -q '^using CP=' && ok "the resolve block writes the env file and prints its picks" \
+[ "$resolve_rc" = 0 ] && grep -q '^using CP=' <<< "$resolve_out" && ok "the resolve block writes the env file and prints its picks" \
   || bad "the resolve block: rc $resolve_rc, '$resolve_out'"
 fresh "$STATUS1"; [ "$rc" = 0 ] && [ "$out" = "check-phases " ] && [ -z "$err" ] && ok "/phase status step 1 runs check-phases.sh in a fresh shell" || bad "/phase status step 1: rc $rc out '$out' err '$err'"
 fresh "$CLOSE4"; [ "$rc" = 0 ] && [ "$out" = "sync-phases " ] && ok "/phase close step 4 runs sync-phases.sh in a fresh shell" || bad "/phase close step 4: rc $rc out '$out' err '$err'"
-fresh "$VB"; [ "$rc" = 0 ] && printf '%s' "$out" | grep -q '^forge-lib-version: [0-9]' && ok "/phase review's version check reads FL in a fresh shell" || bad "/phase review's version check: rc $rc out '$out' err '$err'"
+fresh "$VB"; [ "$rc" = 0 ] && grep -q '^forge-lib-version: [0-9]' <<< "$out" && ok "/phase review's version check reads FL in a fresh shell" || bad "/phase review's version check: rc $rc out '$out' err '$err'"
 fresh 'type forge_issue_comments roadmap_set_prose >/dev/null && echo both'
 [ "$out" = both ] && ok "/phase review steps 2 and 6 see forge_issue_comments and roadmap_set_prose" || bad "the sourced functions are missing: '$err'"
 fresh "$RP1"; [ "$rc" = 0 ] && [ "$out" = "reassess-phases --help" ] && ok "/phase reassess runs reassess-phases.sh in a fresh shell" || bad "/phase reassess: rc $rc out '$out'"
@@ -69,12 +69,12 @@ fixture check-phases.sh sync-phases.sh forge-lib.sh roadmap-lib.sh
 fresh "$STATUS1"; [ "$rc" = 0 ] && [ "$out" = "check-phases " ] && [ -z "$err" ] && ok "with check-doc-drift.sh and reassess-phases.sh unresolvable, /phase status step 1 still runs" || bad "status with optional assets missing: rc $rc out '$out' err '$err'"
 fresh "$CLOSE4"; [ "$rc" = 0 ] && [ "$out" = "sync-phases " ] && ok "and /phase close step 4 still runs" || bad "close with optional assets missing: rc $rc err '$err'"
 fresh '[ -n "$DD" ] && bash "$DD" --range a..b; echo done'; [ "$out" = done ] && ok "an empty DD skips the drift check (the skill asks the question by hand)" || bad "empty DD: '$out' '$err'"
-fresh "$RP1 --check"; [ "$rc" != 0 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'RP: parameter null or not set' \
-  && ! printf '%s' "$err" | grep -q 'No such file or directory\|command not found' \
+fresh "$RP1 --check"; [ "$rc" != 0 ] && [ -z "$out" ] && grep -q 'RP: parameter null or not set' <<< "$err" \
+  && ! grep -q 'No such file or directory\|command not found' <<< "$err" \
   && ok "/phase reassess with reassess-phases.sh unresolvable stops: 'RP: parameter null or not set'" || bad "reassess with RP missing: rc $rc out '$out' err '$err'"
 fixture check-phases.sh sync-phases.sh forge-lib.sh
 fresh "$STATUS1"; [ "$rc" = 0 ] && [ "$out" = "check-phases " ] && [ -z "$err" ] && ok "with roadmap-lib.sh unresolvable, /phase status step 1 still runs (rc 0, empty stderr)" || bad "status with RL empty: rc $rc out '$out' err '$err'"
-fresh "$VB"; [ "$rc" != 0 ] && printf '%s' "$err" | grep -q 'RL: parameter null or not set' && ok "and /phase review's version check stops naming RL" || bad "review with RL empty: rc $rc err '$err'"
+fresh "$VB"; [ "$rc" != 0 ] && grep -q 'RL: parameter null or not set' <<< "$err" && ok "and /phase review's version check stops naming RL" || bad "review with RL empty: rc $rc err '$err'"
 rm -f "$(cd "$R" && git rev-parse --absolute-git-dir)/forge-kit-phase-env"
 fresh "$STATUS1"; [ "$rc" = 2 ] && [ -z "$out" ] && ok "with the env file absent the source line exits 2" || bad "env file absent: rc $rc out '$out'"
 

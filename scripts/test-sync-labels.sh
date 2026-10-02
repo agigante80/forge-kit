@@ -71,7 +71,7 @@ run --check
 host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'
 run --check
 [ "$rc" -ne 0 ] && ok "--check fails when a declared label is absent" || bad "--check fails on absent (rc=$rc)"
-printf '%s' "$out" | grep -q 'missing  security' && ok "--check names the absent label" || bad "--check names the absent label"
+grep -q 'missing  security' <<< "$out" && ok "--check names the absent label" || bad "--check names the absent label"
 # The load-bearing one: --check must write NOTHING even when a write is exactly what sync would do
 # here. The original suite only asserted this against an already-matching host, where neither mode
 # writes, so it passed for the wrong reason and a mutant removing both write guards survived.
@@ -93,7 +93,7 @@ host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"
             {"id":2,"name":"security","color":"e4e669","description":"WRONG"}]'
 run --check
 [ "$rc" -ne 0 ] && ok "--check fails on a drifted description" || bad "--check fails on drifted description"
-printf '%s' "$out" | grep -q 'drifted  security' && ok "--check names the drifted label" || bad "--check names the drifted label"
+grep -q 'drifted  security' <<< "$out" && ok "--check names the drifted label" || bad "--check names the drifted label"
 [ ! -s "$REQLOG" ] && ok "--check writes nothing when a label has DRIFTED" \
   || bad "--check writes nothing on drift (log: $(cat "$REQLOG"))"
 
@@ -120,7 +120,7 @@ host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"
             {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"},
             {"id":9,"name":"wontfix","color":"ffffff","description":"stock default"}]'
 run
-printf '%s' "$out" | grep -q 'extra    wontfix' && ok "an undeclared label is reported" || bad "an undeclared label is reported"
+grep -q 'extra    wontfix' <<< "$out" && ok "an undeclared label is reported" || bad "an undeclared label is reported"
 grep -qi 'DELETE' "$REQLOG" && bad "sync never DELETEs" || ok "sync never DELETEs"
 [ "$rc" -eq 0 ] && ok "an undeclared label is not itself a failure" || bad "an undeclared label is not a failure (rc=$rc)"
 
@@ -129,7 +129,7 @@ host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"
             {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"},
             {"id":3,"name":"bugfix","color":"ffffff","description":"x"}]'
 run
-printf '%s' "$out" | grep -q 'extra    bugfix' \
+grep -q 'extra    bugfix' <<< "$out" \
   && ok "a host label that merely CONTAINS a declared name is still reported extra" \
   || bad "substring host label reported extra (out: $out)"
 
@@ -178,7 +178,7 @@ REQLOG="$T/req.log"; : > "$REQLOG"
 out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
       bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
 [ ! -s "$REQLOG" ] && ok "FORGE_DRY_RUN=1 sends nothing" || bad "dry run sends nothing (log: $(cat "$REQLOG"))"
-printf '%s' "$out" | grep -q "\[dry-run\] create label 'security'" \
+grep -q "\[dry-run\] create label 'security'" <<< "$out" \
   && ok "dry run says what it would create" || bad "dry run says what it would create"
 
 # --- 8b. value cleaning: a file a maintainer could plausibly commit ----------------------------
@@ -306,7 +306,7 @@ clean_case "an escaped quote is not mistaken for an unterminated value" \
   '{"name":"bug","color":"d73a4a","description":"the \"x\" label"}'
 
 out=$(cd "$T" && bash ./sync-labels.sh --labels "" 2>&1); rc=$?
-[ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'empty value' \
+[ "$rc" -eq 2 ] && grep -q 'empty value' <<< "$out" \
   && ok "an empty --labels value is a usage error, not silent auto-discovery" \
   || bad "empty --labels value exits 2 (rc=$rc: $out)"
 out=$(cd "$T" && HOST_LABELS="$T/host.json" bash ./sync-labels.sh --labels "$T/labels.yml" --repo "" 2>&1); rc=$?
@@ -349,7 +349,7 @@ out=$(cd "$T" && FAKE_BASH_MAJOR=3 HOST_LABELS="$T/host.json" REQLOG="$T/req.log
       bash ./sl-fakever.sh --labels "$T/labels.one.yml" --check 2>&1); rc=$?
 [ "$rc" -eq 2 ] && ok "bash < 4 is an ENVIRONMENT error (2), never the drift code (1)" \
   || bad "bash < 4 exits 2 (rc=$rc: $out)"
-printf '%s' "$out" | grep -q 'requires bash 4' && ok "...and says which version it found" \
+grep -q 'requires bash 4' <<< "$out" && ok "...and says which version it found" \
   || bad "the bash-version message names the requirement"
 
 # H2: `join` emits one LINE per label but `read` consumes one line, so a newline in a host
@@ -380,7 +380,7 @@ out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" bash ./sync-labels.
 
 # The drift line must NAME the newline: without it the user sees four identical strings and is
 # told a label drifted, in exactly the case the flag exists for.
-printf '%s' "$out" | grep -q 'contains a newline' \
+grep -q 'contains a newline' <<< "$out" \
   && ok "an ML-forced drift line explains itself" || bad "ML drift line names the newline (got: $out)"
 
 # H3: the duplicate pattern is *US US*, which an empty name always matches, so every empty name
@@ -389,7 +389,7 @@ exit_case "an empty name is diagnosed as empty, not as a duplicate" \
   '- name:\n  color: "ffffff"\n  description: X\n' 3 0
 out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$T/req.log" \
       bash ./sync-labels.sh --labels "$T/labels.x.yml" 2>&1)
-printf '%s' "$out" | grep -q 'empty name' && ok "...with the empty-name message" \
+grep -q 'empty name' <<< "$out" && ok "...with the empty-name message" \
   || bad "empty name message (got: $out)"
 
 # H6: the unterminated sentinel is checked across ALL THREE fields, not just description.
@@ -430,7 +430,7 @@ host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"
 REQLOG="$T/req.log"; : > "$REQLOG"
 out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
       bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
-printf '%s' "$out" | grep -q 'dry-run\] create' \
+grep -q 'dry-run\] create' <<< "$out" \
   && bad "a dry run on a SYNCED host previews no creates" \
   || ok "a dry run on a SYNCED host previews no creates"
 REQLOG="$T/req.log"; : > "$REQLOG"
@@ -448,7 +448,7 @@ out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
       bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1)
 [ ! -s "$REQLOG" ] && ok "a dry run does not PATCH a DRIFTED label either" \
   || bad "dry run does not PATCH a drifted label (log: $(cat "$REQLOG"))"
-printf '%s' "$out" | grep -q "\[dry-run\] update label 'security'" \
+grep -q "\[dry-run\] update label 'security'" <<< "$out" \
   && ok "...and says which label it would update" || bad "dry run names the update it would make"
 
 # --- 9d. the dry-run summary says "would", never "created"/"updated" (#323) ---------------------
@@ -466,7 +466,7 @@ dry_last 1
 [ "$last" = "$DRY_WANT_PREFIX 1, would update 0 (from $T/labels.yml)." ] \
   && ok "dry run with a missing label ends with 'would create 1, would update 0'" \
   || bad "dry-run create summary (last line: $last)"
-printf '%s' "$out" | grep -qE 'synced from|[0-9]+ created' \
+grep -qE 'synced from|[0-9]+ created' <<< "$out" \
   && bad "a dry run never claims labels were created or updated" \
   || ok "a dry run never claims labels were created or updated"
 [ "$rc" -eq 0 ] && [ ! -s "$REQLOG" ] && ok "dry-run create: exit 0 and nothing sent" \
@@ -495,7 +495,7 @@ last=$(printf '%s\n' "$out" | tail -n1)
 [ "$last" = "sync-labels: o/r synced from $T/labels.yml (1 created, 1 updated)." ] \
   && ok "a real run keeps its 'synced from ... (N created, M updated)' line" \
   || bad "real-run summary (last line: $last)"
-printf '%s' "$out" | grep -qE 'dry run|would create' \
+grep -qE 'dry run|would create' <<< "$out" \
   && bad "a real run never says dry run or would" || ok "a real run never says dry run or would"
 # any value other than exactly 1 is a real run
 host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'
@@ -536,7 +536,7 @@ printf -- '- name: ok\n  color: "ffffff"\n  description: fine\nthis line is not 
 run
 [ "$rc" -ne 0 ] && ok "a malformed labels file refuses" || bad "a malformed labels file refuses (rc=$rc)"
 [ ! -s "$REQLOG" ] && ok "...and writes nothing (no partial sync)" || bad "malformed file writes nothing"
-printf '%s' "$out" | grep -q 'unparsable line 4' && ok "...naming the offending line" || bad "names the offending line"
+grep -q 'unparsable line 4' <<< "$out" && ok "...naming the offending line" || bad "names the offending line"
 cp "$T/labels.good.yml" "$T/labels.yml"
 
 # --- 11. the real repo's own labels.yml parses ------------------------------------------------
@@ -563,7 +563,7 @@ host_json '[{"name":"","color":"ffffff","description":"phantom","id":9},
 run --check
 [ "$rc" -eq 0 ] && ok "an empty-named host label is ignored, not treated as a label" \
                 || bad "an empty-named host label reached the comparison (rc=$rc: $out)"
-printf '%s' "$out" | grep -q "''" \
+grep -q "''" <<< "$out" \
   && bad "and it is not reported as an undeclared label" \
   || ok "and it is not reported as an undeclared label"
 
@@ -611,7 +611,7 @@ sl 'l=x.yml'
 [ "$rc" = "$plain_rc" ] && ok "#405: --labels 'l=x.yml' exits as lx.yml does ($plain_rc)" || bad "#405: l=x.yml rc $rc, lx.yml rc $plain_rc"
 [ "$(printf '%s' "$out" | sed 's/l=x\.yml/LABELS/g')" = "$plain_out" ] && ok "#405: and plans the same changes" || bad "#405: l=x.yml planned: $out"
 case "$out" in *"declares no labels"*) bad "#405: l=x.yml read as declaring no labels" ;; *) ok "#405: l=x.yml is never read as declaring no labels" ;; esac
-printf '%s' "$plain_out" | grep -q 'bug' && ok "#405: the control plans the declared labels" || bad "#405: the control planned nothing: $plain_out"
+grep -q 'bug' <<< "$plain_out" && ok "#405: the control plans the declared labels" || bad "#405: the control planned nothing: $plain_out"
 
 echo ""
 echo "sync-labels tests: $pass passed, $fail failed"

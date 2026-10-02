@@ -45,9 +45,9 @@ run() { bash "$CHECK" --root "$FIX" 2>&1; }
 # --- 1. everything inside budget: clean pass ---------------------------------------------------
 out=$(run); rc=$?
 [ "$rc" -eq 0 ] && ok "all-within-budget exits 0" || bad "all-within-budget exits 0 (rc=$rc)"
-printf '%s' "$out" | grep -qE '^(warn|FAIL)' && bad "no warnings when all within budget" \
+grep -qE '^(warn|FAIL)' <<< "$out" && bad "no warnings when all within budget" \
   || ok "no warnings when all within budget"
-printf '%s' "$out" | grep -q 'huge-hook' && bad "hooks are skipped (not word-counted)" \
+grep -q 'huge-hook' <<< "$out" && bad "hooks are skipped (not word-counted)" \
   || ok "hooks are skipped (not word-counted)"
 
 # --- 2. over budget but under ceiling: WARN, still exit 0 --------------------------------------
@@ -55,7 +55,7 @@ words 2400 "$FIX/plugins/fix-g/agents/tiny-agent.md" tiny-agent
 out=$(run); rc=$?
 [ "$rc" -eq 0 ] && ok "over budget under ceiling still exits 0" \
   || bad "over budget under ceiling still exits 0 (rc=$rc)"
-printf '%s' "$out" | grep -q '^warn .*tiny-agent' && ok "over budget produces a warning" \
+grep -q '^warn .*tiny-agent' <<< "$out" && ok "over budget produces a warning" \
   || bad "over budget produces a warning"
 
 # --- 3. over the hard ceiling: FAIL ------------------------------------------------------------
@@ -63,14 +63,14 @@ words 3200 "$FIX/plugins/fix-g/agents/tiny-agent.md" tiny-agent
 out=$(run); rc=$?
 [ "$rc" -ne 0 ] && ok "over the hard ceiling exits non-zero" \
   || bad "over the hard ceiling exits non-zero (rc=$rc)"
-printf '%s' "$out" | grep -q '^FAIL .*tiny-agent' && ok "over the ceiling reports FAIL" \
+grep -q '^FAIL .*tiny-agent' <<< "$out" && ok "over the ceiling reports FAIL" \
   || bad "over the ceiling reports FAIL"
 words 100 "$FIX/plugins/fix-g/agents/tiny-agent.md" tiny-agent
 
 # --- 4. skills get the higher budget -----------------------------------------------------------
 words 2400 "$FIX/plugins/fix-g/skills/small-skill/SKILL.md" small-skill
 out=$(run)
-printf '%s' "$out" | grep -q 'small-skill' \
+grep -q 'small-skill' <<< "$out" \
   && bad "a skill at 2400 words is inside the 2500 skill budget" \
   || ok "a skill at 2400 words is inside the 2500 skill budget"
 words 100 "$FIX/plugins/fix-g/skills/small-skill/SKILL.md" small-skill
@@ -81,7 +81,7 @@ words 4200 "$FIX/plugins/fix-g/commands/full-review.md" full-review
 out=$(run); rc=$?
 [ "$rc" -ne 0 ] && ok "an exempt component above its baseline fails" \
   || bad "an exempt component above its baseline fails (rc=$rc)"
-printf '%s' "$out" | grep -q 'MAY NOT GROW' && ok "the ratchet failure explains itself" \
+grep -q 'MAY NOT GROW' <<< "$out" && ok "the ratchet failure explains itself" \
   || bad "the ratchet failure explains itself"
 
 # --- 6. an exempt component below its baseline passes, and says so -----------------------------
@@ -89,11 +89,11 @@ words 3000 "$FIX/plugins/fix-g/commands/full-review.md" full-review
 out=$(run); rc=$?
 [ "$rc" -eq 0 ] && ok "an exempt component below its baseline exits 0" \
   || bad "an exempt component below its baseline exits 0 (rc=$rc)"
-printf '%s' "$out" | grep -q 'below its 3990 baseline' \
+grep -q 'below its 3990 baseline' <<< "$out" \
   && ok "a shrunk exempt component is reported so the baseline can be lowered" \
   || bad "a shrunk exempt component is reported"
 # ...and it is NOT warned about despite being over the 2000-word command budget.
-printf '%s' "$out" | grep -q '^warn .*full-review' \
+grep -q '^warn .*full-review' <<< "$out" \
   && bad "an exempt component is not also warned against the budget" \
   || ok "an exempt component is not also warned against the budget"
 
@@ -172,7 +172,7 @@ over_by_one() {  # over_by_one <extra text>: an agent of exactly 2001 words by c
 locale_agree() {  # locale_agree <check>: both locales warn on loc-agent with identical output
   local a b
   a=$(LC_ALL=C bash "$1" --root "$LOC" 2>&1); b=$(LC_ALL=C.UTF-8 bash "$1" --root "$LOC" 2>&1)
-  [ "$a" = "$b" ] && printf '%s' "$a" | grep -q '^warn .*loc-agent'
+  [ "$a" = "$b" ] && grep -q '^warn .*loc-agent' <<< "$a"
 }
 over_by_one 'alpha beta'
 locale_agree "$CHECK" && ok "an ASCII component counts the same under C and C.UTF-8" \
@@ -207,7 +207,7 @@ case "$cap" in *" dies "*|*survived*) crash_ok=0 ;; *"FAIL: mutant (crash-contro
   || bad "crash control (#360): component-size credited or missed a crashing check"
 printf '\377\376 not utf-8\n' >> "$LOC/plugins/l/agents/loc-agent.md"
 out=$(bash "$CHECK" --root "$LOC" 2>&1); rc=$?
-[ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'cannot count words in .*loc-agent.md' && ! printf '%s' "$out" | grep -q Traceback \
+[ "$rc" = 2 ] && grep -q 'cannot count words in .*loc-agent.md' <<< "$out" && ! grep -q Traceback <<< "$out" \
   && ok "a file that is not UTF-8 exits 2 naming it, no traceback" \
   || bad "a file that is not UTF-8 exits 2 naming it, no traceback (rc=$rc)"
 rm -rf "$LOC"
@@ -239,15 +239,15 @@ s = open(p).read()
 open(p, "w").write(s + ("word " * 1800) + "\n")
 PY2
 out=$(bash "$CHECK" --root "$FIX" 2>&1); rc=$?
-printf '%s' "$out" | grep -q 'with-companion' \
+grep -q 'with-companion' <<< "$out" \
   && ok "an agent's declared companion skill counts toward its size" \
   || bad "an agent is still measured on its own file alone (#150)"
-printf '%s' "$out" | grep -qi 'companion\|preload' \
+grep -qi 'companion\|preload' <<< "$out" \
   && ok "and the report says the companion is why" \
   || bad "and the report says the companion is why"
 
 # The companion is still measured on its own too: it is an ordinary component with its own budget.
-printf '%s' "$out" | grep -q 'skill companion' \
+grep -q 'skill companion' <<< "$out" \
   && ok "the companion skill is still reported in its own right" \
   || ok "the companion skill is under its own budget, so nothing to report"
 
@@ -265,7 +265,7 @@ A
 out=$(bash "$CHECK" --root "$FIX" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && ok "an agent declaring an uninstalled companion fails" \
                 || bad "an unresolvable companion was ignored"
-printf '%s' "$out" | grep -q 'not-installed' \
+grep -q 'not-installed' <<< "$out" \
   && ok "and names the skill it could not find" || bad "and names the skill it could not find"
 rm -f "$FIX/plugins/fix-g/agents/ghost-companion.md"
 
@@ -286,10 +286,10 @@ p = sys.argv[1]; s = open(p).read()
 open(p, "w").write(s + ("word " * 2500) + "\n")
 PY2
 out=$(bash "$CHECK" --root "$FIX" 2>&1)
-printf '%s' "$out" | grep -q 'orchestrator dispatcher' \
+grep -q 'orchestrator dispatcher' <<< "$out" \
   && bad "2500 words is under the orchestrator budget, so it should say nothing" \
   || ok "a dispatching agent at 2500 words is under the orchestrator budget"
-printf '%s' "$out" | grep -q 'subagent dispatcher' \
+grep -q 'subagent dispatcher' <<< "$out" \
   && bad "a dispatching agent is not judged against the plain agent budget" \
   || ok "a dispatching agent is not judged against the plain agent budget"
 rm -f "$FIX/plugins/fix-g/agents/dispatcher.md"
@@ -361,7 +361,7 @@ description: this one is in the BODY, where it is an example rather than metadat
 D
 out=$(bash "$CHECK" --root "$FIX" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && ok "a skill with no frontmatter description FAILS rather than reporting zero"   || bad "a skill with no frontmatter description FAILS rather than reporting zero (rc=$rc)"
-printf '%s' "$out" | grep -q 'desc-skill' && ok "and names the component" || bad "and names the component"
+grep -q 'desc-skill' <<< "$out" && ok "and names the component" || bad "and names the component"
 [ "$(desc_len)" = "0" ]   && ok "a description: line in the BODY is not counted (frontmatter only, as in check-component-scope.sh)"   || bad "a description: line in the BODY is not counted"
 
 cat > "$DFIX" <<'D'
@@ -389,7 +389,7 @@ rm -f "$FIX/plugins/fix-g/commands/bare.md"
 # The tree total must be reported, or the cost stays invisible, which is the whole ticket. Capture
 # first and grep after: `set -o pipefail` is on, so a piped run would report the CHECK's status.
 tot=$(bash "$CHECK" --root "$FIX" 2>&1)
-printf '%s' "$tot" | grep -q 'always-on:' \
+grep -q 'always-on:' <<< "$tot" \
   && ok "the run reports the tree's total always-on cost" \
   || bad "the run reports the tree's total always-on cost"
 
@@ -399,7 +399,7 @@ printf '%s' "$tot" | grep -q 'always-on:' \
 # or a template it emits. Nothing could move, so the line count ships as a visible cross-check. If
 # it ever starts failing a build, that is this decision being reversed by accident.
 lfix=$(bash "$CHECK" --root "$FIX" --descriptions 2>&1)
-printf '%s' "$lfix" | grep -q 'Line count' \
+grep -q 'Line count' <<< "$lfix" \
   && ok "the report shows a line count beside the words (#176)" \
   || bad "the report shows a line count beside the words (#176)"
 
@@ -426,7 +426,7 @@ got_lines=$(bash "$CHECK" --root "$FIX" --descriptions 2>&1 \
   && ok "the reported line count equals wc -l ($want_lines)" \
   || bad "the reported line count equals wc -l (want $want_lines, got $got_lines)"
 lfix=$(bash "$CHECK" --root "$FIX" --descriptions 2>&1); rc=$?
-printf '%s' "$lfix" | grep -q '500-line tip' \
+grep -q '500-line tip' <<< "$lfix" \
   && ok "and marks a component over the externally stated tip" \
   || bad "and marks a component over the externally stated tip"
 [ "$rc" -eq 0 ] \

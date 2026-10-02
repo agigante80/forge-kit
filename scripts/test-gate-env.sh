@@ -126,8 +126,8 @@ SRC='D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh"
 for st in "### Step 3A" "### Step 5" "### Step 6"; do
   [ "$(first_block "$st" "$GATE_MD" | head -1)" = "$SRC" ] && ok "${st#\#\#\# } opens with the gate-env.sh source line" || bad "${st#\#\#\# } does not open with the source line"
 done
-first_block "### Step 1:" "$GATE_MD" | grep -q '\. "$(dirname "$MECH")/gate-env.sh" || exit 2' && ok "Step 1 sources gate-env.sh after writing \$D/mech" || bad "Step 1 does not source gate-env.sh"
-awk '/^### Step 1:/ { on = 1 } on' "$GATE_MD" | grep -q '"\$REPO"' && bad "a block after Step 1 names \$REPO from the preamble's shell" || ok "no block after Step 1 names \$REPO from the preamble's shell"
+grep -q '\. "$(dirname "$MECH")/gate-env.sh" || exit 2' <<< "$(first_block "### Step 1:" "$GATE_MD")" && ok "Step 1 sources gate-env.sh after writing \$D/mech" || bad "Step 1 does not source gate-env.sh"
+grep -q '"\$REPO"' <<< "$(awk '/^### Step 1:/ { on = 1 } on' "$GATE_MD")" && bad "a block after Step 1 names \$REPO from the preamble's shell" || ok "no block after Step 1 names \$REPO from the preamble's shell"
 sed "s|^$(printf '%s' "$SRC" | sed 's/[][\.*^$|]/\\&/g')\$||" "$GATE_MD" > "$W/gate-nosrc.md"
 cmp -s "$GATE_MD" "$W/gate-nosrc.md" && bad "the no-source copy did not apply"
 [ "$(first_block "### Step 6" "$W/gate-nosrc.md" | head -1)" = "$SRC" ] && bad "mutant 'Step 6 source line deleted' survived" || ok "mutant 'Step 6 source line deleted' dies"

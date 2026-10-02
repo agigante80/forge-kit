@@ -35,7 +35,7 @@ run() { local r="$1"; shift; out=$(cd "$r" && env DRY_RUN=1 BRANCH=main "$@" bas
 R=$(mkrepo); git -C "$R" tag v1.0.0
 git -C "$R" commit --quiet --allow-empty -m "chore(release): automated version bump to 1.0.1"
 run "$R" BUMP_SUBJECT="chore(release): automated version bump"
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'own auto-bump commit' \
+[ "$rc" -eq 0 ] && grep -q 'own auto-bump commit' <<< "$out" \
   && ok "the recursion guard stops on our own bump commit" \
   || bad "the recursion guard stops on our own bump commit (rc=$rc: $out)"
 
@@ -43,7 +43,7 @@ run "$R" BUMP_SUBJECT="chore(release): automated version bump"
 R=$(mkrepo); git -C "$R" tag v1.0.0
 git -C "$R" commit --quiet --allow-empty -m "feat: a real change"
 run "$R" BUMP_SUBJECT="chore(release): automated version bump"
-printf '%s' "$out" | grep -q 'own auto-bump commit' \
+grep -q 'own auto-bump commit' <<< "$out" \
   && bad "an unrelated commit subject is not treated as our bump" \
   || ok "an unrelated commit subject is not treated as our bump"
 
@@ -59,17 +59,17 @@ mkdep() {   # mkdep <author> <file> -> repo whose HEAD changes <file>, authored 
 SCOPE=(REQUIRE_DEP_SCOPE=1 BOT_LOGINS='dependabot[bot]' DEP_PATHS='package-lock.json')
 
 R=$(mkdep 'a-human' 'package-lock.json'); run "$R" "${SCOPE[@]}"
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'bot=false' \
+[ "$rc" -eq 0 ] && grep -q 'bot=false' <<< "$out" \
   && ok "a human-authored dependency change does not auto-release" \
   || bad "a human-authored dependency change does not auto-release (rc=$rc: $out)"
 
 R=$(mkdep 'dependabot[bot]' 'src/app.js'); run "$R" "${SCOPE[@]}"
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'deps-only=false' \
+[ "$rc" -eq 0 ] && grep -q 'deps-only=false' <<< "$out" \
   && ok "a bot change touching non-dependency files does not auto-release" \
   || bad "a bot change touching non-dependency files does not auto-release (rc=$rc: $out)"
 
 R=$(mkdep 'dependabot[bot]' 'package-lock.json'); run "$R" "${SCOPE[@]}"
-printf '%s' "$out" | grep -q 'leaving it to the lane-A gate' \
+grep -q 'leaving it to the lane-A gate' <<< "$out" \
   && bad "a bot-authored dependency-only change proceeds past the gate" \
   || ok "a bot-authored dependency-only change proceeds past the gate"
 
@@ -78,53 +78,53 @@ printf '%s' "$out" | grep -q 'leaving it to the lane-A gate' \
 R=$(mkrepo); git -C "$R" tag v1.0.0
 git -C "$R" -c user.name='dependabot[bot]' commit --quiet --allow-empty -m "empty merge"
 run "$R" "${SCOPE[@]}"
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'hits=0' \
+[ "$rc" -eq 0 ] && grep -q 'hits=0' <<< "$out" \
   && ok "an empty bot commit does not release (the vacuous deps-only case)" \
   || bad "an empty bot commit does not release (rc=$rc: $out)"
 
 # A monorepo subdirectory path matches on basename too.
 R=$(mkdep 'dependabot[bot]' 'packages/web/package-lock.json'); run "$R" "${SCOPE[@]}"
-printf '%s' "$out" | grep -q 'leaving it to the lane-A gate' \
+grep -q 'leaving it to the lane-A gate' <<< "$out" \
   && bad "a nested dependency file matches by basename" \
   || ok "a nested dependency file matches by basename"
 
 # --- 3. the version decision -------------------------------------------------------------------
 R=$(mkrepo); git -C "$R" tag v2.0.0; run "$R"
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'refusing to publish a regression' \
+[ "$rc" -ne 0 ] && grep -q 'refusing to publish a regression' <<< "$out" \
   && ok "behind -> hard stop, refuses to publish a regression" \
   || bad "behind -> hard stop (rc=$rc: $out)"
 
 R=$(mkrepo); git -C "$R" tag v1.0.0; echo "1.1.0" > "$R/VERSION"; run "$R"
-printf '%s' "$out" | grep -q 'would tag v1.1.0' \
+grep -q 'would tag v1.1.0' <<< "$out" \
   && ok "ahead -> tags the working version as-is" || bad "ahead -> tags as-is ($out)"
-printf '%s' "$out" | grep -q 'bump ' \
+grep -q 'bump ' <<< "$out" \
   && bad "ahead never re-bumps" || ok "ahead never re-bumps"
 
 R=$(mkrepo); run "$R"          # no tag at all
-printf '%s' "$out" | grep -q 'would tag v1.0.0' \
+grep -q 'would tag v1.0.0' <<< "$out" \
   && ok "first-release -> tags the current version" || bad "first-release ($out)"
 
 R=$(mkrepo); git -C "$R" tag v1.0.0; run "$R"
-printf '%s' "$out" | grep -q 'bump VERSION -> 1.0.1' \
+grep -q 'bump VERSION -> 1.0.1' <<< "$out" \
   && ok "equal -> plans a patch bump to 1.0.1" || bad "equal -> patch bump ($out)"
-printf '%s' "$out" | grep -q 'would tag v1.0.1' \
+grep -q 'would tag v1.0.1' <<< "$out" \
   && ok "equal -> tags the bumped version, not the old one" || bad "equal -> tags the bump ($out)"
 
 # --- 4. tag-derived (git) mode -----------------------------------------------------------------
 R=$(mkrepo); run "$R" VERSION_SOURCE=git
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'push an initial tag' \
+[ "$rc" -eq 0 ] && grep -q 'push an initial tag' <<< "$out" \
   && ok "git mode with no reachable tag asks for a bootstrap tag" \
   || bad "git mode bootstrap (rc=$rc: $out)"
 
 R=$(mkrepo); git -C "$R" tag v1.0.0; run "$R" VERSION_SOURCE=git
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'nothing to release' \
+[ "$rc" -eq 0 ] && grep -q 'nothing to release' <<< "$out" \
   && ok "git mode with no commits since the tag cuts no phantom tag" \
   || bad "git mode phantom tag guard (rc=$rc: $out)"
 
 R=$(mkrepo); git -C "$R" tag v1.0.0
 git -C "$R" commit --quiet --allow-empty -m "feat: work"
 run "$R" VERSION_SOURCE=git
-printf '%s' "$out" | grep -q 'would tag v1.0.1' \
+grep -q 'would tag v1.0.1' <<< "$out" \
   && ok "git mode with unreleased commits tags the next patch" || bad "git mode next patch ($out)"
 
 # --- 5. dry-run really is inert ----------------------------------------------------------------

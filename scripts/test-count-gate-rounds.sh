@@ -28,8 +28,8 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
-lacks() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
+contains() { if grep -qF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+lacks() { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
 
 [ -f "$REAL" ] || { echo "missing script: $REAL"; exit 1; }
 
@@ -240,9 +240,9 @@ contains "unexpected argument" "$err" "and stderr names it"
 
 echo "== portability =="
 code() { grep -v '^[[:space:]]*#' "$1"; }
-code "$REAL" | grep -q ',,}' && bad "uses the bash-4 lowercase expansion" || ok "no bash-4 lowercase expansion"
-code "$REAL" | grep -q 'readlink -f' && bad "uses GNU readlink -f" || ok "no GNU readlink -f"
-code "$REAL" | grep -qE '(^|[^a-z-])(claude|gh) ' && bad "shells out to the harness CLI or gh directly" || ok "no dependency on the harness CLI or on gh: the transport is forge-lib's"
+grep -q ',,}' <<< "$(code "$REAL")" && bad "uses the bash-4 lowercase expansion" || ok "no bash-4 lowercase expansion"
+grep -q 'readlink -f' <<< "$(code "$REAL")" && bad "uses GNU readlink -f" || ok "no GNU readlink -f"
+grep -qE '(^|[^a-z-])(claude|gh) ' <<< "$(code "$REAL")" && bad "shells out to the harness CLI or gh directly" || ok "no dependency on the harness CLI or on gh: the transport is forge-lib's"
 
 echo
 echo "count-gate-rounds tests: $pass passed, $fail failed"

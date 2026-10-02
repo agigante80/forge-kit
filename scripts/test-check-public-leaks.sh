@@ -25,8 +25,8 @@ passed=0; failed=0
 ok()  { printf '  ok: %s\n' "$1"; passed=$((passed+1)); }
 bad() { printf '  FAIL: %s\n' "$1"; failed=$((failed+1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-lacks()    { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
-contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
+lacks()    { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
+contains() { if grep -qiF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
 
@@ -1643,7 +1643,7 @@ for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/asset
   expect "$a uses the bash-4 lowercase expansion exactly once" 1 "$n"
   grep -q 'BASH_VERSINFO' "$asset" \
     && ok "$a gates it on the bash version" || bad "$a gates it on the bash version"
-  code "$asset" | grep -q 'readlink -f' \
+  grep -q 'readlink -f' <<< "$(code "$asset")" \
     && bad "$a avoids GNU-only readlink -f" || ok "$a avoids GNU-only readlink -f"
   grep -q 'pwd -P' "$asset" \
     && ok "$a canonicalises with a POSIX fallback" || bad "$a canonicalises with a POSIX fallback"

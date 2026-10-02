@@ -424,7 +424,7 @@ mkfix "$T/m" "$T/items-ml.md" "$T/gate-one.md"
 out=$(bash "$SCRIPT" "$T/m/docs/guides/ticket-standards.md" "$T/m/gate/ticket-gate.md" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && ok "a multi-line anchor is refused rather than prefix-matched" \
                 || bad "a multi-line anchor still degrades to a prefix match"
-printf '%s' "$out" | grep -qi 'one line' \
+grep -qi 'one line' <<< "$out" \
   && ok "and says why" || bad "and says why (got: $out)"
 
 # --- #138.4: an item naming no rule number covers nothing and passed ----------------------------
@@ -441,7 +441,7 @@ mkfix "$T/n" "$T/items-norule.md" "$T/gate-norule.md"
 out=$(bash "$SCRIPT" "$T/n/docs/guides/ticket-standards.md" "$T/n/gate/ticket-gate.md" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && ok "an item that names no rule number is refused" \
                 || bad "an item naming no rule still passes while covering nothing"
-printf '%s' "$out" | grep -qi 'no rule' \
+grep -qi 'no rule' <<< "$out" \
   && ok "and says what is wrong" || bad "and says what is wrong (got: $out)"
 
 # --- review round 1 on #138's own fixes ---------------------------------------------------------
@@ -513,9 +513,9 @@ I
 mkfix "$T/x1" "$T/items-blanket.md" "$T/gate-blanket.md"
 out=$(bash "$SCRIPT" "$T/x1/docs/guides/ticket-standards.md" "$T/x1/gate/ticket-gate.md" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && ok "an unscoped multi-rule item still fails" || bad "an unscoped multi-rule item still fails"
-printf '%s' "$out" | grep -q 'unscoped anchor' \
+grep -q 'unscoped anchor' <<< "$out" \
   && ok "and says the anchor is unscoped" || bad "and says the anchor is unscoped"
-printf '%s' "$out" | grep -q 'UNLISTED restatement: rule 4' \
+grep -q 'UNLISTED restatement: rule 4' <<< "$out" \
   && ok "and its anchor grants NOTHING, so the rule 4 bar is still unlisted" \
   || bad "the unscoped anchor granted coverage anyway (the #138.1 blanket licence is back)"
 

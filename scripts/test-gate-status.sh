@@ -20,8 +20,8 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qF -- "$1"; then ok "$3"; else bad "$3 (no '$1')"; fi; }
-lacks() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
+contains() { if grep -qF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1')"; fi; }
+lacks() { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
 
 [ -f "$REAL" ] || { echo "missing script: $REAL"; exit 1; }
 [ -f "$FLIB" ] || { echo "missing library: $FLIB"; exit 1; }
@@ -406,7 +406,7 @@ probe_top() { setbody "$BASE"; GS 7 --stamp >/dev/null 2>&1; [ "$(sed -n 3p "$S/
 caught() {
   local needle="$1" err rc; shift
   err=$("$@" 2>&1 >/dev/null); rc=$?
-  [ "$rc" != 0 ] && printf '%s' "$err" | grep -qF -- "$needle" && return 1
+  [ "$rc" != 0 ] && grep -qF -- "$needle" <<< "$err" && return 1
   return 0
 }
 probe_retry() { setbody "$BASE"; STUB_RACE_KIND=region STUB_RACE_AT=6 caught "could not move" GS 7 --stamp; }

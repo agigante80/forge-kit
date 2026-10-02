@@ -18,34 +18,34 @@ out=$(bash "$SCRIPT" "$ROOT"); rc=$?
 
 # Binds to a DIGIT, not a bare "v": "vnone" starts with v, so the old `| v` form was satisfied by
 # the very failure it existed to detect (issue #95). Every version assertion below does the same.
-printf '%s\n' "$out" | grep -qP '^skill: adapt \| v[0-9]+' \
+grep -qP '^skill: adapt \| v[0-9]+' <<< "$out" \
   && ok "skills print their DIRECTORY name and a real marker (skill: adapt)" \
   || bad "skills print their directory name and a real marker"
 
-if printf '%s\n' "$out" | grep -q 'SKILL.md'; then
+if grep -q 'SKILL.md' <<< "$out"; then
   bad "no row prints SKILL.md as the name"
 else
   ok "no row prints SKILL.md as the name"
 fi
 
-printf '%s\n' "$out" | grep -qP '^subagent: ticket-gate \| v[0-9]+' \
+grep -qP '^subagent: ticket-gate \| v[0-9]+' <<< "$out" \
   && ok "a known agent appears with its marker (ticket-gate)" \
   || bad "a known agent appears with its marker"
 
 # owasp-api-security rather than api-design-principles: the latter was retired with the whole
 # forge-kit-backend group in #178, and a test pinned to a component that no longer exists tells you
 # nothing about the catalogue.
-printf '%s\n' "$out" | grep -qP '^skill: owasp-api-security \| v[0-9]+' \
+grep -qP '^skill: owasp-api-security \| v[0-9]+' <<< "$out" \
   && ok "a known skill appears with its marker" \
   || bad "a known skill appears with its marker"
 
-printf '%s\n' "$out" | grep -qP '^hook: block-dashes \| v[0-9]+' \
+grep -qP '^hook: block-dashes \| v[0-9]+' <<< "$out" \
   && ok "a known hook appears with its marker (block-dashes)" \
   || bad "a known hook appears with its marker"
 
 # Versioned shell assets (issue #64): the catalogue must list them, or drift/refresh has no
 # forge-kit-side version to compare an installed scripts/forge-lib.sh against.
-printf '%s\n' "$out" | grep -qP '^asset: forge-lib \| v[0-9]+' \
+grep -qP '^asset: forge-lib \| v[0-9]+' <<< "$out" \
   && ok "a versioned shell asset appears with its marker (forge-lib)" \
   || bad "a versioned shell asset appears with its marker (forge-lib)"
 
@@ -54,7 +54,7 @@ printf '%s\n' "$out" | grep -qP '^asset: forge-lib \| v[0-9]+' \
 # its file by construction; a "vnone" therefore means the catalogue FAILED TO READ a marker that is
 # provably there, never that the component is genuinely unversioned. That is what issue #95 was:
 # skills/adapt/SKILL.md carries "forge-adapt-version" while the row name is its directory, "adapt".
-if printf '%s\n' "$out" | grep -q '| vnone$'; then
+if grep -q '| vnone$' <<< "$out"; then
   bad "no row prints vnone ($(printf '%s\n' "$out" | grep -c '| vnone$') found)"
 else
   ok "no row prints vnone (every catalogued file carries a marker by construction)"
@@ -67,7 +67,7 @@ tsv=$(bash "$SCRIPT" --tsv "$ROOT"); trc=$?
 
 [ "$trc" -eq 0 ] && ok "--tsv exits 0" || bad "--tsv exits 0 (got rc=$trc)"
 
-if printf '%s\n' "$tsv" | grep -q '^=== '; then
+if grep -q '^=== ' <<< "$tsv"; then
   bad "--tsv emits no === group === headers"
 else
   ok "--tsv emits no === group === headers"
@@ -86,7 +86,7 @@ missing=$(printf '%s\n' "$tsv" | awk -F'\t' 'NF==5 {print $5}' | while read -r f
 
 # The version field is bare digits here (no "v" prefix), and never "none" for the same
 # reason the default mode never prints vnone.
-if printf '%s\n' "$tsv" | awk -F'\t' 'NF==5 && $4 !~ /^[0-9]+$/' | grep -q .; then
+if grep -q . <<< "$(printf '%s\n' "$tsv" | awk -F'\t' 'NF==5 && $4 !~ /^[0-9]+$/')"; then
   bad "--tsv version field is bare digits"
 else
   ok "--tsv version field is bare digits"

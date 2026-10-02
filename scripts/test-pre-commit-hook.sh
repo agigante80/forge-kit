@@ -54,9 +54,9 @@ git add NOTES.md
 out="$(run_hook)"; rc=$?
 [ "$rc" -ne 0 ] && ok "a leak in a docs-only commit is blocked" \
   || bad "a leak in a docs-only commit is blocked (rc=$rc)"
-printf '%s' "$out" | grep -q 'home-path' \
+grep -q 'home-path' <<< "$out" \
   && ok "and the finding is shown" || bad "and the finding is shown"
-printf '%s' "$out" | grep -qi 'carries something from this machine' \
+grep -qi 'carries something from this machine' <<< "$out" \
   && ok "and it is reported as a leak" || bad "and it is reported as a leak"
 
 echo "== a clean docs-only commit still passes =="
@@ -70,7 +70,7 @@ expect_rc=$?
 echo "== the private scan reads the fixture's list, not the developer's (#384) =="
 printf 'clean\n' > NOTES.md; git add NOTES.md
 out="$(run_hook)"
-printf '%s' "$out" | grep -q 'NOT BEING CHECKED' \
+grep -q 'NOT BEING CHECKED' <<< "$out" \
   && ok "an isolated HOME with no list: the private scan says its names are not being checked" \
   || bad "an isolated HOME with no list: the private scan says its names are not being checked"
 # The isolation is asserted BEFORE anything is written under $HOME.
@@ -82,12 +82,12 @@ if [ "$HOME" = "$TMP/fakehome" ] && [ "$HOME" != "$REAL_HOME" ]; then
   out="$(run_hook)"; rc=$?
   [ "$rc" -eq 1 ] && ok "the fixture list is the one consulted: a staged private name blocks (rc exactly 1)" \
     || bad "the fixture list is the one consulted: a staged private name blocks (rc=$rc)"
-  printf '%s' "$out" | grep -q 'NOTES.md:1: private-name:' \
+  grep -q 'NOTES.md:1: private-name:' <<< "$out" \
     && ok "and the private-name finding is shown" || bad "and the private-name finding is shown"
   # Mutant home-not-isolated: a different, empty HOME stands for the export removed.
   mkdir -p "$TMP/otherhome"
   out="$(HOME="$TMP/otherhome" run_hook)"
-  printf '%s' "$out" | grep -q 'NOTES.md:1: private-name:' \
+  grep -q 'NOTES.md:1: private-name:' <<< "$out" \
     && bad "mutant home-not-isolated: the fixture list is still consulted" \
     || ok "mutant home-not-isolated: without the fixture HOME the finding vanishes (the private-name case fails it)"
   rm -f "$HOME/.claude/forge-kit/private-names.txt"
@@ -112,9 +112,9 @@ git add .leak-guard-allow
 out="$(run_hook)"; rc=$?
 [ "$rc" -ne 0 ] && ok "a scanner that cannot run still blocks" \
   || bad "a scanner that cannot run still blocks (rc=$rc)"
-printf '%s' "$out" | grep -qi 'could not RUN' \
+grep -qi 'could not RUN' <<< "$out" \
   && ok "and says so" || bad "and says so"
-printf '%s' "$out" | grep -qi 'carries something from this machine' \
+grep -qi 'carries something from this machine' <<< "$out" \
   && bad "and does NOT call a config error a leak" \
   || ok "and does NOT call a config error a leak"
 git rm -q --cached .leak-guard-allow >/dev/null; rm -f .leak-guard-allow
@@ -129,7 +129,7 @@ chmod -x "$LG/check-public-leaks.sh" "$LG/check-private-leaks.sh"
 out="$(run_hook)"; rc=$?
 [ "$rc" -ne 0 ] && ok "a leak still blocks when the scanners are not executable" \
   || bad "a leak still blocks when the scanners are not executable (rc=$rc)"
-printf '%s' "$out" | grep -q 'home-path' \
+grep -q 'home-path' <<< "$out" \
   && ok "and it is still the scanner reporting it" || bad "and it is still the scanner reporting it"
 chmod +x "$LG/check-public-leaks.sh" "$LG/check-private-leaks.sh"
 git checkout -- . 2>/dev/null; printf 'clean\n' > NOTES.md; git add NOTES.md

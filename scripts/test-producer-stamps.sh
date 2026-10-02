@@ -187,7 +187,7 @@ bash "$SCRIPT" "$R/plugins" >/dev/null 2>&1
 out=$(bash "$SCRIPT" "$R/plugins" 2>&1); rc=$?
 [ "$rc" -eq 1 ] && ok "and the identical content TRACKED still fails" \
                 || bad "a tracked stamp stopped failing (rc=$rc)"
-printf '%s' "$out" | grep -q 'a.md.orig' \
+grep -q 'a.md.orig' <<< "$out" \
   && ok "and the report still names the file" || bad "and the report still names the file"
 
 # EXACTLY ONE tracked file. grep omits the filename prefix when handed a single file operand, so
@@ -202,7 +202,7 @@ M
 ( cd "$S" && git add -A && git commit -q -m one ) >/dev/null 2>&1
 out=$(bash "$SCRIPT" "$S/plugins" 2>&1); rc=$?
 [ "$rc" -eq 1 ] && ok "a lone tracked file carrying a stamp fails" || bad "a lone tracked file fails (rc=$rc)"
-printf '%s' "$out" | grep -q 'only\.md' \
+grep -q 'only\.md' <<< "$out" \
   && ok "and the report names it even though grep had one file" \
   || bad "the report lost the filename with a single file operand"
 

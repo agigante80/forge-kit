@@ -21,8 +21,8 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect()   { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in: $2)"; fi; }
-lacks()    { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 ('$1' present in: $2)"; else ok "$3"; fi; }
+contains() { if grep -qF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in: $2)"; fi; }
+lacks()    { if grep -qF -- "$1" <<< "$2"; then bad "$3 ('$1' present in: $2)"; else ok "$3"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
 
@@ -189,7 +189,7 @@ expect "a last line with no trailing newline still wires" 0 "$rc"
 echo "== the guard pins its own locale =="
 # The suite runs the guard under C.UTF-8 on purpose: with no pin in the guard, a U+3000 after the
 # path would end the token and the line would count as wired.
-if locale -a 2>/dev/null | grep -qiE '^c\.utf-?8$'; then
+if grep -qiE '^c\.utf-?8$' <<< "$(locale -a 2>/dev/null)"; then
   fresh test-a.sh
   printf -- '  - run: bash scripts/test-a.sh\xe3\x80\x80x\n' | yml
   out=$(LC_ALL=C.UTF-8 bash "$SCRIPT" "$D" 2>&1); rc=$?
@@ -332,7 +332,7 @@ printf '\000\377\376\200\r\n\001run: bash scripts/\377\000\n\303(\n' > "$D/.gith
 run
 expect "a binary validate.yml reports the suite unwired, exit 1" 1 "$rc"
 contains "have no step" "$out" "and it is the finding, not a crash"
-if printf '%s' "$out" | grep -qE ': line [0-9]+: '; then bad "no shell error line in the output ($out)"; else ok "no shell error line in the output"; fi
+if grep -qE ': line [0-9]+: ' <<< "$out"; then bad "no shell error line in the output ($out)"; else ok "no shell error line in the output"; fi
 
 fresh
 rmdir "$D/scripts"

@@ -1893,7 +1893,7 @@ mutant_needs() {
 # have_gawk: the awk `run` uses is GNU Awk. mawk is only mildly superlinear on the strip site, so a
 # mutant that needs a clear margin over the bound is skipped there. The probe prepends AWKDIR like
 # `run` does; a bare `awk --version` would see the system gawk under AWK_UNDER_TEST=mawk.
-have_gawk() { PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1 | grep -q 'GNU Awk'; }
+have_gawk() { grep -q 'GNU Awk' <<< "$(PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1)"; }
 # gawk_gate: run, skip, or refuse (#386). A run that ASKED for gawk (AWK_UNDER_TEST=gawk, as CI does)
 # and got an awk that is not GNU Awk must fail, never print a skip that counts as a pass.
 gawk_gate() { if have_gawk; then echo run; elif [ "${AWK_UNDER_TEST:-}" = gawk ]; then echo refuse; else echo skip; fi; }
@@ -1901,7 +1901,7 @@ gawk_gate() { if have_gawk; then echo run; elif [ "${AWK_UNDER_TEST:-}" = gawk ]
 # UTF-8 locale can kill. BWK is named by its `awk --version` line, `awk version <date>`, probed
 # through AWKDIR as `run` resolves it; the locale by `locale charmap`. A run that asked for
 # original-awk (as CI does) and got another awk refuses rather than printing a skip.
-is_bwk() { PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1 | grep -q '^awk version [0-9]'; }
+is_bwk() { grep -q '^awk version [0-9]' <<< "$(PATH="${AWKDIR:+$AWKDIR:}$PATH" awk --version 2>&1)"; }
 bwk_gate() {
   if is_bwk && [ "$(locale charmap 2>/dev/null)" = UTF-8 ]; then echo run
   elif [ "${AWK_UNDER_TEST:-}" = original-awk ] && ! is_bwk; then echo refuse
@@ -2350,7 +2350,7 @@ NR == 1 {' 'EXTRACT='\''
   mutant "symlink check removed" c_npmrc_symlink 'if [ "$NPMRC_MODE" = 120000 ]; then' 'if [ "$NPMRC_MODE" = never ]; then'
   mutant "link followed on disk and printed" c_npmrc_symlink_nofollow 'NPMRC_KEY=symlink; return; fi' 'NPMRC_KEY=symlink; cat .npmrc; return; fi'
   mutant "target echoed" c_npmrc_symlink_nofollow 'NPMRC_KEY=symlink; return; fi' 'NPMRC_KEY=symlink; readlink .npmrc; return; fi'
-  mutant "link detected by content" c_npmrc_symlink_text_neg 'if [ "$NPMRC_MODE" = 120000 ]; then' 'if [ "$NPMRC_MODE" = 120000 ] || git show :.npmrc 2>/dev/null | grep -q /; then'
+  mutant "link detected by content" c_npmrc_symlink_text_neg 'if [ "$NPMRC_MODE" = 120000 ]; then' 'if [ "$NPMRC_MODE" = 120000 ] || grep -q / <<< "$(git show :.npmrc 2>/dev/null)"; then'
   mutant "a non-root .npmrc is read through the mode probe" c_npmrc_symlink_subdir_neg 'tracked .npmrc || return' 'tracked client/.npmrc || return' 'git ls-files -s -- .npmrc' 'git ls-files -s -- client/.npmrc' 'git show :.npmrc 2>/dev/null |' 'git show :client/.npmrc 2>/dev/null |'
   mutant "npm-only guard dropped (symlink)" c_npmrc_symlink_pnpm_unchanged '  if [ "$pm" = npm ]; then
     npmrc_scan' '  if true; then
@@ -2479,7 +2479,7 @@ echo "== portability, because this ships into other people's repositories =="
 # still NAME what it avoids.
 code_() { grep -v '^[[:space:]]*#' "$SCRIPT"; }
 for pat in ',,}' '^^}' 'readlink -f' 'mapfile' 'readarray' 'declare -A' 'local -n' 'awk -v' 'gensub' 'sed -i' 'grep -P'; do
-  code_ | grep -qF -- "$pat" && bad "avoids $pat" || ok "avoids $pat"
+  grep -qF -- "$pat" <<< "$(code_)" && bad "avoids $pat" || ok "avoids $pat"
 done
 grep -q 'check-contributor-docs-version: [0-9]' "$SCRIPT" && ok "carries its version marker" || bad "carries its version marker"
 
@@ -2501,8 +2501,8 @@ for v in 5 60; do
     ok "ESCAPE_WATCHDOG_SECS=$v is accepted"
   else bad "ESCAPE_WATCHDOG_SECS=$v is accepted"; fi
 done
-if sed -n 1,25p "$0" | grep -q 'ESCAPE_WATCHDOG_SECS' && sed -n 1,25p "$0" | grep -q '1 to 60' \
-   && sed -n 1,25p "$0" | grep -q 'default 10'; then ok "the header names ESCAPE_WATCHDOG_SECS, its range and its default"
+if grep -q 'ESCAPE_WATCHDOG_SECS' <<< "$(sed -n 1,25p "$0")" && grep -q '1 to 60' <<< "$(sed -n 1,25p "$0")" \
+   && grep -q 'default 10' <<< "$(sed -n 1,25p "$0")"; then ok "the header names ESCAPE_WATCHDOG_SECS, its range and its default"
 else bad "the header names ESCAPE_WATCHDOG_SECS, its range and its default"; fi
 
 echo ""

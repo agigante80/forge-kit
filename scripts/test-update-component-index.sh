@@ -106,14 +106,14 @@ python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
 # name cannot say which is stale. Stdout is asserted, since that is where the report is printed,
 # and the pre-push hook quotes it.
 out="$(python3 "$GEN" --check --root "$FIX" 2>/dev/null)"
-printf '%s' "$out" | grep -q 'STALE region(s): README.md (component-index)$' \
+grep -q 'STALE region(s): README.md (component-index)$' <<< "$out" \
   && ok "--check names the stale region as file and id, and only that one" \
   || bad "--check names the stale region as file and id, and only that one ($out)"
 python3 "$GEN" --root "$FIX" >/dev/null 2>&1
 # Two stale regions in the SAME file are two distinct entries, in REGIONS order.
 sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/; s/component-index:start -->/component-index:start -->\nhand-edited/' "$FIX/README.md"
 out="$(python3 "$GEN" --check --root "$FIX" 2>/dev/null)"
-printf '%s' "$out" | grep -q 'STALE region(s): README.md (plugin-catalogue), README.md (component-index)$' \
+grep -q 'STALE region(s): README.md (plugin-catalogue), README.md (component-index)$' <<< "$out" \
   && ok "--check lists both stale regions of one file as distinct entries" \
   || bad "--check lists both stale regions of one file as distinct entries ($out)"
 python3 "$GEN" --root "$FIX" >/dev/null 2>&1
@@ -140,7 +140,7 @@ python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1
 printf 'no markers here\n' > "$FIX/README.md"
 err=$(python3 "$GEN" --root "$FIX" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && ok "a missing marker region exits non-zero" || bad "a missing marker region exits non-zero"
-printf '%s' "$err" | grep -q 'component-index' \
+grep -q 'component-index' <<< "$err" \
   && ok "the missing-marker error names the region" || bad "the missing-marker error names the region"
 
 # --- the plugin catalogue: the README's user-facing group table ---------------------------------
@@ -150,13 +150,13 @@ printf '%s' "$err" | grep -q 'component-index' \
 mk_docs   # the missing-marker case above left README.md without its regions
 python3 "$GEN" --root "$FIX" >/dev/null 2>&1
 cat=$(sed -n '/plugin-catalogue:start/,/plugin-catalogue:end/p' "$FIX/README.md")
-printf '%s' "$cat" | grep -q 'claude plugin install fix-alpha@forge-kit' \
+grep -q 'claude plugin install fix-alpha@forge-kit' <<< "$cat" \
   && ok "the catalogue carries a copy-pasteable install command per group" \
   || bad "the catalogue carries a copy-pasteable install command per group"
-printf '%s' "$cat" | grep -q '1.2.3' \
+grep -q '1.2.3' <<< "$cat" \
   && ok "and the group's plugin.json semver, which is the unit of install" \
   || bad "and the group's plugin.json semver"
-printf '%s' "$cat" | grep -q 'fixture' \
+grep -q 'fixture' <<< "$cat" \
   && ok "and the group's own description, so the table says what you would get" \
   || bad "and the group's own description"
 [ "$(printf '%s' "$cat" | grep -c '^| `fix-')" = "2" ] \
@@ -175,7 +175,7 @@ row=$(grep '^| `fix-alpha`' "$FIX/README.md" | head -1)
 [ -n "$row" ] && [ "${#row}" -lt 400 ] \
   && ok "an overlong description is truncated, not spilled into the table" \
   || bad "an overlong description is truncated (row is ${#row} chars, empty means the row vanished)"
-printf '%s' "$row" | grep -q '…' && ok "and the truncation is marked" || bad "and the truncation is marked"
+grep -q '…' <<< "$row" && ok "and the truncation is marked" || bad "and the truncation is marked"
 python3 - "$FIX" <<'PY2'
 import json, sys, os
 p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
@@ -198,8 +198,8 @@ grep -q 'plugin-catalogue:start' "$ROOT/README.md" \
 rm -f "$FIX/CLAUDE.md"
 out="$(python3 "$GEN" --check --root "$FIX" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "an absent target doc leaves --check green" || bad "an absent target doc leaves --check green (rc $rc)"
-printf '%s' "$out" | grep -q 'skipped: CLAUDE.md' && ok "and the skip is named" || bad "and the skip is named"
-printf '%s' "$out" | grep -q 'Traceback' && bad "with no traceback" || ok "with no traceback"
+grep -q 'skipped: CLAUDE.md' <<< "$out" && ok "and the skip is named" || bad "and the skip is named"
+grep -q 'Traceback' <<< "$out" && bad "with no traceback" || ok "with no traceback"
 out="$(python3 "$GEN" --root "$FIX" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "and a rewrite run skips it too" || bad "and a rewrite run skips it too"
 [ -f "$FIX/CLAUDE.md" ] && bad "without creating the file" || ok "without creating the file"

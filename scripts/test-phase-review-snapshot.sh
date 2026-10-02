@@ -91,12 +91,12 @@ c_single_notheld() { newrepo; local a; a="$(step1 README.md)"; printf 'x\n' >> "
 c_overlap_held() { newrepo; local a b; a="$(step1 README.md)"; b="$(step1 README.md)"; [ "$a" != "$b" ] || return 1
   [ "$(step7 "$a")" = "$HELD" ]; }
 c_overlap_notheld() { newrepo; local a b o; a="$(step1 README.md)"; printf 'x\n' >> "$R/docs/roadmap.md"; b="$(step1 README.md)"
-  o="$(step7 "$a")"; [ "$o" = "$NOTHELD" ] && ! printf '%s\n' "$o" | grep -q '^second-run proof: held'; }
+  o="$(step7 "$a")"; [ "$o" = "$NOTHELD" ] && ! grep -q '^second-run proof: held' <<< "$o"; }
 c_finished_other_held() { newrepo; local a b; a="$(step1 README.md)"; b="$(step1 README.md)"
   [ "$(step7 "$b")" = "$HELD" ] && [ "$(step7 "$a")" = "$HELD" ]; }
 c_finished_other_notheld() { newrepo; local a b o; a="$(step1 README.md)"; b="$(step1 README.md)"; step7 "$b" >/dev/null
   printf 'x\n' >> "$R/docs/roadmap.md"; o="$(step7 "$a")"
-  [ "$o" = "$NOTHELD" ] && ! printf '%s\n' "$o" | grep -q '^second-run proof: held'; }
+  [ "$o" = "$NOTHELD" ] && ! grep -q '^second-run proof: held' <<< "$o"; }
 c_wrong_id() { newrepo; local a id o; a="$(step1 README.md)"
   for id in '' ID zzzzzz ../x; do
     o="$(step7 "$id")"; [ "$o" = "$UNPROVEN" ] || { echo "    id '$id': $o"; return 1; }

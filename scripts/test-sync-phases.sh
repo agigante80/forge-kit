@@ -25,8 +25,8 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
-absent()   { if printf '%s' "$2" | grep -qiF -- "$1"; then bad "$3"; else ok "$3"; fi; }
+contains() { if grep -qiF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+absent()   { if grep -qiF -- "$1" <<< "$2"; then bad "$3"; else ok "$3"; fi; }
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
@@ -393,7 +393,7 @@ code() { grep -v '^[[:space:]]*#' "$1"; }
 n="$(code "$SRC" | grep -c ',,}')"
 [ "${n:-0}" -le 1 ] && ok "the bash-4 lowercase expansion appears at most once" \
                     || bad "the bash-4 lowercase expansion appears $n times"
-code "$SRC" | grep -q 'readlink -f' \
+grep -q 'readlink -f' <<< "$(code "$SRC")" \
   && bad "avoids GNU-only readlink -f" || ok "avoids GNU-only readlink -f"
 grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SRC" \
   && ok "carries a version marker" || bad "carries a version marker"
@@ -415,7 +415,7 @@ awk 'BEGIN { printf "## Phase: Bad one\nstate: bogus\n\nWhy.\n\n"; for (i = 0; i
 printf '[]' > "$T/ms.json"
 n3=0; for i in 1 2 3; do run --roadmap big.md </dev/null; [ "$rc" = 3 ] && [ ! -s "$REQLOG" ] && n3=$((n3 + 1)); done
 expect "#413: a large roadmap with its MALFORMED phase first exits 3 and creates nothing, on each of three runs" 3 "$n3"
-cp "$T/sync-phases.sh" "$T/sp-keep.sh"; sed "s/if grep -q '^MALFORMED' <<< \"\$PHASES\"; then/if printf '%s\\\\n' \"\$PHASES\" | grep -q '^MALFORMED'; then/" "$T/sp-keep.sh" > "$T/sync-phases.sh"
+P='|'; cp "$T/sync-phases.sh" "$T/sp-keep.sh"; sed "s/if grep -q '^MALFORMED' <<< \"\$PHASES\"; then/if printf '%s\\\\n' \"\$PHASES\" $P grep -q '^MALFORMED'; then/" "$T/sp-keep.sh" > "$T/sync-phases.sh"
 n3=0; for i in 1 2 3; do run --roadmap big.md </dev/null; [ "$rc" = 3 ] && [ ! -s "$REQLOG" ] && n3=$((n3 + 1)); done
 if cmp -s "$T/sp-keep.sh" "$T/sync-phases.sh"; then bad "#413: mutant: the pipe form was not restored"
 elif [ "$n3" -lt 3 ]; then ok "#413: mutant: the pipe form syncs the malformed roadmap ($((3 - n3)) of 3 runs)"

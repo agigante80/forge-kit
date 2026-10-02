@@ -70,42 +70,42 @@ git add -A >/dev/null; git commit --quiet -m "change without bump"
 out=$(run_hook unbumped); rc=$?
 [ "$rc" -ne 0 ] && ok "an unbumped component marker fails the push" \
   || bad "an unbumped component marker fails the push (rc=$rc)"
-printf '%s' "$out" | grep -q 'bump the <name>-version marker' \
+grep -q 'bump the <name>-version marker' <<< "$out" \
   && ok "the marker failure names the fix" || bad "the marker failure names the fix"
 
 # The CI wording on the violation path is on STDOUT (#311). It must say what CI really does and
 # must not promise an identical answer: a PR compares against the PR's target branch and a push
 # against the branch's previous tip (scripts/resolve-range-base.sh), so the two bases differ.
 so="$(run_hook_stdout unbumped)"
-printf '%s' "$so" | grep -q 'range check(s) failed' \
+grep -q 'range check(s) failed' <<< "$so" \
   && ok "the violation summary is on stdout" || bad "the violation summary is on stdout"
 for frag in 'pull requests' "PR's target branch" 'pushes to main and develop' 'previous tip' 'can differ' 'new ref or a force push' 'triggers no' 'though an open PR for it still triggers one'; do
-  printf '%s' "$so" | grep -q "$frag" \
+  grep -q "$frag" <<< "$so" \
     && ok "stdout states the real CI behaviour: $frag" || bad "stdout states the real CI behaviour: $frag"
 done
 for frag in 'same answer' 'will fail there too'; do
-  printf '%s' "$so" | grep -q "$frag" \
+  grep -q "$frag" <<< "$so" \
     && bad "stdout no longer promises CI agreement: $frag" || ok "stdout no longer promises CI agreement: $frag"
 done
 hdr="$(sed -n '1,/^set -uo/p' "$ROOT/.githooks/pre-push")"
-printf '%s' "$hdr" | grep -q 'duplicates CI' \
+grep -q 'duplicates CI' <<< "$hdr" \
   && bad "the header no longer says the hook duplicates CI" || ok "the header no longer says the hook duplicates CI"
-printf '%s' "$hdr" | grep -q 'not a preview of CI' \
+grep -q 'not a preview of CI' <<< "$hdr" \
   && ok "the header says this is an early check, not a preview of CI" || bad "the header says this is an early check, not a preview of CI"
 # #366: the header must not say a push to another branch gets no run WITHOUT the open-PR caveat
 # (validate.yml has an unfiltered `pull_request:`, so a branch with an open PR does get a run).
-printf '%s' "$hdr" | grep -q 'push-time CI run' \
+grep -q 'push-time CI run' <<< "$hdr" \
   && ok "the header still speaks of the push-time CI run" || bad "the header still speaks of the push-time CI run"
-printf '%s' "$hdr" | grep -q 'open PR' \
+grep -q 'open PR' <<< "$hdr" \
   && ok "the header says an open PR still triggers a CI run" || bad "the header says an open PR still triggers a CI run"
 # Permanent mutant (scratch copy under $TMP, the tracked hook is never touched). The ledger is
 # scoped to the HEADER: the caveat also exists on stdout, so a whole-file grep would pass vacuously.
 mut_hdr="$TMP/mut-header.sh"
 sed '/^# push-time CI run, though/s/, though an open PR for it still triggers one\././' "$ROOT/.githooks/pre-push" > "$mut_hdr"
-if printf '%s' "$hdr" | grep -q 'though an open PR for it still triggers one' \
+if grep -q 'though an open PR for it still triggers one' <<< "$hdr" \
    && ! cmp -s "$mut_hdr" "$ROOT/.githooks/pre-push"; then
   mhdr="$(sed -n '1,/^set -uo/p' "$mut_hdr")"
-  printf '%s' "$mhdr" | grep -q 'open PR' \
+  grep -q 'open PR' <<< "$mhdr" \
     && bad "the header open-PR check detects a header without the caveat" \
     || ok "the header open-PR check detects a header without the caveat"
 else
@@ -120,7 +120,7 @@ if command -v jq >/dev/null 2>&1; then
   [ "$rc" -ne 0 ] && ok "a group changed without a plugin.json bump fails the push" \
     || bad "a group changed without a plugin.json bump fails the push (rc=$rc)"
 else
-  printf '%s' "$out" | grep -q 'jq is not installed' \
+  grep -q 'jq is not installed' <<< "$out" \
     && ok "no jq: the semver check skips LOUDLY" || bad "no jq: the semver check skips loudly"
 fi
 
@@ -139,7 +139,7 @@ out=$(printf 'refs/heads/x 0000000000000000000000000000000000000000 refs/heads/x
 out=$(printf 'refs/heads/other %s refs/heads/other 0000000000000000000000000000000000000000\n' \
         "$(git rev-parse main)" | bash .githooks/pre-push origin "$BARE" 2>&1); rc=$?
 [ "$rc" -eq 0 ] && ok "a non-HEAD ref does not fail the push" || bad "a non-HEAD ref does not fail the push"
-printf '%s' "$out" | grep -q 'not the checked-out HEAD' \
+grep -q 'not the checked-out HEAD' <<< "$out" \
   && ok "a non-HEAD ref is skipped LOUDLY" || bad "a non-HEAD ref is skipped loudly"
 
 # --- 7. a missing base ref skips loudly rather than blocking the push --------------------------
@@ -152,16 +152,16 @@ git update-ref -d refs/remotes/origin/main 2>/dev/null || true
 out=$(run_hook unbumped); rc=$?
 [ "$rc" -eq 0 ] && ok "a missing base ref does not block the push" \
   || bad "a missing base ref does not block the push (rc=$rc)"
-printf '%s' "$out" | grep -q 'range checks SKIPPED' \
+grep -q 'range checks SKIPPED' <<< "$out" \
   && ok "a missing base ref says so LOUDLY" || bad "a missing base ref says so loudly"
-printf '%s' "$out" | grep -q 'git fetch origin' \
+grep -q 'git fetch origin' <<< "$out" \
   && ok "the skip message says how to fix it" || bad "the skip message says how to fix it"
 # The CI claim on this path is on STDERR (#311): stderr alone, and no promise that CI checks it.
 se="$(run_hook_stderr unbumped)"
-printf '%s' "$se" | grep -q 'is still checked there' \
+grep -q 'is still checked there' <<< "$se" \
   && bad "the skip message no longer promises the push is still checked" || ok "the skip message no longer promises the push is still checked"
 for frag in "target branch" 'previous tip' 'can differ' 'no push-time CI run' 'pull requests' 'pushes to main and develop' 'open PR'; do
-  printf '%s' "$se" | grep -q "$frag" \
+  grep -q "$frag" <<< "$se" \
     && ok "the skip message states the real CI behaviour: $frag" || bad "the skip message states the real CI behaviour: $frag"
 done
 # Permanent mutant (#366): the stderr caveat removed, on a scratch copy run from this fixture.
@@ -171,7 +171,7 @@ sed '/>&2$/s/, though an open PR for it still triggers one\././' "$ROOT/.githook
 if grep -q 'no push-time CI run, though an open PR for it still triggers one' "$ROOT/.githooks/pre-push" \
    && ! cmp -s "$mut_se" "$ROOT/.githooks/pre-push"; then
   mse="$(run_hook_stderr unbumped "$mut_se")"
-  printf '%s' "$mse" | grep -q 'open PR' \
+  grep -q 'open PR' <<< "$mse" \
     && bad "the stderr open-PR check detects a hook without the caveat" \
     || ok "the stderr open-PR check detects a hook without the caveat"
 else
@@ -195,31 +195,31 @@ out=$(run_hook leakcheck); rc=$?
 # which branch fired is pinned by the wording below.
 [ "$rc" -eq 1 ] && ok "a leak blocks the push even with no base ref" \
   || bad "a leak blocks the push even with no base ref (rc=$rc)"
-printf '%s' "$out" | grep -q 'home-path' \
+grep -q 'home-path' <<< "$out" \
   && ok "and the finding itself is shown" || bad "and the finding itself is shown"
 # Wording assertions use STDOUT only (the leak block echoes there). The old phrases survive only
 # as absence patterns (#313).
 so="$(run_hook_stdout leakcheck)"
-printf '%s' "$so" | grep -qi 'NOT one of the CI checks' \
+grep -qi 'NOT one of the CI checks' <<< "$so" \
   && bad "the message no longer says the leak guard is not a CI check" \
   || ok "the message no longer says the leak guard is not a CI check"
-printf '%s' "$so" | grep -q 'nothing server-side will catch it for you' \
+grep -q 'nothing server-side will catch it for you' <<< "$so" \
   && bad "the message no longer says nothing server-side catches it" \
   || ok "the message no longer says nothing server-side catches it"
-printf '%s' "$so" | grep -q 'this push has published it' \
+grep -q 'this push has published it' <<< "$so" \
   && bad "the message no longer says this push has published it" \
   || ok "the message no longer says this push has published it"
 for frag in 'CI also runs' 'pushes to main and develop' 'triggers no CI scan' 'runs only on this machine' '--no-verify can publish it' 'once it is published' 'with no pull request triggers no CI scan'; do
-  printf '%s' "$so" | grep -q -e "$frag" \
+  grep -q -e "$frag" <<< "$so" \
     && ok "leak message states: $frag" || bad "leak message states: $frag"
 done
-printf '%s' "$so" | grep 'private-name' | grep -q 'runs only on this machine' \
+grep -q 'runs only on this machine' <<< "$(grep 'private-name' <<< "$so")" \
   && ok "the private-name line says it runs only on this machine" \
   || bad "the private-name line says it runs only on this machine"
-printf '%s' "$so" | grep 'private-name' | grep -q 'CI also runs' \
+grep -q 'CI also runs' <<< "$(grep 'private-name' <<< "$so")" \
   && bad "the private-name line does not claim CI runs it" \
   || ok "the private-name line does not claim CI runs it"
-printf '%s' "$out" | grep -q 'range check(s) failed' \
+grep -q 'range check(s) failed' <<< "$out" \
   && bad "a leak is not reported as a range-check failure" \
   || ok "a leak is not reported as a range-check failure"
 
@@ -228,11 +228,11 @@ printf 'nonsense line\n' > .leak-guard-allow
 git add -A >/dev/null; git commit --quiet -m "broken allow-file"
 out=$(run_hook leakcheck); rc=$?
 [ "$rc" -ne 0 ] && ok "a scanner that cannot run still blocks" || bad "a scanner that cannot run still blocks"
-printf '%s' "$out" | grep -qi 'could not RUN' \
+grep -qi 'could not RUN' <<< "$out" \
   && ok "and says it could not run, not that it found something" \
   || bad "and says it could not run, not that it found something"
 # Structural regression guard (the leak_errors exit comes first), not coverage of the new wording.
-printf '%s' "$out" | grep -q -e 'CI also runs' -e 'runs only on this machine' \
+grep -q -e 'CI also runs' -e 'runs only on this machine' <<< "$out" \
   && bad "a could-not-run result carries none of the finding wording" \
   || ok "a could-not-run result carries none of the finding wording"
 rm -f .leak-guard-allow docs-leak.md; git add -A >/dev/null; git commit --quiet -m cleanup
@@ -247,7 +247,7 @@ printf 'edited out, not committed\n' > docs-leak.md
 out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "a committed leak masked by an uncommitted fix still blocks (rc exactly 1)" \
   || bad "a committed leak masked by an uncommitted fix still blocks (rc=$rc)"
-printf '%s' "$out" | grep -q 'home-path' && ok "and the finding is shown" || bad "and the finding is shown"
+grep -q 'home-path' <<< "$out" && ok "and the finding is shown" || bad "and the finding is shown"
 # B: a clean HEAD with an uncommitted-only leak passes: nothing leaky is published.
 printf 'clean\n' > docs-leak.md; hook_commit "fix the leak"
 printf '%s\n' "$LEAKLINE" > docs-leak.md
@@ -255,7 +255,7 @@ out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 0 ] && ok "an uncommitted-only leak over a clean HEAD passes (never published)" \
   || bad "an uncommitted-only leak over a clean HEAD passes (rc=$rc)"
 printf 'clean\n' > docs-leak.md
-printf '%s' "$out" | grep -q 'NOT BEING CHECKED' \
+grep -q 'NOT BEING CHECKED' <<< "$out" \
   && ok "an isolated HOME with no list: the private scan says its names are not being checked" \
   || bad "an isolated HOME with no list: the private scan says its names are not being checked"
 # #384 item 7: the default list is the fixture's, never the developer's. The isolation is asserted
@@ -268,13 +268,13 @@ if [ "$HOME" = "$TMP/fakehome" ] && [ "$HOME" != "$REAL_HOME" ]; then
   out=$(run_hook leakcheck); rc=$?
   [ "$rc" -eq 1 ] && ok "the fixture list is the one consulted: a private name at HEAD blocks (rc exactly 1)" \
     || bad "the fixture list is the one consulted: a private name at HEAD blocks (rc=$rc)"
-  printf '%s' "$out" | grep -q 'names-leak.md:1: private-name:' \
+  grep -q 'names-leak.md:1: private-name:' <<< "$out" \
     && ok "and the private-name finding is shown" || bad "and the private-name finding is shown"
   # Mutant home-not-isolated: a different, empty HOME stands for the export removed. The fixture
   # list is no longer consulted, so the finding disappears and the case above fails it.
   mkdir -p "$TMP/otherhome"
   out=$(HOME="$TMP/otherhome" run_hook leakcheck)
-  printf '%s' "$out" | grep -q 'names-leak.md:1: private-name:' \
+  grep -q 'names-leak.md:1: private-name:' <<< "$out" \
     && bad "mutant home-not-isolated: the fixture list is still consulted" \
     || ok "mutant home-not-isolated: without the fixture HOME the finding vanishes (the private-name case fails it)"
   rm -f names-leak.md "$HOME/.claude/forge-kit/private-names.txt"; hook_commit "drop the private name"
@@ -289,9 +289,9 @@ out=$(run_hook leakcheck); rc=$?
   || bad "F1: an uncommitted skip entry does not mask a committed leak (no allow-file at HEAD) (rc=$rc)"
 # #384 item 2, positive: ABSENT at HEAD is not a read failure. rc is exactly 1 on the finding, and
 # neither the read-failure line nor a mode refusal is printed.
-printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
+grep -q 'docs-leak.md:1: home-path:' <<< "$out" \
   && ok "probe: with no allow-file at HEAD the finding is reported" || bad "probe: with no allow-file at HEAD the finding is reported"
-printf '%s' "$out" | grep -q 'could not read .leak-guard-allow at HEAD' \
+grep -q 'could not read .leak-guard-allow at HEAD' <<< "$out" \
   && bad "probe: an allow-file absent at HEAD is not reported as unreadable" \
   || ok "probe: an allow-file absent at HEAD is not reported as unreadable"
 printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry"
@@ -299,7 +299,7 @@ printf 'root nowhere\nskip docs-leak.md\n' > .leak-guard-allow
 out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "F1: an uncommitted skip entry does not mask it over a committed allow-file lacking the entry" \
   || bad "F1: an uncommitted skip entry does not mask it over a committed allow-file lacking the entry (rc=$rc)"
-printf '%s' "$out" | grep -q 'home-path' \
+grep -q 'home-path' <<< "$out" \
   && ok "F1: and it blocks on the finding, not on a malformed allow-file" || bad "F1: and it blocks on the finding, not on a malformed allow-file"
 # F2: a committed entry covers the finding; emptying it in the working tree does not un-cover it.
 printf 'skip docs-leak.md\n' > .leak-guard-allow; hook_commit "a committed skip"
@@ -325,9 +325,9 @@ chmod +x "$PSHIM/git"
 out=$(PATH="$GSHIM:$PATH" run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "F3: a failing read of .leak-guard-allow at HEAD blocks (rc exactly 1)" \
   || bad "F3: a failing read of .leak-guard-allow at HEAD blocks (rc=$rc)"
-printf '%s' "$out" | grep -q 'forge-kit: could not read .leak-guard-allow at HEAD' \
+grep -q 'forge-kit: could not read .leak-guard-allow at HEAD' <<< "$out" \
   && ok "F3: and names the unreadable allow-file" || bad "F3: and names the unreadable allow-file"
-printf '%s' "$out" | grep -q 'could not RUN' \
+grep -q 'could not RUN' <<< "$out" \
   && ok "F3: and reports could not RUN, not a finding" || bad "F3: and reports could not RUN, not a finding"
 # The hook's own comment no longer describes the working tree as what is scanned.
 grep -q 'reads the checked-out worktree' .githooks/pre-push \
@@ -344,7 +344,7 @@ hook_mutant() {  # hook_mutant <name> <sed>: writes .githooks/pre-push.mut-<name
 }
 if hook_mutant swallow-read-error '/could not read .leak-guard-allow at HEAD/{n;s/leak_errors=\$((leak_errors + 1))/:/}'; then
   out=$(PATH="$GSHIM:$PATH" run_hook leakcheck .githooks/pre-push.mut-swallow-read-error)
-  printf '%s' "$out" | grep -q 'could not RUN' \
+  grep -q 'could not RUN' <<< "$out" \
     && bad "mutant: swallowing the read failure still reports could not RUN" \
     || ok "mutant: swallowing the read failure drops could not RUN (the F3 case fails it)"
 fi
@@ -352,7 +352,7 @@ fi
 # State here: HEAD carries a regular skip entry over a committed leak in docs-leak.md.
 # 100755 is read like 100644 (100644 is F2 above).
 printf 'skip docs-leak.md\n' > .leak-guard-allow; chmod +x .leak-guard-allow; hook_commit "an executable allow-file"
-git ls-tree HEAD -- .leak-guard-allow | grep -q '^100755 ' \
+grep -q '^100755 ' <<< "$(git ls-tree HEAD -- .leak-guard-allow)" \
   && ok "probe ledger: the committed allow-file is mode 100755" || bad "probe ledger: the committed allow-file is mode 100755"
 out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 0 ] && ok "probe: a 100755 allow-file at HEAD is read and its skip applies (rc 0)" \
@@ -361,22 +361,22 @@ out=$(run_hook leakcheck); rc=$?
 out=$(PATH="$PSHIM:$PATH" run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "probe: a failing ls-tree probe blocks (rc exactly 1)" \
   || bad "probe: a failing ls-tree probe blocks (rc=$rc)"
-printf '%s' "$out" | grep -q 'forge-kit: could not read .leak-guard-allow at HEAD' \
+grep -q 'forge-kit: could not read .leak-guard-allow at HEAD' <<< "$out" \
   && ok "probe: and names the unreadable allow-file" || bad "probe: and names the unreadable allow-file"
-printf '%s' "$out" | grep -q 'could not RUN' \
+grep -q 'could not RUN' <<< "$out" \
   && ok "probe: and reports could not RUN" || bad "probe: and reports could not RUN"
-printf '%s' "$out" | grep -q 'docs-leak.md:1: home-path:' \
+grep -q 'docs-leak.md:1: home-path:' <<< "$out" \
   && ok "probe: and the scan still ran over the committed leak" || bad "probe: and the scan still ran over the committed leak"
 # A symlink at HEAD, entry-shaped link text: the case that failed OPEN (exit 0 over a leak).
 rm -f .leak-guard-allow; ln -s 'skip docs-leak.md' .leak-guard-allow; hook_commit "a symlinked allow-file, entry-shaped text"
-git ls-tree HEAD -- .leak-guard-allow | grep -q '^120000 ' \
+grep -q '^120000 ' <<< "$(git ls-tree HEAD -- .leak-guard-allow)" \
   && ok "probe ledger: the committed allow-file is mode 120000" || bad "probe ledger: the committed allow-file is mode 120000"
 out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "symlink: a 120000 allow-file whose text is a valid entry blocks (rc exactly 1, never 0)" \
   || bad "symlink: a 120000 allow-file whose text is a valid entry blocks (rc=$rc)"
-printf '%s' "$out" | grep -q 'could not RUN' \
+grep -q 'could not RUN' <<< "$out" \
   && ok "symlink: and reports could not RUN" || bad "symlink: and reports could not RUN"
-printf '%s' "$out" | grep -q 'forge-kit: .leak-guard-allow at HEAD is mode 120000, not a regular file' \
+grep -q 'forge-kit: .leak-guard-allow at HEAD is mode 120000, not a regular file' <<< "$out" \
   && ok "symlink: and prints the hook's own refusal naming the mode" || bad "symlink: and prints the hook's own refusal naming the mode"
 if hook_mutant symlink-mode-unchecked 's/100644|100755)/100644|100755|120000)/'; then
   out=$(run_hook leakcheck .githooks/pre-push.mut-symlink-mode-unchecked); rc=$?
@@ -388,14 +388,14 @@ rm -f .githooks/pre-push.mut-* .leak-guard-allow; ln -s real-allow.txt .leak-gua
 out=$(run_hook leakcheck); rc=$?
 [ "$rc" -eq 1 ] && ok "symlink: a 120000 allow-file to real-allow.txt blocks (rc exactly 1)" \
   || bad "symlink: a 120000 allow-file to real-allow.txt blocks (rc=$rc)"
-printf '%s' "$out" | grep -q 'could not RUN' && ok "symlink: and reports could not RUN" || bad "symlink: and reports could not RUN"
-printf '%s' "$out" | grep -q 'is mode 120000, not a regular file' \
+grep -q 'could not RUN' <<< "$out" && ok "symlink: and reports could not RUN" || bad "symlink: and reports could not RUN"
+grep -q 'is mode 120000, not a regular file' <<< "$out" \
   && ok "symlink: the refusal line names mode 120000" || bad "symlink: the refusal line names mode 120000"
-printf '%s' "$out" | grep -q 'entry has no value' \
+grep -q 'entry has no value' <<< "$out" \
   && bad "symlink: no scanner parse error for a non-entry link" || ok "symlink: no scanner parse error for a non-entry link"
 if hook_mutant symlink-mode-unchecked-b 's/100644|100755)/100644|100755|120000)/'; then
   out=$(run_hook leakcheck .githooks/pre-push.mut-symlink-mode-unchecked-b)
-  printf '%s' "$out" | grep -q 'entry has no value' \
+  grep -q 'entry has no value' <<< "$out" \
     && ok "mutant symlink-mode-unchecked: a non-entry link reaches the scanner's parse error (the no-parse-error assertion fails it)" \
     || bad "mutant symlink-mode-unchecked: a non-entry link reaches the scanner's parse error"
 fi
@@ -404,7 +404,7 @@ fi
 rm -f .githooks/pre-push.mut-* .leak-guard-allow; printf 'skip docs-leak.md\n' > .leak-guard-allow; hook_commit "a regular skip allow-file again"
 if hook_mutant probe-error-as-absent 's/^if ! al_line=\(.*\); then$/if ! al_line=\1 \&\& false; then/'; then
   out=$(PATH="$PSHIM:$PATH" run_hook leakcheck .githooks/pre-push.mut-probe-error-as-absent)
-  printf '%s' "$out" | grep -q 'could not read .leak-guard-allow at HEAD' \
+  grep -q 'could not read .leak-guard-allow at HEAD' <<< "$out" \
     && bad "mutant probe-error-as-absent: a failing probe is treated as absent and the report is lost" \
     || ok "mutant probe-error-as-absent: a failing probe is treated as absent (the probe-failure case fails it)"
 fi
@@ -429,22 +429,22 @@ mkdir -p sub; printf 'clean\n' > sub/notes.md; hook_commit "a clean tracked file
 out=$(run_hook_sub "$HOOKABS"); rc=$?
 [ "$rc" -eq 0 ] && ok "subdirectory: with no unskipped leak anywhere, the hook run from sub/ exits 0" \
   || bad "subdirectory: with no unskipped leak anywhere, the hook run from sub/ exits 0 (rc=$rc)"
-printf '%s' "$out" | grep -q 'could not RUN' \
+grep -q 'could not RUN' <<< "$out" \
   && bad "subdirectory: and nothing reports could not RUN" || ok "subdirectory: and nothing reports could not RUN"
-printf '%s' "$out" | grep -q 'home-path:' \
+grep -q 'home-path:' <<< "$out" \
   && bad "subdirectory: and no finding line is printed" || ok "subdirectory: and no finding line is printed"
 printf '%s\n' "$LEAKLINE" > root-leak.md; hook_commit "a leak at the root, outside sub/"
 out=$(run_hook_sub "$HOOKABS"); rc=$?
 [ "$rc" -eq 1 ] && ok "subdirectory: run from sub/, a committed leak at the root is reported (rc 1)" \
   || bad "subdirectory: run from sub/, a committed leak at the root is reported (rc=$rc)"
-printf '%s' "$out" | grep -q 'root-leak.md:1: home-path:' \
+grep -q 'root-leak.md:1: home-path:' <<< "$out" \
   && ok "subdirectory: and the finding line names root-leak.md" || bad "subdirectory: and the finding line names root-leak.md"
-printf '%s' "$out" | grep -q 'forge-kit: the tree carries something from this machine' \
+grep -q 'forge-kit: the tree carries something from this machine' <<< "$out" \
   && ok "subdirectory: and the hook says the tree carries something from this machine" \
   || bad "subdirectory: and the hook says the tree carries something from this machine"
 if hook_mutant cd-dropped '/^\[ -n "\$ROOT" \] && CDPATH= cd -- "\$ROOT" /d'; then
   out=$(run_hook_sub "$HOOKABS.mut-cd-dropped"); rc=$?
-  [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'root-leak.md:1:' \
+  [ "$rc" -eq 0 ] && ! grep -q 'root-leak.md:1:' <<< "$out" \
     && ok "mutant cd-dropped: from sub/ the root leak is invisible (rc 0, no finding line)" \
     || bad "mutant cd-dropped: from sub/ the root leak is invisible (rc=$rc)"
 fi
@@ -453,8 +453,8 @@ fi
 out=$(run_hook_in "$REPO/.git" "$HOOKABS"); rc=$?
 [ "$rc" -eq 1 ] && ok "fail closed: run from .git over a committed root leak the hook exits 1" \
   || bad "fail closed: run from .git over a committed root leak the hook exits 1 (rc=$rc)"
-printf '%s' "$out" | grep -q 'could not change to the work-tree root' \
-  && printf '%s' "$out" | grep -q 'could not RUN' \
+grep -q 'could not change to the work-tree root' <<< "$out" \
+  && grep -q 'could not RUN' <<< "$out" \
   && ok "fail closed: and the output says it could not change to the work-tree root and could not RUN" \
   || bad "fail closed: and the output says it could not change to the work-tree root and could not RUN"
 if hook_mutant cd-unguarded 's|^\[ -n "\$ROOT" \] && CDPATH= cd -- "\$ROOT" .*$|cd "$ROOT"|'; then
@@ -506,17 +506,17 @@ git add -A >/dev/null; git commit --quiet -m "plan loses its premortem"
 out=$(run_hook roadmapbad); rc=$?
 [ "$rc" -ne 0 ] && ok "a plan with no Fails if section blocks the push" \
   || bad "a plan with no Fails if section blocks the push (rc=$rc)"
-printf '%s' "$out" | grep -q 'rule 2' \
+grep -q 'rule 2' <<< "$out" \
   && ok "and the rule is named" || bad "and the rule is named"
 # Round 2 of the leak guard's review found exactly this class: a check sharing another check's
 # counter reports its finding in the other's words, and the words say what to do about it.
-printf '%s' "$out" | grep -qi 'from this machine' \
+grep -qi 'from this machine' <<< "$out" \
   && bad "a roadmap failure is not reported as a leak" \
   || ok "a roadmap failure is not reported as a leak"
-printf '%s' "$out" | grep -qi 'roadmap' \
+grep -qi 'roadmap' <<< "$out" \
   && ok "and is reported in its own words" || bad "and is reported in its own words"
 # #311: the host rules run from /phase, not in CI (CI runs only the guard's contract tests).
-printf '%s' "$out" | grep -q 'host rules run in CI' \
+grep -q 'host rules run in CI' <<< "$out" \
   && bad "a roadmap failure does not claim the host rules run in CI" \
   || ok "a roadmap failure does not claim the host rules run in CI"
 # Permanent mutant (#366): the restored claim, on a scratch copy outside the fixture's tree, so
@@ -529,7 +529,7 @@ if grep -q "the host rules run from /phase; CI runs only the guard's contract te
   # Captured, not piped: under pipefail a `grep -q` that exits early SIGPIPEs the hook and the
   # pipeline then reports failure although the pattern matched.
   mout="$(run_hook roadmapbad "$mut_rm")"
-  printf '%s' "$mout" | grep -q 'host rules run in CI' \
+  grep -q 'host rules run in CI' <<< "$mout" \
     && ok "the roadmap check detects the restored claim" \
     || bad "the roadmap check detects the restored claim"
 else
@@ -543,13 +543,13 @@ mkdir -p sub; printf 'clean\n' > sub/notes.md; hook_commit "a tracked file under
 rs_out=$(run_hook_sub "$HOOKABS"); rs_rc=$?
 [ "$rs_rc" -eq 1 ] && ok "roadmap from sub/: a plan with no Fails if section blocks the push (rc 1)" \
   || bad "roadmap from sub/: a plan with no Fails if section blocks the push (rc=$rs_rc)"
-printf '%s' "$rs_out" | grep -q 'rule 2:' \
-  && printf '%s' "$rs_out" | grep -q 'the roadmap does not satisfy check-phases.sh' \
+grep -q 'rule 2:' <<< "$rs_out" \
+  && grep -q 'the roadmap does not satisfy check-phases.sh' <<< "$rs_out" \
   && ok "roadmap from sub/: and rule 2 and the roadmap message are printed" \
   || bad "roadmap from sub/: and rule 2 and the roadmap message are printed"
 if hook_mutant cd-undone-before-roadmap '/^phase_problems=0$/i cd -- "$OLDPWD"'; then
   rs_out=$(run_hook_sub "$HOOKABS.mut-cd-undone-before-roadmap"); rs_rc=$?
-  [ "$rs_rc" -eq 0 ] && printf '%s' "$rs_out" | grep -q 'nothing to check' \
+  [ "$rs_rc" -eq 0 ] && grep -q 'nothing to check' <<< "$rs_out" \
     && ok "mutant cd-undone-before-roadmap: from sub/ the roadmap guard is skipped as nothing to check (rc 0)" \
     || bad "mutant cd-undone-before-roadmap: from sub/ the roadmap guard is skipped as nothing to check (rc=$rs_rc)"
 fi
@@ -559,7 +559,7 @@ hook_commit "plan regains its premortem, for the sub/ positive case"
 rs_out=$(run_hook_sub "$HOOKABS"); rs_rc=$?
 [ "$rs_rc" -eq 0 ] && ok "roadmap from sub/: a complete plan exits 0" \
   || bad "roadmap from sub/: a complete plan exits 0 (rc=$rs_rc)"
-printf '%s' "$rs_out" | grep -q 'nothing to check' \
+grep -q 'nothing to check' <<< "$rs_out" \
   && bad "roadmap from sub/: and the guard did not skip as nothing to check" \
   || ok "roadmap from sub/: and the guard did not skip as nothing to check"
 rm -f sub/notes.md; rmdir sub
@@ -613,7 +613,7 @@ base=$(git rev-parse HEAD)
 printf 'prose\n' > notes.md; git add -A >/dev/null; git commit --quiet -m prose
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "a push touching no counted suite passes" || bad "a push touching no counted suite passes (rc $rc, $out)"
-printf '%s' "$out" | grep -q 'no counted suite changed' && ok "and says no counted suite changed" || bad "and says no counted suite changed"
+grep -q 'no counted suite changed' <<< "$out" && ok "and says no counted suite changed" || bad "and says no counted suite changed"
 ls "$SENT"/*.ran >/dev/null 2>&1 && bad "and invoked no suite" || ok "and invoked no suite"
 
 # A push that changes one counted suite runs THAT suite and no other.
@@ -623,8 +623,8 @@ printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-$(dirname "$0")}/one.ran"\nech
 git add -A >/dev/null; git commit --quiet -m "one more case in fixture one"
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "a suite that grew without its claim being regenerated blocks the push" || bad "a suite that grew without its claim being regenerated blocks the push (rc $rc)"
-printf '%s' "$out" | grep -q 'test-fixture-one.sh' && ok "naming the claim" || bad "naming the claim"
-printf '%s' "$out" | grep -q 'update-suite-counts.py' && ok "and the script that fixes it" || bad "and the script that fixes it"
+grep -q 'test-fixture-one.sh' <<< "$out" && ok "naming the claim" || bad "naming the claim"
+grep -q 'update-suite-counts.py' <<< "$out" && ok "and the script that fixes it" || bad "and the script that fixes it"
 [ -f "$SENT/one.ran" ] && ok "the changed suite was invoked" || bad "the changed suite was invoked"
 [ -f "$SENT/two.ran" ] && bad "and the unchanged one was not" || ok "and the unchanged one was not"
 
@@ -641,12 +641,12 @@ sub_push() {  # sub_push <hook> <base-sha>: the hook run from sub/ over the main
 }
 out="$(sub_push "$REPO/.githooks/pre-push" "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "suite counts from sub/: a stale claim still blocks the push (rc 1)" || bad "suite counts from sub/: a stale claim still blocks the push (rc $rc, $out)"
-printf '%s' "$out" | grep -q 'test-fixture-one.sh' && ok "suite counts from sub/: and the claim is named" || bad "suite counts from sub/: and the claim is named"
+grep -q 'test-fixture-one.sh' <<< "$out" && ok "suite counts from sub/: and the claim is named" || bad "suite counts from sub/: and the claim is named"
 [ -f "$SENT/one.ran" ] && ok "suite counts from sub/: and the changed suite was invoked" || bad "suite counts from sub/: and the changed suite was invoked"
 if hook_mutant cd-undone-before-counts 's|^doc_problems=0$|cd -- "$OLDPWD"\ndoc_problems=0|'; then
   rm -f "$SENT"/*.ran
   out="$(sub_push "$REPO/.githooks/pre-push.mut-cd-undone-before-counts" "$base")"; rc=$?
-  [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no counted suite changed' \
+  [ "$rc" -eq 0 ] && grep -q 'no counted suite changed' <<< "$out" \
     && ok "mutant cd-undone-before-counts: from sub/ the changed suite is invisible (rc 0, no counted suite changed)" \
     || bad "mutant cd-undone-before-counts: from sub/ the changed suite is invisible (rc $rc)"
 fi
@@ -665,7 +665,7 @@ printf '#!/usr/bin/env bash\n: > "${SENTINEL_DIR:-$(dirname "$0")}/one.ran"\nech
 git add -A >/dev/null; git commit --quiet -m "a change a contributor without the doc makes"
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "a checkout without the doc is not blocked" || bad "a checkout without the doc is not blocked (rc $rc, $out)"
-printf '%s' "$out" | grep -qi 'stale:' && bad "and nothing is said about stale claims" || ok "and nothing is said about stale claims"
+grep -qi 'stale:' <<< "$out" && bad "and nothing is said about stale claims" || ok "and nothing is said about stale claims"
 git checkout --quiet HEAD~2 -- CLAUDE.md 2>/dev/null; git add -A >/dev/null; git commit --quiet -m "restore the fixture doc"
 python3 scripts/update-suite-counts.py --doc CLAUDE.md --root . >/dev/null 2>&1
 git add -A >/dev/null; git commit --quiet -m "regenerate" 2>/dev/null
@@ -676,7 +676,7 @@ printf '#!/usr/bin/env bash\necho "this suite prints no recognisable total"\n' >
 git add -A >/dev/null; git commit --quiet -m "fixture two stops reporting"
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "a suite that cannot report a total blocks the push" || bad "a suite that cannot report a total blocks the push (rc $rc)"
-printf '%s' "$out" | grep -q 'could not RUN' && ok "in could-not-run wording, not stale-claim wording" || bad "in could-not-run wording, not stale-claim wording"
+grep -q 'could not RUN' <<< "$out" && ok "in could-not-run wording, not stale-claim wording" || bad "in could-not-run wording, not stale-claim wording"
 git checkout --quiet HEAD~1 -- scripts/test-fixture-two.sh; git add -A >/dev/null; git commit --quiet -m "restore fixture two"
 
 # A stale GENERATED region blocks too, so the index half is exercised and not merely invoked.
@@ -697,7 +697,7 @@ done
 sha=$(git rev-parse HEAD)
 out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$base" | PATH="$TMP/nopy" bash .githooks/pre-push origin "$BARE" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "no python3 does not block the push" || bad "no python3 does not block the push (rc $rc, $out)"
-printf '%s' "$out" | grep -q 'python3 not found' && ok "and says so loudly" || bad "and says so loudly"
+grep -q 'python3 not found' <<< "$out" && ok "and says so loudly" || bad "and says so loudly"
 
 # A MISSING GENERATOR IS A LOUD SKIP (#221), one condition per generator. Both are repo-owned
 # scripts, not opt-in guards, so an absent one means a checkout that is missing part of the kit,
@@ -722,33 +722,33 @@ cp scripts/update-component-index.py "$TMP/idx.bak"
 rm scripts/update-suite-counts.py
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "a missing update-suite-counts.py does not block the push" || bad "a missing update-suite-counts.py does not block the push (rc $rc)"
-printf '%s' "$err" | grep -q '^  ! pre-push: .*update-suite-counts.py' && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
-printf '%s' "$err" | grep 'update-suite-counts.py' | grep -q 'NOT checked' && ok "that says the suite-count claims were NOT checked" || bad "that says the suite-count claims were NOT checked"
-printf '%s' "$err" | grep -q 'update-component-index.py' && bad "and does not name the other generator" || ok "and does not name the other generator"
+grep -q '^  ! pre-push: .*update-suite-counts.py' <<< "$err" && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
+grep -q 'NOT checked' <<< "$(grep 'update-suite-counts.py' <<< "$err")" && ok "that says the suite-count claims were NOT checked" || bad "that says the suite-count claims were NOT checked"
+grep -q 'update-component-index.py' <<< "$err" && bad "and does not name the other generator" || ok "and does not name the other generator"
 cp "$TMP/cnt.bak" scripts/update-suite-counts.py
 
 rm scripts/update-component-index.py
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "a missing update-component-index.py does not block the push" || bad "a missing update-component-index.py does not block the push (rc $rc)"
-printf '%s' "$err" | grep -q '^  ! pre-push: .*update-component-index.py' && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
-printf '%s' "$err" | grep 'update-component-index.py' | grep -q 'NOT checked' && ok "that says the generated regions were NOT checked" || bad "that says the generated regions were NOT checked"
-printf '%s' "$err" | grep -q 'update-suite-counts.py' && bad "and does not name the other generator" || ok "and does not name the other generator"
+grep -q '^  ! pre-push: .*update-component-index.py' <<< "$err" && ok "and stderr carries a named skip line" || bad "and stderr carries a named skip line ($err)"
+grep -q 'NOT checked' <<< "$(grep 'update-component-index.py' <<< "$err")" && ok "that says the generated regions were NOT checked" || bad "that says the generated regions were NOT checked"
+grep -q 'update-suite-counts.py' <<< "$err" && bad "and does not name the other generator" || ok "and does not name the other generator"
 cp "$TMP/idx.bak" scripts/update-component-index.py
 
 rm scripts/update-suite-counts.py scripts/update-component-index.py
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "both generators missing does not block the push" || bad "both generators missing does not block the push (rc $rc)"
-if printf '%s' "$err" | grep -q '^  ! pre-push: .*update-suite-counts.py' && printf '%s' "$err" | grep -q '^  ! pre-push: .*update-component-index.py'; then
+if grep -q '^  ! pre-push: .*update-suite-counts.py' <<< "$err" && grep -q '^  ! pre-push: .*update-component-index.py' <<< "$err"; then
   ok "and two skips are named, one per generator"; else bad "and two skips are named, one per generator ($err)"; fi
 cp "$TMP/cnt.bak" scripts/update-suite-counts.py
 cp "$TMP/idx.bak" scripts/update-component-index.py
 
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 0 ] && ok "with both generators present the push passes" || bad "with both generators present the push passes (rc $rc)"
-if printf '%s' "$err" | grep -q 'update-suite-counts.py\|update-component-index.py'; then
+if grep -q 'update-suite-counts.py\|update-component-index.py' <<< "$err"; then
   bad "and stderr carries no generator skip line ($err)"; else ok "and stderr carries no generator skip line"; fi
 # Current regions: no stale notice at all, and never a region name (#311, L5).
-if printf '%s' "$err" | grep -q 'plugin-catalogue\|component-index\|STALE'; then
+if grep -q 'plugin-catalogue\|component-index\|STALE' <<< "$err"; then
   bad "and a current index names no region and no STALE ($err)"; else ok "and a current index names no region and no STALE"; fi
 
 # The skip covers only an ABSENT script; it never replaces the real check.
@@ -756,7 +756,7 @@ sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/' R
 git add -A >/dev/null; git commit --quiet -m "hand-edit a generated region again"
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "a present index generator still blocks a hand-edited region" || bad "a present index generator still blocks a hand-edited region (rc $rc)"
-printf '%s' "$out" | grep -q 'a generated claim in a LOCAL doc is stale or could not be checked' && ok "with the stale-claim message" || bad "with the stale-claim message"
+grep -q 'a generated claim in a LOCAL doc is stale or could not be checked' <<< "$out" && ok "with the stale-claim message" || bad "with the stale-claim message"
 python3 scripts/update-component-index.py >/dev/null 2>&1
 git add -A >/dev/null; git commit --quiet -m "regenerate the region again"
 
@@ -767,9 +767,9 @@ sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/' R
 git add -A >/dev/null; git commit --quiet -m "hand-edit the plugin-catalogue region"
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "a stale generated region exits 1 through the stderr-only capture" || bad "a stale generated region exits 1 through the stderr-only capture (rc $rc)"
-printf '%s' "$err" | grep -q 'update-component-index.py' && ok "stderr names the generator that reported it" || bad "stderr names the generator that reported it ($err)"
-printf '%s' "$err" | grep -q 'README.md (plugin-catalogue)' && ok "and the stale region, as file and id" || bad "and the stale region, as file and id ($err)"
-printf '%s' "$err" | grep -q 'component-index)' && bad "and does not name a region that is current" || ok "and does not name a region that is current"
+grep -q 'update-component-index.py' <<< "$err" && ok "stderr names the generator that reported it" || bad "stderr names the generator that reported it ($err)"
+grep -q 'README.md (plugin-catalogue)' <<< "$err" && ok "and the stale region, as file and id" || bad "and the stale region, as file and id ($err)"
+grep -q 'component-index)' <<< "$err" && bad "and does not name a region that is current" || ok "and does not name a region that is current"
 python3 scripts/update-component-index.py >/dev/null 2>&1
 git add -A >/dev/null; git commit --quiet -m "regenerate the plugin-catalogue region"
 
@@ -780,8 +780,8 @@ sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/; s
 git add -A >/dev/null; git commit --quiet -m "hand-edit both README regions"
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "two stale regions exit 1" || bad "two stale regions exit 1 (rc $rc)"
-printf '%s' "$err" | grep -q 'README.md (plugin-catalogue)' && ok "the first stale region is named" || bad "the first stale region is named ($err)"
-printf '%s' "$err" | grep -q 'README.md (component-index)' && ok "the second stale region is named" || bad "the second stale region is named ($err)"
+grep -q 'README.md (plugin-catalogue)' <<< "$err" && ok "the first stale region is named" || bad "the first stale region is named ($err)"
+grep -q 'README.md (component-index)' <<< "$err" && ok "the second stale region is named" || bad "the second stale region is named ($err)"
 [ "$(printf '%s' "$err" | grep -o 'README.md (' | wc -l)" -eq 2 ] && ok "each exactly once" || bad "each exactly once ($err)"
 python3 scripts/update-component-index.py >/dev/null 2>&1
 git add -A >/dev/null; git commit --quiet -m "regenerate both README regions"
@@ -793,7 +793,7 @@ sed -i '/plugin-catalogue:end -->/d' README.md
 git add -A >/dev/null; git commit --quiet -m "remove a region marker"
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "a missing region marker exits 1" || bad "a missing region marker exits 1 (rc $rc)"
-printf '%s' "$err" | grep -q "has no 'plugin-catalogue' region" && ok "and the generator's own reason stays visible on stderr" || bad "and the generator's own reason stays visible on stderr ($err)"
+grep -q "has no 'plugin-catalogue' region" <<< "$err" && ok "and the generator's own reason stays visible on stderr" || bad "and the generator's own reason stays visible on stderr ($err)"
 cp "$TMP/readme.bak" README.md
 git add -A >/dev/null; git commit --quiet -m "restore the region marker"
 
@@ -810,7 +810,7 @@ git update-ref -d refs/remotes/origin/main 2>/dev/null
 out="$(push_range "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "with no remote-tracking ref at all, a stale claim still blocks: the rule sits above the base-ref exit" \
   || bad "with no remote-tracking ref at all, a stale claim still blocks (rc $rc, $out)"
-printf '%s' "$out" | grep -q 'test-fixture-one.sh' && ok "and still names the claim" || bad "and still names the claim"
+grep -q 'test-fixture-one.sh' <<< "$out" && ok "and still names the claim" || bad "and still names the claim"
 
 # ITS OWN SKIP LINE. No remote-tracking ref AND a branch the remote does not have: there is no
 # range to compute, so the rule must say so in its own words rather than leave the impression it
@@ -820,7 +820,7 @@ out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" \
   "0000000000000000000000000000000000000000" \
   | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "with no range at all the push is not blocked" || bad "with no range at all the push is not blocked (rc $rc)"
-printf '%s' "$out" | grep -q 'suite-count claims were NOT checked' \
+grep -q 'suite-count claims were NOT checked' <<< "$out" \
   && ok "and the rule says so in its own words" || bad "and the rule says so in its own words"
 git fetch -q origin main 2>/dev/null
 git remote set-head origin main >/dev/null 2>&1   # after the fetch: before it, there is no ref to point at

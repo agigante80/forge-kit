@@ -88,7 +88,7 @@ c_public_neg() {
   local r="$W/lgp" s="$M/plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh" o rc
   lg_repo "$r" "$s"; printf 'see /%s/someone/notes\n' home > "$r/notes.txt"; git -C "$r" add notes.txt
   o=$(cd "$r" && CDPATH="${CDP_SET:-.}" bash "$PWD/assets/check-public-leaks.sh" 2>/dev/null); rc=$?
-  [ "$rc" = 1 ] && [ -n "$o" ] && ! printf '%s\n' "$o" | grep -qv '^notes.txt:1: home-path:'; }
+  [ "$rc" = 1 ] && [ -n "$o" ] && ! grep -qv '^notes.txt:1: home-path:' <<< "$o"; }
 c_private_pos() {
   local r="$W/lgq" s="$M/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh" o rc
   lg_repo "$r" "$s"; printf 'private-name\nacme-migration\n' > "$W/names.txt"
@@ -99,7 +99,7 @@ c_private_neg() {
   lg_repo "$r" "$s"; printf 'private-name\nacme-migration\n' > "$W/names.txt"
   printf 'acme-migration\n' > "$r/notes.txt"; git -C "$r" add notes.txt
   o=$(cd "$r" && CDPATH="${CDP_SET:-.}" bash "$PWD/assets/check-private-leaks.sh" --list "$W/names.txt" 2>/dev/null); rc=$?
-  [ "$rc" = 1 ] && [ "$(printf '%s\n' "$o" | grep -c .)" = 1 ] && printf '%s\n' "$o" | grep -q '^notes.txt:1: private-name:'; }
+  [ "$rc" = 1 ] && [ "$(grep -c . <<< "$o")" = 1 ] && grep -q '^notes.txt:1: private-name:' <<< "$o"; }
 # forge-adapt-agent-skills --rewrite resolves an agent file's relative symlink target (line ~156):
 # under a decoy holding the same relative directories it must rewrite the real target and leave the
 # decoy's copy alone.

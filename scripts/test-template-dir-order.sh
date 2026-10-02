@@ -293,10 +293,10 @@ $CANON,
 M
 out=$(bash "$SCRIPT" "$L" 2>&1); rc=$?
 [ "$rc" -eq 1 ] && ok "a divergent second copy still fails" || bad "a divergent second copy still fails (rc=$rc)"
-printf '%s' "$out" | grep -q 'a\.md:4' \
+grep -q 'a\.md:4' <<< "$out" \
   && ok "and is reported at ITS line, not the first copy's" \
   || bad "the second copy is reported at the wrong line (want a.md:4, got: $(printf '%s' "$out" | grep -o 'a\.md:[0-9]*' | tr '\n' ' '))"
-printf '%s' "$out" | grep -q 'a\.md:3' \
+grep -q 'a\.md:3' <<< "$out" \
   && ok "and the canonical copy keeps its own line" || bad "the canonical copy lost its line"
 
 echo ""

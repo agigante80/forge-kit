@@ -26,11 +26,11 @@ pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
-contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
+contains() { if grep -qiF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in output)"; fi; }
 # #336: literal, case-sensitive absence (no -i, unlike contains, since rule lines are lower case on
 # purpose). -F is load-bearing: without it a pattern's dot matches any character.
 # Both properties are pinned in the "== absent_line self-test (#336) ==" section below.
-absent_line() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3"; else ok "$3"; fi; }
+absent_line() { if grep -qF -- "$1" <<< "$2"; then bad "$3"; else ok "$3"; fi; }
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
@@ -523,7 +523,7 @@ code() { grep -v '^[[:space:]]*#' "$1"; }
 n="$(code "$SRC" | grep -c ',,}')"
 [ "${n:-0}" -le 1 ] && ok "the bash-4 lowercase expansion appears at most once" \
                     || bad "the bash-4 lowercase expansion appears $n times"
-code "$SRC" | grep -q 'readlink -f' \
+grep -q 'readlink -f' <<< "$(code "$SRC")" \
   && bad "avoids GNU-only readlink -f" || ok "avoids GNU-only readlink -f"
 
 echo "== the shipped asset is a component =="
@@ -546,7 +546,7 @@ echo "== no awk -v in the shipped asset, and a backslash path is printed as type
 awk 'BEGIN { printf "## Phase: Bad one\nstate: bogus\n\nWhy.\n\n"; for (i = 0; i < 2000; i++) printf "## Phase: P%d\nstate: planned\nplan: docs/plans/a-long-plan-name-that-grows-the-parse-output-past-64k.md\n\nWhy %d.\n\n", i, i }' > "$T/big.md"
 n3=0; for i in 1 2 3; do run --offline --roadmap big.md </dev/null; [ "$rc" = 3 ] && n3=$((n3 + 1)); done
 expect "#413: a large roadmap with its MALFORMED phase first exits 3 on each of three runs" 3 "$n3"
-cp "$T/check-phases.sh" "$T/cp-keep.sh"; sed "s/if grep -q '^MALFORMED' <<< \"\$PHASES\"; then/if printf '%s\\\\n' \"\$PHASES\" | grep -q '^MALFORMED'; then/" "$T/cp-keep.sh" > "$T/check-phases.sh"
+P='|'; cp "$T/check-phases.sh" "$T/cp-keep.sh"; sed "s/if grep -q '^MALFORMED' <<< \"\$PHASES\"; then/if printf '%s\\\\n' \"\$PHASES\" $P grep -q '^MALFORMED'; then/" "$T/cp-keep.sh" > "$T/check-phases.sh"
 n3=0; for i in 1 2 3; do run --offline --roadmap big.md </dev/null; [ "$rc" = 3 ] && n3=$((n3 + 1)); done
 if cmp -s "$T/cp-keep.sh" "$T/check-phases.sh"; then bad "#413: mutant: the pipe form was not restored"
 elif [ "$n3" -lt 3 ]; then ok "#413: mutant: the pipe form lets the malformed roadmap through ($((3 - n3)) of 3 runs)"

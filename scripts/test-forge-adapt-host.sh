@@ -56,7 +56,7 @@ probe() {
   host=$(printf '%s\n' "$out" | sed -n 's/^HOST=\[\(.*\)\]$/\1/p' | tail -1)  # bracketed: a multi-line value yields empty
   said=$(printf '%s\n' "$out" | sed -n 's/^forge-host: //p' | tail -1)
   brc=$(printf '%s\n' "$out" | sed -n 's/^BRC=//p' | tail -1)
-  if printf '%s' "$out" | grep -qF -- "$WARN"; then warned=yes; else warned=no; fi
+  if grep -qF -- "$WARN" <<< "$out"; then warned=yes; else warned=no; fi
 }
 # resolved <name> <url> <expected>: lib resolved via FORGE_KIT_DIR, answer must be real, never fallback.
 resolved() {

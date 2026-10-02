@@ -374,6 +374,13 @@ jobs:
       - name: CDPATH cd guard
         run: bash scripts/check-cdpath-cd.sh
 
+      # Issue #413: the guard that keeps a pipe into grep -q out of shipped, repository and test scripts.
+      - name: Pipe into grep -q guard tests
+        run: bash scripts/test-check-pipe-grep-q.sh
+
+      - name: Pipe into grep -q guard
+        run: bash scripts/check-pipe-grep-q.sh
+
       # Issue #405: the shared zero-awk -v count and no-awk-file-operand rule the #259 suites source.
       - name: awkv-count helper tests
         run: bash scripts/test-awkv-count.sh

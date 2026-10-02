@@ -26,8 +26,8 @@ ok()  { printf '  ok: %s\n' "$1"; passed=$((passed+1)); }
 bad() { printf '  FAIL: %s\n' "$1"; failed=$((failed+1)); }
 expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi; }
 # Case insensitive: the assertion is that the reason was ANNOUNCED, not how it was capitalised.
-lacks()    { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
-contains() { if printf '%s' "$2" | grep -qiF -- "$1"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
+lacks()    { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
+contains() { if grep -qiF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
 
@@ -292,7 +292,7 @@ printf 'secret\nsecretproj\n' > "$WORK/hlist3"
 OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist3" --history 2>/dev/null )"; rc=$?
 n="$(printf '%s\n' "$OUT" | grep -c 'one.md@')"; expect "nested names report one finding for one occurrence" 1 "$n"
 contains "clients/se********/one.md@" "$OUT" "and the path redacts the longer name whole"
-lacks() { if printf '%s' "$2" | grep -qF -- "$1"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
+lacks() { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1')"; else ok "$3"; fi; }
 lacks "se****proj" "$OUT" "never its suffix"
 
 mkrepo message
