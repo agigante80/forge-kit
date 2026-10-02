@@ -132,12 +132,25 @@ grep -q 'phase-review.snapshot' "$T/real/step1.sh" "$T/real/step4.sh" "$T/real/s
 run_cases "$T/real"
 
 echo "== mutants, each must fail its named case =="
-# mutate <name> <from> <to> <case>: a copy of phase.md with one literal change; the case must fail.
+. "$ROOT/scripts/mutant-crash.sh"
+# ps_live: the snippets in $SRC still work on a new repository (#360): step 1 prints a run id, step
+# 4 prints exactly one line for it, and step 7 prints held.
+ps_live() { newrepo; local a o; a="$(step1 README.md)"; [ -n "$a" ] || return 1
+  o="$(step4 "$a")"; [ -n "$o" ] && [ "$(printf '%s\n' "$o" | wc -l | tr -d ' ')" = 1 ] || return 1
+  [ "$(step7 "$a")" = "$HELD" ]; }
+# mutate <name> <from> <to> <case>: a copy of phase.md with one literal change; the case must fail,
+# and the snippets must not crash (#360): each must parse, and step 7, the one ps_live can tell
+# apart, must leave no signature in the case's stderr and pass ps_live.
 mutate() {
-  local name="$1" d="$T/mut-$1"
+  local name="$1" d="$T/mut-$1" held=0 why s
   mkdir -p "$d"; cp "$DOC" "$d/phase.md"; fill "$d/phase.md" "$2" "$3"
   extract "$d/phase.md" "$d"; SRC="$d"
-  if "$4" >/dev/null 2>&1; then bad "mutant '$name' survived $4"; else ok "mutant '$name' dies on $4"; fi
+  "$4" >/dev/null 2>"$d/case-err.log" && held=1
+  for s in step1 step4; do why=$(mutant_crash_reason "$d/$s.sh" /dev/null); [ -z "$why" ] || break; done
+  [ -n "$why" ] || why=$(mutant_crash_reason "$d/step7.sh" "$d/case-err.log" ps_live)
+  if [ -n "$why" ]; then bad "mutant '$name' crashed ($why)"
+  elif [ "$held" = 1 ]; then bad "mutant '$name' survived $4"
+  else ok "mutant '$name' dies on $4"; fi
 }
 mutate shared-name 'SNAP="$(mktemp "$G.XXXXXX")"' 'SNAP="$G.snapshot" && : XXXXXX' c_overlap_notheld
 mutate rm-glob 'rm -f "$SNAP" "$SNAP.after"' 'rm -f "$(dirname "$SNAP")"/phase-review.*' c_finished_other_held
@@ -145,6 +158,21 @@ mutate no-mtime " -mtime +1 -delete" " -delete" c_live_kept
 mutate step4-other-name 'SNAP="$(git rev-parse --git-path "phase-review.$RUN")"
 if [ ! -f "$SNAP" ]; then echo "no snapshot from step 1"' 'SNAP="$(git rev-parse --git-path "phase-review.zzzzzz")"
 if [ ! -f "$SNAP" ]; then echo "no snapshot from step 1"' c_step4_own
+# Crash control (#360): a step 7 that exits before it runs, on a case that credited it and on one
+# that read it as a survivor. mutate runs in $( ), so its rows stay out of the total.
+OPEN7='( cd "$(git rev-parse --show-toplevel)" &&
+  RUN=ID'
+mkdir -p "$T/crash"; cp "$DOC" "$T/crash/phase.md"; fill "$T/crash/phase.md" "$OPEN7" "exit 127
+$OPEN7"
+crash_ok=1; crashed=0
+cmp -s "$T/crash/phase.md" "$DOC" && crash_ok=0
+for c in c_overlap_notheld c_step4_own; do
+  cap=$(mutate crash-control "$OPEN7" "exit 127
+$OPEN7" "$c")
+  case "$cap" in *"dies on"*|*survived*) crash_ok=0 ;; *"FAIL: mutant 'crash-control' crashed ("*) crashed=$((crashed + 1)) ;; esac
+done
+[ "$crash_ok" = 1 ] && [ "$crashed" = 2 ] && ok "crash control (#360): mutate() reports a crashing snippet as crashed, never as dies" \
+  || bad "crash control (#360): mutate() credited or missed a crashing snippet ($crashed of 2 crashed)"
 
 echo ""
 echo "phase-review-snapshot tests: $pass passed, $fail failed"

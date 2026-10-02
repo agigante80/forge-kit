@@ -30,12 +30,15 @@ git -C "$ROOT" ls-files -z | tar -C "$ROOT" --null -T - -cf - 2>/dev/null | tar 
 ( cd "$M" && find . -type d -not -path './.git*' ) | while IFS= read -r d; do mkdir -p "$DECOY/$d" "$DECOY/repo/$d"; done
 RANGE="$(git -C "$M" rev-parse HEAD~1)..$(git -C "$M" rev-parse HEAD)"
 
-# same <dir> <cmd...>: run <cmd> from <dir> without and with CDPATH=$DECOY; 0 when both agree.
+# same <dir> <cmd...>: run <cmd> from <dir> without and with CDPATH=$DECOY; 0 when both agree. The
+# set arm reads ${CDP_SET:-$DECOY}, so cdp_live can set an empty directory instead, and the unset
+# arm is kept in $W/same-a, so cdp_live can compare it with the genuine file's (#360).
 same() {
   local d=$1; shift
   local a b
   a=$(cd "$d" && env -u CDPATH "$@" 2>&1 </dev/null; echo "rc=$?")
-  b=$(cd "$d" && CDPATH="$DECOY" "$@" 2>&1 </dev/null; echo "rc=$?")
+  b=$(cd "$d" && CDPATH="${CDP_SET:-$DECOY}" "$@" 2>&1 </dev/null; echo "rc=$?")
+  printf '%s\n' "$a" > "$W/same-a"
   [ "$a" = "$b" ]
 }
 
@@ -68,7 +71,7 @@ c_roadmap() {
   rm -rf "$r"; mkdir -p "$r/real" "$r/docs" "$DECOY/real" "$DECOY/docs"
   printf '# Roadmap\n\n## Phase: One\nstate: planned\n\nWhy.\n' > "$r/real/roadmap.md"
   cp "$r/real/roadmap.md" "$DECOY/real/roadmap.md"; ln -s ../real/roadmap.md "$r/docs/roadmap.md"
-  ( cd "$r" && CDPATH="$DECOY" bash -c '. "$1"; roadmap_set_state docs/roadmap.md One open' _ "$lib" ) >/dev/null 2>&1
+  ( cd "$r" && CDPATH="${CDP_SET:-$DECOY}" bash -c '. "$1"; roadmap_set_state docs/roadmap.md One open' _ "$lib" ) >/dev/null 2>&1
   grep -q '^state: open$' "$r/real/roadmap.md" && grep -q '^state: planned$' "$DECOY/real/roadmap.md"
 }
 # The leak guards' self-skip (#377): run by absolute path under CDPATH=. with the scanner's own source
@@ -79,23 +82,23 @@ lg_repo() {  # lg_repo <dir> <scanner>: a repo tracking only a copy of the scann
 }
 c_public_pos() {
   local r="$W/lgp" s="$M/plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh" o rc
-  lg_repo "$r" "$s"; o=$(cd "$r" && CDPATH=. bash "$PWD/assets/check-public-leaks.sh" 2>/dev/null); rc=$?
+  lg_repo "$r" "$s"; o=$(cd "$r" && CDPATH="${CDP_SET:-.}" bash "$PWD/assets/check-public-leaks.sh" 2>/dev/null); rc=$?
   [ "$rc" = 0 ] && [ -z "$o" ]; }
 c_public_neg() {
   local r="$W/lgp" s="$M/plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh" o rc
   lg_repo "$r" "$s"; printf 'see /%s/someone/notes\n' home > "$r/notes.txt"; git -C "$r" add notes.txt
-  o=$(cd "$r" && CDPATH=. bash "$PWD/assets/check-public-leaks.sh" 2>/dev/null); rc=$?
+  o=$(cd "$r" && CDPATH="${CDP_SET:-.}" bash "$PWD/assets/check-public-leaks.sh" 2>/dev/null); rc=$?
   [ "$rc" = 1 ] && [ -n "$o" ] && ! printf '%s\n' "$o" | grep -qv '^notes.txt:1: home-path:'; }
 c_private_pos() {
   local r="$W/lgq" s="$M/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh" o rc
   lg_repo "$r" "$s"; printf 'private-name\nacme-migration\n' > "$W/names.txt"
-  o=$(cd "$r" && CDPATH=. bash "$PWD/assets/check-private-leaks.sh" --list "$W/names.txt" 2>/dev/null); rc=$?
+  o=$(cd "$r" && CDPATH="${CDP_SET:-.}" bash "$PWD/assets/check-private-leaks.sh" --list "$W/names.txt" 2>/dev/null); rc=$?
   [ "$rc" = 0 ] && [ -z "$o" ]; }
 c_private_neg() {
   local r="$W/lgq" s="$M/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh" o rc
   lg_repo "$r" "$s"; printf 'private-name\nacme-migration\n' > "$W/names.txt"
   printf 'acme-migration\n' > "$r/notes.txt"; git -C "$r" add notes.txt
-  o=$(cd "$r" && CDPATH=. bash "$PWD/assets/check-private-leaks.sh" --list "$W/names.txt" 2>/dev/null); rc=$?
+  o=$(cd "$r" && CDPATH="${CDP_SET:-.}" bash "$PWD/assets/check-private-leaks.sh" --list "$W/names.txt" 2>/dev/null); rc=$?
   [ "$rc" = 1 ] && [ "$(printf '%s\n' "$o" | grep -c .)" = 1 ] && printf '%s\n' "$o" | grep -q '^notes.txt:1: private-name:'; }
 # forge-adapt-agent-skills --rewrite resolves an agent file's relative symlink target (line ~156):
 # under a decoy holding the same relative directories it must rewrite the real target and leave the
@@ -105,7 +108,7 @@ c_agent_skills() {
   rm -rf "$r"; mkdir -p "$r/agents" "$r/src" "$DECOY/src" "$DECOY/agents"
   printf -- '---\nname: a\nskills:\n  - forge-kit-x:real-skill\n---\nbody\n' > "$r/src/a.md"
   cp "$r/src/a.md" "$DECOY/src/a.md"; ln -s ../src/a.md "$r/agents/a.md"
-  ( cd "$r" && CDPATH="$DECOY" bash "$s" --rewrite agents/a.md ) >/dev/null 2>&1
+  ( cd "$r" && CDPATH="${CDP_SET:-$DECOY}" bash "$s" --rewrite agents/a.md ) >/dev/null 2>&1
   grep -q '^  - real-skill$' "$r/src/a.md" && grep -q 'forge-kit-x:real-skill' "$DECOY/src/a.md" && [ -L "$r/agents/a.md" ]
 }
 # neighbour-manifest enters its --root before writing docs/neighbours.tsv: a relative root the decoy
@@ -114,9 +117,10 @@ c_manifest() {
   local a b
   mkdir -p "$W/mk"
   a=$(cd "$W" && env -u CDPATH bash repo/scripts/neighbour-manifest.sh --refresh --marketplaces "$W/mk" --root repo 2>&1; echo "rc=$?"; cat repo/docs/neighbours.tsv)
-  b=$(cd "$W" && CDPATH="$DECOY" bash repo/scripts/neighbour-manifest.sh --refresh --marketplaces "$W/mk" --root repo 2>&1; echo "rc=$?"; cat repo/docs/neighbours.tsv)
+  b=$(cd "$W" && CDPATH="${CDP_SET:-$DECOY}" bash repo/scripts/neighbour-manifest.sh --refresh --marketplaces "$W/mk" --root repo 2>&1; echo "rc=$?"; cat repo/docs/neighbours.tsv)
   git -C "$M" checkout -q -- docs/neighbours.tsv 2>/dev/null
   rm -f "$DECOY/repo/docs/neighbours.tsv"
+  printf '%s\n' "$a" > "$W/same-a"
   [ "$a" = "$b" ]
 }
 
@@ -142,21 +146,54 @@ scripts/forge-adapt-agent-skills.sh
 scripts/guard-lib.sh
 scripts/neighbour-manifest.sh
 scripts/validate-plugins.sh"
+mkdir -p "$W/live" "$W/empty"
+live_key() { printf '%s' "$1" | tr / _; }
 while IFS= read -r f; do
+  rm -f "$W/same-a"
   probe "$f" && ok "$f behaves the same under CDPATH" || bad "$f differs under CDPATH"
+  [ -f "$W/same-a" ] && mv "$W/same-a" "$W/live/$(live_key "$f")"
 done <<<"$FILES"
 c_public_pos && ok "the public leak guard skips its own source under CDPATH=. (clean repo: rc 0, empty)" || bad "the public leak guard reported its own source under CDPATH=."
 c_private_pos && ok "the private leak guard skips its own source under CDPATH=. (clean repo: rc 0, empty)" || bad "the private leak guard reported its own source under CDPATH=."
 
 echo "== mutants: each file's fixes reverted, its probe must disagree =="
-while IFS= read -r f; do
+. "$ROOT/scripts/mutant-crash.sh"
+# cdp_live <file>: the reverted file still works where a bare cd behaves as unset, CDPATH set to an
+# empty directory (#360). Its probe must pass and, for a same probe, the unset arm must equal the
+# genuine file's, since a crash makes both arms agree.
+cdp_live() {
+  rm -f "$W/same-a"
+  CDP_SET="$W/empty" probe "$1" || return 1
+  [ -f "$W/same-a" ] || return 0
+  cmp -s "$W/same-a" "$W/live/$(live_key "$1")"
+}
+cdp_mutant() {  # cdp_mutant <file> [<extra sed expr>]: the file's fixes reverted; its probe must disagree
+  local f="$1" held=0 why
   cp "$M/$f" "$W/orig"
-  sed 's/CDPATH= cd -- /cd /g' "$W/orig" > "$M/$f"
-  if cmp -s "$W/orig" "$M/$f"; then bad "mutant $f: nothing to revert"
-  elif probe "$f"; then bad "mutant $f survived its probe"
+  sed -e 's/CDPATH= cd -- /cd /g' ${2:+-e "$2"} "$W/orig" > "$M/$f"
+  if cmp -s "$W/orig" "$M/$f"; then bad "mutant $f: nothing to revert"; cp "$W/orig" "$M/$f"; return; fi
+  probe "$f" && held=1
+  why=$(mutant_crash_reason_live "$M/$f" cdp_live "$f")
+  if [ -n "$why" ]; then bad "mutant $f crashed ($why)"
+  elif [ "$held" = 1 ]; then bad "mutant $f survived its probe"
   else ok "mutant $f (bare cd restored) dies"; fi
   cp "$W/orig" "$M/$f"
-done <<<"$FILES"
+}
+while IFS= read -r f; do cdp_mutant "$f"; done <<<"$FILES"
+# Crash control (#360): a revert that exits, on a named case that credited it and on a same probe
+# that read it as a survivor. cdp_mutant runs in $( ), so its rows stay out of the total.
+CRASH_X='1a\
+exit 127'
+crash_ok=1; crashed=0
+for f in scripts/forge-adapt-agent-skills.sh scripts/check-doc-drift.sh; do
+  sed -e 's/CDPATH= cd -- /cd /g' -e "$CRASH_X" "$M/$f" > "$W/crash.sh"
+  cmp -s "$W/crash.sh" "$M/$f" && crash_ok=0
+  cap=$(cdp_mutant "$f" "$CRASH_X")
+  case "$cap" in *" dies"*|*"survived its probe"*) crash_ok=0 ;; *"FAIL: mutant $f crashed ("*) crashed=$((crashed + 1)) ;; esac
+  cmp -s "$M/$f" "$ROOT/$f" || crash_ok=0
+done
+[ "$crash_ok" = 1 ] && [ "$crashed" = 2 ] && ok "crash control (#360): cdpath reports a crashing revert as crashed, never as dies or a survivor" \
+  || bad "crash control (#360): cdpath credited or missed a crashing revert ($crashed of 2 crashed)"
 
 echo "== no unsafe cd is left in a shipped asset or repository script =="
 left=$(cd "$ROOT" && grep -nE '(^|[^A-Za-z_=])cd( |$)' plugins/*/skills/*/assets/*.sh $(ls scripts/*.sh | grep -v '/test-') 2>/dev/null \

@@ -74,7 +74,13 @@ cache_case; o=$(ge "$D")
 [ "$(field "$o" rc)" = 2 ] && grep -q 'forge-lib.sh not found' "$W/err" && ok "no copy anywhere is refused by name" || bad "a missing forge-lib was not refused: $o"
 
 echo "== mutants =="
-# m_ge <name> <old> <new> <check-fn>: the check must FAIL on a copy of the asset with one edit.
+. "$ROOT/scripts/mutant-crash.sh"
+# ge_live: the build, sourced in the scripts/ layout with the forge-lib stub, still resolves (#360).
+ge_live() { local o; fresh; layout "$W/case/scripts" with-lib; D="$W/case/d"; mkdir -p "$D"; echo "$W/case/scripts/check-ticket-mechanics.sh" > "$D/mech"
+  o=$(ge "$D"); [ "$(field "$o" rc)" = 0 ] && [ "$(field "$o" repo)" = o/r ] && [ "$(field "$o" GS)" = "$W/case/scripts/gate-status.sh" ]; }
+# m_ge <name> <old> <new> <check-fn>: the check must FAIL on a copy of the asset with one edit, and
+# the copy must not crash (#360): it must parse, leave no signature in the check's stderr, and pass
+# ge_live.
 m_ge() {
   local name=$1 old=$2 new=$3 fn=$4 real=$ASSET
   OLD="$old" NEW="$new" python3 - "$real" "$W/mut.sh" <<'PY' || { bad "mutant '$name': anchor not found once"; return; }
@@ -83,7 +89,12 @@ s = open(sys.argv[1]).read(); o = os.environ["OLD"]
 if s.count(o) != 1: sys.exit(1)
 open(sys.argv[2], "w").write(s.replace(o, os.environ["NEW"]))
 PY
-  ASSET="$W/mut.sh"; if "$fn"; then bad "mutant '$name' survived"; else ok "mutant '$name' dies"; fi; ASSET=$real
+  local held=0 why
+  ASSET="$W/mut.sh"; "$fn" && held=1; cp "$W/err" "$W/mut-err.log" 2>/dev/null || : > "$W/mut-err.log"
+  why=$(mutant_crash_reason "$W/mut.sh" "$W/mut-err.log" ge_live); ASSET=$real
+  if [ -n "$why" ]; then bad "mutant '$name' crashed ($why)"
+  elif [ "$held" = 1 ]; then bad "mutant '$name' survived"
+  else ok "mutant '$name' dies"; fi
 }
 chk_strict() { fresh; layout "$W/case/scripts" with-lib; D="$W/case/d"; mkdir -p "$D"; echo "$W/case/scripts/check-ticket-mechanics.sh" > "$D/mech"
   o=$(ge "$D" FORGE_LIB=/nonexistent/forge-lib.sh); [ "$(field "$o" rc)" = 2 ] && [ ! -s "$W/sourced" ] && grep -q 'FORGE_LIB=/nonexistent/forge-lib.sh is not a file' "$W/err"; }
@@ -95,6 +106,18 @@ m_ge "FORGE_LIB file test removed" '[ -f "$FORGE_LIB" ] || { echo "ticket-gate: 
 m_ge "FORGE_LIB not exported" 'export FORGE_LIB=$_ge_lib   # gate-env: export' 'FORGE_LIB=$_ge_lib' chk_export
 m_ge "colon-unsafe sort restored" "| sed 's/:forge-lib-version: \\([0-9]*\\)\$/	\\1/' | sort -t'	' -k2,2n -k1,1 | tail -1 | cut -f1)" "| sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)" chk_colon
 m_ge "\$D/mech guard removed" 'if [ -z "${D:-}" ] || [ ! -s "$D/mech" ]; then' 'if false; then' chk_guard
+# Crash control (#360): a gate-env.sh that exits, then one that does not parse. m_ge has no no-op
+# check, so the control compares each build with the asset itself. m_ge runs in $( ), so its rows
+# stay out of the total.
+crash_ok=1; crashed=0
+for x in 'exit 127' 'fi fi'; do
+  cap=$(m_ge crash-control '# gate-env-version: 1' "# gate-env-version: 1
+$x" chk_strict)
+  cmp -s "$W/mut.sh" "$ASSET" && crash_ok=0
+  case "$cap" in *" dies"*|*" survived"*) crash_ok=0 ;; *"FAIL: mutant 'crash-control' crashed ("*) crashed=$((crashed + 1)) ;; esac
+done
+[ "$crash_ok" = 1 ] && [ "$crashed" = 2 ] && ok "crash control (#360): m_ge reports a crashing gate-env.sh as crashed, never as dies" \
+  || bad "crash control (#360): m_ge credited or missed a crashing gate-env.sh ($crashed of 2 crashed)"
 
 echo "== ticket-gate.md: every later step sources it =="
 # first_block <step heading prefix>: the first fenced bash block after that heading.

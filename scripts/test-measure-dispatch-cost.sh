@@ -24,7 +24,8 @@ contains() { if printf '%s' "$2" | grep -qF -- "$1"; then ok "$3"; else bad "$3 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 SCRIPT="$SRC"
 out=""; err=""; rc=0
-run() { out=$(python3 "$SCRIPT" "$@" 2>"$T/err"); rc=$?; err=$(cat "$T/err"); }
+# run also appends its stderr to $T/mut-err.log, the log mutant() classifies a crash on (#360).
+run() { out=$(python3 "$SCRIPT" "$@" 2>"$T/err"); rc=$?; err=$(cat "$T/err"); cat "$T/err" >> "$T/mut-err.log"; }
 # col <agentType> <column>: one cell of the single-run table in $out.
 col() {
   printf '%s\n' "$out" | awk -F'\t' -v t="$1" -v c="$2" '
@@ -320,8 +321,13 @@ contains '"subagent_type": "general-purpose"' "$(sed 's/":"/": "/g' "$T/trimmed/
 contains '"resolvedModel"' "$(cat "$T/trimmed/s.jsonl")" "and toolUseResult.resolvedModel"
 
 echo "== mutants: each wrong accounting method loses an assertion =="
+. "$HERE/mutant-crash.sh"
+# dc_live <build>: the build still prints its table header for the gate transcript (#360).
+dc_live() { local o; o=$(python3 "$1" "$FX/gate.jsonl" 2>/dev/null) || return 1; o="${o%%$'\n'*}"; [ "${o%%$'\t'*}" = agentType ]; }
 # mutant <name> <python-literal old> <python-literal new>: a copy of the script with one edit. The
 # old text must exist, so a refactor that removes it fails here rather than letting the mutant rot.
+# A failed core_checks is a kill only when the build did not crash (#360): it must compile, leave no
+# traceback on any run's stderr, and pass dc_live.
 mutant() {
   local name=$1 m="$T/mutant-$1.py"
   if ! python3 - "$SRC" "$m" "$2" "$3" <<'PY'
@@ -332,9 +338,12 @@ if old not in s: sys.exit(1)
 open(dst, "w").write(s.replace(old, new, 1))
 PY
   then bad "mutant $name: its target text is gone from the script"; return; fi
-  local before=$fail saved_pass=$pass
+  local before=$fail saved_pass=$pass why
+  : > "$T/mut-err.log"
   SCRIPT="$m"; core_checks >/dev/null; SCRIPT="$SRC"
-  if [ "$fail" -gt "$before" ]; then fail=$before; pass=$saved_pass; ok "mutant $name dies"
+  why=$(mutant_crash_reason "$m" "$T/mut-err.log" dc_live "$m")
+  if [ -n "$why" ]; then fail=$before; pass=$saved_pass; bad "mutant $name crashed ($why)"
+  elif [ "$fail" -gt "$before" ]; then fail=$before; pass=$saved_pass; ok "mutant $name dies"
   else fail=$before; pass=$saved_pass; bad "mutant $name survives"; fi
 }
 mutant sum-per-line \
@@ -352,6 +361,21 @@ mutant model-from-meta \
 mutant skip-subagents-walk \
   'rows = [measure_dispatch(f) for f in files]' \
   'rows = [measure_dispatch(f) for f in files if 0]'
+
+# Crash control (#360): a build that exits before measuring, then one that cannot import. mutant
+# runs in $( ), so its rows stay out of the total.
+crash_ok=1; crashed=0
+for x in 'raise SystemExit(2)' 'import nosuchmodule360'; do
+  { sed -n 1p "$SRC"; echo "$x"; sed 1d "$SRC"; } > "$T/crash.py"
+  cmp -s "$T/crash.py" "$SRC" && crash_ok=0
+  cap=$(mutant crash-control '#!/usr/bin/env python3
+' "#!/usr/bin/env python3
+$x
+")
+  case "$cap" in *" dies"*|*" survives"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed ("*) crashed=$((crashed + 1)) ;; esac
+done
+[ "$crash_ok" = 1 ] && [ "$crashed" = 2 ] && ok "crash control (#360): dispatch-cost reports a crashing mutant as crashed, never as dies" \
+  || bad "crash control (#360): dispatch-cost credited or missed a crashing mutant ($crashed of 2 crashed)"
 
 echo ""
 echo "measure-dispatch-cost tests: $pass passed, $fail failed"

@@ -430,10 +430,35 @@ mkrepo forged
 hrun --history; rc=$RC; expect "the name after a forged header is reported" 1 "$rc"
 contains "forged.md@$(hoid HEAD:forged.md):2:" "$OUT" "at line 2"
 MUT="$WORK/mutant-private.sh"
-sed 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
-grep -q '^r < 0 {$' "$MUT" && bad "the mutant no longer carries the r<0 gate" || ok "the mutant no longer carries the r<0 gate"
-mout="$( cd "$HREPO" && "$MUT" --list "$WORK/hlist" --history 2>/dev/null )"
-[ -z "$mout" ] && ok "the mutant misses the name (prints no finding)" || bad "the mutant misses the name (prints no finding) (got '$mout')"
+. "$ROOT/scripts/mutant-crash.sh"
+# pl_live: the build, run without --history on the same repository, still finds the name (#360).
+pl_live() { local o; o="$( CDPATH= cd -- "$HREPO" && "$MUT" --list "$WORK/hlist" 2>/dev/null )"; case "$o" in *"forged.md:2:"*) return 0 ;; esac; return 1; }
+# pl_mutant <label> <sed expr> [<gone pattern>]: the build must miss the name without crashing; a
+# gone pattern is the applied check, a line of the script the edit must have removed.
+pl_mutant() {
+  local mout why
+  sed "$2" "$SCRIPT" > "$MUT"; chmod +x "$MUT"
+  if [ -n "${3:-}" ]; then
+    grep -q -e "$3" "$MUT" && bad "the mutant no longer carries the r<0 gate" || ok "the mutant no longer carries the r<0 gate"
+  fi
+  mout="$( CDPATH= cd -- "$HREPO" && "$MUT" --list "$WORK/hlist" --history 2>"$WORK/pl-err.log" )"
+  why=$(mutant_crash_reason "$MUT" "$WORK/pl-err.log" pl_live)
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"
+  elif [ -z "$mout" ]; then ok "the mutant misses the name (prints no finding)"
+  else bad "the mutant misses the name (prints no finding) (got '$mout')"; fi
+}
+pl_mutant r-lt-0 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' '^r < 0 {$'
+# Crash control (#360): an exit 127 build is never a miss. pl_mutant runs in $( ), so its rows stay
+# out of the total.
+sed '1a\
+exit 127' "$SCRIPT" > "$WORK/crash-private.sh"
+crash_ok=1
+cmp -s "$WORK/crash-private.sh" "$SCRIPT" && crash_ok=0
+cap=$(pl_mutant crash-control '1a\
+exit 127')
+case "$cap" in *"misses the name"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed ("*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control (#360): private-leaks reports a crashing mutant as crashed, never as a miss" \
+  || bad "crash control (#360): private-leaks credited or missed a crashing mutant"
 
 
 echo "== the tree modes fail closed (#208) =="

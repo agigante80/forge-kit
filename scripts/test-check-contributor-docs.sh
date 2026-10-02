@@ -124,21 +124,23 @@ bounded() {
 }
 
 OUT=""; ERR=""; RC=0
+# Each run helper keeps only the LAST run's stderr in $W/err, so each also appends it to
+# $W/mut-err.log, the log mutant() classifies a crash on over every run of its case (#360).
 run() {
   local p="$PATH"; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
   OUT=$(cd "$R" && PATH="$p" bounded $((ESCAPE_WATCHDOG_SECS + 5)) "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
-  ERR=$(cat "$W/err")
+  ERR=$(cat "$W/err"); cat "$W/err" >> "$W/mut-err.log"
 }
 # run_bounded <secs> [args...]: run with a caller-chosen bound (124 when it expires). OUT, ERR and RC
 # are set here, in the suite's own shell: only the script's stdout is captured through $( ).
 run_bounded() {
   local secs=$1 p="$PATH"; shift; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
   OUT=$(cd "$R" && PATH="$p" bounded "$secs" "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
-  ERR=$(cat "$W/err")
+  ERR=$(cat "$W/err"); cat "$W/err" >> "$W/mut-err.log"
 }
 run_nojq() {
   OUT=$(cd "$R" && PATH="$NOJQ" bash "$S" "$@" 2>"$W/err"); RC=$?
-  ERR=$(cat "$W/err")
+  ERR=$(cat "$W/err"); cat "$W/err" >> "$W/mut-err.log"
 }
 # Predicates over the last run. `row S C X`: a row with status S, check C and X in its detail.
 rc_is() { [ "$RC" -eq "$1" ]; }
@@ -1464,7 +1466,7 @@ run_stub() {
   local p="$PATH"; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
   : > "$W/count"
   OUT=$(cd "$R" && JQ_COUNT="$W/count" PATH="$STUB:$p" "$SHELL_UNDER_TEST" "$S" "$@" 2>"$W/err"); RC=$?
-  ERR=$(cat "$W/err"); JQN=$(wc -l < "$W/count" | tr -d ' ')
+  ERR=$(cat "$W/err"); cat "$W/err" >> "$W/mut-err.log"; JQN=$(wc -l < "$W/count" | tr -d ' ')
 }
 
 c_y_bare() { new; pkg '"build":"x"'; agents '`yarn build`\n'; run
@@ -1810,7 +1812,7 @@ case_ c_vskip_pnpm_dir "pnpm --dir skips its value, so its run-script value is n
 c_nogit() { R="$W/plain"; mkdir -p "$R"; run; rc_is 2 && [ -z "$OUT" ] && [ -n "$ERR" ]; }
 c_usage() { new; agents 'x\n'; run --max-lines abc; rc_is 2 && [ -z "$OUT" ]; }
 c_docs_subdir() { new; agents 'x\n'; tput_ docs/g.md 'See [a](../AGENTS.md).\n'
-  OUT=$(cd "$R/docs" && "$SHELL_UNDER_TEST" "$S" --docs g.md 2>/dev/null); RC=$?
+  OUT=$(cd "$R/docs" && "$SHELL_UNDER_TEST" "$S" --docs g.md 2>>"$W/mut-err.log"); RC=$?
   rc_is 0 && at pass docs/g.md:1 "../AGENTS.md: tracked"; }
 c_docs_outside() { new; agents 'x\n'; run --docs ../elsewhere.md; rc_is 2 && [ -z "$OUT" ]; }
 
@@ -1856,12 +1858,30 @@ for old, new in zip(pairs[0::2], pairs[1::2]):
 open(dst, "w").write(s)
 EOF
 }
+. "$ROOT/scripts/mutant-crash.sh"
+# cd_live <build>: the build still prints a row on one repository, built once, whose tracked
+# AGENTS.md has 40 lines (#360), so a case it fails is not a crash. Run as `run` runs it.
+CD_LIVE="$W/live"; git init --quiet -b main "$CD_LIVE"
+seq 1 40 | sed 's/.*/l/' > "$CD_LIVE/AGENTS.md"; git -C "$CD_LIVE" add AGENTS.md
+cd_live() {
+  local p="$PATH" o t=$'\t'; [ -n "$AWKDIR" ] && p="$AWKDIR:$PATH"
+  o=$(CDPATH= cd -- "$CD_LIVE" && PATH="$p" bounded $((ESCAPE_WATCHDOG_SECS + 5)) "$SHELL_UNDER_TEST" "$1" 2>/dev/null)
+  [ "$(printf '%s\n' "$o" | grep -cE "^[a-z]+$t[a-z-]+$t")" -ge 1 ]
+}
+# A failed case is a kill only when the build did not crash (#360): it must parse, leave no crash
+# signature on the stderr of any run of the case, and pass cd_live. The case's exit code is never
+# read: genuine kills end in rc 2 and rc 124 too.
 mutant() {
-  local brc
+  local brc held=0 why
   build_mutant "$SCRIPT" "$M" "${@:3}" 2>/dev/null; brc=$?
   if [ "$brc" = 2 ]; then bad "mutant '$1': unpaired argument"; return; fi
   if [ "$brc" != 0 ]; then bad "mutant '$1': its anchor no longer matches the script"; return; fi
-  S="$M"; if "$2"; then bad "mutant '$1' survived $2"; else ok "mutant '$1' dies on $2"; fi; S="$SCRIPT"
+  : > "$W/mut-err.log"
+  S="$M"; "$2" && held=1; S="$SCRIPT"
+  why=$(mutant_crash_reason "$M" "$W/mut-err.log" cd_live "$M")
+  if [ -n "$why" ]; then bad "mutant '$1' crashed ($why)"
+  elif [ "$held" = 1 ]; then bad "mutant '$1' survived $2"
+  else ok "mutant '$1' dies on $2"; fi
 }
 # mutant_needs <tool> <label> <case> <old> <new> [...]: mutant, but on a machine without <tool> the
 # mutant is skipped and counted as passed, so the printed total is the same everywhere (#346). The
@@ -1936,6 +1956,16 @@ c_mutant_skip_absent() {
 echo "== #346 mutant harness =="
 case_ c_mutant_odd_pairs "an unpaired mutant argument fails loudly and builds nothing"
 case_ c_mutant_skip_absent "a mutant that needs an absent tool is skipped as a pass, never built"
+# Crash control (#360): a build that stops at line 2 with `command not found` and exit 127, so no
+# row reaches c_untracked. mutant runs in $( ), so its rows stay out of the total.
+CRASH_OLD='#!/usr/bin/env bash'; CRASH_NEW=$'#!/usr/bin/env bash\nboom360\nexit 127'
+build_mutant "$SCRIPT" "$W/crash.sh" "$CRASH_OLD" "$CRASH_NEW" 2>/dev/null
+crash_ok=1
+cmp -s "$W/crash.sh" "$SCRIPT" && crash_ok=0
+cap=$(mutant "crash-control" c_untracked "$CRASH_OLD" "$CRASH_NEW")
+case "$cap" in *"dies on"*|*survived*) crash_ok=0 ;; *"FAIL: mutant 'crash-control' crashed ("*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control (#360): contributor-docs reports a crashing mutant as crashed, never as dies" \
+  || bad "crash control (#360): contributor-docs credited or missed a crashing mutant"
 
 echo "== mutants =="
 # The export-name test in code(), for the mutants that edit it. \047 is literal: the awk program sits

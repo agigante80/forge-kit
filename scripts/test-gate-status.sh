@@ -56,7 +56,9 @@ forge_issue_comments() { cat "$S/comments.json"; }
 LIB
 export S FORGE_LIB="$T/wrap.sh"
 
-GS() { rm -f "$S/gets"; bash "$T/gate-status.sh" "$@"; }
+# GS also appends the script's stderr to $T/gs-err.log, the log m() classifies a crash on (#360); the
+# exit code and the stderr a caller sees are unchanged (pipefail keeps bash's code).
+GS() { rm -f "$S/gets"; { bash "$T/gate-status.sh" "$@" 2>&1 1>&3 3>&- | tee -a "$T/gs-err.log" >&2; } 3>&1; }
 setbody() { printf '%s' "$1" > "$S/body"; rm -f "$S/patches" "$S/fail-get"; }
 patches() { if [ -f "$S/patches" ]; then wc -l < "$S/patches" | tr -d ' '; else echo 0; fi; }
 
@@ -381,9 +383,18 @@ contains "an author section changed during the stamp" "$err" "  and says why"
 expect "  and leaves it unrecorded" "unrecorded round 2" "$(GS 7)"
 
 echo "== mutants =="
-m() {  # m <label> <sed expr>: a mutant of the script must fail the named probe
+. "$ROOT/scripts/mutant-crash.sh"
+# gs_live: the build still works on a plain body (#360), so a probe it fails is not a crash.
+gs_live() { local out; setbody "$BASE"; out=$(GS 7 --fingerprint 2>/dev/null) || return 1; [[ "$out" =~ ^sha256:[0-9a-f]{16}$ ]]; }
+m() {  # m <label> <sed expr> <probe>: a mutant of the script must fail the named probe, not crash
+  local why rc
   sed "$2" "$REAL" > "$T/gate-status.sh"
-  "$3" && bad "mutant survived: $1" || ok "mutant dies: $1"
+  : > "$T/gs-err.log"
+  "$3"; rc=$?
+  why=$(mutant_crash_reason "$T/gate-status.sh" "$T/gs-err.log" gs_live)
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"
+  elif [ "$rc" = 0 ]; then bad "mutant survived: $1"
+  else ok "mutant dies: $1"; fi
   cp "$REAL" "$T/gate-status.sh"
 }
 probe_regions() { setbody "$BASE"; a=$(GS 7 --fingerprint); setbody "${BASE/context v1/context v2}"; [ "$a" = "$(GS 7 --fingerprint)" ]; }
@@ -468,12 +479,20 @@ m "the Stale line always uses the algorithm text" 's/^    mark gate-verdict "$ve
 m "the Stale line never uses the algorithm text" 's/^      \*"(fingerprint "\*", now "\*")")/      "never")/' probe_staleline
 m "the algorithm text keeps the trailing now clause" 's/old="${old%%,\*}"/:/' probe_staleline
 m "the tag is cut at the first (fingerprint, not the last" 's/old="${st##\*(fingerprint }"/old="${st#*\\(fingerprint }"/' probe_headtag
-# A probe that regresses to any-non-zero would count a crash as a kill: install a crashing script
-# directly (not through m, which reports a survivor as a failure by design) and demand a 0.
-{ sed -n 1p "$REAL"; echo 'echo "gate-status: boom" >&2; exit 1'; sed 1d "$REAL"; } > "$T/gate-status.sh"
-probe_nobl; expect "probe_nobl counts an unrelated crash as survived" 0 "$?"
-probe_retry; expect "probe_retry counts an unrelated crash as survived" 0 "$?"
-cp "$REAL" "$T/gate-status.sh"
+# Crash control (#360): three crashing builds, each on a probe that credited it (probe_top), one
+# that read it as a survivor (probe_regions) and a caught() probe (probe_nobl). m runs in $( ), so
+# its own rows stay out of the total; every capture must be the third outcome, never dies or survived.
+crash_ok=1; crashed=0
+for x in 'echo "gate-status: boom" >\&2; exit 1' 'fi fi' 'exit 127'; do
+  sed "1{p;s/.*/$x/;}" "$REAL" > "$T/crash.sh"
+  cmp -s "$T/crash.sh" "$REAL" && crash_ok=0
+  for p in probe_top probe_regions probe_nobl; do
+    cap=$(m "crash-control" "1{p;s/.*/$x/;}" "$p")
+    case "$cap" in *"mutant dies:"*|*"mutant survived:"*) crash_ok=0 ;; *"mutant crash-control crashed ("*) crashed=$((crashed + 1)) ;; esac
+  done
+done
+[ "$crash_ok" = 1 ] && [ "$crashed" = 9 ] && ok "crash control (#360): m() reports a crashing mutant as crashed, never as dies" \
+  || bad "crash control (#360): m() credited or missed a crashing mutant ($crashed of 9 crashed)"
 
 echo
 echo "gate-status: $pass passed, $fail failed"

@@ -378,6 +378,10 @@ jobs:
       - name: awkv-count helper tests
         run: bash scripts/test-awkv-count.sh
 
+      # Issue #360: the one crash classification the mutant harnesses source, so a crash is never a kill.
+      - name: mutant-crash helper tests
+        run: bash scripts/test-mutant-crash.sh
+
       # Issue #407: /phase's resolved values reach every later Bash call through phase-env.sh.
       - name: /phase fresh-shell contract tests
         run: bash scripts/test-phase-env.sh

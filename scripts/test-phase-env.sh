@@ -98,12 +98,28 @@ out=$(cd "$T/colon" && env -i PATH="$PATH" HOME="$EH" bash -c 'RP=; bash "$RP" -
 case "$out" in *"No such file or directory"*) ok "and that bare read is the 'bash \"\"' failure #407 removes" ;; *) bad "bare RP read: '$out'" ;; esac
 
 echo "== mutants of phase-env.sh =="
+. "$ROOT/scripts/mutant-crash.sh"
+# pe_live: the build, with all six assets present, still resolves and runs /phase status step 1
+# (#360). It never reads the case's stderr, because two genuine kills ARE bash diagnostics; it
+# writes the resolve output and its own fresh shell's stderr to stderr, the log
+# mutant_crash_reason_live reads.
+pe_live() {
+  PHASE_ENV="$T/pe-mut.sh" fixture; printf '%s\n' "$resolve_out" >&2
+  [ "$resolve_rc" = 0 ] || return 1
+  fresh "$STATUS1"; printf '%s\n' "$err" >&2
+  [ "$rc" = 0 ] && [ "$out" = "check-phases " ]
+}
 mutant() {  # mutant <name> <awk program> <assets...> -- <command> <expect>: the case must fail
-  local name="$1" prog="$2"; shift 2; local assets=(); while [ "$1" != -- ]; do assets+=("$1"); shift; done; shift
+  local name="$1" prog="$2" held=0 got why; shift 2; local assets=(); while [ "$1" != -- ]; do assets+=("$1"); shift; done; shift
   awk "$prog" "$ASSETS/phase-env.sh" > "$T/pe-mut.sh"
   cmp -s "$ASSETS/phase-env.sh" "$T/pe-mut.sh" && { bad "mutant $name: nothing to change"; return; }
   PHASE_ENV="$T/pe-mut.sh" fixture "${assets[@]}"; fresh "$1"
-  if [ "$rc" = 0 ] && [ "$out" = "$2" ] && [ -z "$err" ]; then bad "mutant $name survived"; else ok "mutant $name dies (rc $rc${err:+, $(printf '%s' "$err" | head -1)})"; fi
+  [ "$rc" = 0 ] && [ "$out" = "$2" ] && [ -z "$err" ] && held=1
+  got="rc $rc${err:+, $(printf '%s' "$err" | head -1)}"
+  why=$(mutant_crash_reason_live "$T/pe-mut.sh" pe_live)
+  if [ -n "$why" ]; then bad "mutant $name crashed ($why)"
+  elif [ "$held" = 1 ]; then bad "mutant $name survived"
+  else ok "mutant $name dies ($got)"; fi
 }
 # The awk programs replace phase-env.sh's last printf line (the libraries and the final `:`).
 LAST='/^printf .%s\\n. .if/'
@@ -113,12 +129,35 @@ P_DD=$LAST' { print "echo '"'"': \"${DD:?}\"'"'"'" } 1'
 mutant "no FL source" "$P_NOFL" check-phases.sh forge-lib.sh roadmap-lib.sh -- 'type forge_issue_comments >/dev/null && echo yes' yes
 mutant "bare && last line" "$P_AND" check-phases.sh forge-lib.sh -- "$STATUS1" "check-phases "
 mutant "a missing DD fails the file" "$P_DD" check-phases.sh forge-lib.sh roadmap-lib.sh -- "$STATUS1" "check-phases "
-awk '/^[[:space:]]*\| sed .*sort -t/ { print "    | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1"; next } 1' "$ASSETS/phase-env.sh" > "$T/pe-sort.sh"
-if cmp -s "$ASSETS/phase-env.sh" "$T/pe-sort.sh"; then bad "mutant old sort -t: search: nothing to change"; else
+# pe_search_live: the colon-search build, run in an empty repository under the empty HOME, still
+# prints its six assignments and exits 0 (#360).
+pe_search_live() {
+  local o; o=$(CDPATH= cd -- "$T/colon2" && env -i PATH="$PATH" HOME="$EH" bash "$T/pe-sort.sh") || return 1
+  [ "$(printf '%s\n' "$o" | grep -c '^[A-Z][A-Z]=')" = 6 ]
+}
+pe_search_mutant() {  # pe_search_mutant <name> <awk program>: the colon-path pick must be lost
+  local name="$1" why
+  awk "$2" "$ASSETS/phase-env.sh" > "$T/pe-sort.sh"
+  if cmp -s "$ASSETS/phase-env.sh" "$T/pe-sort.sh"; then bad "mutant $name: nothing to change"; return; fi
   R="$T/colon2"; mkdir -p "$R"; git -C "$R" init -q
-  out=$(cd "$R" && env -i PATH="$PATH" HOME="$CH" bash "$T/pe-sort.sh" | sed -n 's/^CP=//p')
-  case "$out" in *a:b*) bad "mutant old sort -t: search survived" ;; *) ok "mutant old sort -t: search dies (picked '$out')" ;; esac
-fi
+  out=$(CDPATH= cd -- "$R" && env -i PATH="$PATH" HOME="$CH" bash "$T/pe-sort.sh" | sed -n 's/^CP=//p')
+  why=$(mutant_crash_reason_live "$T/pe-sort.sh" pe_search_live)
+  if [ -n "$why" ]; then bad "mutant $name crashed ($why)"; return; fi
+  case "$out" in *a:b*) bad "mutant $name survived" ;; *) ok "mutant $name dies (picked '$out')" ;; esac
+}
+pe_search_mutant "old sort -t: search" '/^[[:space:]]*\| sed .*sort -t/ { print "    | sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1"; next } 1'
+# Crash control (#360): a phase-env.sh that exits, through both harnesses, judged in one row. They
+# run in $( ), so their rows stay out of the total.
+P_CRASH='NR==1 { print; print "exit 127"; next } 1'
+awk "$P_CRASH" "$ASSETS/phase-env.sh" > "$T/pe-crash.sh"
+crash_ok=1
+cmp -s "$T/pe-crash.sh" "$ASSETS/phase-env.sh" && crash_ok=0
+cap=$(mutant crash-control "$P_CRASH" check-phases.sh forge-lib.sh roadmap-lib.sh -- "$STATUS1" "check-phases "
+      pe_search_mutant crash-control "$P_CRASH")
+case "$cap" in *" dies"*|*" survived"*) crash_ok=0 ;; esac
+[ "$(printf '%s\n' "$cap" | grep -c '^  FAIL: mutant crash-control crashed (')" = 2 ] || crash_ok=0
+[ "$crash_ok" = 1 ] && ok "crash control (#360): phase-env reports a crashing phase-env.sh as crashed, never as dies" \
+  || bad "crash control (#360): phase-env credited or missed a crashing phase-env.sh"
 
 echo ""
 echo "phase-env tests: $pass passed, $fail failed"

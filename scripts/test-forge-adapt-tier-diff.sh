@@ -20,7 +20,8 @@ expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mk() { cat > "$T/$1"; }
 out=""; err=""; rc=0
-run() { out=$(bash "${S:-$SCRIPT}" "$@" 2>"$T/err"); rc=$?; err=$(cat "$T/err"); }
+# run also appends its stderr to $T/mut-err.log, the per-mutant log mutant() classifies on (#360).
+run() { out=$(bash "${S:-$SCRIPT}" "$@" 2>"$T/err"); rc=$?; err=$(cat "$T/err"); cat "$T/err" >> "$T/mut-err.log"; }
 
 mk base.md <<'M'
 ---
@@ -148,22 +149,51 @@ expect "TIER_KEYS holds #253's five keys in order" \
 
 echo "== mutants die =="
 M="$T/mut"; mkdir -p "$M"; cp "$ROOT/scripts/guard-lib.sh" "$M/"
-mutant() {  # mutant <name> <python replace: old> <new> <check-fn>
-  python3 - "$SCRIPT" "$M/forge-adapt-tier-diff.sh" "$2" "$3" <<'P' || { bad "mutant $1 did not apply"; return; }
+. "$ROOT/scripts/mutant-crash.sh"
+# td_live <build>: the build still prints its tier lines for two differing files (#360).
+td_live() { S="$1" run "$T/all-a.md" "$T/all-b.md"; case "$out" in "tier: "*) return 0 ;; esac; return 1; }
+# mutant <name> <python replace: old> <new> <check-fn> [<kill-fn>]: the build goes to ${MD:-$M}. A
+# failed check is a kill only when the build did not crash and, given a kill-fn, that holds too.
+mutant() {
+  local d="${MD:-$M}" held=0 sig=1 why
+  python3 - "$SCRIPT" "$d/forge-adapt-tier-diff.sh" "$2" "$3" <<'P' || { bad "mutant $1 did not apply"; return; }
 import sys
 src = open(sys.argv[1]).read()
 if sys.argv[3] not in src: sys.exit(1)
 open(sys.argv[2], "w").write(src.replace(sys.argv[3], sys.argv[4]))
 P
-  if S="$M/forge-adapt-tier-diff.sh" "$4"; then bad "mutant $1 survived"; else ok "mutant $1 dies"; fi
+  : > "$T/mut-err.log"
+  S="$d/forge-adapt-tier-diff.sh" "$4" && held=1
+  if [ "$held" = 0 ] && [ -n "${5:-}" ]; then S="$d/forge-adapt-tier-diff.sh" "$5" || sig=0; fi
+  why=$(mutant_crash_reason "$d/forge-adapt-tier-diff.sh" "$T/mut-err.log" td_live "$d/forge-adapt-tier-diff.sh")
+  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"
+  elif [ "$held" = 1 ]; then bad "mutant $1 survived"
+  elif [ "$sig" = 0 ]; then bad "mutant $1 failed without its kill signature"
+  else ok "mutant $1 dies"; fi
 }
 body_is_ignored() { run "$T/body-key.md" "$T/base.md"; [ "$rc" = 0 ] && [ -z "$out" ]; }
 late_rule_refused() { run "$T/late-rule.md" "$T/base.md"; [ "$rc" = 2 ] && [ -z "$out" ]; }
+# The positive kill of late-first-rule: the mutant ADMITS the late rule as frontmatter. rc 2 with an
+# empty stdout is also what a syntax error gives, so late_rule_refused alone cannot tell them apart.
+late_rule_admitted() { run "$T/late-rule.md" "$T/base.md"; [ "$rc" = 0 ] && [ "${out%%$'\n'*}" = "tier: model local=- forge-kit=opus (kept)" ]; }
 order_kept() { run "$T/all-a.md" "$T/all-b.md"; [ "$(printf '%s\n' "$out" | head -1)" = "tier: model local=sonnet forge-kit=opus (kept)" ]; }
 mutant whole-file 'a=$(component_frontmatter_field "$1" "$k"); b=$(component_frontmatter_field "$2" "$k")' \
   'a=$(sed -n "s/^$k:[[:space:]]*//p" "$1" | tail -1); b=$(sed -n "s/^$k:[[:space:]]*//p" "$2" | tail -1)' body_is_ignored
-mutant late-first-rule "awk 'NR==1 && \$0 != \"---\" { exit 1 } NR>1" "awk 'NR>=1" late_rule_refused
+mutant late-first-rule "awk 'NR==1 && \$0 != \"---\" { exit 1 } NR>1" "awk 'NR>=1" late_rule_refused late_rule_admitted
 mutant order-dropped 'for k in "${TIER_KEYS[@]}"; do' 'for k in $(printf "%s\n" "${TIER_KEYS[@]}" | sort); do' order_kept
+
+# Crash control (#360): a `fi fi` build in its own directory exits 2 with an empty stdout, exactly
+# what late_rule_refused expects. mutant runs in $( ), so its rows stay out of the total.
+mkdir -p "$T/crash"; cp "$ROOT/scripts/guard-lib.sh" "$T/crash/"
+{ sed -n 1p "$SCRIPT"; echo 'fi fi'; sed 1d "$SCRIPT"; } > "$T/crash/forge-adapt-tier-diff.sh"
+crash_ok=1; crashed=0
+cmp -s "$T/crash/forge-adapt-tier-diff.sh" "$SCRIPT" && crash_ok=0
+for c in late_rule_refused body_is_ignored order_kept; do
+  cap=$(MD="$T/crash" mutant crash-control $'#!/usr/bin/env bash\n' $'#!/usr/bin/env bash\nfi fi\n' "$c")
+  case "$cap" in *" dies"*|*" survived"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed ("*) crashed=$((crashed + 1)) ;; esac
+done
+[ "$crash_ok" = 1 ] && [ "$crashed" = 3 ] && ok "crash control (#360): tier-diff reports an rc 2 syntax-error build as crashed, never as dies" \
+  || bad "crash control (#360): tier-diff credited or missed a syntax-error build ($crashed of 3 crashed)"
 
 echo ""
 echo "tier-diff tests: $pass passed, $fail failed"

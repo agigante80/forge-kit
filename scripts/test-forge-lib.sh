@@ -2537,21 +2537,40 @@ mc_cleanly_dry() {
 # mc_flagoff_ok through MC_LIB. Kills: the `-n` form dies at =0 (the PATCH assertion; the mutant still
 # returns 0, so the rc assertion alone would not catch it) and at =true; the `!= 0` form SURVIVES =0
 # and dies only at =true.
+# mc_ledger_kill <form> [<lib>]: the #319 kill lines for one mutant form, judged on <lib>, by default
+# $MUT319, the library the loop just built for that form. mc_cleanly_dry stays the classifier, and
+# `not as a clean dry run (crash?)` is its crashed outcome (#360).
+mc_ledger_kill() {
+  local form="$1" lib="${2:-$MUT319}"
+  if [ "$form" = n ]; then
+    MC_LIB="$lib" mc_flagoff_ok 0 && bad "mutant (#319): a -n guard at forge_milestone_close survived FORGE_DRY_RUN=0" || { mc_cleanly_dry "Phase A" && ok "mutant (#319): a -n guard at forge_milestone_close is killed by FORGE_DRY_RUN=0" || bad "mutant (#319): the -n mutant failed at =0 but not as a clean dry run (crash?): rc=$MCRC err=$MCERR"; }
+    MC_LIB="$lib" mc_run =0 "No Such Phase"
+    mc_cleanly_dry "No Such Phase" && ok "mutant (#319): a -n guard at forge_milestone_close is killed by the unknown-title case (a clean dry run, rc 0 not 2)" || bad "mutant (#319): the -n mutant did not dry-run the unknown title cleanly: rc=$MCRC err=$MCERR"
+  else
+    MC_LIB="$lib" mc_flagoff_ok 0 && ok "mutant (#319): a != 0 guard at forge_milestone_close passes the value 0, which is why the value true is needed" || bad "mutant (#319): a != 0 guard at forge_milestone_close failed the value 0 case, so the ledger's premise is wrong"
+    MC_LIB="$lib" mc_flagoff_ok true && bad "mutant (#319): a != 0 guard at forge_milestone_close survived FORGE_DRY_RUN=true" || { mc_cleanly_dry "Phase A" && ok "mutant (#319): a != 0 guard at forge_milestone_close is killed by FORGE_DRY_RUN=true" || bad "mutant (#319): the != 0 mutant failed at =true but not as a clean dry run (crash?): rc=$MCRC err=$MCERR"; }
+  fi
+}
 for form in n b; do
   MUT319="$T/forge-lib-mut319-$form.sh"
   dr_mutant forge_milestone_close "$form" "$MUT319" && ok "mutant ledger (#319): dr_mutant found the forge_milestone_close guard for the $form mutant" || bad "mutant ledger (#319): dr_mutant found no guard at forge_milestone_close for the $form mutant"
   cmp -s "$LIB" "$MUT319" && bad "mutant ledger (#319): the forge_milestone_close $form mutant did not apply" || ok "mutant ledger (#319): the forge_milestone_close $form mutant differs from the lib"
   [ "$(diff "$LIB" "$MUT319" | grep -c '^>')" = 1 ] && ok "mutant ledger (#319): the forge_milestone_close $form mutant changes exactly one line" || bad "mutant ledger (#319): the forge_milestone_close $form mutant changed a number of lines other than one"
-  if [ "$form" = n ]; then
-    MC_LIB="$MUT319" mc_flagoff_ok 0 && bad "mutant (#319): a -n guard at forge_milestone_close survived FORGE_DRY_RUN=0" || { mc_cleanly_dry "Phase A" && ok "mutant (#319): a -n guard at forge_milestone_close is killed by FORGE_DRY_RUN=0" || bad "mutant (#319): the -n mutant failed at =0 but not as a clean dry run (crash?): rc=$MCRC err=$MCERR"; }
-    MC_LIB="$MUT319" mc_run =0 "No Such Phase"
-    mc_cleanly_dry "No Such Phase" && ok "mutant (#319): a -n guard at forge_milestone_close is killed by the unknown-title case (a clean dry run, rc 0 not 2)" || bad "mutant (#319): the -n mutant did not dry-run the unknown title cleanly: rc=$MCRC err=$MCERR"
-  else
-    MC_LIB="$MUT319" mc_flagoff_ok 0 && ok "mutant (#319): a != 0 guard at forge_milestone_close passes the value 0, which is why the value true is needed" || bad "mutant (#319): a != 0 guard at forge_milestone_close failed the value 0 case, so the ledger's premise is wrong"
-    MC_LIB="$MUT319" mc_flagoff_ok true && bad "mutant (#319): a != 0 guard at forge_milestone_close survived FORGE_DRY_RUN=true" || { mc_cleanly_dry "Phase A" && ok "mutant (#319): a != 0 guard at forge_milestone_close is killed by FORGE_DRY_RUN=true" || bad "mutant (#319): the != 0 mutant failed at =true but not as a clean dry run (crash?): rc=$MCRC err=$MCERR"; }
-  fi
+  mc_ledger_kill "$form"
 done
 unset MC_LIB
+# Crash control (#360): the library with forge_milestone_close deleted (the #350 awk), judged through
+# mc_ledger_kill in $( ). Every mc_run on it returns rc 127, which mc_cleanly_dry rejects, so the
+# capture must carry the `(crash?)` outcome and no kill. The capture is never echoed: its rows are
+# already in $T/rows, and a copy would trip the uniqueness check below.
+CRASH319="$T/forge-lib-crash319.sh"
+awk '/^forge_milestone_close\(\) *\{/ {skip=1} skip { if ($0 ~ /^\}/) skip=0; next } { print }' "$LIB" > "$CRASH319"
+crash_ok=1
+cmp -s "$LIB" "$CRASH319" && crash_ok=0
+cap=$(mc_ledger_kill n "$CRASH319"; mc_ledger_kill b "$CRASH319")
+case "$cap" in *"is killed by"*) crash_ok=0 ;; *"not as a clean dry run (crash?)"*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control (#360): the #319 ledger reports a crashing forge_milestone_close as a crash, never as a kill" \
+  || bad "crash control (#360): the #319 ledger credited or missed a crashing forge_milestone_close"
 
 # #370: every FORGE_DRY_RUN guard in the library is covered by a mutant ledger, so a new guard cannot
 # land unmutated and untested. The guarded set is DERIVED from $LIB (so a scratch library injected

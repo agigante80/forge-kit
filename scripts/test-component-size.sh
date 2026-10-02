@@ -180,10 +180,31 @@ locale_agree "$CHECK" && ok "an ASCII component counts the same under C and C.UT
 over_by_one 'alpha ❌ beta'
 locale_agree "$CHECK" && ok "a lone non-ASCII token counts the same under C and C.UTF-8" \
   || bad "a lone non-ASCII token counts the same under C and C.UTF-8"
-sed -i 's|words=$(count_words "$path") \|\| exit 2|words=$(wc -w < "$path" \| tr -d " ")|' "$LOC/check.sh"
-if cmp -s "$CHECK" "$LOC/check.sh"; then bad "mutant (bare wc -w restored): nothing to replace"
-elif locale_agree "$LOC/check.sh"; then bad "mutant (bare wc -w restored) survived the non-ASCII fixture"
-else ok "mutant (bare wc -w restored) dies on the non-ASCII fixture"; fi
+. "$ROOT/scripts/mutant-crash.sh"
+# cs_live: the build still warns on loc-agent under C.UTF-8 (#360), so a disagreement is not a crash.
+cs_live() { local o; o=$(LC_ALL=C.UTF-8 bash "$LOC/check.sh" --root "$LOC"); [ "$(printf '%s\n' "$o" | grep -c '^warn .*loc-agent')" -ge 1 ]; }
+cs_mutant() {  # cs_mutant <label> <sed expr>: $LOC/check.sh built from $CHECK must disagree, not crash
+  local why held=0
+  sed "$2" "$CHECK" > "$LOC/check.sh"
+  if cmp -s "$CHECK" "$LOC/check.sh"; then bad "mutant ($1): nothing to replace"; return; fi
+  locale_agree "$LOC/check.sh" && held=1
+  why=$(mutant_crash_reason_live "$LOC/check.sh" cs_live)
+  if [ -n "$why" ]; then bad "mutant ($1) crashed ($why)"
+  elif [ "$held" = 1 ]; then bad "mutant ($1) survived the non-ASCII fixture"
+  else ok "mutant ($1) dies on the non-ASCII fixture"; fi
+}
+cs_mutant "bare wc -w restored" 's|words=$(count_words "$path") \|\| exit 2|words=$(wc -w < "$path" \| tr -d " ")|'
+# Crash control (#360): a check that exits is never a kill. cs_mutant runs in $( ), so its rows stay
+# out of the total.
+sed '1a\
+exit 127' "$CHECK" > "$LOC/crash.sh"
+crash_ok=1
+cmp -s "$LOC/crash.sh" "$CHECK" && crash_ok=0
+cap=$(cs_mutant crash-control '1a\
+exit 127')
+case "$cap" in *" dies "*|*survived*) crash_ok=0 ;; *"FAIL: mutant (crash-control) crashed ("*) ;; *) crash_ok=0 ;; esac
+[ "$crash_ok" = 1 ] && ok "crash control (#360): component-size reports a crashing check as crashed, never as dies" \
+  || bad "crash control (#360): component-size credited or missed a crashing check"
 printf '\377\376 not utf-8\n' >> "$LOC/plugins/l/agents/loc-agent.md"
 out=$(bash "$CHECK" --root "$LOC" 2>&1); rc=$?
 [ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'cannot count words in .*loc-agent.md' && ! printf '%s' "$out" | grep -q Traceback \
