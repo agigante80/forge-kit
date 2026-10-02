@@ -175,7 +175,7 @@ esac
   }
   err=$(forge_issue_label 7 bug nosuchlabel 2>&1 >/dev/null); rc=$?
   [ "$rc" -ne 0 ]                          || exit 1
-  printf '%s' "$err" | grep -q 'nosuchlabel' || exit 2
+  grep -q 'nosuchlabel' <<< "$err" || exit 2
   ! grep -q '^POST' "$REQLOG"              || exit 3
 )
 case $? in
@@ -197,7 +197,7 @@ esac
   }
   err=$(forge_issue_label 7 bug 2>&1 >/dev/null); rc=$?
   [ "$rc" -ne 0 ]                            || exit 1
-  printf '%s' "$err" | grep -qi 'no labels'  || exit 2
+  grep -qi 'no labels' <<< "$err"  || exit 2
   ! grep -q '^POST' "$REQLOG"                || exit 3
 )
 case $? in
@@ -771,7 +771,7 @@ grep -q 'return 44' "$LIB" && ok "forge_api reports 404 as exit 44, a channel th
     esac
   }
   err=$(forge_issue_label 7 nope 2>&1 >/dev/null)
-  printf '%s' "$err" | grep -q 'org-level labels could not be listed' && exit 1 || exit 0
+  grep -q 'org-level labels could not be listed' <<< "$err" && exit 1 || exit 0
 )
 [ $? -eq 0 ] && ok "an org 404 is not reported as an org-access failure (#78.2)" \
   || bad "org 404 is treated as ordinary"
@@ -785,7 +785,7 @@ grep -q 'return 44' "$LIB" && ok "forge_api reports 404 as exit 44, a channel th
     esac
   }
   err=$(forge_issue_label 7 nope 2>&1 >/dev/null)
-  printf '%s' "$err" | grep -q 'org-level labels could not be listed'
+  grep -q 'org-level labels could not be listed' <<< "$err"
 )
 [ $? -eq 0 ] && ok "an org 401 IS reported as an org-access failure (#78.2)" \
   || bad "org 401 is flagged"
@@ -1609,6 +1609,14 @@ bodystub() {
   }
 }
 patched() { jq -r '.body' < "$T/patch.json" 2>/dev/null; }
+# Why every check below reads a here-string, `grep -q 'X' <<< "$out"`, and never a pipe (#378).
+# This suite runs under `set -uo pipefail`. In `printf '%s' "$out" | grep -q 'X'`, grep -q exits
+# at its first match; if the producer is still writing, it gets SIGPIPE, the pipeline returns 141,
+# and pipefail makes it fail although the pattern matched. A `|| exit N` row then reports a body
+# that was composed correctly as broken (the crlf and own-region rows flaked this way under load),
+# and a `&& exit N` or `! ...` row turns the 141 into "no match" and passes over a real regression.
+# A here-string is written in full before grep reads it and leaves no producer to kill, so the
+# status is grep's own. #413's guard (scripts/check-pipe-grep-q.sh) keeps the pipe form out.
 
 echo "== #248: a region is spliced and nothing else moves =="
 (
@@ -1622,9 +1630,9 @@ echo "== #248: a region is spliced and nothing else moves =="
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
   forge_body_region_set 7 gate gate-verdict "new verdict" >/dev/null 2>&1
   out="$(patched)"
-  printf '%s' "$out" | grep -q 'new verdict' || exit 1
-  printf '%s' "$out" | grep -q 'old verdict' && exit 2
-  printf '%s' "$out" | grep -q 'the brief owns this' || exit 3
+  grep -q 'new verdict' <<< "$out" || exit 1
+  grep -q 'old verdict' <<< "$out" && exit 2
+  grep -q 'the brief owns this' <<< "$out" || exit 3
   [ "$(printf '%s' "$out" | grep -c 'Author text')" = 3 ] || exit 4
   exit 0
 )
@@ -1746,8 +1754,8 @@ echo "== #248: clear removes both markers and leaves no scar =="
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
   forge_body_region_clear 7 gate gate-verdict >/dev/null 2>&1 || exit 9
   out="$(patched)"
-  printf '%s' "$out" | grep -q 'gate-verdict' && exit 1
-  printf '%s' "$out" | grep -q 'the brief owns this' || exit 2
+  grep -q 'gate-verdict' <<< "$out" && exit 1
+  grep -q 'the brief owns this' <<< "$out" || exit 2
   printf '%s\n' "$out" | awk 'prev == "" && $0 == "" { found = 1 } { prev = $0 } END { exit !found }' && exit 3
   exit 0
 )
@@ -1781,10 +1789,10 @@ echo "== #248: a whole-body write re-threads every region, INCLUDING the caller'
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
   forge_body_compose_preserving 7 "Entirely new body." >/dev/null 2>&1 || exit 9
   out="$(patched)"
-  printf '%s' "$out" | grep -q 'Entirely new body' || exit 1
-  printf '%s' "$out" | grep -q 'old verdict' || exit 2
-  printf '%s' "$out" | grep -q 'the brief owns this' || exit 3
-  printf '%s' "$out" | grep -q 'Author text between' && exit 4
+  grep -q 'Entirely new body' <<< "$out" || exit 1
+  grep -q 'old verdict' <<< "$out" || exit 2
+  grep -q 'the brief owns this' <<< "$out" || exit 3
+  grep -q 'Author text between' <<< "$out" && exit 4
   exit 0
 )
 case $? in
@@ -1802,10 +1810,16 @@ esac
   # own Step 2.9 had just written, which is the silently-dropped-write the contract exists to end.
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
   forge_body_compose_preserving 7 "New." >/dev/null 2>&1 || exit 9
-  printf '%s' "$(patched)" | grep -q 'old verdict' || exit 1
+  out="$(patched)"
+  grep -q 'old verdict' <<< "$out" || exit 1
   exit 0
 )
-[ $? -eq 0 ] && ok "a caller does not lose its OWN regions, which the first cut did and returned 0 for" || bad "compose dropped the caller's own region"
+case $? in
+  0) ok "a caller does not lose its OWN regions, which the first cut did and returned 0 for";;
+  9) bad "the own-region setup compose call failed";;
+  1) bad "compose dropped the caller's own region";;
+  *) bad "the own-region case errored";;
+esac
 (
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; bodystub; rm -f "$T/patch.json"
   forge_body_compose_preserving 7 "New body.
@@ -1814,8 +1828,8 @@ mine, restated
 <!-- gate-verdict:end -->" >/dev/null 2>&1 || exit 9
   out="$(patched)"
   [ "$(printf '%s' "$out" | grep -c 'gate-verdict:start')" = 1 ] || exit 1
-  printf '%s' "$out" | grep -q 'mine, restated' || exit 2
-  printf '%s' "$out" | grep -q 'old verdict' && exit 3
+  grep -q 'mine, restated' <<< "$out" || exit 2
+  grep -q 'old verdict' <<< "$out" && exit 3
   exit 0
 )
 case $? in
@@ -1845,7 +1859,8 @@ PRECIOUS' ;;
     if [ "$shape" = crlf ]; then
       # CRLF is not malformed, it is what the GitHub web form produces. It must be PRESERVED.
       [ "$rc" = 0 ] || exit 1
-      printf '%s' "$(patched)" | grep -q 'PRECIOUS' || exit 2
+      out="$(patched)"
+      grep -q 'PRECIOUS' <<< "$out" || exit 2
     else
       [ "$rc" = 103 ] || exit 1
       [ -f "$T/patch.json" ] && exit 2
@@ -1920,8 +1935,8 @@ echo "== #248: a dry run decides BEFORE it would have fetched =="echo "== #248: 
   out="$(forge_body_region_set 7 gate gate-verdict "some new content" 2>&1)"; rc=$?
   [ "$rc" = 0 ] || exit 1
   [ -f "$T/called" ] && exit 2
-  printf '%s' "$out" | grep -q 'gate-verdict' || exit 3
-  printf '%s' "$out" | grep -q '16 characters' || exit 4
+  grep -q 'gate-verdict' <<< "$out" || exit 3
+  grep -q '16 characters' <<< "$out" || exit 4
   exit 0
 )
 case $? in
@@ -1998,7 +2013,7 @@ Author text below.'
   forge_body_region_clear 7 gate gate-verdict >/dev/null 2>&1; rc=$?
   [ "$rc" = 0 ] || exit 1
   [ -f "$T/patch.json" ] || exit 2
-  patched | grep -q 'gate-verdict' && exit 3
+  grep -q 'gate-verdict' <<< "$(patched)" && exit 3
   exit 0
 )
 case $? in
@@ -2028,10 +2043,10 @@ Author text below.'
   forge_body_region_clear 7 gate gate >/dev/null 2>&1; rc=$?
   [ "$rc" = 0 ] || exit 1
   out="$(patched)"
-  printf '%s' "$out" | grep -q 'gate:start' && exit 2
-  printf '%s' "$out" | grep -q 'the exact-prefix region' && exit 2
-  printf '%s' "$out" | grep -q '<!-- gate-verdict:start -->' || exit 3
-  printf '%s' "$out" | grep -q 'the verdict' || exit 3
+  grep -q 'gate:start' <<< "$out" && exit 2
+  grep -q 'the exact-prefix region' <<< "$out" && exit 2
+  grep -q '<!-- gate-verdict:start -->' <<< "$out" || exit 3
+  grep -q 'the verdict' <<< "$out" || exit 3
   exit 0
 )
 case $? in
@@ -2085,8 +2100,8 @@ else
     forge_api() { exit 7; }
     err="$(LC_ALL=C.UTF-8 forge_issue_edit 7 "$UTF_X" 2>&1 >/dev/null)"; rc=$?
     [ "$rc" = 0 ] || exit 1
-    printf '%s' "$err" | grep -qF '(4 characters)' || exit 2
-    printf '%s' "$err" | grep -q 'bytes' && exit 3
+    grep -qF '(4 characters)' <<< "$err" || exit 2
+    grep -q 'bytes' <<< "$err" && exit 3
     exit 0
   )
   case $? in
@@ -2101,8 +2116,8 @@ fi
   . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
   err="$(forge_issue_edit 7 "" 2>&1)"; rc=$?
   [ "$rc" = 2 ] || exit 1
-  printf '%s' "$err" | grep -qF 'refusing to replace issue #7 with an empty body' || exit 2
-  printf '%s' "$err" | grep -q 'characters\|bytes' && exit 3
+  grep -qF 'refusing to replace issue #7 with an empty body' <<< "$err" || exit 2
+  grep -q 'characters\|bytes' <<< "$err" && exit 3
   exit 0
 )
 case $? in
@@ -2728,7 +2743,7 @@ c409_nojq() {
       forge_issue_create) forge_issue_create t hi ;;
       forge_release_create) forge_release_create v1 v1 hi ;;
     esac ) 2>&1 ); rc=$?
-  [ "$rc" = 2 ] && printf '%s' "$out" | grep -q "$2: could not build the request body" && ! printf '%s' "$out" | grep -q '\[dry-run\]'; }
+  [ "$rc" = 2 ] && grep -q "$2: could not build the request body" <<< "$out" && ! grep -q '\[dry-run\]' <<< "$out"; }
 for fn in forge_issue_comment forge_issue_edit forge_issue_create forge_release_create; do
   for sz in 131071 131072; do
     c409_gh "$LIB" "$fn" "$sz" && ok "#409: $fn carries a $sz-byte body whole" || bad "#409: $fn lost a $sz-byte body"
