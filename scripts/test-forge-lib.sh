@@ -43,6 +43,18 @@ unset FORGE_API_URL FORGE_DEBUG FORGE_DRY_RUN FORGE_HOST FORGE_NO_GIT_CREDENTIAL
 unset "${!_FORGE_FILEVAL_@}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
+# #404 (closed as not reproduced, outcome 3): the "issue_list returned the wrong count on large
+# pages" and "row recorder saw fewer rows than the counters" rows did not fail in a two-arm soak
+# on 2026-10-02 at eb9eb08 (4 CPUs, 8 looping test-check-public-leaks.sh generators; 1-minute load
+# 9.02, 6.56 and 8.86, i.e. 2.25, 1.64 and 2.21 x nproc, at or above the incident's 1.4 to 1.6 x):
+# 20 of 20 clean with TMPDIR=$PWD/tmp and 20 of 20 clean with TMPDIR=$PWD/tmp/node_modules. 20
+# clean runs bound the per-run failure rate at about 14% (95% confidence). That host had no sync
+# client, so the leading hypothesis, a sync client (Syncthing) touching $T inside a synced
+# checkout, was neither confirmed nor ruled out. $T still follows the caller's TMPDIR; a session
+# in a synced checkout should point TMPDIR at a path its sync client ignores (for Syncthing,
+# tmp/node_modules, which the folder's .stignore excludes). The crlf and own-region compose rows
+# seen in the same incident were #378 (SIGPIPE from a pipe into grep -q under pipefail, fixed in
+# 2ca549d); an unusable TMPDIR now exits 2 before any row (9ae20a3).
 # Fail fast on an unusable TMPDIR (#404). Without this, a failed `mktemp -d` left T empty, every
 # `$T/...` path became a path under `/`, and a run as root scattered its scratch there while the
 # trap's `rm -rf ""` removed nothing (measured: rc 1 with the files left behind).
