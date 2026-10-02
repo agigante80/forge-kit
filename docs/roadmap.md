@@ -948,6 +948,12 @@ Closed 2026-10-01, outcome **re-shaped**. Five of the seven planned tickets land
 
 Opened 2026-10-01, when no phase was open and 28 open tickets had none. Seven of them are about one check, `check-contributor-docs.sh`, and they share a cause: the check reads a line well now (#385 to #395 saw to that), but it follows a tracked symlink out of the repository (#309), never follows a `CLAUDE.md`'s `@`-imports (#301), never looks at per-harness copies of `AGENTS.md` (#300), and never counts what a session loads before any work begins (#297), which one downstream repository measured at 258 KB. #302's line budget waits on a maintainer decision, and #398 and #406 are the Lows and the Apple-awk gap the last batches left.
 
+## Phase: The leak guard, tightened
+state: open
+plan: docs/plans/the-leak-guard-tightened.md
+
+A bucket, filed 2026-10-02 from the backlog: the leak-guard tickets with a decision-free path. Locale-safe allow-file trims (#403), the directory anchor for hand-run pre-push and the scanners' scope (#401), a whole-word private-name form (#222), a linear redact() on the --history path (#217), and one shared history reader for both scanners (#206). The leak-guard tickets that wait on a maintainer pick (#207, #226, #391) stay in backlog.
+
 ## Phase: What a session loads before work begins
 state: planned
 plan: 
