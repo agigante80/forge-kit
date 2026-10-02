@@ -30,9 +30,12 @@ expect() { local label="$1" want="$2"; shift 2; local got
 echo "== the mechanism: a pipe into grep -q under pipefail can lose a match =="
 # Deterministic, no load needed: the producer writes past the pipe buffer after the match, so it is
 # still writing when grep -q exits. A child bash does not inherit pipefail, hence -o pipefail.
-# Assumes SIGPIPE is not ignored on entry (with it ignored, the pipe half exits 1, still not 0).
+# The pipe half fails either way: 141 when SIGPIPE kills the producer, or 1 when SIGPIPE is ignored
+# on entry (the producer's write then fails with EPIPE). CI's runner starts steps with SIGPIPE
+# ignored, so it sees 1; a shell with default signals sees 141. Both are a present match misread.
 bash -o pipefail -c "{ echo MATCH; head -c 200000 /dev/zero; } $P grep -q MATCH" 2>/dev/null; rc=$?
-[ "$rc" = 141 ] && ok "the pipe form reports a present match as rc 141 (SIGPIPE)" || bad "the pipe form: rc $rc, want 141"
+case "$rc" in 141|1) ok "the pipe form reports a present match as a failure (rc $rc: SIGPIPE, or EPIPE when SIGPIPE is ignored)" ;;
+  *) bad "the pipe form: rc $rc, want 141 or 1" ;; esac
 bash -o pipefail -c "grep -q MATCH <<< \"MATCH\$(head -c 200000 /dev/zero | tr '\\0' x)\""; rc=$?
 [ "$rc" = 0 ] && ok "the here-string form finds the same match (rc 0)" || bad "the here-string form: rc $rc, want 0"
 
