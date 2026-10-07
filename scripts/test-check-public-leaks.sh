@@ -1714,7 +1714,10 @@ EOF
     sed "/^ *$arm)/s|IFS=/ read -r seg _ <<< \"\$e\"|seg=\"\${e%%/*}\"|" "$SCRIPT" > "$MUTC"; chmod +x "$MUTC"
     expect "the $arm cut mutant keeps only the other arm's IFS=/ read -r" 1 "$(grep -c 'IFS=/ read -r' "$MUTC")"
     cd "$HREPO"
-    killed_at_bound "the $arm whole-match cut mutant is killed at the bound under UTF-8 (124, or the escalation's 137)" 20 env LC_ALL="$ANYUTF8" "$MUTC" --history
+    # The mutant is killed at 8 s, not at the scanner's own 20 s bound. On a fast CI runner the
+    # quadratic mutant finished this 1 MB fixture in 16 s (run 37595575207), under 20, while the
+    # linear scanner takes about 1 s. 8 s still separates the two, with 2x margin on that runner.
+    killed_at_bound "the $arm whole-match cut mutant is killed at the bound under UTF-8 (124, or the escalation's 137)" 8 env LC_ALL="$ANYUTF8" "$MUTC" --history
     cd "$W217"
   done
 else
