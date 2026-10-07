@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 19
+# check-private-leaks-version: 20
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -132,6 +132,13 @@ abspath() {
 
 SELF="$(abspath "${BASH_SOURCE[0]}")"
 MIN_NAME_LEN=3
+# The Unicode White_Space characters outside ASCII, as UTF-8 byte strings (#403): U+0085, U+00A0,
+# U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000. A list name may not begin or
+# end with one.
+UNI_EDGE_WS=($'\xc2\x85' $'\xc2\xa0' $'\xe1\x9a\x80'
+  $'\xe2\x80\x80' $'\xe2\x80\x81' $'\xe2\x80\x82' $'\xe2\x80\x83' $'\xe2\x80\x84' $'\xe2\x80\x85'
+  $'\xe2\x80\x86' $'\xe2\x80\x87' $'\xe2\x80\x88' $'\xe2\x80\x89' $'\xe2\x80\x8a'
+  $'\xe2\x80\xa8' $'\xe2\x80\xa9' $'\xe2\x80\xaf' $'\xe2\x81\x9f' $'\xe3\x80\x80')
 
 MODE=all
 MODESET=0
@@ -183,8 +190,11 @@ if [ -n "$ALLOW_FILE" ]; then
   while IFS= read -r raw || [ -n "$raw" ]; do
     lineno=$((lineno+1))
     line="${raw%$'\r'}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
+    # An ASCII byte list, never `[[:space:]]` (#403), as check-public-leaks.sh trims its allow-file:
+    # a caller-locale class trimmed an edge U+2003 under UTF-8 only, so `skip s.md<EMSP>` was a
+    # different glob by locale.
+    line="${line#"${line%%[!$' \t\n\v\f\r']*}"}"
+    line="${line%"${line##*[!$' \t\n\v\f\r']}"}"
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%% *}"; val="${line#* }"
     [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value: $line"
@@ -244,7 +254,8 @@ if [ "$DO_INIT" = 1 ]; then
 # the going-public scan is exactly where a private organisation name must be caught.
 #
 # Names shorter than three characters are refused: they match nearly every file, and a guard that
-# fires on everything is one you switch off within a day.
+# fires on everything is one you switch off within a day. So is a name that begins or ends with an
+# invisible non-ASCII space (a no-break or em space): it would never match its own leak.
 #
 # Matching is case insensitive and matches anywhere in a line, so a short distinctive name also
 # catches the longer names built from it. Prefer the shortest name that is still distinctive.
@@ -337,9 +348,20 @@ lineno=0
 while IFS= read -r raw || [ -n "$raw" ]; do
   lineno=$((lineno + 1))
   n="${raw%$'\r'}"
-  n="${n#"${n%%[![:space:]]*}"}"
-  n="${n%"${n##*[![:space:]]}"}"
+  n="${n#"${n%%[!$' \t\n\v\f\r']*}"}"
+  n="${n%"${n##*[!$' \t\n\v\f\r']}"}"
   case "$n" in ''|'#'*) continue ;; esac
+  # A name the ASCII trim above leaves with a non-ASCII Unicode space at an edge is REFUSED (#403).
+  # Kept, the name misses its leak (`secretproj<EMSP>` never matches `secretproj here`) and a line
+  # of only U+2003 is a 3-byte "name" that reports every em space; trimmed, the verdict would follow
+  # the caller's locale. The characters are compared as their UTF-8 BYTES, so C and UTF-8 agree.
+  # This runs before the length floor, so an edge-space name gets this error in every locale. The
+  # name is not echoed: the line number is enough, and this file is the one that must stay private.
+  for ws in "${UNI_EDGE_WS[@]}"; do
+    case "$n" in
+      "$ws"*|*"$ws") die "$LIST_SHOWN:$lineno: this name begins or ends with a non-ASCII whitespace character (such as a no-break or em space), which is invisible and would make it miss its own leak. Delete the character." ;;
+    esac
+  done
   if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then
     die "$LIST_SHOWN:$lineno: '$n' is too short (under $MIN_NAME_LEN characters). It would match almost
   every file, and a guard that fires on everything is one you switch off. Use the full name."

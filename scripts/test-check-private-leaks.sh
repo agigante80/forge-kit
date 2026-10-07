@@ -155,6 +155,74 @@ expect "with no stderr complaint about the comment or blank lines" "" "$(cat "$W
 expect "--allow-file as the last argument dies rather than silently no-opping" 2 "$?"
 contains "needs a path" "$(cat "$WORK/err.txt")" "and says so"
 
+echo "== allow-file and name-list trims use one ASCII byte list in every locale (#403) =="
+# A `[[:space:]]` trim followed the caller's locale: under UTF-8 it took an edge U+2003 off a `skip`
+# glob, and off a list name, which then matched differently by locale. Now the allow-file keeps the
+# character (the C verdict), and a list name carrying a non-ASCII space at an edge is refused.
+utf8loc=""
+for l in $(locale -a 2>/dev/null); do
+  [ "$(LC_ALL=$l locale charmap 2>/dev/null)" = UTF-8 ] && { utf8loc=$l; break; }
+done
+EMSP=$'\xe2\x80\x83'
+# trim_mutant <unique fragment of the target line> <out>: restore `[[:space:]]` on that line only.
+# Echoes how many lines it changed, so the ledger proves the sed hit exactly one site.
+BL="[!\$' \\t\\n\\v\\f\\r']"
+trim_mutant() {
+  local l hits=0
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [[ "$l" == *"$1"* && "$l" == *"$BL"* ]]; then l="${l//"$BL"/[![:space:]]}"; hits=$((hits+1)); fi
+    printf '%s\n' "$l"
+  done < "$SCRIPT" > "$2"; chmod +x "$2"; echo "$hits"
+}
+# arow <allow line> <script> <locale> -> "rc|leak.md reported?" for a --all run over ALLOWREPO
+arow() {
+  printf '%s\n' "$1" > "$WORK/t403-allow"
+  local out rc
+  out="$( cd "$ALLOWREPO" && LC_ALL=$3 "$2" --list "$WORK/list" --all --allow-file "$WORK/t403-allow" 2>"$WORK/err.txt" )"; rc=$?
+  case "$out" in *leak.md*) echo "$rc|leak" ;; *) echo "$rc|-" ;; esac
+}
+# nrow <list content> <script> <locale> -> rc of a scan of one line naming acme-migration
+nrow() {
+  printf '%s\n' "$1" > "$WORK/t403-list"; printf 'see the acme-migration repo\n' > "$WORK/t403-s.txt"
+  LC_ALL=$3 "$2" --list "$WORK/t403-list" "$WORK/t403-s.txt" >/dev/null 2>"$WORK/err.txt"; echo $?
+}
+locs="C"; [ -n "$utf8loc" ] && locs="C $utf8loc"
+for L in $locs; do
+  expect "allow 'skip leak.md<EMSP>' keeps the character, so leak.md is still reported under $L" "1|leak" "$(arow "skip leak.md$EMSP" "$SCRIPT" "$L")"
+  expect "allow '<EMSP>skip leak.md' is an unknown key under $L" "2|-" "$(arow "${EMSP}skip leak.md" "$SCRIPT" "$L")"
+  contains "unknown key" "$(cat "$WORK/err.txt")" "and names the unknown key under $L"
+  expect "an allow line of only <EMSP> has no value under $L" "2|-" "$(arow "$EMSP" "$SCRIPT" "$L")"
+  contains "entry has no value" "$(cat "$WORK/err.txt")" "and says so under $L"
+  expect "an ASCII control row: '<TAB>skip leak.md<SPACE>' still parses and skips under $L" "0|-" "$(arow "$(printf '\tskip leak.md ')" "$SCRIPT" "$L")"
+  for spec in "acme-migration$EMSP|trailing U+2003" "${EMSP}acme-migration|leading U+2003" "$EMSP|a line of only U+2003" \
+              $'acme-migration\xc2\xa0|trailing U+00A0' $'\xe3\x80\x80acme-migration|leading U+3000'; do
+    expect "list name with ${spec#*|} is refused under $L" 2 "$(nrow "${spec%|*}" "$SCRIPT" "$L")"
+    contains "list:1: this name begins or ends with a non-ASCII whitespace" "$(cat "$WORK/err.txt")" "and the refusal names the line under $L (${spec#*|})"
+    lacks "acme" "$(cat "$WORK/err.txt")" "and does not echo the name under $L (${spec#*|})"
+  done
+  expect "an ASCII control row: list '<TAB>acme-migration<SPACE>' still matches under $L" 1 "$(nrow "$(printf '\tacme-migration ')" "$SCRIPT" "$L")"
+done
+expect "a two-line list refuses at the U+2003-only line, not as a 3-byte name" 2 "$(nrow "$(printf 'acme-migration\n%s' "$EMSP")" "$SCRIPT" C)"
+contains "list:2:" "$(cat "$WORK/err.txt")" "and names line 2"
+# One mutant per site, each with a row that kills it alone.
+M=$WORK/m403
+expect "mutant ledger (#403): the allow leading trim is one line" 1 "$(trim_mutant 'line="${line#"' "$M-al.sh")"
+expect "mutant ledger (#403): the allow trailing trim is one line" 1 "$(trim_mutant 'line="${line%"' "$M-at.sh")"
+expect "mutant ledger (#403): the name leading trim is one line" 1 "$(trim_mutant 'n="${n#"' "$M-nl.sh")"
+expect "mutant ledger (#403): the name trailing trim is one line" 1 "$(trim_mutant 'n="${n%"' "$M-nt.sh")"
+# Refusal deleted: the for-loop over UNI_EDGE_WS through its own `  done`.
+awk 'BEGIN{d=0} /for ws in "\$\{UNI_EDGE_WS\[@\]\}"/{d=1; next} d&&/^  done$/{d=0; next} d{next} {print}' < "$SCRIPT" > "$M-nr.sh"; chmod +x "$M-nr.sh"
+cmp -s "$SCRIPT" "$M-nr.sh" && bad "mutant ledger (#403): the refusal-deleted mutant did not apply" || ok "mutant ledger (#403): the refusal-deleted mutant differs"
+expect "mutant (#403, refusal deleted): a trailing-U+2003 name is kept and misses under C" 0 "$(nrow "acme-migration$EMSP" "$M-nr.sh" C)"
+if [ -n "$utf8loc" ]; then
+  expect "mutant (#403, allow leading trim): '<EMSP>skip leak.md' is accepted under $utf8loc" "0|-" "$(arow "${EMSP}skip leak.md" "$M-al.sh" "$utf8loc")"
+  expect "mutant (#403, allow trailing trim): 'skip leak.md<EMSP>' skips leak.md under $utf8loc" "0|-" "$(arow "skip leak.md$EMSP" "$M-at.sh" "$utf8loc")"
+  expect "mutant (#403, name leading trim): '<EMSP>acme-migration' is trimmed and matches under $utf8loc" 1 "$(nrow "${EMSP}acme-migration" "$M-nl.sh" "$utf8loc")"
+  expect "mutant (#403, name trailing trim): 'acme-migration<EMSP>' is trimmed and matches under $utf8loc" 1 "$(nrow "acme-migration$EMSP" "$M-nt.sh" "$utf8loc")"
+else
+  ok "no UTF-8 locale installed on this machine: the #403 UTF-8 parity rows and trim mutants were not run"
+fi
+
 echo "== what is not scanned =="
 printf 'acme-migration\n' > "$WORK/skipme.png"
 "$SCRIPT" --list "$WORK/list" "$WORK/skipme.png" >/dev/null 2>&1

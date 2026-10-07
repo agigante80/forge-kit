@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 22 -->
+<!-- leak-guard-version: 23 -->
 
 # Leak guard
 
@@ -186,7 +186,10 @@ own output is exactly that kind of text: printing the matched name in full makes
 into a public issue the next leak. The file and line are enough to act on.
 
 The list defaults to `~/.claude/forge-kit/private-names.txt`, one name per line. `--init` writes a
-starter list there, commented with the rules below; it refuses to overwrite one that exists. The
+starter list there, commented with the rules below; it refuses to overwrite one that exists.
+A name that begins or ends with an invisible non-ASCII space (a no-break or em space, any Unicode
+White_Space character outside ASCII) is refused with exit 2 naming its line, in every locale: kept,
+it would never match its own leak (#403). The
 template lives inside the script rather than beside it as a second file, because forge-adapt
 installs a skill's `assets/*.sh` and nothing else, so a separate template would never arrive.
 

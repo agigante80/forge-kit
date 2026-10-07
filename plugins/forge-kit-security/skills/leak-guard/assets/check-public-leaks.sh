@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 29
+# check-public-leaks-version: 30
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
@@ -335,11 +335,15 @@ if [ -n "$ALLOW_FILE" ]; then
   while IFS= read -r raw || [ -n "$raw" ]; do
     lineno=$((lineno + 1))
     line="${raw%$'\r'}"
-    line="${line#"${line%%[![:space:]]*}"}"          # strip leading whitespace
-    line="${line%"${line##*[![:space:]]}"}"          # strip trailing whitespace
+    # The trims are an ASCII BYTE list, never `[[:space:]]` (#403): RE_HOME and RE_ROOT run under
+    # LC_ALL=C, so an edge U+2003 is part of a live entry there, and a caller-locale class trimmed it
+    # under UTF-8 only, giving one allow-file two meanings. Under UTF-8 an edge-U+2003 key, comment
+    # or U+2003-only line is therefore an entry like any other, and exits 2 where it is malformed.
+    line="${line#"${line%%[!$' \t\n\v\f\r']*}"}"          # strip leading whitespace
+    line="${line%"${line##*[!$' \t\n\v\f\r']}"}"          # strip trailing whitespace
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%% *}"; val="${line#* }"
-    val="${val#"${val%%[![:space:]]*}"}"              # two spaces after the key are not part of the value (#240)
+    val="${val#"${val%%[!$' \t\n\v\f\r']*}"}"              # two spaces after the key are not part of the value (#240)
     [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value: $line"
     case "$key" in
       # A root is written the way it appears in prose, "~/name", so the config reads like the
@@ -365,7 +369,8 @@ if [ -n "$ALLOW_FILE" ]; then
         # twin of #242): RE_ROOT's class runs under LC_ALL=C, where only these ASCII bytes are
         # whitespace, while `[[:space:]]` here would follow the caller's locale and, under UTF-8,
         # also refuse U+2003, which rule B can yield; so one entry got exit 0 or 2 by locale. The
-        # allow-file line trims above still follow the caller's locale for an EDGE U+2003 (#403).
+        # allow-file line and value trims above use the same byte list, so an EDGE U+2003 is kept
+        # in every locale too (#403).
         case "$rootv" in
           *[$' \t\n\v\f\r']*|*'"'*|*'`'*) die "$ALLOW_FILE:$lineno: root cannot contain whitespace, a double quote or a backtick (rule B's match class yields none of them), so this entry could never match: $val" ;;
         esac

@@ -1690,6 +1690,54 @@ printf 'root a\tb\n' > "$WORK/ws-root"
 "$M400B" --allow-file "$WORK/ws-root" "$WORK/sample.txt" >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && ok "mutant (#400 space only): with only a space tested a tab root is accepted (exit $rc)" || bad "mutant (#400 space only): the tab root is still refused"
 
+# #403: the allow-file line trims and the value trim use the same ASCII byte list, so an EDGE U+2003
+# gives every row its LC_ALL=C verdict in a UTF-8 locale too. One mutant per site, each with a row
+# that kills it alone.
+EMSP=$'\xe2\x80\x83'
+EMSP_PAIR="see ~/ab$EMSP/x and ~/ab/y"
+# prow <allow line> <script> <locale> <sample line> -> "rc|first stdout line" (stderr in err.txt)
+prow() {
+  printf '%s\n' "$1" > "$WORK/t403-allow"; printf '%s\n' "$4" > "$WORK/sample.txt"
+  local out rc
+  out="$(LC_ALL=$3 "$2" --allow-file "$WORK/t403-allow" "$WORK/sample.txt" 2>"$WORK/err.txt")"; rc=$?
+  printf '%s|%s' "$rc" "$(printf '%s\n' "$out" | head -n1 | sed 's/^.*: home-/home-/')"
+}
+BL="[!\$' \\t\\n\\v\\f\\r']"
+trim_mutant() {
+  local l hits=0
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [[ "$l" == *"$1"* && "$l" == *"$BL"* ]]; then l="${l//"$BL"/[![:space:]]}"; hits=$((hits+1)); fi
+    printf '%s\n' "$l"
+  done < "$SCRIPT" > "$2"; chmod +x "$2"; echo "$hits"
+}
+locs="C"; [ -n "$utf8loc" ] && locs="C $utf8loc"
+for L in $locs; do
+  expect "allow 'root ~/ab<EMSP>' keeps the character: only ~/ab/ is reported under $L (#403)" "1|home-root: ~/ab/" "$(prow "root ~/ab$EMSP" "$SCRIPT" "$L" "$EMSP_PAIR")"
+  expect "allow '<EMSP>root ~/ab' is an unknown key under $L (#403)" "2|" "$(prow "${EMSP}root ~/ab" "$SCRIPT" "$L" "$EMSP_PAIR")"
+  contains "unknown key" "$(cat "$WORK/err.txt")" "and names the unknown key under $L (#403)"
+  expect "allow 'root <EMSP>~/ab' is not trimmed after the key under $L (#403)" "2|" "$(prow "root $EMSP~/ab" "$SCRIPT" "$L" "$EMSP_PAIR")"
+  contains "root must name exactly one segment" "$(cat "$WORK/err.txt")" "and names the rule under $L (#403)"
+  expect "allow 'prefix /home/bob<EMSP>' suppresses /home/bob<EMSP>/x under $L (#403)" "0|" "$(prow "prefix /home/bob$EMSP" "$SCRIPT" "$L" "see /home/bob$EMSP/x")"
+  expect "an allow line of only <EMSP> has no value under $L (#403)" "2|" "$(prow "$EMSP" "$SCRIPT" "$L" "x")"
+  contains "entry has no value" "$(cat "$WORK/err.txt")" "and says so under $L (#403)"
+  expect "allow '<EMSP># note' is not a comment under $L (#403)" "2|" "$(prow "$EMSP# note" "$SCRIPT" "$L" "x")"
+  expect "an ASCII control row: '<TAB>root ~/ab<SPACE>' still parses under $L (#403)" "1|home-root: ~/ab$EMSP/" "$(prow "$(printf '\troot ~/ab ')" "$SCRIPT" "$L" "$EMSP_PAIR")"
+done
+M=$WORK/m403
+expect "mutant ledger (#403): the leading line trim is one line" 1 "$(trim_mutant 'line="${line#"' "$M-l.sh")"
+expect "mutant ledger (#403): the trailing line trim is one line" 1 "$(trim_mutant 'line="${line%"' "$M-t.sh")"
+expect "mutant ledger (#403): the value trim is one line" 1 "$(trim_mutant 'val="${val#"' "$M-v.sh")"
+if [ -n "$utf8loc" ]; then
+  r="$(prow "${EMSP}root ~/ab" "$M-l.sh" "$utf8loc" "$EMSP_PAIR")"
+  [ "${r%%|*}" != 2 ] && ok "mutant (#403, leading trim): '<EMSP>root ~/ab' is accepted under $utf8loc (${r%%|*})" || bad "mutant (#403, leading trim) survives"
+  expect "mutant (#403, trailing trim): 'root ~/ab<EMSP>' becomes 'root ~/ab' under $utf8loc" "1|home-root: ~/ab$EMSP/" "$(prow "root ~/ab$EMSP" "$M-t.sh" "$utf8loc" "$EMSP_PAIR")"
+  r="$(prow "root $EMSP~/ab" "$M-v.sh" "$utf8loc" "$EMSP_PAIR")"
+  [ "${r%%|*}" != 2 ] && ok "mutant (#403, value trim): 'root <EMSP>~/ab' is accepted under $utf8loc (${r%%|*})" || bad "mutant (#403, value trim) survives"
+else
+  ok "no UTF-8 locale installed on this machine: the #403 UTF-8 parity rows and trim mutants were not run"
+fi
+printf 'x\n' > "$WORK/sample.txt"
+
 echo "== the two shapes rule C deliberately misses, pinned so they are not rediscovered as bugs =="
 # Both are stated in the scanner's header. A limit with no case is a limit nobody knows about.
 printf 'see /home/alice/alice@corp.io here\n' > "$WORK/glue-path.txt"
