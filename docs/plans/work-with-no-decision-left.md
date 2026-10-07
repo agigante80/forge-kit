@@ -68,10 +68,10 @@ In order:
 
 ## Out of scope
 
-- **The gate's own friction** (#263, #286, #213, #277): *The gate's own friction*, waiting on
-  picks.
+- **The gate's own friction** (#263, #286, #213): *The gate's own friction*, picks recorded
+  2026-10-07; #277 closed as moot.
 - **The leak guard's open questions** (#416, #207, #226, #391, and #417):
   *The leak guard's open questions*.
 - **The startup-context budget** (#297): *What a session loads before work begins*.
-- **Decision tickets near this phase's files** (#351, #340, #302, #261) and the re-scope (#272):
-  `backlog`.
+- **Tickets near this phase's files** (#351, #302, #261) and the re-scope (#272): `backlog`, picks
+  recorded 2026-10-07; #351 lands after #324. #340 closed, resolved by the roadmap condensation.
