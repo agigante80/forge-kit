@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 26 -->
+<!-- leak-guard-version: 27 -->
 
 # Leak guard
 
@@ -32,6 +32,8 @@ check-public-leaks.sh --history --allow-file .leak-guard-allow    # evidence red
 check-private-leaks.sh --history                                  # names redacted in path and evidence; --show-names
 check-public-leaks.sh --history --orphans                         # also what no ref reaches, and the stash (see below)
 ```
+
+**`--history` needs `leak-lib.sh` beside the scanner; the tree modes do not.** The history reader and the object selection are one file, `assets/leak-lib.sh`, which both scanners source inside the `--history` branch and nowhere else (#206). Install it into the same directory as the scanners: a scanner copied alone still runs every tree mode and both hooks, and `--history` refuses with exit 2 naming the missing file. The library is not a command; run directly it exits 2.
 
 `--head` is not refused in a partial clone the way `--history` is: it reads every blob of HEAD's tree, so git fetches the missing ones lazily from the clone's promisor remote, which need not be the remote you push to (it is sent object IDs only). With that remote unreachable the scan exits 2 (`could not read <file>`) and never reports clean (#384).
 

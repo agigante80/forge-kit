@@ -48,6 +48,10 @@ grep -qP '^hook: block-dashes \| v[0-9]+' <<< "$out" \
 grep -qP '^asset: forge-lib \| v[0-9]+' <<< "$out" \
   && ok "a versioned shell asset appears with its marker (forge-lib)" \
   || bad "a versioned shell asset appears with its marker (forge-lib)"
+# #206: a sourced library is an asset like any other, so it is catalogued with its marker too.
+grep -qP '^asset: leak-lib \| v1$' <<< "$out" \
+  && ok "a sourced shell library appears with its marker (leak-lib)" \
+  || bad "a sourced shell library appears with its marker (leak-lib)"
 
 # No row may print "vnone". The catalogue walks exactly the five path shapes that
 # validate-plugins.sh requires a <name>-version marker on, so every row it prints has a marker in

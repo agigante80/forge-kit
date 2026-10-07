@@ -18,6 +18,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh"
+LIB="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/leak-lib.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -30,6 +31,7 @@ lacks()    { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1')"; else ok "
 contains() { if grep -qiF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
+[ -f "$LIB" ] || { echo "missing library: $LIB"; exit 1; }
 
 cat > "$WORK/list" <<'LIST'
 # one name per line; comments and blanks ignored
@@ -246,6 +248,9 @@ SELFREPO="$WORK/selfrepo"; mkdir -p "$SELFREPO/scripts"
 ( cd "$SELFREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t
   printf 'x\n' > seed.md && git add seed.md && git commit -qm seed ) >/dev/null 2>&1
 cp "$SCRIPT" "$SELFREPO/scripts/check-private-leaks.sh"
+# The scanner ALONE (#206): the tree modes and the hooks must not need leak-lib.sh beside it.
+[ ! -f "$SELFREPO/scripts/leak-lib.sh" ] && ok "the installed-project copy has no leak-lib.sh beside it" \
+  || bad "the installed-project copy has no leak-lib.sh beside it"
 printf 'acme-migration\nnorthstar\nprivate-name\n' > "$WORK/selflist"
 ( cd "$SELFREPO" && git add scripts \
   && ./scripts/check-private-leaks.sh --list "$WORK/selflist" --staged ) >/dev/null 2>&1
@@ -443,54 +448,22 @@ git clone -q --shared "$HREPO" "$WORK/hist-shared" >/dev/null 2>&1
 HREPO="$WORK/hist-shared"
 hrun --history; rc=$RC; expect "a --shared clone is refused" 2 "$rc"
 contains "alternates" "$ERR" "naming the alternates file"
+# An explicit prefix comparison, never `contains`: a leak-lib: line quoting the name would satisfy
+# that too, and the point is that the library refuses through THIS scanner's die (#206).
+case "$ERR" in check-private-leaks:*) ok "and the refusal carries this scanner's own prefix (#206)" ;;
+  *) bad "and the refusal carries this scanner's own prefix (#206) (got '$ERR')" ;; esac
 hrun --history n.md; rc=$RC; expect "--history with a path is refused" 2 "$rc"
 hrun --orphans; rc=$RC;        expect "--orphans without --history is refused" 2 "$rc"
 hrun --history --staged; rc=$RC; expect "--history --staged is refused rather than scanning the index" 2 "$rc"
-HREPO="$WORK/hist-shared-src"
-OUT="$( cd "$HREPO" && GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent "$SCRIPT" --list "$WORK/hlist" --history 2>"$WORK/herr.txt" )"; rc=$?
-expect "GIT_ALTERNATE_OBJECT_DIRECTORIES set is refused" 2 "$rc"
-OUT="$( cd "$HREPO" && GIT_OBJECT_DIRECTORY="$WORK/hist-shared/.git/objects" "$SCRIPT" --list "$WORK/hlist" --history 2>"$WORK/herr.txt" )"; rc=$?
-expect "GIT_OBJECT_DIRECTORY set is refused" 2 "$rc"
-( cd "$HREPO" && git config uploadpack.allowFilter true )
-git clone -q --filter=blob:none "file://$HREPO" "$WORK/hist-partial" >/dev/null 2>&1
-HREPO="$WORK/hist-partial"
-hrun --history; rc=$RC; expect "a partial clone is refused" 2 "$rc"
-contains "partial clone" "$ERR" "and says so"
+# The store-shape refusals (GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_OBJECT_DIRECTORY, partial clone,
+# replace, corrupt object, deleted pushed branch, log.diffMerges, newline path, the --orphans
+# widening, bare) were mirrored here by hand in #191 round 2 because the two scanners carried two
+# copies of the history reader. Since #206 that reader is ONE file, leak-lib.sh, so they run once,
+# in the public suite. The --shared refusal above stays as the proof that `die` reaches the library
+# with THIS scanner's prefix; selfid below stays because it exercises this scanner's own SELF.
 mkrepo selfid
 ( cd "$HREPO" && mkdir old && cp "$SCRIPT" old/check-private-leaks.sh && git add old && git commit -qm old ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "a past copy of the scanner at another path is not reported (its source names the list)" 0 "$rc"
-mkrepo replace
-( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n && leaky="$(git rev-parse HEAD)" \
-  && git rm -q n.md && git commit -qm clean && git replace "$leaky" HEAD ) >/dev/null 2>&1
-hrun --history; rc=$RC; expect "a commit hidden by git replace is still scanned" 1 "$rc"
-# The same store shapes the public suite pins, mirrored here because the two scripts drift apart
-# once forge-adapt copies one of them.
-mkrepo p-corrupt
-( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n \
-  && o="$(git rev-parse HEAD:n.md)" && f=".git/objects/${o:0:2}/${o:2}" && rm -f "$f" && printf 'garbage' > "$f" ) >/dev/null 2>&1
-hrun --history; rc=$RC; expect "a corrupt loose object refuses the scan" 2 "$rc"
-mkrepo p-remote
-( cd "$HREPO" && git init -q --bare "$WORK/hist-pbare" && git remote add origin "$WORK/hist-pbare" \
-  && git checkout -q -b wip && printf 'secretproj\n' > wip.md && git add wip.md && git commit -qm wip \
-  && git push -q origin wip && { git checkout -q master 2>/dev/null || git checkout -q main; } && git branch -q -D wip ) >/dev/null 2>&1
-hrun --history; rc=$RC; expect "a name on a branch deleted locally but pushed is reported" 1 "$rc"
-mkrepo p-cfg
-( cd "$HREPO" && printf 'base\n' > f.txt && git add f.txt && git commit -qm base && printf 'secretproj\n' > aaa.lock && git add aaa.lock && git commit -qm lock \
-  && git checkout -q -b side && printf 'side\n' > f.txt && git commit -qam side \
-  && { git checkout -q master 2>/dev/null || git checkout -q main; }; printf 'main\n' > f.txt && git commit -qam main
-  git merge -q --no-commit side >/dev/null 2>&1; cp aaa.lock zzz.md; git add f.txt zzz.md && git commit -qm merged; git config log.diffMerges off ) >/dev/null 2>&1
-hrun --history; rc=$RC; expect "with log.diffMerges=off the merge-only twin is still reported" 1 "$rc"
-mkrepo p-newline
-( cd "$HREPO" && printf 'x\n' > "$(printf 'weird\nname.txt')" && git add . && git commit -qm weird ) >/dev/null 2>&1
-hrun --history; rc=$RC; expect "a path containing a newline refuses the scan" 2 "$rc"
-mkrepo p-widen
-( cd "$HREPO" && printf '#!/usr/bin/env bash\n# check-private-leaks-version: 3\n#\nsecretproj\n' > quoting.md && git add quoting.md && git commit -qm q ) >/dev/null 2>&1
-hrun --history --orphans; rc=$RC; expect "--orphans still reports a reachable document quoting the marker" 1 "$rc"
-mkrepo p-bare
-( cd "$HREPO" && printf 'secretproj\n' > n.md && git add n.md && git commit -qm n ) >/dev/null 2>&1
-git clone -q --bare "$HREPO" "$WORK/hist-pbare2" >/dev/null 2>&1
-HREPO="$WORK/hist-pbare2"
-hrun --history; rc=$RC; expect "a bare repository is scanned" 1 "$rc"
 
 echo "== redact: the bash copy is linear, the awk copy is left alone on purpose (#217) =="
 # The bash redact serves the owner warning, the tree modes and the list refusals, so it is
@@ -525,41 +498,23 @@ for n in a ab; do
   lacks "substring" "$(cat "$WORK/err.txt")" "with no bash substring error"
 done
 
-echo "== --history: the mutant proves the byte counting is load-bearing =="
+echo "== --history: this scanner sources the library (#206) =="
 mkrepo forged
 ( cd "$HREPO" && printf '0000000000000000000000000000000000000000 blob 999999\nsecretproj\n' > forged.md && git add forged.md && git commit -qm forged ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "the name after a forged header is reported" 1 "$rc"
 contains "forged.md@$(hoid HEAD:forged.md):2:" "$OUT" "at line 2"
-MUT="$WORK/mutant-private.sh"
+# The scanner ALONE (#206): --history refuses, naming the library and never the directory looked
+# in, and prints no finding line, so a refusal can never read as clean.
+mkdir -p "$WORK/nolib"; cp "$SCRIPT" "$WORK/nolib/"
+OUT="$( cd "$HREPO" && "$WORK/nolib/check-private-leaks.sh" --list "$WORK/hlist" --history 2>"$WORK/herr.txt" )"; rc=$?; ERR="$(cat "$WORK/herr.txt")"
+expect "without leak-lib.sh beside it --history is refused" 2 "$rc"
+contains "leak-lib.sh" "$ERR" "naming the library"
+case "$ERR" in check-private-leaks:*) ok "with this scanner's own prefix" ;; *) bad "with this scanner's own prefix (got '$ERR')" ;; esac
+expect "and nothing on stdout" "" "$OUT"
+( cd "$HREPO" && "$WORK/nolib/check-private-leaks.sh" --list "$WORK/hlist" --all ) >/dev/null 2>&1
+expect "while the tree modes still run without it (the leak in forged.md is reported)" 1 "$?"
+# Sourced for hm_kill below (#360); the private r<0 mutant it once served is the public suite's now (#206).
 . "$ROOT/scripts/mutant-crash.sh"
-# pl_live: the build, run without --history on the same repository, still finds the name (#360).
-pl_live() { local o; o="$( CDPATH= cd -- "$HREPO" && "$MUT" --list "$WORK/hlist" 2>/dev/null )"; case "$o" in *"forged.md:2:"*) return 0 ;; esac; return 1; }
-# pl_mutant <label> <sed expr> [<gone pattern>]: the build must miss the name without crashing; a
-# gone pattern is the applied check, a line of the script the edit must have removed.
-pl_mutant() {
-  local mout why
-  sed "$2" "$SCRIPT" > "$MUT"; chmod +x "$MUT"
-  if [ -n "${3:-}" ]; then
-    grep -q -e "$3" "$MUT" && bad "the mutant no longer carries the r<0 gate" || ok "the mutant no longer carries the r<0 gate"
-  fi
-  mout="$( CDPATH= cd -- "$HREPO" && "$MUT" --list "$WORK/hlist" --history 2>"$WORK/pl-err.log" )"
-  why=$(mutant_crash_reason "$MUT" "$WORK/pl-err.log" pl_live)
-  if [ -n "$why" ]; then bad "mutant $1 crashed ($why)"
-  elif [ -z "$mout" ]; then ok "the mutant misses the name (prints no finding)"
-  else bad "the mutant misses the name (prints no finding) (got '$mout')"; fi
-}
-pl_mutant r-lt-0 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' '^r < 0 {$'
-# Crash control (#360): an exit 127 build is never a miss. pl_mutant runs in $( ), so its rows stay
-# out of the total.
-sed '1a\
-exit 127' "$SCRIPT" > "$WORK/crash-private.sh"
-crash_ok=1
-cmp -s "$WORK/crash-private.sh" "$SCRIPT" && crash_ok=0
-cap=$(pl_mutant crash-control '1a\
-exit 127')
-case "$cap" in *"misses the name"*) crash_ok=0 ;; *"FAIL: mutant crash-control crashed ("*) ;; *) crash_ok=0 ;; esac
-[ "$crash_ok" = 1 ] && ok "crash control (#360): private-leaks reports a crashing mutant as crashed, never as a miss" \
-  || bad "crash control (#360): private-leaks credited or missed a crashing mutant"
 
 
 echo "== the tree modes fail closed (#208) =="
@@ -814,6 +769,14 @@ head_mutant() {  # head_mutant <name> <sed script>: scratch copy in $HMUT; retur
   if cmp -s "$HMUT" "$SCRIPT"; then bad "mutant ledger ($1): the edit changed nothing"; return 1; fi
   ok "mutant ledger ($1): the scratch copy differs from the scanner"
 }
+lone_mutant() {  # lone_mutant <name> <sed script>: as head_mutant, but in $WORK/lone beside leak-lib.sh (#206)
+  # A --history mutant copied ALONE refuses for want of the library (exit 2) instead of losing or
+  # keeping its finding. head_mutant stays in $WORK because the crash control below names its path.
+  mkdir -p "$WORK/lone"; cp "$LIB" "$WORK/lone/"
+  HMUT="$WORK/lone/mutant-head-$1.sh"; sed "$2" "$SCRIPT" > "$HMUT"; chmod +x "$HMUT"
+  if cmp -s "$HMUT" "$SCRIPT"; then bad "mutant ledger ($1): the edit changed nothing"; return 1; fi
+  ok "mutant ledger ($1): the scratch copy differs from the scanner"
+}
 if head_mutant worktree-read 's|^    head)   {.*$|    head)   scanfile="$f" ;;|'; then
   mkrepo hm-masked; hcommit leak.md 'secretproj\n'; printf 'edited out\n' > "$HREPO/leak.md"
   ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
@@ -1042,12 +1005,12 @@ expect "--history with an all-= list: one pre-filter carrying -f" 1 "$(printf '%
 lacks "/names" "$flog" "and the empty names file is not passed to it"
 
 echo "== whole-word mutants (#222) =="
-if head_mutant w-perm-dropped 's/name\[j + 1\] = name\[j\]; wd\[j + 1\] = wd\[j\]; j--/name[j + 1] = name[j]; j--/; s/name\[j + 1\] = v; wd\[j + 1\] = vw/name[j + 1] = v/'; then
+if lone_mutant w-perm-dropped 's/name\[j + 1\] = name\[j\]; wd\[j + 1\] = wd\[j\]; j--/name[j + 1] = name[j]; j--/; s/name\[j + 1\] = v; wd\[j + 1\] = vw/name[j + 1] = v/'; then
   mkrepo wm-perm; hcommit p.md 'banana\nhobramblefoo\n'
   OUT="$( cd "$HREPO" && "$HMUT" --list "$WORK/wp" --history 2>/dev/null )"
   expect "mutant: unpermuted flags swap the rules (ana a word, bramble a substring)" "0 1" "$(printf '%s\n' "$OUT" | grep -c 'p.md@[0-9a-f]*:1:') $(printf '%s\n' "$OUT" | grep -c 'p.md@[0-9a-f]*:2:')"
 fi
-if head_mutant w-two-streams 's|^  LC_ALL=C grep -aiF "\${pf\[@\]}" "\$tagged" > "\$hits" \|\| true$|  { [ -s "$PATFILE" ] \&\& LC_ALL=C grep -aiF -f "$PATFILE" "$tagged"; [ -s "$WORDFILE" ] \&\& LC_ALL=C grep -aiF -f "$WORDFILE" "$tagged"; } > "$hits"|'; then
+if lone_mutant w-two-streams 's|^  LC_ALL=C grep -aiF "\${pf\[@\]}" "\$tagged" > "\$hits" \|\| true$|  { [ -s "$PATFILE" ] \&\& LC_ALL=C grep -aiF -f "$PATFILE" "$tagged"; [ -s "$WORDFILE" ] \&\& LC_ALL=C grep -aiF -f "$WORDFILE" "$tagged"; } > "$hits"|'; then
   mkrepo wm-two; hcommit b.md 'bramble ana\n'
   OUT="$( cd "$HREPO" && "$HMUT" --list "$WORK/wh" --history 2>/dev/null )"
   expect "mutant: two merged pre-filter streams double every finding" 4 "$(printf '%s\n' "$OUT" | grep -c 'private-name')"
@@ -1057,7 +1020,7 @@ if head_mutant w-guard-names-only 's/^\[ \$(( \${#NAMES\[@\]} + \${#WORDS\[@\]} 
   "$HMUT" --list "$WORK/wlist" "$WORK/wsample.txt" >/dev/null 2>&1
   expect "mutant: an exit guard counting names only reads an all-= list as clean" 0 "$?"
 fi
-if head_mutant w-boundary-dropped '/^          if (wd\[k\] && ((start > 1/,/free = 0$/d'; then
+if lone_mutant w-boundary-dropped '/^          if (wd\[k\] && ((start > 1/,/free = 0$/d'; then
   mkrepo wm-bound; hcommit n.md 'banana\n'
   ( cd "$HREPO" && "$HMUT" --list "$WORK/wh1" --history ) >/dev/null 2>&1
   expect "mutant: without the awk boundary test banana is reported for =ana" 1 "$?"

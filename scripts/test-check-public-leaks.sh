@@ -18,6 +18,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-public-leaks.sh"
+LIB="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/leak-lib.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -29,6 +30,7 @@ lacks()    { if grep -qF -- "$1" <<< "$2"; then bad "$3 (found '$1')"; else ok "
 contains() { if grep -qiF -- "$1" <<< "$2"; then ok "$3"; else bad "$3 (no '$1' in '$2')"; fi; }
 
 [ -f "$SCRIPT" ] || { echo "missing script: $SCRIPT"; exit 1; }
+[ -f "$LIB" ] || { echo "missing library: $LIB"; exit 1; }
 
 # --- helpers ---------------------------------------------------------------
 # Run the scanner over one file whose single line is $1. Echoes the exit code; output in $OUT.
@@ -497,6 +499,12 @@ expect "--range refuses a base ref that does not exist" 2 "$?"
 echo "== the shipped asset is a component =="
 grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SCRIPT" \
   && ok "carries a version marker" || bad "carries a version marker"
+grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$LIB" \
+  && ok "leak-lib.sh carries a version marker" || bad "leak-lib.sh carries a version marker"
+OUT="$(bash "$LIB" --help 2>"$WORK/lib-err.txt")"; rc=$?
+expect "leak-lib.sh executed rather than sourced refuses (#206)" 2 "$rc"
+contains "sourced by the leak scanners, not a command" "$(cat "$WORK/lib-err.txt")" "and says it is sourced"
+expect "and prints nothing on stdout" "" "$OUT"
 grep -qi 'would not have caught' "$SCRIPT" \
   && ok "states its own limit of reach in the source" \
   || bad "states its own limit of reach in the source"
@@ -518,6 +526,9 @@ SELFREPO="$WORK/selfrepo"; mkdir -p "$SELFREPO/scripts"
 cp "$SCRIPT" "$SELFREPO/scripts/check-public-leaks.sh"
 cp "$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh" \
    "$SELFREPO/scripts/check-private-leaks.sh"
+# The scanners ALONE (#206): every tree mode below must run without leak-lib.sh beside them.
+[ ! -f "$SELFREPO/scripts/leak-lib.sh" ] && ok "the installed-project copy has no leak-lib.sh beside it" \
+  || bad "the installed-project copy has no leak-lib.sh beside it"
 ( cd "$SELFREPO" && git add scripts && ./scripts/check-public-leaks.sh --staged ) >/dev/null 2>&1
 expect "--staged does not report the public scanner's own source" 0 "$?"
 ( cd "$SELFREPO" && git commit -qm add >/dev/null 2>&1
@@ -544,8 +555,20 @@ echo "== --history: the publishable history, read by declared byte length =="
 # no longer named. Equivalent (no observable difference, kept for
 # hygiene): the terminator record emitted (an empty line matches nothing), the buffer cleared on drop
 # (memory only). Not killable in CI: a regex over the path line (aborts only under Apple's awk).
+# Since #206 the reader and the object selection live in leak-lib.sh, so a mutant of either is a
+# scratch copy of the LIBRARY beside a scratch copy of the scanner (mutlib below): a sed over
+# $SCRIPT would edit nothing, and a scanner copied alone refuses --history (exit 2) for want of the
+# library. Re-run 2026-10-07 (#206) through mutlib: the enumeration, the path map, the r<0 gate and
+# the log.showSignature override, each killed below. By hand, not in the suite: the public scanner
+# passing an empty separator (history_read "") fails the forged-header case.
 # Every case runs against a throwaway repository built here, never against this one. A helper
 # makes a fresh repo per scenario so no case can lean on another's objects.
+mutlib() {  # mutlib <sed script>: $WORK/mut holds the scanner beside a library edited by <sed script>
+  mkdir -p "$WORK/mut"; cp "$SCRIPT" "$WORK/mut/"; sed "$1" "$LIB" > "$WORK/mut/leak-lib.sh"
+}
+# A --history mutant of the SCANNER is built in $WORK/lone, beside an unedited library, and never
+# in $WORK itself, where the no-library negatives copy a scanner alone (#206).
+mkdir -p "$WORK/lone"; cp "$LIB" "$WORK/lone/"
 HREPO=""
 mkrepo() {  # mkrepo <name>: a fresh repository, cwd-independent; sets HREPO
   HREPO="$WORK/hist-$1"; rm -rf "$HREPO"; mkdir -p "$HREPO"
@@ -659,19 +682,17 @@ hcommit leak.md '/home/alice/x\n'
 hrun --history; expect "a blob skipped by its current name is read for its historical one, through refs/original" 1 "$RC"
 contains "leak.md@" "$OUT" "at the historical path"
 
-MUT="$WORK/mutant-enum.sh"
-sed 's/rev-list --objects --exclude=refs\/stash --all/rev-list --objects --branches --tags --remotes/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
-expect "mutant ledger: the scanner enumerates with --exclude=refs/stash --all" 1 "$(grep -c -- 'rev-list --objects --exclude=refs/stash --all' "$SCRIPT")"
-expect "the enumeration mutant reads branches, tags and remotes only" 1 "$(grep -c -- 'rev-list --objects --branches --tags --remotes' "$MUT")"
+mutlib 's/rev-list --objects --exclude=refs\/stash --all/rev-list --objects --branches --tags --remotes/'; MUT="$WORK/mut/check-public-leaks.sh"
+expect "mutant ledger: the library enumerates with --exclude=refs/stash --all" 1 "$(grep -c -- 'rev-list --objects --exclude=refs/stash --all' "$LIB")"
+expect "the enumeration mutant reads branches, tags and remotes only" 1 "$(grep -c -- 'rev-list --objects --branches --tags --remotes' "$WORK/mut/leak-lib.sh")"
 mkrepo original2
 hcommit leak.md '/home/alice/x\n'
 ( cd "$HREPO" && git update-ref refs/original/refs/heads/scrubbed HEAD && git reset -q --hard HEAD~1 ) >/dev/null 2>&1
 ( cd "$HREPO" && "$MUT" --history ) >/dev/null 2>&1; expect "the enumeration mutant loses the refs/original finding" 0 "$?"
 hrun --history; expect "the scanner finds it" 1 "$RC"
-MUT2="$WORK/mutant-pathmap.sh"
-sed 's/log -m --exclude=refs\/stash --all --raw/log -m --branches --tags --remotes --raw/' "$SCRIPT" > "$MUT2"; chmod +x "$MUT2"
-expect "mutant ledger: the path map walks --exclude=refs/stash --all" 1 "$(grep -c -- 'log -m --exclude=refs/stash --all --raw' "$SCRIPT")"
-expect "the path-map mutant walks branches, tags and remotes only" 1 "$(grep -c -- 'log -m --branches --tags --remotes --raw' "$MUT2")"
+mutlib 's/log -m --exclude=refs\/stash --all --raw/log -m --branches --tags --remotes --raw/'; MUT2="$WORK/mut/check-public-leaks.sh"
+expect "mutant ledger: the path map walks --exclude=refs/stash --all" 1 "$(grep -c -- 'log -m --exclude=refs/stash --all --raw' "$LIB")"
+expect "the path-map mutant walks branches, tags and remotes only" 1 "$(grep -c -- 'log -m --branches --tags --remotes --raw' "$WORK/mut/leak-lib.sh")"
 mkrepo pathmap2
 hcommit leak.md '/home/alice/x\n'
 ( cd "$HREPO" && git mv leak.md leak.png && git commit -qm png && git update-ref refs/original/refs/heads/scrubbed HEAD && git reset -q --hard HEAD~2 ) >/dev/null 2>&1
@@ -689,14 +710,81 @@ mkrepo forged
 hcommit forged.md '0000000000000000000000000000000000000000 blob 999999\n/home/alice/x\n'
 hrun --history; rc=$RC; expect "the leak after a forged header is reported" 1 "$rc"
 contains "forged.md@$(hoid HEAD:forged.md):2: home-path: /home/al***/" "$OUT" "at line 2"
-# The mutant: the same scanner with the reader's r<0 gate replaced by a shape test, so any line
+# The mutant: the same library with the reader's r<0 gate replaced by a shape test, so any line
 # that LOOKS like a header is taken as one. It must exit 0 here, or the gate was never doing work.
-MUT="$WORK/mutant-public.sh"
-sed 's/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
-grep -q '^r < 0 {$' "$SCRIPT" && ok "the scanner carries the r<0 gate the mutant removes" || bad "the scanner carries the r<0 gate the mutant removes"
-grep -q '^r < 0 {$' "$MUT" && bad "the mutant no longer carries it" || ok "the mutant no longer carries it"
+RLT0='s/^r < 0 {$/NF == 3 \&\& length($1) == 40 \&\& $3 ~ \/^[0-9]+$\/ {/'
+mutlib "$RLT0"; MUT="$WORK/mut/check-public-leaks.sh"
+grep -q '^r < 0 {$' "$LIB" && ok "the library carries the r<0 gate the mutant removes" || bad "the library carries the r<0 gate the mutant removes"
+expect "and the gate is defined once across the shipped assets (#206)" 1 "$(cat "$ROOT"/plugins/forge-kit-security/skills/leak-guard/assets/*.sh | grep -c '^r < 0 {$')"
+grep -q '^r < 0 {$' "$WORK/mut/leak-lib.sh" && bad "the mutant no longer carries it" || ok "the mutant no longer carries it"
 ( cd "$HREPO" && "$MUT" --history ) >/dev/null 2>&1
 expect "the mutant misses the leak (exit 0)" 0 "$?"
+# The pre-#206 shape: the sed over the scanner alone. It edits nothing and, copied without the
+# library, refuses, so the "exit 0" above could never pass vacuously through it.
+sed "$RLT0" "$SCRIPT" > "$WORK/mutant-public.sh"; chmod +x "$WORK/mutant-public.sh"
+( cd "$HREPO" && "$WORK/mutant-public.sh" --history ) >/dev/null 2>"$WORK/mp-err.txt"
+expect "the old mutant shape, a scanner alone, refuses instead of missing (exit 2)" 2 "$?"
+contains "leak-lib.sh" "$(cat "$WORK/mp-err.txt")" "naming the library"
+
+echo "== --history: leak-lib.sh, sourced by the history branch and only there (#206) =="
+mkrepo lib
+hcommit leak.md '/home/alice/x\n'
+hrun --history; expect "a scanner beside the shipped library reports the leak" 1 "$RC"
+contains "leak.md@$(hoid HEAD:leak.md):1: home-path: /home/al***/" "$OUT" "at its path"
+mkdir -p "$WORK/nolib"; cp "$SCRIPT" "$WORK/nolib/"
+OUT="$( cd "$HREPO" && "$WORK/nolib/check-public-leaks.sh" --history 2>"$WORK/nolib-err.txt" )"; rc=$?; ERR="$(cat "$WORK/nolib-err.txt")"
+expect "a scanner alone refuses --history" 2 "$rc"
+contains "leak-lib.sh" "$ERR" "naming the library"
+contains "is not there" "$ERR" "and saying it is absent, not unreadable"
+case "$ERR" in check-public-leaks:*) ok "with this scanner's own prefix" ;; *) bad "with this scanner's own prefix (got '$ERR')" ;; esac
+expect "on one stderr line" 1 "$(printf '%s\n' "$ERR" | grep -c .)"
+lacks "$WORK" "$ERR" "and never the directory it looked in (a refusal gets pasted into issues)"
+expect "and nothing on stdout, so a refusal never reads as clean" "" "$OUT"
+( cd "$HREPO" && "$WORK/nolib/check-public-leaks.sh" --all ) >/dev/null 2>"$WORK/nolib-err.txt"
+expect "while the tree modes still run without it (the leak is reported)" 1 "$?"
+expect "with nothing on stderr" "" "$(cat "$WORK/nolib-err.txt")"
+mutlib 's/^history_read() {/history_read_v0() {/'; MUT="$WORK/mut/check-public-leaks.sh"
+expect "mutant ledger: the wrong-version library no longer defines history_read" 0 "$(grep -c '^history_read() {' "$WORK/mut/leak-lib.sh")"
+( cd "$HREPO" && "$MUT" --history ) >/dev/null 2>"$WORK/wv-err.txt"
+expect "a library that does not define history_read refuses (exit 2, not 127)" 2 "$?"
+contains "does not define history_read" "$(cat "$WORK/wv-err.txt")" "and says so"
+lacks "command not found" "$(cat "$WORK/wv-err.txt")" "rather than bash's own error"
+mkdir -p "$WORK/unread"; cp "$SCRIPT" "$LIB" "$WORK/unread/"; chmod 000 "$WORK/unread/leak-lib.sh"
+if [ -r "$WORK/unread/leak-lib.sh" ]; then
+  # root reads a mode-000 file; print the same number of rows as the run path.
+  for i in 1 2 3; do ok "(skipped, running as root) the unreadable-library case $i"; done
+else
+  ( cd "$HREPO" && "$WORK/unread/check-public-leaks.sh" --history ) >/dev/null 2>"$WORK/ur-err.txt"
+  expect "an unreadable library refuses (exit 2)" 2 "$?"
+  contains "cannot read the leak-lib.sh" "$(cat "$WORK/ur-err.txt")" "and says so"
+  lacks "$WORK" "$(cat "$WORK/ur-err.txt")" "without bash's own error and its absolute path"
+fi
+chmod 644 "$WORK/unread/leak-lib.sh"
+# log.showSignature (#206): a signed commit makes `git log` print signature lines into the path
+# map. The library's -c log.showSignature=false is what lets the scan succeed; without it the shape
+# check refuses. Skipped with the same row count when ssh-keygen or ssh signing (git 2.34) is absent.
+SIGR="$WORK/hist-signed"; rm -rf "$SIGR"; mkdir -p "$SIGR"
+sig_ok=0
+if command -v ssh-keygen >/dev/null 2>&1 && ssh-keygen -q -t ed25519 -N '' -f "$WORK/sigkey" >/dev/null 2>&1; then
+  printf 't@t.invalid %s\n' "$(cut -d' ' -f1,2 "$WORK/sigkey.pub")" > "$WORK/allowed"
+  ( cd "$SIGR" && git init -q . && git config user.email t@t.invalid && git config user.name t \
+    && git config gpg.format ssh && git config user.signingkey "$WORK/sigkey" && git config commit.gpgsign true \
+    && git config gpg.ssh.allowedSignersFile "$WORK/allowed" \
+    && printf '/home/alice/x\n' > leak.md && git add leak.md && git commit -qm signed \
+    && git config log.showSignature true && grep -q 'Good "git" signature' <<< "$(git log -1)" ) >/dev/null 2>&1 && sig_ok=1
+fi
+if [ "$sig_ok" = 1 ]; then
+  HREPO="$SIGR"
+  hrun --history; expect "an ssh-signed history under log.showSignature=true is scanned" 1 "$RC"
+  contains "leak.md@$(hoid HEAD:leak.md):1: home-path: /home/al***/" "$OUT" "and the leak is reported"
+  mutlib 's/ -c log.showSignature=false//'; MUT="$WORK/mut/check-public-leaks.sh"
+  expect "the showSignature mutant drops the override" 0 "$(grep -c 'showSignature=false' "$WORK/mut/leak-lib.sh")"
+  ( cd "$HREPO" && "$MUT" --history ) >/dev/null 2>"$WORK/sig-err.txt"
+  expect "without the override the path map is refused (exit 2)" 2 "$?"
+  contains "path map desynchronised at record 1" "$(cat "$WORK/sig-err.txt")" "by the shape check"
+else
+  for i in 1 2 3 4 5; do ok "(skipped, no ssh-keygen or no ssh signing) the log.showSignature case $i"; done
+fi
 
 echo "== --history: an object is scanned unless EVERY path it ever had is skipped =="
 mkrepo twins
@@ -839,9 +927,8 @@ echo "== --history: the path map survives user git config, and refuses what it c
 # The shape that log.diffMerges decides: content at a lockfile in an ordinary commit, and at a
 # real name ONLY through a merge resolution. With log.diffMerges=off the merge's diff is omitted
 # from --raw, the map has no zzz.md entry, and rev-list's aaa.lock is the only path: suppressed.
-# (log.diffMerges=combined is refused by the shape check instead; log.showSignature needs a signed
-# commit, and a signing key is not something this suite can assume: the -c override stands
-# unexercised for it, and the shape check would refuse the injected lines anyway.)
+# (log.diffMerges=combined is refused by the shape check instead; log.showSignature has its own
+# case below, an ssh-signed commit, since #206.)
 mkrepo cfg
 hcommit f.txt 'base\n'
 ( cd "$HREPO" && printf 'twin /home/alice/x\n' > aaa.lock && git add aaa.lock && git commit -qm lock \
@@ -1296,6 +1383,8 @@ for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/asset
   grep -q "sed -n '[0-9]*,[0-9]*p'" "$asset" \
     && bad "$a --help does not print a hardcoded line range" \
     || ok "$a --help does not print a hardcoded line range"
+  lacks "leak-lib-version" "$h" "$a --help does not print the library's marker (#206)"
+  lacks "$(sed -n '4s/^# //p' "$LIB")" "$h" "$a --help does not print the library's description"
 done
 # The reach sentence #198 added is each scanner's own statement about itself, so it is pinned by
 # that scanner's suite rather than by the generic loop above (#199). The needle is the shared core
@@ -1560,7 +1649,7 @@ expect "and nothing is written to stderr at lengths 1 and 2 (bash 3.2 errors on 
 expect "redact guards k <= 0 before slicing" 1 "$(grep -cF 'if [ "$k" -le 0 ]; then printf' "$SCRIPT")"
 expect "redact builds its mask by doubling" 1 "$(grep -cF 's="$s$s"' "$SCRIPT")"
 expect "no per-character loop remains in redact" 0 "$(sed -n '/^redact() {/,/^}/p' "$SCRIPT" | grep -cE 'for \(\(|out\+=')"
-MUTH="$WORK/mutant-hash-mask.sh"
+MUTH="$WORK/lone/mutant-hash-mask.sh"
 sed "s/ s='\\*'\$/ s='#'/" "$SCRIPT" > "$MUTH"; chmod +x "$MUTH"
 expect "the # mask mutant changes exactly the mask seed" 1 "$(grep -c " s='#'\$" "$MUTH")"
 mkrepo redact217hash
@@ -1597,7 +1686,7 @@ if [ -n "$ANYUTF8" ]; then
   printf '%s' "$out"
 EOF
 )"
-  MUTR="$WORK/mutant-redact-loop.sh"
+  MUTR="$WORK/lone/mutant-redact-loop.sh"
   inr=0
   while IFS= read -r l; do
     if [ "$l" = 'redact() {' ]; then printf '%s\n%s\n' "$l" "$OLDR"; inr=1
@@ -1621,7 +1710,7 @@ EOF
     expect "a 1 MB $arm segment is reported REDACTED within bounded 20 (UTF-8; ${el} s)" 1 "$rc"
     expect "the $arm evidence is $pre, then only *, then /" "$pre/" "$(ev217 "$OUT" "$arm" | LC_ALL=C tr -d '*')"
     expect "and the $arm mask covers every other byte" "$(( ${#pre} + 1048574 + 1 ))" "$(ev217 "$OUT" "$arm" | LC_ALL=C awk '{ print length($0) }')"
-    MUTC="$WORK/mutant-cut-$arm.sh"
+    MUTC="$WORK/lone/mutant-cut-$arm.sh"
     sed "/^ *$arm)/s|IFS=/ read -r seg _ <<< \"\$e\"|seg=\"\${e%%/*}\"|" "$SCRIPT" > "$MUTC"; chmod +x "$MUTC"
     expect "the $arm cut mutant keeps only the other arm's IFS=/ read -r" 1 "$(grep -c 'IFS=/ read -r' "$MUTC")"
     cd "$HREPO"
@@ -1947,10 +2036,15 @@ for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/asset
   grep -q 'pwd -P' "$asset" \
     && ok "$a canonicalises with a POSIX fallback" || bad "$a canonicalises with a POSIX fallback"
 done
+# The library has no set_lower, so it is held to zero rather than joining the "exactly once" loop.
+expect "leak-lib.sh never uses the bash-4 lowercase expansion" 0 "$(code "$LIB" | grep -c ',,}')"
+grep -q 'readlink -f' <<< "$(code "$LIB")" \
+  && bad "leak-lib.sh avoids GNU-only readlink -f" || ok "leak-lib.sh avoids GNU-only readlink -f"
 
 echo "== no awk -v in the shipped asset, and a backslash TMPDIR still finds a leak (#259) =="
 # #405: the zero-`awk -v` rule and the no-operand rule, one definition in scripts/awkv-count.sh.
 . "$ROOT/scripts/awkv-count.sh"; awkv_checks check-public-leaks.sh "$SCRIPT" "$WORK"
+awkv_checks leak-lib.sh "$LIB" "$WORK"
 # The temp paths come from mktemp -d under the caller's TMPDIR. Under -v a TMPDIR named `t\tx`
 # (backslash, t) read back with a TAB, every getline failed, and --history reported CLEAN.
 mkdir -p "$WORK/tA" "$WORK/t\\tx"
