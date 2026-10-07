@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 24 -->
+<!-- leak-guard-version: 25 -->
 
 # Leak guard
 
@@ -192,6 +192,15 @@ White_Space character outside ASCII) is refused with exit 2 naming its line, in 
 it would never match its own leak (#403). The
 template lives inside the script rather than beside it as a second file, because forge-adapt
 installs a skill's `assets/*.sh` and nothing else, so a separate template would never arrive.
+
+**Two matching rules, chosen per line (#222).** A plain name matches as a case-insensitive
+substring anywhere in a line, so `bramble` also catches `bramble-social` and `bramble_v2`. A line
+starting with `=` is a whole word: `=ana` matches `ana`, `Ana.`, `/proj/ana/` and `ana-signals`,
+never `banana` or `analysis`. **List a username shorter than about six letters with `=`**: as a
+plain name it is a substring of ordinary words in several languages and turns translation files
+into findings. After the `=` only ASCII letters, digits and `_` are allowed (anything else is
+refused with exit 2), and the boundaries are that ASCII set in every locale, so an accented
+neighbour counts as a boundary and `=ana` is still reported inside `mañana`.
 
 **It exits 0 with a loud explanation when the list is absent**, rather than failing closed on a
 machine that never had one: a guard that blocks every fresh clone gets uninstalled, and an

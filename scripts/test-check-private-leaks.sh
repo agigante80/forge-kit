@@ -881,6 +881,167 @@ expect "a query before the first slash does not move the host (the authority end
 own 'https://evil.internal#@github.com/acme-secret-org/repo.git' acme-secret-org --all
 expect "nor a fragment" 1 "$RC"
 
+echo "== whole-word tokens: a line starting with = matches only a whole word (#222) =="
+# A short username listed as a plain name is a substring of ordinary words (`ana` in `banana`), so
+# it fired on whole translation files. `=ana` matches it as a word, with ASCII boundaries.
+# wrow <list content> <text> [flags...]: a tree-mode scan of one file; OUT, ERR and RC set.
+wrow() {
+  printf '%b' "$1" > "$WORK/wlist"; printf '%s\n' "$2" > "$WORK/wsample.txt"; shift 2
+  OUT="$("$SCRIPT" --list "$WORK/wlist" "$@" "$WORK/wsample.txt" 2>"$WORK/werr.txt")"; RC=$?
+  ERR="$(cat "$WORK/werr.txt")"
+}
+wrow '=ana\n' 'see /proj/ana/notes';        expect "=ana: a whole word in a path is reported" 1 "$RC"
+expect "and redacted like any other name" "$WORK/wsample.txt:1: private-name: an*" "$OUT"
+wrow '=ana\n' 'banana analysis canal';      expect "=ana: inside longer words it is not reported" 0 "$RC"
+expect "and nothing is printed" "" "$OUT"
+wrow '=ana\n' 'quoted "ana" here';          expect "=ana: a quoted word is reported" 1 "$RC"
+wrow '=ana\n' 'Ana.';                       expect "=ana: case insensitive, punctuation is a boundary" 1 "$RC"
+wrow '=ana\n' 'ana-signals@1.0';            expect "=ana: - is not a word constituent, so ana-signals is reported" 1 "$RC"
+wrow '=ana\n' 'ana_v2';                     expect "=ana: _ is a word constituent, so ana_v2 is not" 0 "$RC"
+wrow '=ana\n' 'banana ana';                 expect "=ana: a word after a rejected occurrence on the line is still found" 1 "$RC"
+wrow 'ana\n' 'banana';                      expect "a plain ana is still a substring: banana is reported" 1 "$RC"
+wrow 'bramble\n' 'bramble-social';          expect "a plain bramble reports bramble-social (as before)" 1 "$RC"
+wrow '=bramble\n' 'bramble-social';         expect "=bramble still reports bramble-social: = is not an exact-token rule" 1 "$RC"
+wrow '=ana\n' 'ana was here';               expect "an all-= list still scans (the exit guard counts both lists)" 1 "$RC"
+wrow '=ana\r\n' 'ana was here';             expect "a CRLF =ana line is trimmed like any other" 1 "$RC"
+wrow '= ana\n' 'ana was here';              expect "= ana trims to the token ana" 1 "$RC"
+expect "and refuses nothing" "" "$ERR"
+wrow '=ana\n' 'mañana';                     expect "documented limit: an accented neighbour is a boundary, so mañana IS reported" 1 "$RC"
+wrow '=ana\n' 'mañana' ; m_c="$RC"
+OUT="$(LC_ALL=C.UTF-8 "$SCRIPT" --list "$WORK/wlist" "$WORK/wsample.txt" 2>/dev/null)"
+expect "and the same under C.UTF-8 (the token grep is pinned to C)" "$m_c" "$?"
+
+# Every refused shape exits 2 and names the list line; checked under C and under a UTF-8 locale,
+# where a range glob would let an accented letter through on bash before 5.0.
+for bad_tok in '=ab' '==ana' '=ana-' '=an a' '=' '=josé' '=aéa' '=ÉBC'; do
+  for loc in C C.UTF-8; do
+    printf 'keepme\n%s\n' "$bad_tok" > "$WORK/wlist"
+    LC_ALL="$loc" "$SCRIPT" --list "$WORK/wlist" "$WORK/wsample.txt" >/dev/null 2>"$WORK/werr.txt"; rc=$?
+    expect "refused token '$bad_tok' ($loc) exits 2" 2 "$rc"
+    contains "wlist:2:" "$(cat "$WORK/werr.txt")" "and names line 2 ($bad_tok, $loc)"
+  done
+done
+printf '=josé\n' > "$WORK/wlist"
+"$SCRIPT" --list "$WORK/wlist" "$WORK/wsample.txt" >/dev/null 2>"$WORK/werr.txt"
+lacks "josé" "$(cat "$WORK/werr.txt")" "a refused token is redacted in the message"
+printf 'abcd\n' > "$WORK/wlist"; printf 'ab\n' >> "$WORK/wlist"
+"$SCRIPT" --list "$WORK/wlist" "$WORK/wsample.txt" >/dev/null 2>"$WORK/werr.txt"
+expect "a plain two-letter name still dies as too short" 2 "$?"
+
+echo "== whole-word tokens in every mode (#222) =="
+mkrepo wmodes
+( cd "$HREPO" && printf 'banana analysis canal\n' > clean.md && git add clean.md && git commit -qm c ) >/dev/null 2>&1
+printf '=ana\n' > "$WORK/wl"
+for mode in --all --head --staged '--range HEAD~1' --history; do
+  # shellcheck disable=SC2086
+  OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wl" $mode 2>/dev/null )"; rc=$?
+  expect "=ana over banana analysis canal, $mode: exit 0" 0 "$rc"
+done
+( cd "$HREPO" && printf 'ping ana today\n' > hit.md && git add hit.md && git commit -qm h ) >/dev/null 2>&1
+for mode in --all --head --staged '--range HEAD~1' --history; do
+  [ "$mode" = --staged ] && printf 'ana again\n' > "$HREPO/staged.md" && ( cd "$HREPO" && git add staged.md )
+  # shellcheck disable=SC2086
+  OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wl" $mode 2>/dev/null )"; rc=$?
+  expect "=ana over a bare ana, $mode: exit 1" 1 "$rc"
+done
+
+echo "== whole-word tokens under --history (#222) =="
+printf '=ana\nbramble\n' > "$WORK/wh"
+mkrepo wperm; hcommit p.md 'hobramblefoo\n'
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh" --history 2>/dev/null )"; rc=$?
+expect "list =ana then bramble, line hobramblefoo: reported (the flag sorts with its name)" 1 "$rc"
+expect "exactly one finding" 1 "$(printf '%s\n' "$OUT" | grep -c 'private-name')"
+# The loader reads plain names before tokens, so the sort moves entries only when a token is
+# longer than a plain name: =bramble with ana must keep ana a substring and bramble a word.
+printf '=bramble\nana\n' > "$WORK/wp"
+mkrepo wperm2; hcommit p.md 'banana\nhobramblefoo\n'
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wp" --history 2>/dev/null )"; rc=$?
+expect "list =bramble and ana: banana reported, hobramblefoo not" "1 1 0" "$rc $(printf '%s\n' "$OUT" | grep -c 'p.md@[0-9a-f]*:1:') $(printf '%s\n' "$OUT" | grep -c 'p.md@[0-9a-f]*:2:')"
+mkrepo wmixed; hcommit m.md 'bramble banana\n'
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh" --history --show-names 2>/dev/null )"; rc=$?
+expect "bramble banana: exit 1" 1 "$rc"
+expect "and exactly one finding, bramble" "1 1" "$(printf '%s\n' "$OUT" | grep -c 'private-name') $(printf '%s\n' "$OUT" | grep -c 'private-name: bramble$')"
+mkrepo wboth; hcommit b.md 'bramble ana\n'
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh" --history 2>/dev/null )"; rc=$?
+expect "bramble ana, a line matching both lists: exit 1" 1 "$rc"
+expect "and exactly two findings, never doubled" 2 "$(printf '%s\n' "$OUT" | grep -c 'private-name')"
+mkrepo wana; hcommit a.md 'Ana and banana\n'
+printf '=ana\n' > "$WORK/wh1"
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh1" --history 2>/dev/null )"; rc=$?
+expect "Ana and banana with =ana: exit 1" 1 "$rc"
+expect "and exactly one finding on that line" 1 "$(printf '%s\n' "$OUT" | grep -c 'private-name')"
+mkrepo wban; hcommit n.md 'banana\n'
+( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh1" --history ) >/dev/null 2>&1
+expect "history holding only banana with =ana: exit 0" 0 "$?"
+mkrepo wred; hcommit r.md 'see /proj/ana/notes\n'
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh1" --history 2>/dev/null )"
+contains "r.md@$(hoid HEAD:r.md):1: private-name: an*" "$OUT" "a token hit is redacted as a name hit is"
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh1" --history --show-names 2>/dev/null )"; rc=$?
+contains "private-name: ana" "$OUT" "--show-names prints the token whole"
+expect "and exits 1" 1 "$rc"
+mkrepo wmanana; hcommit x.md 'mañana\n'
+( cd "$HREPO" && "$SCRIPT" --list "$WORK/wh1" --history ) >/dev/null 2>&1
+expect "documented limit under --history too: mañana IS reported for =ana" 1 "$?"
+
+echo "== each list's grep runs only when that list has entries (#222) =="
+# A grep shim first on PATH logs every invocation's arguments; only invocations carrying -f are
+# counted, since --all also runs the `-Iq .` text probe on each file.
+REALGREP="$(type -P grep)"; mkdir -p "$WORK/shim"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexec %s "$@"\n' "$WORK/shim.log" "$REALGREP" > "$WORK/shim/grep"
+chmod +x "$WORK/shim/grep"
+mkrepo wshim; hcommit s.md 'nothing to see\n'
+( cd "$HREPO" && git rm -q seed.md && git commit -qm one-file ) >/dev/null 2>&1   # one tracked file, one pattern grep
+printf 'bramble\n' > "$WORK/ws"; : > "$WORK/shim.log"
+( cd "$HREPO" && PATH="$WORK/shim:$PATH" "$SCRIPT" --list "$WORK/ws" --all ) >/dev/null 2>&1
+flog="$(grep -e ' -f ' -e '^-f ' "$WORK/shim.log")"
+expect "a substring-only list: exactly one invocation carrying -f" 1 "$(printf '%s\n' "$flog" | grep -c .)"
+case "$flog" in *-noiFw*|*/words*) bad "and it is not the whole-word grep ($flog)" ;; *names*) ok "and it is the substring grep against the names file" ;; *) bad "and it is the substring grep ($flog)" ;; esac
+printf '=ana\n' > "$WORK/ws"; : > "$WORK/shim.log"
+( cd "$HREPO" && PATH="$WORK/shim:$PATH" "$SCRIPT" --list "$WORK/ws" --all ) >/dev/null 2>&1; rc=$?
+flog="$(grep -e ' -f ' -e '^-f ' "$WORK/shim.log")"
+expect "an all-= list: exactly one invocation carrying -f" 1 "$(printf '%s\n' "$flog" | grep -c .)"
+case "$flog" in *-noiFw*words*) ok "and it is the whole-word grep against the words file" ;; *) bad "and it is the whole-word grep ($flog)" ;; esac
+expect "and the clean tree exits 0" 0 "$rc"
+: > "$WORK/shim.log"
+( cd "$HREPO" && PATH="$WORK/shim:$PATH" "$SCRIPT" --list "$WORK/ws" --history ) >/dev/null 2>&1
+flog="$(grep -e ' -f ' "$WORK/shim.log")"
+expect "--history with an all-= list: one pre-filter carrying -f" 1 "$(printf '%s\n' "$flog" | grep -c .)"
+lacks "/names" "$flog" "and the empty names file is not passed to it"
+
+echo "== whole-word mutants (#222) =="
+if head_mutant w-perm-dropped 's/name\[j + 1\] = name\[j\]; wd\[j + 1\] = wd\[j\]; j--/name[j + 1] = name[j]; j--/; s/name\[j + 1\] = v; wd\[j + 1\] = vw/name[j + 1] = v/'; then
+  mkrepo wm-perm; hcommit p.md 'banana\nhobramblefoo\n'
+  OUT="$( cd "$HREPO" && "$HMUT" --list "$WORK/wp" --history 2>/dev/null )"
+  expect "mutant: unpermuted flags swap the rules (ana a word, bramble a substring)" "0 1" "$(printf '%s\n' "$OUT" | grep -c 'p.md@[0-9a-f]*:1:') $(printf '%s\n' "$OUT" | grep -c 'p.md@[0-9a-f]*:2:')"
+fi
+if head_mutant w-two-streams 's|^  LC_ALL=C grep -aiF "\${pf\[@\]}" "\$tagged" > "\$hits" \|\| true$|  { [ -s "$PATFILE" ] \&\& LC_ALL=C grep -aiF -f "$PATFILE" "$tagged"; [ -s "$WORDFILE" ] \&\& LC_ALL=C grep -aiF -f "$WORDFILE" "$tagged"; } > "$hits"|'; then
+  mkrepo wm-two; hcommit b.md 'bramble ana\n'
+  OUT="$( cd "$HREPO" && "$HMUT" --list "$WORK/wh" --history 2>/dev/null )"
+  expect "mutant: two merged pre-filter streams double every finding" 4 "$(printf '%s\n' "$OUT" | grep -c 'private-name')"
+fi
+if head_mutant w-guard-names-only 's/^\[ \$(( \${#NAMES\[@\]} + \${#WORDS\[@\]} )) -gt 0 \] || exit 0$/[ "${#NAMES[@]}" -gt 0 ] || exit 0/'; then
+  printf '=ana\n' > "$WORK/wlist"; printf 'ana was here\n' > "$WORK/wsample.txt"
+  "$HMUT" --list "$WORK/wlist" "$WORK/wsample.txt" >/dev/null 2>&1
+  expect "mutant: an exit guard counting names only reads an all-= list as clean" 0 "$?"
+fi
+if head_mutant w-boundary-dropped '/^          if (wd\[k\] && ((start > 1/,/free = 0$/d'; then
+  mkrepo wm-bound; hcommit n.md 'banana\n'
+  ( cd "$HREPO" && "$HMUT" --list "$WORK/wh1" --history ) >/dev/null 2>&1
+  expect "mutant: without the awk boundary test banana is reported for =ana" 1 "$?"
+fi
+if head_mutant w-tree-no-w 's/LC_ALL=C grep -noiFw -f "\$WORDFILE"/LC_ALL=C grep -noiF -f "$WORDFILE"/'; then
+  printf '=ana\n' > "$WORK/wlist"; printf 'banana\n' > "$WORK/wsample.txt"
+  "$HMUT" --list "$WORK/wlist" "$WORK/wsample.txt" >/dev/null 2>&1
+  expect "mutant: the tree grep without -w reports banana for =ana" 1 "$?"
+fi
+if head_mutant w-edge-only 's/^        \*\[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_\]\*)$/        [!A-Za-z0-9_]*|*[!A-Za-z0-9_])/'; then
+  printf '=an a\n' > "$WORK/wlist"
+  "$HMUT" --list "$WORK/wlist" "$WORK/wsample.txt" >/dev/null 2>&1
+  expect "mutant: an edge-only byte rule accepts =an a" 0 "$?"
+fi
+# Not run, recorded: the range glob `*[!A-Za-z0-9_]*` in place of the spelled-out set is EQUIVALENT
+# on the bash 5 CI runs (globasciiranges is on there), so only bash before 5.0 would kill it.
+
 echo "== --init writes the list template, and never over an existing list =="
 # The template lives INSIDE the script rather than beside it as a .txt. forge-adapt installs a
 # skill's `assets/*.sh` and nothing else, so a separate template file would never reach a project,
@@ -892,6 +1053,10 @@ expect "--init exits 0" 0 "$?"
 [ -f "$TEMPLATE" ] && ok "and writes the file" || bad "and writes the file"
 contains "owning account" "$(cat "$TEMPLATE" 2>/dev/null)" "it warns off the owning account name"
 contains "untracked" "$(cat "$TEMPLATE" 2>/dev/null)" "it says the list stays untracked"
+contains "# =ana" "$(cat "$TEMPLATE" 2>/dev/null)" "it shows the whole-word form, commented out (#222)"
+printf 'ana was here\n' > "$WORK/init-sample.txt"
+"$SCRIPT" --list "$TEMPLATE" "$WORK/init-sample.txt" >/dev/null 2>&1
+expect "and the fresh template holds no live entry: ana is not reported" 0 "$?"
 printf 'mine\n' > "$TEMPLATE"
 "$SCRIPT" --init --list "$TEMPLATE" >/dev/null 2>&1
 expect "--init refuses to overwrite an existing list" 2 "$?"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 21
+# check-private-leaks-version: 22
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -71,9 +71,22 @@
 # then treats it as binary; GNU replaces matched lines with "binary file matches", and a wrapper
 # passing `-I` skips the stream and reports no match at all.
 #
-# IT MATCHES LITERAL NAMES, not shapes. A name shortened, hyphenated differently, or embedded in a
-# larger word is a different string and is not found. That is the price of the list being exact, and
-# the alternative, matching loosely on names this short, would fire on ordinary prose.
+# IT MATCHES LITERAL NAMES, not shapes. A name shortened or hyphenated differently is a different
+# string and is not found. That is the price of the list being exact, and the alternative, matching
+# loosely on names this short, would fire on ordinary prose.
+#
+# TWO MATCHING RULES, CHOSEN PER LINE (#222). A plain name matches as a case-insensitive SUBSTRING,
+# so `bramble` also catches `bramble-social` and `bramble_v2`, and a name embedded in a larger word
+# IS found (this header said the opposite until #222). A line starting with `=` is a WHOLE WORD:
+# `=ana` matches `ana`, `Ana.`, `/proj/ana/` and `ana-signals`, never `banana` or `analysis`, which
+# is the rule a short username needs. A whole-word token may hold only ASCII letters, digits and `_`,
+# and its boundaries are that same ASCII set in every locale: a byte outside it, an accented letter
+# included, is a boundary, so `=ana` IS reported inside `mañana` (a stated limit, pinned by the
+# suite). The tree modes run the substring grep as before plus `LC_ALL=C grep -w` for the tokens;
+# `--history` runs one pre-filter over both lists and the awk tests the boundary bytes. Path
+# redaction under `--history` stays a substring match for every entry, so a token inside a longer
+# path segment is over-redacted in the printed PATH, the safe direction. Multiple `-f` and `-Fwoi`
+# on BSD grep are an unverified limit until #220's harness exists.
 #
 # For the going-public case, run a credential scanner as well: `gitleaks git .` walks the whole
 # history for SECRETS rather than identity, so it is a companion and not a substitute.
@@ -259,8 +272,15 @@ if [ "$DO_INIT" = 1 ]; then
 # fires on everything is one you switch off within a day. So is a name that begins or ends with an
 # invisible non-ASCII space (a no-break or em space): it would never match its own leak.
 #
-# Matching is case insensitive and matches anywhere in a line, so a short distinctive name also
-# catches the longer names built from it. Prefer the shortest name that is still distinctive.
+# Matching is case insensitive and, for a plain name, matches anywhere in a line, so a short
+# distinctive name also catches the longer names built from it. Prefer the shortest name that is
+# still distinctive.
+#
+# A line starting with = is a WHOLE WORD instead: =ana matches "ana" and "Ana." but never "banana"
+# or "analysis". Use it for a short username, which as a plain name fires inside ordinary words in
+# several languages. After the = only ASCII letters, digits and _ are allowed. Example, left
+# commented out so it is not a live entry:
+# =ana
 TEMPLATE
   printf 'check-private-leaks: wrote %s. Add your names to it.\n' "$LIST_SHOWN" >&2
   exit 0
@@ -346,6 +366,7 @@ if [ "$MODE" != history ] && [ -n "$OWNER" ]; then
 fi
 
 NAMES=()
+WORDS=()
 lineno=0
 while IFS= read -r raw || [ -n "$raw" ]; do
   lineno=$((lineno + 1))
@@ -364,8 +385,31 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       "$ws"*|*"$ws") die "$LIST_SHOWN:$lineno: this name begins or ends with a non-ASCII whitespace character (such as a no-break or em space), which is invisible and would make it miss its own leak. Delete the character." ;;
     esac
   done
+  # A leading `=` marks a WHOLE-WORD token (#222). Exactly one `=` is stripped, after the trims and
+  # the #403 refusal above, so they see the raw line; a non-ASCII space after the `=` is caught by
+  # the byte rule below. EVERY byte must be a word constituent, not only the first and last: `=an a`
+  # passes an edge rule, and the history awk, which skips a rejected occurrence by its whole length,
+  # would then miss `an a` inside `an an a`. With every byte a constituent no overlapping occurrence
+  # can be valid. The set is spelled out, never a range: bash before 5.0 under a UTF-8 locale lets
+  # `[A-Za-z]` match `é`, so `=josé` would pass.
+  word=0
+  case "$n" in
+    '='*)
+      word=1
+      # The re-trim goes through `t` so the #403 mutant ledger, which finds the leading name trim
+      # by its `n="${n#"` text, still sees exactly one site.
+      t="${n#=}"
+      t="${t#"${t%%[!$' \t\n\v\f\r']*}"}"
+      n="$t"
+      [ -n "$n" ] || die "$LIST_SHOWN:$lineno: a '=' line marks a whole-word name, but no name follows it."
+      case "$n" in
+        *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_]*)
+          die "$LIST_SHOWN:$lineno: '=$(redact "$n")' is not a whole word. After '=' only ASCII letters, digits and _ are
+  allowed, so the token has a boundary on each side. List a name with other characters without '='." ;;
+      esac ;;
+  esac
   if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then
-    die "$LIST_SHOWN:$lineno: '$n' is too short (under $MIN_NAME_LEN characters). It would match almost
+    die "$LIST_SHOWN:$lineno: '$(redact "$n")' is too short (under $MIN_NAME_LEN characters). It would match almost
   every file, and a guard that fires on everything is one you switch off. Use the full name."
   fi
   set_lower "$n";     n_lc="$LOWER"
@@ -376,10 +420,11 @@ while IFS= read -r raw || [ -n "$raw" ]; do
     warn "  Public identity and private identity are different sets. --history never drops it."
     continue
   fi
-  NAMES+=("$n")
+  if [ "$word" = 1 ]; then WORDS+=("$n"); else NAMES+=("$n"); fi
 done < "$LIST"
 
-[ "${#NAMES[@]}" -gt 0 ] || exit 0
+# Both arrays count: an all-`=` list exiting here would read as a clean scan (#222).
+[ $(( ${#NAMES[@]} + ${#WORDS[@]} )) -gt 0 ] || exit 0
 
 # --- which files ------------------------------------------------------------
 FILES=()
@@ -453,9 +498,23 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
 }
 
 
-# The names as a grep pattern file, written once. -F is literal, so nothing in a name is a regex.
+# The names as grep pattern files, written once: substring names in PATFILE, whole-word tokens in
+# WORDFILE (#222). -F is literal, so nothing in a name is a regex. Each is written only when its
+# array has entries, so `-s` means "has a pattern": `"${A[@]}"` on an empty array is fatal under
+# set -u on bash before 4.4, and the `${A+...}` idiom would write one empty line, which matches
+# every line in the history pre-filter and never advances the awk's index() loop.
 PATFILE="$TMPD/names"
-printf '%s\n' "${NAMES[@]}" > "$PATFILE" || die "could not write the names file"
+WORDFILE="$TMPD/words"
+if [ "${#NAMES[@]}" -gt 0 ]; then
+  printf '%s\n' "${NAMES[@]}" > "$PATFILE" || die "could not write the names file"
+else
+  : > "$PATFILE" || die "could not write the names file"
+fi
+if [ "${#WORDS[@]}" -gt 0 ]; then
+  printf '%s\n' "${WORDS[@]}" > "$WORDFILE" || die "could not write the names file"
+else
+  : > "$WORDFILE" || die "could not write the names file"
+fi
 
 violations=0
 # --- history mode --------------------------------------------------------------
@@ -635,10 +694,17 @@ history_scan() {
   git cat-file --batch < "$oids" \
     | LC_ALL=C tr '\0' '\001' \
     | LC_ALL=C LG_LABELS="$labels" LG_ORPHANS="$ORPHANS" awk "$READER" > "$tagged"; pipe_ok "the history reader" "${PIPESTATUS[@]}"
-  LC_ALL=C grep -aiF -f "$PATFILE" "$tagged" > "$hits" || true
+  # ONE pre-filter over both lists (#222): a substring superset, since the awk applies the exact
+  # boundary test. Two greps merged would feed a line matching both lists to the awk twice, and
+  # taken[] resets per record, so every finding on it would print twice. An empty list file is not
+  # passed: an empty `-f` matches every line on some greps and none on others.
+  local pf=()
+  [ -s "$PATFILE" ] && pf+=(-f "$PATFILE")
+  [ -s "$WORDFILE" ] && pf+=(-f "$WORDFILE")
+  LC_ALL=C grep -aiF "${pf[@]}" "$tagged" > "$hits" || true
   [ -s "$hits" ] || return 0
   local found
-  found="$(LC_ALL=C LG_NAMES="$PATFILE" LG_SHOW="$SHOW_NAMES" awk '
+  found="$(LC_ALL=C LG_NAMES="$PATFILE" LG_WORDS="$WORDFILE" LG_SHOW="$SHOW_NAMES" awk '
     function redact(n,  i, o) { o = substr(n, 1, 2); for (i = 3; i <= length(n); i++) o = o "*"; return o }
     function hide(p,  k, lp, ln, i, out) {   # redact every listed name inside a path, case-insensitively
       if (show) return p
@@ -652,11 +718,17 @@ history_scan() {
     # Longest name first, so a list holding both "secret" and "secretproj" redacts the whole longer
     # name in a path (never "se****proj") and reports one finding per occurrence, as grep -o
     # does in the tree mode. Insertion sort: the list is short and this runs once.
+    # wd[k] marks a whole-word token (#222) and is permuted in the SAME sort as name[], or a
+    # substring name inherits the flag of a token. An empty line is never a name: index() with an empty
+    # needle would never advance.
     BEGIN {
-      names = ENVIRON["LG_NAMES"]; show = ENVIRON["LG_SHOW"] + 0
-      while ((getline l < names) > 0) { name[++nn] = l }
+      names = ENVIRON["LG_NAMES"]; words = ENVIRON["LG_WORDS"]; show = ENVIRON["LG_SHOW"] + 0
+      wc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+      while ((getline l < names) > 0) if (l != "") { name[++nn] = l; wd[nn] = 0 }
       close(names)
-      for (i = 2; i <= nn; i++) { v = name[i]; j = i - 1; while (j > 0 && length(name[j]) < length(v)) { name[j + 1] = name[j]; j-- } name[j + 1] = v }
+      while ((getline l < words) > 0) if (l != "") { name[++nn] = l; wd[nn] = 1 }
+      close(words)
+      for (i = 2; i <= nn; i++) { v = name[i]; vw = wd[i]; j = i - 1; while (j > 0 && length(name[j]) < length(v)) { name[j + 1] = name[j]; wd[j + 1] = wd[j]; j-- } name[j + 1] = v; wd[j + 1] = vw }
       for (i = 1; i <= nn; i++) lname[i] = tolower(name[i])
     }
     {
@@ -673,7 +745,12 @@ history_scan() {
         pos = 1
         while ((i = index(substr(ltext, pos), lname[k])) > 0) {
           start = pos + i - 1; len = length(name[k]); free = 1
-          for (q = start; q < start + len; q++) if (q in taken) { free = 0; break }
+          # A token needs a non-constituent byte (or the line edge) on each side. Skipping a
+          # rejected occurrence by its whole length is safe: every token byte is a constituent.
+          # The edge tests are explicit: index() with an empty needle is 1 in gawk and mawk.
+          if (wd[k] && ((start > 1 && index(wc, substr(text, start - 1, 1)) > 0) \
+                        || (start + len <= length(text) && index(wc, substr(text, start + len, 1)) > 0))) free = 0
+          for (q = start; free && q < start + len; q++) if (q in taken) { free = 0; break }
           if (free) {
             for (q = start; q < start + len; q++) taken[q] = 1
             hit = substr(text, start, len)
@@ -750,16 +827,22 @@ for f in "${FILES[@]}"; do
   # a bash diagnostic, which carries this script's absolute path, cannot print.
   grep -Iq . 2>/dev/null < "$scanfile" || continue
 
-  # ONE grep per file, matching every name at once from a pattern file, rather than one grep per
-  # (file x name). At ten names and five thousand files the old shape was fifty thousand process
-  # spawns on every push, in a component shipped into other people's repositories.
+  # ONE grep per file per list, matching every name at once from a pattern file, rather than one
+  # grep per (file x name). At ten names and five thousand files the old shape was fifty thousand
+  # process spawns on every push, in a component shipped into other people's repositories. The
+  # substring grep stays unpinned (pinning it would make a non-ASCII name miss its other case); the
+  # whole-word grep (#222) runs only when there are tokens, under LC_ALL=C so its boundaries are the
+  # ASCII set the list loop enforces.
   while IFS= read -r g; do
     [ -n "$g" ] || continue
     hit="${g#*:}"
     if [ "$SHOW_NAMES" = 1 ]; then shown="$hit"; else shown="$(redact "$hit")"; fi
     printf '%s:%s: private-name: %s\n' "$f" "${g%%:*}" "$shown"
     violations=$((violations + 1))
-  done < <(grep -noiF -f "$PATFILE" 2>/dev/null < "$scanfile")
+  done < <(
+    [ -s "$PATFILE" ] && grep -noiF -f "$PATFILE" 2>/dev/null < "$scanfile"
+    [ -s "$WORDFILE" ] && LC_ALL=C grep -noiFw -f "$WORDFILE" 2>/dev/null < "$scanfile"
+  )
 done
 
 [ "$violations" -eq 0 ] || exit 1
