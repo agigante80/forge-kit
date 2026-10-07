@@ -1017,7 +1017,7 @@ echo "== --head: HEAD's committed tree, never the working tree (#375) =="
 # The pre-push hook's mode. --all reads the working tree, so a leak committed at HEAD and edited
 # out only in an uncommitted change passed the hook although the push publishes it. MUTANTS RUN
 # AGAINST THIS SECTION, each on a scratch copy with `cmp -s` proving the edit applied, each killed:
-# the read taken from the worktree file; `HEAD:./$f` reduced to `HEAD:$f` (killed by G1); the
+# the read taken from the worktree file; the root anchor deleted (killed by G3); the anchor moved ahead of the option reads (killed by G4); the
 # unborn-HEAD refusal removed; the `ls-tree` pre-check removed; the `--head takes no paths` refusal
 # removed; the 160000 gitlink mode admitted. Every fixture is a fresh repo (mkrepo), so no case
 # leans on another's tree and none leaves it dirty for the next.
@@ -1095,19 +1095,38 @@ OUT="$( cd "$HREPO" && PATH="$SHIM:$PATH" "$SCRIPT" --head 2>"$WORK/herr.txt" )"
 expect "C6: a failing tree listing refuses, it never reports clean" 2 "$rc"
 contains "could not list HEAD's tree" "$(cat "$WORK/herr.txt")" "and says so"
 
-echo "== --head: it reads each blob relative to the directory it runs from (G, gate round 2) =="
+echo "== the tree modes scan the whole repository from any directory (G, #401) =="
+# `--all` and `--head` change to the work-tree root after the allow file and list are read, so a
+# run from sub/ covers every tracked file and prints root-relative paths. G1 was the #375 row for
+# `HEAD:./$f`; it now also pins the root-relative name.
 mkrepo h-sub
 ( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf '/home/alice/x\n' > sub/README.md \
   && git add -A && git commit -qm sub ) >/dev/null 2>&1
-OUT="$( cd "$HREPO/sub" && "$SCRIPT" --head 2>"$WORK/herr.txt" )"; rc=$?
-expect "G1: from sub/, a leaking sub/README.md is reported, never judged by the clean root README.md" 1 "$rc"
-contains "README.md:1: home-path" "$OUT" "as a home-path finding for README.md"
+for m in --head --all; do
+  OUT="$( cd "$HREPO/sub" && "$SCRIPT" $m 2>"$WORK/herr.txt" )"; rc=$?
+  expect "G1 ($m): from sub/, a leaking sub/README.md is reported, never judged by the clean root README.md" 1 "$rc"
+  contains "sub/README.md:1: home-path" "$OUT" "G1 ($m): as a root-relative home-path finding for sub/README.md"
+done
 mkrepo h-sub-clean
 ( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf 'also clean\n' > sub/README.md \
   && git add -A && git commit -qm sub ) >/dev/null 2>&1
-OUT="$( cd "$HREPO/sub" && "$SCRIPT" --head 2>"$WORK/herr.txt" )"; rc=$?
-expect "G2: clean README.md files at the root and in sub/ exit 0" 0 "$rc"
-[ -z "$OUT" ] && ok "with no output" || bad "with no output (got '$OUT')"
+for m in --head --all; do
+  OUT="$( cd "$HREPO/sub" && "$SCRIPT" $m 2>"$WORK/herr.txt" )"; rc=$?
+  expect "G2 ($m): a clean tree run from sub/ exits 0" 0 "$rc"
+  [ -z "$OUT" ] && ok "G2 ($m): with no output" || bad "G2 ($m): with no output (got '$OUT')"
+done
+mkrepo h-root
+( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && mkdir sub && printf 'clean\n' > sub/README.md \
+  && git add -A && git commit -qm root ) >/dev/null 2>&1
+for m in --head --all; do
+  OUT="$( cd "$HREPO/sub" && "$SCRIPT" $m 2>"$WORK/herr.txt" )"; rc=$?
+  expect "G3 ($m): from sub/, a committed root leak is reported" 1 "$rc"
+  contains "leak.md:1: home-path" "$OUT" "G3 ($m): named root-relative as leak.md"
+  lacks "sub/README.md" "$OUT" "G3 ($m): and the clean sub/README.md is not named"
+done
+printf 'skip leak.md\n' > "$HREPO/sub/al"
+OUT="$( cd "$HREPO/sub" && "$SCRIPT" --all --allow-file ./al 2>"$WORK/herr.txt" )"; rc=$?
+expect "G4: a caller-relative --allow-file ./al from sub/ is read before the anchor (the skip holds, exit 0)" 0 "$rc"
 
 echo "== --head fails closed, the way the other tree modes do (#208) =="
 mkrepo h-notmp
@@ -1204,12 +1223,23 @@ if head_mutant worktree-read 's|^    head)   {.*$|    head)   scanfile="$f" ;;|'
   ( cd "$HREPO" && "$HMUT" --head ) >/dev/null 2>&1
   expect "mutant: reading the worktree file instead of HEAD misses the masked leak (the masked case fails it)" 0 "$?"
 fi
-if head_mutant no-dot-slash 's|"HEAD:\./\$f"|"HEAD:$f"|'; then
-  mkrepo hm-sub
-  ( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf '/home/alice/x\n' > sub/README.md \
-    && git add -A && git commit -qm sub ) >/dev/null 2>&1
-  ( cd "$HREPO/sub" && "$HMUT" --head ) >/dev/null 2>&1
-  expect "mutant: HEAD:\$f without ./ reads the ROOT README.md and reports clean (G1 fails it)" 0 "$?"
+# The `HEAD:$f` (no `./`) mutant is retired (#401): the scan now runs from the root, where the two
+# forms read the same blob, so it is equivalent. The anchor itself carries the mutants instead.
+if head_mutant anchor-dropped '/^    \[ -n "\$top" \] && CDPATH= cd -- "\$top" || die/d'; then
+  mkrepo hm-root
+  ( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && mkdir sub && printf 'clean\n' > sub/README.md \
+    && git add -A && git commit -qm root ) >/dev/null 2>&1
+  ( cd "$HREPO/sub" && "$HMUT" --all ) >/dev/null 2>&1
+  expect "mutant: without the anchor a run from sub/ misses the root leak (G3 fails it)" 0 "$?"
+fi
+if head_mutant anchor-early 's|^ALLOW_FILE=""$|ALLOW_FILE=""; CDPATH= cd -- "$(git rev-parse --show-toplevel)"|'; then
+  mkrepo hm-early
+  ( cd "$HREPO" && printf '/home/alice/x\n' > leak.md && mkdir sub && printf 'clean\n' > sub/README.md \
+    && git add -A && git commit -qm root ) >/dev/null 2>&1
+  printf 'skip leak.md\n' > "$HREPO/sub/al"
+  ( cd "$HREPO/sub" && "$HMUT" --all --allow-file ./al ) >/dev/null 2>&1; rc=$?
+  [ "$rc" != 0 ] && ok "mutant: an anchor ahead of the option reads resolves ./ against the root (G4 fails it, rc=$rc)" \
+    || bad "mutant: an anchor ahead of the option reads resolves ./ against the root"
 fi
 if head_mutant no-unborn-check 's|^        \|\| die "HEAD not found: no commits yet.*$|        \|\| true|'; then
   hm_c2 no-unborn-check

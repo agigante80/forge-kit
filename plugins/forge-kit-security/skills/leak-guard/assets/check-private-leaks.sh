@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 20
+# check-private-leaks-version: 21
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -21,6 +21,8 @@
 # them would reasonably infer this half had none.
 #
 # THE TREE MODES NEVER LOOK AT HISTORY; --history DOES, AND IT IS OPT-IN (#185, #191). `--all`
+# and `--head` change to the repository root first, so from any directory they cover every tracked
+# file and print root-relative paths (#401). `--all`
 # enumerates tracked files in the WORKING TREE, `--head` reads HEAD's COMMITTED tree (#375; the
 # pre-push hook's mode, so an uncommitted edit or a file deleted only in the working tree cannot
 # mask what a push publishes; HEAD's tree, not every pushed commit), `--staged` reads the index,
@@ -390,6 +392,18 @@ else
   if [ "$MODE" = history ]; then git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
   else git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || die "not inside a git work tree (pass explicit paths to scan without git)"; fi
+  # THE TREE MODES SCAN THE WHOLE REPOSITORY FROM ANY DIRECTORY (#401). `ls-files` and `ls-tree`
+  # list only the current directory's subtree, so a run from `sub/` used to pass clean over a
+  # committed root leak. Anchoring here, after the allow file and the `--list` file is read (a caller-relative
+  # `--allow-file ../x` or `--list ../x` still resolves against the caller's directory), makes `--all` and
+  # `--head` see every tracked file and print root-relative paths, the form `--staged` prints.
+  # `--staged` and `--range` are not anchored: their enumeration is already root-relative.
+  # The empty-`top` test is defensive: the work-tree check above already refuses where
+  # `--show-toplevel` would be empty, but a bare `cd ""` returns 0 without moving.
+  if [ "$MODE" = all ] || [ "$MODE" = head ]; then
+    top="$(git rev-parse --show-toplevel 2>/dev/null)"
+    [ -n "$top" ] && CDPATH= cd -- "$top" || die "could not change to the work-tree root"
+  fi
   case "$MODE" in
     history) : ;;
     all)    while IFS= read -r -d '' f; do FILES+=("$f"); done < <(git ls-files -z) ;;
@@ -702,6 +716,8 @@ for f in "${FILES[@]}"; do
     # never "HEAD:$f": `ls-tree` paths are relative to the current directory and a bare
     # "HEAD:<path>" is root-relative, so from a subdirectory the bare form reads the ROOT file of
     # the same name (a leaking sub/README.md judged by the clean ./README.md). Same failure rule.
+    # Since #401 the tree modes run from the root, where the two forms agree; `./` stays so the read
+    # does not depend on the anchor above, and the mutant that dropped it is retired as equivalent.
     # The arm stays on one line like the `range` arm above it (#384).
     head)   { git show "HEAD:./$f" > "$BLOB"; } 2>/dev/null || die "could not read $f"; scanfile="$BLOB" ;;
     *)      scanfile="$f" ;;

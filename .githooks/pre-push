@@ -24,6 +24,19 @@ set -uo pipefail
 
 remote="${1:-origin}"
 ROOT="$(git rev-parse --show-toplevel)"
+# A hand run with GIT_DIR exported and no work tree (#401): git then takes the CURRENT directory as
+# the root, so from `sub/` ROOT is `sub/` and every scan below sees a subtree, or finds no scanner
+# at "$ROOT/plugins/..." and skips it on purpose. Refuse unless git, ignoring GIT_DIR, finds the
+# same root. That predicate, not "GIT_WORK_TREE and core.worktree both unset", is deliberate: a
+# `git push` from a linked worktree exports GIT_DIR=<repo>/.git/worktrees/<name> with neither set,
+# and its root is still right, so the narrower test would refuse every such push.
+if [ -n "${GIT_DIR+x}" ]; then
+  root_="$(unset GIT_DIR; git rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$root_" ] && [ "$root_" = "$ROOT" ] || {
+    echo "forge-kit: GIT_DIR is exported but names no work tree here (set GIT_WORK_TREE or core.worktree, or unset GIT_DIR); the leak guard could not RUN"
+    exit 1
+  }
+fi
 # Change to the root before every directory-relative step: the allow-file probe, both `--head`
 # scans, the roadmap guard (`check-phases.sh` reads docs/roadmap.md from the working directory)
 # and the suite-count pathspec. Git already runs a pre-push hook from the work-tree root, so this

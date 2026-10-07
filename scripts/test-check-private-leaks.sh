@@ -594,8 +594,8 @@ fi
 
 echo "== --head: HEAD's committed tree, never the working tree (#375) =="
 # The pre-push hook's mode. MUTANTS RUN AGAINST THIS SECTION, each on a scratch copy with `cmp -s`
-# proving the edit applied, each killed: the read taken from the worktree file; `HEAD:./$f` reduced
-# to `HEAD:$f` (killed by G1); the unborn-HEAD refusal removed; the `ls-tree` pre-check removed; the
+# proving the edit applied, each killed: the read taken from the worktree file; the root anchor deleted (killed by G3);
+# the anchor moved ahead of the option reads (killed by G4); the unborn-HEAD refusal removed; the `ls-tree` pre-check removed; the
 # `--head takes no paths` refusal removed; the 160000 gitlink mode admitted. Fresh repo per case
 # (mkrepo), so none leans on another's tree or leaves it dirty. C1, C2 and C6 use the NON-EMPTY list
 # $WORK/hlist: the scanner exits 0 on an empty or missing list before it looks at the work tree.
@@ -672,19 +672,38 @@ OUT="$( cd "$HREPO" && PATH="$SHIM:$PATH" "$SCRIPT" --list "$WORK/hlist" --head 
 expect "C6: a failing tree listing refuses, it never reports clean" 2 "$rc"
 contains "could not list HEAD's tree" "$(cat "$WORK/herr.txt")" "and says so"
 
-echo "== --head: it reads each blob relative to the directory it runs from (G, gate round 2) =="
+echo "== the tree modes scan the whole repository from any directory (G, #401) =="
+# `--all` and `--head` change to the work-tree root after the allow file and list are read, so a
+# run from sub/ covers every tracked file and prints root-relative paths. G1 was the #375 row for
+# `HEAD:./$f`; it now also pins the root-relative name.
 mkrepo h-sub
 ( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf 'secretproj\n' > sub/README.md \
   && git add -A && git commit -qm sub ) >/dev/null 2>&1
-OUT="$( cd "$HREPO/sub" && "$SCRIPT" --list "$WORK/hlist" --head 2>"$WORK/herr.txt" )"; rc=$?
-expect "G1: from sub/, a sub/README.md naming a listed name is reported, never judged by the clean root README.md" 1 "$rc"
-contains "README.md:1: private-name" "$OUT" "as a private-name finding for README.md"
+for m in --head --all; do
+  OUT="$( cd "$HREPO/sub" && "$SCRIPT" --list "$WORK/hlist" $m 2>"$WORK/herr.txt" )"; rc=$?
+  expect "G1 ($m): from sub/, a leaking sub/README.md is reported, never judged by the clean root README.md" 1 "$rc"
+  contains "sub/README.md:1: private-name" "$OUT" "G1 ($m): as a root-relative private-name finding for sub/README.md"
+done
 mkrepo h-sub-clean
 ( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf 'also clean\n' > sub/README.md \
   && git add -A && git commit -qm sub ) >/dev/null 2>&1
-OUT="$( cd "$HREPO/sub" && "$SCRIPT" --list "$WORK/hlist" --head 2>"$WORK/herr.txt" )"; rc=$?
-expect "G2: clean README.md files at the root and in sub/ exit 0" 0 "$rc"
-[ -z "$OUT" ] && ok "with no output" || bad "with no output (got '$OUT')"
+for m in --head --all; do
+  OUT="$( cd "$HREPO/sub" && "$SCRIPT" --list "$WORK/hlist" $m 2>"$WORK/herr.txt" )"; rc=$?
+  expect "G2 ($m): a clean tree run from sub/ exits 0" 0 "$rc"
+  [ -z "$OUT" ] && ok "G2 ($m): with no output" || bad "G2 ($m): with no output (got '$OUT')"
+done
+mkrepo h-root
+( cd "$HREPO" && printf 'secretproj\n' > leak.md && mkdir sub && printf 'clean\n' > sub/README.md \
+  && git add -A && git commit -qm root ) >/dev/null 2>&1
+for m in --head --all; do
+  OUT="$( cd "$HREPO/sub" && "$SCRIPT" --list "$WORK/hlist" $m 2>"$WORK/herr.txt" )"; rc=$?
+  expect "G3 ($m): from sub/, a committed root leak is reported" 1 "$rc"
+  contains "leak.md:1: private-name" "$OUT" "G3 ($m): named root-relative as leak.md"
+  lacks "sub/README.md" "$OUT" "G3 ($m): and the clean sub/README.md is not named"
+done
+printf 'secretproj\n' > "$HREPO/sub/hl"
+OUT="$( cd "$HREPO/sub" && "$SCRIPT" --all --list ./hl 2>"$WORK/herr.txt" )"; rc=$?
+expect "G4: a caller-relative --list ./hl from sub/ is read before the anchor (the root leak is found, exit 1)" 1 "$rc"
 
 echo "== --head fails closed, the way the other tree modes do (#208) =="
 mkrepo h-notmp
@@ -767,12 +786,23 @@ if head_mutant worktree-read 's|^    head)   {.*$|    head)   scanfile="$f" ;;|'
   ( cd "$HREPO" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
   expect "mutant: reading the worktree file instead of HEAD misses the masked name (the masked case fails it)" 0 "$?"
 fi
-if head_mutant no-dot-slash 's|"HEAD:\./\$f"|"HEAD:$f"|'; then
-  mkrepo hm-sub
-  ( cd "$HREPO" && printf 'clean\n' > README.md && mkdir sub && printf 'secretproj\n' > sub/README.md \
-    && git add -A && git commit -qm sub ) >/dev/null 2>&1
-  ( cd "$HREPO/sub" && "$HMUT" --list "$WORK/hlist" --head ) >/dev/null 2>&1
-  expect "mutant: HEAD:\$f without ./ reads the ROOT README.md and reports clean (G1 fails it)" 0 "$?"
+# The `HEAD:$f` (no `./`) mutant is retired (#401): the scan now runs from the root, where the two
+# forms read the same blob, so it is equivalent. The anchor itself carries the mutants instead.
+if head_mutant anchor-dropped '/^    \[ -n "\$top" \] && CDPATH= cd -- "\$top" || die/d'; then
+  mkrepo hm-root
+  ( cd "$HREPO" && printf 'secretproj\n' > leak.md && mkdir sub && printf 'clean\n' > sub/README.md \
+    && git add -A && git commit -qm root ) >/dev/null 2>&1
+  ( cd "$HREPO/sub" && "$HMUT" --list "$WORK/hlist" --all ) >/dev/null 2>&1
+  expect "mutant: without the anchor a run from sub/ misses the root leak (G3 fails it)" 0 "$?"
+fi
+if head_mutant anchor-early 's|^ALLOW_FILE="\${ALLOW_FILE:-}"$|&; CDPATH= cd -- "$(git rev-parse --show-toplevel)"|'; then
+  mkrepo hm-early
+  ( cd "$HREPO" && printf 'secretproj\n' > leak.md && mkdir sub && printf 'clean\n' > sub/README.md \
+    && git add -A && git commit -qm root ) >/dev/null 2>&1
+  printf 'secretproj\n' > "$HREPO/sub/hl"
+  ( cd "$HREPO/sub" && "$HMUT" --all --list ./hl ) >/dev/null 2>&1; rc=$?
+  [ "$rc" != 1 ] && ok "mutant: an anchor ahead of the option reads resolves ./ against the root (G4 fails it, rc=$rc)" \
+    || bad "mutant: an anchor ahead of the option reads resolves ./ against the root"
 fi
 if head_mutant no-unborn-check 's|^        \|\| die "HEAD not found: no commits yet.*$|        \|\| true|'; then
   hm_c2 no-unborn-check

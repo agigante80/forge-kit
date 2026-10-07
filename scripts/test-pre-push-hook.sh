@@ -499,12 +499,23 @@ grep -q 'root-leak.md:1: home-path:' <<< "$out" \
 grep -q 'forge-kit: the tree carries something from this machine' <<< "$out" \
   && ok "subdirectory: and the hook says the tree carries something from this machine" \
   || bad "subdirectory: and the hook says the tree carries something from this machine"
+# Since #401 the scanners anchor to the root themselves, so the root leak no longer kills the
+# cd-dropped mutant. The hook's `cd` still carries the roadmap guard, which reads docs/roadmap.md
+# from the working directory, so the mutant is killed there: an untracked stub at the guard's path
+# fails unless it runs from the root. The control row runs the real hook over the same stub.
+PSTUB="$REPO/plugins/forge-kit-roadmap/skills/roadmap-phases/assets/check-phases.sh"
+mkdir -p "$(dirname "$PSTUB")"
+printf '[ -f .githooks/pre-push ] && exit 0\necho "stub: check-phases ran outside the root"; exit 1\n' > "$PSTUB"
+out=$(run_hook_sub "$HOOKABS")
+grep -q 'stub: check-phases ran outside the root' <<< "$out" \
+  && bad "subdirectory: the roadmap guard runs from the root" || ok "subdirectory: the roadmap guard runs from the root"
 if hook_mutant cd-dropped '/^\[ -n "\$ROOT" \] && CDPATH= cd -- "\$ROOT" /d'; then
-  out=$(run_hook_sub "$HOOKABS.mut-cd-dropped"); rc=$?
-  [ "$rc" -eq 0 ] && ! grep -q 'root-leak.md:1:' <<< "$out" \
-    && ok "mutant cd-dropped: from sub/ the root leak is invisible (rc 0, no finding line)" \
-    || bad "mutant cd-dropped: from sub/ the root leak is invisible (rc=$rc)"
+  out=$(run_hook_sub "$HOOKABS.mut-cd-dropped")
+  grep -q 'stub: check-phases ran outside the root' <<< "$out" \
+    && ok "mutant cd-dropped: from sub/ the roadmap guard runs outside the root (the stub fails it)" \
+    || bad "mutant cd-dropped: from sub/ the roadmap guard runs outside the root"
 fi
+rm -rf "$REPO/plugins/forge-kit-roadmap"
 # Fail closed: from .git, `rev-parse --show-toplevel` fails and ROOT is empty, where a bare
 # `cd "$ROOT"` returns 0 without moving. The hook must exit 1, not 0, over the committed leak.
 out=$(run_hook_in "$REPO/.git" "$HOOKABS"); rc=$?
@@ -519,6 +530,52 @@ if hook_mutant cd-unguarded 's|^\[ -n "\$ROOT" \] && CDPATH= cd -- "\$ROOT" .*$|
   [ "$rc" -eq 0 ] && ok "mutant cd-unguarded: a bare cd of an empty ROOT fails open from .git (rc 0)" \
     || bad "mutant cd-unguarded: a bare cd of an empty ROOT fails open from .git (rc=$rc)"
 fi
+rm -f .githooks/pre-push.mut-*
+# #401: a hand run with GIT_DIR exported and no work tree makes git take the CURRENT directory as
+# the root, so from sub/ the hook saw a subtree and skipped the scanners it could not find there.
+# The hook refuses unless git, ignoring GIT_DIR, finds the same root. Each case runs over the
+# committed root-leak.md above. The linked-worktree case is the one the round-1 predicate ("GIT_DIR
+# set, neither GIT_WORK_TREE nor core.worktree") got wrong: `git push` there exports GIT_DIR with
+# neither set, and the root is still right.
+run_hook_env() {  # run_hook_env <dir> <hook> [VAR=value...]: the hook run from <dir> under env
+  local dir="$1" hook="$2" sha; shift 2; sha=$(git rev-parse HEAD)
+  ( CDPATH= cd -- "$dir" && printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" \
+      "0000000000000000000000000000000000000000" | env "$@" bash "$hook" origin "$BARE" 2>&1 )
+}
+gd_found() {  # gd_found <label> <rc> <out>: the root leak is reported and nothing could not RUN
+  [ "$2" -eq 1 ] && grep -q 'root-leak.md:1: home-path:' <<< "$3" && ! grep -q 'could not RUN' <<< "$3" \
+    && ok "GIT_DIR: $1 is not refused and reports the root leak" \
+    || bad "GIT_DIR: $1 is not refused and reports the root leak (rc=$2)"
+}
+out=$(run_hook_env "$REPO/sub" "$HOOKABS" GIT_DIR="$REPO/.git"); rc=$?
+[ "$rc" -eq 1 ] && grep -q 'could not RUN' <<< "$out" && grep -q 'GIT_DIR' <<< "$out" \
+  && ok "GIT_DIR: from sub/ with no work tree the hook refuses (rc 1, could not RUN naming GIT_DIR)" \
+  || bad "GIT_DIR: from sub/ with no work tree the hook refuses (rc=$rc)"
+grep -q 'home-path:' <<< "$out" \
+  && bad "GIT_DIR: and the refusal prints no finding" || ok "GIT_DIR: and the refusal prints no finding"
+out=$(run_hook_env "$REPO/sub" "$HOOKABS" GIT_DIR="$REPO/.git" GIT_WORK_TREE="$REPO"); gd_found "GIT_DIR with GIT_WORK_TREE from sub/" $? "$out"
+git config core.worktree "$REPO"
+out=$(run_hook_env "$REPO/sub" "$HOOKABS" GIT_DIR="$REPO/.git"); gd_found "GIT_DIR with core.worktree from sub/" $? "$out"
+git config --unset core.worktree
+out=$(run_hook_env "$REPO" "$HOOKABS" GIT_DIR=.git); gd_found "a relative GIT_DIR=.git from the root" $? "$out"
+out=$(run_hook_env "$REPO/sub" "$HOOKABS"); gd_found "no GIT_DIR at all, from sub/ (#396)" $? "$out"
+WT="$TMP/wt401"; git worktree add --quiet --detach "$WT" HEAD >/dev/null 2>&1
+WTGD="$REPO/.git/worktrees/$(basename "$WT")"
+[ -d "$WTGD" ] && ok "GIT_DIR: the linked worktree fixture exists" || bad "GIT_DIR: the linked worktree fixture exists"
+out=$(run_hook_env "$WT" "$HOOKABS" GIT_DIR="$WTGD"); gd_found "a push from a linked worktree" $? "$out"
+if hook_mutant gitdir-round1 's|^  \[ -n "\$root_" \] && \[ "\$root_" = "\$ROOT" \] \|\| {$|  { [ -n "${GIT_WORK_TREE:-}" ] \|\| [ -n "$(git config core.worktree)" ]; } \|\| {|'; then
+  out=$(run_hook_env "$WT" "$HOOKABS.mut-gitdir-round1" GIT_DIR="$WTGD")
+  grep -q 'could not RUN' <<< "$out" \
+    && ok "mutant gitdir-round1: the round-1 predicate refuses a linked-worktree push (the worktree case fails it)" \
+    || bad "mutant gitdir-round1: the round-1 predicate refuses a linked-worktree push"
+fi
+if hook_mutant gitdir-dropped 's|^if \[ -n "\${GIT_DIR+x}" \]; then$|if false; then|'; then
+  out=$(run_hook_env "$REPO/sub" "$HOOKABS.mut-gitdir-dropped" GIT_DIR="$REPO/.git")
+  grep -q 'could not RUN' <<< "$out" \
+    && bad "mutant gitdir-dropped: without the refusal the sub/ run no longer says could not RUN" \
+    || ok "mutant gitdir-dropped: without the refusal the sub/ run no longer says could not RUN (the sub/ case fails it)"
+fi
+git worktree remove --force "$WT" >/dev/null 2>&1
 rm -f .githooks/pre-push.mut-*; rm -f root-leak.md sub/notes.md; rmdir sub
 # Both remaining mutants need HEAD to carry an allow-file WITHOUT the skip entry, plus the committed leak.
 printf 'root nowhere\n' > .leak-guard-allow; hook_commit "an allow-file without the entry, for the mutants"

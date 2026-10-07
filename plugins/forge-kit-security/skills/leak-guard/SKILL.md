@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 23 -->
+<!-- leak-guard-version: 24 -->
 
 # Leak guard
 
@@ -22,7 +22,7 @@ private. The project name at the end is the only part anyone meant to publish.
 
 **The tree modes never look at history; `--history` does, and it is opt-in.** `--all`, `--staged`,
 `--range` and `--head` enumerate the working tree, the index, two endpoints of a range, or HEAD's tree, so a path, a name
-or an address committed once and removed later is invisible to all four. That is the going-public
+or an address committed once and removed later is invisible to all four. `--all` and `--head` change to the repository root first, so a run from a subdirectory still covers every tracked file and prints root-relative paths (#401). That is the going-public
 moment this skill is named for, which is why the mode exists and why it is run by hand rather than
 from a hook:
 
