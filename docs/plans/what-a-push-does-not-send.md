@@ -38,3 +38,21 @@ Premortem: it is the end of this phase and it failed badly. What happened?
 
 - #191 and any code in either scanner.
 - #196.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-12, outcome **done**. One ticket, two gate rounds, one follow-up (#199, pin the new
+header sentence) to `backlog`. Both rounds caught something in the facts as first written: round 1
+that "GNU grep prints nothing" was an artefact of a `-I` wrapper in the session that observed it,
+and round 2 that the prune step deletes the stash stack six lines after the prose said stashes are
+kept. The second is the premortem's "written as a ritual" clause, fired by the gate rather than by
+a reader, which is the order this repository wants.
+
+Opened 2026-09-12 for one prose ticket, #198, the half of #191 that needs no stream reader. The
+decision brief on #191 found three facts worth stating whatever happens to the history mode: a
+push never sends orphaned objects (tested on a throwaway repository), the pre-publish prune step
+that deletes them is standard, and `grep` over a `cat-file --batch` stream prints nothing rather
+than zero without `-a`. #191 itself stays in `backlog` waiting on a probe of BWK awk on a real Mac,
+which is written into its body.

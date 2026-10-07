@@ -50,3 +50,23 @@ Premortem: it is the end of this phase and it failed badly. What happened?
   the counts ever acquire a public reader, that option subsumes this one.
 - Anything about `19c39af` itself. The files were restored by hand; the local store is not this
   phase's subject.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Opened and **done** 2026-09-17 for #218. After the assistant files stopped being published, one CI
+step could no longer fail for any input; the phase deleted it and moved the question to the push
+hook, where the doc actually lives.
+
+The close review's finding is that the premortem named the right failure and the first fix walked
+into it anyway. **Fails if** clause one was "the rule went in below the base-ref exit and is
+silently skipped"; gate round 2 caught exactly that in the ticket, and review round 1 then found
+that the suites could not tell the difference, since every case ran with `origin/main` intact. Two
+rounds of two different mechanisms were needed to close one hole, which is the argument for running
+both. Clause three, "a test asserted wall time and flaked", was avoided by sentinel files, and the
+cost clause drove the whole shape: 93 s for the battery against 0.035 s for the hook is why
+`--changed` exists.
+
+Three tickets came out of the two loops (#219, #220, #221) and one more was filed from the gate's
+advisory about `ticket-standards.md` rule 8. All are in Backlog with a phase, none dropped.

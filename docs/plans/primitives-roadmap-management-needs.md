@@ -63,3 +63,47 @@ a review exists to be noisy.
   portability claim applies to each, but the harness is a project-wide gap and pulling it in here
   would make this phase about something else. Every new asset avoids bash-4 idioms and says so.
 - #219 (the timing flake) and everything else in `backlog`.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Opened 2026-09-23 at the maintainer's request, who asked for roadmap and phase management to be the
+highest priority and to have its own phases. Two workflows he runs by hand, often, have no component
+in this kit: a mid-phase alignment review (#244) and a whole-roadmap reassessment (#249). Writing
+either first would have produced a component that cannot act, because two write halves are missing
+and the third piece is a check nobody has written: nothing in the kit can SET a ticket's milestone,
+so every phase move this repository has ever made went through `gh issue edit` and is GitHub-only
+(#245); `roadmap-lib.sh` is a parser with no writer, so reshaping the roadmap is a hand edit and a
+second component would be the format's second definition (#246); and the README question the
+maintainer keeps having to ask by hand is a comparison of two path sets and two timestamps, which is
+a check rather than a reading (#247). #236 joins them because the reviews amplify it: a review reads
+every ticket's comments, so a per-call stderr line becomes a per-ticket one.
+
+This phase ships no user-facing workflow. That is deliberate: the two workflows are the next phase,
+and they are written against primitives that already exist rather than invented alongside them.
+
+**Closed 2026-09-23. Outcome: done.** All four tickets landed in the planned order, each gated,
+each reviewed under the bounded loop, each merged to `main` on its own commit. `forge-lib.sh` v23
+(`forge_issue_milestone`, and `FORGE_DEBUG` for the paginator), `roadmap-lib.sh` v4 (seven write
+primitives, not the five the plan named: `/phase review` needs to rewrite a phase's PROSE when
+scope changes, and a reassessment needs to write the reason for a refocus, so `set_plan` and
+`set_prose` were added), and `scripts/check-doc-drift.sh`.
+
+**Two of the premortem's five failures were live and were caught by review rather than by design.**
+"The roadmap writer reflowed the prose" nearly happened: round 2 found that `reorder` was not
+byte-reversible on a roadmap whose last phase runs to EOF, because a blank line between phases
+belongs to the POSITION and not to the block, and blank lines are not a parsed field, so the
+writer's own parse-back check could not see it. "The milestone writer was written against GitHub and
+stubbed for Forgejo" is half true and is the phase's one open debt: the Forgejo path is exercised
+only by a stub here, its review found two Mediums in exactly that area, and the live run is still
+owed by the session that holds a real Forgejo. #254 and #256 came out of the same ground.
+
+**What the plan did not expect is the eight tickets the work produced**, which is the close review's
+real content. Seven went to `backlog` (#254, #255, #256, #257, #259, #260, #261) and one to the next
+phase (#258), because it decides whether the check this phase shipped is usable by the reviews that
+consume it: a dry run over three ranges of this repository reported 3, 6 and 3 rows, and every row
+was a line that merely NAMES a churning path rather than claiming anything about it.
+
+**The discipline the plan asked for held.** "It grew" was the last premortem item, and the phase
+closed on exactly the four tickets it opened with; everything else was filed rather than absorbed.

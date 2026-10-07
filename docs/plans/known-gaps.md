@@ -39,3 +39,36 @@ is not worth it.
 
 - The ticket-gate size decision (#150, #103), still blocked on the maintainer.
 - #129 and #88, which are design work rather than gaps.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-09, outcome **done**. All six closed: #161, #167, #131, #134, #159 and #168, the
+last of which did not exist when the phase opened. It was found by ARMING the overnight run against
+this repo's own workflow, which the guard then made impossible; the phase's own subject is a shipped
+asset whose behaviour is broader than it claims, and that is a textbook instance found by use rather
+than by review.
+
+#159 closed as working-as-intended by maintainer decision, with the limit documented beside the
+reach statement it qualifies. The plan's premortem warned against closing a gap by narrowing the
+claim quietly; this one is narrowed loudly.
+
+Tickets filed at a review trip wire against components that already shipped. Each was reported as
+LOW or latent, fixed nowhere, and recorded so the next reader would not rediscover it. They belong
+together because they share a cause: a shipped asset whose stated behaviour is broader than what it
+actually does.
+
+The kit installs into a project by copying, and CLAUDE.md already says the opposite is better:
+plugin registration "owns no user config and so has no wiring to drift, duplicate, or clobber, and
+that copy-and-mutate path was the origin of every hook bug in this repo's history." The preference
+is stated and not followed, because nothing makes it followable.
+
+The blocker turns out to be small. A component pinned to one project is one with a value baked in at
+INSTALL time; one that resolves at RUNTIME is already correct everywhere. The kit has exactly one
+install-time placeholder, `{{GITHUB_REPO}}`, with six live uses across two files, and `forge_repo`
+already replaces it at runtime elsewhere in those same files.
+
+This phase is a bucket while the current one runs. Its plan gets written from this prose plus
+whatever has accumulated by the time it opens, and the honest question it will have to answer is
+whether forge-adapt's adaptation is doing as much work as its description claims.

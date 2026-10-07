@@ -66,3 +66,34 @@ recorded. The second may be a decision.
 - Gating this repository's existing tickets. See the premortem.
 - Any change to `check-ticket-mechanics.sh`'s checks.
 - Making the gate itself synthesise differently.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-10, outcome **done**. One ticket, plus the decision the finding forced.
+
+The answer was the reassuring branch: Step 0c synthesises a body and writes it back to the forge
+before Step 3A sees it, so the blocking rule holds inside a gate run and #184 was a reporting
+problem rather than a defect. The premortem's second clause then fired on the fix: a mutant swapping
+`&&` for `||` in the shape test survived until cases existed for a body with headings and no marker,
+and a marker with no headings. Claiming more than two signals support is exactly what that clause
+warned about.
+
+**The finding underneath became a workflow decision.** This repository ships a ticket gate and had
+never gated a ticket. From 2026-09-10 every NEW ticket is gated before implementation; the closed
+backlog is not retro-gated, because Step 0c would rewrite the bodies of work already shipped. That
+makes the gate's auto-upgrade path something this repo will actually exercise rather than only
+document, which is the same correction #104 made for the label taxonomy.
+
+Opened 2026-09-10 to work #184, whose central question was answered before the plan was written
+because only one of its two answers described work.
+
+The gate is sound: Step 0c synthesises a body and writes it back to the forge before Step 3A sees
+it, so inside a gate run the mechanics get template-shaped input and the blocking rule holds. What
+the evidence shows instead is that **the gate has never run on this repository's tickets**: not one
+of the last thirty issues carries a gate review comment, and the only bodies containing
+`template-version` contain it in prose.
+
+That makes #184 a reporting problem rather than a defect, and leaves a separate finding underneath
+it: the repository that ships a ticket gate has never gated a ticket.

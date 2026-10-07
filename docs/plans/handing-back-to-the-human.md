@@ -60,3 +60,39 @@ guessing at the shape.
 
 - Changing the iteration contract itself (#66). This phase makes an unattended caller honour it.
 - Any new review lane. The trip wire's rules are the ones already written.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-09, outcome **done**. Both tickets landed in the plan's order, #88 then #129, and
+nothing was moved or abandoned.
+
+The premortem's sharpest clause fired, on the ticket it was written about. It said #88's whole
+subject is what a loop does with no human present, so prose "reads as covered while being
+unexecutable" there more easily than anywhere else. The review round then found exactly that: the
+draft read the reviewed ref from `.full-review/state.json`, which is gitignored and per-worktree, so
+the rule would have silently never fired and every round would have been round 1 again. That is the
+failure it was written to prevent, found by asking where the file actually lives rather than by
+reading the sentence again.
+
+One thing the plan did not anticipate. #129 needed a new host primitive, `forge_issue_edit`, because
+`forge-lib.sh` had no body-write at all and the ticket requires a rewrite rather than a comment. The
+plan's Expected work listed only the skill. It was a small addition with its own tests, so it was
+built rather than deferred, but the estimate was wrong in the ordinary way: the receiver existed and
+the channel did not.
+
+Carry forward: `check-restatements.sh` now scans `decision-brief/SKILL.md`. The skill promises to
+run the gate rather than copy its bars, and that promise is now a build failure rather than a
+sentence, which is the pattern this repo keeps converging on.
+
+The kit runs work unattended and stops on rules of its own. Two moments in that are still
+hand-waved: WHEN the loop stops without a human to ask, and WHAT it hands over when it does.
+
+#88 is the first. The iteration contract says continuing past the trip wire is the caller's explicit
+call and never a default, and an overnight loop has no caller present, so the only honest reading is
+that it defers. #129 is the second: four tickets in one session each ended as a hand-written
+decision brief, which is the artifact a deferral should produce.
+
+They belong together because they are two halves of one handover, and either alone leaves it
+half-built.

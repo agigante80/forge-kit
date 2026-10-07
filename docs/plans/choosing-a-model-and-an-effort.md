@@ -70,3 +70,46 @@ In order, because each answer shapes the next:
 - **The user's own controls.** `maxEffortLevel` and the Advisor (`advisorModel`, `/advisor`) are
   user and session settings. #253's guide documents them; the kit sets neither.
 - Everything in the roadmap-management phases, which are closed.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-24, outcome **done**. All eight planned tickets landed in the planned order (#252,
+#280, #250, #251, #278, #253, #279, #281), and two appeared: #288, the audit #287's live-forge leak
+asked for, and #289, the re-measurement #250 left open for the security roles. None of the
+premortem's clauses fired. Bounded and mechanical agents moved to a named `sonnet` rather than to
+`inherit`, Haiku was measured and refused on turns, `/full-review` dispatches `code-reviewer` alone for
+a small safe range, every adopted key was probed on the installed CLI, and no skill or command sets a
+tier. #289 kept both security roles on `inherit` by its cost rule: Sonnet found every planted issue
+and cost more. The rule could not judge the tester, because no run of either tier wrote a test for the
+hard-coded secret, so the criterion itself goes to `backlog` (#292) along with the reviews' lows
+(#293). #282 stays in `backlog` as planned.
+
+Opened as a bucket 2026-09-23, when the maintainer adopted superpowers' and Anthropic's guidance on
+model selection as guidelines this kit follows rather than references. Both say the same thing from
+different ends: Anthropic's `agent-development` skill recommends `inherit` unless an agent needs
+specific capabilities, and superpowers' `subagent-driven-development` says to use the least powerful
+model that can handle each role, warns that an omitted model at a dispatch silently inherits the
+session's most expensive one, and warns in the other direction that turn count beats token price, so
+the cheapest tier is not the cheap answer.
+
+Measured against that, this kit is wrong twice. Eight agents declare `model: opus`, one declares `model: sonnet`, and none
+declares `inherit`, and those lines are a fork artefact rather than a decision: `architect-review` is a
+verified duplicate of an upstream file that declares it (#250). And no dispatch site in the kit names
+a model at all, so every critic, thin-check and lens runs on whatever the caller happens to be, which
+on this repository's own runs means Opus for a step whose whole job is to call a shell script (#251).
+Beside them: an `effort:` key Anthropic ships on eight of its own agents and documents nowhere, worth
+a probe before an adoption (#252), and the guard without which all of it goes stale again (#253).
+The probe's answers are in `docs/guides/model-tiers.md`: `effort:` is honoured on agents, a dispatch
+site's model beats the agent's, and a skill or command tier binds only on a slash invocation.
+
+Planned 2026-09-24, and reshaped by what the installed CLI and Anthropic's `claude-security` showed.
+`inherit` is not a cost fix, since it passes on the session's model, so #250 became a split by role;
+`effort:` is real on agents, skills and commands, so it became a second axis; and the probe (#252)
+moved from last to first, because every other ticket depends on which keys take effect. Four tickets
+joined: `/full-review` sizing its pipeline to the diff, the largest single saving because the cost
+was the number of agents rather than their tier (#278); skills and commands, where a tier can
+downgrade the user's own session (#279); a measurement in turns as well as tokens (#280); and
+forge-adapt carrying the decisions into installed copies (#281). Per-dispatch effort through Workflow
+scripts was considered and deferred to Backlog (#282).

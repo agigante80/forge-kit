@@ -45,3 +45,26 @@ one change. Then `#143`, `#138`, `#127`.
   guard that is lying about itself.
 - The `ticket-gate` size decision (`#150`, `#103`) is its own phase and is blocked on the
   maintainer, not on this work.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-09, outcome **done**. All six tickets landed in the plan's order, nothing was moved
+or abandoned, and the close review found no skipped work. Every fix was verified by mutation, and
+mutation twice found a hole in a test written minutes earlier: a dropped `-H` that no case could
+see, and a scoping assertion that passed even when the scope was ignored. That is the phase's own
+"fails if" clause earning its place, not a coincidence.
+
+One thing to carry forward. `check-restatements.sh` got STRICTER (an item naming several rules must
+now scope each anchor), which the premortem named as the way this phase could go wrong. It was paid
+immediately, by scoping three items in the real list, rather than left for the next reader to meet
+as a surprise.
+
+Every ticket in this phase shares one cause: a guard that is imprecise, or absent, or checking
+something other than what it claims. #158 is the live one, and it was created BY changing the
+workflow: both range guards are `pull_request`-only and this repo no longer opens pull requests, so
+they now run on no path at all. The rest are the same shape found by review rather than by use.
+
+They belong together because the fix for one is the argument for the fix for the next, and because
+a guard suite whose members disagree about what they check is worse than a smaller honest one.

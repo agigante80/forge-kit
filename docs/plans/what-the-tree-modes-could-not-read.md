@@ -41,3 +41,20 @@ Premortem: it is the end of this phase and it failed badly. What happened?
 ## Out of scope
 
 - #210, #211 (same audit, separate phases), #206, #212.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-16, outcome **done**. Two tickets, both gated to PASS (one with its last item
+folded at the two-round stop), one implementation commit and two review rounds, no follow-up.
+Work that appeared: round 1 found a pre-existing false negative the plan had not named, a tracked
+symlink followed rather than read as its text under `--all`, and it shipped inside the phase since
+the new `-r` test had turned it into a refusal. The premortem's third clause fired in review: a
+signal-killed child made the shell print the script's path, and the test had hidden it with its
+own trap; and its first clause almost fired, a gitlink whose commit is present being scanned as
+text. Round 2's finding was the shape #191's substitute verification keeps producing: a fix that
+worked on one bash and not the other, with no test on the platform CI runs.
+
+Opened 2026-09-16 for #208 and #209: the audit's finding that the older tree modes, the ones the
+hooks run, had fail-open paths the new history mode did not.

@@ -39,3 +39,18 @@ today; not widening the ticket, since the two parsers must not disagree on what 
 ## Out of scope
 
 - The adapt SKILL.md fix itself (ratcheted; follow-up ticket).
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-16, outcome **done**. One ticket, two gate rounds, two review rounds, two
+follow-ups to `backlog`: #215 (adapt's copy of the globs, a ratcheted file) and #216 (`forge_repo`
+keeps its own parser). Work that appeared and shipped inside: the authority cut in the #209 parser
+(`/` alone, where a query before the first slash moved the host), because the two parsers must not
+disagree on what an authority is. The premortem's third clause fired, in the review rather than
+the tests: the credential fix would have been undone by lowercasing, since git's store keys on the
+spelling as given; the helper now preserves case and only the compare lowercases.
+
+Opened 2026-09-16 for #212: the adapter every forge-touching component trusts decided the host
+with a glob that reads `github.com` anywhere after an `@`.

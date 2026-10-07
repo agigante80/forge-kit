@@ -42,3 +42,18 @@ in neither suite either, and the two wordings differ, so it needs per-asset need
 
 - AC 2 (rewriting the public header into the private header's form) and any marker or semver bump.
 - #191, #196.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-12, outcome **done**. One ticket, two gate rounds, one follow-up (#200, the history
+sentence, same shape) to `backlog`. Round 1 found the one thing the plan's fourth premortem clause
+named: Documentation impact said "None" against the two `CLAUDE.md` counts, the same drift that "docs: the public leak
+suite has 80 cases, not 72" fixed (a commit since purged from history, #232), again. This phase's gate runs were also the first on the installed v55 agent, and they confirmed
+what three earlier phase closes could not: the round is counted from posted comments (round 2 read
+as 2) and the mechanics line names its script with a `~`-relative path and its marker.
+
+Opened 2026-09-12 for #199, the follow-up #198's close filed: the `grep -a` sentence that phase
+added to both scanner headers is pinned by no test, where the public scanner's other reach
+sentences are. One ticket, two suites, one line each, and the `CLAUDE.md` counts that go with them.

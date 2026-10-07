@@ -86,3 +86,28 @@ the rewrite path makes it urgent sooner.
   yesterday (#254 to #257, #259 to #261).
 - Retro-gating closed tickets. Step 0c rewrites bodies, and #184 already decided that rewriting the
   bodies of shipped work is a decision rather than a tidy-up.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+A bucket while the primitives land. It holds the two workflows themselves, #244 and #249, the
+contract that keeps three components from contending over one ticket body (#248), and #196, which
+becomes load-bearing the moment a component rewrites bodies routinely rather than occasionally: a
+rewrite erases the `gate-verdict` block, and #192 made the comments the durable copy precisely so it
+could be restored from them.
+
+Its plan gets written when it opens, from this prose plus whatever has accumulated. The honest
+question it will have to answer is where the boundary between the two workflows actually falls,
+since a phase review that finds the phase itself wrong is already a reassessment.
+
+**Done, 2026-09-24.** The two workflows turned out to be genuinely separate, so the boundary
+question above answered itself in practice: `/phase review` (#244) rewrites and re-gates tickets
+inside one phase, `/roadmap reassess` (#249) reshapes the roadmap itself, and neither grew into the
+other's job. #248's write-authority contract landed first as planned, followed by #258 (a mention is
+no longer a claim), #244, #249, and #196's memory fallback. `/phase review`'s own first two runs
+against this repository (#262, #266, #267, #268) found and fixed real defects in the shipped
+mechanism, which is the dogfooding this phase existed to force. This first `/phase review` closed
+by running itself: it found #249 implemented but unclosed, and folded #275 and #276 back into #249's
+own acceptance criteria rather than treating them as separate work, since both were already
+satisfied by the shipped `reassess-phases.sh`.

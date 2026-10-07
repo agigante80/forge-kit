@@ -47,3 +47,29 @@ a move, and that is a finished outcome.
 - Any change to the word budget or its baselines beyond what a genuine reduction earns.
 - Retrofitting `full-review`, which has never had a size retrofit and is not what this phase is
   about.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-10, outcome **done**. One ticket, and it closed the way the plan said it might: as a
+documented decision plus a reporting change rather than as a move.
+
+The classification is the whole result. Sixteen of `adapt`'s twenty fenced blocks are commands the
+skill runs and four are templates it emits; none is reference material, so the splitting convention
+forbids moving any of them and the file is the size the work is. The premortem's first clause was
+the live risk throughout, and it did not fire because the classification came first, which is the
+only reason it did not.
+
+The phase also answers a question that had been open since #97 without being asked: the budget
+counts words because the alternative units measure something this repo cannot act on. Lines are now
+REPORTED beside them, marked against Anthropic's 500-line tip, and gate nothing.
+
+Opened 2026-09-10 to work #176, which came out of the #172 ratchet raise: the thing `adapt`'s
+ratchet defends is a WORD count, a unit nobody outside this repository uses, while the file is 820
+lines against the only externally stated number, Anthropic's 500-line tip for a skill body.
+
+The phase exists because the question is answerable and has never been asked properly. 277 of those
+lines are fenced blocks, and whether any of them can move is a classification problem, not a
+compression problem: the splitting convention forbids relocating a step the skill executes, and this
+file is mostly steps.

@@ -73,3 +73,52 @@ outcome. The fifth cannot, because the README is wrong today whatever the others
 - Redesigning `full-review`, `code-reviewer` or any component whose content genuinely diverged.
 - Chasing the official plugins' surface area. They will always ship more agents.
 - #176, the `adapt` line-count question, which stays in the backlog and is unrelated.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-10, outcome **done**. All five tickets landed in the plan's order, guard first, and
+5,507 lines were deleted.
+
+**The premortem's fifth clause fired, on the ticket it was written about.** It warned against taking
+the comparison as an instruction rather than as evidence, and `architect-review` is exactly that
+case: the table said retire, and `/full-review` dispatches it by name, so retiring it would have
+broken the one component the phase existed to protect. It stayed, allowlisted, with the reason in
+the file. The sixth clause fired too, on the README: the first draft claimed 22 guards and 34 test
+suites and was wrong on both, which is why criterion 8 asked for every number to be checked against
+the tree.
+
+**One thing went wrong that no clause named.** The overlap was measured before its SOURCE was
+checked, so the first hour of this phase credited five near-duplicates to Anthropic when they are
+wshobson/agents, the upstream forge-kit's specialist agents were forked from. It reached a public
+README and two ticket bodies before `known_marketplaces.json` was read. The measurement was right
+and the attribution was not, which is a distinct failure from the ones the premortem imagined.
+
+Two to carry forward. `adapt` went 7314 to 7300 to 7209 in one day, every step through the #149
+lever, which is now the fourth time converting prose to a tested script on that one file has been
+the only way to add a rule to it. And the boundary is now checked in both directions: at build time
+by `check-neighbour-overlap.sh`, and at install time by `forge-adapt-neighbour-disposition.sh`.
+
+Opened 2026-09-10 after measuring this tree against the two installed official marketplaces and
+superpowers. The kit's stated reason for existing is to complement them, and decision #69 draws the
+line: superpowers owns the inner loop, forge-kit the outer.
+
+That line is prose in a skill. Meanwhile `check-group-isolation.sh` fails the build if anything
+outside the roadmap group so much as names it, to keep one optional group optional. The claim that
+defines the project is the least enforced thing in the repository, and five components have already
+crossed it: `tdd-orchestrator` (4 lines differ from the official file, of 185),
+`backend-security-coder` (4 of 155), `pr-enhance` (6 lines of about 2,000 words),
+`architect-review` (12 of 172) and `backend-architect` (13 of 320).
+
+The counter-example is the one to protect. `full-review` shares an ancestor with wshobson's
+`comprehensive-review` and diverged by 174 lines, and what diverged is the ITERATION CONTRACT: round
+accounting, the trip wire, bad-fix injection, none of which the original has. That is outer-loop
+discipline added to an inner-loop tool, and it is what this kit should be doing wherever it touches
+a neighbour.
+
+The attribution matters and was wrong for the first hour of this phase. `claude-code-workflows` is
+`wshobson/agents`, a community collection and the upstream these agents were forked from;
+`claude-plugins-official` is Anthropic's, and superpowers is distributed through it from
+`obra/superpowers`. All five near-duplicates are wshobson's, not Anthropic's. The phase closes with
+a README that says so, which is #181.

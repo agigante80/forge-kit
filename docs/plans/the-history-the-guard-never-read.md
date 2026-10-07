@@ -52,3 +52,25 @@ Premortem: it is the end of this phase and it failed badly. What happened?
 - Options A to C, E and F. `gitleaks`. History rewriting or any `git gc` advice beyond the prune
   step #198 already documented.
 - #196.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-14, outcome **done**. One ticket, one gate round on the rewritten body (fifteen
+items, folded, no third gate run), then a review loop: two reviewers in round 1, one in round 2 on
+the fix commit alone, stopped there. Two follow-ups to `backlog` (#206, one copy of the reader;
+#207, what this repository says about its own history). The premortem's "a foreign store was read
+as this one" clause fired, and it was drawn too narrowly: the reviews found five inputs the tool
+does not control (a corrupt object, user git config, a newline in a filename, refs/replace, an
+interrupted pipeline) each turning a reachable leak into a silent exit 0, where the plan had named
+only alternates and the two environment variables. The lesson for the next scanner premortem is to
+enumerate every input the tool does not control, not the obvious ones. What the substitute for a
+Mac found that no document would have: Apple's awk aborts the moment a regex meets a byte over
+0x7F under glibc's C locale, which became the design rule that no content or path byte goes
+through a regex. Two tickets from elsewhere (#204, #205) arrived without a milestone during this
+phase and were put in `backlog` so rule 1 would pass; where they belong is a maintainer decision.
+
+Opened 2026-09-14 for #191, outcome A of #185, after the maintainer chose to ship without a Mac:
+the probe was run against Apple's own awk source built on Linux, the suites under bash 3.2.57
+built the same way, and the README states what that does and does not prove.

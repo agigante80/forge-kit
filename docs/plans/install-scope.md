@@ -54,3 +54,17 @@ at it.
   needs, but it is about a DEPENDENCY rather than a scope and pulling it in would grow the phase.
 - Retiring `{{GITHUB_REPO}}` from prose that documents the manual-install path. That form is
   correct there, and deleting it would make the manual path undocumented.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-09, outcome **re-shaped**. All four tickets landed, and one acceptance criterion
+of #166 did not: `drift` still reports a registered component as missing. It hit the same ratchet
+that forced #166's rule into a script, so it moved to #167 rather than being squeezed in at 4am.
+That is the circuit breaker working, not a shortfall.
+
+The plan's premortem was right twice. It said the placeholder work must not become a ticket-gate
+rewrite, and #163 stayed six lines while SHRINKING the gate. It said `scope: user` must not become
+a lie, and a review round then found the scope guard and the placeholder guard contradicting each
+other inside one CI job, which is that failure arriving by a route the plan did not name.

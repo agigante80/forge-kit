@@ -80,3 +80,51 @@ between commits; #233 last because it is the gate's tooling rather than the scan
 - #207 (what this repository says about its own history), #219, #220, #221: `backlog`.
 - The four release-gated repositories the rollout has not purged, and the eleven GitHub Support
   purge requests: the rollout session's work, not this repository's.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-18, unattended, outcome **re-shaped**. Seven of nine landed in the plan's order
+except that #231 moved up when its gate found the `Leak guard` workflow red: #230, #227 (which
+absorbed #238), #231, #224, #225, #223, and #233 with #241 in one change. Two are parked in
+`backlog` with the reason on each: #222, whose spec moved twice under review (five items in round
+1, seven in round 2 with two defects in round 1's prescriptions) and which changes the names-file
+syntax under seventeen tuned lists; and #226, whose premise turned out to hold for one half only,
+because the public half never used `case` globs and the two halves already read one shared
+allow-file line two ways. Both are decisions rather than work, and an unattended run does not make
+them. Eleven follow-ups were filed to `backlog` across the night: #234 to #237 from the previous
+phase's reviews, #239 and #240 from this one's, and the rest from gates.
+
+**The premortem's clauses fired in the order they were written.** The first, that the whole-word
+marker would silently change a name's meaning, is why #222 is parked rather than shipped. The
+second, that #230's boundary would narrow rule A on a real path, fired in review: the anchor
+class admitted `~`, so a tilde root whose name is the word home matched rule A and lost its rule B
+allow entry, and the fix was to exclude it. The fourth, that `skip` semantics would change under installed users, is the whole
+of #226's parking. The seventh, nine tickets becoming one commit, did not fire: every ticket was
+its own gated, reviewed, merged change. What no clause named: the rollout had installed the
+scanners into this repository the way it installed them everywhere else, as `scripts/` copies, and
+the first asset bump of the night turned a second workflow red while `Validate` stayed green;
+#231 became a P2 and `validate-plugins.sh` check 6 now refuses a `scripts/` copy of a shipped
+asset by marker name.
+
+**The gate did what it is for, at a cost worth stating.** Every ticket took the full two rounds
+except #225 (PASS at round 1), and the second round found a defect in the first round's folded
+text on #216, #228, #229, #222 and #231: that is the bad-fix injection rate the review loop's
+trip wire exists for, arriving in the gate instead. Each review round 1 found one Medium on
+#216, #224, #227, #229 and #230, and every round 2 was clean. The mechanics script's own two
+inversions (#233, #241) were found by the gate reviewing this phase's tickets and fixed inside it.
+
+Opened 2026-09-18, unattended, for the crop of the leak guard's first rollout: on 2026-09-17 the
+two scanners were installed in seventeen public repositories and run in every mode, and the
+findings were filed as #222 to #227 and #230, with #231 and #233 from reviewing that work. Every
+one is a place where the scanner's behaviour is narrower, broader or louder than its own
+documentation says: a short identity token that matches inside ordinary words (#222, the one P2,
+and the one with a workaround that is the guard being switched off), a redaction marker read as a
+home root after the very rewrite that removed the leak (#227), `/home/` inside a relative import
+(#230), the scanner's own doc comments tripping a host project's guard (#223), a `root` key that
+accepts a dead entry (#224), `skip` globs whose `*` crosses `/` (#226), two facts about the private
+half's `skip` missing from SKILL.md (#225), and this repository carrying the scanner twice (#231).
+They belong together because each was found by USE rather than by review, in the shape the
+component was named for, and because a guard that cannot be silenced precisely is a guard that
+gets removed.

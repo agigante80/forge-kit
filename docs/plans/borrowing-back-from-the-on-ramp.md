@@ -53,3 +53,46 @@ finished outcome.
 - Any new component. All three are changes to things that exist.
 - Secrets scanning. Name `gitleaks` and stop.
 - Anything from the other eleven prompts.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-10, outcome **re-shaped**. All four tickets closed, one of them by splitting: #185
+shipped its outcome B and moved outcome A to #191, because the gate found that two of A's own
+constraints contradict each other.
+
+**The phase was overwhelmingly about the gate rather than about the borrowings.** Its three tickets
+took six gate runs between them, and produced five defects that were in none of them: #188 the label
+taxonomy, which blocked every ticket in this repository and shipped inside the phase; #189 the stale
+plugin-cache resolution, confirmed by three separate runs; #190 the checker failing five times on a
+`##` body where its own rule says refer once; #192 the gate's verdict region being erasable by an
+ordinary body edit, which silently prevents the trip wire from ever firing; and a stale test count in
+CLAUDE.md.
+
+**Two of the three borrowings would have shipped wrong.** #186's premise check, written as shell
+greps, would have been DENIED by this kit's own overnight guard whenever a ticket quoted a
+destructive command, recording a destructive-command deferral that never happened. #187's boundary
+had two independent holes, and the second needed no strained reading: the prohibition it leaned on
+lives inside one review dimension and does not govern a general rule placed elsewhere.
+
+The premortem's first clause held: fourteen prompts were compared and eleven refused as subjects the
+neighbours own.
+
+**The stopping decision is the thing to carry forward.** Gating stopped at two rounds per ticket
+under the bounded iteration contract, with everything unfixed becoming a ticket. Both round 2s found
+defects in the round-1 fix, which is one round of fix-induced findings and one short of the trip
+wire. Continuing would have been the move the rule exists to refuse.
+
+Opened 2026-09-10 after a content comparison against `agigante80/vibe-coding-prompts`, the sister
+project and the on-ramp: prose prompts pasted into any assistant, where this kit installs components
+and fails builds. The two have traded mechanisms before, the generated index and the version-bump
+gate both came from there, and this is the third trip.
+
+Three rules that collection states and this one does not. One of them, the leak guard's blindness to
+history, is a defect in a shipped security component rather than a missing feature: `--all` means
+`git ls-files`, so a home path committed and later deleted is invisible to the guard written for the
+moment a repository goes public.
+
+The discipline here is in what was refused. Fourteen prompts were compared and eleven are subjects
+the neighbours own, one day after #178 retired eleven components for being exactly that.

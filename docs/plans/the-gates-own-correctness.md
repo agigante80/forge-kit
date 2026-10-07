@@ -61,3 +61,13 @@ In order:
 - **New ticket-gate features** (#286, #263, #277, #213 in `backlog`); this phase fixes what exists.
 - **The test-harness flakes** (#404, #378, #331, #219, #360): *Tests that can be believed*.
 - **Portability sweeps** (#377, #379, #405, #407): *Portable shell, everywhere*.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-10-01, outcome **done**. All four planned tickets landed, in the planned order (#335, #320, #349, #347), and one appeared: #409, #347's item 6 split out as round 1 advised, since it was a forge-lib change with its own tests (bodies over 128 KiB were built empty with rc 0). One more was filed for later: #410, the word count's locale dependence, which made the first ticket-gate baseline right locally and wrong in CI for two commits. None of the premortem's clauses fired: the ratchet was LOWERED (5754 to 5742), not raised, because #347 moved Step 5's resolver into the shipped `gate-env.sh` and that paid for every other line; #349 moved the guidance, not the checker; the fresh-shell fixes are a sourced asset with a contract suite, not prose; #347's forge-lib half shipped separately as #409 and stalled nothing; and #335 was closed on its missing cases, not on a stale reading.
+
+Opened 2026-10-01, when *What contributor-docs still cannot see* closed; plan: `docs/plans/the-gates-own-correctness.md`. Two of its four tickets were partly done by work that landed while they waited (fd05cba skips a region to its own end marker, #335's open choice), and #320's first gate passed the day it opened.
+
+A bucket, filed 2026-10-01. The gate failing its own critic's advice (#349: a 'Control (...)' scenario the critic recommends trips the scenario counter), the #283 review Lows and a forge_issue_comment jq failure (#347), and the #304 review Lows in check-ticket-mechanics.sh (#320, #335). ticket-gate.md sits at its size ratchet with zero headroom, so the plan has to say where each fix's words come from.

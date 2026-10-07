@@ -37,3 +37,18 @@ Premortem: it is the end of this phase and it failed badly. What happened?
 - `README.md:173` "six collisions" and `README.md:8` "the last six phases": unanchored, accurate
   today, and named here so the next sweep starts from them rather than from zero.
 - #191, #196.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-14, outcome **done**. One ticket, two gate rounds, no follow-up. Round 1's one
+blocking item was the ticket's premise: it said the sweep had found "exactly one live claim
+left", and the gate found two more in the same file ("six copies", "six sites", against a guard
+printing 7), because the sweep's grep had looked for a number before a component noun and
+`copies` and `sites` are neither. Round 2 PASS. The lesson is the same as #202's, one level up: a
+sweep that reports completeness is itself a count claiming completeness. The next sweep starts
+from the two accurate-today README phrases the plan names, not from zero.
+
+Opened 2026-09-14 for #203. The sweep #202 promised, with the two phrases the gate found that my
+grep had not.

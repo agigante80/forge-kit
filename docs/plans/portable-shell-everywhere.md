@@ -50,3 +50,13 @@ In order:
 
 - **The test-harness flakes** (#404, #378, #331, #219, #360): *Tests that can be believed*.
 - **The startup-context budget** (#297): *What a session loads before work begins*.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-10-01, outcome **done**. All five planned tickets landed, in the planned order: #410 (one word-count rule, the index generator's, in every locale; no baseline moved), #377 (30 `cd` sites to `CDPATH= cd --`, pinned by `scripts/test-cdpath.sh`), #379 (the `check-cdpath-cd.sh` CI guard; the four sites #377 had called immune were converted rather than exempted), #405 (31 awk file operands to redirects, and one shared `scripts/awkv-count.sh` for the zero-`-v` and no-operand rules), and #407 (`/phase`'s values through the shipped `phase-env.sh`; forge-adapt's `NO_MARKETPLACE` assigned from S2). Two tickets appeared: #411, a parallel-copy flake found while gathering load evidence for the next phase, landed there ahead of it; #412, roadmap-lib's 11 remaining `awk -v` values, which #405 pinned as a ratchet, went to backlog. The premortem held: #379's guard is a stated text rule with no `# not a cd` exemptions; each sweep closed its class with a guard or a shared check, not a list (#379, #405's `awk_operand_lines`); the guard runs under gawk, mawk, BWK awk and busybox, which caught a BWK `match()` bug on a `substr()` temporary before it shipped; and #407 verified #347's ticket-gate share rather than redoing it.
+
+Opened 2026-10-01, when *The gate's own correctness* closed, ahead of *Tests that can be believed*: every ticket here is mechanical, while that phase's flakes still need a load recipe two gate rounds could not settle. #410 joined the bucket the day it opened, and #347 already landed ticket-gate's share of #407.
+
+A bucket, filed 2026-10-01. The sweeps #259 and #321 started and did not finish: a cd that echoes under CDPATH (#377) and the guard that would stop it coming back (#379), awk file operands shaped name=value and the blind spots in the zero-awk-v count (#405), and the lost-variable class outside forge-adapt (#407). Each is a class, so each wants a guard, not just a fix.

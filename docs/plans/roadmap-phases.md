@@ -43,3 +43,15 @@ is this bootstrap.
   after one real cycle.
 - Teaching `ticket-gate` about phases. Never, unless it is a separate decision with its own ticket.
 - Deep-segment path detection in the leak guard (#159), which is unrelated and sits in Backlog.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-08, outcome **done**. Nothing moved or abandoned. The close review found one piece
+of skipped work (#161, the group's undeclared dependency on `forge-lib.sh`) and one thing worth
+recording: three defects were found by running the guards rather than reading them, including the
+isolation guard failing on its own first run against this tree.
+
+The kit governs tickets, releases and hosts, and has no shape larger than a ticket. This phase adds
+one, as an optional plugin group so that a project using any other method loses nothing.

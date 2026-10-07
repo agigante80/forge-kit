@@ -62,3 +62,41 @@ Premortem: it is the end of this phase and it failed badly. What happened?
   `backlog` until someone wants it.
 - #191, the leak guard's history mode. Still blocked on the bash 3.2 contradiction.
 - Any change to what the checker RULES on. #190 is about how it reports a miss, not what it checks.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-11, outcome **done**. All four landed in the plan's order, #197, #190, #194, #195;
+nothing moved or abandoned, and for the first time a phase's gate runs filed no follow-up ticket.
+Seven runs: two PASS at round 1 (#197, #195), two NEEDS-WORK twice (#190, #194) and stopped
+there, with the remainder folded in as ticket text rather than a round 3.
+
+**The gate changed the design of the largest ticket, and it was right.** #190 was implemented as
+"detect one heading level per body, `###` wins a mixed one"; round 1 found that `dep-auditor`
+emits `### Priority` beside `##` sections, so that rule inverted the kit's own producer exactly as
+v5 had. The label-bounded rule replaced it (a section runs to the next heading at its own level
+or the next heading that is a template label), and round 2 found the own-level clause had no case
+that killed its removal. Both rounds paid for themselves. #194's round 1 found the ticket's own
+proposed fix printed `mechanics: none ()` rather than `mechanics: none`.
+
+**The second premortem clause fired, as written.** The plugin cache was updated to 0.16.2 before
+the phase opened, and every gate run still reported executing `ticket-gate` v51: the CLI's
+"restart to apply" is literal, and this session never restarted. So every `**Round:**` and
+`mechanics:` line in this phase's reviews was still produced under a per-run instruction, and the
+new Step 1 prose remains unexercised by any real run. That is now two phases carrying the same
+gap, and the first action of the next session is to run one gate with a bare number.
+
+**The ratchet moved in the direction the rule wants.** #197 and #194 were paid from restated
+sentences and the baseline was LOWERED 5773 to 5767 to lock in what was left, the first lowering
+since the third raise the same morning.
+
+Opened 2026-09-11 for what the twelve gate runs of the last two phases left on the board, none of
+it large and all of it in the gate's own machinery: the checker failing five times on a `##` body
+where its own rule says refer once (#190, found by the gate reviewing #186); the provenance line
+printing `mechanics:  ()` on the empty path and a home path in every review (#194, from #189's
+round 2); a stale `<sha>` in `adapt`'s description of the cache leaf (#195, the same round); and
+three concurrent gate runs sharing one body file by name (#197, which bit twice in the last phase
+and was caught both times by luck). This phase is also the first one whose tickets are gated by
+the NEW agent prose without a per-run override, which is the evidence the last close said was
+still owed.

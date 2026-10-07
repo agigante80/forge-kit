@@ -75,3 +75,44 @@ because the file is already open. Each gated first, two rounds at most, remainde
 - A `forge_api_paginate` rewrite around `Link` headers or `X-Total-Count`. The identical-page
   stop is enough for the failure observed, and the cap remains the backstop.
 - Anything in the leak-guard crop (#222 to #227, #230 to #232). Next phase.
+
+## Close record
+
+Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was condensed to one summary per done phase. Earlier paragraphs describe the phase as it was opened; the first is the close review.
+
+Closed 2026-09-18, outcome **done**. All three tickets landed, in the order #216, #228, #229
+rather than the plan's #228 first, because #228's second gate round was still running when #216
+passed and the loop had nothing else gated. Two of the three took the full two gate rounds and
+both round 2s found defects in round 1's folded text; #216's round 2 passed. Each implementation
+had a review round 1, and only #216 needed a round 2 (one Medium, fixed, then clean). Five
+follow-ups went to `backlog` from the gates and reviews: #233 (the mechanics script FAILS rather
+than refers on a one-line GWT bullet), #234 (three prose drifts, among them
+`forge-call-mapping.md` still mapping a body edit to a raw PATCH), #235 (an scp-form
+`user:token@` prefix reaches stdout as a slug), #236 (the paginator's end-of-list line, and GNU
+`timeout` in the suite). This was an unattended run: the maintainer was asleep from the plan's
+confirmation to the close, with merge-to-main authorised in advance.
+
+**The premortem's first clause fired in the gate, exactly as written.** #228's AC2 asked for the
+short-page stop that `forge-lib.sh` line 298 rejects, the gate struck it in round 1, and round 2
+then found what no reading had: three existing cap fixtures repeat a byte-identical page to drive
+the cap, so the stop turned them red. The gate prototyped the change and ran the suite (84 of 86)
+before saying so, which is the kind of evidence this repository wants a round to carry. The
+second clause, "identical was byte-identical", fired in the same round and became the
+volatile-field case. The fifth clause is the one that stands unresolved: the reproduction host is
+a private Forgejo this checkout may not touch, so the live check is still owed by the session
+that found the bug, and the close records that rather than assuming it.
+
+**What the run learned about running the gate in parallel.** Three gates and a review ran at
+once without the body-file collision #197 fixed, and one gate disclosed its own fault: it called
+`forge_issue_edit 228 --body-file <path>` where the function takes the body as `$2`, so the
+issue body was the literal string `--body-file` for under a minute before the gate restored it
+from its prepared file. `forge-call-mapping.md` does not list that function's signature, which
+is how the wrong shape got through; it is in #234.
+
+Opened 2026-09-18 for #228 and #229, the two defects a forge-adapt refresh on a private downstream
+repo (Forgejo 11.0.16) found in `forge-lib.sh` v16, plus #216, the parser follow-up #212 left in
+the same file. Both bugs fail in the direction that stops you looking: the comments paginator
+spins to its 500-page cap on a host that ignores `page`, so `count-gate-rounds.sh` waits seventeen
+minutes and then reports `unknown` on every Forgejo gate run, and the three silenced writers say
+nothing at all on a 404, so a comment to a wrong issue number looks like success. Neither has a
+workaround, and the first breaks the round count #192 made durable.
