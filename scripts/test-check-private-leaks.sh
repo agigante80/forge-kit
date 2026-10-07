@@ -492,6 +492,39 @@ git clone -q --bare "$HREPO" "$WORK/hist-pbare2" >/dev/null 2>&1
 HREPO="$WORK/hist-pbare2"
 hrun --history; rc=$RC; expect "a bare repository is scanned" 1 "$rc"
 
+echo "== redact: the bash copy is linear, the awk copy is left alone on purpose (#217) =="
+# The bash redact serves the owner warning, the tree modes and the list refusals, so it is
+# exercised here on the function itself (length 0 is unreachable through the CLI: an empty `=`
+# line dies with a fixed message first). The awk redact has no timed case: the grep -aiF
+# pre-filter before it stalls first at every size, so a bounded 256 KB case would fail even on a
+# correct fix. Its ledger pins the decision recorded in the scanner header, not behaviour.
+RFN="$(sed -n '/^redact() {/,/^}/p' "$SCRIPT")"
+rshow() { LC_ALL="$1" bash -c "$RFN"'; for n in "" a ab abc "$(printf "jos\303\251")"; do printf "[%s]" "$(redact "$n")"; done' 2>&1; }
+expect "redact keeps a two-unit prefix at lengths 0 to 3 and a multibyte name (C, bytes)" \
+  "[][a][ab][ab*][jo***]" "$(rshow C)"
+R217U="$(locale -a 2>/dev/null | grep -i 'utf' | head -1)"
+if [ -n "$R217U" ]; then
+  expect "and under a UTF-8 locale the multibyte name masks characters, as before" \
+    "[][a][ab][ab*][jo**]" "$(rshow "$R217U")"
+else
+  ok "(skipped, no UTF-8 locale on this machine) the multibyte redact case"
+fi
+expect "the bash redact guards k <= 0 before slicing" 1 "$(grep -cF 'if [ "$k" -le 0 ]; then printf' "$SCRIPT")"
+expect "the bash redact builds its mask by doubling" 1 "$(grep -cF 's="$s$s"' "$SCRIPT")"
+expect "the awk redact keeps its per-character loop (ledger)" 1 "$(grep -cF 'o = o "*"' "$SCRIPT")"
+expect "and the header records why, and that the ledger pins a decision" 1 "$(grep -cF 'pins this DECISION, not behaviour' "$SCRIPT")"
+MUTAWK="$WORK/mutant-awk-redact.sh"
+sed 's/o = o "\*"/o = sprintf("%s*", o)/' "$SCRIPT" > "$MUTAWK"
+expect "a rewritten awk loop fails the ledger (0 where 1 is expected)" 0 "$(grep -cF 'o = o "*"' "$MUTAWK")"
+for n in a ab; do
+  printf '%s\n' "$n" > "$WORK/short-$n"
+  "$SCRIPT" --list "$WORK/short-$n" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "a length-${#n} entry refuses the run" 2 "$?"
+  contains "'$n' is too short" "$(cat "$WORK/err.txt")" "and names '$n' unmasked, as before"
+  expect "and stderr holds only the two-line refusal (no slice error)" 2 "$(wc -l < "$WORK/err.txt" | tr -d ' ')"
+  lacks "substring" "$(cat "$WORK/err.txt")" "with no bash substring error"
+done
+
 echo "== --history: the mutant proves the byte counting is load-bearing =="
 mkrepo forged
 ( cd "$HREPO" && printf '0000000000000000000000000000000000000000 blob 999999\nsecretproj\n' > forged.md && git add forged.md && git commit -qm forged ) >/dev/null 2>&1

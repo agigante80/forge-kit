@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 31
+# check-public-leaks-version: 32
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
@@ -78,20 +78,18 @@
 # which a 262144-byte dot-tail case in the suite pins with a mutant, and a trailing slash is
 # tested before it is stripped rather than through `${m%/}`, which tries every suffix when the
 # string does not end in one. A 64 KB punctuation tail cost 40 s and now costs 0.15 s; 1 MB took
-# 2 s unloaded and 3.7 s under load. The REDACTED `--history` report is still quadratic in the
-# match, which is #217 and is not claimed here. Measured on bash 5.2.21 and glibc; this
-# repository's stated floor is bash 3.2.57, where the COST is unmeasured. Correctness does not
-# rest on that floor behaving: a failed tail match falls back to the byte loop, so an engine that
+# 2 s unloaded and 3.7 s under load. The REDACTED `--history` report is linear too (#217): redact
+# builds its mask by doubling and the home arms cut the segment with IFS=/ read, and the suite
+# times a 256 KB email match and 1 MB home-path and home-root segments under a UTF-8 locale.
+# Measured on bash 5.2.21 and glibc; this repository's stated floor is bash 3.2.57, where the
+# COST is unmeasured. Correctness does not rest on that floor behaving: a failed tail match falls back to the byte loop, so an engine that
 # does not reload the locale the way `local LC_ALL=C` expects reports a finding slowly rather
 # than missing it (review of #239).
 # Rule C is linear in the line length in both modes: the anchored
 # RE_MAIL keeps grep on its DFA, LC_ALL=C on the tree-mode grep keeps it there under any locale,
 # and judge() splits the address with `IFS=@ read` rather than `${addr#*@}`. A 1 MB token followed
 # by an address costs 0.08 s where it once cost minutes, which is what matters: a hook that stalls
-# is a hook that gets --no-verify, and that is how this guard gets removed. Two things are NOT
-# linear and are #217 rather than part of that claim: `redact`'s append loop, so a REDACTED
-# --history report over a long match is still slow (20 s at 128 KB, 81 s at 256 KB, four times per
-# doubling), which is why the timing cases that use a glued match pass --show-evidence.
+# is a hook that gets --no-verify, and that is how this guard gets removed.
 #
 # THREE SHAPES THIS DELIBERATELY DOES NOT REPORT, the first two consequences of the above, each
 # pinned by a test case so they cannot be rediscovered as bugs:
@@ -565,18 +563,26 @@ report() { printf '%s:%s: %s: %s\n' "$1" "$2" "$3" "$4"; violations=$((violation
 
 # Two leading characters and stars for the rest, the private half's shape. Applied in --history
 # only, because that report is a pre-publish artifact and the likeliest thing to be pasted.
+# LINEAR (#217): the length is counted once and the mask is built by doubling. A per-character
+# loop that recounts ${#n} is quadratic under a UTF-8 locale (41 s at 128 KB), and a slow default
+# pushes the operator to --show-evidence, which prints the secret. The k <= 0 guard runs BEFORE any
+# slice: a negative length in ${s:0:k} is an error on bash 3.2, and on bash 5 too for a length-0
+# input (k = -2), so lengths 0 to 2 print the input itself, exactly as ${1:0:2} always did.
 redact() {
-  local n="$1" out="${1:0:2}" i
-  for ((i = 2; i < ${#n}; i++)); do out+='*'; done
-  printf '%s' "$out"
+  local n="$1" k=$(( ${#1} - 2 )) s='*'
+  if [ "$k" -le 0 ]; then printf '%s' "$n"; return; fi
+  while [ ${#s} -lt "$k" ]; do s="$s$s"; done
+  printf '%s%s' "${n:0:2}" "${s:0:k}"
 }
 show_evidence() {  # show_evidence <rule> <evidence>: what the report prints for it
   if [ "$MODE" != history ] || [ "$SHOW_EVIDENCE" = 1 ]; then printf '%s' "$2"; return; fi
   local e="$2" root seg
   case "$1" in
-    home-path) root="${e%%/*}"; e="${e#/}"; root="/${e%%/*}"; e="${e#*/}"; seg="${e%%/*}"
+    # IFS=/ read, not seg="${e%%/*}": on a segment of any length that cut is quadratic under a
+    # UTF-8 locale (76 s at 1 MB), the shape rule C's IFS=@ read already avoids (#211, #217).
+    home-path) root="${e%%/*}"; e="${e#/}"; root="/${e%%/*}"; e="${e#*/}"; IFS=/ read -r seg _ <<< "$e"
                printf '%s/%s/' "$root" "$(redact "$seg")" ;;
-    home-root) e="${e#\~/}"; seg="${e%%/*}"; printf '~/%s/' "$(redact "$seg")" ;;
+    home-root) e="${e#\~/}"; IFS=/ read -r seg _ <<< "$e"; printf '~/%s/' "$(redact "$seg")" ;;
     *)         printf '%s' "$(redact "$e")" ;;
   esac
 }

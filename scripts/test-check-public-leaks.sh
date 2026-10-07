@@ -1537,6 +1537,101 @@ else
   ok "(skipped, no UTF-8 locale on this machine) the locale mutant"
 fi
 
+# --- #217: the REDACTED --history report is linear too ----------------------------------------
+# redact() recounted ${#n} on every pass of a per-character loop, which is O(n) per count under a
+# UTF-8 locale and so quadratic, and show_evidence's home arms cut the whole match with
+# seg="${e%%/*}", quadratic there too. The default (redacted) run was over 60 times slower than
+# --show-evidence at 128 KB. The fix builds the mask by doubling and splits the segment with
+# IFS=/ read. The email case keeps `bounded 10`; the two home cases are sized at 1,048,576 bytes
+# (smaller sizes did not discriminate on every machine) and take `bounded 20`, because on bash
+# 3.2.57 the FIXED scanner needs 5 to 6 s there, past the 5 s line this section applies to a
+# 10 s bound. MEASURED 2026-10-07 (bash 5.2.21 / 3.2.57): fixed home cases 1.3 to 1.6 s / 5.1 to
+# 5.9 s; the restored-cut mutants 59 s and 76 s of CPU uncapped on bash 5, 57.7 s and 58.5 s on
+# bash 3.2.57, killed at 20.0 s (124) and 23.0 s (137) respectively.
+echo "== #217: redaction keeps a two-unit prefix at every length =="
+mkrepo redact217edge
+hcommit e.md '/home/a/x\n/home/ab/x\n/home/abc/x\n~/a/x\n'
+hrun --history; expect "lengths 1 to 3 are reported" 1 "$RC"
+contains ":1: home-path: /home/a/" "$OUT" "length 1 is printed whole (shorter than the prefix), as before"
+contains ":2: home-path: /home/ab/" "$OUT" "length 2 is printed whole (exactly the prefix), as before"
+contains ":3: home-path: /home/ab*/" "$OUT" "length 3 masks one unit"
+contains ":4: home-root: ~/a/" "$OUT" "a length-1 ~/ root is printed whole"
+expect "and nothing is written to stderr at lengths 1 and 2 (bash 3.2 errors on a negative slice)" "" "$ERR"
+expect "redact guards k <= 0 before slicing" 1 "$(grep -cF 'if [ "$k" -le 0 ]; then printf' "$SCRIPT")"
+expect "redact builds its mask by doubling" 1 "$(grep -cF 's="$s$s"' "$SCRIPT")"
+expect "no per-character loop remains in redact" 0 "$(sed -n '/^redact() {/,/^}/p' "$SCRIPT" | grep -cE 'for \(\(|out\+=')"
+MUTH="$WORK/mutant-hash-mask.sh"
+sed "s/ s='\\*'\$/ s='#'/" "$SCRIPT" > "$MUTH"; chmod +x "$MUTH"
+expect "the # mask mutant changes exactly the mask seed" 1 "$(grep -c " s='#'\$" "$MUTH")"
+mkrepo redact217hash
+hcommit three.md '/home/alice/x\n~/secret-clients/y\nalice@corp.io\n'
+OUT="$( cd "$HREPO" && "$MUTH" --history 2>/dev/null )"
+contains ':3: email: al' "$OUT" "the # mask mutant still reports the address"
+if grep -qF ':3: email: al***********' <<< "$OUT"; then bad "the # mask mutant passes the ':3: email: al***********' row"
+else ok "the # mask mutant fails the ':3: email: al***********' row by name"; fi
+
+if [ -n "$ANYUTF8" ]; then
+  mkrepo redact217mb
+  hcommit m.md '/home/jos\303\251/x\n'
+  OUT="$( cd "$HREPO" && LC_ALL="$ANYUTF8" "$SCRIPT" --history 2>"$WORK/e217" )"; rc=$?
+  expect "a multibyte segment is reported" 1 "$rc"
+  contains ":1: home-path: /home/jo**/" "$OUT" "the mask counts characters under UTF-8, as before"
+  expect "and nothing is written to stderr" "" "$(cat "$WORK/e217")"
+
+  # The extracted evidence is checked with awk and tr, never a bash expansion, which would be the
+  # quadratic this section is about.
+  echo "== #217: redaction is linear in the match length, under a UTF-8 locale =="
+  ev217() { printf '%s\n' "$1" | sed -n "s/.*:1: $2: //p"; }
+  W217="$PWD"
+  mkrepo redact217mail
+  cp "$GLUED" "$HREPO/glued.md"; ( cd "$HREPO" && git add glued.md && git commit -qm glued ) >/dev/null 2>&1
+  t0="$(date +%s)"; OUT="$( cd "$HREPO" && LC_ALL="$ANYUTF8" bounded 10 "$SCRIPT" --history 2>/dev/null )"; rc=$?; el=$(( $(date +%s) - t0 ))
+  expect "a 256 KB address is reported REDACTED within bounded 10 (--history, UTF-8; ${el} s)" 1 "$rc"
+  contains "glued.md@" "$OUT" "at its path"
+  lacks "corp.io" "$OUT" "with no domain in the report"
+  expect "the evidence is aa then only *" "aa" "$(ev217 "$OUT" email | LC_ALL=C tr -d '*')"
+  expect "and the mask covers every other byte" 262152 "$(ev217 "$OUT" email | LC_ALL=C awk '{ print length($0) }')"
+  OLDR="$(cat <<'EOF'
+  local n="$1" out="${1:0:2}" i
+  for ((i = 2; i < ${#n}; i++)); do out+='*'; done
+  printf '%s' "$out"
+EOF
+)"
+  MUTR="$WORK/mutant-redact-loop.sh"
+  inr=0
+  while IFS= read -r l; do
+    if [ "$l" = 'redact() {' ]; then printf '%s\n%s\n' "$l" "$OLDR"; inr=1
+    elif [ "$inr" = 1 ]; then [ "$l" = '}' ] && { printf '}\n'; inr=0; }
+    else printf '%s\n' "$l"; fi
+  done < "$SCRIPT" > "$MUTR"; chmod +x "$MUTR"
+  expect "the loop mutant drops the doubling mask" 0 "$(grep -cF 's="$s$s"' "$MUTR")"
+  expect "and the no-loop ledger sees its per-character loop" 1 "$(sed -n '/^redact() {/,/^}/p' "$MUTR" | grep -cE 'for \(\(|out\+=')"
+  cd "$HREPO"
+  killed_at_bound "the per-character redact mutant is killed at the bound under UTF-8 (124, or the escalation's 137)" 10 env LC_ALL="$ANYUTF8" "$MUTR" --history
+  cd "$W217"
+
+  HP="$WORK/home-path-1m.md"; { printf '/home/'; head -c 1048576 /dev/zero | tr '\0' a; printf '/\n'; } > "$HP"
+  HR="$WORK/home-root-1m.md"; { printf '~/'; head -c 1048576 /dev/zero | tr '\0' a; printf '/\n'; } > "$HR"
+  expect "the scanner splits both home arms with IFS=/ read -r" 2 "$(grep -c 'IFS=/ read -r' "$SCRIPT")"
+  for arm in home-path home-root; do
+    if [ "$arm" = home-path ]; then fx="$HP"; pre='/home/aa'; else fx="$HR"; pre='~/aa'; fi
+    mkrepo "redact217-$arm"
+    cp "$fx" "$HREPO/h.md"; ( cd "$HREPO" && git add h.md && git commit -qm h ) >/dev/null 2>&1
+    t0="$(date +%s)"; OUT="$( cd "$HREPO" && LC_ALL="$ANYUTF8" bounded 20 "$SCRIPT" --history 2>/dev/null )"; rc=$?; el=$(( $(date +%s) - t0 ))
+    expect "a 1 MB $arm segment is reported REDACTED within bounded 20 (UTF-8; ${el} s)" 1 "$rc"
+    expect "the $arm evidence is $pre, then only *, then /" "$pre/" "$(ev217 "$OUT" "$arm" | LC_ALL=C tr -d '*')"
+    expect "and the $arm mask covers every other byte" "$(( ${#pre} + 1048574 + 1 ))" "$(ev217 "$OUT" "$arm" | LC_ALL=C awk '{ print length($0) }')"
+    MUTC="$WORK/mutant-cut-$arm.sh"
+    sed "/^ *$arm)/s|IFS=/ read -r seg _ <<< \"\$e\"|seg=\"\${e%%/*}\"|" "$SCRIPT" > "$MUTC"; chmod +x "$MUTC"
+    expect "the $arm cut mutant keeps only the other arm's IFS=/ read -r" 1 "$(grep -c 'IFS=/ read -r' "$MUTC")"
+    cd "$HREPO"
+    killed_at_bound "the $arm whole-match cut mutant is killed at the bound under UTF-8 (124, or the escalation's 137)" 20 env LC_ALL="$ANYUTF8" "$MUTC" --history
+    cd "$W217"
+  done
+else
+  ok "(skipped, no UTF-8 locale on this machine) the #217 multibyte, timing and mutant cases"
+fi
+
 # --- #239: the tail walk is LINEAR, and the strip stays a strip ------------------------------
 # Rules A and B walk a punctuation tail through strip_tail and in_list_stripping. Per byte, both
 # were quadratic (bash parameter expansion is O(n) per operation), so a pathological tail took

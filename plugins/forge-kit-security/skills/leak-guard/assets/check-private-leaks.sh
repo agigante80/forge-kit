@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 22
+# check-private-leaks-version: 23
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -87,6 +87,14 @@
 # redaction under `--history` stays a substring match for every entry, so a token inside a longer
 # path segment is over-redacted in the printed PATH, the safe direction. Multiple `-f` and `-Fwoi`
 # on BSD grep are an unverified limit until #220's harness exists.
+#
+# REDACTION COST (#217). The bash `redact` counts the length once and builds its mask by doubling,
+# as the public half's does, so it is linear in any locale. The awk `redact` that --history uses is
+# LEFT as a per-character loop on purpose: its input is always a listed name, so its cost is bounded
+# by a list entry (262,144 bytes cost gawk 0.16 s, mawk 5.3 s, busybox awk 71 s), and the one
+# pre-filter `grep -aiF` before it is slower at every size, so the awk loop is never the first thing
+# to stall. The suite's text-count ledger on that loop pins this DECISION, not behaviour: a change to
+# the awk copy updates the ledger and this paragraph together.
 #
 # For the going-public case, run a credential scanner as well: `gitleaks git .` walks the whole
 # history for SECRETS rather than identity, so it is a companion and not a substitute.
@@ -312,10 +320,13 @@ fi
 
 # Two leading characters and the length, which is enough for the owner to recognise their own name
 # and not enough for a reader of a pasted transcript to learn it.
+# Linear (#217): one length count, a doubled mask, and the k <= 0 guard BEFORE any slice, since a
+# negative length in ${s:0:k} is an error on bash 3.2 and, for a length-0 input, on bash 5 too.
 redact() {
-  local n="$1" out="${1:0:2}" i
-  for ((i = 2; i < ${#n}; i++)); do out+='*'; done
-  printf '%s' "$out"
+  local n="$1" k=$(( ${#1} - 2 )) s='*'
+  if [ "$k" -le 0 ]; then printf '%s' "$n"; return; fi
+  while [ ${#s} -lt "$k" ]; do s="$s$s"; done
+  printf '%s%s' "${n:0:2}" "${s:0:k}"
 }
 
 # The account that owns this repository on a PUBLIC forge is public by definition: it is in the
