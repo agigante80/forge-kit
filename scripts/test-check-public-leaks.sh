@@ -800,6 +800,17 @@ contains "keep.md@" "$OUT" "reported at that path"
 mkrepo locks
 ( cd "$HREPO" && printf 'same /home/alice/x\n' > aaa.lock && cp aaa.lock bbb.lock && git add aaa.lock bbb.lock && git commit -qm locks ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "content that only ever lived in lockfiles is not reported" 0 "$rc"
+# #207: allow entries reach --history. A root and an email silence only their own value, and a
+# multi-segment root is refused rather than ignored.
+mkrepo allowhist
+( cd "$HREPO" && printf 'see ~/foo/ and ab@cd.io here\n' > a.md && git add a.md && git commit -qm allowhist ) >/dev/null 2>&1
+hrun --history; expect "a root and an address are reported without an allow-file" 1 "$RC"
+printf 'root ~/foo\nemail ab@cd.io\n' > "$WORK/hallow2"
+hrun --history --allow-file "$WORK/hallow2"; expect "a root and an email entry silence exactly those values in history" 0 "$RC"
+( cd "$HREPO" && printf 'see ~/bar/ here\n' > b.md && git add b.md && git commit -qm other ) >/dev/null 2>&1
+hrun --history --allow-file "$WORK/hallow2"; expect "a different root is still reported" 1 "$RC"
+printf 'root ~/foo/deeper\n' > "$WORK/hallow3"
+hrun --history --allow-file "$WORK/hallow3"; expect "a multi-segment root is refused (exit 2)" 2 "$RC"
 # A merge commit resolved to content in neither parent, and a file that exists only in the merge:
 # without -m on the path map, neither has an entry and the every-path rule would skip them vacuously.
 mkrepo merge
