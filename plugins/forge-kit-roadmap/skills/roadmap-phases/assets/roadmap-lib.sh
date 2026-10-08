@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 9
+# roadmap-lib-version: 10
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -119,8 +119,10 @@ parse_roadmap() {
 # puts the value in that one command's environment and leaves nothing behind in the caller's.
 # The rule covers DERIVED text too, not only what a caller typed: a temp path built from the
 # roadmap's own directory carries whatever that directory is named, so the three sites that pass a
-# filename to awk pass it the same way. What `-v` may still carry is a line number, this library's
-# own `state`/`plan` literal, and awk's `OFS`; the suite allow-lists exactly those names.
+# filename to awk pass it the same way. No `-v` remains in this file (#412): line numbers and the
+# `state`/`plan` key go through RM_S/RM_E/RM_AT/RM_K and are read in BEGIN with `+ 0`, and `OFS` is
+# a program literal, `BEGIN { OFS = "\t" }`, never ENVIRON, because the awk lexer processes the
+# `\t` there while ENVIRON keeps it as two bytes (the parse-back check then refuses the write).
 #
 # THE WRITER'S EXTENT IS NARROWER THAN THE PARSER'S, on purpose: a block runs to the next `## `
 # line, not the next `## Phase:`, so a trailing `## Notes` section is never absorbed into the prose
@@ -191,8 +193,8 @@ _rm_end_point() {
 # and have nothing left to separate.
 _rm_split() {
   : > "$4"; : > "$5"
-  RM_BO="$4" RM_SO="$5" awk -v s="$2" -v e="$3" '
-    BEGIN { bo = ENVIRON["RM_BO"]; so = ENVIRON["RM_SO"] }
+  RM_BO="$4" RM_SO="$5" RM_S="$2" RM_E="$3" awk '
+    BEGIN { bo = ENVIRON["RM_BO"]; so = ENVIRON["RM_SO"]; s = ENVIRON["RM_S"] + 0; e = ENVIRON["RM_E"] + 0 }
     { lines[NR] = $0 }
     END {
       last = e - 1
@@ -288,7 +290,8 @@ _rm_one_open() {
 # _rm_keyed <file> <start> <end> <key> -> how many column-0 `<key>:` lines the block carries.
 # The key is this library's own literal, `state` or `plan`, never caller text.
 _rm_keyed() {
-  awk -v s="$2" -v e="$3" -v k="$4" 'NR > s && NR < e && index($0, k ":") == 1 { n++ } END { print n + 0 }' < "$1"
+  RM_S="$2" RM_E="$3" RM_K="$4" awk 'BEGIN { s = ENVIRON["RM_S"] + 0; e = ENVIRON["RM_E"] + 0; k = ENVIRON["RM_K"] }
+    NR > s && NR < e && index($0, k ":") == 1 { n++ } END { print n + 0 }' < "$1"
 }
 
 _rm_prepare() {  # _rm_prepare <file> <phase> -> sets RM_START, RM_END; refuses otherwise
@@ -316,9 +319,10 @@ roadmap_set_state() {
     open="$(_rm_one_open "$f" "$phase")"
     [ -z "$open" ] || { _rm_die "'$open' is already open; at most one phase is open at a time" 5; return 5; }
   fi
-  RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" RM_V="$st" awk -F'\t' -v OFS='\t' '$1 == ENVIRON["RM_P"] { $2 = ENVIRON["RM_V"] } { print }')"
+  RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" RM_V="$st" awk -F'\t' 'BEGIN { OFS = "\t" } $1 == ENVIRON["RM_P"] { $2 = ENVIRON["RM_V"] } { print }')"
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  RM_V="$st" awk -v s="$RM_START" -v e="$RM_END" '
+  RM_V="$st" RM_S="$RM_START" RM_E="$RM_END" awk '
+    BEGIN { s = ENVIRON["RM_S"] + 0; e = ENVIRON["RM_E"] + 0 }
     NR > s && NR < e && index($0, "state:") == 1 { print "state: " ENVIRON["RM_V"]; next } { print }
   ' < "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
@@ -336,9 +340,10 @@ roadmap_set_plan() {
   _rm_prepare "$f" "$phase" || return $?
   [ "$(_rm_keyed "$f" "$RM_START" "$RM_END" plan)" = 1 ] || {
     _rm_die "the '$phase' block carries no single column-0 plan line; a writer cannot act on it" 5; return 5; }
-  RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" RM_V="$path" awk -F'\t' -v OFS='\t' '$1 == ENVIRON["RM_P"] { $3 = ENVIRON["RM_V"] } { print }')"
+  RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" RM_V="$path" awk -F'\t' 'BEGIN { OFS = "\t" } $1 == ENVIRON["RM_P"] { $3 = ENVIRON["RM_V"] } { print }')"
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  RM_V="$path" awk -v s="$RM_START" -v e="$RM_END" '
+  RM_V="$path" RM_S="$RM_START" RM_E="$RM_END" awk '
+    BEGIN { s = ENVIRON["RM_S"] + 0; e = ENVIRON["RM_E"] + 0 }
     NR > s && NR < e && index($0, "plan:") == 1 {
       v = ENVIRON["RM_V"]; print (v == "" ? "plan:" : "plan: " v); next
     } { print }
@@ -370,7 +375,8 @@ roadmap_set_prose() {
   # a set_prose fix. (2) A keyed-only block at EOF followed by one or two trailing blank lines is
   # normalised once to the canonical shape and is a fixed point after that; two trailing blanks
   # used to be the fixed point and no longer are. Empty prose over existing prose is a real edit.
-  RM_PROSE="$prose" awk -v s="$RM_START" -v e="$RM_END" '
+  RM_PROSE="$prose" RM_S="$RM_START" RM_E="$RM_END" awk '
+    BEGIN { s = ENVIRON["RM_S"] + 0; e = ENVIRON["RM_E"] + 0 }
     NR <= s { print; next }
     NR >= e { if (!done) { if (ENVIRON["RM_PROSE"] != "") printf "\n%s\n\n", ENVIRON["RM_PROSE"]; else print ""; done = 1 } print; next }
     index($0, "state:") == 1 || index($0, "plan:") == 1 { print; next }
@@ -416,7 +422,8 @@ roadmap_insert_at() {
     RM_EXPECT="$(parse_roadmap "$f"; printf '%s\n' "$row")"
   fi
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  RM_NAME="$name" RM_STATE="$st" RM_PLAN="$plan" RM_PROSE="$prose" awk -v at="$at" '
+  RM_NAME="$name" RM_STATE="$st" RM_PLAN="$plan" RM_PROSE="$prose" RM_AT="$at" awk '
+    BEGIN { at = ENVIRON["RM_AT"] + 0 }
     # Empty prose emits no lead blank and no prose line (the canonical shape set_prose also
     # writes, #270). The separators stay position-owned, below. With --end on a file whose last
     # line is not blank the insert therefore ends at the plan line; remove restores the original
@@ -474,8 +481,8 @@ roadmap_reorder() {
     --end)
       at="$(_rm_end_point "$cand.strip")" ;;
   esac
-  RM_BF="$cand.body" awk -v at="$at" '
-    BEGIN { bf = ENVIRON["RM_BF"] }
+  RM_BF="$cand.body" RM_AT="$at" awk '
+    BEGIN { bf = ENVIRON["RM_BF"]; at = ENVIRON["RM_AT"] + 0 }
     NR == at { while ((getline l < bf) > 0) print l; print ""; done = 1 }
     { prev = $0; print }
     END { if (!done) { if (prev != "") print ""; while ((getline l < bf) > 0) print l } }
@@ -515,9 +522,9 @@ roadmap_rename() {
   [ -n "$f" ] && [ -n "$old" ] && [ -n "$new" ] || { _rm_die "usage: roadmap_rename <file> <old> <new>"; return 2; }
   _rm_prepare "$f" "$old" || return $?
   case "$(_rm_block "$f" "$new")" in NONE) ;; *) _rm_die "a phase named '$new' is already in the roadmap" 5; return 5 ;; esac
-  RM_EXPECT="$(parse_roadmap "$f" | RM_O="$old" RM_N="$new" awk -F'\t' -v OFS='\t' '$1 == ENVIRON["RM_O"] { $1 = ENVIRON["RM_N"] } { print }')"
+  RM_EXPECT="$(parse_roadmap "$f" | RM_O="$old" RM_N="$new" awk -F'\t' 'BEGIN { OFS = "\t" } $1 == ENVIRON["RM_O"] { $1 = ENVIRON["RM_N"] } { print }')"
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  RM_N="$new" awk -v s="$RM_START" 'NR == s { print "## Phase: " ENVIRON["RM_N"]; next } { print }' < "$f" > "$cand" \
+  RM_N="$new" RM_S="$RM_START" awk 'BEGIN { s = ENVIRON["RM_S"] + 0 } NR == s { print "## Phase: " ENVIRON["RM_N"]; next } { print }' < "$f" > "$cand" \
     || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"
   [ "$rc" = 0 ] && printf 'roadmap-lib: renamed in the roadmap only. forge-lib.sh has no milestone rename, so the host still carries the milestone titled "%s" with its tickets; create "%s" and move them, or the phase reads empty while all four rules pass.\n' "$old" "$new" >&2

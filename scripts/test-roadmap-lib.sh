@@ -581,27 +581,16 @@ echo "== portability: this library installs onto a bash 3.2 laptop =="
 # file already uses to stay portable. What this pins is that the primitives added no NEW one.
 expect "no bash-4 case expansion in the write primitives" 0 "$(sed -n '/--- the WRITE primitives/,$p' "$LIB" | grep -cE '\$\{[A-Za-z_][A-Za-z0-9_]*,,\}|\$\{[A-Za-z_][A-Za-z0-9_]*\^\^\}')"
 expect "no GNU readlink -f" 0 "$(grep -c 'readlink -f' "$LIB")"
-# The previous shape of this assertion was VACUOUS and a review caught it: it required the shell
-# variable to be literally named `prose` or `text`, and the library calls it RM_PROSE, so the count
-# was 0 whatever the file said. Key on the invariant instead. Every `-v` in this file may carry
-# only a line number, a literal key, a filename this library made, or awk's own OFS; caller text
-# has exactly one route, and it is ENVIRON. It matters more than an ordinary vacuous check, because
-# the symptom is invisible here: under gawk an `-v` mutant works, and it is Apple's awk (#205) that
-# refuses a newline, so CI would never see the regression this line is the only guard against.
-# CODE lines only: the header names the banned `awk -v x="$v"` shape on purpose, to say why it is
-# banned, and a flat grep would fail the library for documenting its own rule.
-expect "no awk -v carries anything but a number, a literal key or OFS" 0 \
-  "$(grep -v '^[[:space:]]*#' "$LIB" | grep -oE '\-v [A-Za-z_]+=' | sed 's/-v //; s/=//' | grep -vxE 's|e|k|at|OFS' | grep -c .)"
 # USES per primitive, not lines: the old line count (3) stayed 3 when a read moved off ENVIRON on a
 # line that carries two. set_prose has four uses on two lines, insert_at two on one.
 prose_uses() { sed -n "/^$1()/,/^}/p" "$LIB" | grep -o 'ENVIRON\["RM_PROSE"\]' | wc -l | tr -d ' '; }
 expect "roadmap_set_prose reads its prose through ENVIRON, four uses" 4 "$(prose_uses roadmap_set_prose)"
 expect "roadmap_insert_at reads its prose through ENVIRON, two uses" 2 "$(prose_uses roadmap_insert_at)"
 
-echo "== awk -v ratchet and no awk file operand (#405) =="
-# roadmap-lib.sh still passes 11 values through `awk -v` (a follow-up moves them to ENVIRON and
-# lowers this pin to 0); the count may fall, never rise. Its file operands are all redirects.
-. "$ROOT/scripts/awkv-count.sh"; awkv_checks roadmap-lib.sh "$LIB" "$T" 11
+echo "== no awk -v and no awk file operand (#405, #412) =="
+# roadmap-lib.sh carries no `awk -v` (#412 moved its values to ENVIRON; the three OFS sites are a
+# program literal, `BEGIN { OFS = "\t" }`, covered below). Its file operands are all redirects.
+. "$ROOT/scripts/awkv-count.sh"; awkv_checks roadmap-lib.sh "$LIB" "$T"
 # #413: a MALFORMED phase FIRST, then 2000 well-formed ones, so parse_roadmap prints over 64 KiB.
 # `printf | grep -q '^MALFORMED'` under pipefail lost that first-row match in 186 to 198 runs of 200
 # unloaded (grep exits at the match, printf takes SIGPIPE, the pipeline reads 141, the refusal is
@@ -618,11 +607,27 @@ if cmp -s "$LIB" "$T/rl-pipe.sh"; then bad "#413: mutant: the pipe form was not 
 elif [ "$n3" -lt 3 ]; then ok "#413: mutant: the pipe form lets a writer through ($((3 - n3)) of 3 calls)"
 else bad "#413: mutant: the pipe form still refused all three calls"; fi
 rm -f "$T/big.md" "$T/big.orig" "$T/rl-pipe.sh"
-expect "roadmap-lib.sh counts exactly the 11 pinned awk -v lines today" 11 "$(awkv_count "$LIB")"
+# #412: the three OFS sites are a program literal. Through ENVIRON the value would stay the two
+# bytes backslash, t, so the writer would emit a literal backslash-t between columns and the
+# parse-back check must refuse it (rc 3, file untouched). The positive row is the real library; the
+# negative row is a scratch copy whose OFS reads ENVIRON, run with RM_OFS holding backslash, t.
+fixture "$T/ofs.md"; cp "$T/ofs.md" "$T/ofs.orig"
+run roadmap_set_state "$T/ofs.md" Beta backlog
+expect "#412: set_state (a BEGIN { OFS = tab } site) succeeds" 0 "$RC"
+expect "#412: and the parsed Beta row is three TAB-separated columns carrying the new state" "Beta|backlog|docs/plans/beta.md" "$(. "$LIB"; parse_roadmap "$T/ofs.md" | awk -F'\t' '$1 == "Beta" && NF == 3 { print $1 "|" $2 "|" $3 }')"
+fixture "$T/ofs.md"
+sed '/^[[:space:]]*#/!s/BEGIN { OFS = "\\t" }/BEGIN { OFS = ENVIRON["RM_OFS"] }/' "$LIB" > "$T/rl-ofs.sh"
+if [ "$(grep -c 'ENVIRON\["RM_OFS"\]' "$T/rl-ofs.sh")" != 3 ]; then bad "#412: mutant: the OFS-via-ENVIRON copy was not built (three sites expected)"
+else
+  RC=$( ( . "$T/rl-ofs.sh"; RM_OFS='\t' roadmap_set_state "$T/ofs.md" Beta backlog >/dev/null 2>"$T/err"; echo $? ) ); ERR="$(cat "$T/err")"
+  expect "#412: MUTANT: OFS read from ENVIRON exits 3" 3 "$RC"
+  contains "the parser reads the result differently from what that edit meant to write; nothing changed" "$ERR" "#412: MUTANT: and says the parse-back refused it"
+  expect "#412: MUTANT: and the roadmap is byte-identical" "" "$(diff "$T/ofs.orig" "$T/ofs.md")"
+fi
 { cat "$LIB"; printf '%s\n' "x=\$(awk -v y=1 '{print y}' < /dev/null)"; } > "$T/rl-ratchet.sh"
-n=$(awkv_count "$T/rl-ratchet.sh")
-[ "$n" = 12 ] && [ "$n" -gt 11 ] && ok "MUTANT: one more awk -v line counts 12, above the pin of 11, and would fail the ratchet" \
-  || bad "MUTANT: the ratchet mutant counted $n"
+expect "#412: MUTANT: one restored awk -v line counts 1 against the pin of 0" 1 "$(awkv_count "$T/rl-ratchet.sh")"
+expect "#412: and the real library counts 0" 0 "$(awkv_count "$LIB")"
+rm -f "$T/ofs.md" "$T/ofs.orig" "$T/rl-ofs.sh" "$T/rl-ratchet.sh"
 
 echo ""
 echo "roadmap-lib tests: $pass passed, $fail failed"
