@@ -1150,6 +1150,15 @@ MEA_ADVISE = [
     ("wrapper word", "time bash scripts/test-x.sh | tail"),
     ("inside $( )", 'out=$(bash scripts/test-x.sh | tail -5); echo "$out"'),
     ("inside bash -c", "bash -c 'make test | tail'"),
+    ("line continuation before the pipe", "pytest -k foo \\\n  | tail"),
+    ("line continuation inside the check", "pytest \\\n -q | tail"),
+    ("inside if", "if pytest | tail; then echo x; fi"),
+    ("inside for/do", "for f in a; do pytest | tail; done"),
+    ("inside braces", "{ bash scripts/test-x.sh | tail; }"),
+    ("negated", "! pytest | tail"),
+    ("empty-string argument", "bash scripts/test-x.sh '' | tail"),
+    ("here-string is not a heredoc", "cat <<< foo\nbash scripts/test-x.sh | tail\nfoo\n"),
+    ("bash -c nested to exactly depth 2", "bash -c \"bash -c 'make test | tail'\""),
     ("multi-line command", "echo start\nbash scripts/test-x.sh | tail\necho done"),
     ("later pipeline after a clean one", "echo a | cat; bash scripts/test-x.sh | tail"),
     ("a mere set -e does not neutralise", "set -e; bash scripts/test-x.sh | tail"),
@@ -1171,6 +1180,8 @@ MEA_QUIET = [
     ("redirect to a file", "bash scripts/test-x.sh > out.txt 2>&1; tail out.txt"),
     ("pipefail via set -o", "set -o pipefail; bash scripts/test-x.sh | tail -5"),
     ("pipefail via bash -o", "bash -o pipefail -c 'make test | tail'"),
+    ("pipefail via set -eo", "set -eo pipefail; bash scripts/test-x.sh | tail"),
+    ("bare $PIPESTATUS read", "bash scripts/test-x.sh | tail; echo $PIPESTATUS"),
     ("pipefail via setopt", "setopt pipefail; bash scripts/test-x.sh | tail"),
     ("PIPESTATUS read", 'bash scripts/test-x.sh | tail -5; echo "${PIPESTATUS[0]}"'),
     ("pipestatus read (zsh)", 'bash scripts/test-x.sh | tail -5; echo "$pipestatus[1]"'),
@@ -1225,6 +1236,10 @@ with tempfile.TemporaryDirectory() as td:
     check("mea 200000-char command", mea_out(mea_run(mea_payload("a | " * 50000), proj)), QUIET)
     check("mea oversized command with a real masked check stays silent",
           mea_out(mea_run(mea_payload("bash scripts/test-x.sh | tail " + "x" * 70000), proj)), QUIET)
+    import time
+    t0 = time.monotonic()
+    p = mea_run(mea_payload("<<A\n" * 16000), proj)
+    check("mea many heredoc openers: quiet and fast", (mea_out(p), time.monotonic() - t0 < 5), (QUIET, True))
     deep = "bash -c \"bash -c \\\"bash -c 'make test | tail'\\\"\""
     check("mea nesting beyond the depth cap stays silent", mea_out(mea_run(mea_payload(deep), proj)), QUIET)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# masked-exit-advisory-version: 1
+# masked-exit-advisory-version: 2
 """PostToolUse Bash advisory: a check's exit code is masked by the filter it is piped into (#420).
 
 `bash scripts/test-x.sh | tail -5` exits with the status of `tail`, not of the suite, so a
@@ -31,6 +31,9 @@ pipeline inside `$(...)` within double quotes, a script written then run. A quot
 makes the command unparseable (silent). shlex drops quoting, so a single-quoted
 '${PIPESTATUS[0]}' reads as a neutraliser and a quoted lone `|` reads as an operator. A pipefail
 set AFTER the pipeline still neutralises. A command over 65536 characters is not analysed.
+So is one with more than 20 heredoc openers. A global option before a subcommand (a directory
+flag on the VCS, a prefix flag on the package manager, a timeout wrapper, a runner prefix) hides
+the check, and a quoted hash argument reads as a comment start.
 
 Contract (PostToolUse, advisory only):
   stdin  <- {"tool_name": "Bash", "tool_input": {"command": ...}, "tool_response": {...}, ...}
@@ -72,6 +75,7 @@ ADVISORY = (
 )
 
 # Words that wrap a command without changing which command it is.
+COMPOUND = {"if", "then", "do", "else", "elif", "while", "until", "!", "{"}
 WRAPPERS = {"time", "command", "exec", "env", "nice", "nohup"}
 INTERPRETERS = {"bash", "sh", "zsh", "python", "python3", "node", "npx"}
 SHELLS = {"bash", "sh", "zsh"}
@@ -91,11 +95,14 @@ STATUS_READ = re.compile(r"\$\{?!?(?:PIPESTATUS|pipestatus)\b")
 SHELL_C_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
 # Heredoc bodies are data. Keep the opening line and the terminator, drop the body.
 HEREDOC = re.compile(
-    r"(<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*\n)(.*?)(\n[ \t]*\3[ \t]*(?=\n|\Z))", re.S)
+    r"((?<!<)<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*\n)(.*?)(\n[ \t]*\3[ \t]*(?=\n|\Z))", re.S)
 
 
 def tokenise(command):
     """Word and operator tokens; comments dropped. Raises ValueError on an unbalanced quote."""
+    command = command.replace("\\\n", " ")  # a line continuation joins the lines
+    if command.count("<<") > 20:
+        raise ValueError("too many heredoc openers to scan in linear time")
     command = HEREDOC.sub(lambda m: m.group(1) + m.group(5).lstrip("\n"), command)
     lx = shlex.shlex(command, posix=True, punctuation_chars=PUNCT)
     lx.whitespace_split = True
@@ -116,7 +123,7 @@ def tokenise(command):
 
 
 def is_operator(t):
-    return all(c in PUNCT for c in t)
+    return bool(t) and all(c in PUNCT for c in t)
 
 
 def pipelines(tokens):
@@ -144,7 +151,7 @@ def pipelines(tokens):
 def command_words(words):
     """The stage's words after env assignments and wrappers."""
     i = 0
-    while i < len(words) and (ENV_ASSIGN.match(words[i]) or words[i] in WRAPPERS):
+    while i < len(words) and (ENV_ASSIGN.match(words[i]) or words[i] in WRAPPERS or words[i] in COMPOUND):
         i += 1
     return words[i:]
 
