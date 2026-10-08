@@ -317,9 +317,12 @@ tracks the repository, so users are already served from the default branch.
   `~/forge-kit`) because Step 1 runs in a fresh shell, with a sentinel `FORGE_API_URL` so any
   non-GitHub remote reads as forgejo. It prints `forge-host: <host>`, and a warning when it must default
   to github. Behaviour change: an existing `.forge.conf` or exported `FORGE_HOST` now wins over the
-  remote at install time. The dead `CURRENT_REPO` and `REMOTE_URL` are gone and the template-version
-  read uses the resolved path. New suite `scripts/test-forge-adapt-host.sh`. adapt shrinks 7206 to
-  7199 words and its size baseline is lowered to match.
+  remote at install time; `forge_host` also honours `FORGE_REMOTE` (environment or `.forge.conf`),
+  which the old globs never did. The dead `CURRENT_REPO` and `REMOTE_URL` are gone and the
+  template-version read uses the resolved path. New suite `scripts/test-forge-adapt-host.sh`. adapt
+  shrinks 7206 to 7199 words and its size baseline is lowered to match. The suite now shape-checks
+  the extracted host block before running it (closing marker reached, at most 12 lines, exactly one
+  `^FK=` and one `^FORGE_HOST=`; #327), so a missing, misplaced or over-long block is refused before it runs.
 - **`sync-phases.sh` no longer claims writes a dry run did not make** (#307, sync-phases v7). Under
   `FORGE_DRY_RUN=1` the summary said `created milestone` and `closed milestone` although nothing was
   sent; it now says `would create milestone` and `would close milestone`. A real run is unchanged,

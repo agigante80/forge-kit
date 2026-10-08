@@ -13,6 +13,21 @@
 # warning is printed: a github expectation would otherwise pass vacuously through the fallback.
 #
 # ADAPT_SKILL overrides the file under test (used to mutation-test this suite on a cp copy).
+#
+# Item 2 of #327, stated once so nobody "fixes" it: Setup S2 DISCARDS an exported FORGE_KIT_DIR and
+# decides the library itself, while Step 1's probe HONOURS one (candidate order: FORGE_KIT_DIR, then
+# the marketplace checkout, then ~/forge-kit). The difference is deliberate: S2 refreshes whichever
+# checkout it picks, and Step 1 runs afterwards in a fresh shell, where an exported value is the
+# user's explicit choice. #321 (Decided design item 5) owns the rule; the S2 cases below pin S2's
+# half and the resolution-order cases pin Step 1's.
+#
+# SHAPE GUARD (#327). The host block is cut out of the prose by an awk range, and a range that never
+# closes runs to end of file, handing `bash -ec` hundreds of lines that are only loud by accident
+# (the first prose line that is a syntax error). extract_block refuses before anything executes
+# unless the closing marker was reached while the range was open, the block is at most
+# BLOCK_MAX_LINES lines, and it holds exactly one ^FK= and one ^FORGE_HOST= line. It REPLACES the
+# old `[ -n "$BLOCK" ]` guard: the single guard is `BLOCK=$(extract_block ...) || exit 1`, and the
+# suite has no `set -e`, so removing that `|| exit 1` is what the wiring fixture below catches.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -27,15 +42,71 @@ expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$
 [ -f "$SKILL" ] || { echo "missing skill: $SKILL"; exit 1; }
 [ -f "$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh" ] || { echo "missing forge-lib.sh"; exit 1; }
 
-# The host block: from its leading comment to the line before the next block's comment.
-BLOCK=$(awk '/^# (Forge host|Sentinel)/{p=1} /^# Domain\/pattern sample:/{p=0} p' "$SKILL")
-[ -n "$BLOCK" ] || { echo "could not extract the host block from $SKILL"; exit 1; }
+# extract_block <file>: the host block, from its leading comment to the line before the next block's
+# comment, printed on stdout. Returns 1 with a `host block shape check failed: ...` message on stderr
+# unless the opening line exists, the closing marker was reached while the range was open (a marker
+# above the opening line does not count), the block has at most BLOCK_MAX_LINES lines, and it has
+# exactly one ^FK= and one ^FORGE_HOST= line. The current block is 4 lines; 12 leaves headroom.
+BLOCK_MAX_LINES=12
+extract_block() {
+  local f="$1" blk seen n c
+  blk=$(awk '/^# (Forge host|Sentinel)/{p=1} /^# Domain\/pattern sample:/{p=0} p' "$f")
+  if [ -z "$blk" ]; then echo "host block shape check failed: opening line (# Forge host or # Sentinel) not found in $f" >&2; return 1; fi
+  seen=$(awk '/^# (Forge host|Sentinel)/{p=1} /^# Domain\/pattern sample:/{if(p)s=1; p=0} END{print s+0}' "$f")
+  if [ "$seen" != 1 ]; then echo 'host block shape check failed: closing marker "# Domain/pattern sample:" not found' >&2; return 1; fi
+  n=$(printf '%s\n' "$blk" | wc -l)
+  if [ "$n" -gt "$BLOCK_MAX_LINES" ]; then echo "host block shape check failed: block is $n lines, at most $BLOCK_MAX_LINES allowed" >&2; return 1; fi
+  c=$(printf '%s\n' "$blk" | grep -c '^FK=')
+  if [ "$c" != 1 ]; then echo "host block shape check failed: expected exactly one ^FK= line, found $c" >&2; return 1; fi
+  c=$(printf '%s\n' "$blk" | grep -c '^FORGE_HOST=')
+  if [ "$c" != 1 ]; then echo "host block shape check failed: expected exactly one ^FORGE_HOST= line, found $c" >&2; return 1; fi
+  printf '%s\n' "$blk"
+}
+BLOCK=$(extract_block "$SKILL") || exit 1
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 EH="$T/emptyhome"; mkdir -p "$EH"
 NOLIB="$T/nolib"; mkdir -p "$NOLIB"
 MH="$T/mhome/.claude/plugins/marketplaces"; mkdir -p "$MH"; ln -s "$ROOT" "$MH/forge-kit"
 CH="$T/chome"; mkdir -p "$CH"; ln -s "$ROOT" "$CH/forge-kit"
+
+echo "== #327: the host block is shape-checked before anything executes =="
+# check <name> <message>: extract_block on $T/shape-<name>.md must fail with exactly that message.
+check() {
+  local e rc
+  e=$(extract_block "$T/shape-$1.md" 2>&1 >/dev/null); rc=$?
+  expect "#327 $1: refused with the named message" "$2" "$e"
+  expect "#327 $1: extract_block returns 1" 1 "$rc"
+}
+M='host block shape check failed:'
+expect "#327 the shipped block passes the shape check silently" "" "$(extract_block "$SKILL" 2>&1 >/dev/null)"
+expect "#327 the shipped block is 4 lines" 4 "$(extract_block "$SKILL" 2>/dev/null | wc -l)"
+sed 's/^# Domain\/pattern sample:/# Domain\/pattern sampleX:/' "$SKILL" > "$T/shape-renamed.md"
+check renamed "$M closing marker \"# Domain/pattern sample:\" not found"
+awk '/^FK=/{print; print; next} 1' "$SKILL" > "$T/shape-dupfk.md"
+check dupfk "$M expected exactly one ^FK= line, found 2"
+awk '/^FORGE_HOST=/{print; print; next} 1' "$SKILL" > "$T/shape-duphost.md"
+check duphost "$M expected exactly one ^FORGE_HOST= line, found 2"
+sed '/^FORGE_HOST=/d' "$SKILL" > "$T/shape-nohost.md"
+check nohost "$M expected exactly one ^FORGE_HOST= line, found 0"
+sed '/^FK=/d' "$SKILL" > "$T/shape-nofk.md"
+check nofk "$M expected exactly one ^FK= line, found 0"
+awk '/^FK=/{print; for(i=0;i<20;i++) print "# pad"; next} 1' "$SKILL" > "$T/shape-cap.md"
+check cap "$M block is 24 lines, at most $BLOCK_MAX_LINES allowed"
+awk '/^# Domain\/pattern sample:/{next} /^# Sentinel/{print "# Domain/pattern sample:"} 1' "$SKILL" > "$T/shape-above.md"
+check above "$M closing marker \"# Domain/pattern sample:\" not found"
+sed 's/^# Sentinel/# Sentinal/' "$SKILL" > "$T/shape-noopen.md"
+check noopen "$M opening line (# Forge host or # Sentinel) not found in $T/shape-noopen.md"
+# Wiring: the whole suite as a child on the renamed-marker copy must stop at the guard. The suite has
+# no `set -e`, so only the `|| exit 1` stops it; without it the child runs every fixture on an empty
+# BLOCK and prints ok:/FAIL: lines. HOST_SUITE_CHILD is the re-entry guard: the child skips this
+# fixture, so a child that gets past a removed guard cannot spawn children without bound.
+if [ -z "${HOST_SUITE_CHILD:-}" ]; then
+  cout=$(HOST_SUITE_CHILD=1 ADAPT_SKILL="$T/shape-renamed.md" bash "$HERE/$(basename "$0")" 2>&1); crc=$?
+  case "$cout" in *"$M closing marker"*) ok "#327 wiring: the child prints the shape message" ;; *) bad "#327 wiring: no shape message in the child: $cout" ;; esac
+  expect "#327 wiring: the child exits 1" 1 "$crc"
+  expect "#327 wiring: the child printed no ok: or FAIL: fixture line" 0 "$(grep -cE '^ +(ok|FAIL):' <<< "$cout")"
+fi
 
 # mkrepo <name> [origin-url]: a throwaway git repo; echoes its path.
 mkrepo() {
