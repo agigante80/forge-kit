@@ -527,19 +527,22 @@ contains "plan: docs/plans/x.md" "$(cat "$T/docs/roadmap.md")" "and its plan lin
 expect "exactly Solo's prose and plan lines differ" 4 "$(difflines | wc -l | tr -d ' ')"
 absent "Dup's prose" "$(difflines)" "and no other phase's lines differ"
 
-# The plan dry run must run on the copy the PROSE dry run already modified. Here the new prose is
-# itself a column-0 plan line, so only the prose-modified copy has two plan lines; a plan dry run on
-# a fresh copy of the roadmap would pass and the live prose write would then land before the refusal.
+# #328 pinned here that the plan dry run runs on the copy the PROSE dry run already modified, using a
+# prose that is itself a column-0 plan line. #345 made roadmap-lib's _rm_prose_ok refuse that prose
+# first (rc 5, "carries a column-0 'plan:' line"), so the prose-modified-copy ordering is no longer
+# observable through this input and the two assertions below expect the new message. That is a
+# decision, not drift: do not restore `single column-0 plan line` here. The ordering itself is still
+# guarded by the Dup case above, where the plan write alone refuses.
 dup_roadmap; snap
 run refocus Solo --prose "plan: docs/plans/a.md" --plan docs/plans/x.md
-expect "prose that adds a plan line refuses the plan live" 5 "$rc"
-contains "single column-0 plan line" "$serr" "and stderr names the cause"
+expect "prose that adds a plan line refuses live" 5 "$rc"
+contains "carries a column-0 'plan:' line" "$serr" "and stderr names the library's cause"
 unchanged "prose-added plan line, live"
 
 dup_roadmap; snap
 run refocus Solo --prose "plan: docs/plans/a.md" --plan docs/plans/x.md --check
 expect "--check refuses prose that adds a plan line" 5 "$rc"
-contains "single column-0 plan line" "$serr" "and stderr names the same cause"
+contains "carries a column-0 'plan:' line" "$serr" "and stderr names the same cause"
 unchanged "prose-added plan line, --check"
 
 dup_roadmap; snap
@@ -589,6 +592,19 @@ run refocus Solo --prose "## Bad" --check
 expect "'## ' prose refuses under --check" 5 "$rc"
 contains "opens a '## ' section" "$serr" "and says why"
 unchanged "'## ' prose, --check"
+
+# #345 item 6: a keyed line in the prose is the library's refusal, reached through the script.
+dup_roadmap; snap
+run refocus Solo --prose $'Para.\nstate: planned'
+expect "prose carrying a state line refuses live" 5 "$rc"
+contains "carries a column-0 'state:' line" "$serr" "and stderr names the key"
+contains "nothing written" "$serr" "and says nothing was written"
+unchanged "state-line prose, live"
+
+dup_roadmap; snap
+run refocus Solo --prose $'Para.\nstate: planned' --check
+expect "prose carrying a state line refuses under --check" 5 "$rc"
+unchanged "state-line prose, --check"
 
 dup_roadmap; snap
 run refocus Solo --prose "Plain prose"

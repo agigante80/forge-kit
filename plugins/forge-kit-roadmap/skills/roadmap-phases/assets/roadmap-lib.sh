@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 11
+# roadmap-lib-version: 12
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -48,6 +48,11 @@
 # on every call. insert_at writes `plan:` with no trailing space for an empty plan, so it agrees
 # with set_plan; that reverses the literal `plan: ` #270 pinned, and the two assertions that pinned
 # it (the e4 and e5 cases of test-roadmap-lib.sh) were updated with this change.
+#
+# v12 (#345) makes _rm_prose_ok refuse a prose holding a column-0 `state:` or `plan:` line, rc 5. A
+# keyed line equal to the block's current value used to land as a second keyed line (rc 0) through
+# set_prose and insert_at. BEHAVIOUR CHANGE: a keyed prose line with a DIFFERENT value moves from rc 3
+# (the parse-back) to rc 5 (this guard, before the file is touched).
 
 # --- portability ------------------------------------------------------------
 # macOS still ships bash 3.2 and a BSD readlink with no -f, and this is installed into other
@@ -247,6 +252,19 @@ _rm_prose_ok() {
   case "$1" in
     "## "*|*"
 ## "*) _rm_die "that prose opens a '## ' section, which would silently end the block" 5; return 5 ;;
+  esac
+  # #345: a column-0 `state:` or `plan:` line anywhere in the prose is refused too. set_prose keeps
+  # EVERY such line in a block and insert_at writes the prose after its own keyed lines, so a keyed
+  # line in the prose that equals the block's current value parsed back identically and landed as a
+  # SECOND keyed line (rc 0), which set_plan then refused. A DIFFERENT value used to be caught by the
+  # parse-back as rc 3; it is now rc 5 here, before any file is touched (a documented change, and
+  # /phase review reaches it through roadmap_set_prose). Only column 0 is keyed (the writers' awk
+  # tests index($0, "state:") == 1), so an indented or mid-line mention stays legal.
+  case "$1" in
+    "state:"*|*"
+state:"*) _rm_die "that prose carries a column-0 'state:' line, which would be read as a second keyed line" 5; return 5 ;;
+    "plan:"*|*"
+plan:"*) _rm_die "that prose carries a column-0 'plan:' line, which would be read as a second keyed line" 5; return 5 ;;
   esac
   return 0
 }

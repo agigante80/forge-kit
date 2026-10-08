@@ -755,6 +755,41 @@ expect "#412: MUTANT: one restored awk -v line counts 1 against the pin of 0" 1 
 expect "#412: and the real library counts 0" 0 "$(awkv_count "$LIB")"
 rm -f "$T/ofs.md" "$T/ofs.orig" "$T/rl-ofs.sh" "$T/rl-ratchet.sh"
 
+# #345: a prose holding a column-0 `state:` or `plan:` line is refused with rc 5 before the file is
+# touched. A line equal to the block's current value used to land as a SECOND keyed line (rc 0); a
+# DIFFERENT value used to be rc 3 from the parse-back and is rc 5 now (a stated behaviour change).
+# Beta is the fixture phase that holds `plan: docs/plans/beta.md`.
+fixture "$T/k.md"; cp "$T/k.md" "$T/k.orig"
+run roadmap_set_prose "$T/k.md" Beta "See the plan: docs/plans/beta.md"
+expect "#345: a mid-line 'plan:' mention in prose is still accepted" 0 "$RC"
+expect "#345: and Beta still has exactly one plan line" 1 "$(sed -n '/^## Phase: Beta/,/^## Phase: Gamma/p' "$T/k.md" | grep -c '^plan:')"
+fixture "$T/k.md"
+run roadmap_set_prose "$T/k.md" Beta $'First.\n  plan: docs/plans/beta.md'
+expect "#345: an indented 'plan:' line in prose is still accepted" 0 "$RC"
+fixture "$T/k.md"
+run roadmap_set_prose "$T/k.md" Beta "plan: docs/plans/beta.md"
+expect "#345: a prose plan line equal to the current value returns 5" 5 "$RC"
+contains "carries a column-0 'plan:' line" "$ERR" "#345: and names the key it found"
+expect "#345: and the file is byte-identical" "" "$(diff "$T/k.orig" "$T/k.md")"
+run roadmap_set_prose "$T/k.md" Beta $'First.\nstate: planned'
+expect "#345: a state line that is not the first prose line returns 5" 5 "$RC"
+contains "carries a column-0 'state:' line" "$ERR" "#345: and names the state key"
+expect "#345: and the file is byte-identical (state)" "" "$(diff "$T/k.orig" "$T/k.md")"
+run roadmap_set_prose "$T/k.md" Beta $'First.\nplan: docs/plans/other.md'
+expect "#345: a DIFFERENT plan value returns 5, not the 3 the parse-back gave" 5 "$RC"
+expect "#345: and the file is byte-identical (different value)" "" "$(diff "$T/k.orig" "$T/k.md")"
+run roadmap_insert_at "$T/k.md" --end Delta planned docs/plans/delta.md "plan: docs/plans/delta.md"
+expect "#345: insert_at refuses the same prose with 5" 5 "$RC"
+expect "#345: and the file is byte-identical (insert_at)" "" "$(diff "$T/k.orig" "$T/k.md")"
+sed '/carries a column-0/s/return 5 ;;/return 0 ;;/' "$LIB" > "$T/rl-keyed.sh"
+if [ "$(grep -c 'carries a column-0.*return 0 ;;' "$T/rl-keyed.sh")" != 2 ]; then bad "#345: mutant: the keyed-line arms were not neutralised (two expected)"
+else
+  RC=$( ( . "$T/rl-keyed.sh"; roadmap_set_prose "$T/k.md" Beta "plan: docs/plans/beta.md" >/dev/null 2>"$T/err"; echo $? ) )
+  expect "#345: MUTANT: without the keyed-line guard the equal value returns 0" 0 "$RC"
+  expect "#345: MUTANT: and Beta then holds two plan lines" 2 "$(sed -n '/^## Phase: Beta/,/^## Phase: Gamma/p' "$T/k.md" | grep -c '^plan:')"
+fi
+rm -f "$T/k.md" "$T/k.orig" "$T/rl-keyed.sh"
+
 echo ""
 echo "roadmap-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

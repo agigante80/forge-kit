@@ -59,7 +59,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | `forge-kit-devops` | 0.20.8 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.30.9 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue and overnight-guard hooks |
 | `forge-kit-review` | 0.7.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
-| `forge-kit-roadmap` | 0.15.12 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
+| `forge-kit-roadmap` | 0.15.13 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.16.0 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
@@ -279,7 +279,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-roadmap` | shell asset | `check-phases` | v10 |  | NO `awk -v` IN THIS FILE (#259). |
 | `forge-kit-roadmap` | shell asset | `phase-env` | v1 |  | phase-env.sh: what each /phase Bash call must rebuild, because every call is a fresh shell (#407). |
 | `forge-kit-roadmap` | shell asset | `reassess-phases` | v7 |  | NO `awk -v` IN THIS FILE (#259). |
-| `forge-kit-roadmap` | shell asset | `roadmap-lib` | v11 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
+| `forge-kit-roadmap` | shell asset | `roadmap-lib` | v12 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v11 |  | NO `awk -v` IN THIS FILE (#259). |
 | `forge-kit-security` | agent | `api-security-tester` | v2 | 674 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `security-auditor` | v6 | 1347 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
