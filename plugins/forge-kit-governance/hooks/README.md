@@ -41,7 +41,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 | Hook | Event | Version | Purpose |
 |---|---|---|---|
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
-| `no-poll-loops.py` | PreToolUse | 3 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
+| `no-poll-loops.py` | PreToolUse | 4 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy
@@ -82,8 +82,9 @@ notification is appended to the next tool result. Waiting on it in the shell is 
 the ticket gate improvised two shapes of it (#263): a background `sleep 240; echo waited`
 placeholder to keep the turn alive, and an `until [ -s .../tasks/<id>.output ]; do sleep 5; done`
 poll loop. Neither ends usefully once the run does, and one held a finished verdict for five days.
-The deny reason carries the rule (keep doing independent work, let the notification arrive, never
-end the turn with a dispatch outstanding; with no independent work, dispatch in the foreground), so no agent prose says it. It covers `ticket-gate`,
+The deny reason carries the rule (keep doing independent work and let the notification arrive; with none
+left, end the turn and the notification resumes you; it names no blocking call, because the installed harness offers
+none, #433), so no agent prose says it. It covers `ticket-gate`,
 `full-review` and `working-overnight` alike.
 
 It denies a Bash call when either:

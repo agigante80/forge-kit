@@ -235,6 +235,10 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-10-08: ticket-gate 5648 to 5642 (#433). Step 3B's "in the foreground (blocking, never
+# run_in_background)" is deleted: the installed Claude Code offers no foreground Agent call, and the
+# no-poll-loops hook's deny reason now carries the wait rule, so the agent prose says none (six words).
+#
 # LOWERED 2026-10-08: ticket-gate 5651 to 5648 and adapt 7147 to 7144 (#263, locked in at the phase
 # close). Step 3B's foreground-dispatch clause was paid for by trimming Step 2's committee rationale
 # (net -3), and adapt's per-hook sentinel pointer by an equal cut (net -3); #263 left both unlowered.
@@ -391,7 +395,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7144 ;;
-    ticket-gate) echo 5648 ;;
+    ticket-gate) echo 5642 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac

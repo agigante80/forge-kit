@@ -714,8 +714,15 @@ with tempfile.TemporaryDirectory() as td:
     reason = json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
     check("npl reason names the notification", "completion notification" in reason, True)
     check("npl reason says keep working", "independent work" in reason, True)
-    check("npl reason says no outstanding dispatch", "outstanding" in reason, True)
-    check("npl reason points at a foreground dispatch", "FOREGROUND" in reason, True)
+    # #433: the installed harness backgrounds every Agent call and offers no foreground
+    # switch, so the reason must be correct whichever way that falls: end the turn when
+    # nothing else is left, and name a blocking call only where the host offers one.
+    low = reason.lower()
+    check("npl reason says end the turn when no work is left", "end your turn" in low, True)
+    check("npl reason does not forbid ending the turn", "never end the turn" in low, False)
+    check("npl reason bans the poll loop", "poll loop" in low, True)
+    check("npl reason names no foreground call", "foreground" in low, False)
+    check("npl reason names no blocking call", "blocking" in low, False)
 
     # Sentinel absent means allow, even for the exact observed waiter. Another hook's
     # sentinel is not this hook's.

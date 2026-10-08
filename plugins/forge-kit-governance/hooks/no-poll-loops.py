@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 3
+# no-poll-loops-version: 4
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -56,14 +56,19 @@ import sys
 SENTINEL = os.path.join(".claude", "no-poll-loops")
 TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 
+# #433 REVERSES the #263 pick "dispatch the critic in the FOREGROUND". The installed Claude Code
+# (2.1.294) offers no foreground switch in a stock install: the Agent schema drops
+# run_in_background and every dispatch comes back "launched in the background", at top level
+# and inside a subagent. A reason (or Step 3B) that commanded a blocking call named something the
+# agent could not do, and "never end the turn" forbade the only correct wait. So the reason names
+# no blocking call at all and stays correct whichever way a release falls. Not verified: a
+# one-shot headless `claude -p` run. Do not re-add a foreground instruction without re-probing.
 REASON = (
     "no-poll-loops: do not wait on a dispatched subagent in the shell. A subagent returns "
     "through the harness: its completion notification is appended to the next tool result. "
-    "Keep doing independent work and let the notification arrive; never end the turn with a "
-    "dispatch outstanding, and never queue a background sleep or a poll loop on a task's "
-    "output file or transcript to wait for it. With no independent work, dispatch the "
-    "subagent in the FOREGROUND (a blocking Agent call, no run_in_background) so there is "
-    "nothing to wait for."
+    "Keep doing independent work and let the notification arrive; with none left, end your "
+    "turn and the completion notification resumes you. Never queue a background sleep or a "
+    "poll loop on a task's output file or transcript to wait for it."
 )
 
 # A background sleep that does nothing: the whole command, nothing else.
