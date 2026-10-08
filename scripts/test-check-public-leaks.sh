@@ -1407,12 +1407,12 @@ echo "== rule C is linear in the line length, in both modes and both locales (#2
 # The defect: unanchored, rule C's local part can start at every position of a long word-class run
 # and grep leaves its DFA to retry each one (64 KB then one address: 105 s). Two halves fix it, the
 # anchor and LC_ALL=C on the tree grep, and judge()'s split is a third quadratic in bash. Each half
-# has a mutant here that must be KILLED at the bound, which is what proves the half load-bearing.
-# MUTANTS (2026-09-16, #211): the anchor removed from RE_MAIL; LC_ALL=C removed from the tree grep
-# (observable under ANY UTF-8 locale, C.utf8 included, and skipped only where none exists); the
-# IFS=@ read split
-# replaced by ${addr#*@}. All three killed. The bound is this suite's own helper, never GNU
-# `timeout`, which stock macOS does not ship.
+# has a mutant here, and the ledger pair beside it (the scanner carries the construct, the mutant
+# does not) is what kills it (#417: the mutants are no longer timed).
+# MUTANTS (2026-09-16, #211): the anchor removed from RE_MAIL; LC_ALL=C removed from the tree grep;
+# the IFS=@ read split replaced by ${addr#*@}. All three were quadratic when run. The bound the
+# real-scanner rows use is this suite's own helper, never GNU `timeout`, which stock macOS does
+# not ship.
 bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the bound kills it
   # The bound kills with SIGALRM and only status 142 (128 + 14) reads as 124, so a command that dies
   # of any OTHER signal keeps its own status (143 TERM, 138 USR1, 137 KILL; Linux numbering): a
@@ -1440,28 +1440,19 @@ bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the
 # The watcher is spawned while set -m is still on, so it is its own group and the kill reaches its
 # sleep, and its stdio is detached so that sleep cannot hold a capture pipe open: written the naive
 # way, OUT="$(bounded 10 ...)" blocks for the whole bound even when the command returns at once.
-# A killed mutant's WALL time can overshoot the bound, late under load: on bash 3.2 a fatal signal
-# waits for the expansion it is inside to finish, and a late kill was also seen on bash 5.2 at load
-# 35 on 8 cores (not reproduced at load 14 on bash 5.2.21). Late enough, and the #402 escalation's
-# SIGKILL ends it after the 3 s grace, so it reads 137, not 124 (#415: 11 of 12 parallel copies of
-# the strip mutant at about 3.4 x nproc). killed_at_bound below therefore accepts 124, or 137 ONLY
-# when the wall time shows the bound fired. The three mutants cost about 40 s.
-#
-# bound_fired <rc> <secs> <elapsed>: 0 when the bound stopped the command. 124 is the bound's own
-# SIGALRM; 137 counts only at secs + 3 s or later, the earliest the bound's SIGKILL can land. That
-# is a LOWER bound on wall time, so load cannot make a real bound kill fail it (a `date +%s`
-# difference never reads below the floor of the real interval), unlike #219's upper bound. A 137
-# that arrives sooner (a self-SIGKILL, an out-of-memory or CPU-limit kill) is not the bound.
-bound_fired() { [ "$1" = 124 ] && return 0; [ "$1" = 137 ] && [ "$3" -ge $(( $2 + 3 )) ]; }
-# killed_at_bound <label> <secs> <cmd...>: the mutant row. The command runs through `env` with
-# TMPDIR="$WORK", so a SIGKILL that skips the scanner's EXIT trap leaks its $TMPD into the suite's
-# own scratch, which the suite removes, never into the caller's TMPDIR.
-killed_at_bound() {
-  local label="$1" secs="$2" t0 rc el; shift 2
-  t0="$(date +%s)"; bounded "$secs" env TMPDIR="$WORK" "$@" >/dev/null 2>&1; rc=$?; el=$(( $(date +%s) - t0 ))
-  bound_fired "$rc" "$secs" "$el" && ok "$label" \
-    || bad "$label (rc $rc after ${el} s; want 124, or 137 at $(( secs + 3 )) s or later)"
-}
+# #417: no row below judges a MUTANT by wall time. The former timed-mutant rows told a
+# quadratic mutant from the linear scanner by a fixed bound sized against one runner's speed: a
+# fast CI runner finished #217's home-arm cut mutant in 16 s under a 20 s bound and Validate failed
+# on main (run 37595575207). Every one of them had a structural twin that already kills the same
+# mutant, so the timing row added nothing the twin lacks and is gone, with its accept predicate (the
+# only caller) and the #415 rows that pinned it. The twin is the ledger pair beside each mutant: the
+# scanner carries the exact construct the mutant removes, the mutant does not. A whole-suite run
+# against each mutant on 2026-10-08 (scanner replaced by the mutant) failed that scanner-side row by
+# name, apart from the real-scanner timing rows. The rows that still time the REAL scanner (bounded
+# N, expect exit 1) can fail only on a runner too slow for the bound, never on one too fast. A new
+# quadratic-mutant case gets a ledger pair, never a timed kill: that was decided once (#417) and a
+# review that proposes the timed kill again is re-litigating it. The private suite has no timing
+# row of this shape, so it needed no change.
 echo "== #315: bounded() maps only its own SIGALRM kill to 124 =="
 bounded 1 sleep 30 >/dev/null 2>&1
 expect "bounded: a command that outlives the bound reads 124" 124 "$?"
@@ -1477,21 +1468,6 @@ bounded 10 sh -c 'kill -TERM $$' >/dev/null 2>&1; rc=$?
 expect "bounded: a self-SIGTERM keeps 128 + TERM, not 124 (the watcher did not fire)" $((128 + $(kill -l TERM))) "$rc"
 bounded 10 sh -c 'kill -ALRM $$' >/dev/null 2>&1
 expect "bounded: the residual, a command's own SIGALRM reads 124 (recorded above, pinned here)" 124 "$?"
-# #415: the accept rule's own rows. bound_fired is a predicate, so its negatives and its mutant
-# are checked without failing the suite.
-T415="$(date +%s)"; bounded 1 bash -c 'trap "" ALRM; sleep 30' >/dev/null 2>&1; rc=$?; T415="$(( $(date +%s) - T415 ))"
-bound_fired "$rc" 1 "$T415" && ok "#415: a command the escalation SIGKILLs reads as the bound (rc $rc after ${T415} s)" \
-  || bad "#415: an escalated SIGKILL was not read as the bound (rc $rc after ${T415} s)"
-bound_fired 124 10 0 && ok "#415: the bound's own SIGALRM (124) is the bound" || bad "#415: 124 was not read as the bound"
-T415="$(date +%s)"; bounded 10 bash -c 'kill -KILL $$' >/dev/null 2>&1; rc=$?; T415="$(( $(date +%s) - T415 ))"
-bound_fired "$rc" 10 "$T415" && bad "#415: a self-SIGKILL at ${T415} s was read as the bound (rc $rc)" \
-  || ok "#415: a self-SIGKILL that arrives before the bound could fire is not the bound (rc $rc after ${T415} s)"
-bound_fired 1 10 30 && bad "#415: a mutant that exited 1 was read as the bound" || ok "#415: a mutant that exits on its own (rc 1) is not the bound"
-# Mutant: the elapsed-time test removed. The self-SIGKILL row is what catches it; rc 1 alone would not.
-eval "$(declare -f bound_fired | sed 's/ \&\& \[ "\$3" -ge \$(( \$2 + 3 )) \]//; s/^bound_fired /bound_fired_mut /')"
-if [ "$(declare -f bound_fired_mut)" = "$(declare -f bound_fired | sed 's/^bound_fired /bound_fired_mut /')" ]; then bad "#415: mutant: the elapsed test was not removed"
-elif bound_fired_mut 137 10 0; then ok "#415: mutant: without the elapsed test a 0 s self-SIGKILL passes, so the row above catches it"
-else bad "#415: mutant: the elapsed-free check still refused a 0 s 137"; fi
 T315="$(date +%s)"; OUT="$(bounded 5 true)"; rc=$?; T315="$(( $(date +%s) - T315 ))"
 expect "bounded: a command that returns at once is captured with status 0" 0 "$rc"
 [ "$T315" -lt 5 ] && ok "and the capture returns well inside the 5 s bound (${T315} s)" || bad "capture blocked for the bound (${T315} s)"
@@ -1599,31 +1575,33 @@ sed "s/^RE_MAIL='(^|\[^A-Za-z0-9._%+-\])/RE_MAIL='/" "$SCRIPT" > "$MUTA"; chmod 
 # file that carries it, passing a mutant identical to the scanner.
 grep -qF "RE_MAIL='(^|" "$SCRIPT" && ok "the scanner carries the anchor the mutant removes" || bad "the scanner carries the anchor the mutant removes"
 grep -qF "RE_MAIL='(^|" "$MUTA" && bad "the mutant no longer carries it" || ok "the mutant no longer carries it"
-killed_at_bound "the unanchored mutant is killed at the bound (exit 124, or the escalation's 137)" 10 "$MUTA" --all "$LONG"
+# #417: killed by the ledger pair above (the scanner carries the RE_MAIL anchor, the mutant does not).
 
 MUTS="$WORK/mutant-split.sh"
 sed 's/IFS=@ read -r local_part domain <<< "$addr"/local_part="${addr%%@*}"; domain="${addr#*@}"/' "$SCRIPT" > "$MUTS"; chmod +x "$MUTS"
 expect "the scanner splits the address with IFS=@ read" 1 "$(grep -c 'IFS=@ read -r local_part domain' "$SCRIPT")"
 expect "the split mutant uses the quadratic expansion instead" 0 "$(grep -c 'IFS=@ read -r local_part domain' "$MUTS")"
-killed_at_bound "the quadratic-split mutant is killed at the bound (exit 124, or the escalation's 137)" 10 "$MUTS" --all "$GLUED"
+# #417: killed by the ledger pair above (the IFS=@ read split is in the scanner, not in the mutant).
 
+# The locale mutant's ledger pair needs no locale (#417), so it runs on every machine, a slim
+# container included. It used to sit inside the UTF-8 gate beside its timing row.
+MUTL="$WORK/mutant-locale.sh"
+sed 's/done < <(LC_ALL=C grep -onE/done < <(grep -onE/' "$SCRIPT" > "$MUTL"; chmod +x "$MUTL"
+expect "the scanner pins the tree-mode grep to the C locale" 1 "$(grep -c 'LC_ALL=C grep -onE' "$SCRIPT")"
+expect "the locale mutant drops the pin" 0 "$(grep -c 'LC_ALL=C grep -onE' "$MUTL")"
+# #417: killed by the ledger pair above (the LC_ALL=C pin is in the scanner, not in the mutant).
 # Two different locales are needed, and conflating them skipped half of this for no reason (review
-# round 1). The TIMING mutant dies under ANY UTF-8 locale, C.utf8 included (25 s there against
-# 0.098 s pinned), so a slim container still runs it. The accented-class case needs a TERRITORY
-# locale, because C.utf8 does not admit the accented classes either and so cannot tell the pin
-# from its absence.
+# round 1). The unpinned scanner is slow under ANY UTF-8 locale, C.utf8 included (25 s there against
+# 0.098 s pinned), so a slim container still runs the row below. The accented-class case needs a
+# TERRITORY locale, because C.utf8 does not admit the accented classes either and so cannot tell
+# the pin from its absence.
 ANYUTF8="$(locale -a 2>/dev/null | grep -i 'utf' | head -1)"
 UTF8="$(locale -a 2>/dev/null | grep -i '^[a-z][a-z]_.*utf' | head -1)"
 if [ -n "$ANYUTF8" ]; then
-  MUTL="$WORK/mutant-locale.sh"
-  sed 's/done < <(LC_ALL=C grep -onE/done < <(grep -onE/' "$SCRIPT" > "$MUTL"; chmod +x "$MUTL"
-  expect "the scanner pins the tree-mode grep to the C locale" 1 "$(grep -c 'LC_ALL=C grep -onE' "$SCRIPT")"
-  expect "the locale mutant drops the pin" 0 "$(grep -c 'LC_ALL=C grep -onE' "$MUTL")"
-  killed_at_bound "without the pin the anchored regex is still quadratic under a UTF-8 locale (124, or the escalation's 137)" 10 env LC_ALL="$ANYUTF8" "$MUTL" --all "$LONG"
   OUT="$(LC_ALL="$ANYUTF8" bounded 10 "$SCRIPT" --all "$LONG" 2>/dev/null)"; rc=$?
   expect "with the pin the same run is reported within the bound" 1 "$rc"
 else
-  ok "(skipped, no UTF-8 locale on this machine) the locale mutant"
+  ok "(skipped, no UTF-8 locale on this machine) the pinned run under a UTF-8 locale"
 fi
 
 # --- #217: the REDACTED --history report is linear too ----------------------------------------
@@ -1632,11 +1610,11 @@ fi
 # seg="${e%%/*}", quadratic there too. The default (redacted) run was over 60 times slower than
 # --show-evidence at 128 KB. The fix builds the mask by doubling and splits the segment with
 # IFS=/ read. The email case keeps `bounded 10`; the two home cases are sized at 1,048,576 bytes
-# (smaller sizes did not discriminate on every machine) and take `bounded 20`, because on bash
-# 3.2.57 the FIXED scanner needs 5 to 6 s there, past the 5 s line this section applies to a
-# 10 s bound. MEASURED 2026-10-07 (bash 5.2.21 / 3.2.57): fixed home cases 1.3 to 1.6 s / 5.1 to
-# 5.9 s; the restored-cut mutants 59 s and 76 s of CPU uncapped on bash 5, 57.7 s and 58.5 s on
-# bash 3.2.57, killed at 20.0 s (124) and 23.0 s (137) respectively.
+# and take `bounded 20`, because on bash 3.2.57 the FIXED scanner needs 5 to 6 s there, past the
+# 5 s line this section applies to a 10 s bound. MEASURED 2026-10-07 (bash 5.2.21 / 3.2.57): fixed
+# home cases 1.3 to 1.6 s / 5.1 to 5.9 s; the restored-cut mutants 59 s and 76 s of CPU uncapped on
+# bash 5, 57.7 s and 58.5 s on bash 3.2.57. The mutants are not run any more (#417): their ledger
+# rows kill them, and on a fast runner the cut mutant beat its bound (16 s under 20).
 echo "== #217: redaction keeps a two-unit prefix at every length =="
 mkrepo redact217edge
 hcommit e.md '/home/a/x\n/home/ab/x\n/home/abc/x\n~/a/x\n'
@@ -1671,7 +1649,6 @@ if [ -n "$ANYUTF8" ]; then
   # quadratic this section is about.
   echo "== #217: redaction is linear in the match length, under a UTF-8 locale =="
   ev217() { printf '%s\n' "$1" | sed -n "s/.*:1: $2: //p"; }
-  W217="$PWD"
   mkrepo redact217mail
   cp "$GLUED" "$HREPO/glued.md"; ( cd "$HREPO" && git add glued.md && git commit -qm glued ) >/dev/null 2>&1
   t0="$(date +%s)"; OUT="$( cd "$HREPO" && LC_ALL="$ANYUTF8" bounded 10 "$SCRIPT" --history 2>/dev/null )"; rc=$?; el=$(( $(date +%s) - t0 ))
@@ -1695,9 +1672,7 @@ EOF
   done < "$SCRIPT" > "$MUTR"; chmod +x "$MUTR"
   expect "the loop mutant drops the doubling mask" 0 "$(grep -cF 's="$s$s"' "$MUTR")"
   expect "and the no-loop ledger sees its per-character loop" 1 "$(sed -n '/^redact() {/,/^}/p' "$MUTR" | grep -cE 'for \(\(|out\+=')"
-  cd "$HREPO"
-  killed_at_bound "the per-character redact mutant is killed at the bound under UTF-8 (124, or the escalation's 137)" 10 env LC_ALL="$ANYUTF8" "$MUTR" --history
-  cd "$W217"
+  # #417: killed by the two ledger rows above (no per-character loop, and the doubling mask, in the scanner; both reversed in the mutant).
 
   HP="$WORK/home-path-1m.md"; { printf '/home/'; head -c 1048576 /dev/zero | tr '\0' a; printf '/\n'; } > "$HP"
   HR="$WORK/home-root-1m.md"; { printf '~/'; head -c 1048576 /dev/zero | tr '\0' a; printf '/\n'; } > "$HR"
@@ -1713,12 +1688,7 @@ EOF
     MUTC="$WORK/lone/mutant-cut-$arm.sh"
     sed "/^ *$arm)/s|IFS=/ read -r seg _ <<< \"\$e\"|seg=\"\${e%%/*}\"|" "$SCRIPT" > "$MUTC"; chmod +x "$MUTC"
     expect "the $arm cut mutant keeps only the other arm's IFS=/ read -r" 1 "$(grep -c 'IFS=/ read -r' "$MUTC")"
-    cd "$HREPO"
-    # The mutant is killed at 8 s, not at the scanner's own 20 s bound. On a fast CI runner the
-    # quadratic mutant finished this 1 MB fixture in 16 s (run 37595575207), under 20, while the
-    # linear scanner takes about 1 s. 8 s still separates the two, with 2x margin on that runner.
-    killed_at_bound "the $arm whole-match cut mutant is killed at the bound under UTF-8 (124, or the escalation's 137)" 8 env LC_ALL="$ANYUTF8" "$MUTC" --history
-    cd "$W217"
+    # #417: killed by the pair above and the 'both home arms split with IFS=/ read -r' count of 2, which the mutant takes to 1.
   done
 else
   ok "(skipped, no UTF-8 locale on this machine) the #217 multibyte, timing and mutant cases"
@@ -1756,18 +1726,15 @@ awk '
   { print }' "$SCRIPT" > "$MUT239A"; chmod +x "$MUT239A"
 grep -qF '=~ $_TAIL_RE' "$SCRIPT" && ok "mutant ledger (#239): the scanner strips the tail with one anchored match" || bad "mutant ledger (#239): the tail regex is not used"
 grep -qF '=~ $_TAIL_RE' "$MUT239A" && bad "mutant ledger (#239): the mutant still uses the regex" || ok "mutant ledger (#239): the mutant walks byte by byte instead"
-killed_at_bound "the byte-loop mutant is killed at the bound (exit 124, or the escalation's 137), where the scanner takes under a second" 10 "$MUT239A" "$DOTS"
-killed_at_bound "and killed on the entirely-punctuation shape too" 10 "$MUT239A" "$ALLP"
+# #417: killed by the mutant ledger (#239) pair above (the scanner strips with one anchored match, the mutant walks bytes).
 # --- #243: the segment strip is pinned too ---------------------------------------------------
 # `seg="${raw##*/}"` is quadratic in the segment: 6.3 s at 64 KB, 21.6 s at 128 KB, 119 s at 256 KB.
 # The 64 KB DOTS fixture above lets it finish inside the bound, so it survived. 262144 bytes under
-# `bounded 10` is the size where the mutant is killed and the scanner (about 1 s unloaded, under
-# 3 s at load 35 on 8 cores) is inside it.
-# NOT 1 MB: the mutant would run for tens of minutes, and a killed mutant's kill can land several
-# seconds late under load on bash 5.2 as well as on 3.2 (see above), so the case costs about 20 s.
-# The assertion is on the exit code, never an UPPER bound on wall time, which flakes under load
-# (#219). The only wall-time test is killed_at_bound's LOWER bound on a 137 (#415), which load can
-# only make easier to meet.
+# `bounded 10` is the size where the scanner (about 1 s unloaded, under 3 s at load 35 on 8 cores)
+# is comfortably inside the bound, and it stays the size of the real-scanner row below. The mutant
+# itself is no longer run (#417): its ledger pair kills it. NOT 1 MB: that would cost the real
+# scanner needless time on bash 3.2. The assertion is on the exit code, never an UPPER bound on
+# wall time that a mutant must stay under (#219).
 echo "== #243: a 256 KB dot tail after a user, and the strip mutant =="
 DOTS256="$WORK/dot-tail-256k.txt"; printf '/home/alice%s\n' "$(head -c 262144 /dev/zero | tr '\0' .)" > "$DOTS256"
 OUT="$(bounded 10 "$SCRIPT" "$DOTS256" 2>/dev/null)"; rc=$?
@@ -1778,7 +1745,7 @@ sed 's|^\([[:space:]]*\)seg="\${raw#/\*/}"|\1seg="${raw##*/}"|' "$SCRIPT" > "$MU
 # The ledger asserts the EXECUTABLE line only: the comment above it also spells the `##` form.
 grep -qE '^[[:space:]]*seg="\$[{]raw#/\*/[}]"' "$SCRIPT" && ok "mutant ledger (#243): the scanner strips the segment with a shortest-match strip" || bad "mutant ledger (#243): the scanner lost its shortest-match strip"
 grep -qE '^[[:space:]]*seg="\$[{]raw#/\*/[}]"' "$MUT243" && bad "mutant ledger (#243): the mutant still carries the scanner's strip" || ok "mutant ledger (#243): the mutant no longer carries the scanner's strip"
-killed_at_bound "the longest-match strip mutant is killed at the bound (exit 124, or the escalation's 137)" 10 "$MUT243" "$DOTS256"
+# #417: killed by the mutant ledger (#243) pair above (the scanner keeps the shortest-match strip, the mutant does not).
 
 # Every TAIL_PUNCT byte is a tail, not only the dot.
 while IFS= read -r b; do
