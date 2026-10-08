@@ -9,6 +9,7 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 | CLAUDE.md states a no-em/en-dash or strict writing rule | `block-dashes.py` | governance | PreToolUse | enforce the no-dash writing rule | `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` |
 | the project dispatches subagents (`ticket-gate`, `/full-review` or `working-overnight` installed) | `no-poll-loops.py` | governance | PreToolUse | stop shell waits on dispatched subagents | `Bash\|Monitor` |
 | `working-overnight` is installed, or CLAUDE.md states a rule against destructive commands (`rm -rf`, `git reset --hard`, discarding uncommitted work) | `overnight-guard.py` | governance | PreToolUse | deny destructive git and rm -rf, day and night | `Bash` |
+| the project has a test or check runner (`scripts/test-*` or `scripts/check-*`, a `package.json` test script, `pytest`, a `Makefile` test target, `Cargo.toml`, `go.mod`) | `masked-exit-advisory.py` | governance | PostToolUse | flag a check whose exit code a pipe masks | `Bash` |
 | `.forge.conf` present (repo migrated off GitHub to a self-hosted forge) | `block-legacy-host-push.py` | devops | PreToolUse | deny git push to the archived legacy host | `Bash` |
 
 ## Install detail (block-dashes.py)
@@ -99,6 +100,39 @@ deleting the sentinel. An overnight run arms the hook with or without it.
 
 When NOT to recommend: a project with no `working-overnight` and no CLAUDE.md rule about
 destructive commands, since the daytime arm denies even a command the user asked for.
+
+## Install detail (masked-exit-advisory.py)
+
+The hook has its OWN sentinel, `.claude/masked-exit` (one file per hook, same shape as
+`.claude/no-poll-loops`), and **forge-adapt creates it on every install, in both shapes**, so the
+hook can never be installed switched off. The sentinel is only a sentinel: the file's content is
+never read and it is not a list of the project's checks. The script checks it itself, so a
+project-local copy is NOT opted in by its location: without the file it is inert. The hook is
+advisory only (it never denies) and fires on `PostToolUse`, so it adds a short note to context
+when a check is piped into `tail`, `head` or `grep`; tell the user that before creating the file.
+
+Branch on `$GOVERNANCE_PLUGIN_ACTIVE`, as for `block-dashes`:
+
+`yes`: the plugin's `hooks.json` already registers the hook, shell-gated on the sentinel. Do NOT
+copy the script and do NOT touch `settings.json`. The whole install is:
+
+```bash
+mkdir -p .claude && touch .claude/masked-exit
+```
+
+`no`: copy `$FORGE_KIT_DIR/plugins/forge-kit-governance/hooks/masked-exit-advisory.py` verbatim to
+`.claude/hooks/masked-exit-advisory.py` (keep the `# masked-exit-advisory-version: N` marker), merge
+a `Bash` entry under `PostToolUse` (not `PreToolUse`) into `.claude/settings.json` with the same
+`jq` merge and exec form as `block-dashes` (`"command": "python3"`,
+`"args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/masked-exit-advisory.py"]`), then create the
+sentinel with the command above.
+
+Confirm: `✓ masked-exit-advisory (hook): armed via .claude/masked-exit`. Opt out later by deleting
+the sentinel. Optionally sanity-run `python3 .claude/hooks/masked-exit-advisory.py --self-test`
+(project-local shape). The recognised checks and filters are in the hook's own header and
+`hooks/README.md`; do not restate them.
+
+When NOT to recommend: a project with no test or check runner, since there is nothing to mask.
 
 ## Install detail (block-legacy-host-push.py)
 
