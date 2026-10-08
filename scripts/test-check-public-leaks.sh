@@ -1698,7 +1698,7 @@ EOF
     expect "and the $arm mask covers every other byte" "$(( ${#pre} + 1048574 + 1 ))" "$(ev217 "$OUT" "$arm" | LC_ALL=C awk '{ print length($0) }')"
   done
 else
-  ok "(skipped, no UTF-8 locale on this machine) the #217 multibyte, timing and mutant cases"
+  ok "(skipped, no UTF-8 locale on this machine) the #217 multibyte and timing cases"
 fi
 
 # --- #239: the tail walk is LINEAR, and the strip stays a strip ------------------------------
