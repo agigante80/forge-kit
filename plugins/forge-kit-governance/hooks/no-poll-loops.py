@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 1
+# no-poll-loops-version: 2
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -27,9 +27,12 @@ EXACT PATTERN. Deny when the Bash `command` is a string and either:
 Everything else is allowed, on purpose: `sleep 2`, a background `sleep 20; gh run watch`
 (a CI wait), `until curl ...; do sleep 1; done`, a loop on any other target.
 Text that only carries a loop (inside a quoted string or a heredoc body) is allowed, unless
-the command executes it (`bash -c`, `sh <<EOF`, `eval`). The tool is Bash or Monitor, whose
+the command executes it (`bash -c`, `sh <<EOF`, `| bash`, `eval`, `source`). The tool is Bash or Monitor, whose
 payload field is the same `command`. Known gaps: a loop whose artifact path hides in a
-variable set in an EARLIER call; a foreground bare sleep; `tail -f` on a task output.
+variable set in an EARLIER call; a foreground bare sleep; `tail -f` on a task output; background placeholders wider than the pattern (a
+sleep-then-cat, `sleep 60 &`, `/bin/sleep`); waits other than `sleep` inside the loop; a script
+written then run; and, in the project-local shape, a payload `cwd` below the project root when
+CLAUDE_PROJECT_DIR is unset.
 
 Contract (PreToolUse, same as block-dashes and overnight-guard):
   stdin  <- {"tool_name": "Bash" (or "Monitor"), "tool_input": {"command": ..., "run_in_background": ...}}
@@ -68,7 +71,8 @@ BARE_SLEEP = re.compile(
     r"(?:(?:;|&&)\s*(?:echo\b[^\n;&|]*|true|:)\s*)?;?\s*\Z"
 )
 # A loop that sleeps: loop keyword ... sleep ... done. DOTALL on purpose, loops span lines.
-SLEEP_LOOP = re.compile(r"\b(?:until|while|for)\b.*?\bsleep\b.*?\bdone\b", re.S)
+SLEEP_LOOP = re.compile(
+    r"\b(?:until|while|for)\b(?:(?!\bdone\b).)*?\bsleep\b.*?\bdone\b", re.S)
 # What a dispatched subagent leaves behind.
 SUBAGENT_ARTIFACT = re.compile(
     r"\btasks/[\w.-]+\.output\b|\bsubagents/|\bagent-[\w-]+\.jsonl\b"
@@ -85,25 +89,56 @@ def deny(reason=REASON):
 
 
 # Text that only CARRIES a loop (a forge comment body, a commit message, a data heredoc) must
-# not be denied (#168 precedent). Masked before the loop test, never before the artifact test,
-# so `until [ -s "/t/tasks/x.output" ]; do sleep 5; done` with a quoted path still matches.
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|\Z)", re.S)
-QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'", re.S)
-# A string or heredoc that a shell will EXECUTE is code, not text: never masked.
-EXECUTES = re.compile(r"\b(?:ba|z|da)?sh\b[^\n]*?(?:\s-\w*c\b|<<)|\beval\b")
+# not be denied (#168 precedent). The command is BLANKED in place (same length, so offsets
+# line up): heredoc bodies and quoted strings become spaces, delimiters stay.
+HEREDOC = re.compile(
+    r"(<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*\n)(.*?)(\n[ \t]*\3[ \t]*(?=\n|\Z))", re.S)
+# A single quote right after a word character is an apostrophe (`critic's`), not an opener.
+QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|(?<![\w])'[^']*'", re.S)
+# Text a shell will EXECUTE is code, not prose: `bash -c`, `sh <<EOF`, `| bash`, `eval`,
+# `source`. Tested on the BLANKED command, so these words inside a quoted comment do not count.
+EXECUTES = re.compile(
+    r"(?<![\w./-])(?:ba|z|da)?sh\b(?![.\w-])[^\n]*?(?:\s-\w*c\b|<<)"
+    r"|\|\s*(?:\S*/)?(?:ba|z|da)?sh\b"
+    r"|\beval\b|\bsource\b"
+)
 
 
-def mask_text(command):
-    if EXECUTES.search(command):
-        return command
-    return QUOTED.sub('""', HEREDOC.sub(" ", command))
+def _blank(m, group=0):
+    t = m.group(0)
+    if group:
+        keep = t[:m.start(group) - m.start()], t[m.end(group) - m.start():]
+        return keep[0] + re.sub(r"[^\n]", " ", m.group(group)) + keep[1]
+    return t[0] + re.sub(r"[^\n]", " ", t[1:-1]) + t[-1]
+
+
+def blank_text(command):
+    c = HEREDOC.sub(lambda m: _blank(m, 4), command)
+    return QUOTED.sub(_blank, c)
+
+
+def poll_loop_on_artifact(command):
+    """The first sleeping loop (blanked view) must itself name a subagent artifact."""
+    blanked = blank_text(command)
+    view = command if EXECUTES.search(blanked) else blanked
+    m = SLEEP_LOOP.search(view)
+    if not m:
+        return False
+    span = command[m.start():m.end()]
+    if SUBAGENT_ARTIFACT.search(span):
+        return True
+    # `F=/t/tasks/x.output; until [ -s $F ]; ...` in the same call.
+    if "$" in span:
+        before = command[:m.start()]
+        return bool(re.search(r"\b\w+=\S*" + SUBAGENT_ARTIFACT.pattern, before))
+    return False
 
 
 def judge(command, background):
     """True when this command is a shell wait on a subagent."""
     if background is True and BARE_SLEEP.search(command):
         return True
-    return bool(SLEEP_LOOP.search(mask_text(command)) and SUBAGENT_ARTIFACT.search(command))
+    return poll_loop_on_artifact(command)
 
 
 def enabled(payload):

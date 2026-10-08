@@ -41,7 +41,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 | Hook | Event | Version | Purpose |
 |---|---|---|---|
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
-| `no-poll-loops.py` | PreToolUse | 1 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
+| `no-poll-loops.py` | PreToolUse | 2 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy
@@ -97,9 +97,11 @@ It denies a Bash call when either:
 Everything else is allowed: `sleep 2`, a background `sleep 20; gh run watch ...`, a loop polling
 anything else. Text that only CARRIES a loop (a quoted string or a heredoc body, such as a forge
 comment or commit message) is allowed too, unless the command executes it (`bash -c`, `sh <<EOF`,
-`eval`). The matcher is `Bash|Monitor`: Monitor's payload field is the same `command`. Known gaps: a
-loop whose artifact path sits in a variable set in an earlier call, a foreground bare `sleep`, and
-`tail -f` on a task output.
+`| bash`, `eval`, `source`). The matcher is `Bash|Monitor`: Monitor's payload field is the same `command`. Known gaps: a
+loop whose artifact path sits in a variable set in an earlier call, a foreground bare `sleep`, `tail -f` on a
+task output, background placeholders wider than the pattern (a sleep-then-cat, `sleep 60 &`),
+waits other than `sleep` inside a loop, a script written then run, and a project-local copy whose
+payload `cwd` is below the root with `CLAUDE_PROJECT_DIR` unset.
 
 **Its sentinel is its own file, `.claude/no-poll-loops`** (the one-file-per-hook rule, same shape as
 `.claude/no-dashes`), shell-gated in `hooks.json` like the other two. **forge-adapt creates it when
