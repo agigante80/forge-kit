@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 72 -->
+<!-- forge-adapt-version: 73 -->
 
 # forge-adapt
 
@@ -450,7 +450,7 @@ Rules for this step:
      ```
 6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
-**Hooks** (e.g. `block-dashes`):
+**Hooks** (e.g. `block-dashes`; sentinels: `references/hooks.md`):
 
 **Branch on S2's printed `governance-plugin-active=` line, NOT on where the library came from.** Where
 the component library lives says nothing about which plugin groups the user enabled. A plugin's
@@ -489,8 +489,8 @@ the plugin, or install it into the project as below. Never do both.
 
 1. Copy the script verbatim from `<library>/plugins/<group>/hooks/<file>` to
    `.claude/hooks/<file>` (`mkdir -p .claude/hooks`). Hook scripts are stack-agnostic - do not
-   rewrite them; keep the `# <name>-version: N` marker line. A copy inside the project root is
-   itself the opt-in: no sentinel needed, and the script detects this by its own location.
+   rewrite them; keep the `# <name>-version: N` marker line. A copy in the project root opts
+   `block-dashes` in by location; `no-poll-loops` always needs its own sentinel.
 2. Wire it into `.claude/settings.json`, merging (do not clobber existing hooks). Use the **exec form**
    (`command` + `args`), never a bare command string:
 

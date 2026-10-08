@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+# no-poll-loops-version: 1
+"""PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
+
+A subagent dispatched with the Agent tool returns through the harness: its completion
+notification arrives appended to the next tool result. Waiting on it in the shell is
+always wrong, and the agent improvises exactly two shapes of it, both seen in gate
+transcripts:
+
+  1. A PLACEHOLDER WAITER: a background `sleep 240; echo waited`, queued to keep the turn
+     alive until the critic returns. It is a no-op that notifies again when it stops.
+  2. A POLL LOOP on the dispatched task's output file or transcript:
+     `until [ -s .../tasks/<id>.output ]; do sleep 5; done` (or `while` / `for`).
+
+Neither ever terminates usefully once the run ends, and one held a finished verdict for
+five days. Not starting them is the fix; a cleanup step would be a second mechanism that
+the run ending early skips. So this hook denies them and the reason says what to do.
+
+EXACT PATTERN. Deny when the Bash `command` is a string and either:
+  A. tool_input.run_in_background is true AND the whole command is a bare sleep with an
+     optional no-op tail: `sleep <n>[smhd]` then optionally `;` or `&&` and one of
+     `echo ...`, `true`, `:`.
+  B. the command holds an `until`, `while` or `for` loop with a `sleep` before its `done`
+     AND names a subagent artifact: `tasks/<id>.output`, a `subagents/` path or an
+     `agent-<id>.jsonl` transcript. Background or not: the harness backgrounds a long
+     foreground call.
+Everything else is allowed, on purpose: `sleep 2`, a background `sleep 20; gh run watch`
+(a CI wait), `until curl ...; do sleep 1; done`, a loop on any other target.
+Text that only carries a loop (inside a quoted string or a heredoc body) is allowed, unless
+the command executes it (`bash -c`, `sh <<EOF`, `eval`). The tool is Bash or Monitor, whose
+payload field is the same `command`. Known gaps: a loop whose artifact path hides in a
+variable set in an EARLIER call; a foreground bare sleep; `tail -f` on a task output.
+
+Contract (PreToolUse, same as block-dashes and overnight-guard):
+  stdin  <- {"tool_name": "Bash" (or "Monitor"), "tool_input": {"command": ..., "run_in_background": ...}}
+  stdout -> deny: hookSpecificOutput.permissionDecision = "deny" ; else nothing
+  exit   -> ALWAYS 0. Fails OPEN on anything it cannot parse or judge.
+
+Opt-in: this hook has its OWN sentinel, `.claude/no-poll-loops` (the one-file-per-hook rule,
+same shape as `.claude/no-dashes`). hooks.json gates on it in the shell, and the check here
+is defence in depth and the only gate for a project-local copy. forge-adapt creates the
+sentinel when it installs the hook, so the hook is never installed switched off.
+
+Self-test: `python3 no-poll-loops.py --self-test` runs the verdict matrix against a
+throwaway project. It runs in CI via `scripts/test-hooks.py`.
+"""
+import json
+import os
+import re
+import sys
+
+SENTINEL = os.path.join(".claude", "no-poll-loops")
+TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
+
+REASON = (
+    "no-poll-loops: do not wait on a dispatched subagent in the shell. A subagent returns "
+    "through the harness: its completion notification is appended to the next tool result. "
+    "Keep doing independent work and let the notification arrive; never end the turn with a "
+    "dispatch outstanding, and never queue a background sleep or a poll loop on a task's "
+    "output file or transcript to wait for it. With no independent work, dispatch the "
+    "subagent in the FOREGROUND (a blocking Agent call, no run_in_background) so there is "
+    "nothing to wait for."
+)
+
+# A background sleep that does nothing: the whole command, nothing else.
+BARE_SLEEP = re.compile(
+    r"\A\s*sleep\s+\d+(?:\.\d+)?[smhd]?\s*"
+    r"(?:(?:;|&&)\s*(?:echo\b[^\n;&|]*|true|:)\s*)?;?\s*\Z"
+)
+# A loop that sleeps: loop keyword ... sleep ... done. DOTALL on purpose, loops span lines.
+SLEEP_LOOP = re.compile(r"\b(?:until|while|for)\b.*?\bsleep\b.*?\bdone\b", re.S)
+# What a dispatched subagent leaves behind.
+SUBAGENT_ARTIFACT = re.compile(
+    r"\btasks/[\w.-]+\.output\b|\bsubagents/|\bagent-[\w-]+\.jsonl\b"
+)
+
+
+def deny(reason=REASON):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+    return 0
+
+
+# Text that only CARRIES a loop (a forge comment body, a commit message, a data heredoc) must
+# not be denied (#168 precedent). Masked before the loop test, never before the artifact test,
+# so `until [ -s "/t/tasks/x.output" ]; do sleep 5; done` with a quoted path still matches.
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|\Z)", re.S)
+QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'", re.S)
+# A string or heredoc that a shell will EXECUTE is code, not text: never masked.
+EXECUTES = re.compile(r"\b(?:ba|z|da)?sh\b[^\n]*?(?:\s-\w*c\b|<<)|\beval\b")
+
+
+def mask_text(command):
+    if EXECUTES.search(command):
+        return command
+    return QUOTED.sub('""', HEREDOC.sub(" ", command))
+
+
+def judge(command, background):
+    """True when this command is a shell wait on a subagent."""
+    if background is True and BARE_SLEEP.search(command):
+        return True
+    return bool(SLEEP_LOOP.search(mask_text(command)) and SUBAGENT_ARTIFACT.search(command))
+
+
+def enabled(payload):
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd")
+    return isinstance(root, str) and root != "" and os.path.exists(os.path.join(root, SENTINEL))
+
+
+def main():
+    try:
+        payload = json.loads(sys.stdin.read())
+    except (json.JSONDecodeError, ValueError):
+        return 0
+    if not isinstance(payload, dict) or payload.get("tool_name") not in TOOLS:
+        return 0
+    tin = payload.get("tool_input")
+    command = tin.get("command") if isinstance(tin, dict) else None
+    if not isinstance(command, str) or not enabled(payload):
+        return 0
+    if judge(command, tin.get("run_in_background")):
+        return deny()
+    return 0
+
+
+def self_test():
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="npl-test-") as d:
+        os.makedirs(os.path.join(d, ".claude"))
+        open(os.path.join(d, SENTINEL), "w").close()
+        bare = tempfile.mkdtemp(prefix="npl-bare-", dir=d)
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+
+        def verdict(cmd, bg=None, proj=d):
+            tin = {"command": cmd}
+            if bg is not None:
+                tin["run_in_background"] = bg
+            e = dict(env, CLAUDE_PROJECT_DIR=proj)
+            r = subprocess.run([sys.executable, os.path.abspath(__file__)],
+                               input=json.dumps({"tool_name": "Bash", "tool_input": tin}),
+                               capture_output=True, text=True, env=e)
+            return "DENY" if '"deny"' in r.stdout and r.returncode == 0 else "ALLOW"
+
+        cases = [
+            ("DENY", "sleep 240; echo waited", True),
+            ("DENY", "sleep 60 && true", True),
+            ("DENY", "sleep 30", True),
+            ("DENY", "until [ -s /t/tasks/ab12.output ]; do sleep 5; done", None),
+            ("DENY", "while [ ! -f /t/subagents/agent-ab12.jsonl ]; do sleep 5; done", True),
+            ("DENY", "for i in $(seq 1 9); do sleep 15; stat /t/tasks/ab12.output; done", False),
+            ("ALLOW", "sleep 2", None),
+            ("ALLOW", "sleep 240; echo waited", None),
+            ("ALLOW", "sleep 20; gh run watch 123", True),
+            ("ALLOW", "until curl -sf localhost:3000; do sleep 1; done", True),
+            ("ALLOW", "timeout 600 python3 scripts/test-hooks.py", True),
+        ]
+        fails = 0
+        for want, cmd, bg in cases:
+            got = verdict(cmd, bg)
+            if got != want:
+                fails += 1
+                print("self-test FAIL: want %s got %s :: %r" % (want, got, cmd))
+        if verdict("sleep 240; echo waited", True, proj=bare) != "ALLOW":
+            fails += 1
+            print("self-test FAIL: no sentinel must allow")
+        print("self-test: %s" % ("PASS" if fails == 0 else "%d FAILURES" % fails))
+        return 0 if fails == 0 else 1
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
+        sys.exit(self_test())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        sys.exit(0)  # fail open

@@ -28,6 +28,20 @@
             ]
           }
         ]
+      },
+      {
+        "matcher": "Bash|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": [
+              "-c",
+              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/no-poll-loops\" ] || exit 0; exec python3 \"$0\"",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/no-poll-loops.py"
+            ]
+          }
+        ]
       }
     ],
     "Stop": [

@@ -581,6 +581,222 @@ check("guard execs overnight-guard.py",
 check("guard plugin root braced",
       "${CLAUDE_PLUGIN_ROOT}" in " ".join(guard_reg["args"]), True)
 
+# --- no-poll-loops (PreToolUse Bash, #263) ----------------------------------
+# Refuses a shell wait on a dispatched subagent: a background bare `sleep N; echo waited`
+# placeholder, or an until/while/for loop that sleeps while naming tasks/<id>.output, a
+# subagents/ path or an agent-<id>.jsonl transcript. Own sentinel .claude/no-poll-loops.
+print("\n  -- no-poll-loops (PreToolUse Bash) --")
+
+NPL = ROOT / "plugins/forge-kit-governance/hooks/no-poll-loops.py"
+T = "/tmp/s/tasks/ab12cd.output"
+J = "/tmp/s/subagents/agent-ab12cd.jsonl"
+
+
+def bg(cmd, flag=True):
+    tin = {"command": cmd}
+    if flag is not None:
+        tin["run_in_background"] = flag
+    return {"tool_name": "Bash", "tool_input": tin}
+
+
+NPL_DENY = [
+    # Placeholder waiters, as observed in the #194 and #189 gate transcripts.
+    ("placeholder, echo tail", bg("sleep 240; echo waited")),
+    ("placeholder, && echo tail", bg("sleep 60 && echo waited")),
+    ("placeholder, true tail", bg("sleep 90; true")),
+    ("placeholder, colon tail", bg("sleep 90 && :")),
+    ("placeholder, bare", bg("sleep 30")),
+    ("placeholder, unit suffix", bg("sleep 5m; echo done")),
+    ("placeholder, fractional", bg("sleep 0.5")),
+    ("placeholder, padded", bg("  sleep 45;  echo waited  \n")),
+    # Poll loops on a dispatched task's artifacts, whether or not flagged background.
+    ("until on tasks output, no flag", bg(f"until [ -s {T} ]; do sleep 5; done", None)),
+    ("until on tasks output, bg", bg(f"until [ -s {T} ]; do sleep 5; done")),
+    ("until on tasks output, fg flag", bg(f"until [ -s {T} ]; do sleep 5; done", False)),
+    ("while on subagents path", bg(f"while [ ! -f {J} ]; do sleep 5; done")),
+    ("until on agent jsonl name", bg("until grep -q end agent-ab12cd.jsonl; do sleep 3; done", None)),
+    ("for loop on tasks output", bg(f"for i in $(seq 1 16); do sleep 15; stat -c %s {T}; done", None)),
+    ("subagents path, not an agent jsonl", bg("while [ ! -f /tmp/s/subagents/notes.log ]; do sleep 5; done", None)),
+    ("multi-line loop", bg(f"F={T}\nuntil [ -s \"$F\" ]\ndo\n  sleep 5\ndone", None)),
+    ("path in variable, same call", bg(f"F={T}; until [ -s $F ]; do sleep 2; done", None)),
+    ("loop behind cd and timeout", bg(f"cd /x && timeout 600 bash -c 'until [ -s {T} ]; do sleep 5; done'", None)),
+    # Quoting the PATH does not hide a real loop; executing quoted or heredoc text is code.
+    ("quoted path, real loop", bg(f'until [ -s "{T}" ]; do sleep 5; done', None)),
+    ("bash -c double-quoted", bg(f'bash -c "until [ -s {T} ]; do sleep 5; done"', None)),
+    ("heredoc fed to bash", bg(f"bash <<EOF\nuntil [ -s {T} ]; do sleep 5; done\nEOF", None)),
+    ("eval of a string", bg(f"eval 'until [ -s {T} ]; do sleep 5; done'", None)),
+    ("real loop after a quoted string", bg(f'echo "hi"; until [ -s {T} ]; do sleep 5; done', None)),
+    ("Monitor tool, same command field",
+     {"tool_name": "Monitor", "tool_input": {"command": f"until [ -s {T} ]; do sleep 5; done"}}),
+]
+NPL_ALLOW = [
+    ("sleep 2 foreground", bg("sleep 2", None)),
+    ("sleep 2 flagged false", bg("sleep 2", False)),
+    ("placeholder not backgrounded", bg("sleep 240; echo waited", None)),
+    ("placeholder flagged false", bg("sleep 240; echo waited", False)),
+    ("CI wait (real use)", bg("sleep 20; gh run watch 123 --exit-status")),
+    ("sleep then a real command", bg("sleep 5 && ./deploy.sh")),
+    ("sleep then echo then more", bg("sleep 5; echo waited; ./deploy.sh")),
+    ("sleep after another command", bg("echo started; sleep 30")),
+    ("loop without done", bg(f"for f in {T}; do echo hi; sleep 3", None)),
+    ("string flag is not true", bg("sleep 30", "true")),
+    ("poll another target", bg("until curl -sf localhost:3000; do sleep 1; done")),
+    ("poll a file elsewhere", bg("until [ -s build/out.log ]; do sleep 1; done", None)),
+    ("a tasks dir, not an output", bg("until [ -s tasks/todo.md ]; do sleep 1; done", None)),
+    ("loop without sleep", bg(f"while read l; do echo $l; done < {T}", None)),
+    ("sleep without loop, artifact named", bg(f"sleep 3; cat {T}", None)),
+    ("artifact read, no sleep", bg(f"cat {T}; tail -c 200 {J}", None)),
+    ("timeout run", bg("timeout 600 python3 scripts/test-hooks.py")),
+    ("plain command", bg("git status", None)),
+    ("empty command", bg("", None)),
+    # Text that only carries a loop (#168 precedent): a comment body, commit message, data heredoc.
+    ("forge comment body quoting a loop",
+     bg(f'gh issue comment 9 --body "poll with: until [ -s {T} ]; do sleep 5; done"', None)),
+    ("single-quoted commit message",
+     bg(f"git commit -m 'drop the loop: until [ -s {T} ]; do sleep 5; done'", None)),
+    ("multi-line quoted body",
+     bg(f'gh issue create --body "steps:\nuntil [ -s {T} ]\ndo sleep 5\ndone\n"', None)),
+    ("data heredoc to a file",
+     bg(f"cat > notes.md <<'EOF'\nuntil [ -s {T} ]; do sleep 5; done\nEOF", None)),
+    ("data heredoc to gh",
+     bg(f"gh issue comment 9 --body-file - <<'EOF'\nuntil [ -s {T} ]; do sleep 5; done\nEOF", None)),
+    ("Monitor with an unrelated loop",
+     {"tool_name": "Monitor", "tool_input": {"command": "while true; do gh run list; sleep 30; done"}}),
+]
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    on = td / "on"
+    (on / ".claude").mkdir(parents=True)
+    (on / ".claude" / "no-poll-loops").touch()
+    off = td / "off"
+    (off / ".claude").mkdir(parents=True)
+    # The other hooks' sentinels must not arm this one: it has its OWN file.
+    (off / ".claude" / "no-dashes").touch()
+    (off / ".claude" / "overnight").mkdir()
+    (off / ".claude" / "overnight" / "active.md").touch()
+
+    def npl(payload, proj=on, raw=None, cwd=None):
+        p = run(payload, raw=raw, hook=NPL, project_dir=proj, cwd=str(cwd or proj or "/"))
+        return verdict(p) if p.returncode == 0 else f"exit{p.returncode}"
+
+    for label, pl in NPL_DENY:
+        check("npl deny: " + label, npl(pl), DENY)
+    for label, pl in NPL_ALLOW:
+        check("npl allow: " + label, npl(pl), ALLOW)
+
+    # Exit code is part of the contract: deny is signalled on stdout, exit 0.
+    p = run(bg("sleep 240; echo waited"), hook=NPL, project_dir=on, cwd=str(on))
+    check("npl deny exits 0", p.returncode, 0)
+    # The reason teaches the replacement, not just the refusal.
+    reason = json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+    check("npl reason names the notification", "completion notification" in reason, True)
+    check("npl reason says keep working", "independent work" in reason, True)
+    check("npl reason says no outstanding dispatch", "outstanding" in reason, True)
+    check("npl reason points at a foreground dispatch", "FOREGROUND" in reason, True)
+
+    # Sentinel absent means allow, even for the exact observed waiter. Another hook's
+    # sentinel is not this hook's.
+    for label, pl in (NPL_DENY[0], NPL_DENY[8]):
+        check("npl no sentinel allows: " + label, npl(pl, proj=off), ALLOW)
+    check("npl no CLAUDE_PROJECT_DIR and no cwd allows",
+          npl(NPL_DENY[0][1], proj=None, cwd="/"), ALLOW)
+    # The payload's cwd arms it when CLAUDE_PROJECT_DIR is unset.
+    check("npl payload cwd finds the sentinel",
+          npl(dict(NPL_DENY[0][1], cwd=str(on)), proj=None, cwd="/"), DENY)
+
+    # Fail open on anything it cannot judge, armed or not.
+    for label, raw in (("malformed json", "{not json"), ("empty stdin", ""),
+                       ("json array", "[1, 2, 3]"), ("json scalar", "7"), ("json null", "null")):
+        check("npl armed " + label + " allows", npl(None, raw=raw), ALLOW)
+    for label, pl in (("no tool_input", {"tool_name": "Bash"}),
+                      ("tool_input not a dict", {"tool_name": "Bash", "tool_input": "sleep 30"}),
+                      ("no command", {"tool_name": "Bash", "tool_input": {"run_in_background": True}}),
+                      ("command is a list", {"tool_name": "Bash", "tool_input": {"command": ["sleep", "30"], "run_in_background": True}}),
+                      ("command is null", {"tool_name": "Bash", "tool_input": {"command": None, "run_in_background": True}})):
+        check("npl armed " + label + " allows", npl(pl), ALLOW)
+    # Only Bash is judged: the same text through another tool is data.
+    check("npl non-Bash tool with a command key allows",
+          npl({"tool_name": "Write", "tool_input": {"command": "sleep 240; echo waited", "run_in_background": True}}),
+          ALLOW)
+    check("npl Agent dispatch payload allows",
+          npl({"tool_name": "Agent", "tool_input": {"command": "sleep 9; echo x", "run_in_background": True}}),
+          ALLOW)
+    check("npl non-Bash allows",
+          npl({"tool_name": "Write", "tool_input": {"content": "sleep 240; echo waited", "run_in_background": True}}),
+          ALLOW)
+
+    # The script's own --self-test is part of the contract and runs here.
+    st = subprocess.run([sys.executable, str(NPL), "--self-test"], capture_output=True, text=True)
+    check("npl --self-test passes", (st.returncode, "PASS" in st.stdout), (0, True))
+    # ... and it is not vacuous: against a copy whose placeholder rule is dead it must fail.
+    broken = td / "broken-no-poll-loops.py"
+    broken.write_text(NPL.read_text().replace("BARE_SLEEP.search(command)", "False"))
+    st = subprocess.run([sys.executable, str(broken), "--self-test"], capture_output=True, text=True)
+    check("npl --self-test fails on a broken hook", (st.returncode, "FAIL" in st.stdout), (1, True))
+
+# --- no-poll-loops registration (hooks.json) --------------------------------
+print("\n  -- no-poll-loops registration --")
+npl_entry = next(e for e in spec["hooks"]["PreToolUse"] if "no-poll-loops" in json.dumps(e))
+npl_reg = npl_entry["hooks"][0]
+check("npl matcher is Bash|Monitor", npl_entry["matcher"], "Bash|Monitor")
+check("npl exec form", ("command" in npl_reg and "args" in npl_reg), True)
+check("npl sh-gates on its own sentinel",
+      ".claude/no-poll-loops" in " ".join(npl_reg["args"]), True)
+check("npl plugin root braced", "${CLAUDE_PLUGIN_ROOT}" in " ".join(npl_reg["args"]), True)
+
+
+def invoke_npl(plugin_root, project_dir, payload):
+    argv = [npl_reg["command"]] + [
+        a.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root)) for a in npl_reg["args"]
+    ]
+    env = dict(os.environ)
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    if project_dir is not None:
+        env["CLAUDE_PROJECT_DIR"] = str(project_dir)
+    return subprocess.run(argv, input=json.dumps(payload), capture_output=True,
+                          text=True, env=env, cwd="/")
+
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    proot = td / "plugin"
+    (proot / "hooks").mkdir(parents=True)
+    shutil.copy(NPL, proot / "hooks" / "no-poll-loops.py")
+    proj = td / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    waiter = bg("sleep 240; echo waited")
+
+    p = invoke_npl(proot, proj, waiter)
+    check("npl registered, no sentinel", verdict(p), ALLOW)
+
+    # The sh guard must SHORT-CIRCUIT: a poison-pill script denies unconditionally, so a
+    # spawned interpreter shows up as a deny.
+    script = proot / "hooks" / "no-poll-loops.py"
+    original = script.read_bytes()
+    script.write_text(
+        "import json\n"
+        'print(json.dumps({"hookSpecificOutput":'
+        '{"hookEventName":"PreToolUse","permissionDecision":"deny",'
+        '"permissionDecisionReason":"POISON: interpreter was spawned"}}))\n'
+    )
+    p = invoke_npl(proot, proj, waiter)
+    check("npl no sentinel spawns no python", verdict(p), ALLOW, extra="(guard short-circuits)")
+    # Another hook's sentinel does not arm it.
+    (proj / ".claude" / "no-dashes").touch()
+    p = invoke_npl(proot, proj, waiter)
+    check("npl no-dashes sentinel does not arm it", verdict(p), ALLOW)
+    script.write_bytes(original)
+
+    (proj / ".claude" / "no-poll-loops").touch()
+    p = invoke_npl(proot, proj, waiter)
+    check("npl registered, opted in", verdict(p), DENY)
+    check("npl stdin reaches the script", "completion notification" in p.stdout, True)
+    p = invoke_npl(proot, proj, bg("sleep 20; gh run watch 1"))
+    check("npl registered, ordinary command", verdict(p), ALLOW)
+    p = invoke_npl(proot, None, waiter)
+    check("npl registered, no CLAUDE_PROJECT_DIR", verdict(p), ALLOW, extra="(fail open)")
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} case(s): {', '.join(failures)}")

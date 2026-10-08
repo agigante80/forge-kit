@@ -7,6 +7,7 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 | Signal in the project | Hook | Group | Event | Canonical "why" (≤60) | Wiring matcher |
 |---|---|---|---|---|---|
 | CLAUDE.md states a no-em/en-dash or strict writing rule | `block-dashes.py` | governance | PreToolUse | enforce the no-dash writing rule | `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` |
+| the project dispatches subagents (`ticket-gate`, `/full-review` or `working-overnight` installed) | `no-poll-loops.py` | governance | PreToolUse | stop shell waits on dispatched subagents | `Bash\|Monitor` |
 | `.forge.conf` present (repo migrated off GitHub to a self-hosted forge) | `block-legacy-host-push.py` | devops | PreToolUse | deny git push to the archived legacy host | `Bash` |
 
 ## Install detail (block-dashes.py)
@@ -35,6 +36,35 @@ or install into the project as below. Never both.
 
 When NOT to recommend: if CLAUDE.md has no writing-style rule, do not surface this hook. It is
 opinionated and only valuable where the project has adopted the no-dash convention.
+
+## Install detail (no-poll-loops.py)
+
+The hook has its OWN sentinel, `.claude/no-poll-loops` (one file per hook, same shape as
+`.claude/no-dashes`), and **forge-adapt creates it on every install, in both shapes**, so the hook
+can never be installed switched off. A hook behind a sentinel nothing creates fixes nothing. The
+script checks the sentinel itself, so a project-local copy is NOT opted in by its location the way
+`block-dashes` is: without the file it is inert.
+
+Branch on `$GOVERNANCE_PLUGIN_ACTIVE`, as for `block-dashes`:
+
+`yes`: the plugin's `hooks.json` already registers the hook, shell-gated on the sentinel. Do NOT
+copy the script and do NOT touch `settings.json`. The whole install is:
+
+```bash
+mkdir -p .claude && touch .claude/no-poll-loops
+```
+
+`no`: copy `$FORGE_KIT_DIR/plugins/forge-kit-governance/hooks/no-poll-loops.py` verbatim to
+`.claude/hooks/no-poll-loops.py` (keep the `# no-poll-loops-version: N` marker), merge a `Bash|Monitor`
+entry into `.claude/settings.json` with the same `jq` merge and exec form as `block-dashes`
+(`"command": "python3"`, `"args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/no-poll-loops.py"]`), then
+create the sentinel with the command above.
+
+Confirm: `✓ no-poll-loops (hook): armed via .claude/no-poll-loops`. Opt out later by deleting the
+sentinel. Optionally sanity-run `python3 .claude/hooks/no-poll-loops.py --self-test` (project-local
+shape). The deny pattern is in the hook's own header and `hooks/README.md`; do not restate it.
+
+When NOT to recommend: a project that installs none of the components that dispatch subagents.
 
 ## Install detail (block-legacy-host-push.py)
 
