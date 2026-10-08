@@ -82,3 +82,44 @@ In order, one at a time (they share `hooks.json`, `test-hooks.py` and the group 
   stay allowed by day unless a new ticket decides otherwise (`backlog`).
 - **Rewriting or denying a piped check (#420)**: the hook is advisory only.
 - **Raising any baseline**: an agent never does; a shortfall is a maintainer question.
+
+## Close record
+
+Closed 2026-10-08. **Outcome: done.** Every expected ticket landed; nothing was moved out.
+
+| Ticket | Landed | Notes |
+|---|---|---|
+| #433 | 984a5ee, aebf639 | No foreground `Agent` dispatch exists on Claude Code 2.1.294 (verified in the binary and by a probe from a subagent); the hook's reason now says end the turn and let the notification resume you, and Step 3B's foreground clause is deleted (ticket-gate 5648 to 5642) |
+| #419 | 75ca07e, bab1821, 15b1954, 2b75481, bf1708d | Daytime arm behind `.claude/no-destructive`, including a relative `rm -rf` ending in a wildcard; overnight unchanged |
+| #420 | bbc9aa6, 459cd9f, fb9e8b8 | `masked-exit-advisory` PostToolUse hook behind `.claude/masked-exit`; gate round 2 PASS |
+
+**The premortem, clause by clause:**
+
+- *#433 was settled from the docs*: avoided. The fact was read from the installed binary's schema
+  builder and confirmed by a probe dispatch inside a subagent. The new advice holds either way,
+  since it never names a blocking call. Headless `claude -p` and a subagent ending its turn with
+  a child outstanding stay unverified, recorded in #434.
+- *The overnight guard changed*: did not. The three overnight reason strings are now pinned by
+  exact equality with mutants, and a differential over the old and new hook found no overnight
+  regression.
+- *The relative-glob rule over-reached*: held. `rm -rf tmp/impl-213` and `rm -rf build` stay
+  allowed by day; a missing pin for a bare `rm -rf .` is in #435.
+- *A sentinel nothing creates*: avoided. forge-adapt's `references/hooks.md` creates both new
+  sentinels on every install branch.
+- *Words*: no baseline was raised; ticket-gate fell to 5642 and `adapt` stayed at 7144.
+- *#420 never reached the model*: avoided. `additionalContext` delivery was read from the binary,
+  and the registration row proves the hook runs.
+- *Collisions*: did not happen; the three ran in sequence.
+
+**What the plan did not foresee:**
+
+- **#433 reversed a maintainer pick.** "Critic in foreground" (2026-10-08) rested on a dispatch
+  mode the harness does not offer, so the fix removes it; the reversal is recorded in the hook's
+  comment and on #433.
+- **A background security review caught #419's round 1 fix.** It reported a control regression and
+  a parser differential, which turned out to be one bug: 45 daytime bypasses (a path-qualified
+  `rm`, flags after the target). Round 2 fixed them and round 3 found nothing. The code reviewer
+  found the same defect independently.
+- **PostToolUse never fires on a non-zero exit** (it runs `PostToolUseFailure`), so #420's
+  advisory only sees the masked, exit-0 case, and it also fires when the check passed.
+- The lows went to #434, #435 and #436 (backlog).
