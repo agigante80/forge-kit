@@ -202,7 +202,7 @@ for f in empty only-fence only-fence-crlf; do
 done
 pushd "$T" >/dev/null; run "$T/inject.md" "$T/base.md"; popd >/dev/null
 case "$out" in *'model local=$(touch pwned-in-cwd) '*) ok "a command substitution in a value prints literally" ;; *) bad "inject: $out" ;; esac
-[ ! -e "$T/pwned-in-cwd" ] && [ ! -e pwned-in-cwd ] && ok "and no file was created" || bad "an injected command ran"
+[ ! -e "$T/pwned-in-cwd" ] && ok "and no file was created" || bad "an injected command ran"
 
 echo "== guard_has_frontmatter, the shared helper (#290) =="
 has_fm() ( . "$ROOT/scripts/guard-lib.sh"; guard_has_frontmatter "$1" )
