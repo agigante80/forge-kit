@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 2
+# no-poll-loops-version: 3
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -31,7 +31,8 @@ the command executes it (`bash -c`, `sh <<EOF`, `| bash`, `eval`, `source`). The
 payload field is the same `command`. Known gaps: a loop whose artifact path hides in a
 variable set in an EARLIER call; a foreground bare sleep; `tail -f` on a task output; background placeholders wider than the pattern (a
 sleep-then-cat, `sleep 60 &`, `/bin/sleep`); waits other than `sleep` inside the loop; a script
-written then run; and, in the project-local shape, a payload `cwd` below the project root when
+written then run; an unrelated sleeping loop followed later in the same call by an artifact
+name (a false positive, accepted: a guard errs towards denying); and, in the project-local shape, a payload `cwd` below the project root when
 CLAUDE_PROJECT_DIR is unset.
 
 Contract (PreToolUse, same as block-dashes and overnight-guard):
@@ -71,8 +72,8 @@ BARE_SLEEP = re.compile(
     r"(?:(?:;|&&)\s*(?:echo\b[^\n;&|]*|true|:)\s*)?;?\s*\Z"
 )
 # A loop that sleeps: loop keyword ... sleep ... done. DOTALL on purpose, loops span lines.
-SLEEP_LOOP = re.compile(
-    r"\b(?:until|while|for)\b(?:(?!\bdone\b).)*?\bsleep\b.*?\bdone\b", re.S)
+# Deliberately untempered: a nested loop, an `echo done` or a comment must not hide a wait.
+SLEEP_LOOP = re.compile(r"\b(?:until|while|for)\b.*?\bsleep\b.*?\bdone\b", re.S)
 # What a dispatched subagent leaves behind.
 SUBAGENT_ARTIFACT = re.compile(
     r"\btasks/[\w.-]+\.output\b|\bsubagents/|\bagent-[\w-]+\.jsonl\b"
@@ -98,7 +99,7 @@ QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|(?<![\w])'[^']*'", re.S)
 # Text a shell will EXECUTE is code, not prose: `bash -c`, `sh <<EOF`, `| bash`, `eval`,
 # `source`. Tested on the BLANKED command, so these words inside a quoted comment do not count.
 EXECUTES = re.compile(
-    r"(?<![\w./-])(?:ba|z|da)?sh\b(?![.\w-])[^\n]*?(?:\s-\w*c\b|<<)"
+    r"(?<![\w.-])(?:ba|z|da)?sh\b(?![.\w-])[^\n]*?(?:\s-\w*c\b|<<)"
     r"|\|\s*(?:\S*/)?(?:ba|z|da)?sh\b"
     r"|\beval\b|\bsource\b"
 )
@@ -124,14 +125,15 @@ def poll_loop_on_artifact(command):
     m = SLEEP_LOOP.search(view)
     if not m:
         return False
-    span = command[m.start():m.end()]
-    if SUBAGENT_ARTIFACT.search(span):
+    # From the FIRST sleeping loop's keyword to the end: a nested `done` must not cut the
+    # artifact off, a later loop is covered, and an artifact named BEFORE the loop (an echo, a
+    # comment) does not count.
+    tail = command[m.start():]
+    if SUBAGENT_ARTIFACT.search(tail):
         return True
     # `F=/t/tasks/x.output; until [ -s $F ]; ...` in the same call.
-    if "$" in span:
-        before = command[:m.start()]
-        return bool(re.search(r"\b\w+=\S*" + SUBAGENT_ARTIFACT.pattern, before))
-    return False
+    return "$" in tail and bool(
+        re.search(r"\b\w+=\S*" + SUBAGENT_ARTIFACT.pattern, blanked[:m.start()]))
 
 
 def judge(command, background):
