@@ -24,7 +24,8 @@ Step 4 composes this. Never a numeric scorecard.
 | Labels valid | pass/fail | ... |
 | Required sections present | pass/fail | ... |
 | GWT structure | pass/fail | ... |
-| Test specs concrete | pass/fail | ... |
+| Test specs concrete (unit) | pass/fail | ... |
+| Test specs concrete (E2E) | pass/fail | ... |
 | Documentation impact present | pass/fail | ... |
 
 ### Critique

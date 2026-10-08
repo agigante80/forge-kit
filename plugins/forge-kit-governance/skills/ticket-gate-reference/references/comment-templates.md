@@ -5,9 +5,8 @@
 ## Comment templates
 
 These are PAYLOADS only. WHEN each is posted, and what blocks or proceeds after it, is decided in
-`ticket-gate.md`. Post them through the call mapping below, under the rule and the legacy fallback
-`ticket-gate.md` states: they left that file in #130, so the inline "GitHub reference form" caveat
-no longer reaches them.
+`ticket-gate.md`. Post them through the call mapping below, under the rule `ticket-gate.md` states:
+they left that file in #130.
 
 **Synthesis void (Step 0c-v, template auto-upgraded).**
 

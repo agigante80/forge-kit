@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 68 -->
+<!-- ticket-gate-version: 69 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -37,20 +37,15 @@ You never produce numeric scores: Step 2.5 carries why the committee was retired
 
 ## Forge operations are host-aware (GitHub or Forgejo)
 
-Source the `forge-host` adapter before any forge call and resolve identity once:
-
-```bash
-source scripts/forge-lib.sh    # forge-adapt install; Steps 1, 3A, 5, 6 resolve it via gate-env.sh
-REPO="$(forge_repo)"           # owner/repo on the detected host
-```
+Every Bash call is a fresh shell. Step 0's preamble resolves the checker and `gate-env.sh`, which
+sources the `forge-host` adapter; each call that makes a forge call opens with that one line.
 
 **Use the `forge_*` functions for every forge call. Do not call `gh` directly.** The call mapping
 and the templates Steps 0c, 1.5, 3C, 4 and 6 use are FILES under the `ticket-gate-reference` skill's
 `references/`, listed in its index. READ the one you need at the step that needs it; if it cannot be
 found, say so and stop rather than working from memory.
 
-The `gh …` snippets below are the **GitHub reference form**; apply the `forge_*` equivalent. If
-`forge-lib.sh` is absent (legacy install), fall back to `gh`, except Step 5.
+With no adapter the run stops: `BLOCKED - RUN_FAILED`.
 
 **That skill is required from Step 0 on**, and a declared skill that is missing is skipped with
 only a debug-log warning. If it is not loaded, return `BLOCKED - REFERENCE_MISSING` before any forge
@@ -61,6 +56,18 @@ call: 0b posts and 0c edits the body, so improvising writes permanently.
 ## Process
 
 ### Step 0: Template version check + label validation (mandatory)
+
+**Preamble** (before any forge call):
+
+```bash
+D=<scratchpad>/gate-<NUMBER>; mkdir -p "$D"   # per issue: concurrent runs shared one file (#197)
+MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
+# Never $CLAUDE_PLUGIN_ROOT (hooks only). Else a checkout's tree, else the highest installed marker, last path on a tie (#189).
+[ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
+[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sed 's/:check-ticket-mechanics-version: \([0-9]*\)$/	\1/' | sort -t$'\t' -k2,2n -k1,1 | tail -1 | cut -f1)
+[ -f "$(dirname "$MECH")/gate-env.sh" ] || { echo "ticket-gate: no checker with gate-env.sh beside it; see installing-the-mechanics-script.md" >&2; exit 2; }
+printf '%s\n' "$MECH" > "$D/mech"; . "$(dirname "$MECH")/gate-env.sh" || exit 2   # sets A, GS, FORGE_LIB
+```
 
 #### 0a. Template version check
 
@@ -81,7 +88,8 @@ Use `$CURRENT_TPL_VER` everywhere below.
 
 2. **Fetch the issue body and check for version marker:**
 ```bash
-gh issue view <NUMBER> --repo "$REPO" --json body --jq '.body' | grep -oP 'template-version: \K\d+'
+D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
+I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.body // ""' <<<"$I" | grep -oP 'template-version: \K\d+'
 ```
 
 3. **Evaluate:**
@@ -167,7 +175,8 @@ The review runs against the enriched body. Do NOT return BLOCKED here.
 
 1. **Fetch labels:**
 ```bash
-gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
+D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
+I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.labels[].name' <<<"$I"
 ```
 
 2. **Check for at least one AREA label**, as defined in `docs/guides/labels.md`. Never restate
@@ -183,15 +192,9 @@ gh issue view <NUMBER> --repo "$REPO" --json labels --jq '.labels[].name'
 ### Step 1: Fetch the issue, resolve the shipped assets, count the round
 
 ```bash
-D=<scratchpad>/gate-<NUMBER>; mkdir -p "$D"   # per issue: concurrent runs shared one file (#197)
-gh issue view <NUMBER> --json number,title,body,labels,milestone > "$D/issue.json"
-jq -r .body "$D/issue.json" > "$D/body.md"
-MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
-# Never $CLAUDE_PLUGIN_ROOT (hooks only). Else a checkout's tree, else the highest installed marker, last path on a tie (#189).
-[ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
-[ -f "$MECH" ] || MECH=$(find ~/.claude/plugins -name check-ticket-mechanics.sh -exec grep -m1 -Ho 'check-ticket-mechanics-version: [0-9]*' {} + 2>/dev/null | sed 's/:check-ticket-mechanics-version: \([0-9]*\)$/	\1/' | sort -t$'\t' -k2,2n -k1,1 | tail -1 | cut -f1)
-[ -f "$(dirname "$MECH")/gate-env.sh" ] || { echo "ticket-gate: no checker with gate-env.sh beside it; see installing-the-mechanics-script.md" >&2; exit 2; }
-printf '%s\n' "$MECH" > "$D/mech"; . "$(dirname "$MECH")/gate-env.sh" || exit 2   # sets A, GS, FORGE_LIB
+D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
+forge_issue_view <NUMBER> > "$D/issue.json" || exit 2
+jq -r '.body // ""' "$D/issue.json" > "$D/body.md"
 echo "mechanics: ${MECH/#$HOME/\~} ($(grep -m1 -o 'check-ticket-mechanics-version: [0-9]*' "$MECH"))"   # quote in the review
 ROUND=$("$A/count-gate-rounds.sh" <NUMBER> --body "$D/body.md") || ROUND=unknown
 "$GS" <NUMBER> --unstamp   # unrecorded until Step 6 stamps (#284)
@@ -294,17 +297,10 @@ element 5 is re-derived by the critic rather than re-sourced.
 
 ### Step 2.9: Codebase exploration
 
-Map existing code patterns relevant to this ticket. This step ALWAYS runs its check.
+Map existing code patterns relevant to this ticket. Every round explores afresh: a reused
+context cited moved numbers (#286).
 
-**1. Check if `codebase_context` is already populated**, in the issue body ALREADY FETCHED
-in Step 1 (never a fresh forge call):
-- Skip re-exploration ONLY if the section has non-placeholder content AND a `gate-verdict`
-  block is PRESENT carrying no fundamental item. Log: `codebase context: using cached findings
-  from previous gate run`.
-- Otherwise run the exploration sub-agent below. After a fundamental round the cache is VOID,
-  since an adopted alternative can target different code.
-
-**2. Launch a `general-purpose` sub-agent** (`model: sonnet`) with:
+**1. Launch a `general-purpose` sub-agent** (`model: sonnet`) with:
 - The ticket title and key domain nouns extracted from the title, labels, and body
 - The CLAUDE.md project context from Step 2
 
@@ -313,7 +309,7 @@ Ask the sub-agent to use Glob and Grep to locate and summarise:
 - Any conflicting patterns or constraints that affect the proposed approach
 - Related existing tests that the ticket's implementation should build on
 
-**3. Write the findings** as the `gate-context` region, inside the Codebase Context section,
+**2. Write the findings** as the `gate-context` region, inside the Codebase Context section,
 under Step 6's lifecycle:
 
 ```markdown
@@ -335,7 +331,7 @@ Write it with Step 6's primitives, minus the verdict block.
 If no relevant files exist, write `greenfield area: no existing patterns in scope` and note
 this to the critic (absence of patterns is itself useful architectural context).
 
-**4. Pass the populated section to the critic** in Step 3B, alongside the issue body and
+**3. Pass the populated section to the critic** in Step 3B, alongside the issue body and
 project files.
 
 ### Step 3A: Mechanical checks (deterministic, no agent)
@@ -346,8 +342,9 @@ which cannot be tested (#149).
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
 [ "$(jq .number "$D/issue.json")" = <NUMBER> ] || exit 2   # another run's fetch: STOP, post nothing (#197)
-"$MECH" --body "$D/body.md" --template <the type's template file> \
-  --tpl-version <marker from the body> --current-tpl-version <0a's value> --labels <0b's labels> \
+"$MECH" --body "$D/body.md" --template <0a's TPL_DIR>/<type>.yml \
+  --tpl-version "$(grep -oP 'template-version: \K\d+' "$D/body.md" | head -1)" \
+  --current-tpl-version <0a's value> --labels "$(jq -r '[.labels[].name]|join(",")' "$D/issue.json")" \
   --labels-doc docs/guides/labels.md
 ```
 
@@ -487,7 +484,7 @@ D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || e
 forge_issue_comment <NUMBER> "$(cat "$D/review.md")" || exit 2   # STOP: Step 6 never runs
 ```
 
-An `exit 2` from these blocks' own guard lines stops the run: relay its stderr line as your final
+An `exit 2` from any block's own guard line stops the run: relay its stderr line as your final
 message and return `BLOCKED - RUN_FAILED`.
 
 ### Step 6: Return result and auto-remediate
@@ -527,8 +524,7 @@ plus `gate-context` written by Step 2.9, carrying the headings `Gate verdict` / 
    `<!-- ticket-gate: populated ... -->`, so wrap the first and delete later duplicates.
 2. **Every region is rewritten from THIS round's result, or removed.** An empty blocking list
    removes `gate-required-changes`; no fundamental item this round removes `gate-alternatives`;
-   0c-iv removes all of them, since it voids the verdict. A region this round deliberately
-   REUSES (only `gate-context`, via Step 2.9's cache skip) is left untouched. Keyed on the
+   0c-iv removes all of them, since it voids the verdict. Keyed on the
    result, not the verdict: a NEEDS-WORK round that cleared its fundamental would otherwise
    leave the alternatives standing.
 
@@ -541,7 +537,7 @@ exception, and is how a pre-v6 section reaches v6. Such a write uses
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.
 Where advisories exist, optionally create follow-up tickets for their clusters
-(`gh issue create ... (source: #<N>)`) and print instead
+(`forge_issue_create` then `forge_issue_label`, `(source: #<N>)`) and print instead
 `✅ PASS (deferred). Ticket #<N> cleared; <COUNT> follow-up ticket(s) created.` PASS never enters
 auto-remediation and never prints NEEDS-WORK.
 
@@ -625,7 +621,6 @@ where it is read; this section is for rules that span steps or the whole run (#1
   | 0c synthesis | same trigger as round 1, and it VOIDS the verdict: the review runs again |
   | 1.5 thin check | skipped |
   | 2.7 research | only a technology, dependency or regulation the delta newly introduces; the gate's own edits never qualify |
-  | 2.9 codebase context | reuses its cached region per Step 2.9's own skip test; a fundamental round VOIDS it |
   | 3A mechanical | ALWAYS full: near-free, and the body always changed |
   | 3B critic model | `opus` when labelled `critical` or re-reviewing a fundamental item |
   | 3B critic | prior blocking items from `gate-required-changes`; absent, fall back to `count-gate-rounds.sh <N> --memory` (exit 3: no memory, run FULL); a fresh run has none |

@@ -22,8 +22,8 @@ reads its Step 0c synthesis targets from the script that already resolves them, 
   outstanding), fail open, a `--self-test`, cases in `scripts/test-hooks.py` and a hooks README
   entry; `ticket-gate.md` carries no prose about it (#263).
 - Step 2.9's cache-skip rule, Step 6's reuse clause and the 2.9 round-table row are gone, so every
-  round re-explores and rewrites `gate-context`; the four `gh` snippets name their `forge_*`
-  equivalents with one legacy fallback line; Step 3A names where `--template` and `--tpl-version`
+  round re-explores and rewrites `gate-context`; the `gh` snippets and the one `gh issue create`
+  name their `forge_*` equivalents, with a Step 0 preamble defining them first and no legacy fallback; Step 3A names where `--template` and `--tpl-version`
   come from; `review-template.md` carries an E2E row (#286, items 1, 2, 4 and 6).
 - `check-ticket-mechanics.sh --roles` prints one `<role>\t<label>` line per resolved role,
   `--dump-fields` is unchanged, and Step 0c reads that output for its synthesis targets (#213).
