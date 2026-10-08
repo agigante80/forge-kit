@@ -75,3 +75,36 @@ In order:
 - **The startup-context budget** (#297): *What a session loads before work begins*.
 - **Tickets near this phase's files** (#351, #302, #261) and the re-scope (#272): `backlog`, picks
   recorded 2026-10-07; #351 lands after #324. #340 closed, resolved by the roadmap condensation.
+
+## Close record
+
+Closed 2026-10-08, outcome **done**. All eight planned tickets landed, one or two commits each, in
+the planned order where it mattered (the three `roadmap-lib.sh` tickets ran strictly in sequence)
+and in parallel worktrees where the files did not overlap: #412 (4aa4927), #324 (48b7a63), #260
+(570d229), #214 (39475f0), #327 (48f44f3), #345 (75eb6b6, d2bcc11), #290 (03ae037, 41a2e3f) and
+#333 (bc96b0e). `Validate` was green on `main` after each. Every review's Lows were filed rather
+than folded in, one ticket per review: #421 to #424 and #426 to #429, all in `backlog`. #214 also
+filed #425, a gap it found rather than a Low: a project with `ticket-gate` but without Templates
+mode still falls back to the compiled-in nine area labels.
+
+The premortem, clause by clause. **No decision leaked in.** #290's CRLF and `(absent)` choices were
+already on the ticket; #214's round-2 gate came back NEEDS-WORK with specification gaps only, which
+were applied without a third round, and the agent took the stricter reading of its input contract
+(both `LABEL_AREAS` and `FORGE_HOST` required) rather than asking. **No gate loop restarted:** the
+five trip-wired tickets and #333 had their named text applied and went straight to implementation;
+only the two never-gated tickets were gated, #214 twice and #412 once. **`adapt` did not grow:** it
+shrank from 7150 to 7147 and the baseline was lowered with it. The plan's own "7199" was wrong
+from the day it was written (the real baseline was 7150), the same stale-number class #214 fixed in
+passing. **The roadmap-lib tickets did not collide:** each refreshed its line references against
+the previous landing, and the #405 ratchet stayed at zero throughout. **#324 fixed both halves:**
+the memory file and the index are opened through one `O_NOFOLLOW | O_NONBLOCK` helper for `write`
+and `remove`. **The neighbours stayed out:** #351 was not folded into #324, and #423, the #260
+review's leftovers, was not folded into #345.
+
+Two things the plan did not foresee. A gate critic ran `rm -rf tmp/*` and wiped the shared `tmp/`
+while other agents were using it; every later agent got its own `tmp/<ticket>` directory, and the
+incident is recorded on #419, whose daytime matcher would have caught it. And #333's first
+`test-forge-lib.sh` run reported one unidentified failure that no rerun reproduced; it is not
+counted as a finding because nothing named the case.
+
+Out of the phase: #421 to #429 go to `backlog`.

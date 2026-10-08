@@ -244,10 +244,10 @@ plan: docs/plans/the-leak-guard-tightened.md
 Closed 2026-10-07, **done** (#403, #401, #222, #217, #206). Both scanners agree in any locale and from any directory, and share one history reader; #416 and #417 came out of it.
 
 ## Phase: Work with no decision left in it
-state: open
+state: done
 plan: docs/plans/work-with-no-decision-left.md
 
-Opened 2026-10-07 by the roadmap review that closed *The leak guard, tightened*. Every open ticket was checked against the tree that day: none was already done, about half wait on a maintainer pick, and the rest have their decisions recorded and only implementation left. This phase is that rest. Five of its tickets (#260, #290, #324, #327, #345) stopped at the gate's trip wire with the replacement text already named, and nobody applied it; #333 stopped at round 2 the same way; #214 and #412 were never gated. #214 leads because it is the only P2: a downstream project silently gets the nine compiled-in area labels instead of its own.
+Closed 2026-10-08, **done** (#214, #260, #290, #324, #327, #333, #345, #412). Every trip-wired ticket had its named text applied with no fourth round, and `adapt` shrank to 7147; the review Lows went to the backlog as #421 to #429.
 
 ## Phase: The gate's own friction
 state: planned
