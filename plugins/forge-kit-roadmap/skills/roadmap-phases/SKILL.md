@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 14 -->
+<!-- roadmap-phases-version: 15 -->
 
 # Roadmap phases
 
@@ -281,7 +281,8 @@ verdict; `2` a usage or environment error, nothing written; `3` the roadmap was 
 nothing written; `4` a ticket move failed partway, the roadmap **file** untouched and the report
 naming what moved and what did not, so the identical command re-run resumes rather than repeating
 what already succeeded; `5` a policy refusal on an otherwise well-formed request, nothing written,
-message quoted rather than paraphrased.
+message quoted rather than paraphrased. A merge, delete or refocus first validates on a scratch
+copy under `TMPDIR`; one it cannot make is a `5` too, nothing written, nothing moved.
 
 A milestone a reshape empties (rename, merge, or delete moving every ticket out) is **never
 deleted**, the same rule the plain edits below already follow: it stays on the host under its old

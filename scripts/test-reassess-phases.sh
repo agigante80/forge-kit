@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 5
+# test-reassess-phases-version: 6
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.
@@ -613,22 +613,203 @@ expect "and exactly Solo's prose lines differ" "< Solo's prose.
 > Plain prose" "$(difflines)"
 
 echo "== #328 no temp file is left behind, and an unusable TMPDIR is refused =="
-mkdir -p "$T/tmp328"
+# #345: each case gets its OWN directory, made with mkdir -p before the run. Two cases sharing one
+# directory turned both red when only one leaked, and a directory that does not exist would make the
+# TMPDIR refusal and empty_dir pass vacuously.
+mkdir -p "$T/tmp345-refused" "$T/tmp345-ok"
 dup_roadmap; snap
-RUN_TMPDIR="$T/tmp328" run refocus Dup --prose "New prose" --plan docs/plans/x.md
+RUN_TMPDIR="$T/tmp345-refused" run refocus Dup --prose "New prose" --plan docs/plans/x.md
 expect "a refused run exits 5" 5 "$rc"
-empty_dir "refused run" "$T/tmp328"
+contains "single column-0 plan line" "$serr" "and stderr names the plan cause, not the TMPDIR refusal"
+empty_dir "refused run" "$T/tmp345-refused"
 
 dup_roadmap; snap
-RUN_TMPDIR="$T/tmp328" run refocus Solo --prose "New prose" --plan docs/plans/x.md
+RUN_TMPDIR="$T/tmp345-ok" run refocus Solo --prose "New prose" --plan docs/plans/x.md
 expect "a successful run exits 0" 0 "$rc"
-empty_dir "successful run" "$T/tmp328"
+empty_dir "successful run" "$T/tmp345-ok"
 
 dup_roadmap; snap
 RUN_TMPDIR="$T/no-such-dir" run refocus Solo --prose "New prose" --plan docs/plans/x.md
 expect "a missing TMPDIR is refused" 5 "$rc"
+contains "cannot make a scratch copy" "$serr" "and says the scratch copy could not be made"
 contains "nothing written" "$serr" "and says nothing was written"
 unchanged "missing TMPDIR"
+
+# #345 fixtures. "Twin" holds two `## Phase: Dup` blocks, then Lose and Win; "plain" is the same with
+# one Dup. The milestones list Dup, Lose and Win. A ticket sits where each case says.
+twin_roadmap() {
+  roadmap <<'MD'
+## Phase: Dup
+state: planned
+
+Dup one.
+
+## Phase: Dup
+state: planned
+
+Dup two.
+
+## Phase: Lose
+state: planned
+
+Lose prose.
+
+## Phase: Win
+state: planned
+
+Win prose.
+MD
+}
+plain_roadmap() {
+  roadmap <<'MD'
+## Phase: Dup
+state: planned
+
+Dup prose.
+
+## Phase: Lose
+state: planned
+
+Lose prose.
+
+## Phase: Win
+state: planned
+
+Win prose.
+MD
+}
+ms345() { printf '[{"id":1,"title":"Dup","state":"open"},{"id":2,"title":"Lose","state":"open"},{"id":3,"title":"Win","state":"open"}]' > "$T/ms.json"; }
+no_move() { absent "MOVE" "$(cat "$REQLOG")" "$1: no MOVE reached the host"; }
+no_request() { expect "$1: the host received no request" "" "$(cat "$REQLOG")"; }
+
+echo "== #345 an unwritable TMPDIR refuses refocus, delete and merge whole =="
+if [ "$(id -u)" = 0 ]; then
+  echo "  skip: running as root, a mode 555 directory is still writable"
+else
+  mkdir -p "$T/tmp345-ro"; chmod 555 "$T/tmp345-ro"
+  if [ -w "$T/tmp345-ro" ]; then bad "the read-only TMPDIR fixture is still writable"; else ok "the read-only TMPDIR fixture is unwritable"; fi
+  dup_roadmap; base_milestones; base_issues; snap
+  RUN_TMPDIR="$T/tmp345-ro" run refocus Solo --prose "New prose"
+  expect "refocus: an unwritable TMPDIR exits 5" 5 "$rc"
+  contains "cannot make a scratch copy" "$serr" "refocus: and says so"
+  unchanged "refocus, unwritable TMPDIR"
+  plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; snap
+  RUN_TMPDIR="$T/tmp345-ro" run delete Lose --to Win
+  expect "delete: an unwritable TMPDIR exits 5" 5 "$rc"
+  contains "cannot make a scratch copy" "$serr" "delete: and says so"
+  no_move "delete, unwritable TMPDIR"
+  unchanged "delete, unwritable TMPDIR"
+  RUN_TMPDIR="$T/tmp345-ro" run merge Lose --into Win --reason r
+  expect "merge: an unwritable TMPDIR exits 5" 5 "$rc"
+  contains "cannot make a scratch copy" "$serr" "merge: and says so"
+  no_move "merge, unwritable TMPDIR"
+  unchanged "merge, unwritable TMPDIR"
+  chmod 755 "$T/tmp345-ro"
+fi
+
+echo "== #345 a refused delete writes nothing and contacts no host =="
+base_roadmap; base_milestones; base_issues
+run delete Alpha --reason "dropped"
+expect "delete of an unopened phase exits 0" 0 "$rc"
+absent "## Phase: Alpha" "$(cat "$T/docs/roadmap.md")" "the block is gone"
+contains 'Deleted phase "Alpha": dropped' "$(cat "$T/docs/roadmap.md")" "and Notes holds the line"
+snap
+run delete Alpha --reason "dropped"
+expect "the identical delete re-run exits 0" 0 "$rc"
+contains "already removed from the roadmap" "$out" "and says it skipped"
+unchanged "delete re-run"
+no_request "delete re-run"
+
+twin_roadmap; ms345; base_issues; snap
+run delete Dup
+expect "a duplicate heading refuses" 5 "$rc"
+contains "two phases are named 'Dup'" "$serr" "and names the cause"
+unchanged "delete of a duplicate heading"
+no_request "delete of a duplicate heading"
+run delete Dup --check
+expect "--check agrees on the duplicate heading" 5 "$rc"
+FORGE_DRY_RUN=1 run delete Dup
+expect "FORGE_DRY_RUN=1 agrees on the duplicate heading" 5 "$rc"
+unchanged "delete of a duplicate heading, --check and the flag"
+
+twin_roadmap; printf '[{"number":10,"milestone":"Dup"}]' > "$T/iss.json"; snap
+run delete Dup --to Win
+expect "a duplicate heading with a ticket to relocate refuses" 5 "$rc"
+no_move "delete of a duplicate heading with a ticket"
+unchanged "delete of a duplicate heading with a ticket"
+
+plain_roadmap; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; snap
+run delete Lose --to Win --reason $'x\n## Phase: Evil'
+expect "a reason that would malform the notes exits 2" 2 "$rc"
+contains "that note would leave the roadmap malformed" "$serr" "and names the cause"
+no_move "delete with a malforming reason"
+unchanged "delete with a malforming reason"
+run delete Lose --to Win --reason $'x\n## Phase: Evil' --check
+expect "--check agrees on the malforming reason" 2 "$rc"
+unchanged "delete with a malforming reason, --check"
+
+echo "== #345 a refused merge writes nothing and contacts no host =="
+twin_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"
+run merge Lose --into Win --reason "consolidating scope"
+expect "a legitimate merge beside a twin heading exits 0" 0 "$rc"
+contains "MOVE 11 Win" "$(cat "$REQLOG")" "and its ticket moved"
+absent "## Phase: Lose" "$(cat "$T/docs/roadmap.md")" "and Lose is gone"
+contains 'Merged "Lose" in: consolidating scope' "$(cat "$T/docs/roadmap.md")" "and Win carries the reason"
+snap
+run merge Lose --into Win --reason "consolidating scope"
+expect "the identical merge re-run exits 0" 0 "$rc"
+contains "already merged away" "$out" "and says it skipped"
+no_request "merge re-run"
+unchanged "merge re-run"
+
+plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"},{"number":12,"milestone":"Lose"}]' > "$T/iss.json"; snap
+run merge Lose --into Win --reason $'why\n## oops'
+expect "a reason that opens a section refuses" 5 "$rc"
+contains "opens a '## ' section" "$serr" "and names the cause"
+no_move "merge with a section-opening reason"
+unchanged "merge with a section-opening reason"
+run merge Lose --into Win --reason $'why\n## oops' --check
+expect "--check agrees on the section-opening reason" 5 "$rc"
+unchanged "merge with a section-opening reason, --check"
+
+plain_roadmap; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; snap
+# Deliberately no library message in this Then: item 6 owns the keyed-line wording.
+run merge Lose --into Win --reason $'x\nstate: done'
+expect "a reason carrying a keyed line refuses" 5 "$rc"
+no_move "merge with a keyed-line reason"
+unchanged "merge with a keyed-line reason"
+
+twin_roadmap; printf '[]' > "$T/iss.json"; snap
+run merge Dup --into Win --reason r
+expect "a duplicate loser refuses" 5 "$rc"
+contains "two phases are named 'Dup'" "$serr" "and names the cause"
+no_request "merge of a duplicate loser"
+unchanged "merge of a duplicate loser"
+
+twin_roadmap; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; snap
+run merge Lose --into Dup --reason r
+expect "a duplicate winner refuses" 5 "$rc"
+no_move "merge into a duplicate winner"
+unchanged "merge into a duplicate winner"
+
+# Mutants: with the dry run turned into a no-op, the refusal cases above must fail again because the
+# ticket moves first. The sed replaces the CALL only and leaves the definition alone.
+cp "$T/reassess-phases.sh" "$T/rp-keep.sh"
+sed 's/dry_run delete delete_file_half/: delete delete_file_half/' "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#345: mutant: the delete dry run was not removed"
+else
+  twin_roadmap; ms345; printf '[{"number":10,"milestone":"Dup"}]' > "$T/iss.json"; run delete Dup --to Win
+  if grep -q "MOVE" "$REQLOG"; then ok "#345: mutant: without the delete dry run the ticket moves before the refusal"
+  else bad "#345: mutant: without the delete dry run no MOVE was sent"; fi
+fi
+sed 's/dry_run merge merge_file_half/: merge merge_file_half/' "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#345: mutant: the merge dry run was not removed"
+else
+  plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; run merge Lose --into Win --reason $'why\n## oops'
+  if grep -q "MOVE" "$REQLOG"; then ok "#345: mutant: without the merge dry run the ticket moves before the refusal"
+  else bad "#345: mutant: without the merge dry run no MOVE was sent"; fi
+fi
+cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; rm -f "$T/rp-keep.sh"
 
 base_roadmap; base_milestones; base_issues
 run bogus-op Alpha
@@ -636,6 +817,11 @@ expect "an unknown op is a usage error" 2 "$rc"
 
 echo "== portability =="
 code() { grep -v '^[[:space:]]*#' "$1"; }
+# #345: ONE global scratch path and ONE trap that reads it (a `local` read by an EXIT trap is unbound
+# once the function returns, and a per-op trap replaces the one before it).
+expect "#345: exactly one EXIT trap in the shipped asset" 1 "$(code "$SRC" | grep -c "trap '")"
+expect "#345: and it reads the global scratch path" 1 "$(code "$SRC" | grep -c 'trap .rm -f "${_SCRATCH-}". EXIT')"
+expect "#345: and no local scratch remains" 0 "$(code "$SRC" | grep -c 'local scratch')"
 grep -q 'readlink -f' <<< "$(code "$SRC")" \
   && bad "avoids GNU-only readlink -f" || ok "avoids GNU-only readlink -f"
 grep -qE '^# [a-z0-9-]+-version: [0-9]+$' "$SRC" \

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 7
+# reassess-phases-version: 8
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline. Every site that took a value reads it through ENVIRON instead:
@@ -29,15 +29,23 @@
 #
 # Exit codes are distinguishable, because a reassessment is unattended-safe automation:
 #   0  done (or, under --check, nothing this reshape would do is refused)
-#   2  usage or environment error; the roadmap is malformed; NOTHING was written
+#   2  usage or environment error; NOTHING was written
+#   3  the roadmap is already malformed; NOTHING was written
 #   4  a ticket move failed part-way; the file half was not touched; re-running resumes and is safe
-#   5  a policy refusal on a well-formed file (a rule this reshape would break); NOTHING was written
+#   5  a policy refusal on a well-formed file (a rule this reshape would break); NOTHING was written.
+#      That includes an unusable TMPDIR on refocus, merge and delete (#345): each runs its file half
+#      once on a scratch copy first. That 5 holds under a GitHub host and the suite's stub; on a
+#      Forgejo host the startup milestone read reaches forge_api_paginate's `mktemp -d` first, so an
+#      unwritable TMPDIR exits 2 ("could not list milestones"), which "2, environment" already covers.
 #   N  whatever check-phases.sh's own verdict exits, reported verbatim, as the LAST act of a real run
 #
 # COMPUTE, THEN REFUSE WHOLE. Every op validates before it writes anything: a rule this reshape
 # would break, a done phase it would rewrite, a milestone it would need to delete or reopen. A
-# refusal (exit 5) happens before any roadmap-lib.sh writer or forge_issue_milestone call, so the
-# roadmap file is byte-identical to before and the host receives no request.
+# refusal (exit 5) happens before any writer touches the ROADMAP or any forge_issue_milestone call,
+# so the roadmap file is byte-identical to before and the host receives no request. The writers may
+# run first on a scratch copy under TMPDIR (refocus, merge and delete, #328 and #345), never on the
+# roadmap and never on the host: the library is its own oracle, so no refusal condition is copied
+# into this script.
 #
 # FILE BEFORE HOST, EXCEPT A BLOCK REMOVAL. roadmap_remove refuses without --milestone-empty, which
 # asserts the caller already confirmed the milestone is empty ON THE HOST, so a merge's losing block
@@ -213,6 +221,30 @@ _read_prose() {  # _read_prose <phase> -> its current prose text, trimmed
     }' < "$ROADMAP"
 }
 
+# --- the scratch copy a dry run writes to (#328, #345) ----------------------------------------------
+# ONE global shared by every op that makes a scratch copy (refocus, merge, delete) and ONE EXIT trap
+# that reads it, set BEFORE the copy exists. A `local` read by the trap would be unbound ("scratch:
+# unbound variable" under set -u) if an op ever returned instead of leaving through finalize, refuse
+# or die, and the copy would leak. No forge call this script makes at PARENT level reaches
+# `_forge_tmp_init`: `move_tickets` calls `forge_issue_milestone` at parent level, and its only path
+# there, `_forge_milestone_id`, runs inside `$(...)`, as do the milestone and issue list reads.
+# Inside a subshell `trap -p EXIT` reports the parent's trap, so once `_SCRATCH`'s trap is set
+# forge-lib stands aside; before it is set (the startup reads) the subshell installs its own cleanup
+# trap, which ends with the subshell.
+_SCRATCH=""
+scratch_copy() {  # scratch_copy <what>: a fresh copy of $ROADMAP in $_SCRATCH, or refuse 5
+  trap 'rm -f "${_SCRATCH-}"' EXIT
+  _SCRATCH="$(mktemp "${TMPDIR:-/tmp}/reassess.XXXXXX" 2>/dev/null)" \
+    || refuse "cannot make a scratch copy under '${TMPDIR:-/tmp}' to validate the $1; nothing written"
+  cp "$ROADMAP" "$_SCRATCH" 2>/dev/null \
+    || refuse "cannot copy the roadmap to '$_SCRATCH' to validate the $1; nothing written"
+}
+dry_run() {  # dry_run <what> <fn> <args...>: run a file half ONCE on the scratch copy, live writers, no output
+  local what="$1"; shift
+  scratch_copy "$what"
+  ( ROADMAP="$_SCRATCH"; CHECK=0; "$@" ) >/dev/null || exit $?
+}
+
 # --- write-gated helpers: --check reports, otherwise performs and reports ------------------------
 act() {  # act <description> <command...>
   local desc="$1"; shift
@@ -316,17 +348,12 @@ Refocused: $REASON"
   # library is its own oracle here, so no refusal condition is copied into this script and a refusal
   # added to either writer later is covered. The copy lives under TMPDIR, never beside the roadmap,
   # so --check writes nothing next to it and works on a read-only directory. refuse, die and finalize
-  # all exit directly, so cleanup is an EXIT trap set BEFORE the copy exists, not an rm before each
+  # all exit directly, so cleanup is the shared EXIT trap (see scratch_copy), not an rm before each
   # exit. An unusable TMPDIR means the dry run cannot run, so the refocus is refused whole (exit 5).
-  local scratch=""
-  trap 'rm -f "$scratch"' EXIT
-  scratch="$(mktemp "${TMPDIR:-/tmp}/reassess-refocus.XXXXXX" 2>/dev/null)" \
-    || refuse "cannot make a scratch copy under '${TMPDIR:-/tmp}' to validate the refocus; nothing written"
-  cp "$ROADMAP" "$scratch" 2>/dev/null \
-    || refuse "cannot copy the roadmap to '$scratch' to validate the refocus; nothing written"
-  roadmap_set_prose "$scratch" "$phase" "$prose" >/dev/null || refuse "refocus failed; nothing written"
+  scratch_copy refocus
+  roadmap_set_prose "$_SCRATCH" "$phase" "$prose" >/dev/null || refuse "refocus failed; nothing written"
   if [ -n "$PLAN" ]; then
-    roadmap_set_plan "$scratch" "$phase" "$PLAN" >/dev/null || refuse "setting the plan failed; nothing written"
+    roadmap_set_plan "$_SCRATCH" "$phase" "$PLAN" >/dev/null || refuse "setting the plan failed; nothing written"
   fi
   act "refocus '$phase' with new prose" roadmap_set_prose "$ROADMAP" "$phase" "$prose" || refuse "refocus failed"
   if [ -n "$PLAN" ]; then
@@ -413,6 +440,22 @@ op_split() {
   finalize
 }
 
+merge_file_half() {  # merge_file_half <loser> <winner>: the file half, on whatever $ROADMAP names
+  local loser="$1" winner="$2" wprose sentence newprose
+  wprose="$(_read_prose "$winner")" || wprose=""
+  sentence="Merged \"$loser\" in: $REASON"
+  if grep -qxF -- "$sentence" <<< "$wprose"; then
+    echo "'$winner' prose already carries the merge reason; not appending again"
+  else
+    if [ -n "$wprose" ]; then newprose="$wprose
+
+$sentence"; else newprose="$sentence"; fi
+    act "append the merge reason to '$winner' prose" roadmap_set_prose "$ROADMAP" "$winner" "$newprose" || refuse "updating '$winner' prose failed"
+  fi
+  record_note "\"$loser\"'s milestone is left on the host, emptied by the merge into \"$winner\". Its plan file, if any, is left on disk and is no longer pointed to."
+  act "remove '$loser' from the roadmap" roadmap_remove "$ROADMAP" "$loser" --milestone-empty || refuse "removing '$loser' failed"
+}
+
 op_merge() {
   local loser="${ARGS[0]-}"
   [ -n "$loser" ] || die "usage: reassess-phases.sh merge <loser> --into <winner> --reason TEXT"
@@ -431,24 +474,16 @@ op_merge() {
   fi
   local tickets=()
   [ "$gone" = 0 ] && tickets=($(open_ticket_numbers "$loser"))
+  # #345: the file half runs once on a scratch copy BEFORE the first host move, so a refusal it can
+  # hit (a reason opening a section or carrying a keyed line, a duplicate loser or winner, a note that
+  # would malform the file) happens with the host untouched, and --check agrees with the live run.
+  [ "$gone" = 0 ] && dry_run merge merge_file_half "$loser" "$winner"
   if [ "${#tickets[@]}" -gt 0 ]; then
     move_tickets "$winner" "${tickets[@]}" || { echo "reassess-phases: moving tickets from '$loser' to '$winner' failed partway; re-run once fixed" >&2; exit 4; }
   fi
   if [ "$gone" = 0 ]; then
     confirm_emptied "$loser" || exit 4
-    local wprose sentence newprose
-    wprose="$(_read_prose "$winner")" || wprose=""
-    sentence="Merged \"$loser\" in: $REASON"
-    if grep -qxF -- "$sentence" <<< "$wprose"; then
-      echo "'$winner' prose already carries the merge reason; not appending again"
-    else
-      if [ -n "$wprose" ]; then newprose="$wprose
-
-$sentence"; else newprose="$sentence"; fi
-      act "append the merge reason to '$winner' prose" roadmap_set_prose "$ROADMAP" "$winner" "$newprose" || refuse "updating '$winner' prose failed"
-    fi
-    record_note "\"$loser\"'s milestone is left on the host, emptied by the merge into \"$winner\". Its plan file, if any, is left on disk and is no longer pointed to."
-    act "remove '$loser' from the roadmap" roadmap_remove "$ROADMAP" "$loser" --milestone-empty || refuse "removing '$loser' failed"
+    merge_file_half "$loser" "$winner"
   else
     echo "'$loser' is already merged away; skipping the file half (idempotent re-run)"
   fi
@@ -479,23 +514,34 @@ op_rename() {
   finalize
 }
 
+delete_file_half() {  # delete_file_half <phase>: the file half, on whatever $ROADMAP names
+  local phase="$1"
+  record_note "Deleted phase \"$phase\"${REASON:+: $REASON}"
+  act "remove '$phase' from the roadmap" roadmap_remove "$ROADMAP" "$phase" --milestone-empty || refuse "removing '$phase' failed"
+}
+
 op_delete() {
   local phase="${ARGS[0]-}"
   [ -n "$phase" ] || die "usage: reassess-phases.sh delete <phase> [--to <phase>|backlog] [--reason TEXT]"
   local gone=0
   phase_exists "$phase" || gone=1
   if [ "$gone" = 0 ]; then
-    local tickets=(); tickets=($(open_ticket_numbers "$phase"))
+    local tickets=() dest=""; tickets=($(open_ticket_numbers "$phase"))
     if [ "${#tickets[@]}" -gt 0 ]; then
       [ -n "$TO" ] || refuse "'$phase' holds ${#tickets[@]} open ticket(s) (${tickets[*]}) and names nowhere for them. Pass --to <phase>|backlog"
-      local dest; dest="$(resolve_dest "$TO")"
+      dest="$(resolve_dest "$TO")"
       phase_exists "$dest" || refuse "no destination phase named '$dest'"
       [ "$(phase_state "$dest")" = done ] && refuse "destination '$dest' is done; moving open tickets there would break rule 4"
+    fi
+    # #345: ONE dry-run site for both paths (the policy refusals above sit in the tickets branch, so
+    # they come first), before the first host move: record_note's die (exit 2) and roadmap_remove's
+    # duplicate-block refusal (exit 5) are found while the host is untouched, and --check agrees.
+    dry_run delete delete_file_half "$phase"
+    if [ "${#tickets[@]}" -gt 0 ]; then
       move_tickets "$dest" "${tickets[@]}" || { echo "reassess-phases: moving tickets from '$phase' to '$dest' failed partway; re-run once fixed" >&2; exit 4; }
       confirm_emptied "$phase" || exit 4
     fi
-    record_note "Deleted phase \"$phase\"${REASON:+: $REASON}"
-    act "remove '$phase' from the roadmap" roadmap_remove "$ROADMAP" "$phase" --milestone-empty || refuse "removing '$phase' failed"
+    delete_file_half "$phase"
   else
     echo "'$phase' is already removed from the roadmap; skipping (idempotent re-run)"
   fi
