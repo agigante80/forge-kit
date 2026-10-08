@@ -256,10 +256,10 @@ plan: docs/plans/the-gates-own-friction.md
 Closed 2026-10-08, **done** (#286, #213, #263; #277 closed before it opened). The gate no longer reuses its context, Step 0c reads its targets from `--roles`, and a sentinel-gated `no-poll-loops` hook denies shell waits on subagents; the ticket-gate baseline went 5742 to 5648 and `adapt` to 7144. #263's review stopped on the trip wire (rest in #432), and whether a foreground dispatch exists at all went to #433.
 
 ## Phase: Hard rules held by hooks, day and night
-state: planned
-plan: 
+state: open
+plan: docs/plans/hard-rules-held-by-hooks.md
 
-A bucket, filed 2026-10-08 from a r/ClaudeAI thread on CLAUDE.md lines whose strongest finding was forge-kit's own thesis: a rule that must hold every time belongs in a hook, not in prose (one user found 117 attempted rm -rf runs despite a never-rm-rf line). #419 (P2) arms overnight-guard's destructive-command matcher in daytime behind an opt-in sentinel, reusing its tested patterns. #420 (P3) is an advisory hook for a check whose exit code a pipe into tail, head or grep hides, a failure observed in this repo the same day. It sits after The gate's own friction because that phase's #263 is the other new Bash PreToolUse hook and settles the sentinel and subagent questions first.
+A bucket, filed 2026-10-08 from a r/ClaudeAI thread on CLAUDE.md lines whose strongest finding was forge-kit's own thesis: a rule that must hold every time belongs in a hook, not in prose (one user found 117 attempted rm -rf runs despite a never-rm-rf line). #419 (P2) arms overnight-guard's destructive-command matcher in daytime behind an opt-in sentinel, reusing its tested patterns. #420 (P3) is an advisory hook for a check whose exit code a pipe into tail, head or grep hides, a failure observed in this repo the same day. It sits after The gate's own friction because that phase's #263 is the other new Bash PreToolUse hook and settles the sentinel and subagent questions first. **Opened 2026-10-08** with its plan in `docs/plans/hard-rules-held-by-hooks.md`; #433 (P2) joined at the previous close, because #263's deny reason prescribes a foreground dispatch the harness may not offer, and it goes first. The sentinel picks are recorded: one file per hook, `.claude/no-destructive` (#419, which also blocks a relative `rm -rf` ending in a wildcard) and `.claude/masked-exit` (#420).
 
 ## Phase: The leak guard's open questions
 state: planned
