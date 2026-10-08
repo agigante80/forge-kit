@@ -185,6 +185,27 @@ M
 run
 expect "a line merely containing the letters s-e-d is not exempt here either" 1 "$rc"
 
+echo "== CRLF frontmatter is read like LF (#290) =="
+# component_scope used to read a CRLF `scope: project` as `user` with exit 0, a silent verdict.
+# printf, because a heredoc would write LF only.
+rm -f "$T/plugins/g/agents/a.md"
+crlf() { printf -- "$1" > "$T/plugins/g/agents/a.md"; }
+crlf '---\r\nname: a\r\nscope: project\r\n---\r\n<!-- a-version: 1 -->\r\nbody\r\n'
+run
+expect "a CRLF scope: project with no reason is refused" 1 "$rc"
+contains "scope-reason" "$out" "and names the field it wants"
+crlf '---\r\nname: a\r\nscope: project\r\nscope-reason: why\r\n---\r\n<!-- a-version: 1 -->\r\nbody\r\n'
+run
+expect "a CRLF scope: project WITH a reason passes" 0 "$rc"
+contains "1 project" "$out" "and is counted as project-scoped"
+crlf '---\r\nname: a\r\nscope: global\r\n---\r\n<!-- a-version: 1 -->\r\nbody\r\n'
+run
+expect "a CRLF unknown scope is refused, not read as user" 1 "$rc"
+crlf '---\r\nname: a\r\nscope: project\r\n<!-- a-version: 1 -->\r\nbody\r\n'
+run
+expect "a CRLF file with an unclosed fence is user-scoped (the fence rule holds)" 0 "$rc"
+rm -f "$T/plugins/g/agents/a.md"
+
 mkdir -p "$T/empty/plugins"
 rc=0; out=$(bash "$SCRIPT" "$T/empty/plugins" 2>&1) || rc=$?
 expect "zero components refuses rather than reporting clean" 2 "$rc"

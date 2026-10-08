@@ -209,8 +209,13 @@ skfm '' 'Example frontmatter:\nagent: no-such-agent\n'; run
 expect "an agent: in a skill's body is an example, not a dispatch" 0 "$rc"
 printf -- '---\nname: sk\n<!-- sk-version: 1 -->\nagent: no-such-agent\n' > "$SK"; run
 expect "a file opening --- with no closing --- has no frontmatter" 0 "$rc"
+printf -- '---\r\nname: sk\r\ndescription: d\r\ncontext: fork\r\nagent: no-such-agent\r\n---\r\n<!-- sk-version: 1 -->\n' > "$SK"; run
+expect "a CRLF skill agent: naming no agent fails (it was skipped silently, #290)" 1 "$rc"
+contains "no-such-agent" "$out" "and names the missing agent, with no carriage return in it"
+printf -- '---\r\nname: sk\r\ndescription: d\r\ncontext: fork\r\nagent: real-agent\r\n---\r\n<!-- sk-version: 1 -->\n' > "$SK"; run
+expect "a CRLF skill agent: naming an agent that exists passes" 0 "$rc"
 skfm ''
-printf -- '<!-- runner-version: 1 -->\n---\nname: runner\nagent: no-such-agent\n---\n' \
+printf -- '<!-- runner-version: 1 -->\\n---\\nname: runner\nagent: no-such-agent\n---\n' \
   > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"; run
 expect "a command opening with its marker has no frontmatter, whatever --- follows (ci-health.md)" 0 "$rc"
 printf -- '---\nagent: no-such-agent\n---\n<!-- runner-version: 1 -->\n' \

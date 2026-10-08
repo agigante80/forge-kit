@@ -55,30 +55,48 @@ guard_tracked_files() {
   done < <(CDPATH= cd -- "$top" && git ls-files -z)
 }
 
+# guard_frontmatter <file> -> prints the frontmatter block (the lines between the fences), or returns
+# 1 with nothing on stdout when there is none. THE ONE EXTRACTION (#290): the field readers below and
+# forge-adapt-tier-diff.sh's presence test all read through it, so the fence rule lives here once.
+#
+# CRLF IS SUPPORTED (#290). A trailing `\r` is stripped from every line before any test, so `---\r`
+# is a fence and no trailing `\r` reaches a value. Without it a CRLF `scope: project` read as `user`
+# with exit 0 and validate-plugins.sh check 5 skipped a dangling `agent:`, both silent. The strip is
+# trailing-only, so a `\r` in the middle of a value is kept verbatim. This matches
+# forge-adapt-agent-skills.sh's idiom, which reads the same installed copies.
+# THE CLOSING `---` IS REQUIRED. Without it a file that opens with `---` and never closes treats its
+# whole body as frontmatter, so a documented `scope: project` example would exempt the file from the
+# placeholder guard, which is exactly what component_scope claims to prevent (review round 2).
+# A fence must be EXACTLY `---`: trailing whitespace is not a fence here, unlike
+# forge-adapt-agent-skills.sh, which accepts `---` followed by spaces. A UTF-8 BOM on line 1 is not
+# supported either, and reads as no frontmatter.
+guard_frontmatter() {
+  awk '{ sub(/\r$/, "") }
+       NR==1 && $0 != "---" { exit 1 }
+       NR>1 { if ($0 == "---") { closed = 1; exit } print }
+       END { if (!closed) exit 1 }' "$1"
+}
+
+# guard_has_frontmatter <file> -> 0 if the file has a closed frontmatter block.
+guard_has_frontmatter() {
+  guard_frontmatter "$1" >/dev/null
+}
+
+# component_frontmatter_field <file> <name> -> the field's value, or empty.
+component_frontmatter_field() {
+  local fm v
+  fm="$(guard_frontmatter "$1")" || fm=""
+  v="$(printf '%s\n' "$fm" | sed -n "s/^$2:[[:space:]]*//p" | head -1)"
+  printf '%s' "${v%"${v##*[![:space:]]}"}"
+}
+
 # component_scope <file> -> prints `user` or `project`, or the raw value if it is neither.
 #
 # FRONTMATTER ONLY. A `scope:` in the body is an example, and reading it would let a component be
 # scoped by its own documentation. Shared because three guards now ask the same question, and a
 # third copy of one rule is what #162 was about.
-# THE CLOSING `---` IS REQUIRED. Without it a file that opens with `---` and never closes treats its
-# whole body as frontmatter, so a documented `scope: project` example would exempt the file from the
-# placeholder guard, which is exactly what this function claims to prevent (review round 2).
-# component_frontmatter_field <file> <name> -> the field's value, or empty.
-component_frontmatter_field() {
-  local fm v
-  fm="$(awk 'NR==1 && $0 != "---" { exit }
-             NR>1 { if ($0 == "---") { closed = 1; exit } print }
-             END { if (!closed) exit 1 }' "$1")" || fm=""
-  v="$(printf '%s\n' "$fm" | sed -n "s/^$2:[[:space:]]*//p" | head -1)"
-  printf '%s' "${v%"${v##*[![:space:]]}"}"
-}
-
 component_scope() {
-  local fm scope
-  fm="$(awk 'NR==1 && $0 != "---" { exit }
-             NR>1 { if ($0 == "---") { closed = 1; exit } print }
-             END { if (!closed) exit 1 }' "$1")" || fm=""
-  scope="$(printf '%s\n' "$fm" | sed -n 's/^scope:[[:space:]]*//p' | head -1)"
-  scope="${scope%"${scope##*[![:space:]]}"}"
+  local scope
+  scope="$(component_frontmatter_field "$1" scope)"
   printf '%s' "${scope:-user}"
 }
