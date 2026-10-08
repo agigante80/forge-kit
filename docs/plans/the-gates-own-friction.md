@@ -61,7 +61,7 @@ A premortem: it is the end of this phase and it failed. What happened?
 ## Expected work
 
 In order. **#286 leads because it is the only ticket that frees words, and the other two spend
-none from the agent's budget except where stated.**
+none from the agent's budget.**
 
 1. **#286** (P2), round 1 NEEDS-WORK, verdict STALE (body changed since). Rewrite the body to the
    recorded scope first, then re-gate: items 1, 2, 4 and 6 only (item 3 landed under #347,
@@ -80,9 +80,13 @@ none from the agent's budget except where stated.**
    contract case per role in `scripts/test-check-ticket-mechanics.sh`, and change Step 0c's
    target-sections bullet (line 114) to read that output. **Where the words come from:** the
    `--roles` call replaces a field-id list rather than adding one, so the edit should be roughly
-   neutral; any residual is paid from the words step 1 freed, and the ticket's AC 4 stands (no
-   growth). It runs after #286 so it spends words that exist. Docs: the `CLAUDE.md` Step 0c
-   paragraph, if the resolution moved to the script.
+   neutral, but it must be net zero or negative **on its own**: step 1 lowers the baseline by
+   everything it frees, so nothing is banked for this step, and the ticket names the sentence it
+   trims to pay for any residual (settled 2026-10-08 after the #213 gate's round 1 found the two
+   clauses contradicted each other; lowering is the only direction an agent may move a baseline).
+   It runs after #286 so its measure starts from the lowered baseline. Docs:
+   `docs/guides/template-versioning.md` (lines 84 to 87 restate the ids) and the script's
+   `--help`; `CLAUDE.md` names none of them.
 3. **#263** (P3), round 1 NEEDS-WORK; the maintainer pick (a hook, no prose, the open fact
    verified) is recorded in a comment, but the body still carries the old figures, headings and
    GWT. Rewrite the body to the pick (rename the four headings to the bug.yml v6 labels, replace
