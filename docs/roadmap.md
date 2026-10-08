@@ -262,10 +262,10 @@ plan: docs/plans/hard-rules-held-by-hooks.md
 Closed 2026-10-08, **done** (#433, #419, #420). `overnight-guard` now has a daytime arm behind `.claude/no-destructive`, and `masked-exit-advisory` flags a check whose exit code a pipe hides. #433 found that no foreground `Agent` dispatch exists, so the 2026-10-08 foreground pick was reversed and ticket-gate fell to 5642. A security review caught 45 daytime bypasses in #419 before it landed; the lows are #434 to #436.
 
 ## Phase: The leak guard's open questions
-state: planned
-plan: 
+state: open
+plan: docs/plans/the-leak-guards-open-questions.md
 
-A bucket, filed 2026-10-07 from what *The leak guard, tightened* left, every pick recorded on the tickets on 2026-10-07. #417 leads: drop each timing row a structural row already kills, calibrate the rest per run. #416: the private name floor counts characters in every locale, and redaction keeps two whole characters. #207: the 38 historical `--history` findings, all verified placeholders, are allowlisted. #226: `skip` means literal-or-suffix in both halves and both parsers refuse `*` and `?` (never `[`), gated on the maintainer's audit of the downstream allow-files. #391: a new `marker [name]` allow-file entry kind.
+A bucket, filed 2026-10-07 from what *The leak guard, tightened* left, every pick recorded on the tickets on 2026-10-07. #417 leads: drop each timing row a structural row already kills, calibrate the rest per run. #416: the private name floor counts characters in every locale, and redaction keeps two whole characters. #207: the 38 historical `--history` findings, all verified placeholders, are allowlisted. #226: `skip` means literal-or-suffix in both halves and both parsers refuse `*` and `?` (never `[`), gated on the maintainer's audit of the downstream allow-files. #391: a new `marker [name]` allow-file entry kind. **Opened 2026-10-08** with its plan in `docs/plans/the-leak-guards-open-questions.md`. Opening found that no ticket is waiting on a pick any more but none is gated at a PASS, and that #226's refusal is gated on a downstream allow-file audit no record shows was done, so it goes last and the phase may close without it.
 
 ## Phase: What a session loads before work begins
 state: planned
