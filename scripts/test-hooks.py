@@ -692,7 +692,9 @@ with tempfile.TemporaryDirectory() as td:
     # Review r1 (#419): bare `.`, subshell and continuation forms are denied; `--rm`, `git rm`
     # and a redirect after a plain target are not rm -rf of anything dangerous.
     for cmd in ["rm -rf .", "rm -rf ./", "(rm -rf tmp/*)", "$(rm -rf tmp/*)",
-                "(cd tmp && rm -rf *)", "rm -rf \\\n tmp/*"]:
+                "(cd tmp && rm -rf *)", "rm -rf \\\n tmp/*",
+                "/bin/rm -rf /", "rm x -rf ~", "rm -r x -f $HOME", "rm -r x -f tmp/*", "sudo rm -rf ..",
+                "env rm -rf /", "rm -rf -- /", "x=1 rm -rf /", "\\rm -rf ~", "'rm' -rf /"]:
         p = go(bash(cmd), day)
         check(f"day r1 denies: {cmd[:28]!r}", outcome(p), DENY)
     for cmd in ["docker run --rm -v \"$PWD\":/src -w /src golang:1.22 go test -race -failfast ./...",
