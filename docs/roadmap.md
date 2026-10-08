@@ -255,6 +255,12 @@ plan:
 
 A bucket, filed 2026-10-07 by the roadmap review. The ticket gate's two P2s and their neighbour, every pick recorded on the tickets on 2026-10-07. #263: every gate run leaks background poll loops, one held a verdict five days; a sentinel-gated Bash PreToolUse hook denies them (verified that day to fire on a subagent's own Bash calls), with no prose added to the gate. #286: Step 2.9's codebase-context cache is deleted, so every round re-explores, and items 2, 4 and 6 are mechanical; item 5 was dropped. #213: Step 0c reads a new `check-ticket-mechanics.sh --roles` dump for its synthesis targets. #277 closed as moot once the cache went. `ticket-gate.md` may not grow past its 5754 ratchet, so the plan says where each fix's words come from; the cache deletion pays for most of it.
 
+## Phase: Hard rules held by hooks, day and night
+state: planned
+plan: 
+
+A bucket, filed 2026-10-08 from a r/ClaudeAI thread on CLAUDE.md lines whose strongest finding was forge-kit's own thesis: a rule that must hold every time belongs in a hook, not in prose (one user found 117 attempted rm -rf runs despite a never-rm-rf line). #419 (P2) arms overnight-guard's destructive-command matcher in daytime behind an opt-in sentinel, reusing its tested patterns. #420 (P3) is an advisory hook for a check whose exit code a pipe into tail, head or grep hides, a failure observed in this repo the same day. It sits after The gate's own friction because that phase's #263 is the other new Bash PreToolUse hook and settles the sentinel and subagent questions first.
+
 ## Phase: The leak guard's open questions
 state: planned
 plan: 
