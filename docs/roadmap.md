@@ -250,10 +250,10 @@ plan: docs/plans/work-with-no-decision-left.md
 Closed 2026-10-08, **done** (#214, #260, #290, #324, #327, #333, #345, #412). Every trip-wired ticket had its named text applied with no fourth round, and `adapt` shrank to 7147; the review Lows went to the backlog as #421 to #429.
 
 ## Phase: The gate's own friction
-state: open
+state: done
 plan: docs/plans/the-gates-own-friction.md
 
-A bucket, filed 2026-10-07 by the roadmap review, **opened 2026-10-08** with its plan in `docs/plans/the-gates-own-friction.md`. The ticket gate's two P2s and their neighbour, every pick recorded on the tickets on 2026-10-07. #263: every gate run leaks background poll loops, one held a verdict five days; a sentinel-gated Bash PreToolUse hook denies them (verified that day to fire on a subagent's own Bash calls), with no prose added to the gate. #286: Step 2.9's codebase-context cache is deleted, so every round re-explores, and items 2, 4 and 6 are mechanical; item 5 was dropped. #213: Step 0c reads a new `check-ticket-mechanics.sh --roles` dump for its synthesis targets. #277 closed as moot once the cache went. `ticket-gate.md` may not grow past its ratchet, so the plan says where each fix's words come from; the cache deletion pays for most of it. Opening found the real baseline is 5742 (the tickets quote 5754), none of the three is gated at a PASS, and #263's sentinel (which file, who creates it) is an open question.
+Closed 2026-10-08, **done** (#286, #213, #263; #277 closed before it opened). The gate no longer reuses its context, Step 0c reads its targets from `--roles`, and a sentinel-gated `no-poll-loops` hook denies shell waits on subagents; the ticket-gate baseline went 5742 to 5648 and `adapt` to 7144. #263's review stopped on the trip wire (rest in #432), and whether a foreground dispatch exists at all went to #433.
 
 ## Phase: Hard rules held by hooks, day and night
 state: planned

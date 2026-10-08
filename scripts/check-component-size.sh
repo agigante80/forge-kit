@@ -235,6 +235,9 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-10-08: ticket-gate 5651 to 5648 and adapt 7147 to 7144 (#263, locked in at the phase
+# close). Step 3B's foreground-dispatch clause was paid for by trimming Step 2's committee rationale
+# (net -3), and adapt's per-hook sentinel pointer by an equal cut (net -3); #263 left both unlowered.
 # LOWERED 2026-10-08: ticket-gate 5742 to 5651 (#286). Step 2.9's cache is deleted (the skip rule, its
 # ALWAYS-runs sentence, Step 6's REUSES clause and the 2.9 round-table row, 117 words gross), because a
 # reused gate-context cited numbers that had since moved; the maintainer chose never-reuse on
@@ -387,8 +390,8 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7147 ;;
-    ticket-gate) echo 5651 ;;
+    adapt)       echo 7144 ;;
+    ticket-gate) echo 5648 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac

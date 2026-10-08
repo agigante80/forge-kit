@@ -120,3 +120,44 @@ answer should be the same one.
 - **A prose rule about waiting in `full-review` or `working-overnight`**: the hook covers them;
   a prose follow-up is a new ticket in `backlog`.
 - **Raising any baseline**: an agent never does; a shortfall of words is a maintainer question.
+
+## Close record
+
+Closed 2026-10-08. **Outcome: done.** Every expected ticket landed and nothing was moved out.
+
+| Ticket | Landed | Notes |
+|---|---|---|
+| #286 | f4fe015 | Items 1, 2, 4 and 6; the cache is deleted, baseline lowered 5742 to 5651 |
+| #213 | e0a7281 | `--roles` plus Step 0c reading it, net zero on its own |
+| #263 | e9b4fb8, 3f02d98, 3ff2af1 | `no-poll-loops` hook behind `.claude/no-poll-loops`, armed by forge-adapt |
+| #277 | none | Closed NOT_PLANNED before the phase opened, as planned |
+
+At close the ticket-gate baseline was lowered again, 5651 to 5648, and `adapt` 7147 to 7144: #263 paid
+for its Step 3B clause and its forge-adapt pointer with net cuts of three words each and left both
+unlowered.
+
+**The premortem, clause by clause:**
+
+- *`ticket-gate.md` grew and the baseline was raised*: did not happen. It went 5742, 5651, 5648, and
+  never up.
+- *The cache came back*: did not. #286 deleted it outright with no fingerprint or commit key.
+- *#263 became a prose fix*: mostly avoided. The rule lives in the hook's deny reason; the one
+  prose change is the maintainer's 2026-10-08 pick that the gate dispatch its critic in the
+  foreground, six words paid for by a cut.
+- *The hook never ran where the leak is*: avoided by the 2026-10-08 pick of one sentinel file per
+  hook, `.claude/no-poll-loops`, which forge-adapt creates whenever it installs the hook. Recorded
+  in the hooks README and `references/hooks.md`.
+- *#277's work came back through #286*: did not; no placement or cache-skip pin was added.
+- *Version bump collision*: did not. The three ran in sequence, each rebased on the last.
+- *Item 5 was folded back*: did not; `forge_issue_comment` stays silent.
+
+**What the plan did not foresee:**
+
+- **#263's review loop stopped on the trip wire after round 3**: round 2 found four highs in round
+  1's fix, and round 3 found one high in round 2's fix (a quoted variable assignment naming a task
+  output is allowed again). That and the lows are in #432 (backlog) with a concrete fix.
+- **The foreground pick may not be available.** The #263 implementer reported that its `Agent`
+  tool had no foreground option, so it ended turns with reviews outstanding and was resumed by the
+  notification, which the deny reason forbids. Filed as #433 (P2) in *Hard rules held by hooks, day
+  and night*, which builds on this hook anyway.
+- The review lows of #286 and #213 went to #430 and #431 (backlog).
