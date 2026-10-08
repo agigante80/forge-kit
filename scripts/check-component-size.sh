@@ -235,6 +235,9 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-10-08: adapt 7150 to 7147 (#214). The Templates-mode labels step lives in
+# references/templates-labels.md; SKILL.md gains a one-line pointer, paid for by cutting the host-directory
+# repeat and a redundant "Both are independent" sentence (-8), and the 3 left over are locked in.
 # LOWERED 2026-10-01: adapt 7154 to 7150 (#407). Step 3 reads S2's printed library source to pass
 # `--no-marketplace` on a clone (+7: a guarded `${FORGE_KIT_SRC:?}` test, the flag held in NM), and
 # the fresh-shell prefix names FORGE_KIT_SRC beside FORGE_KIT_DIR (+1); paid for by S2's
@@ -378,7 +381,7 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7150 ;;
+    adapt)       echo 7147 ;;
     ticket-gate) echo 5742 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;

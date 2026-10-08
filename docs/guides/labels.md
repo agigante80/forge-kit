@@ -28,6 +28,7 @@ GitHub labels serve dual purpose: issue organization AND lens routing in ticket-
 | `tooling` | The guards, scripts and CI that enforce the rules | - |
 | `governance` | Templates, labels, ticket standards, the roadmap and the docs that carry them | - |
 
+<!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
 **The last three are for a governance repository, and forge-kit is one (#188).** The six above them
 are product-application areas, written for the projects forge-kit is installed into: they describe
 API routes, a frontend, a mobile app, backend services, a schema, personal data. None of them
@@ -35,9 +36,11 @@ describes a plugin component or a CI guard, so every ticket filed in forge-kit's
 at the gate's Step 0b until these existed. That was found by the first live gate run in this
 repository, on the first ticket it was pointed at.
 
+<!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
 They route nothing, deliberately. CLAUDE.md's rule is to prefer modulating the critic's brief over
 adding a lens, and a label that changes the review set has to earn it on its own evidence.
 
+<!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
 **This table is the ONE definition of the area set.** `scripts/check-label-taxonomy.sh` fails the
 build when any other copy disagrees with it. There are three others: `.github/labels.yml`, which is
 what `sync-labels.sh` puts on the host; `check-ticket-mechanics.sh`'s `AREA_LABELS` default; and
@@ -63,7 +66,7 @@ After installing forge-kit, sync the taxonomy from `.github/labels.yml` with the
 
 ```bash
 # Run it from wherever it was installed; it sources forge-lib.sh from its OWN directory,
-# so keep the two together (forge-adapt copies both).
+# so keep the two together (forge-adapt's Templates mode and the forge-host install each copy both).
 bash sync-labels.sh                 # create every declared label, update any that drifted
 bash sync-labels.sh --check         # change nothing; exit 1 listing what is missing or drifted
 FORGE_DRY_RUN=1 bash sync-labels.sh # print what it would WRITE; it still READS the host, so
@@ -74,6 +77,7 @@ It is host-aware (GitHub and Forgejo), idempotent, refuses a malformed declarati
 syncing part of it, and **never deletes**: a label on the host that
 this file does not declare is reported and left alone.
 
+<!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
 Do NOT create these by hand. This taxonomy was declared and never imported for months (issue #104):
 18 labels declared, 4 present, and three of the missing ones (`security`, `critical`, `api`) are
 executable inputs to the gate's lens routing, so the kit's most distinctive mechanism was
@@ -84,10 +88,14 @@ unexercisable in the repo that ships it. A manual instruction is what allowed th
 The area table above IS the set the gate checks against: both `ticket-gate` (Step 3A) and
 `forge-gate-mechanics.sh` pass this file to `check-ticket-mechanics.sh --labels-doc`, and the
 first column of the `### Area labels` table replaces the compiled-in default (#204). To add an area,
-add a row to that table and the matching entry to `.github/labels.yml` (`sync-labels.sh` puts it on
-the host; `check-label-taxonomy.sh` fails the build if the two disagree). Without this file the
-checker falls back to forge-kit's nine, so a project that renames its areas needs the doc installed,
-not only the labels:
+add a row to that table and the matching entry to your label declaration (`.github/labels.yml`
+on GitHub; `sync-labels.sh` puts it on the host).
+
+<!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
+`check-label-taxonomy.sh` fails the build in forge-kit if the two disagree.
+
+Without this file the checker falls back to forge-kit's nine, so a project that renames its areas
+needs the doc installed, not only the labels:
 ```yaml
 - name: my-domain
   color: "c5def5"

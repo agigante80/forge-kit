@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 71 -->
+<!-- forge-adapt-version: 72 -->
 
 # forge-adapt
 
@@ -681,6 +681,8 @@ lowercase `.forgejo/issue_template/` (forge-adapt v34 and earlier, issue #61) is
 uppercase path before writing, so an upgrade never leaves both casings behind.
 `contribution.yml` is forge-kit-specific - exclude it from the audit.
 
+**Labels (offered even with no versioned templates):** follow `references/templates-labels.md` to install the area-label doc, the label declaration and `sync-labels.sh`.
+
 **After the template audit, offer the repo-level template governance** - the lockstep guard and the
 canonical standards doc that keep those templates honest. Offer this ONLY when the project actually
 has versioned issue-templates (at least one template carrying a `template-version` marker); without
@@ -705,7 +707,6 @@ If `PRJ_TPL_VER` is empty, skip. Otherwise show a small table and ask which to i
 | template lockstep guard | `$HAS_GUARD` | copy `check-template-lockstep.sh` + its test to `scripts/`, wire into CI |
 | canonical ticket-standards doc | `$HAS_DOC` | write `docs/guides/ticket-standards.md` (adapted), repoint gate + CLAUDE.md |
 
-Both are independent - a project can take the guard, the doc, or both.
 
 **Install: lockstep guard (copied verbatim - host-agnostic, like a hook).**
 
@@ -730,8 +731,8 @@ test) on drift that pre-dates the install:
 bash scripts/check-template-lockstep.sh || echo "forge-adapt: templates are NOT in lockstep (above) - CI will fail, and the guard's own test will too, until you align their template-version markers."
 ```
 
-If it reports drift, surface it and confirm the user wants to proceed - the guard is doing its job,
-but they may prefer to reconcile the template versions first. Then wire it into CI, host-aware. Prefer a dedicated workflow so you never surgically edit an
+If it reports drift, surface it and confirm the user wants to proceed;
+they may prefer to reconcile the template versions first. Then wire it into CI, host-aware. Prefer a dedicated workflow so you never surgically edit an
 unknown existing job (the user can instead fold the two `run:` lines into an existing job). Write to
 `.github/workflows/` on GitHub or `.forgejo/workflows/` on Forgejo. Skip writing it if a workflow in
 that dir already runs `check-template-lockstep.sh` (grep first):

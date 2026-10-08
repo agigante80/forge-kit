@@ -14,7 +14,7 @@ without restarting a gate loop that already stopped.
 ## Done looks like
 
 - `forge-adapt templates` installs `labels.md`, `labels.yml` and `sync-labels.sh` beside the
-  ticket-standards doc, never clobbering an existing one, and `adapt` does not grow past its 7199
+  ticket-standards doc, never clobbering an existing one, and `adapt` does not grow past its 7147
   ratchet (#214).
 - `closing-sessions/scripts/memory.py` opens both the memory file and the index without following a
   symlink or blocking on a FIFO swapped in after the ownership check (#324).
