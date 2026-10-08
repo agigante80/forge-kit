@@ -505,6 +505,7 @@ echo "== a multibyte name: the floor counts characters and the report cuts at a 
 # (a 2-character CJK name stays refused everywhere, a 3-character one is kept everywhere) and every
 # redaction keeps two whole characters, the awk copy of --history included.
 CJK2=$'\xe6\x97\xa5\xe6\x9c\xac'; CJK3="$CJK2"$'\xe8\xaa\x9e'; CJKSTAR="$CJK2*"
+YY=$'\xc3\xbf'; EMO=$'\xf0\x9f\x98\x80'
 printf '%s\n' "$CJK2" > "$WORK/t416-short"; printf '%s\n' "$CJK3" > "$WORK/t416-list"
 printf 'see %s here\n' "$CJK3" > "$WORK/t416-s.txt"
 printf 'plain\n' > "$WORK/t416-plain.txt"
@@ -536,13 +537,11 @@ for L in $locs; do
   done
   printf '%s\n' "${CJK3}"$'\xe6\x97\xa5' > "$WORK/t416-l4"; printf 'see %s\n' "${CJK3}"$'\xe6\x97\xa5' > "$WORK/t416-s4.txt"
   expect "a 4-character name masks characters minus two under $L" "1|${CJK2}**" "$(row416 "$SCRIPT" "$L" "$WORK/t416-l4" "$WORK/t416-s4.txt")"
-  EMO=$'\xf0\x9f\x98\x80'
   printf '%s\n' "$EMO$EMO$EMO"x > "$WORK/t416-l5"; printf 'see %s\n' "$EMO$EMO${EMO}x" > "$WORK/t416-s5.txt"
   expect "a 4-byte character is never split under $L" "1|$EMO$EMO**" "$(row416 "$SCRIPT" "$L" "$WORK/t416-l5" "$WORK/t416-s5.txt")"
   expect "--history reports the name and cuts its evidence and its path at a character under $L" "1|$CJKSTAR|$CJKSTAR/n.md" "$(hrow416 "$SCRIPT" "$L")"
   # The continuation-byte range ends at 0x80 (emoji) and 0xBF (y with a diaeresis, c3 bf): a boundary
   # edit on either side of any copy of the range must change one of these rows (review r1, #416).
-  YY=$'\xc3\xbf'
   printf '%s\n' "$YY$YY" > "$WORK/t416-yy2"
   expect "a 2-character name of 0xBF bytes is refused under $L" "2|" "$(row416 "$SCRIPT" "$L" "$WORK/t416-yy2" "$WORK/t416-s.txt")"
   printf '%s\n' "$YY$YY${YY}a" > "$WORK/t416-yy4"; printf 'see %s\n' "$YY$YY${YY}a" > "$WORK/t416-yys.txt"

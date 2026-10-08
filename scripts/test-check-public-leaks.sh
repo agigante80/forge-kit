@@ -1652,6 +1652,12 @@ hcommit y.md '/home/\303\277\303\277\303\277a/x\n'
 for L in $locs416; do   # 0xBF is the top of the continuation range: a boundary edit must change this row
   expect "a segment of 0xBF bytes keeps two characters and masks two under $L" "1|/home/"$'\xc3\xbf\xc3\xbf'"**/|" "$(row416 "$SCRIPT" "$L")"
 done
+mkrepo emo416
+hcommit e.md '/home/\360\237\230\200\360\237\230\200\360\237\230\200x/x\n'
+EMO416=$'\xf0\x9f\x98\x80'
+for L in $locs416; do   # 0x80 is the bottom of the continuation range (review r2)
+  expect "a segment of 4-byte characters keeps two characters and masks two under $L" "1|/home/$EMO416$EMO416**/|" "$(row416 "$SCRIPT" "$L")"
+done
 mkrepo cjk416
 hcommit c.md '/home/\346\227\245\346\234\254\350\252\236/x\n~/\346\227\245\346\234\254\350\252\236/y\n'
 if command -v iconv >/dev/null 2>&1; then
