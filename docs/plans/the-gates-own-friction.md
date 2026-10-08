@@ -19,7 +19,7 @@ reads its Step 0c synthesis targets from the script that already resolves them, 
 - A sentinel-gated Bash `PreToolUse` hook denies a background `sleep` and `until`/`while` loops
   polling `tasks/*.output` or `subagents/*.jsonl`, with a deny reason that says what to do instead
   (keep working, let the completion notification arrive, never end a turn with a dispatch
-  outstanding), fail open, a `--self-test`, cases in `scripts/test-hooks.py` and a hooks README
+  outstanding; superseded by #433: with no work left, end the turn and the notification resumes you), fail open, a `--self-test`, cases in `scripts/test-hooks.py` and a hooks README
   entry; `ticket-gate.md` carries no prose about it (#263).
 - Step 2.9's cache-skip rule, Step 6's reuse clause and the 2.9 round-table row are gone, so every
   round re-explores and rewrites `gate-context`; the `gh` snippets and the one `gh issue create`

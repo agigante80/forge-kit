@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 4
+# no-poll-loops-version: 5
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -61,8 +61,10 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 # run_in_background and every dispatch comes back "launched in the background", at top level
 # and inside a subagent. A reason (or Step 3B) that commanded a blocking call named something the
 # agent could not do, and "never end the turn" forbade the only correct wait. So the reason names
-# no blocking call at all and stays correct whichever way a release falls. Not verified: a
-# one-shot headless `claude -p` run. Do not re-add a foreground instruction without re-probing.
+# no blocking call at all and stays correct whichever way a release falls. Verified on 2.1.294: top level and a subagent get "launched in the background" and the
+# completion notification arrives (a gate run ended its turn twice with dispatches running and was
+# resumed). Not verified: a one-shot headless `claude -p` run, and whether a subagent's PARENT
+# receives a verdict if that subagent ends its turn with a child outstanding. Do not re-add a foreground instruction without re-probing.
 REASON = (
     "no-poll-loops: do not wait on a dispatched subagent in the shell. A subagent returns "
     "through the harness: its completion notification is appended to the next tool result. "

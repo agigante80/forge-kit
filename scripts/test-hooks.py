@@ -718,8 +718,10 @@ with tempfile.TemporaryDirectory() as td:
     # switch, so the reason must be correct whichever way that falls: end the turn when
     # nothing else is left, and name a blocking call only where the host offers one.
     low = reason.lower()
-    check("npl reason says end the turn when no work is left", "end your turn" in low, True)
-    check("npl reason does not forbid ending the turn", "never end the turn" in low, False)
+    check("npl reason says end the turn when no work is left",
+          "with none left, end your turn and the completion notification resumes you" in low, True)
+    check("npl reason does not forbid ending the turn",
+          re.search(r"(never|do not|don't)\s+end\s+(the|your)\s+turn", low) is None, True)
     check("npl reason bans the poll loop", "poll loop" in low, True)
     check("npl reason names no foreground call", "foreground" in low, False)
     check("npl reason names no blocking call", "blocking" in low, False)
