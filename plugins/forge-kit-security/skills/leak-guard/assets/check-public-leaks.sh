@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 33
+# check-public-leaks-version: 34
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
@@ -572,11 +572,33 @@ report() { printf '%s:%s: %s: %s\n' "$1" "$2" "$3" "$4"; violations=$((violation
 # pushes the operator to --show-evidence, which prints the secret. The k <= 0 guard runs BEFORE any
 # slice: a negative length in ${s:0:k} is an error on bash 3.2, and on bash 5 too for a length-0
 # input (k = -2), so lengths 0 to 2 print the input itself, exactly as ${1:0:2} always did.
+# Characters, not bytes, in every locale (#416): the UTF-8 lead bytes, i.e. every byte but the 0x80 to
+# 0xBF continuation bytes, so `${#n}` (bytes under C, characters under UTF-8) never decides a verdict.
+# Sets CHARS. The tr is pinned to C because only under C is it a byte filter (a multibyte-aware tr
+# can reject these bytes); the count after it needs no pin, since what is left holds no continuation
+# byte and reads as one unit per byte in any locale. One tr, so it is linear in any locale (#217);
+# the trailing x keeps $( ) from eating a final newline.
+char_len() {
+  local t
+  t="$(printf '%sx' "$1" | LC_ALL=C tr -d '\200-\277')"
+  CHARS=$(( ${#t} - 1 ))
+}
+# redact keeps two whole characters (#416): a lead byte and its continuation bytes, twice, then one
+# star per remaining character. `local LC_ALL=C` makes ${n:i:1} index bytes whatever the caller's
+# locale. On bash 5.2 the unpinned function prints the same for every input tried, so the pin is
+# determinism for a bash that reads an invalid sequence as one character, and the suite pins it as
+# text (a ledger row), not as behaviour: no row can fail it here.
 redact() {
-  local n="$1" k=$(( ${#1} - 2 )) s='*'
+  local LC_ALL=C n="$1" CHARS i=0 j cc=0 k s='*'
+  char_len "$n"; k=$(( CHARS - 2 ))
   if [ "$k" -le 0 ]; then printf '%s' "$n"; return; fi
+  while [ "$cc" -lt 2 ]; do   # two whole characters: a lead byte plus at most 3 continuation bytes
+    i=$(( i + 1 )); j=0
+    while [ "$j" -lt 3 ] && [[ "${n:i:1}" == [$'\200'-$'\277'] ]]; do i=$(( i + 1 )); j=$(( j + 1 )); done
+    cc=$(( cc + 1 ))
+  done
   while [ ${#s} -lt "$k" ]; do s="$s$s"; done
-  printf '%s%s' "${n:0:2}" "${s:0:k}"
+  printf '%s%s' "${n:0:i}" "${s:0:k}"
 }
 show_evidence() {  # show_evidence <rule> <evidence>: what the report prints for it
   if [ "$MODE" != history ] || [ "$SHOW_EVIDENCE" = 1 ]; then printf '%s' "$2"; return; fi

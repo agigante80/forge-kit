@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 24
+# check-private-leaks-version: 25
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -94,7 +94,10 @@
 #
 # REDACTION COST (#217). The bash `redact` counts the length once and builds its mask by doubling,
 # as the public half's does, so it is linear in any locale. The awk `redact` that --history uses is
-# LEFT as a per-character loop on purpose: its input is always a listed name, so its cost is bounded
+# LEFT as a one-pass loop on purpose (#416 made it a per-BYTE scan that keeps two whole characters,
+# since it runs under LC_ALL=C and the old byte slice split a multibyte name in every caller
+# locale; re-measured at 262,144 bytes, gawk 0.07 s to 0.10 s and busybox awk 29.6 s to 31.6 s): its
+# input is always a listed name, so its cost is bounded
 # by a list entry (262,144 bytes cost gawk 0.16 s, mawk 5.3 s, busybox awk 71 s), and the one
 # pre-filter `grep -aiF` before it is slower at every size, so the awk loop is never the first thing
 # to stall. The suite's text-count ledger on that loop pins this DECISION, not behaviour: a change to
@@ -326,11 +329,33 @@ fi
 # and not enough for a reader of a pasted transcript to learn it.
 # Linear (#217): one length count, a doubled mask, and the k <= 0 guard BEFORE any slice, since a
 # negative length in ${s:0:k} is an error on bash 3.2 and, for a length-0 input, on bash 5 too.
+# Characters, not bytes, in every locale (#416): the UTF-8 lead bytes, i.e. every byte but the 0x80 to
+# 0xBF continuation bytes, so `${#n}` (bytes under C, characters under UTF-8) never decides a verdict.
+# Sets CHARS. The tr is pinned to C because only under C is it a byte filter (a multibyte-aware tr
+# can reject these bytes); the count after it needs no pin, since what is left holds no continuation
+# byte and reads as one unit per byte in any locale. One tr, so it is linear in any locale (#217);
+# the trailing x keeps $( ) from eating a final newline.
+char_len() {
+  local t
+  t="$(printf '%sx' "$1" | LC_ALL=C tr -d '\200-\277')"
+  CHARS=$(( ${#t} - 1 ))
+}
+# redact keeps two whole characters (#416): a lead byte and its continuation bytes, twice, then one
+# star per remaining character. `local LC_ALL=C` makes ${n:i:1} index bytes whatever the caller's
+# locale. On bash 5.2 the unpinned function prints the same for every input tried, so the pin is
+# determinism for a bash that reads an invalid sequence as one character, and the suite pins it as
+# text (a ledger row), not as behaviour: no row can fail it here.
 redact() {
-  local n="$1" k=$(( ${#1} - 2 )) s='*'
+  local LC_ALL=C n="$1" CHARS i=0 j cc=0 k s='*'
+  char_len "$n"; k=$(( CHARS - 2 ))
   if [ "$k" -le 0 ]; then printf '%s' "$n"; return; fi
+  while [ "$cc" -lt 2 ]; do   # two whole characters: a lead byte plus at most 3 continuation bytes
+    i=$(( i + 1 )); j=0
+    while [ "$j" -lt 3 ] && [[ "${n:i:1}" == [$'\200'-$'\277'] ]]; do i=$(( i + 1 )); j=$(( j + 1 )); done
+    cc=$(( cc + 1 ))
+  done
   while [ ${#s} -lt "$k" ]; do s="$s$s"; done
-  printf '%s%s' "${n:0:2}" "${s:0:k}"
+  printf '%s%s' "${n:0:i}" "${s:0:k}"
 }
 
 # The account that owns this repository on a PUBLIC forge is public by definition: it is in the
@@ -423,7 +448,8 @@ while IFS= read -r raw || [ -n "$raw" ]; do
   allowed, so the token has a boundary on each side. List a name with other characters without '='." ;;
       esac ;;
   esac
-  if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then
+  char_len "$n"
+  if [ "$CHARS" -lt "$MIN_NAME_LEN" ]; then
     die "$LIST_SHOWN:$lineno: '$(redact "$n")' is too short (under $MIN_NAME_LEN characters). It would match almost
   every file, and a guard that fires on everything is one you switch off. Use the full name."
   fi
@@ -563,7 +589,14 @@ history_scan() {
   [ -s "$hits" ] || return 0
   local found
   found="$(LC_ALL=C LG_NAMES="$PATFILE" LG_WORDS="$WORDFILE" LG_SHOW="$SHOW_NAMES" awk '
-    function redact(n,  i, o) { o = substr(n, 1, 2); for (i = 3; i <= length(n); i++) o = o "*"; return o }
+    # Two whole characters, then one star per character (#416): awk runs under LC_ALL=C, so it walks
+    # bytes, keeps every byte up to the second lead byte and the continuation bytes after it, and stars
+    # a later lead byte (a later continuation byte, 0x80 to 0xBF, adds nothing).
+    function redact(n,  i, b, c, o) { o = ""; c = 0
+      for (i = 1; i <= length(n); i++) { b = substr(n, i, 1)
+        if (b >= "\200" && b <= "\277") { if (c <= 2) o = o b }
+        else { c++; if (c <= 2) o = o b; else o = o "*" } }
+      return o }
     function hide(p,  k, lp, ln, i, out) {   # redact every listed name inside a path, case-insensitively
       if (show) return p
       for (k = 1; k <= nn; k++) {

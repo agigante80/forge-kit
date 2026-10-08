@@ -471,14 +471,14 @@ echo "== redact: the bash copy is linear, the awk copy is left alone on purpose 
 # line dies with a fixed message first). The awk redact has no timed case: the grep -aiF
 # pre-filter before it stalls first at every size, so a bounded 256 KB case would fail even on a
 # correct fix. Its ledger pins the decision recorded in the scanner header, not behaviour.
-RFN="$(sed -n '/^redact() {/,/^}/p' "$SCRIPT")"
+RFN="$(sed -n '/^char_len() {/,/^}/p;/^redact() {/,/^}/p' "$SCRIPT")"
 rshow() { LC_ALL="$1" bash -c "$RFN"'; for n in "" a ab abc "$(printf "jos\303\251")"; do printf "[%s]" "$(redact "$n")"; done' 2>&1; }
-expect "redact keeps a two-unit prefix at lengths 0 to 3 and a multibyte name (C, bytes)" \
-  "[][a][ab][ab*][jo***]" "$(rshow C)"
+expect "redact keeps a two-character prefix at lengths 0 to 3 and a multibyte name (C, characters since #416)" \
+  "[][a][ab][ab*][jo**]" "$(rshow C)"
 R217U="$(locale -a 2>/dev/null | grep -i 'utf' | head -1)"
 if [ -n "$R217U" ]; then
   expect "and under a UTF-8 locale the multibyte name masks characters, as before" \
-    "[][a][ab][ab*][jo**]" "$(rshow "$R217U")"
+    "[][a][ab][ab*][jo**]" "$(rshow "$R217U")"   # the same string as the C row above: parity (#416)
 else
   ok "(skipped, no UTF-8 locale on this machine) the multibyte redact case"
 fi
@@ -497,6 +497,89 @@ for n in a ab; do
   expect "and stderr holds only the two-line refusal (no slice error)" 2 "$(wc -l < "$WORK/err.txt" | tr -d ' ')"
   lacks "substring" "$(cat "$WORK/err.txt")" "with no bash substring error"
 done
+
+echo "== a multibyte name: the floor counts characters and the report cuts at a character (#416) =="
+# Before: `${#n}` was a byte count under C and a character count under UTF-8, so the list `日本`
+# (2 characters, 6 bytes) was kept under C and refused under UTF-8, and the C redaction kept two
+# BYTES, printing half a character. Now the floor counts UTF-8 lead bytes with the locale pinned
+# (a 2-character CJK name stays refused everywhere, a 3-character one is kept everywhere) and every
+# redaction keeps two whole characters, the awk copy of --history included.
+CJK2=$'\xe6\x97\xa5\xe6\x9c\xac'; CJK3="$CJK2"$'\xe8\xaa\x9e'; CJKSTAR="$CJK2*"
+printf '%s\n' "$CJK2" > "$WORK/t416-short"; printf '%s\n' "$CJK3" > "$WORK/t416-list"
+printf 'see %s here\n' "$CJK3" > "$WORK/t416-s.txt"
+printf 'plain\n' > "$WORK/t416-plain.txt"
+# row416 <script> <locale> <list> <file> -> "rc|evidence", the evidence being what follows `private-name: `
+row416() {
+  local out rc
+  out="$(LC_ALL=$2 "$1" --list "$3" "$4" 2>"$WORK/err.txt")"; rc=$?
+  echo "$rc|$(printf '%s\n' "$out" | sed -n 's/.*private-name: //p')"
+}
+# hrow416 <script> <locale> -> "rc|evidence" of a --history run over one committed line naming CJK3
+hrow416() {
+  mkrepo cjk416
+  ( cd "$HREPO" && mkdir -p "$CJK3" && printf 'see %s here\n' "$CJK3" > "$CJK3/n.md" && git add . && git commit -qm cjk ) >/dev/null 2>&1
+  printf '%s\n' "$CJK3" > "$WORK/hlist416"
+  local out rc
+  out="$( cd "$HREPO" && LC_ALL=$2 "$1" --list "$WORK/hlist416" --history 2>"$WORK/err.txt" )"; rc=$?
+  echo "$rc|$(printf '%s\n' "$out" | sed -n 's/.*private-name: //p')|$(printf '%s\n' "$out" | sed -n 's/@.*//p')"
+}
+for L in $locs; do
+  expect "the 2-character list name is refused under $L, as the refusal text says" "2|" "$(row416 "$SCRIPT" "$L" "$WORK/t416-short" "$WORK/t416-s.txt")"
+  contains "is too short (under 3 characters)" "$(cat "$WORK/err.txt")" "and the refusal names the character floor under $L"
+  expect "the 3-character list name is kept under $L, and the evidence is two whole characters then one star" "1|$CJKSTAR" "$(row416 "$SCRIPT" "$L" "$WORK/t416-list" "$WORK/t416-s.txt")"
+  expect "the same list on a clean file exits 0 under $L" "0|" "$(row416 "$SCRIPT" "$L" "$WORK/t416-list" "$WORK/t416-plain.txt")"
+  for short in $'a\xe6\x97\xa5' $'\xe6\x9c\xac'; do   # a 2-character name of 4 bytes, and 1 character
+    printf '%s\n' "$short" > "$WORK/t416-sh"
+    expect "the short name '$short' is refused under $L" "2|" "$(row416 "$SCRIPT" "$L" "$WORK/t416-sh" "$WORK/t416-s.txt")"
+  done
+  printf '%s\n' "${CJK3}"$'\xe6\x97\xa5' > "$WORK/t416-l4"; printf 'see %s\n' "${CJK3}"$'\xe6\x97\xa5' > "$WORK/t416-s4.txt"
+  expect "a 4-character name masks characters minus two under $L" "1|${CJK2}**" "$(row416 "$SCRIPT" "$L" "$WORK/t416-l4" "$WORK/t416-s4.txt")"
+  EMO=$'\xf0\x9f\x98\x80'
+  printf '%s\n' "$EMO$EMO$EMO"x > "$WORK/t416-l5"; printf 'see %s\n' "$EMO$EMO${EMO}x" > "$WORK/t416-s5.txt"
+  expect "a 4-byte character is never split under $L" "1|$EMO$EMO**" "$(row416 "$SCRIPT" "$L" "$WORK/t416-l5" "$WORK/t416-s5.txt")"
+  expect "--history reports the name and cuts its evidence and its path at a character under $L" "1|$CJKSTAR|$CJKSTAR/n.md" "$(hrow416 "$SCRIPT" "$L")"
+done
+if command -v iconv >/dev/null 2>&1; then
+  for L in $locs; do
+    LC_ALL=$L "$SCRIPT" --list "$WORK/t416-list" "$WORK/t416-s.txt" > "$WORK/t416-out" 2>&1
+    iconv -f UTF-8 -t UTF-8 < "$WORK/t416-out" >/dev/null 2>&1
+    expect "the report is valid UTF-8 under $L (no split sequence)" 0 "$?"
+  done
+fi
+# One mutant per choice, each a sed on a scratch copy BESIDE the library (--history needs it), shown
+# to differ (cmp) and to change at least one row of sig416, the signature of every row above.
+# The tr pin has no row on a GNU tr, which is bytewise in every locale, so its mutant runs behind a
+# stub tr that, like a multibyte-aware one, rejects the byte range unless LC_ALL=C. The redact pin
+# changes no output on bash 5.2, so it is pinned as text, and the comment above redact() says so.
+mkdir -p "$WORK/lone"; cp "$LIB" "$WORK/lone/"
+SHIM416="$WORK/shim416"; mkdir -p "$SHIM416"
+printf '%s\n' '#!/bin/sh' "case \"\$*\" in *'\\200-\\277'*) [ \"\${LC_ALL:-}\" = C ] || { echo 'tr: Illegal byte sequence' >&2; exit 1; } ;; esac" "exec $(command -v tr) \"\$@\"" > "$SHIM416/tr"
+chmod +x "$SHIM416/tr"
+sig416() {  # sig416 <script>: all the rows above, every locale, on one line
+  local L s=""
+  for L in $locs; do
+    s="$s $(row416 "$1" "$L" "$WORK/t416-short" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-list" "$WORK/t416-s.txt") $(hrow416 "$1" "$L")"
+  done
+  printf '%s' "$s"
+}
+GOOD416="$(sig416 "$SCRIPT")"
+cp "$SCRIPT" "$WORK/lone/m416-good.sh"
+expect "the pinned scanner gives the same rows behind the rejecting tr (control)" "$GOOD416" "$(PATH="$SHIM416:$PATH" sig416 "$WORK/lone/m416-good.sh")"
+m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]
+  local f="$WORK/lone/m416-$1.sh"
+  sed "$3" "$SCRIPT" > "$f"; chmod +x "$f"
+  if cmp -s "$SCRIPT" "$f"; then bad "mutant ledger (#416, $1): the edit changed nothing"; return; fi
+  ok "mutant ledger (#416, $1): the scratch copy differs from the scanner"
+  local sig; sig="$(PATH="${4:+$4:}$PATH" sig416 "$f")"
+  case "$sig" in *" 127|"*|*" 126|"*) bad "mutant (#416, $1): the copy did not run ($sig)"; return ;; esac
+  if [ "$sig" != "$GOOD416" ]; then ok "mutant (#416, $1): $2 changes a row"; else bad "mutant (#416, $1): $2 survives every row"; fi
+}
+m416 floor "counting bytes at the floor" 's|^  if \[ "\$CHARS" -lt "\$MIN_NAME_LEN" \]; then$|  if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then|'
+m416 cut "keeping two bytes in the bash redact" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
+m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
+m416 awk-cut "dropping the awk redact's kept continuation bytes" 's|{ if (c <= 2) o = o b }|{ }|'
+m416 awk-bytes "the awk redact keeping two bytes" 's|if (c <= 2) o = o b; else o = o "\*"|if (c <= 2 \&\& length(o) < 2) o = o b; else o = o "*"|'
+expect "the bash redact pins the locale (ledger; no row can fail it on bash 5.2)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"
 
 echo "== --history: this scanner sources the library (#206) =="
 mkrepo forged

@@ -1618,6 +1618,68 @@ else
   ok "(skipped, no UTF-8 locale on this machine) the pinned run under a UTF-8 locale"
 fi
 
+# --- #416: the redaction keeps two WHOLE characters in every locale --------------------------------
+# `${#n}` and `${n:0:2}` followed the caller's locale: under C the two kept units were two BYTES, so
+# a multibyte home segment printed half a character. redact() now counts UTF-8 lead bytes with the
+# locale pinned and cuts at a lead byte, so C and a UTF-8 locale print the same string. The private
+# half carries the same fix and the same parity row (maintainer pick 2026-10-08).
+echo "== #416: redaction cuts at a character, in every locale =="
+CJK3=$'\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e'; CJKSTAR=$'\xe6\x97\xa5\xe6\x9c\xac*'
+locs416="C"; [ -n "$ANYUTF8" ] && locs416="C $ANYUTF8 LANG:$ANYUTF8"
+mkrepo cjk416
+hcommit c.md '/home/\346\227\245\346\234\254\350\252\236/x\n~/\346\227\245\346\234\254\350\252\236/y\n'
+# row416 <script> <locale> -> the two evidence strings, one per line, as `rc|home-path|home-root`
+row416() {
+  local out rc
+  # `LANG:<loc>` runs with LC_ALL UNSET and the locale in LANG, where redact's `local LC_ALL=C` is
+  # not exported to tr, so only tr's own pin holds the byte semantics.
+  case "$2" in
+    LANG:*) out="$( cd "$HREPO" && env -u LC_ALL LANG="${2#LANG:}" "$1" --history 2>/dev/null )"; rc=$? ;;
+    *)      out="$( cd "$HREPO" && LC_ALL=$2 "$1" --history 2>/dev/null )"; rc=$? ;;
+  esac
+  echo "$rc|$(printf '%s\n' "$out" | sed -n 's/.*:1: home-path: //p')|$(printf '%s\n' "$out" | sed -n 's/.*:2: home-root: //p')"
+}
+for L in $locs416; do
+  expect "a 3-character home segment is cut after two characters under $L" "1|/home/$CJKSTAR/|~/$CJKSTAR/" "$(row416 "$SCRIPT" "$L")"
+done
+mkrepo jose416
+hcommit j.md '/home/jos\303\251/x\n'
+for L in $locs416; do
+  expect "a 4-character accented segment keeps two characters and masks two under $L" "1|/home/jo**/|" "$(row416 "$SCRIPT" "$L")"
+done
+mkrepo cjk416
+hcommit c.md '/home/\346\227\245\346\234\254\350\252\236/x\n~/\346\227\245\346\234\254\350\252\236/y\n'
+if command -v iconv >/dev/null 2>&1; then
+  for L in $locs416; do
+    case "$L" in LANG:*) continue ;; esac
+    ( cd "$HREPO" && LC_ALL=$L "$SCRIPT" --history > "$WORK/o416" 2>&1 )
+    iconv -f UTF-8 -t UTF-8 < "$WORK/o416" >/dev/null 2>&1
+    expect "the report is valid UTF-8 under $L (no split sequence)" 0 "$?"
+  done
+fi
+sig416() { local L s=""; for L in $locs416; do s="$s $(row416 "$1" "$L")"; done; printf '%s' "$s"; }
+GOOD416="$(sig416 "$SCRIPT")"
+# The tr pin has no row on a GNU tr, which is bytewise in every locale, so its mutant runs behind a
+# stub tr that, like a multibyte-aware one, rejects the byte range unless LC_ALL=C. The redact pin
+# changes no output on bash 5.2, so it is pinned as text, and the comment above redact() says so.
+SHIM416="$WORK/shim416"; mkdir -p "$SHIM416"
+printf '%s\n' '#!/bin/sh' "case \"\$*\" in *'\\200-\\277'*) [ \"\${LC_ALL:-}\" = C ] || { echo 'tr: Illegal byte sequence' >&2; exit 1; } ;; esac" "exec $(command -v tr) \"\$@\"" > "$SHIM416/tr"
+chmod +x "$SHIM416/tr"
+cp "$SCRIPT" "$WORK/lone/m416-good.sh"
+expect "the pinned scanner gives the same rows behind the rejecting tr (control)" "$GOOD416" "$(PATH="$SHIM416:$PATH" sig416 "$WORK/lone/m416-good.sh")"
+m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]: a scratch copy beside the library, killed by a changed row
+  local f="$WORK/lone/m416-$1.sh" sig
+  sed "$3" "$SCRIPT" > "$f"; chmod +x "$f"
+  if cmp -s "$SCRIPT" "$f"; then bad "mutant ledger (#416, $1): the edit changed nothing"; return; fi
+  ok "mutant ledger (#416, $1): the scratch copy differs from the scanner"
+  sig="$(PATH="${4:+$4:}$PATH" sig416 "$f")"
+  case "$sig" in *" 127|"*|*" 126|"*) bad "mutant (#416, $1): the copy did not run ($sig)"; return ;; esac
+  if [ "$sig" != "$GOOD416" ]; then ok "mutant (#416, $1): $2 changes a row"; else bad "mutant (#416, $1): $2 survives every row"; fi
+}
+m416 cut "keeping two bytes" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
+m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
+expect "redact pins the locale (ledger; no row can fail it on bash 5.2)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"
+
 # --- #217: the REDACTED --history report is linear too ----------------------------------------
 # redact() recounted ${#n} on every pass of a per-character loop, which is O(n) per count under a
 # UTF-8 locale and so quadratic, and show_evidence's home arms cut the whole match with
