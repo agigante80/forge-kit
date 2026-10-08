@@ -445,9 +445,13 @@ host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"
             {"id":2,"name":"security","color":"e4e669","description":"WRONG"}]'
 REQLOG="$T/req.log"; : > "$REQLOG"
 out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
-      bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1)
+      bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
 [ ! -s "$REQLOG" ] && ok "a dry run does not PATCH a DRIFTED label either" \
   || bad "dry run does not PATCH a drifted label (log: $(cat "$REQLOG"))"
+# #333: drift found is a preview, not a failure, so the exit code is 0 (a mutant that exits 1 when
+# something would be updated passed every case here because $rc was never read).
+[ "$rc" -eq 0 ] && ok "a dry run with a DRIFTED label exits 0" \
+  || bad "a dry run with a drifted label exits 0 (rc=$rc)"
 grep -q "\[dry-run\] update label 'security'" <<< "$out" \
   && ok "...and says which label it would update" || bad "dry run names the update it would make"
 
@@ -479,6 +483,7 @@ dry_last 1
   && ok "dry run with a drifted label ends with 'would create 0, would update 1'" \
   || bad "dry-run update summary (last line: $last)"
 [ ! -s "$REQLOG" ] && ok "dry-run update sends nothing" || bad "dry-run update sent: $(cat "$REQLOG")"
+[ "$rc" -eq 0 ] && ok "dry-run update: exit 0" || bad "dry-run update exit (rc=$rc: $last)"
 # already synced
 host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"},
             {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"}]'
@@ -486,6 +491,17 @@ dry_last 1
 [ "$last" = "$DRY_WANT_PREFIX 0, would update 0 (from $T/labels.yml)." ] \
   && ok "dry run on a synced host ends with 'would create 0, would update 0'" \
   || bad "dry-run synced summary (last line: $last)"
+[ "$rc" -eq 0 ] && ok "dry run on a synced host: exit 0" || bad "dry-run synced exit (rc=$rc: $last)"
+# #333: every capture above merges stderr into stdout, so a mutant that printed the summary on
+# stderr (>&2) passed them all. This one discards stderr: the summary must be on STDOUT.
+host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" FORGE_DRY_RUN=1 \
+      bash ./sync-labels.sh --labels "$T/labels.yml" 2>/dev/null); rc=$?
+last=$(printf '%s\n' "$out" | tail -n1)
+[ "$last" = "$DRY_WANT_PREFIX 1, would update 0 (from $T/labels.yml)." ] \
+  && ok "the dry-run summary is the last line of STDOUT (stderr discarded)" \
+  || bad "dry-run summary on stdout (last stdout line: '$last')"
 # real run, unchanged line (flag unset); bug drifted and security missing, so both counts are pinned
 host_json '[{"id":1,"name":"bug","color":"000000","description":"Something isn'"'"'t working"}]'
 REQLOG="$T/req.log"; : > "$REQLOG"
@@ -495,16 +511,32 @@ last=$(printf '%s\n' "$out" | tail -n1)
 [ "$last" = "sync-labels: o/r synced from $T/labels.yml (1 created, 1 updated)." ] \
   && ok "a real run keeps its 'synced from ... (N created, M updated)' line" \
   || bad "real-run summary (last line: $last)"
+[ "$rc" -eq 0 ] && ok "a real run that created and updated exits 0" \
+  || bad "a real run that created and updated exits 0 (rc=$rc)"
 grep -qE 'dry run|would create' <<< "$out" \
   && bad "a real run never says dry run or would" || ok "a real run never says dry run or would"
-# any value other than exactly 1 is a real run
+# #333: every real run above has exactly 1 created, so a mutant hard-coding "1 created" survived.
+# Nothing missing, `bug` drifted: the summary must say 0 created.
+host_json '[{"id":1,"name":"bug","color":"000000","description":"Something isn'"'"'t working"},
+            {"id":2,"name":"security","color":"e4e669","description":"Security vulnerability or hardening"}]'
+REQLOG="$T/req.log"; : > "$REQLOG"
+out=$(cd "$T" && HOST_LABELS="$T/host.json" REQLOG="$REQLOG" \
+      bash ./sync-labels.sh --labels "$T/labels.yml" 2>&1); rc=$?
+last=$(printf '%s\n' "$out" | tail -n1)
+[ "$last" = "sync-labels: o/r synced from $T/labels.yml (0 created, 1 updated)." ] \
+  && ok "a real run with nothing missing says '0 created, 1 updated'" \
+  || bad "real-run summary with nothing missing (last line: $last)"
+# any value other than exactly 1 is a real run, so no [dry-run] line may appear for it either
+# (#333: the old message blamed the flag for any mismatch; this one names expected and actual).
 host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'
 for v in true 0 ""; do
   dry_last "$v"
-  [ "$last" = "sync-labels: o/r synced from $T/labels.yml (1 created, 0 updated)." ] \
-    && grep -q '^POST /repos/o/r/labels ' "$REQLOG" \
-    && ok "FORGE_DRY_RUN='$v' is a real run (summary and POST)" \
-    || bad "FORGE_DRY_RUN='$v' treated as a dry run (last: $last)"
+  want="sync-labels: o/r synced from $T/labels.yml (1 created, 0 updated)."
+  if [ "$last" = "$want" ] && ! grep -qF '[dry-run]' <<< "$out" && grep -q '^POST /repos/o/r/labels ' "$REQLOG"; then
+    ok "FORGE_DRY_RUN='$v' is a real run (summary, POST, no [dry-run] line)"
+  else
+    bad "FORGE_DRY_RUN='$v' real-run check: want last='$want' and no [dry-run] and a POST; got last='$last', dry-run lines=$(grep -cF '[dry-run]' <<< "$out"), POST logged=$(grep -c '^POST /repos/o/r/labels ' "$REQLOG")"
+  fi
 done
 
 # --- 9c. the github PATCH path percent-encodes the name (round-1 finding M2) --------------------

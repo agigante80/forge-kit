@@ -2396,10 +2396,19 @@ OUT="$( ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=forgejo FORG
           forge_issue_close 1 ) 2>&1 >/dev/null)"; RC=$?
 expect "valid host: forgejo dry run still returns 0" 0 "$RC"
 case "$OUT" in "[dry-run] PATCH https://forge.example/api/v1/repos/o/r/issues/1"*) ok "valid host: the dry-run line still names the real API base";; *) bad "valid host dry-run line: $OUT";; esac
+# #333: the stub's [] reply is what every earlier case sees, so on its own this case cannot tell
+# a real GET from one sent with the wrong verb or no credential. Clear the log, then read what
+# the REAL no-body curl call in forge_api sent. The stub's -w '\n%{http_code}' wraps one request
+# onto two physical lines, so the method, header and URL are matched as a glob over the WHOLE log.
+: > "$N256LOG"
 OUT="$( ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example \
     FORGE_TOKEN_ENV=TK TK=tok FORGE_NO_GIT_CREDENTIALS=1
           forge_issue_list ) 2>/dev/null)"
 expect "valid host: forgejo forge_issue_list still prints []" "[]" "$OUT"
+case "$(cat "$N256LOG")" in
+  *"-X GET"*"-H Authorization: token X"*"https://forge.example/api/v1/repos/o/r/issues?state=open&type=issues&limit=50&page=1"*) ok "valid host: forgejo forge_issue_list sends an authenticated GET to page 1";;
+  *) bad "valid host: forgejo issue_list request was: $(cat "$N256LOG")";; esac
+[ "$(grep -c '^curl' "$N256LOG")" = 1 ] && ok "valid host: forgejo forge_issue_list sends exactly one request" || bad "valid host: issue_list request count $(grep -c '^curl' "$N256LOG")"
 OUT="$( ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=github FORGE_REPO=o/r
           forge_issue_list ) 2>/dev/null)"
 expect "valid host: github forge_issue_list still prints []" "[]" "$OUT"

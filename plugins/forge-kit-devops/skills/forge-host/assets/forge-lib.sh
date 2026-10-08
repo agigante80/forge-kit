@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 33
+# forge-lib-version: 34
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -140,11 +140,12 @@
 #       capture sits ABOVE every dry-run guard, so FORGE_DRY_RUN=1 refuses too: no `[dry-run]`
 #       line, rc 2. Covers forge_api, forge_api_paginate, forge_issue_list, forge_issue_label,
 #       forge_milestone_list, forge_milestone_close, forge_issue_edit, _forge_region_write (so
-#       forge_body_region_set and _clear) and forge_body_compose_preserving; the writers that go through forge_api inherit
-#       it for real sends. Two exceptions to the literal `return 2`: forge_ci_status prints
-#       `not_configured` and returns 0, since that word is its documented "could not ask" answer
-#       and a caller acts on it (rc 2 with empty stdout would break that contract); the
-#       executed-directly `detect` CLI is top-level code, so it `exit 2`s with nothing on stdout.
+#       forge_body_region_set and _clear) and forge_body_compose_preserving; the writers that go
+#       through forge_api inherit it for real sends. Two exceptions to the literal `return 2`:
+#       forge_ci_status prints `not_configured` and returns 0, since that word is its documented
+#       "could not ask" answer and a caller acts on it (rc 2 with empty stdout would break that
+#       contract); the executed-directly `detect` CLI is top-level code, so it `exit 2`s with
+#       nothing on stdout.
 #       forge_tag_exists returns 2 under an invalid host (it hides stderr), which means "could
 #       not ask", NOT "tag absent". A caller that saw rc 0 from a write now sees rc 2; valid
 #       hosts are unchanged. forge_api_base already refused and is left alone.
