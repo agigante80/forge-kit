@@ -55,3 +55,24 @@ root name>
 root [redacted]
 # (the scanner strips trailing "]" from a match before comparing, so the stripped form is what matches)
 root [redacted
+
+# Historical placeholders (issue #207, 2026-10-08). `--history --allow-file .leak-guard-allow` read
+# 38 findings, none a real value: 30 sit in three earlier blobs of this file (the example entries
+# #223 removed) and 8 in commit messages of 2026-09-08 to 2026-09-18. Each was checked by grep
+# against the maintainer's username, name and address before it was added, and one entry per
+# distinct value, as narrow as its key allows, keeps a NEW finding standing alone.
+root ~/foo
+root ~/home
+prefix /Users/alice
+prefix /home/runner
+prefix /home/alice@corp.io
+prefix /home/al***
+email ab@cd.io
+email alice@corp.io
+email alice@corpe.io
+email jose@corp.io
+email zoe@corp.io
+prefix /home/<seg>
+prefix /home/<file>
+prefix /Users/<seg>
+prefix /home/*|
