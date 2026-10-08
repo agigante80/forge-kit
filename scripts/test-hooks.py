@@ -689,6 +689,17 @@ with tempfile.TemporaryDirectory() as td:
                 "rm -r tmp/*", "rm -rf build/ && cd ..", "rm -rf ./dist"]:
         p = go(bash(cmd), day)
         check(f"day wildcard allows: {cmd[:28]!r}", outcome(p), ALLOW)
+    # Review r1 (#419): bare `.`, subshell and continuation forms are denied; `--rm`, `git rm`
+    # and a redirect after a plain target are not rm -rf of anything dangerous.
+    for cmd in ["rm -rf .", "rm -rf ./", "(rm -rf tmp/*)", "$(rm -rf tmp/*)",
+                "(cd tmp && rm -rf *)", "rm -rf \\\n tmp/*"]:
+        p = go(bash(cmd), day)
+        check(f"day r1 denies: {cmd[:28]!r}", outcome(p), DENY)
+    for cmd in ["docker run --rm -v \"$PWD\":/src -w /src golang:1.22 go test -race -failfast ./...",
+                "docker run --rm alpine ls -lrf /", "rm -rf tmp/impl-213 2> /dev/null",
+                "rm -rf tmp/impl-213 > /dev/null 2>&1", "git rm -rf tmp/*"]:
+        p = go(bash(cmd), day)
+        check(f"day r1 allows: {cmd[:28]!r}", outcome(p), ALLOW)
     # Overnight keeps its rule: no wildcard class, and only the FIRST rm is judged.
     for cmd in ["rm -rf tmp/*", "rm -rf ./*", "rm -f a.txt && rm -rf $HOME/x"]:
         p = go(bash(cmd), night)

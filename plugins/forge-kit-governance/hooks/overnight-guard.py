@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 5
+# overnight-guard-version: 6
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -124,7 +124,7 @@ def _rm_wildcard(seg):
     for tok in seg.split()[1:]:
         if tok.startswith("-") and tok != "--":
             continue
-        t = tok.strip("'\"")
+        t = tok.strip("'\"`)}")
         if t.endswith("/"):
             t = t[:-1]
         if t.endswith("*"):
@@ -135,11 +135,22 @@ def _rm_wildcard(seg):
 def day_bulk_delete(cmd):
     # DAYTIME judges EVERY rm segment (overnight judges the first only), so
     # `rm -rf build && rm -rf tmp/*` and `cd tmp && rm -rf *` are both caught.
-    for m in re.finditer(r"\brm\b[^|;&\n]*", cmd):
-        seg = m.group(0)
-        if not _rm_force_recursive(seg):
+    # Review r1 (#419): a command word `rm` only (not `docker run --rm` or `git rm`), flags
+    # read from the leading flag tokens only, redirections dropped, `\<newline>` joined, a
+    # trailing `)`/`}`/backtick ignored, and a bare `.` or `./` target is dangerous.
+    cmd = cmd.replace("\\\n", " ")
+    for m in re.finditer(r"(?<![\w./$-])(?<!git )rm\b[^|;&\n]*", cmd):
+        seg = re.sub(r"\d*>>?\s*&?\S+", " ", m.group(0))
+        toks = seg.split()[1:]
+        flags = []
+        for tok in toks:
+            if tok.startswith("-") and tok != "--":
+                flags.append(tok)
+            else:
+                break
+        if not _rm_force_recursive("rm " + " ".join(flags)):
             continue
-        if _rm_dangerous(seg):
+        if _rm_dangerous(seg) or any(t.strip("'\"`)}") in (".", "./") for t in toks):
             return "rm -rf dangerous target"
         if _rm_wildcard(seg):
             return "rm -rf wildcard target"
