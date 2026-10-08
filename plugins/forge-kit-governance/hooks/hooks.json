@@ -23,7 +23,7 @@
             "command": "sh",
             "args": [
               "-c",
-              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/overnight/active.md\" ] || exit 0; exec python3 \"$0\"",
+              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && { [ -f \"$CLAUDE_PROJECT_DIR/.claude/overnight/active.md\" ] || [ -f \"$CLAUDE_PROJECT_DIR/.claude/no-destructive\" ]; } || exit 0; exec python3 \"$0\"",
               "${CLAUDE_PLUGIN_ROOT}/hooks/overnight-guard.py"
             ]
           }

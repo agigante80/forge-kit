@@ -149,3 +149,11 @@ run restores normal behavior.
 - Extend enforcement to deploy/release if a project wants it.
 - A forge-adapt recommender note pairing overnight-guard with the working-overnight
   skill.
+
+## Reversal note (2026-10-08, #419)
+
+This design scoped the hook to an armed overnight run only. #419 adds a daytime arm behind its own
+sentinel, `.claude/no-destructive`: git discards plus bulk delete, plus an `rm -rf` of a relative
+wildcard target, with no secrets or pipe-to-shell class. It stays one file with a second arming
+path, and the overnight arm is unchanged and takes precedence when both sentinels exist.
+

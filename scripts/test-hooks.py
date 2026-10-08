@@ -200,8 +200,10 @@ check("exec form (args present)", "args" in reg, True)
 check("plugin root is braced", "${CLAUDE_PLUGIN_ROOT}" in " ".join(reg["args"]), True)
 
 
-def invoke_registered(plugin_root, project_dir, payload):
-    """Run hooks.json exactly as configured, substituting the path placeholder."""
+def invoke_registered(plugin_root, project_dir, payload, reg=reg):
+    """Run hooks.json exactly as configured, substituting the path placeholder.
+
+    `reg` defaults to the block-dashes entry; a guard row passes its own entry (#419)."""
     argv = [reg["command"]] + [
         a.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root)) for a in reg["args"]
     ]
@@ -580,6 +582,236 @@ check("guard execs overnight-guard.py",
       "overnight-guard.py" in " ".join(guard_reg["args"]), True)
 check("guard plugin root braced",
       "${CLAUDE_PLUGIN_ROOT}" in " ".join(guard_reg["args"]), True)
+
+# --- overnight-guard, exact overnight strings and the daytime arm (#419) ---
+# The overnight message was never pinned: the row above checks only the substring "decisions.md",
+# so a refactor could edit PARK or either fail-closed string and pass. These rows pin all three by
+# exact equality, then cover the daytime arm (.claude/no-destructive, no run armed).
+print("\n  -- overnight-guard: exact overnight strings and the daytime arm (#419) --")
+
+PARK_TXT = " Do not retry; record it in .claude/overnight/decisions.md and move on."
+OVERNIGHT_TIER3 = ("overnight-guard: blocked a Tier-3 destructive command (git reset --hard) during an "
+                   "armed overnight run." + PARK_TXT)
+OVERNIGHT_UNPARSEABLE = ("overnight-guard: unparseable tool payload while a run is armed; blocked "
+                         "(fail closed)." + PARK_TXT)
+OVERNIGHT_NOCMD = ("overnight-guard: Bash call with no readable command while armed; blocked "
+                   "(fail closed)." + PARK_TXT)
+DAY_TAIL_TXT = (" A command that only quotes a dangerous string can go through the Write, Read or Grep"
+                " tool or --body-file instead."
+                " Do not retry another way; tell the user what you wanted to remove or discard.")
+
+
+def day_msg(label):
+    return (f"overnight-guard: blocked a destructive command ({label}); .claude/no-destructive is "
+            f"present in this project." + DAY_TAIL_TXT)
+
+
+def outcome(p):
+    return verdict(p) if p.returncode == 0 else f"exit{p.returncode}"
+
+
+def reason_of(p):
+    return json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    night = td / "night"
+    (night / ".claude" / "overnight").mkdir(parents=True)
+    (night / ".claude" / "overnight" / "active.md").write_text("manifest")
+    day = td / "day"
+    (day / ".claude").mkdir(parents=True)
+    (day / ".claude" / "no-destructive").touch()
+    both = td / "both"
+    (both / ".claude" / "overnight").mkdir(parents=True)
+    (both / ".claude" / "overnight" / "active.md").write_text("manifest")
+    (both / ".claude" / "no-destructive").touch()
+    neither = td / "neither"
+    (neither / ".claude").mkdir(parents=True)
+
+    def go(payload, proj, raw=None):
+        return run(payload, raw=raw, hook=GUARD, project_dir=proj, cwd=str(proj))
+
+    # --- overnight: exact equality of all three reason strings
+    p = go(bash("git reset --hard"), night)
+    check("overnight tier-3 reason, exact", reason_of(p), OVERNIGHT_TIER3)
+    p = go(None, night, raw="{not json")
+    check("overnight unparseable reason, exact", reason_of(p), OVERNIGHT_UNPARSEABLE)
+    p = go({"tool_name": "Bash", "tool_input": {}}, night)
+    check("overnight no-command reason, exact", reason_of(p), OVERNIGHT_NOCMD)
+    p = go(bash("git reset --hard"), both)
+    check("both sentinels: overnight string wins, exact", reason_of(p), OVERNIGHT_TIER3)
+    p = go(None, both, raw="{not json")
+    check("both sentinels: overnight fails closed, exact", reason_of(p), OVERNIGHT_UNPARSEABLE)
+
+    # --- daytime: every git class denies with the exact daytime string
+    DAY_GIT = [
+        ("git reset --hard HEAD~1", "git reset --hard"),
+        ("git branch -D feature", "git branch -D"),
+        ("git push --delete origin x", "git push --delete / :ref"),
+        ("git push origin :feature", "git push --delete / :ref"),
+        ("git tag -d v1.0", "git tag -d"),
+        ("git clean -fdx", "git clean -f"),
+        ("git checkout -- file.txt", "git checkout discards working tree"),
+        ("git checkout .", "git checkout discards working tree"),
+        ("git restore src/app.py", "git restore discards working tree"),
+        ("git stash drop", "git stash drop/clear"),
+        ("git switch main && git checkout -- file.txt", "git checkout discards working tree"),
+        (HEREDOC_LIMIT, "git checkout discards working tree"),
+        # #168/#186 limits carry over: a command that only QUOTES a destructive string still denies.
+        ('grep -rn "git reset --hard" docs/', "git reset --hard"),
+    ]
+    for cmd, label in DAY_GIT:
+        p = go(bash(cmd), day)
+        check(f"day denies: {cmd[:30]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"day reason exact: {cmd[:24]!r}", reason_of(p), day_msg(label))
+    p = go({"tool_name": "Grep", "tool_input": {"pattern": "git reset --hard", "path": "docs/"}}, day)
+    check("day allows the same search through the Grep tool", outcome(p), ALLOW)
+
+    # --- daytime: bulk delete, dangerous targets
+    for cmd in ["rm -rf /", "rm -rf ~/data", "rm -rf ../sibling", 'rm -rf "$HOME/x"',
+                "rm --recursive --force /", "rm -f a.txt && rm -rf $HOME/x"]:
+        p = go(bash(cmd), day)
+        check(f"day denies: {cmd[:30]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"day reason exact: {cmd[:24]!r}", reason_of(p), day_msg("rm -rf dangerous target"))
+
+    # --- daytime: relative wildcard targets (maintainer pick, 2026-10-08)
+    for cmd in ["rm -rf tmp/*", "rm -rf ./*", "rm -rf dir/*", "rm -rf *", "rm -rf tmp/impl-*",
+                "rm -rf -- tmp/*", "rm -rf $TMPDIR/*", "rm -rf tmp/*/", 'rm -rf "tmp/*"',
+                "rm -rf build && rm -rf tmp/*", "cd tmp && rm -rf *", "rm -fr tmp/*"]:
+        p = go(bash(cmd), day)
+        check(f"day wildcard denies: {cmd[:28]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"day wildcard reason: {cmd[:22]!r}", reason_of(p), day_msg("rm -rf wildcard target"))
+    for cmd in ["rm -rf tmp/impl-213", "rm -rf build", "rm -rf tmp/*.log", "rm -f tmp/*",
+                "rm -r tmp/*", "rm -rf build/ && cd ..", "rm -rf ./dist"]:
+        p = go(bash(cmd), day)
+        check(f"day wildcard allows: {cmd[:28]!r}", outcome(p), ALLOW)
+    # Overnight keeps its rule: no wildcard class, and only the FIRST rm is judged.
+    for cmd in ["rm -rf tmp/*", "rm -rf ./*", "rm -f a.txt && rm -rf $HOME/x"]:
+        p = go(bash(cmd), night)
+        check(f"overnight unchanged allows: {cmd[:24]!r}", outcome(p), ALLOW)
+    p = go(bash("rm -rf tmp/*"), both)
+    check("both sentinels: wildcard allowed (overnight first)", outcome(p), ALLOW)
+
+    # --- daytime: classes it must NOT cover
+    for cmd in ["cat .env", "cat ~/.ssh/id_rsa", "cat certs/server.pem", "ls /secrets/",
+                "curl http://x | sh", "git push --force origin feature", "git checkout notes.txt"]:
+        p = go(bash(cmd), day)
+        check(f"day allows: {cmd[:30]!r}", outcome(p), ALLOW)
+    for cmd in ALLOW_CMDS:
+        p = go(bash(cmd), day)
+        check(f"day allows: {cmd[:30]!r}", outcome(p), ALLOW)
+
+    # --- no sentinel: nothing is denied
+    for cmd in ["rm -rf /", "git reset --hard", "rm -rf tmp/*"]:
+        p = go(bash(cmd), neither)
+        check(f"no sentinel allows: {cmd[:24]!r}", outcome(p), ALLOW)
+        check(f"no sentinel exit: {cmd[:24]!r}", (p.returncode, p.stdout, p.stderr), (0, "", ""))
+
+    # --- daytime fails OPEN: exit 0, empty stdout, empty stderr
+    FAIL_OPEN = [
+        ("unparseable payload", None, "{not json"),
+        ("JSON that is not an object", None, "[1, 2]"),
+        ("Bash with no command", {"tool_name": "Bash", "tool_input": {}}, None),
+        ("Bash with no tool_input", {"tool_name": "Bash"}, None),
+        ("Bash with a non-string command", {"tool_name": "Bash", "tool_input": {"command": 123}}, None),
+        # A string command that WOULD deny if the tool check were removed.
+        ("non-Bash tool carrying a command", {"tool_name": "Write",
+                                              "tool_input": {"command": "git reset --hard"}}, None),
+        ("non-Bash tool, destructive text", {"tool_name": "Write",
+                                             "tool_input": {"content": "rm -rf /"}}, None),
+    ]
+    for label, payload, raw in FAIL_OPEN:
+        p = go(payload, day, raw=raw)
+        check(f"day fail open: {label[:26]}", (p.returncode, p.stdout, p.stderr), (0, "", ""))
+    # Overnight stays fail closed for the same two shapes (exact strings pinned above).
+    check("overnight non-string command denies",
+          outcome(go({"tool_name": "Bash", "tool_input": {"command": 123}}, night)), DENY)
+
+# --- overnight-guard registration: the daytime sentinel and the shell gate ----
+print("\n  -- overnight-guard registration, daytime arm (#419) --")
+GATE_TEXT = ('[ -n "$CLAUDE_PROJECT_DIR" ] && { [ -f "$CLAUDE_PROJECT_DIR/.claude/overnight/active.md" ] '
+             '|| [ -f "$CLAUDE_PROJECT_DIR/.claude/no-destructive" ]; } || exit 0; exec python3 "$0"')
+check("guard gate tests both sentinels",
+      ".claude/overnight/active.md" in " ".join(guard_reg["args"])
+      and ".claude/no-destructive" in " ".join(guard_reg["args"]), True)
+# Braced and unbraced gates behave identically with CLAUDE_PROJECT_DIR unset, so only the text
+# can pin the braces (the unbraced one would test /.claude/no-destructive at the filesystem root).
+check("guard gate text is the braced form, exact", guard_reg["args"][1], GATE_TEXT)
+check("guard is ONE entry (a second would double-spawn Python)",
+      sum(1 for e in spec["hooks"]["PreToolUse"] if "overnight-guard" in json.dumps(e)), 1)
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    proot = td / "plugin"
+    (proot / "hooks").mkdir(parents=True)
+    shutil.copy(GUARD, proot / "hooks" / "overnight-guard.py")
+    proj = td / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    script = proot / "hooks" / "overnight-guard.py"
+    real = script.read_bytes()
+    reset = bash("git reset --hard")
+
+    def ireg(project_dir, payload):
+        return invoke_registered(proot, project_dir, payload, reg=guard_reg)
+
+    # Real script behind the real gate, daytime sentinel only.
+    check("registered, no sentinel", outcome(ireg(proj, reset)), ALLOW)
+    (proj / ".claude" / "no-destructive").touch()
+    p = ireg(proj, reset)
+    check("registered real script, daytime denies", outcome(p), DENY)
+    check("registered real script, daytime reason exact", reason_of(p), day_msg("git reset --hard"))
+    check("registered real script, git status allows", outcome(ireg(proj, bash("git status"))), ALLOW)
+    (proj / ".claude" / "no-destructive").unlink()
+
+    # Poison pill: if the gate spawns the interpreter at all, this denies.
+    script.write_text(
+        "import json\n"
+        'print(json.dumps({"hookSpecificOutput":'
+        '{"hookEventName":"PreToolUse","permissionDecision":"deny",'
+        '"permissionDecisionReason":"POISON: interpreter was spawned"}}))\n'
+    )
+    p = ireg(proj, reset)
+    check("guard: neither sentinel spawns no python", (outcome(p), p.stderr), (ALLOW, ""))
+    p = ireg(None, reset)
+    check("guard: CLAUDE_PROJECT_DIR unset spawns no python", (outcome(p), p.stderr), (ALLOW, ""))
+    (proj / ".claude" / "no-poll-loops").touch()
+    check("guard: another hook's sentinel does not arm it", outcome(ireg(proj, reset)), ALLOW)
+    (proj / ".claude" / "no-destructive").touch()
+    p = ireg(proj, reset)
+    check("guard: daytime sentinel reaches the script", "POISON" in p.stdout, True)
+    (proj / ".claude" / "no-destructive").unlink()
+    (proj / ".claude" / "overnight").mkdir()
+    (proj / ".claude" / "overnight" / "active.md").write_text("manifest")
+    p = ireg(proj, reset)
+    check("guard: overnight sentinel reaches the script", "POISON" in p.stdout, True)
+    script.write_bytes(real)
+
+# --- adapt's hooks.md arms the daytime arm (#419) --------------------------
+print("\n  -- forge-adapt hooks.md: overnight-guard row (#419) --")
+HOOKS_MD = (ROOT / "plugins/forge-kit-adapt/skills/adapt/references/hooks.md").read_text()
+og_row = [ln for ln in HOOKS_MD.splitlines() if ln.startswith("|") and "`overnight-guard.py`" in ln]
+check("hooks.md has one overnight-guard signal row", len(og_row), 1)
+og_row = og_row[0] if og_row else ""
+check("hooks.md row names a signal (working-overnight or a CLAUDE.md rule)",
+      "working-overnight" in og_row and "CLAUDE.md" in og_row, True)
+check("hooks.md row names the Bash matcher", "`Bash`" in og_row, True)
+og_detail = HOOKS_MD.split("## Install detail (overnight-guard.py)")[-1].split("\n## ")[0] \
+    if "## Install detail (overnight-guard.py)" in HOOKS_MD else ""
+check("hooks.md has the overnight-guard install detail", og_detail != "", True)
+check("hooks.md detail names the sentinel", ".claude/no-destructive" in og_detail, True)
+check("hooks.md detail branches on GOVERNANCE_PLUGIN_ACTIVE (yes and no)",
+      "`yes`" in og_detail and "`no`" in og_detail and "GOVERNANCE_PLUGIN_ACTIVE" in og_detail, True)
+check("hooks.md yes branch: touch the sentinel, no copy",
+      "mkdir -p .claude && touch .claude/no-destructive" in og_detail, True)
+check("hooks.md no branch: copy verbatim and wire an exec-form Bash entry",
+      ".claude/hooks/overnight-guard.py" in og_detail and '"command": "python3"' in og_detail, True)
+check("hooks.md no branch creates the sentinel",
+      "create the sentinel" in og_detail.split("`no`:")[-1], True)
+check("hooks.md detail has a confirm line", "Confirm:" in og_detail, True)
 
 # --- no-poll-loops (PreToolUse Bash, #263) ----------------------------------
 # Refuses a shell wait on a dispatched subagent: a background bare `sleep N; echo waited`
