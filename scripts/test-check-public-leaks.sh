@@ -1495,7 +1495,10 @@ bmut() {  # bmut <name> <awk program over declare -f bounded>: defines <name> as
 T402="$(date +%s)"; bounded 1 bash -c 'trap "" ALRM; sleep 8' >/dev/null 2>&1; rc=$?; T402="$(( $(date +%s) - T402 ))"
 expect "bounded: a command that ignores SIGALRM is escalated to SIGKILL and reads 137 (#402)" 137 "$rc"
 [ "$T402" -le 10 ] && ok "and it is stopped within the bound plus the 3 s grace (${T402} s) (#402)" || bad "the SIGALRM-ignoring command ran ${T402} s, past the bound plus grace (#402)"
-bounded "$B402" true >/dev/null 2>&1; sleep 1
+bounded "$B402" true >/dev/null 2>&1
+# Poll up to 10 s for the watcher's sleep to go, rather than judging it after one fixed 1 s pause:
+# on a loaded machine the kill can land late, and a watcher that survives never goes (#417).
+for _ in $(seq 100); do [ "$(stray_sleeps "$B402")" = 0 ] && break; sleep 0.1; done
 expect "bounded: no watcher survives an early return (#402)" 0 "$(stray_sleeps "$B402")"
 kill_stray "$B402"
 # #414: the escalation kill (rc not 137) is met by a b_noesc that fails before its command, so
@@ -1592,7 +1595,7 @@ expect "the locale mutant drops the pin" 0 "$(grep -c 'LC_ALL=C grep -onE' "$MUT
 # #417: killed by the ledger pair above (the LC_ALL=C pin is in the scanner, not in the mutant).
 # Two different locales are needed, and conflating them skipped half of this for no reason (review
 # round 1). The unpinned scanner is slow under ANY UTF-8 locale, C.utf8 included (25 s there against
-# 0.098 s pinned), so a slim container still runs the row below. The accented-class case needs a
+# 0.098 s pinned), so a slim container still runs the pinned-run row below. The accented-class case needs a
 # TERRITORY locale, because C.utf8 does not admit the accented classes either and so cannot tell
 # the pin from its absence.
 ANYUTF8="$(locale -a 2>/dev/null | grep -i 'utf' | head -1)"
@@ -1637,6 +1640,15 @@ contains ':3: email: al' "$OUT" "the # mask mutant still reports the address"
 if grep -qF ':3: email: al***********' <<< "$OUT"; then bad "the # mask mutant passes the ':3: email: al***********' row"
 else ok "the # mask mutant fails the ':3: email: al***********' row by name"; fi
 
+# The home-arm cut mutants (#217) are killed by this ledger, which needs no locale (#417): the
+# scanner splits both arms with IFS=/ read -r (2), and each mutant cuts one arm back to the
+# quadratic expansion (1). Neither count looks at a clock, so a fast runner cannot lose the kill.
+expect "the scanner splits both home arms with IFS=/ read -r" 2 "$(grep -c 'IFS=/ read -r' "$SCRIPT")"
+for arm in home-path home-root; do
+  MUTC="$WORK/lone/mutant-cut-$arm.sh"
+  sed "/^ *$arm)/s|IFS=/ read -r seg _ <<< \"\$e\"|seg=\"\${e%%/*}\"|" "$SCRIPT" > "$MUTC"; chmod +x "$MUTC"
+  expect "the $arm cut mutant keeps only the other arm's IFS=/ read -r" 1 "$(grep -c 'IFS=/ read -r' "$MUTC")"
+done
 if [ -n "$ANYUTF8" ]; then
   mkrepo redact217mb
   hcommit m.md '/home/jos\303\251/x\n'
@@ -1676,7 +1688,6 @@ EOF
 
   HP="$WORK/home-path-1m.md"; { printf '/home/'; head -c 1048576 /dev/zero | tr '\0' a; printf '/\n'; } > "$HP"
   HR="$WORK/home-root-1m.md"; { printf '~/'; head -c 1048576 /dev/zero | tr '\0' a; printf '/\n'; } > "$HR"
-  expect "the scanner splits both home arms with IFS=/ read -r" 2 "$(grep -c 'IFS=/ read -r' "$SCRIPT")"
   for arm in home-path home-root; do
     if [ "$arm" = home-path ]; then fx="$HP"; pre='/home/aa'; else fx="$HR"; pre='~/aa'; fi
     mkrepo "redact217-$arm"
@@ -1685,10 +1696,6 @@ EOF
     expect "a 1 MB $arm segment is reported REDACTED within bounded 20 (UTF-8; ${el} s)" 1 "$rc"
     expect "the $arm evidence is $pre, then only *, then /" "$pre/" "$(ev217 "$OUT" "$arm" | LC_ALL=C tr -d '*')"
     expect "and the $arm mask covers every other byte" "$(( ${#pre} + 1048574 + 1 ))" "$(ev217 "$OUT" "$arm" | LC_ALL=C awk '{ print length($0) }')"
-    MUTC="$WORK/lone/mutant-cut-$arm.sh"
-    sed "/^ *$arm)/s|IFS=/ read -r seg _ <<< \"\$e\"|seg=\"\${e%%/*}\"|" "$SCRIPT" > "$MUTC"; chmod +x "$MUTC"
-    expect "the $arm cut mutant keeps only the other arm's IFS=/ read -r" 1 "$(grep -c 'IFS=/ read -r' "$MUTC")"
-    # #417: killed by the pair above and the 'both home arms split with IFS=/ read -r' count of 2, which the mutant takes to 1.
   done
 else
   ok "(skipped, no UTF-8 locale on this machine) the #217 multibyte, timing and mutant cases"
@@ -1735,7 +1742,7 @@ grep -qF '=~ $_TAIL_RE' "$MUT239A" && bad "mutant ledger (#239): the mutant stil
 # itself is no longer run (#417): its ledger pair kills it. NOT 1 MB: that would cost the real
 # scanner needless time on bash 3.2. The assertion is on the exit code, never an UPPER bound on
 # wall time that a mutant must stay under (#219).
-echo "== #243: a 256 KB dot tail after a user, and the strip mutant =="
+echo "== #243: a 256 KB dot tail after a user, and the strip ledger =="
 DOTS256="$WORK/dot-tail-256k.txt"; printf '/home/alice%s\n' "$(head -c 262144 /dev/zero | tr '\0' .)" > "$DOTS256"
 OUT="$(bounded 10 "$SCRIPT" "$DOTS256" 2>/dev/null)"; rc=$?
 expect "a 256 KB punctuation tail after a user is reported within the bound (exit 1, not 124)" 1 "$rc"
