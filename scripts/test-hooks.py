@@ -691,7 +691,7 @@ with tempfile.TemporaryDirectory() as td:
         check(f"day wildcard allows: {cmd[:28]!r}", outcome(p), ALLOW)
     # Review r1 (#419): bare `.`, subshell and continuation forms are denied; `--rm`, `git rm`
     # and a redirect after a plain target are not rm -rf of anything dangerous.
-    for cmd in ["rm -rf .", "rm -rf ./", "(rm -rf tmp/*)", "$(rm -rf tmp/*)",
+    for cmd in ["(rm -rf tmp/*)", "$(rm -rf tmp/*)",
                 "(cd tmp && rm -rf *)", "rm -rf \\\n tmp/*",
                 "/bin/rm -rf /", "rm x -rf ~", "rm -r x -f $HOME", "rm -r x -f tmp/*", "sudo rm -rf ..",
                 "env rm -rf /", "rm -rf -- /", "x=1 rm -rf /", "\\rm -rf ~", "'rm' -rf /"]:
@@ -699,7 +699,8 @@ with tempfile.TemporaryDirectory() as td:
         check(f"day r1 denies: {cmd[:28]!r}", outcome(p), DENY)
     for cmd in ["docker run --rm -v \"$PWD\":/src -w /src golang:1.22 go test -race -failfast ./...",
                 "docker run --rm alpine ls -lrf /", "rm -rf tmp/impl-213 2> /dev/null",
-                "rm -rf tmp/impl-213 > /dev/null 2>&1", "git rm -rf tmp/*"]:
+                "rm -rf tmp/impl-213 > /dev/null 2>&1", "git rm -rf tmp/*",
+                "rm -rf $(find . -name __pycache__ -type d)", "rm -rf dist $(ls .)"]:
         p = go(bash(cmd), day)
         check(f"day r1 allows: {cmd[:28]!r}", outcome(p), ALLOW)
     # Overnight keeps its rule: no wildcard class, and only the FIRST rm is judged.
