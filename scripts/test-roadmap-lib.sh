@@ -8,8 +8,8 @@
 #
 # Throwaway files only; nothing here touches a forge, and the library has no host dependency.
 #
-# MUTANTS KILLED, thirty-nine in all: thirty-one run by hand on 2026-09-23, a thirty-second on
-# 2026-09-24 (#266 L3), six from #270 and one from #316, each shown to fail this suite.
+# MUTANTS KILLED, sixty-three in all: thirty-one run by hand on 2026-09-23, a thirty-second on
+# 2026-09-24 (#266 L3), six from #270, one from #316 and twenty-four from #260, each shown to fail this suite.
 # From the first battery: the parse-back comparison removed; the one-open rule removed from both
 # sites; the state and the plan ambiguity checks removed; the prose section guard removed, and
 # separately its first-line arm; the --milestone-empty assertion no longer required; the writer's
@@ -32,6 +32,17 @@
 # nothing (a missing final newline preserved by a printf without its newline). From #316: set_prose's
 # emit made `printf "\n%s\n\n\n"` (two blanks before the next heading), which test 8 now kills
 # directly with a whole-file cmp; it had been dying only through other cases.
+# From #260 (name rule, plan-less add, state count), each by hand with a cp backup: the name check
+# removed from rename, and separately from insert_at; the control-character, leading-dash,
+# leading-hash, leading-blank and trailing-blank classes dropped one by one; the rule widened to
+# refuse an inner space; the trailing-blank refusal returning 3 again; an empty name accepted by
+# the helper (killed only by the direct `_rm_name_ok ""` call, since the callers' arity check hides
+# it); a refusal message that echoes the name; the no-plan outcome inverted (5 again); the added
+# line placed before `state:` and at the block end; duplicate `plan:` and duplicate `state:` lines
+# accepted; the state count applied only on the add path (the replace and empty-path calls then
+# accept two `state:` lines); an empty path on a plan-less block writing a `plan:` line; and
+# insert_at writing `plan: ` with a trailing space again. Item 3 of #260 (a brittle RM_PROSE count)
+# was already replaced by the per-primitive prose_uses assertion before this change.
 #
 # FIVE OF THOSE ARE THIS SUITE'S OWN HISTORY rather than hypotheticals, and they are the reason the
 # ledger is worth keeping. A first battery left three mutants alive: one ambiguity case had been
@@ -345,7 +356,7 @@ keyed_mid "$T/e4.md"; cp "$T/e4.md" "$T/e4orig.md"
 run roadmap_insert_at "$T/e4.md" --before Gamma Zed planned "" ""
 expect "4. insert_at --before with empty prose returns 0" 0 "$RC"
 printf '%s\n' '# r' '' '## Phase: Alpha' 'state: done' 'plan: docs/plans/alpha.md' '' 'Alpha prose.' '' \
-  '## Phase: Beta' 'state: planned' 'plan: docs/plans/beta.md' '' '## Phase: Zed' 'state: planned' 'plan: ' '' \
+  '## Phase: Beta' 'state: planned' 'plan: docs/plans/beta.md' '' '## Phase: Zed' 'state: planned' 'plan:' '' \
   '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamma.md' '' 'Gamma prose.' > "$T/e4want.md"
 if cmp -s "$T/e4.md" "$T/e4want.md"; then ok "4. and the block is the canonical shape: one blank before the next heading"; else bad "4. insert_at --before wrote a different shape than the canonical one"; fi
 i4="$(inode "$T/e4.md")"; cp "$T/e4.md" "$T/e4b.md"
@@ -362,8 +373,8 @@ printf '%s\n' '# r' '' '## Phase: Gamma' 'state: backlog' 'plan: docs/plans/gamm
 cp "$T/e5.md" "$T/e5orig.md"
 run roadmap_insert_at "$T/e5.md" --end Zed planned "" ""
 expect "5. insert_at --end with empty prose returns 0" 0 "$RC"
-{ cat "$T/e5orig.md"; printf '%s\n' '' '## Phase: Zed' 'state: planned' 'plan: '; } > "$T/e5want.md"
-if cmp -s "$T/e5.md" "$T/e5want.md"; then ok "5. the file is the original plus one blank, the Zed heading, state and the literal 'plan: ' line, no blank at EOF"
+{ cat "$T/e5orig.md"; printf '%s\n' '' '## Phase: Zed' 'state: planned' 'plan:'; } > "$T/e5want.md"
+if cmp -s "$T/e5.md" "$T/e5want.md"; then ok "5. the file is the original plus one blank, the Zed heading, state and the literal 'plan:' line, no blank at EOF"
 else bad "5. insert_at --end left a different tail than one separator blank and Zed's plan line"; fi
 run roadmap_remove "$T/e5.md" Zed --milestone-empty
 expect "5. remove --milestone-empty returns 0" 0 "$RC"
@@ -574,6 +585,121 @@ expect "and the real file is untouched" "" "$(diff "$T/deep-before.md" "$T/deep-
 severed=""
 i=1; while [ "$i" -le 12 ]; do [ -L "$T/deep-$i.md" ] || severed="$severed deep-$i.md"; i=$((i + 1)); done
 expect "and NO link in the chain was replaced by a regular file" "" "$severed"
+
+echo "== a phase name must travel as a heading and a TSV column (#260) =="
+# One helper, _rm_name_ok, called by BOTH rename and insert_at. Every refusal is 2 (a usage error,
+# never the seam check's 3), names the class, never echoes the name, and leaves the file untouched.
+fixture "$T/n.md"; cp "$T/n.md" "$T/nbefore.md"
+run roadmap_rename "$T/n.md" Beta --
+expect "name: a leading '-' (the name '--') is refused with 2" 2 "$RC"
+contains "starts with '-'" "$ERR" "name: and the message names the leading '-'"
+lacks "renamed in the roadmap only" "$ERR" "name: and no host-consequence report is printed"
+expect "name: and the file is byte-identical" "" "$(diff "$T/nbefore.md" "$T/n.md")"
+run roadmap_rename "$T/n.md" Beta -x
+expect "name: a leading '-' on an ordinary word is refused with 2 too" 2 "$RC"
+for nm in "$(printf 'a\tb')" "$(printf 'a\rb')" "$(printf '\tBeta')" "$(printf 'a\001b')"; do
+  run roadmap_rename "$T/n.md" Beta "$nm"
+  expect "name: a control character is refused with 2" 2 "$RC"
+  contains "control character" "$ERR" "name: and the message names the class"
+  expect "name: and the file is byte-identical" "" "$(diff "$T/nbefore.md" "$T/n.md")"
+done
+run roadmap_rename "$T/n.md" Beta "Beta "
+expect "name: a trailing blank is refused with 2, not the seam check's 3" 2 "$RC"
+contains "ends with a blank" "$ERR" "name: and the message names the trailing blank"
+run roadmap_rename "$T/n.md" Beta " Beta"
+expect "name: a leading blank is refused with 2" 2 "$RC"
+contains "starts with a blank" "$ERR" "name: and the message names the leading blank"
+run roadmap_rename "$T/n.md" Beta "#hash"
+expect "name: a leading '#' is refused with 2 (policy)" 2 "$RC"
+contains "starts with '#'" "$ERR" "name: and the message names the leading '#'"
+lacks "hash" "$ERR" "name: and the message never echoes the name"
+expect "name: and the file is still byte-identical" "" "$(diff "$T/nbefore.md" "$T/n.md")"
+for nm in -- "$(printf 'a\tb')" "Beta " "#hash" -x; do
+  run roadmap_insert_at "$T/n.md" --end "$nm" planned "" ""
+  expect "name: insert_at --end applies the same rule" 2 "$RC"
+  run roadmap_insert_at "$T/n.md" --before Beta "$nm" planned "" ""
+  expect "name: insert_at --before applies the same rule" 2 "$RC"
+done
+expect "name: and insert_at left the file byte-identical" "" "$(diff "$T/nbefore.md" "$T/n.md")"
+run roadmap_insert_at "$T/n.md" --end -x planned "" ""
+contains "starts with '-'" "$ERR" "name: insert_at names the leading '-' (the 'split --into -x' route reaches this check)"
+run roadmap_rename "$T/n.md" Beta "Q3-plan: second pass (v2) #3"
+expect "name: an ordinary name with inner spaces and punctuation is accepted" 0 "$RC"
+contains "## Phase: Q3-plan: second pass (v2) #3" "$(cat "$T/n.md")" "name: and the heading carries it exactly"
+run _rm_name_ok ""
+expect "name: the helper refuses an empty name on its own (the callers' arity check hides it)" 2 "$RC"
+fixture "$T/n.md"
+run roadmap_insert_at "$T/n.md" --end "Q3 plan" planned "" ""
+expect "name: insert_at accepts an inner space" 0 "$RC"
+
+echo "== set_plan fills a plan-less block and refuses ambiguity on EVERY call (#260) =="
+planless() {  # planless <path>: Backlog has a state line and no plan line
+  printf '%s\n' '# r' '' '## Phase: Backlog' 'state: backlog' '' 'Parked work.' '' '## Phase: Beta' 'state: planned' 'plan: docs/plans/beta.md' '' 'Beta prose.' > "$1"
+}
+planless "$T/pl.md"; cp "$T/pl.md" "$T/plbefore.md"
+run roadmap_set_plan "$T/pl.md" Backlog docs/plans/x.md
+expect "plan-less: a block with no plan line is given one (was 5)" 0 "$RC"
+expect "plan-less: the diff is exactly one added line" "1" "$(diff "$T/plbefore.md" "$T/pl.md" | grep -c '^>')"
+expect "plan-less: and nothing was removed" "0" "$(diff "$T/plbefore.md" "$T/pl.md" | grep -c '^<')"
+expect "plan-less: the added line sits directly after the state line" "state: backlog|plan: docs/plans/x.md" "$(grep -A1 '^state: backlog' "$T/pl.md" | paste -sd'|' -)"
+expect "plan-less: and the parse row carries the plan" "Backlog|backlog|docs/plans/x.md" "$(. "$LIB"; parse_roadmap "$T/pl.md" | awk -F'\t' '$1 == "Backlog" { print $1 "|" $2 "|" $3 }')"
+cp "$T/pl.md" "$T/plafter.md"
+run roadmap_set_plan "$T/pl.md" Backlog docs/plans/x.md
+expect "plan-less: a second identical call returns 0" 0 "$RC"
+expect "plan-less: and changes nothing" "" "$(diff "$T/plafter.md" "$T/pl.md")"
+planless "$T/pl.md"
+run roadmap_set_plan "$T/pl.md" Backlog ""
+expect "plan-less: an empty plan on a plan-less block is rc 0" 0 "$RC"
+expect "plan-less: and a byte-identical no-op" "" "$(diff "$T/plbefore.md" "$T/pl.md")"
+fixture "$T/pl.md"; cp "$T/pl.md" "$T/plbefore.md"
+run roadmap_set_plan "$T/pl.md" Beta docs/plans/new.md
+expect "plan-less: replacing an existing plan still returns 0" 0 "$RC"
+expect "plan-less: and exactly one line differs" 1 "$(diff "$T/plbefore.md" "$T/pl.md" | grep -c '^< ')"
+expect "plan-less: and the parse row is the new plan" "Beta|planned|docs/plans/new.md" "$(. "$LIB"; parse_roadmap "$T/pl.md" | awk -F'\t' '$1 == "Beta" { print $1 "|" $2 "|" $3 }')"
+# Two state lines. Beta is not open, so the one-open rule cannot refuse first.
+twostate() {  # twostate <path> <with-plan:1|0>
+  fixture "$1"
+  if [ "$2" = 1 ]; then awk '/^## Phase: Beta/{print; print "state: planned"; next} {print}' "$1" > "$1.x"
+  else awk '/^## Phase: Beta/{print; print "state: planned"; next} /^plan: docs\/plans\/beta.md/{next} {print}' "$1" > "$1.x"; fi
+  mv "$1.x" "$1"
+}
+twostate "$T/ts.md" 1; cp "$T/ts.md" "$T/tsbefore.md"
+run roadmap_set_plan "$T/ts.md" Beta docs/plans/y.md
+expect "two-state: two state lines and one plan line refuse with 5 on the REPLACE path (was 0)" 5 "$RC"
+contains "more than one column-0 state line" "$ERR" "two-state: and the message names the state class"
+expect "two-state: and the file is byte-identical" "" "$(diff "$T/tsbefore.md" "$T/ts.md")"
+twostate "$T/ts.md" 0; cp "$T/ts.md" "$T/tsbefore.md"
+run roadmap_set_plan "$T/ts.md" Beta docs/plans/y.md
+expect "two-state: two state lines and no plan line refuse with 5 on the ADD path" 5 "$RC"
+expect "two-state: and the file is byte-identical" "" "$(diff "$T/tsbefore.md" "$T/ts.md")"
+run roadmap_set_plan "$T/ts.md" Beta ""
+expect "two-state: the ambiguity refusal wins over the empty-path no-op" 5 "$RC"
+expect "two-state: and the file is byte-identical again" "" "$(diff "$T/tsbefore.md" "$T/ts.md")"
+planless "$T/pl.md"; awk '/^## Phase: Backlog/{print; print "plan: a.md"; print "plan: b.md"; next} {print}' "$T/pl.md" > "$T/pl2.md"; mv "$T/pl2.md" "$T/pl.md"
+cp "$T/pl.md" "$T/plbefore.md"
+run roadmap_set_plan "$T/pl.md" Backlog docs/plans/z.md
+expect "dup-plan: two plan lines still refuse with 5" 5 "$RC"
+contains "no single column-0 plan line" "$ERR" "dup-plan: with the existing message"
+expect "dup-plan: and the file is byte-identical" "" "$(diff "$T/plbefore.md" "$T/pl.md")"
+printf '%s\n' '# r' '' '## Phase: Nostate' 'plan: x.md' > "$T/ns.md"; cp "$T/ns.md" "$T/nsbefore.md"
+run roadmap_set_plan "$T/ns.md" Nostate y.md
+expect "no-state: a block with no state line is malformed, rc 3 from the parser" 3 "$RC"
+expect "no-state: and the file is byte-identical" "" "$(diff "$T/nsbefore.md" "$T/ns.md")"
+# #260 reversed #270's literal: insert_at writes `plan:` with no trailing space, as set_plan does.
+fixture "$T/ip.md"
+run roadmap_insert_at "$T/ip.md" --end Zed planned "" ""
+expect "insert_at writes 'plan:' with no trailing space for an empty plan" 1 "$(grep -c '^plan:$' "$T/ip.md")"
+expect "and no plan line anywhere ends in a trailing space" 0 "$(grep -c '^plan: $' "$T/ip.md")"
+run roadmap_insert_at "$T/ip.md" --end Yak planned docs/plans/yak.md ""
+expect "insert_at writes 'plan: <path>' with the single space for a non-empty plan" 1 "$(grep -c '^plan: docs/plans/yak.md$' "$T/ip.md")"
+# Review round 1 of #260: the refusal message must not echo the name in ANY class, a control
+# character and a trailing one included, and a lone '-' is a leading '-'.
+fixture "$T/ec.md"
+for nm in "$(printf 'zqzq\tzqzq')" "$(printf 'zqzq\r')" "$(printf 'zqzq\t')" "zqzq " "-zqzq" "#zqzq" "-"; do
+  run roadmap_rename "$T/ec.md" Beta "$nm"
+  expect "name: '$(printf '%s' "$nm" | tr -c '[:alnum:]-# ' '?')' is refused with 2" 2 "$RC"
+  lacks "zqzq" "$ERR" "name: and the message does not echo it"
+done
 
 echo "== portability: this library installs onto a bash 3.2 laptop =="
 # Scoped to the WRITE half. The parser's `set_lower` uses `${x,,}` on purpose, inside a

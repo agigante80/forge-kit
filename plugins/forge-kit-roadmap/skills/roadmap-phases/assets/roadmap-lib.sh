@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 10
+# roadmap-lib-version: 11
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -41,6 +41,13 @@
 # v6 (#270) makes EMPTY prose a fixed point. set_prose "" used to emit its leading blank, an
 # empty prose line and a trailing blank, so a keyed-only block gained blank lines on every
 # call and the no-op short-circuit never fired. See the comments in set_prose and insert_at.
+#
+# v11 (#260) closes three edges. A phase NAME is validated by one helper, _rm_name_ok, called by
+# rename and insert_at (a tab in a name used to return 0 and split every consumer's TSV row).
+# set_plan fills a phase that has NO plan line instead of dying with 5, and counts `state:` lines
+# on every call. insert_at writes `plan:` with no trailing space for an empty plan, so it agrees
+# with set_plan; that reverses the literal `plan: ` #270 pinned, and the two assertions that pinned
+# it (the e4 and e5 cases of test-roadmap-lib.sh) were updated with this change.
 
 # --- portability ------------------------------------------------------------
 # macOS still ships bash 3.2 and a BSD readlink with no -f, and this is installed into other
@@ -134,6 +141,14 @@ parse_roadmap() {
 # name, are files the parser tolerates and a writer cannot act on: it cannot tell which line the
 # file means. Refusing is the only honest answer, and it is where the writer is deliberately
 # stricter than the parser, which must keep reading an imperfect file.
+#
+# ABSENCE IS FILLED, AMBIGUITY REFUSES (#260). set_plan on a block with zero `plan:` lines and a
+# non-empty path writes ONE `plan: <path>` line directly after the single `state:` line, which is
+# the order insert_at writes. More than one `state:` or more than one `plan:` still returns 5, and
+# the `state:` count runs on EVERY set_plan call, replace and empty-path branches included, so a
+# no-op can never mask a malformed block (a two-`state:` block that set_plan once accepted is now
+# refused, as set_state always did). An empty path on a plan-less block is an rc 0 no-op. A block
+# with no `state:` line is malformed and returns 3 from _rm_prepare. set_plan never creates a block.
 #
 # NAMESPACE. This half reserves `RM_*` in the caller's shell. `RM_START`, `RM_END` and `RM_EXPECT`
 # are plain globals, because a shell function returns one integer and these need to return more.
@@ -232,6 +247,37 @@ _rm_prose_ok() {
   case "$1" in
     "## "*|*"
 ## "*) _rm_die "that prose opens a '## ' section, which would silently end the block" 5; return 5 ;;
+  esac
+  return 0
+}
+
+# _rm_name_ok <name> -> 2 when the name could not travel as a heading and a TSV column. ONE
+# definition, called by roadmap_rename and roadmap_insert_at, for the reason _rm_prose_ok is one:
+# a check one writer has and the other lacks is the defect. It names the class and never echoes
+# the name. Every refusal is 2, a usage error, never 3.
+#   - empty;
+#   - any control character (TAB, CR, LF, DEL ...): it splits the TSV row every consumer reads with
+#     `IFS=<tab> read`, and the parse-back check cannot see it because intent and write agree;
+#   - a leading or trailing space or tab: parse_roadmap trims it, so the seam check used to refuse
+#     it with 3, the wrong code for a usage error;
+#   - a leading `-`: a phase named that way can never be addressed again by reassess-phases.sh,
+#     because every op takes its phase positionally and the option parser (`-*) die "unknown
+#     flag"`) has no `--` end-of-options case. The shipped caller blocks the name only in part:
+#     `rename` and `insert` take the new name positionally and refuse it, but `split --into
+#     <name>` accepts it, so this check is the only guard on that route;
+#   - a leading `#`: a POLICY choice with no claimed mechanism. `## Phase: #hash` parses, so the
+#     refusal prevents nothing the parser cannot read; it is the floor the original proposal named.
+# A TAB at an edge is a control character and is named as one. Inner spaces and punctuation stay
+# accepted.
+_rm_name_ok() {
+  local n="${1-}"
+  [ -n "$n" ] || { _rm_die "the phase name is empty"; return 2; }
+  case "$n" in
+    *[[:cntrl:]]*) _rm_die "the phase name carries a control character (a tab, CR or newline would split the roadmap's rows)"; return 2 ;;
+    " "*) _rm_die "the phase name starts with a blank, which the parser would trim"; return 2 ;;
+    *" ") _rm_die "the phase name ends with a blank, which the parser would trim"; return 2 ;;
+    -*) _rm_die "the phase name starts with '-', so reassess-phases.sh could never address it again"; return 2 ;;
+    "#"*) _rm_die "the phase name starts with '#' (refused by policy)"; return 2 ;;
   esac
   return 0
 }
@@ -335,18 +381,26 @@ roadmap_set_plan() {
   # back to `backlog` legitimately clears its plan, and a library that cannot express that edit
   # forces the hand edit it exists to replace.
   [ "$#" -ge 3 ] || { _rm_die "usage: roadmap_set_plan <file> <phase> <path>"; return 2; }
-  local f="${1-}" phase="${2-}" path="${3-}" cand rc
+  local f="${1-}" phase="${2-}" path="${3-}" cand rc np
   [ -n "$f" ] && [ -n "$phase" ] || { _rm_die "usage: roadmap_set_plan <file> <phase> <path>"; return 2; }
   _rm_prepare "$f" "$phase" || return $?
-  [ "$(_rm_keyed "$f" "$RM_START" "$RM_END" plan)" = 1 ] || {
+  # The state count runs FIRST and on every call (see ABSENCE IS FILLED in the header).
+  [ "$(_rm_keyed "$f" "$RM_START" "$RM_END" state)" -le 1 ] || {
+    _rm_die "the '$phase' block carries more than one column-0 state line; a writer cannot act on it" 5; return 5; }
+  np="$(_rm_keyed "$f" "$RM_START" "$RM_END" plan)"
+  [ "$np" -le 1 ] || {
     _rm_die "the '$phase' block carries no single column-0 plan line; a writer cannot act on it" 5; return 5; }
+  [ "$np" = 1 ] || [ -n "$path" ] || return 0   # plan-less block, empty path: nothing to write
   RM_EXPECT="$(parse_roadmap "$f" | RM_P="$phase" RM_V="$path" awk -F'\t' 'BEGIN { OFS = "\t" } $1 == ENVIRON["RM_P"] { $3 = ENVIRON["RM_V"] } { print }')"
   cand="$(_rm_tmp "$f")"; [ -n "$cand" ] || { _rm_die "cannot create a temporary file beside '$f'"; return 2; }
-  RM_V="$path" RM_S="$RM_START" RM_E="$RM_END" awk '
-    BEGIN { s = ENVIRON["RM_S"] + 0; e = ENVIRON["RM_E"] + 0 }
-    NR > s && NR < e && index($0, "plan:") == 1 {
+  # np = 0 is the ADD path: the new line goes directly after the single state line.
+  RM_V="$path" RM_S="$RM_START" RM_E="$RM_END" RM_NP="$np" awk '
+    BEGIN { s = ENVIRON["RM_S"] + 0; e = ENVIRON["RM_E"] + 0; np = ENVIRON["RM_NP"] + 0 }
+    NR > s && NR < e && np == 1 && index($0, "plan:") == 1 {
       v = ENVIRON["RM_V"]; print (v == "" ? "plan:" : "plan: " v); next
-    } { print }
+    }
+    NR > s && NR < e && np == 0 && index($0, "state:") == 1 { print; print "plan: " ENVIRON["RM_V"]; next }
+    { print }
   ' < "$f" > "$cand" || { rm -f "$cand"; _rm_die "cannot build the new content"; return 2; }
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
@@ -396,6 +450,7 @@ roadmap_insert_at() {
   esac
   [ -n "$f" ] && [ -n "$name" ] && [ -n "$st" ] || { _rm_die "usage: roadmap_insert_at <file> --before <phase>|--end <name> <state> <plan> <prose>"; return 2; }
   [ "$where" != --before ] || [ -n "$ref" ] || { _rm_die "usage: roadmap_insert_at <file> --before <phase> <name> <state> <plan> <prose>"; return 2; }
+  _rm_name_ok "$name" || return $?
   case "$st" in planned|open|done|backlog) ;; *) _rm_die "unknown state '$st'"; return 2 ;; esac
   _rm_prose_ok "$prose" || return 5
   [ -f "$f" ] || { _rm_die "no such roadmap: $f"; return 2; }
@@ -429,8 +484,10 @@ roadmap_insert_at() {
     # line is not blank the insert therefore ends at the plan line; remove restores the original
     # bytes only for a non-blank last line, because it strips the separator before an EOF block.
     function block() {
-      printf "## Phase: %s\nstate: %s\nplan: %s\n",
-             ENVIRON["RM_NAME"], ENVIRON["RM_STATE"], ENVIRON["RM_PLAN"]
+      # `plan:` with no trailing space for an empty plan, as set_plan writes it (#260).
+      pl = ENVIRON["RM_PLAN"]
+      printf "## Phase: %s\nstate: %s\nplan:%s\n",
+             ENVIRON["RM_NAME"], ENVIRON["RM_STATE"], (pl == "" ? "" : " " pl)
       if (ENVIRON["RM_PROSE"] != "") printf "\n%s\n", ENVIRON["RM_PROSE"]
     }
     NR == at { block(); print ""; done = 1 }
@@ -520,6 +577,7 @@ roadmap_remove() {
 roadmap_rename() {
   local f="${1-}" old="${2-}" new="${3-}" cand rc
   [ -n "$f" ] && [ -n "$old" ] && [ -n "$new" ] || { _rm_die "usage: roadmap_rename <file> <old> <new>"; return 2; }
+  _rm_name_ok "$new" || return $?
   _rm_prepare "$f" "$old" || return $?
   case "$(_rm_block "$f" "$new")" in NONE) ;; *) _rm_die "a phase named '$new' is already in the roadmap" 5; return 5 ;; esac
   RM_EXPECT="$(parse_roadmap "$f" | RM_O="$old" RM_N="$new" awk -F'\t' 'BEGIN { OFS = "\t" } $1 == ENVIRON["RM_O"] { $1 = ENVIRON["RM_N"] } { print }')"
