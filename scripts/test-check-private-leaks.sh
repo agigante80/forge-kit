@@ -484,7 +484,7 @@ else
 fi
 expect "the bash redact guards k <= 0 before slicing" 1 "$(grep -cF 'if [ "$k" -le 0 ]; then printf' "$SCRIPT")"
 expect "the bash redact builds its mask by doubling" 1 "$(grep -cF 's="$s$s"' "$SCRIPT")"
-expect "the awk redact keeps its per-character loop (ledger)" 1 "$(grep -cF 'o = o "*"' "$SCRIPT")"
+expect "the awk redact keeps its per-byte loop (ledger)" 1 "$(grep -cF 'o = o "*"' "$SCRIPT")"
 expect "and the header records why, and that the ledger pins a decision" 1 "$(grep -cF 'pins this DECISION, not behaviour' "$SCRIPT")"
 MUTAWK="$WORK/mutant-awk-redact.sh"
 sed 's/o = o "\*"/o = sprintf("%s*", o)/' "$SCRIPT" > "$MUTAWK"
@@ -514,11 +514,13 @@ row416() {
   out="$(LC_ALL=$2 "$1" --list "$3" "$4" 2>"$WORK/err.txt")"; rc=$?
   echo "$rc|$(printf '%s\n' "$out" | sed -n 's/.*private-name: //p')"
 }
-# hrow416 <script> <locale> -> "rc|evidence" of a --history run over one committed line naming CJK3
+# hrow416 <script> <locale> [name] -> "rc|evidence|path" of a --history run over one committed line
+# naming the name (default CJK3)
 hrow416() {
+  local nm="${3:-$CJK3}"
   mkrepo cjk416
-  ( cd "$HREPO" && mkdir -p "$CJK3" && printf 'see %s here\n' "$CJK3" > "$CJK3/n.md" && git add . && git commit -qm cjk ) >/dev/null 2>&1
-  printf '%s\n' "$CJK3" > "$WORK/hlist416"
+  ( cd "$HREPO" && mkdir -p "$nm" && printf 'see %s here\n' "$nm" > "$nm/n.md" && git add . && git commit -qm cjk ) >/dev/null 2>&1
+  printf '%s\n' "$nm" > "$WORK/hlist416"
   local out rc
   out="$( cd "$HREPO" && LC_ALL=$2 "$1" --list "$WORK/hlist416" --history 2>"$WORK/err.txt" )"; rc=$?
   echo "$rc|$(printf '%s\n' "$out" | sed -n 's/.*private-name: //p')|$(printf '%s\n' "$out" | sed -n 's/@.*//p')"
@@ -538,6 +540,15 @@ for L in $locs; do
   printf '%s\n' "$EMO$EMO$EMO"x > "$WORK/t416-l5"; printf 'see %s\n' "$EMO$EMO${EMO}x" > "$WORK/t416-s5.txt"
   expect "a 4-byte character is never split under $L" "1|$EMO$EMO**" "$(row416 "$SCRIPT" "$L" "$WORK/t416-l5" "$WORK/t416-s5.txt")"
   expect "--history reports the name and cuts its evidence and its path at a character under $L" "1|$CJKSTAR|$CJKSTAR/n.md" "$(hrow416 "$SCRIPT" "$L")"
+  # The continuation-byte range ends at 0x80 (emoji) and 0xBF (y with a diaeresis, c3 bf): a boundary
+  # edit on either side of any copy of the range must change one of these rows (review r1, #416).
+  YY=$'\xc3\xbf'
+  printf '%s\n' "$YY$YY" > "$WORK/t416-yy2"
+  expect "a 2-character name of 0xBF bytes is refused under $L" "2|" "$(row416 "$SCRIPT" "$L" "$WORK/t416-yy2" "$WORK/t416-s.txt")"
+  printf '%s\n' "$YY$YY${YY}a" > "$WORK/t416-yy4"; printf 'see %s\n' "$YY$YY${YY}a" > "$WORK/t416-yys.txt"
+  expect "a 4-character name of 0xBF bytes masks two under $L" "1|$YY$YY**" "$(row416 "$SCRIPT" "$L" "$WORK/t416-yy4" "$WORK/t416-yys.txt")"
+  expect "--history cuts a 0xBF name at a character under $L" "1|$YY$YY**|$YY$YY**/n.md" "$(hrow416 "$SCRIPT" "$L" "$YY$YY${YY}a")"
+  expect "--history cuts a 4-byte character name at a character under $L" "1|$EMO$EMO**|$EMO$EMO**/n.md" "$(hrow416 "$SCRIPT" "$L" "$EMO$EMO${EMO}x")"
 done
 if command -v iconv >/dev/null 2>&1; then
   for L in $locs; do
@@ -558,7 +569,7 @@ chmod +x "$SHIM416/tr"
 sig416() {  # sig416 <script>: all the rows above, every locale, on one line
   local L s=""
   for L in $locs; do
-    s="$s $(row416 "$1" "$L" "$WORK/t416-short" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-list" "$WORK/t416-s.txt") $(hrow416 "$1" "$L")"
+    s="$s $(row416 "$1" "$L" "$WORK/t416-short" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-list" "$WORK/t416-s.txt") $(hrow416 "$1" "$L") $(hrow416 "$1" "$L" "$YY$YY${YY}a") $(hrow416 "$1" "$L" "$EMO$EMO${EMO}x") $(row416 "$1" "$L" "$WORK/t416-yy2" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-yy4" "$WORK/t416-yys.txt")"
   done
   printf '%s' "$s"
 }
@@ -576,7 +587,14 @@ m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]
 }
 m416 floor "counting bytes at the floor" 's|^  if \[ "\$CHARS" -lt "\$MIN_NAME_LEN" \]; then$|  if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then|'
 m416 cut "keeping two bytes in the bash redact" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
-m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
+if [ -n "$utf8loc" ]; then
+  m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
+else
+  ok "(skipped, no UTF-8 locale: the stub tr cannot tell a pinned tr from an unpinned one under C alone)"
+fi
+m416 awk-lo "an awk range starting above 0x80" 's|b >= "\\200" \&\& b <= "\\277"|b > "\\200" \&\& b <= "\\277"|'
+m416 awk-hi "an awk range ending below 0xBF" 's|b >= "\\200" \&\& b <= "\\277"|b >= "\\200" \&\& b <= "\\276"|'
+m416 bash-hi "a bash pattern ending below 0xBF" "s|\\[\$'\\\\200'-\$'\\\\277'\\]|[\$'\\\\200'-\$'\\\\276']|"
 m416 awk-cut "dropping the awk redact's kept continuation bytes" 's|{ if (c <= 2) o = o b }|{ }|'
 m416 awk-bytes "the awk redact keeping two bytes" 's|if (c <= 2) o = o b; else o = o "\*"|if (c <= 2 \&\& length(o) < 2) o = o b; else o = o "*"|'
 expect "the bash redact pins the locale (ledger; no row can fail it on bash 5.2)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"

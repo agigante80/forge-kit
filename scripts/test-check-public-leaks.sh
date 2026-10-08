@@ -1647,6 +1647,11 @@ hcommit j.md '/home/jos\303\251/x\n'
 for L in $locs416; do
   expect "a 4-character accented segment keeps two characters and masks two under $L" "1|/home/jo**/|" "$(row416 "$SCRIPT" "$L")"
 done
+mkrepo yy416
+hcommit y.md '/home/\303\277\303\277\303\277a/x\n'
+for L in $locs416; do   # 0xBF is the top of the continuation range: a boundary edit must change this row
+  expect "a segment of 0xBF bytes keeps two characters and masks two under $L" "1|/home/"$'\xc3\xbf\xc3\xbf'"**/|" "$(row416 "$SCRIPT" "$L")"
+done
 mkrepo cjk416
 hcommit c.md '/home/\346\227\245\346\234\254\350\252\236/x\n~/\346\227\245\346\234\254\350\252\236/y\n'
 if command -v iconv >/dev/null 2>&1; then
@@ -1677,7 +1682,11 @@ m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]: a scratch c
   if [ "$sig" != "$GOOD416" ]; then ok "mutant (#416, $1): $2 changes a row"; else bad "mutant (#416, $1): $2 survives every row"; fi
 }
 m416 cut "keeping two bytes" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
-m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
+if [ -n "$ANYUTF8" ]; then
+  m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
+else
+  ok "(skipped, no UTF-8 locale: the stub tr cannot tell a pinned tr from an unpinned one under C alone)"
+fi
 expect "redact pins the locale (ledger; no row can fail it on bash 5.2)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"
 
 # --- #217: the REDACTED --history report is linear too ----------------------------------------
