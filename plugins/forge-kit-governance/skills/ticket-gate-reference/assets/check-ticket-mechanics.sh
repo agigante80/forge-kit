@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 19
+# check-ticket-mechanics-version: 20
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -97,6 +97,7 @@
 #   check-ticket-mechanics.sh --body FILE --template FILE \
 #     --tpl-version N --current-tpl-version N --labels "a,b" \
 #     [--labels-doc docs/guides/labels.md] [--area-labels "..."] [--type-labels "..."]
+#   check-ticket-mechanics.sh --roles --template FILE   (no --body; see --roles below)
 #
 # THE AREA SET IS THE PROJECT'S OWN, WHEN IT HAS ONE (#204). `--labels-doc` names the project's
 # `docs/guides/labels.md`, and the first column of its `### Area labels` table REPLACES the
@@ -107,15 +108,23 @@
 #
 # Emits TSV to stdout: <check>\t<outcome>\t<evidence>, outcome in pass|fail|warn|na|referred.
 # Exit 0 whenever the checks ran, so a FAIL is data, and so is a version it cannot parse. Exit
-# non-zero ONLY when it cannot read the body or the template at all: the gate turns that into
+# non-zero ONLY when it cannot read the body (not needed by --roles) or the template at all: the gate turns that into
 # every check referred, so anything narrower must be a row instead.
 #
 # --dump-fields prints the parsed <label>\t<required> table and exits, so a test can drive the
 # real parser rather than a copy of it.
+#
+# --roles prints `<role>\t<label>` per resolved role and exits (#213), in the fixed order
+# scenarios, unit_tests, e2e_tests, docs_impact: the ids ticket-gate's Step 0c targets and the
+# synthesis table are keyed on (`scenarios` feeds check 3's row `gwt`). Same resolution as
+# check 3, so the rule lives here alone. An unresolved role prints no line. Trailing CR is
+# stripped at print time only. Needs --template, not --body; refused with --dump-fields.
+# Stdout is empty on any error, and a caller treats non-zero as a failed run, never as a
+# reason to fall back to matching ids itself.
 
 set -uo pipefail
 
-BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; LABELS_DOC=""; AREA_EXPLICIT=0
+BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -140,13 +149,17 @@ while [ $# -gt 0 ]; do
     --labels-doc)          need_value $# "$1"; LABELS_DOC="$2"; shift 2 ;;
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
+    --roles)               ROLES=1; shift ;;
     -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' < "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
-[ -n "$BODY" ]     || die "--body is required"
-[ -f "$BODY" ]     || die "body file not found: $BODY"
+[ "$ROLES" -eq 0 ] || [ "$DUMP_FIELDS" -eq 0 ] || die "--roles and --dump-fields are mutually exclusive"
+if [ "$ROLES" -eq 0 ]; then
+  [ -n "$BODY" ]   || die "--body is required"
+  [ -f "$BODY" ]   || die "body file not found: $BODY"
+fi
 [ -n "$TEMPLATE" ] || die "--template is required"
 [ -f "$TEMPLATE" ] || die "template file not found: $TEMPLATE"
 
@@ -306,6 +319,12 @@ UNIT_LABEL="$(role_label 'unit test')"
 # direction this script forbids (found in review).
 E2E_LABEL="$(role_label 'e2e|end.to.end' 'integration.*(test|scenario)')"
 DOCS_LABEL="$(role_label 'documentation impact')"
+if [ "$ROLES" -eq 1 ]; then
+  for r in "scenarios:$SCENARIOS_LABEL" "unit_tests:$UNIT_LABEL" "e2e_tests:$E2E_LABEL" "docs_impact:$DOCS_LABEL"; do
+    [ -n "${r#*:}" ] && printf '%s\t%s\n' "${r%%:*}" "$(printf '%s' "${r#*:}" | tr -d '\r')"
+  done
+  exit 0
+fi
 
 # --- check 1: template version currency -------------------------------------------------
 # Two shapes are deliberately NOT failures, or a re-run could never converge: a marker NEWER

@@ -1159,6 +1159,100 @@ expect "#405: --template 'tp=x.yml' gives the same rows as bs.yml" "$(ctm --body
 o="$(ctm --body bs-full.md --template bs.yml --labels protocol,feature --labels-doc 'l=x.md' | awk -F'\t' '$1=="labels"{print $2}')"
 expect "#405: --labels-doc 'l=x.md' reads the project's areas (protocol passes)" pass "$o"
 
+echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
+# Step 0c reads this instead of matching field ids itself, so the resolution rule lives here alone.
+roles() { bash "$SCRIPT" --roles --template "$1" 2>/dev/null; }
+role_line() { printf '%s\n' "$1" | awk -F'\t' -v r="$2" '$1==r{print $2}'; }
+FEAT="$TPLDIR/feature.yml"
+o="$(roles "$FEAT")"
+expect "#213: feature.yml lists the four roles in the fixed order, tab-separated" \
+  "$(printf 'scenarios\tTest scenarios (Given / When / Then)\nunit_tests\tUnit tests\ne2e_tests\tE2E test scenarios\ndocs_impact\tDocumentation impact')" "$o"
+expect "#213: role scenarios resolves" "Test scenarios (Given / When / Then)" "$(role_line "$o" scenarios)"
+expect "#213: role unit_tests resolves" "Unit tests" "$(role_line "$o" unit_tests)"
+expect "#213: role e2e_tests resolves" "E2E test scenarios" "$(role_line "$o" e2e_tests)"
+expect "#213: role docs_impact resolves" "Documentation impact" "$(role_line "$o" docs_impact)"
+expect "#213: bug.yml prints its own E2E label" "E2E tests" "$(role_line "$(roles "$TPLDIR/bug.yml")" e2e_tests)"
+o="$(roles "$WORK/hubbub.yml")"
+expect "#213: a renamed E2E section (id and label) resolves under e2e_tests" "Integration / subprocess test scenarios" "$(role_line "$o" e2e_tests)"
+expect "#213: the hubbub template prints exactly its two roles" "$(printf 'e2e_tests\tIntegration / subprocess test scenarios\ndocs_impact\tDocumentation impact')" "$o"
+o="$(roles "$TPLDIR/security.yml")"
+expect "#213: a template with no E2E field prints no e2e_tests line" "" "$(role_line "$o" e2e_tests)"
+expect "#213: ...and still prints scenarios" "Test scenarios (Given / When / Then)" "$(role_line "$o" scenarios)"
+expect "#213: ...and docs_impact" "Documentation impact" "$(role_line "$o" docs_impact)"
+# The label --roles prints is the heading check 3 judges: the hubbub body, headed by it, is a pass.
+rl="$(role_line "$(roles "$WORK/hubbub.yml")" e2e_tests)"
+printf '<!-- template-version: 6 -->\n\n### Summary\n\nx\n\n### %s\n\n- [ ] `tests/integration/spawn.test.ts` spawns the child\n\n### Documentation impact\n\nUpdates `docs/x.md`\n' "$rl" > "$WORK/rt.md"
+o="$(bash "$SCRIPT" --body "$WORK/rt.md" --template "$WORK/hubbub.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null)"
+expect "#213: the printed E2E label is the heading check 3 judges (pass)" pass "$(outcome "$o" e2e_tests)"
+# A metacharacter label is printed verbatim.
+mktpl "$WORK/meta2.yml" 'unit_tests|Unit tests & (a/b) $HOME `x` \d|true'
+o="$(bash "$SCRIPT" --roles --template "$WORK/meta2.yml" 2>/dev/null)"
+expect "#213: a label of shell and regex metacharacters prints verbatim" "$(printf 'unit_tests\tUnit tests & (a/b) $HOME `x` \\d')" "$o"
+# Two E2E-shaped fields: the first one wins, as check 3 reads it.
+mktpl "$WORK/dup.yml" "e2e_tests|First E2E|true" "more_e2e|Second E2E|true"
+expect "#213: a duplicate E2E field resolves to the first" "First E2E" "$(role_line "$(roles "$WORK/dup.yml")" e2e_tests)"
+# A CRLF template: the CR is stripped at print time, and --dump-fields (untouched) still carries it.
+sed 's/$/\r/' "$FEAT" > "$WORK/crlf.yml"
+o="$(roles "$WORK/crlf.yml")"
+expect "#213: a CRLF template prints labels without a trailing CR" "$(roles "$FEAT")" "$o"
+grep -q $'\r' <<< "$o" && bad "#213: CR leaked into --roles output" || ok "#213: no CR byte in --roles output"
+# Argument and error contract: stdout is empty on every refusal.
+o="$(bash "$SCRIPT" --roles 2>"$WORK/err")"; rc=$?
+expect "#213: --roles without --template exits 2" 2 "$rc"
+expect "#213: ...with empty stdout" "" "$o"
+grep -q -- '--template is required' "$WORK/err" && ok "#213: ...and says --template is required" || bad "#213: wrong message: $(cat "$WORK/err")"
+o="$(bash "$SCRIPT" --roles --template "$WORK/nowhere.yml" 2>/dev/null)"; rc=$?
+expect "#213: an unreadable template exits 2" 2 "$rc"
+expect "#213: ...with empty stdout" "" "$o"
+: > "$WORK/empty.yml"
+o="$(bash "$SCRIPT" --roles --template "$WORK/empty.yml" 2>/dev/null)"; rc=$?
+expect "#213: a template that parses to nothing exits 2" 2 "$rc"
+expect "#213: ...with empty stdout" "" "$o"
+o="$(bash "$SCRIPT" --roles --dump-fields --template "$FEAT" 2>"$WORK/err")"; rc=$?
+expect "#213: --roles with --dump-fields exits 2" 2 "$rc"
+expect "#213: ...with empty stdout" "" "$o"
+grep -q 'mutually exclusive' "$WORK/err" && ok "#213: ...and says they are mutually exclusive" || bad "#213: wrong message: $(cat "$WORK/err")"
+o="$(bash "$SCRIPT" --dump-fields --template "$FEAT" 2>"$WORK/err")"; rc=$?
+expect "#213: --dump-fields still requires --body" 2 "$rc"
+o="$(bash "$SCRIPT" --roles --body "$WORK/nowhere.md" --template "$FEAT" 2>/dev/null)"
+expect "#213: --roles ignores a --body it is given" "$(roles "$FEAT")" "$o"
+grep -q -- '--roles' <<< "$helptext" && ok "#213: --help documents --roles" || bad "#213: --help omits --roles"
+
+# Mutants of the script: each must change a case above, or the case is decoration.
+mutroles() {  # mutroles <name> <sed expr>; leaves the mutant at $WORK/mut-roles.sh
+  sed "$2" "$SCRIPT" > "$WORK/mut-roles.sh"
+  cmp -s "$SCRIPT" "$WORK/mut-roles.sh" && { bad "#213: mutant '$1' did not apply"; return 1; }; return 0; }
+mrun() { bash "$WORK/mut-roles.sh" --roles --template "$1" 2>/dev/null; }
+want_feat="$(roles "$FEAT")"
+if mutroles "order" 's/for r in "scenarios:$SCENARIOS_LABEL" "unit_tests:$UNIT_LABEL" "e2e_tests:$E2E_LABEL" "docs_impact:$DOCS_LABEL"/for r in "docs_impact:$DOCS_LABEL" "e2e_tests:$E2E_LABEL" "unit_tests:$UNIT_LABEL" "scenarios:$SCENARIOS_LABEL"/'; then
+  [ "$(mrun "$FEAT")" = "$want_feat" ] && bad "#213: MUTANT survived: reversed role order" || ok "#213: MUTANT: reversed role order fails the order case"; fi
+if mutroles "cr" "s/| tr -d '\\\\r')/)/"; then
+  [ "$(mrun "$WORK/crlf.yml")" = "$want_feat" ] && bad "#213: MUTANT survived: CR not stripped" || ok "#213: MUTANT: CR not stripped fails the CRLF case"; fi
+if mutroles "skip" 's/\[ -n "${r#\*:}" \] && printf/printf/'; then
+  [ "$(mrun "$TPLDIR/security.yml")" = "$(roles "$TPLDIR/security.yml")" ] && bad "#213: MUTANT survived: unresolved role printed" || ok "#213: MUTANT: an unresolved role is printed as an empty label"; fi
+if mutroles "body" 's/^if \[ "$ROLES" -eq 0 \]; then$/if true; then/'; then
+  bash "$WORK/mut-roles.sh" --roles --template "$FEAT" >/dev/null 2>&1 && bad "#213: MUTANT survived: --roles demands --body" || ok "#213: MUTANT: --roles demanding --body fails the no-body case"; fi
+if mutroles "exclusive" 's/^\[ "$ROLES" -eq 0 \] || \[ "$DUMP_FIELDS" -eq 0 \] || die.*$/:/'; then
+  bash "$WORK/mut-roles.sh" --roles --dump-fields --template "$FEAT" >/dev/null 2>&1 && ok "#213: MUTANT: dropping the exclusion lets --roles through (rc 0, not 2)" || bad "#213: MUTANT survived: --roles with --dump-fields still refused"; fi
+
+# The agent half cannot run here, so its two sentences are pinned and mutated.
+ROLES_PHRASE='"$MECH" --roles --template <0a'"'"'s TPL_DIR>/<type>.yml'
+STOP_PHRASE='A non-zero `--roles` exit is `BLOCKED - RUN_FAILED` before any write'
+gate_pin() { grep -qF "$1" <<< "$(tr '\n' ' ' < "$2" | tr -s ' ')"; }
+gate_pin "$ROLES_PHRASE" "$GATE" && ok "#213: ticket-gate.md's Step 0c calls --roles" || bad "#213: ticket-gate.md lost the --roles call"
+gate_pin "$STOP_PHRASE" "$GATE" && ok "#213: ticket-gate.md stops on a failed --roles" || bad "#213: ticket-gate.md lost the --roles stop clause"
+sed 's/"\$MECH" --roles --template/"$MECH" --dump-fields --template/' "$GATE" > "$WORK/gate-roles-mut.md"
+cmp -s "$GATE" "$WORK/gate-roles-mut.md" && bad "#213: the call mutant did not apply"
+gate_pin "$ROLES_PHRASE" "$WORK/gate-roles-mut.md" && bad "#213: MUTANT survived: the call pin passes without --roles" || ok "#213: MUTANT: replacing the --roles call fails the pin"
+sed 's/is `BLOCKED - RUN_FAILED` before any write/is ignored/' "$GATE" > "$WORK/gate-stop-mut.md"
+cmp -s "$GATE" "$WORK/gate-stop-mut.md" && bad "#213: the stop mutant did not apply"
+gate_pin "$STOP_PHRASE" "$WORK/gate-stop-mut.md" && bad "#213: MUTANT survived: the stop pin passes with the clause gone" || ok "#213: MUTANT: dropping the stop clause fails the pin"
+# The mechanics are resolved before 0c runs: the preamble sits in Step 0, ahead of Step 0c.
+pre="$(grep -nF '> "$D/mech"' "$GATE" | head -1 | cut -d: -f1)"; zc="$(grep -n '^#### 0c\.' "$GATE" | head -1 | cut -d: -f1)"
+[ -n "$pre" ] && [ -n "$zc" ] && [ "$pre" -lt "$zc" ] && ok "#213: \$MECH is resolved before Step 0c" || bad "#213: Step 0c comes before the \$MECH preamble ($pre, $zc)"
+DOC_ROLES='check-ticket-mechanics.sh --roles'
+grep -qF -- "$DOC_ROLES" "$DOC" && ok "#213: template-versioning.md names where Step 0c gets the role labels" || bad "#213: template-versioning.md does not name --roles"
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

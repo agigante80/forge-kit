@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 69 -->
+<!-- ticket-gate-version: 70 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -103,13 +103,15 @@ I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.body // ""' <<<"$I" | grep -oP
 
 **0c-i. Parse current template structure**
 
+`<type>`: the label's template (`enhancement`: feature.yml).
+
 ```bash
-grep -E "id:|label:|description:|placeholder:|value:" "$TPL_DIR/<type>.yml"
+D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
+grep -E "id:|label:|description:|placeholder:|value:" <0a's TPL_DIR>/<type>.yml
+"$MECH" --roles --template <0a's TPL_DIR>/<type>.yml
 ```
 
-Identify every section `id` in that file. Determine template type from labels
-(`bug` label -> bug.yml, `enhancement`/`feature` -> feature.yml, `security` -> security.yml,
-`infrastructure` -> infrastructure.yml, `design` -> design.yml).
+A non-zero `--roles` exit is `BLOCKED - RUN_FAILED` before any write.
 
 **0c-ii. Identify gaps in the issue body**
 
@@ -119,7 +121,7 @@ Classify each template section `id`'s content in the body as:
 - **Missing** - no corresponding heading or content
 
 Target sections (always check):
-- `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact`, `personal_data`
+- the roles `--roles` printed, and `personal_data`
   (`personal_data` is the seven facts, and on a pre-v6 ticket lives under a heading
   containing GDPR, matched case-insensitively)
 
@@ -133,7 +135,7 @@ Write each section, inline or dispatched, as `## <label>` copied verbatim from t
 template's `label:`, scenarios following its `placeholder:` shape, never placeholder text; where
 the body cannot support a specific case, write the most concrete one and note the assumption.
 
-Fast path: when the ONLY gap is `docs_impact`, synthesise that one paragraph inline and continue to 0c-iv.
+Fast path: when the ONLY gap is `docs_impact`, synthesise it inline, then 0c-iv.
 
 Spawn a `general-purpose` sub-agent (`model: sonnet`) with:
 - The full issue body

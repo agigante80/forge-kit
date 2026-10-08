@@ -63,7 +63,7 @@ One positive + one negative per independent condition. For a ticket fixing 3 bug
 
 When `ticket-gate` finds a version mismatch (issue filed on an older version than the templates currently carry):
 
-1. **Parses** the current template structure to identify all expected sections
+1. **Parses** the current template structure to identify all expected sections; the labels of the four target sections come from `check-ticket-mechanics.sh --roles`, the same resolution check 3 uses (id, then label pattern), so a template that renames its E2E section is still targeted, and a failed call stops the gate (`BLOCKED - RUN_FAILED`) before any write
 2. **Classifies** each section in the issue body: present/thin/missing
 3. **Spawns a sub-agent** to synthesise real content for missing sections, using:
    - The issue's problem description
