@@ -4,11 +4,16 @@
 Runs the helper as a subprocess against a throwaway project directory, the same
 way scripts/test-hooks.py exercises the hooks. Standard library only.
 """
+import contextlib
+import importlib.util
+import io
 import os
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -553,6 +558,412 @@ class OwnershipTests(unittest.TestCase):
                     env={"PYTHONUTF8": "1"})
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("h\u00e9llo", read(d, "b.md"))
+
+
+class _Hang(BaseException):
+    """Raised by the hang guard. A BaseException on purpose: TimeoutError is an
+    OSError, which the helper's leaf open converts into an ordinary refusal, so
+    a dropped O_NONBLOCK would then pass every FIFO test (#324)."""
+
+
+def _load_memory():
+    spec = importlib.util.spec_from_file_location("memory_under_test", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+SKILL_MD = os.path.join(os.path.dirname(SCRIPT), "..", "SKILL.md")
+
+
+class SwapTests(unittest.TestCase):
+    """A leaf swapped in AFTER the ownership check (#324). In-process, so the swap
+    lands at a deterministic point: check_ownership is wrapped to run the real
+    check and then swap, and a 10 s guard turns a FIFO hang into a failure."""
+
+    WRITE = ["write", "--slug", "a", "--title", "t", "--type", "project",
+             "--description", "d"]
+
+    def call(self, d, argv, swap=None, stdin=b"new body", after_read_index=None,
+             mod=None):
+        mod = mod or _load_memory()
+        if swap:
+            real = mod.check_ownership
+
+            def checked(*a, **k):
+                r = real(*a, **k)
+                if r is None:
+                    swap()
+                return r
+            mod.check_ownership = checked
+        if after_read_index:
+            real_ri = mod.read_index
+
+            def read_index(*a, **k):
+                try:
+                    return real_ri(*a, **k)
+                finally:
+                    after_read_index()
+            mod.read_index = read_index
+        old_stdin = sys.stdin
+        sys.stdin = types.SimpleNamespace(buffer=io.BytesIO(stdin))
+        old_handler = signal.signal(signal.SIGALRM, self._on_alarm)
+        err = io.StringIO()
+        signal.setitimer(signal.ITIMER_REAL, 10)
+        try:
+            with contextlib.redirect_stderr(err):
+                rc = mod.main(["--project-dir", d] + argv)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, old_handler)
+            sys.stdin = old_stdin
+        return rc, err.getvalue()
+
+    @staticmethod
+    def _on_alarm(signum, frame):
+        raise _Hang("the helper blocked")
+
+    def mem(self, d, name="a.md"):
+        return os.path.join(d, ".claude", "memory", name)
+
+    def seed(self, d):
+        rc, err = self.call(d, self.WRITE, stdin=b"first")
+        self.assertEqual(rc, 0, err)
+
+    def bytes_of(self, d, name):
+        with open(self.mem(d, name), "rb") as f:
+            return f.read()
+
+    def swap_link(self, d, name, target):
+        def swap():
+            os.remove(self.mem(d, name))
+            os.symlink(target, self.mem(d, name))
+        return swap
+
+    def swap_dir(self, d, name):
+        def swap():
+            os.remove(self.mem(d, name))
+            os.mkdir(self.mem(d, name))
+        return swap
+
+    def swap_fifo(self, d, name, readers, reader=True):
+        def swap():
+            os.remove(self.mem(d, name))
+            os.mkfifo(self.mem(d, name))
+            if reader:
+                readers.append(os.open(self.mem(d, name), os.O_RDONLY | os.O_NONBLOCK))
+        return swap
+
+    def swap_bytes(self, d, name, data):
+        def swap():
+            os.remove(self.mem(d, name))
+            with open(self.mem(d, name), "wb") as f:
+                f.write(data)
+        return swap
+
+    def refused(self, d, swap, *reasons, argv=None, **kw):
+        rc, err = self.call(d, argv or self.WRITE, swap=swap, **kw)
+        self.assertEqual(rc, 1, err)
+        self.assertIn("memory.py: refusing", err)
+        for r in reasons:
+            self.assertIn(r, err)
+        return err
+
+    def assert_reader_empty(self, readers):
+        for fd in readers:
+            try:
+                self.assertEqual(os.read(fd, 64), b"")
+            finally:
+                os.close(fd)
+
+    # positives
+
+    def test_write_over_unchanged_target_succeeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            rc, err = self.call(d, self.WRITE, stdin=b"two")
+            self.assertEqual(rc, 0, err)
+            self.assertIn("two", self.bytes_of(d, "a.md").decode())
+            self.assertIn("(a.md)", self.bytes_of(d, "MEMORY.md").decode())
+
+    def test_absent_index_is_still_created(self):
+        with tempfile.TemporaryDirectory() as d:
+            rc, err = self.call(d, self.WRITE)
+            self.assertEqual(rc, 0, err)
+            idx = self.bytes_of(d, "MEMORY.md").decode()
+            self.assertTrue(idx.startswith("<!-- Memory index."))
+            self.assertIn("(a.md)", idx)
+
+    def test_created_files_keep_the_0666_mode(self):
+        with tempfile.TemporaryDirectory() as d:
+            umask = os.umask(0)
+            os.umask(umask)
+            rc, err = self.call(d, self.WRITE)
+            self.assertEqual(rc, 0, err)
+            for name in ("a.md", "MEMORY.md"):
+                mode = stat.S_IMODE(os.stat(self.mem(d, name)).st_mode)
+                self.assertEqual(mode, 0o666 & ~umask, name)
+
+    def test_remove_owned_file_still_removes_file_and_index_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            rc, err = self.call(d, ["remove", "--slug", "a"])
+            self.assertEqual(rc, 0, err)
+            self.assertFalse(os.path.exists(self.mem(d, "a.md")))
+            self.assertNotIn("(a.md)", self.bytes_of(d, "MEMORY.md").decode())
+
+    # ordering
+
+    def test_write_reads_stdin_before_ownership_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".claude", "memory"))
+            foreign = b"# not ours\n"
+
+            def read():
+                with open(self.mem(d, "a.md"), "wb") as f:
+                    f.write(foreign)
+                return b"body"
+            mod = _load_memory()
+            old = sys.stdin
+            sys.stdin = types.SimpleNamespace(buffer=types.SimpleNamespace(read=read))
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    rc = mod.main(["--project-dir", d] + self.WRITE)
+            finally:
+                sys.stdin = old
+            self.assertEqual(rc, 1)
+            self.assertIn("not ours to change", err.getvalue())
+            self.assertEqual(self.bytes_of(d, "a.md"), foreign)
+
+    def test_write_refuses_bad_slug_before_reading_stdin(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            mod = _load_memory()
+            old = sys.stdin
+            sys.stdin = types.SimpleNamespace(
+                buffer=types.SimpleNamespace(read=lambda: calls.append(1) or b""))
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    rc = mod.main(["--project-dir", d, "write", "--slug", "../x",
+                                   "--title", "t", "--type", "project",
+                                   "--description", "d"])
+            finally:
+                sys.stdin = old
+            self.assertEqual(rc, 1)
+            self.assertIn("memory.py: refusing", err.getvalue())
+            self.assertEqual(calls, [])
+
+    # swaps at the memory file
+
+    def test_memory_file_dangling_symlink_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            out = os.path.join(d, "outside.md")
+            self.refused(d, self.swap_link(d, "a.md", out), "cannot be opened")
+            self.assertFalse(os.path.lexists(out))
+
+    def test_memory_file_live_symlink_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            out = os.path.join(d, "outside.md")
+            with open(out, "w") as f:
+                f.write("KEEP")
+            self.refused(d, self.swap_link(d, "a.md", out), "cannot be opened")
+            with open(out) as f:
+                self.assertEqual(f.read(), "KEEP")
+
+    def test_memory_file_directory_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            self.refused(d, self.swap_dir(d, "a.md"))
+
+    def test_memory_file_reader_less_fifo_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            self.refused(d, self.swap_fifo(d, "a.md", [], reader=False),
+                         "cannot be opened (No such device or address)")
+
+    def test_memory_file_fifo_with_reader_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            readers = []
+            self.refused(d, self.swap_fifo(d, "a.md", readers), "is not a regular file")
+            self.assert_reader_empty(readers)
+
+    # swaps at the index
+
+    def test_index_dangling_symlink_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            before = self.bytes_of(d, "a.md")
+            out = os.path.join(d, "outside.md")
+            self.refused(d, self.swap_link(d, "MEMORY.md", out), "cannot be opened")
+            self.assertFalse(os.path.lexists(out))
+            self.assertEqual(self.bytes_of(d, "a.md"), before)
+
+    def test_index_live_symlink_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            before = self.bytes_of(d, "a.md")
+            out = os.path.join(d, "outside.md")
+            with open(out, "w") as f:
+                f.write("KEEP")
+            self.refused(d, self.swap_link(d, "MEMORY.md", out), "cannot be opened")
+            with open(out) as f:
+                self.assertEqual(f.read(), "KEEP")
+            self.assertEqual(self.bytes_of(d, "a.md"), before)
+
+    def test_index_directory_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            before = self.bytes_of(d, "a.md")
+            self.refused(d, self.swap_dir(d, "MEMORY.md"), "is not a regular file")
+            self.assertEqual(self.bytes_of(d, "a.md"), before)
+
+    def test_index_fifo_swapped_after_check_refused(self):
+        for with_reader in (False, True):
+            with self.subTest(with_reader=with_reader), tempfile.TemporaryDirectory() as d:
+                self.seed(d)
+                before = self.bytes_of(d, "a.md")
+                readers = []
+                self.refused(d, self.swap_fifo(d, "MEMORY.md", readers, reader=with_reader),
+                             "is not a regular file")
+                self.assertEqual(self.bytes_of(d, "a.md"), before)
+                self.assert_reader_empty(readers)
+
+    def test_index_non_utf8_swapped_after_check_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            before = self.bytes_of(d, "a.md")
+            self.refused(d, self.swap_bytes(d, "MEMORY.md", b"\xff\xfe"), "is not UTF-8")
+            self.assertEqual(self.bytes_of(d, "a.md"), before)
+
+    def test_index_write_open_refuses_a_link_swapped_in_after_read_index(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            before = self.bytes_of(d, "a.md")
+            out = os.path.join(d, "outside.md")
+            with open(out, "w") as f:
+                f.write("KEEP")
+            self.refused(d, None, "cannot be opened",
+                         after_read_index=self.swap_link(d, "MEMORY.md", out))
+            with open(out) as f:
+                self.assertEqual(f.read(), "KEEP")
+            self.assertEqual(self.bytes_of(d, "a.md"), before)
+
+    def test_read_index_refuses_dangling_symlink_and_directory(self):
+        mod = _load_memory()
+        for make in (lambda p: os.symlink("nowhere", p), os.mkdir):
+            with tempfile.TemporaryDirectory() as d:
+                os.makedirs(os.path.join(d, ".claude", "memory"))
+                make(self.mem(d, "MEMORY.md"))
+                with self.assertRaises(mod._Refusal):
+                    mod.read_index(d)
+
+    # nothing that existed changes when the other leaf is refused
+
+    def test_index_untouched_when_memory_file_refused(self):
+        for swap in ("dir", "fifo"):
+            with self.subTest(swap=swap), tempfile.TemporaryDirectory() as d:
+                self.seed(d)
+                before = self.bytes_of(d, "MEMORY.md")
+                readers = []
+                self.refused(d, self.swap_dir(d, "a.md") if swap == "dir"
+                             else self.swap_fifo(d, "a.md", readers))
+                self.assertEqual(self.bytes_of(d, "MEMORY.md"), before)
+                self.assert_reader_empty(readers)
+
+    def test_absent_index_stays_absent_when_memory_file_refused(self):
+        for swap in ("dir", "fifo"):
+            with self.subTest(swap=swap), tempfile.TemporaryDirectory() as d:
+                self.seed(d)
+                os.remove(self.mem(d, "MEMORY.md"))
+                readers = []
+                self.refused(d, self.swap_dir(d, "a.md") if swap == "dir"
+                             else self.swap_fifo(d, "a.md", readers))
+                self.assertFalse(os.path.lexists(self.mem(d, "MEMORY.md")))
+                self.assert_reader_empty(readers)
+
+    # remove
+
+    def test_remove_refuses_index_swapped_after_check_and_keeps_the_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            before = self.bytes_of(d, "a.md")
+            out = os.path.join(d, "outside.md")
+            self.refused(d, self.swap_link(d, "MEMORY.md", out),
+                         argv=["remove", "--slug", "a"])
+            self.assertFalse(os.path.lexists(out))
+            self.assertEqual(self.bytes_of(d, "a.md"), before)
+
+    def test_remove_refuses_a_directory_swapped_in_at_the_memory_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            self.refused(d, self.swap_dir(d, "a.md"), "cannot be removed",
+                         argv=["remove", "--slug", "a"])
+
+    # permissions, as a clean refusal
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores file modes")
+    def test_owned_readonly_memory_file_refused_cleanly(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            os.chmod(self.mem(d, "a.md"), 0o444)
+            idx, mem = self.bytes_of(d, "MEMORY.md"), self.bytes_of(d, "a.md")
+            self.refused(d, None, "cannot be opened (Permission denied)")
+            self.assertEqual(self.bytes_of(d, "a.md"), mem)
+            self.assertEqual(self.bytes_of(d, "MEMORY.md"), idx)
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory modes")
+    def test_missing_index_in_readonly_directory_leaves_the_memory_file_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            os.remove(self.mem(d, "MEMORY.md"))
+            before = self.bytes_of(d, "a.md")
+            os.chmod(os.path.dirname(self.mem(d, "a.md")), 0o555)
+            try:
+                self.refused(d, None, "cannot be created (Permission denied)")
+                self.assertEqual(self.bytes_of(d, "a.md"), before)
+            finally:
+                os.chmod(os.path.dirname(self.mem(d, "a.md")), 0o755)
+
+    # a real process: refusal, never a Traceback
+
+    def test_refusal_has_no_traceback_in_a_real_process(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.seed(d)
+            driver = (
+                "import importlib.util, os, sys\n"
+                "spec = importlib.util.spec_from_file_location('m', sys.argv[1])\n"
+                "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+                "real = m.check_ownership\n"
+                "def checked(*a):\n"
+                "    r = real(*a)\n"
+                "    p = os.path.join(sys.argv[2], '.claude', 'memory', 'a.md')\n"
+                "    os.remove(p); os.mkfifo(p)\n"
+                "    global fd; fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)\n"
+                "    return r\n"
+                "m.check_ownership = checked\n"
+                "sys.exit(m.main(['--project-dir', sys.argv[2], 'write', '--slug', 'a',\n"
+                "                 '--title', 't', '--type', 'project', '--description', 'd']))\n")
+            r = subprocess.run([sys.executable, "-c", driver, SCRIPT, d], input=b"x",
+                               capture_output=True, timeout=10)
+            err = r.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(r.returncode, 1, err)
+            self.assertIn("memory.py: refusing", err)
+            self.assertNotIn("Traceback", err)
+
+    # docs
+
+    def test_skill_md_index_sentence_reworded(self):
+        with open(SKILL_MD, encoding="utf-8") as f:
+            text = " ".join(f.read().split())
+        self.assertIn("The `MEMORY.md` index gets the same file-type and readability "
+                      "checks, and must also be writable, before anything is written "
+                      "or deleted.", text)
+        self.assertNotIn("The same applies to the `MEMORY.md` index", text)
 
 
 if __name__ == "__main__":

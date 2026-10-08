@@ -3,7 +3,7 @@ name: closing-sessions
 description: Persist what mattered from the current conversation before the session ends or context is lost. Writes durable facts (user identity, feedback with rationale, ongoing project constraints, references) to the project's .claude/memory/ store and transient resume state (what was done, what is unfinished, next steps, open questions) to a dated .claude/handoffs/ note. Use when the user says to close the session, wrap up, save what we discussed, or before they step away.
 ---
 
-<!-- closing-sessions-version: 6 -->
+<!-- closing-sessions-version: 7 -->
 
 # Closing sessions
 
@@ -101,8 +101,9 @@ The helper enforces the same rule: it refuses, with a non-zero exit and no chang
 the slug `MEMORY`, any slug that is not plain ASCII (letters, digits, `.`, `_`, `-`),
 and a target that is a directory, a symbolic link (dangling or live) or any other
 non-regular file, or that it cannot read, or whose existing file lacks its generated
-frontmatter. The same applies to the `MEMORY.md` index, which is checked before
-anything is written or deleted and is also refused when it cannot be written. A `write` whose `--title`, `--description` or stdin body is not valid UTF-8 is refused before anything is written. A deliberate link to a shared note is refused too.
+frontmatter. The `MEMORY.md` index gets the same file-type and readability checks,
+and must also be writable, before anything is written or deleted. `write` reads stdin
+before it checks, so on a terminal a refusal appears only after end of input. A `write` whose `--title`, `--description` or stdin body is not valid UTF-8 is refused before anything is written. A deliberate link to a shared note is refused too.
 When it refuses, do not work around it with `rm`, a shell redirect or any other
 direct write; report the refused slug under the handoff's open questions.
 
