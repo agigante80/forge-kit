@@ -15,11 +15,13 @@ This requires installing **this** plugin, which the quick-start flow does not do
 `hooks.json` is read only when that plugin is enabled, so without the line above nothing here is
 registered and `forge-adapt` will install a project-local copy instead.
 
-**The opt-in sentinel convention lives in CLAUDE.md**, under "user level without forcing it on every
-project" (#165): why a plugin hook gates in the shell rather than the interpreter, the measured cost
-of each, which of the two sentinel shapes to choose, and why a skill or command gates differently
-from a hook. It is stated there once and deliberately not restated here, because this file used to
-carry a copy and a copy is what drifts.
+**The opt-in sentinel convention (#165).** A plugin hook is live in *every* project that enables
+the group, so behaviour a project has not asked for is gated on a file the project owns, one file
+per hook (`.claude/no-dashes`, `.claude/no-poll-loops`, `.claude/no-destructive`,
+`.claude/masked-exit`). `hooks.json` tests it in the shell and exits before `python3` starts: about
+1.8 ms per matched tool call in a project that has not opted in, against about 44 ms if the
+interpreter started first. The gate inside each script is defence in depth and the only gate for a
+project-local copy. A skill or command has no wrapper and can only gate in its own prose.
 
 What is specific to this hook: the no-dash rule is opinionated and a plugin hook is live in *every*
 project, so the script stays dormant until a project opts in:
@@ -43,6 +45,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
 | `overnight-guard.py` | PreToolUse | 8 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
+| `masked-exit-advisory.py` | PostToolUse | 1 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy
@@ -135,3 +138,34 @@ rm .claude/no-destructive                          # opt out
 
 The sentinel lives under `.claude/`, which is often gitignored, so a fresh clone or `git worktree add`
 starts with the daytime arm off. Re-run forge-adapt or `touch` the file there.
+
+## masked-exit-advisory.py
+
+`bash scripts/test-x.sh | tail -5` exits with the status of `tail`, so a failing suite looks green
+and an agent reports it as passing (#420). This is a `PostToolUse` hook on `Bash` that adds one
+fixed advisory to the model's context when a command pipes a recognised check into a recognised
+filter without `-o pipefail`, `setopt pipefail` or a `$PIPESTATUS` read. The advisory says the exit
+code shown belongs to the filter, and suggests reading the check's own status in the same command
+(`check | tail -5; echo "check rc=${PIPESTATUS[0]}"`) or redirecting the check to a file and
+tailing the file. It never suggests `pipefail` with `head` or `grep -q`, which can SIGPIPE the
+check to 141 (#413).
+
+It is advisory only: it never denies, always exits 0, never echoes the command and fails open
+silently on anything it cannot parse. The recogniser tokenises with `shlex` (a quoted pipe is
+data), matches a check in ANY non-last stage when the LAST stage is a filter, and ignores what
+follows the pipeline (`&& echo ok`). The built-in check and filter sets are module-level constants
+at the top of the script and listed in its docstring, which also lists the residual limits. Two
+matter most: the hook never sees the exit code, so it also advises on green runs, and PostToolUse
+does not fire for a Bash call that exits non-zero (Claude Code runs `PostToolUseFailure` instead),
+so the hook sees only the masked, exit-0 case. Verified on Claude Code 2.1.294 for the main
+session and for a subagent's Bash call.
+
+**Its sentinel is its own file, `.claude/masked-exit`**, and nothing more: the content is never
+read and there is no project check list. It is shell-gated in `hooks.json`. **forge-adapt creates
+it when it installs the hook, in both install shapes.** Opt out by deleting it.
+`python3 masked-exit-advisory.py --self-test` runs the verdict matrix.
+
+```bash
+mkdir -p .claude && touch .claude/masked-exit   # opt in (forge-adapt does this)
+rm .claude/masked-exit                          # opt out
+```

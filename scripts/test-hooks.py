@@ -1074,6 +1074,265 @@ with tempfile.TemporaryDirectory() as td:
     p = invoke_npl(proot, None, waiter)
     check("npl registered, no CLAUDE_PROJECT_DIR", verdict(p), ALLOW, extra="(fail open)")
 
+# --- masked-exit-advisory (PostToolUse Bash, #420) ---------------------------
+# Advises, never denies, when a Bash command pipes a recognised check into a recognised filter
+# with no pipefail or PIPESTATUS read: the exit code shown is the filter's. Own sentinel
+# .claude/masked-exit. Always exits 0 and prints nothing but the advisory.
+print("\n  -- masked-exit-advisory (PostToolUse Bash) --")
+MEA = ROOT / "plugins/forge-kit-governance/hooks/masked-exit-advisory.py"
+ADVISE, QUIET = "advise", "quiet"
+TOOL_RESPONSE = {"stdout": "ok\n", "stderr": "", "interrupted": False,
+                 "isImage": False, "noOutputExpected": False}
+
+
+def mea_payload(command, **extra):
+    p = {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+         "tool_input": {"command": command}, "tool_response": TOOL_RESPONSE,
+         "tool_use_id": "toolu_x", "duration_ms": 12}
+    p.update(extra)
+    return p
+
+
+def mea_run(payload, proj, *, raw=None, script=MEA, env_dir=True, cwd="/"):
+    env = dict(os.environ)
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    if env_dir and proj is not None:
+        env["CLAUDE_PROJECT_DIR"] = str(proj)
+    stdin = raw if raw is not None else json.dumps(payload)
+    return subprocess.run([sys.executable, str(script)], input=stdin,
+                          capture_output=True, text=True, env=env, cwd=cwd)
+
+
+def mea_out(p):
+    """advise / quiet, and a loud word for anything that breaks the contract."""
+    if p.returncode != 0:
+        return f"exit{p.returncode}"
+    if p.stdout.strip() == "":
+        return QUIET
+    o = json.loads(p.stdout)
+    h = o.get("hookSpecificOutput", {})
+    if set(o) == {"hookSpecificOutput"} and h.get("hookEventName") == "PostToolUse" \
+            and isinstance(h.get("additionalContext"), str) and "permissionDecision" not in h:
+        return ADVISE
+    return "malformed"
+
+
+MEA_ADVISE = [
+    ("evidence case verbatim",
+     'git apply --check -R wip.patch 2>&1 | head -3 && echo "reverse-applies: already in tree"'),
+    ("scripts/test-* | tail", "bash scripts/test-x.sh | tail -5"),
+    ("scripts/check-* | tail", "bash scripts/check-x.sh | tail -5"),
+    ("direct script path", "./scripts/test-x.sh | tail"),
+    ("python test script", "python3 scripts/test-hooks.py | tail -3"),
+    ("pytest", "pytest -q | tail"),
+    ("python -m pytest", "python3 -m pytest | tail"),
+    ("npm test", "npm test | tail"),
+    ("npm run test", "npm run test | tail"),
+    ("yarn test", "yarn test | tail"),
+    ("make test", "make test | tail"),
+    ("make check", "make check | tail"),
+    ("cargo test", "cargo test | tail"),
+    ("go test", "go test ./... | tail"),
+    ("git apply --check", "git apply --check p.patch | tail"),
+    ("git diff --check", "git diff --check | tail"),
+    ("filter head", "bash scripts/test-x.sh | head -3"),
+    ("filter grep", "bash scripts/test-x.sh | grep FAIL"),
+    ("filter sed", "bash scripts/test-x.sh | sed -n 1,3p"),
+    ("filter wc", "bash scripts/test-x.sh | wc -l"),
+    ("filter tee", "bash scripts/test-x.sh | tee out.txt"),
+    ("check in a middle stage", "bash scripts/test-x.sh | grep -v ok | tail"),
+    ("check in a middle stage, not first", "cat list | bash scripts/test-x.sh | tail"),
+    ("2>&1 before the pipe", "bash scripts/test-x.sh 2>&1 | tail"),
+    ("|& pipe", "bash scripts/test-x.sh |& tail"),
+    ("after &&", "cd tmp && bash scripts/test-x.sh | tail"),
+    ("after ;", "echo a; bash scripts/test-x.sh | tail"),
+    ("env assignment prefix", "CI=1 bash scripts/test-x.sh | tail"),
+    ("wrapper word", "time bash scripts/test-x.sh | tail"),
+    ("inside $( )", 'out=$(bash scripts/test-x.sh | tail -5); echo "$out"'),
+    ("inside bash -c", "bash -c 'make test | tail'"),
+    ("multi-line command", "echo start\nbash scripts/test-x.sh | tail\necho done"),
+    ("later pipeline after a clean one", "echo a | cat; bash scripts/test-x.sh | tail"),
+    ("a mere set -e does not neutralise", "set -e; bash scripts/test-x.sh | tail"),
+    ("a bare PIPESTATUS word does not neutralise", "echo PIPESTATUS; bash scripts/test-x.sh | tail"),
+    ("a comment naming pipefail does not neutralise",
+     "bash scripts/test-x.sh | tail  # set -o pipefail"),
+    ("set +o pipefail does not neutralise (it turns the option off)",
+     "set +o pipefail; bash scripts/test-x.sh | tail"),
+]
+MEA_QUIET = [
+    ("no pipe", "bash scripts/test-x.sh"),
+    ("check then status echo", "bash scripts/test-x.sh; echo $?"),
+    ("non-check into filter", "grep foo file | head"),
+    ("check as the LAST stage", "cat list | bash scripts/test-x.sh"),
+    ("last stage is not a filter", "bash scripts/test-x.sh | cat"),
+    ("check inside quotes", 'echo "bash scripts/test-x.sh | tail -5"'),
+    ("single-quoted pipe", "echo 'make test | tail'"),
+    ("heredoc body", "cat <<EOF\nbash scripts/test-x.sh | tail\nEOF"),
+    ("redirect to a file", "bash scripts/test-x.sh > out.txt 2>&1; tail out.txt"),
+    ("pipefail via set -o", "set -o pipefail; bash scripts/test-x.sh | tail -5"),
+    ("pipefail via bash -o", "bash -o pipefail -c 'make test | tail'"),
+    ("pipefail via setopt", "setopt pipefail; bash scripts/test-x.sh | tail"),
+    ("PIPESTATUS read", 'bash scripts/test-x.sh | tail -5; echo "${PIPESTATUS[0]}"'),
+    ("pipestatus read (zsh)", 'bash scripts/test-x.sh | tail -5; echo "$pipestatus[1]"'),
+    ("make build is not a check", "make build | tail"),
+    ("npm install is not a check", "npm install | tail"),
+    ("git apply without --check", "git apply p.patch | tail"),
+    ("git status", "git status | head"),
+    ("empty command", ""),
+]
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    proj = td / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    (proj / ".claude" / "masked-exit").touch()
+
+    for label, cmd in MEA_ADVISE:
+        check(f"mea advise: {label}", mea_out(mea_run(mea_payload(cmd), proj)), ADVISE)
+    for label, cmd in MEA_QUIET:
+        check(f"mea quiet: {label}", mea_out(mea_run(mea_payload(cmd), proj)), QUIET)
+
+    # The advisory text is fixed, names the cause, and never recommends pipefail (#413).
+    p = mea_run(mea_payload("bash scripts/test-x.sh | tail"), proj)
+    text = json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"]
+    check("mea advisory names the filter's exit code", "belongs to the filter" in text, True)
+    check("mea advisory suggests PIPESTATUS", "PIPESTATUS" in text, True)
+    check("mea advisory suggests file-then-tail", "out.txt" in text and "rc=$?" in text, True)
+    check("mea advisory does not recommend pipefail", "pipefail" in text.lower(), False)
+
+    # Secrets in the command are never echoed.
+    p = mea_run(mea_payload("bash scripts/test-x.sh --token=SECRET123 | tail"), proj)
+    check("mea fires on a secret-bearing command", mea_out(p), ADVISE)
+    check("mea does not echo the command", "SECRET123" in p.stdout + p.stderr, False)
+
+    # A subagent's Bash call carries agent_id / agent_type and is handled the same way.
+    p = mea_run(mea_payload("bash scripts/test-x.sh | tail", agent_id="a1b2", agent_type="general-purpose"), proj)
+    check("mea subagent payload advises", mea_out(p), ADVISE)
+
+    # Only Bash. Another tool with a command-shaped field stays silent.
+    p = mea_run({"hook_event_name": "PostToolUse", "tool_name": "Monitor",
+                 "tool_input": {"command": "bash scripts/test-x.sh | tail"}}, proj)
+    check("mea ignores a non-Bash tool", mea_out(p), QUIET)
+
+    # Fail open, silently, with exit 0, on anything it cannot read.
+    check("mea garbage stdin", mea_out(mea_run(None, proj, raw="not json")), QUIET)
+    check("mea empty stdin", mea_out(mea_run(None, proj, raw="")), QUIET)
+    check("mea non-object JSON", mea_out(mea_run(None, proj, raw="[1,2]")), QUIET)
+    check("mea missing tool_input", mea_out(mea_run({"tool_name": "Bash"}, proj)), QUIET)
+    check("mea non-string command",
+          mea_out(mea_run({"tool_name": "Bash", "tool_input": {"command": 7}}, proj)), QUIET)
+    check("mea unbalanced quote", mea_out(mea_run(mea_payload("bash scripts/test-x.sh | tail 'oops"), proj)), QUIET)
+    check("mea 200000-char command", mea_out(mea_run(mea_payload("a | " * 50000), proj)), QUIET)
+    check("mea oversized command with a real masked check stays silent",
+          mea_out(mea_run(mea_payload("bash scripts/test-x.sh | tail " + "x" * 70000), proj)), QUIET)
+    deep = "bash -c \"bash -c \\\"bash -c 'make test | tail'\\\"\""
+    check("mea nesting beyond the depth cap stays silent", mea_out(mea_run(mea_payload(deep), proj)), QUIET)
+
+    # Sentinel: absent is silent, present via CLAUDE_PROJECT_DIR or via payload cwd arms it.
+    bare = td / "bare"
+    (bare / ".claude").mkdir(parents=True)
+    cmd = mea_payload("bash scripts/test-x.sh | tail")
+    check("mea no sentinel", mea_out(mea_run(cmd, bare)), QUIET)
+    (bare / ".claude" / "no-poll-loops").touch()
+    check("mea another hook's sentinel does not arm it", mea_out(mea_run(cmd, bare)), QUIET)
+    check("mea no CLAUDE_PROJECT_DIR and no cwd", mea_out(mea_run(cmd, None, env_dir=False)), QUIET)
+    cmd_cwd = mea_payload("bash scripts/test-x.sh | tail", cwd=str(proj))
+    check("mea sentinel found via payload cwd", mea_out(mea_run(cmd_cwd, None, env_dir=False)), ADVISE)
+
+    # --self-test is part of the contract, and not vacuous.
+    st = subprocess.run([sys.executable, str(MEA), "--self-test"], capture_output=True, text=True)
+    check("mea --self-test passes", (st.returncode, "PASS" in st.stdout), (0, True))
+    broken = td / "broken-mea.py"
+    broken.write_text(MEA.read_text().replace("return advise() if hit else 0", "return 0"))
+    st = subprocess.run([sys.executable, str(broken), "--self-test"], capture_output=True, text=True)
+    check("mea --self-test fails on a broken hook", (st.returncode, "FAIL" in st.stdout), (1, True))
+
+# --- masked-exit-advisory registration (hooks.json) --------------------------
+print("\n  -- masked-exit-advisory registration --")
+check("mea is not registered under PreToolUse",
+      any("masked-exit" in json.dumps(e) for e in spec["hooks"]["PreToolUse"]), False)
+mea_entry = next(e for e in spec["hooks"]["PostToolUse"] if "masked-exit-advisory" in json.dumps(e))
+mea_reg = mea_entry["hooks"][0]
+check("mea matcher is Bash", mea_entry["matcher"], "Bash")
+check("mea exec form", ("command" in mea_reg and "args" in mea_reg), True)
+check("mea sh-gates on its own sentinel", ".claude/masked-exit" in " ".join(mea_reg["args"]), True)
+check("mea plugin root braced", "${CLAUDE_PLUGIN_ROOT}" in " ".join(mea_reg["args"]), True)
+check("mea gate tests the project sentinel path", '"$CLAUDE_PROJECT_DIR/.claude/masked-exit"' in " ".join(mea_reg["args"]), True)
+check("mea registered script exists",
+      (ROOT / "plugins/forge-kit-governance/hooks/masked-exit-advisory.py").is_file(), True)
+
+
+def invoke_mea(plugin_root, project_dir, payload):
+    argv = [mea_reg["command"]] + [
+        a.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root)) for a in mea_reg["args"]
+    ]
+    env = dict(os.environ)
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    if project_dir is not None:
+        env["CLAUDE_PROJECT_DIR"] = str(project_dir)
+    return subprocess.run(argv, input=json.dumps(payload), capture_output=True,
+                          text=True, env=env, cwd="/")
+
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    proot = td / "plugin"
+    (proot / "hooks").mkdir(parents=True)
+    shutil.copy(MEA, proot / "hooks" / "masked-exit-advisory.py")
+    proj = td / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    masked_cmd = mea_payload("bash scripts/test-x.sh | tail")
+
+    p = invoke_mea(proot, proj, masked_cmd)
+    check("mea registered, no sentinel", mea_out(p), QUIET)
+
+    # The sh guard must SHORT-CIRCUIT: a poison-pill script prints RAN unconditionally.
+    script = proot / "hooks" / "masked-exit-advisory.py"
+    original = script.read_bytes()
+    script.write_text('print("RAN")\n')
+    p = invoke_mea(proot, proj, masked_cmd)
+    check("mea no sentinel spawns no python", p.stdout.strip(), "", extra="(guard short-circuits)")
+    (proj / ".claude" / "no-dashes").touch()
+    p = invoke_mea(proot, proj, masked_cmd)
+    check("mea no-dashes sentinel does not arm it", p.stdout.strip(), "")
+    (proj / ".claude" / "masked-exit").touch()
+    p = invoke_mea(proot, proj, masked_cmd)
+    check("mea armed spawns the script", p.stdout.strip(), "RAN")
+    p = invoke_mea(proot, None, masked_cmd)
+    check("mea poison pill, no CLAUDE_PROJECT_DIR", p.stdout.strip(), "", extra="(fail open)")
+    script.write_bytes(original)
+
+    p = invoke_mea(proot, proj, masked_cmd)
+    check("mea registered, opted in", mea_out(p), ADVISE)
+    check("mea stdin reaches the script", "belongs to the filter" in p.stdout, True)
+    p = invoke_mea(proot, proj, mea_payload("echo hi"))
+    check("mea registered, ordinary command", mea_out(p), QUIET)
+    p = invoke_mea(proot, None, masked_cmd)
+    check("mea registered, no CLAUDE_PROJECT_DIR", mea_out(p), QUIET, extra="(fail open)")
+
+# --- adapt's hooks.md installs the sentinel (#420) ---------------------------
+print("\n  -- forge-adapt hooks.md: masked-exit-advisory row (#420) --")
+mea_row = [ln for ln in HOOKS_MD.splitlines() if ln.startswith("|") and "`masked-exit-advisory.py`" in ln]
+check("hooks.md has one masked-exit-advisory signal row", len(mea_row), 1)
+mea_row = mea_row[0] if mea_row else ""
+check("hooks.md row names PostToolUse and the Bash matcher",
+      "PostToolUse" in mea_row and "`Bash`" in mea_row, True)
+mea_detail = HOOKS_MD.split("## Install detail (masked-exit-advisory.py)")[-1].split("\n## ")[0] \
+    if "## Install detail (masked-exit-advisory.py)" in HOOKS_MD else ""
+check("hooks.md has the masked-exit-advisory install detail", mea_detail != "", True)
+check("hooks.md detail names the sentinel", ".claude/masked-exit" in mea_detail, True)
+check("hooks.md detail says the sentinel is only a sentinel", "only a sentinel" in mea_detail, True)
+check("hooks.md detail branches on GOVERNANCE_PLUGIN_ACTIVE (yes and no)",
+      "`yes`" in mea_detail and "`no`" in mea_detail and "GOVERNANCE_PLUGIN_ACTIVE" in mea_detail, True)
+check("hooks.md yes branch: touch the sentinel, no copy",
+      "mkdir -p .claude && touch .claude/masked-exit" in mea_detail, True)
+check("hooks.md no branch: copy verbatim and wire an exec-form PostToolUse entry",
+      ".claude/hooks/masked-exit-advisory.py" in mea_detail and '"command": "python3"' in mea_detail
+      and "PostToolUse" in mea_detail, True)
+check("hooks.md no branch creates the sentinel",
+      "sentinel with the command above" in " ".join(mea_detail.split("`no`:")[-1].split()), True)
+check("hooks.md detail has a confirm line", "Confirm:" in mea_detail, True)
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} case(s): {', '.join(failures)}")

@@ -44,6 +44,22 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": [
+              "-c",
+              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/masked-exit\" ] || exit 0; exec python3 \"$0\"",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/masked-exit-advisory.py"
+            ]
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

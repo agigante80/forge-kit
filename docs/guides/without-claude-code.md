@@ -172,7 +172,7 @@ This is the honest part, and it is why the rest of the page can be trusted.
 | The critic (Step 3B of the gate) | It is an agent reading the ticket and arguing with it. There is no shell equivalent, and the mechanical half does not approximate it. |
 | The verdict | PASS / NEEDS-WORK / BLOCKED comes from the critic, so nothing here produces one. |
 | Auto-synthesis of missing sections | The gate rewrites an older ticket into the current template. That is generation, and it needs a model. |
-| The hooks | `block-dashes`, the overnight guard and the overnight loop are Claude Code hook processes. |
+| The hooks | `block-dashes`, the overnight guard, the overnight loop, `no-poll-loops` and `masked-exit-advisory` are Claude Code hook processes. |
 | The size budget and drift detection | They govern Claude Code components, which you do not have. |
 | forge-adapt | It is a Claude Code skill whose entire job is reading your project and choosing components. |
 
