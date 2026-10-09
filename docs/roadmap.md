@@ -268,10 +268,10 @@ plan: docs/plans/the-leak-guards-open-questions.md
 Closed 2026-10-09, **re-shaped** (#417, #207, #416, #391 landed; #226 moved to backlog). Both scanners now give one verdict per input in every locale (#416), the timing rows are gone because each mutant already died on a structural row (#417), forge-kit's own `--history` run exits 0 (#207), and `marker [name]` is an allow-file key (#391). #226 waits for the downstream allow-file audit, its body rewritten to the pick. #416 and #391 landed without a gate PASS after three rounds each; the lows are #437 to #440.
 
 ## Phase: What a session loads before work begins
-state: planned
-plan: 
+state: open
+plan: docs/plans/what-a-session-loads-before-work-begins.md
 
-A bucket, split out 2026-10-01 when *What contributor-docs still cannot see* closed. #297 asks forge-kit to treat startup context (a project's CLAUDE.md, its transitive @-imports and the auto-memory MEMORY.md) as a budget, the way `check-component-size.sh` budgets component bodies. Its picks were recorded on 2026-10-07: a contract-tested shell asset plus a thin skill, called by `health-check` and `forge-adapt`; characters, warn at 40,000 and fail at 80,000, exit 1 over the fail level but wired into nothing by default; a `context-budget` marker in CLAUDE.md as the escape hatch; a shipped `--sweep <root>...` mode; R1 enforced and R2 to R10 in a `docs/guides` page; a report-only flag on any `##` section over 8,000 characters. R5, the edits to the components that write memory, is #418.
+A bucket, split out 2026-10-01 when *What contributor-docs still cannot see* closed. #297 asks forge-kit to treat startup context (a project's CLAUDE.md, its transitive @-imports and the auto-memory MEMORY.md) as a budget, the way `check-component-size.sh` budgets component bodies. Its picks were recorded on 2026-10-07: a contract-tested shell asset plus a thin skill, called by `health-check` and `forge-adapt`; characters, warn at 40,000 and fail at 80,000, exit 1 over the fail level but wired into nothing by default; a `context-budget` marker in CLAUDE.md as the escape hatch; a shipped `--sweep <root>...` mode; R1 enforced and R2 to R10 in a `docs/guides` page; a report-only flag on any `##` section over 8,000 characters. R5, the edits to the components that write memory, is #418. **Opened 2026-10-09** with its plan in `docs/plans/what-a-session-loads-before-work-begins.md`. Opening rewrote #297 to the picks, but its gate stopped on the trip wire after three rounds, so nothing is ready to implement until the maintainer re-gates it.
 
 ## Phase: Backlog
 state: backlog
