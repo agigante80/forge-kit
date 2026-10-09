@@ -1222,7 +1222,7 @@ case "$(cat "$T/mc-rt.err")" in *"should not run"*) bad "real transport was invo
   export FORGE_HOST=forgejo FORGE_REPO=o/r
   forge_api() {
     case "$2" in
-      *"/issues?"*page=1*) printf '[{"number":7,"milestone":{"title":"Phase A"}},{"number":8,"milestone":null},{"number":9,"pull_request":{},"milestone":null}]' ;;
+      *"/issues?"*page=1*) printf '[{"number":7,"pull_request":null,"milestone":{"title":"Phase A"}},{"number":8,"pull_request":null,"milestone":null},{"number":9,"pull_request":{},"milestone":null}]' ;;
       *) printf '[]' ;;
     esac
   }
@@ -1238,6 +1238,55 @@ case $? in
   3) bad "issue_milestone_list did not report an unassigned issue as null";;
   *) bad "issue_milestone_list errored";;
 esac
+
+# #446: Forgejo sends "pull_request": null on EVERY plain issue (GitHub omits the key), so a filter
+# on the KEY (`has("pull_request") | not`) dropped every issue there and check-phases rules 1 and 4
+# ran over an empty list. The row above now carries Forgejo's real shape; these pin both hosts.
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    case "$2" in
+      *"/issues?"*page=1*) printf '[{"number":10,"pull_request":null,"milestone":null},{"number":11,"pull_request":null,"milestone":{"title":"P1"}},{"number":12,"pull_request":{"merged":false},"milestone":null}]' ;;
+      *) printf '[]' ;;
+    esac
+  }
+  out=$(forge_issue_milestone_list) || exit 9
+  [ "$(printf '%s' "$out" | jq -r '[.[].number] | join(",")')" = "10,11" ] || exit 1
+)
+case $? in
+  0) ok "#446: on Forgejo, plain issues with pull_request null are kept and the PR is dropped";;
+  1) bad "#446: on Forgejo, issue_milestone_list did not return exactly 10,11";;
+  *) bad "#446: Forgejo issue_milestone_list errored";;
+esac
+(
+  . "$LIB"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    case "$2" in
+      *"/issues?"*page=1*) printf '[{"number":12,"pull_request":{"merged":false},"milestone":null},{"number":13,"pull_request":{},"milestone":null}]' ;;
+      *) printf '[]' ;;
+    esac
+  }
+  out=$(forge_issue_milestone_list) || exit 9
+  [ "$out" = "[]" ] || exit 1
+)
+case $? in
+  0) ok "#446: on Forgejo, a page of PRs only (populated or empty object) yields []";;
+  1) bad "#446: on Forgejo, a PR leaked into issue_milestone_list";;
+  *) bad "#446: Forgejo PR-only issue_milestone_list errored";;
+esac
+# GitHub: forge_api_paginate calls `gh api --paginate` directly, so a forge_api stub is never
+# reached there; a fake gh on PATH is the seam.
+mkdir -p "$T/ml446-bin"
+printf '#!/bin/sh\ncat "$GH446_PAGE"\n' > "$T/ml446-bin/gh"
+chmod +x "$T/ml446-bin/gh"
+printf '[{"number":1,"milestone":null},{"number":2,"pull_request":{"url":"u"},"milestone":null}]' > "$T/gh446-mixed.json"
+printf '[{"number":2,"pull_request":{"url":"u"},"milestone":null},{"number":3,"pull_request":{"url":"v"},"milestone":{"title":"P"}}]' > "$T/gh446-prs.json"
+out=$( ( . "$LIB"; export PATH="$T/ml446-bin:$PATH" FORGE_HOST=github FORGE_REPO=o/r GH446_PAGE="$T/gh446-mixed.json"; forge_issue_milestone_list ) ); rc=$?
+expect "#446: on GitHub, a plain issue (no pull_request key) is kept and the PR dropped" '0 [{"number":1,"milestone":null}]' "$rc $out"
+out=$( ( . "$LIB"; export PATH="$T/ml446-bin:$PATH" FORGE_HOST=github FORGE_REPO=o/r GH446_PAGE="$T/gh446-prs.json"; forge_issue_milestone_list ) ); rc=$?
+expect "#446: on GitHub, a page of PRs only yields [] and no PR number" '0 []' "$rc $out"
 
 # --- #131.1: env-wins must survive a chdir -----------------------------------------------------
 # The tracking recorded the KEY alone, so a value the CALLER exported after a load that had set the

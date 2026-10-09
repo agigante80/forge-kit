@@ -16,6 +16,9 @@ into a committed file; put yours in the repo's own (committed) `.forge.conf` and
   `/issues`). Forgejo's `/issues` honours `type=issues` to exclude PRs server-side; **GitHub's
   `/issues` ignores `type=` and still returns PRs**, so `forge_issue_list` filters them out with
   `jq 'select(.pull_request|not)'` on the github path. Some GitHub fields are absent on Forgejo.
+  **Forgejo sends `"pull_request": null` on every plain issue**, where GitHub omits the key, so a
+  PR filter must test the VALUE (`.pull_request | not`), never the key (`has("pull_request")`): the
+  key form drops every issue on Forgejo (#446).
 - **Labels (verified):** `POST /issues` takes label **IDs** (`[]int64`); names are not accepted on
   create, which is why `forge_issue_create` omits labels. `POST /issues/{n}/labels` accepts **both
   IDs and names** (`[]any`) on recent Forgejo, so `forge_issue_label` could pass names directly;

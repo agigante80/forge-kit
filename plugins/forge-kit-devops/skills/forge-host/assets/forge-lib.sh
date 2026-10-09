@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 34
+# forge-lib-version: 35
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -153,6 +153,11 @@
 #       `bytes`: the number was always `${#2}`, a character count in a multibyte locale, and
 #       nothing parses the line. The splice's whitespace and line-ending behaviour is now stated
 #       (see the body-region block) and pinned by tests; the code behind it is unchanged.
+#   v35 forge_issue_milestone_list returned [] on Forgejo (#446). It excluded PRs with
+#       `has("pull_request") | not`, and Forgejo sends `"pull_request": null` on EVERY plain issue,
+#       so every issue was dropped and check-phases rules 1 and 4 and reassess's emptied check ran
+#       over nothing. It now uses `.pull_request | not`, false for an absent key and for null alike,
+#       the filter forge_issue_list already used. GitHub output is unchanged.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -1136,7 +1141,7 @@ forge_issue_milestone() {
 forge_issue_milestone_list() {
   local repo; repo="$(forge_repo)" || return 2
   forge_api_paginate "/repos/$repo/issues?state=open" \
-    | jq -c '[.[] | select(has("pull_request") | not)
+    | jq -c '[.[] | select(.pull_request | not)
                   | {number, milestone: (.milestone.title // null)}]' || return 2
 }
 

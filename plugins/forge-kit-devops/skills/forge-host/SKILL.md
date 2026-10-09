@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 32 -->
+<!-- forge-host-version: 33 -->
 
 # forge-host: host-aware forge operations
 
@@ -57,7 +57,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_body_region_set <n> <prefix> <region> <content> [top]` / `forge_body_region_clear <n> <prefix> <region>` | splice exactly one region, preserving every other byte; `top` places or MOVES it to the top of the body, below a first-line template marker (v27). Refuses a region not owned by `<prefix>` (101), a body that moved since it was read (102), and a malformed, unterminated or DUPLICATED marker pair (103) |
 | `forge_body_compose_preserving <n> <new-body>` | a WHOLE-body write that re-threads EVERY region, the caller's own included, so an author-section rewrite cannot drop a region anyone wrote. A region restated in the new body is kept once, not duplicated |
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
-| `forge_issue_milestone_list <title>` | the open issues in a milestone, by title, PRs excluded |
+| `forge_issue_milestone_list` | EVERY open issue as `{number, milestone}`, the milestone being its title or `null`; it takes no argument, so filter by title yourself. PRs excluded on both hosts (Forgejo sends `"pull_request": null` on a plain issue, #446) |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
 | `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask; an invalid `FORGE_HOST` also answers `not_configured` with rc 0, after the one host line on stderr (v29) |

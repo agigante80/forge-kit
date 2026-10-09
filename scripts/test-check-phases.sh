@@ -442,6 +442,52 @@ forge_milestone_list()       { cat "$STUB_MILESTONES"; }
 forge_issue_milestone_list() { cat "$STUB_ISSUES"; }
 STUB
 
+echo "== #446: rules 1 and 4 over the REAL forge_issue_milestone_list on Forgejo =="
+# The stub above returns already-flattened issues, so it can never see the filter #446 broke: the
+# real function dropped EVERY Forgejo issue (each carries "pull_request": null), and rules 1 and 4
+# then passed over an empty list. This wrapper sources the real library and stubs only forge_api,
+# with Forgejo's wire shape; the milestone list keeps the stub, since #446 is about the issue read.
+LIB446="$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh"
+cat > "$T/lib446.sh" <<STUB
+. "$LIB446"
+export FORGE_HOST=forgejo FORGE_REPO=o/r
+forge_api() { case "\$2" in *"/issues?"*page=1*) cat "\$ISS446" ;; *) printf '[]' ;; esac; }
+forge_milestone_list() { cat "\$STUB_MILESTONES"; }
+STUB
+run446() {
+  out=$(cd "$T" && STUB_MILESTONES="$T/ms.json" ISS446="$T/iss446.json" \
+        FORGE_LIB="$T/lib446.sh" bash ./check-phases.sh 2>&1); rc=$?
+}
+goodplan A > "$T/docs/plans/a.md"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"open"}]' > "$T/ms.json"
+printf '[{"number":21,"pull_request":null,"milestone":{"title":"A"}},{"number":22,"pull_request":null,"milestone":null}]' > "$T/iss446.json"
+run446
+expect "#446: a Forgejo issue (pull_request null) with no phase fails rule 1" 1 "$rc"
+contains "rule 1: issue #22 has no phase." "$out" "#446: and names issue #22"
+printf '[{"number":21,"pull_request":null,"milestone":{"title":"A"}},{"number":23,"pull_request":{"merged":false},"milestone":null}]' > "$T/iss446.json"
+run446
+expect "#446: a Forgejo PR with no phase is not a ticket, so rule 1 passes" 0 "$rc"
+absent_line "#23" "$out" "#446: and the PR number is never reported"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/a.md
+MD
+printf '[{"id":1,"title":"A","state":"closed"}]' > "$T/ms.json"
+printf '[{"number":22,"pull_request":null,"milestone":{"title":"A"}}]' > "$T/iss446.json"
+run446
+expect "#446: a done phase holding a Forgejo issue fails rule 4" 1 "$rc"
+contains 'rule 4: phase "A" is done but holds 1 open ticket(s).' "$out" "#446: and names phase A and the count"
+printf '[{"number":23,"pull_request":{"merged":false},"milestone":{"title":"A"}}]' > "$T/iss446.json"
+run446
+expect "#446: a Forgejo PR in a done phase's milestone is not a ticket, so rule 4 passes" 0 "$rc"
+absent_line "rule 4" "$out" "#446: and no rule 4 line is printed for it"
+
 echo "== forge-lib.sh resolves by SEARCH, not only by adjacency =="
 # The two assets belong to DIFFERENT skills, so in the source tree they can never sit beside each
 # other, and in a forge-adapt install they both land in scripts/ and can. Resolving only by

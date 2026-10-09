@@ -309,6 +309,41 @@ expect "the ticket followed the rename" "NewAlpha" "$(jq -r '.[0].milestone' "$T
 contains "emptied, not deleted" "$out" "the old milestone is reported emptied rather than removed"
 contains "Alpha" "$(jq -c '.' "$T/ms.json")" "and it is still present on the host under its old title"
 
+echo "== #446: rename over the REAL forge_issue_milestone_list on Forgejo =="
+# The stub above returns flattened issues, so it never exercised the filter #446 broke. Under that bug
+# the read dropped every Forgejo issue, so rename moved nothing and confirm_emptied counted zero and
+# reported the old phase emptied while it still held a ticket. This wrapper sources the real library
+# and stubs only the transport (Forgejo's wire shape) and the writers; NOOP446=1 makes the move a no-op.
+LIB446="$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh"
+# The copied stub minus the three functions the real library must answer: its forge_host would say
+# github, and its issue read is the flattened one.
+awk '/^forge_issue_milestone_list\(\) \{/{skip=1} /^forge_(host|repo)\(\)/{next} !skip{print} skip&&/^\}/{skip=0}' "$T/forge-lib.sh" > "$T/stub446.sh"
+cat > "$T/lib446.sh" <<STUB
+. "$LIB446"
+. "$T/stub446.sh"
+export FORGE_HOST=forgejo FORGE_REPO=o/r
+forge_api() { case "\$2" in *"/issues?"*page=1*) cat "\$ISS446" ;; *) printf '[]' ;; esac; }
+forge_issue_milestone() {
+  [ "\${NOOP446:-0}" = 1 ] && return 0
+  jq --argjson n "\$1" --arg t "\$2" 'map(if .number == \$n then .milestone = {title: \$t} else . end)' \
+    "\$ISS446" > "\$ISS446.tmp" && mv "\$ISS446.tmp" "\$ISS446"
+}
+STUB
+iss446='[{"number":10,"pull_request":null,"milestone":{"title":"Alpha"}},{"number":12,"pull_request":{"merged":false},"milestone":{"title":"Alpha"}}]'
+base_roadmap; base_milestones; base_issues
+printf '%s' "$iss446" > "$T/iss446.json"
+export FORGE_LIB="$T/lib446.sh" ISS446="$T/iss446.json"
+run rename Alpha NewAlpha
+expect "#446: rename on Forgejo exits 0 once the ticket really moved" 0 "$rc"
+expect "#446: and issue #10 now sits in NewAlpha" "NewAlpha" "$(jq -r '.[] | select(.number==10) | .milestone.title' "$T/iss446.json")"
+contains '"Alpha" is now emptied, not deleted' "$out" "#446: and the old phase is reported emptied"
+base_roadmap; base_milestones; base_issues
+printf '%s' "$iss446" > "$T/iss446.json"
+NOOP446=1 run rename Alpha NewAlpha
+expect "#446: when the move does not land, rename refuses with exit 4" 4 "$rc"
+contains 'reassess-phases: "Alpha" still holds 1 open ticket(s) after moving; not proceeding.' "$out" "#446: and counts the one ISSUE left behind, never the PR"
+unset FORGE_LIB ISS446
+
 echo "== delete relocates open tickets before removing the block (AC10, --to backlog resolves by state) =="
 base_roadmap; base_milestones
 printf '[{"number":10,"milestone":"Alpha"}]' > "$T/iss.json"
