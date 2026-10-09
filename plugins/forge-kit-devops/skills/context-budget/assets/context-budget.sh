@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# context-budget-version: 2
+# context-budget-version: 3
 # context-budget.sh: how many characters a project's next session loads before the first prompt (#297).
 #
 # Every @-import in CLAUDE.md is paid at the start of every session, every inheriting subagent and
@@ -273,9 +273,9 @@ measure() {
   bad=""
   if [ "$(printf '%s\n' "$markers" | grep -c '^ok \|^bad ')" -gt 1 ]; then
     bad="more than one context-budget marker"
-  elif printf '%s\n' "$markers" | grep -q '^bad '; then
+  elif grep -q '^bad ' <<< "$markers"; then
     bad=$(printf '%s\n' "$markers" | sed -n 's/^bad //p' | head -1)
-  elif printf '%s\n' "$markers" | grep -q '^ok '; then
+  elif grep -q '^ok ' <<< "$markers"; then
     failat=$(printf '%s\n' "$markers" | sed -n 's/^ok //p' | head -1)
   fi
   [ -n "$bad" ] && marker_rc=2
@@ -284,7 +284,7 @@ measure() {
   elif [ "$total" -ge "$WARN_AT" ]; then level=warn
   else level=ok; fi
 
-  awk -v FLAG="$SECTION_FLAG" -v nl="$(tail -c 1 "$cm" 2>/dev/null | od -An -tu1 | tr -d ' ' | grep -qx 10 && echo 1 || echo 0)" \
+  awk -v FLAG="$SECTION_FLAG" -v nl="$(grep -qx 10 <<< "$(tail -c 1 "$cm" 2>/dev/null | od -An -tu1 | tr -d ' ')" && echo 1 || echo 0)" \
     "$SECTION_AWK" < <(tr -d '\200-\277' < "$cm") > "$WORK/sections" || scan_failed
 
   {
