@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# context-budget-version: 1
+# context-budget-version: 2
 # context-budget.sh: how many characters a project's next session loads before the first prompt (#297).
 #
 # Every @-import in CLAUDE.md is paid at the start of every session, every inheriting subagent and
@@ -44,7 +44,6 @@
 # Portable to bash 3.2 and POSIX awk: no associative arrays, no mapfile, no readlink -f.
 set -uo pipefail
 export LC_ALL=C
-unset CDPATH   # a cd that finds its target through CDPATH prints it, corrupting physdir (#297 review r2)
 
 WARN_AT=40000
 FAIL_AT=80000
@@ -67,7 +66,7 @@ trap 'rm -rf "$WORK"' EXIT
 chars() { [ -r "$1" ] || { echo 0; return; }; tr -d '\200-\277' < "$1" 2>/dev/null | wc -c | tr -d ' '; }
 
 # physdir <dir>: the physical absolute path of a directory, or nothing.
-physdir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+physdir() { (CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P); }   # CDPATH= : a cd found through CDPATH prints its target (#297 review r2)
 
 # resolve_file <path>: the physical path of a regular file, following at most 8 symlinks, or nothing
 # for a missing target, a dangling link, a loop or a non-regular file.
