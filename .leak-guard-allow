@@ -78,3 +78,9 @@ prefix /home/<seg>
 prefix /home/<file>
 prefix /Users/<seg>
 prefix /home/*|
+
+# The context-budget contract test (#297). Its fixtures spell CLAUDE.md @-imports such as
+# "<name>@<file>.md" and a home-relative path outside the project, because the import grammar is what the
+# suite proves; each is address-shaped or root-shaped by design and names nobody. Skipped as a
+# file rather than as a dozen email entries, so no fake address is listed as published.
+skip scripts/test-context-budget.sh

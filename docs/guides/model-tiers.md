@@ -146,6 +146,7 @@ xhigh < max`.
 | find-dead-code | session | runs a tool then judges its output in one file; only a split could fork the run step |
 | forge-host | session | knowledge: inert text, the reader's model governs |
 | github-to-forgejo | session | judgment: a migration playbook the user steers |
+| context-budget | session | runs one script and reads its figure; nothing to judge, no reason to fork |
 | release-automation | session | knowledge: inert text, the reader's model governs |
 | release | session | needs the user: the bump level is a human judgement and it STOPs on divergence, so it cannot fork, and its irreversible host writes do not move to a cheaper tier |
 | closing-sessions | session | reads the current conversation, which a fork cannot see |

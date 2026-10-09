@@ -12,6 +12,7 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | Test suite + coverage-focused CI | `mutation-sweep` | testing | finds tests that cannot fail; survivor triage | P2 |
 | Ships releases / has a VERSION or package.json version | `release` | devops | semver bump + sync + tag + close shipped tickets | P2 |
 | Merges to main as a release; bump/tag is manual (easily forgotten) | `release-automation` | devops | CI gate: block a merge that did not bump the version | P1 |
+| `CLAUDE.md` is large (tens of KB) or `@`-imports other files | `context-budget` | devops | characters loaded per session; warn 40k, fail 80k | P2 |
 | Long Claude Code sessions; decisions/context lost between them | `closing-sessions` | governance | persist session facts to memory + handoff notes | P2 |
 | Public origin with AGENTS.md ignored or absent, a tracked CONTRIBUTING.md, or several commit authors | `contributor-docs` | governance | contributor docs a clone can trust; CI check | P2 |
 

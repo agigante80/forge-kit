@@ -21,7 +21,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 6 -->
+<!-- health-check-version: 7 -->
 
 Tier: a mechanical role, so Sonnet at low effort, which in measurement reported the same missing items as a stronger tier while Haiku missed two of three.
 
@@ -167,6 +167,22 @@ Read `CLAUDE.md` for any project-specific setup requirements listed under a "Set
 Also note: check your project's CLAUDE.md for any required Claude Code plugins or agents
 that need to be installed manually in a Claude Code session.
 
+### 11. Startup context budget (advisory)
+
+How many characters the next session loads before the first prompt. Locate the
+`context-budget` asset (`$CLAUDE_PLUGIN_ROOT` is not exported to this Bash) and run it:
+
+```bash
+cb=$( { [ -f scripts/context-budget.sh ] && echo scripts/context-budget.sh; } \
+  || ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/context-budget.sh 2>/dev/null \
+  || find ~/.claude/plugins -name context-budget.sh -exec grep -m1 -Ho 'context-budget-version: [0-9]*' {} + 2>/dev/null \
+     | sed 's/:context-budget-version: \([0-9]*\)$/	\1/' | sort -t"$(printf '\t')" -k2,2n -k1,1 | tail -1 | cut -f1 )
+[ -n "$cb" ] && [ -f CLAUDE.md ] && bash "$cb" . 2>&1 | grep -E '^(total|level|move candidate):'
+```
+
+Report the total and level as one row: `ok` is ✅, `warn` or `FAIL` is ⚠️, never ❌. Omit
+the row when the asset or `CLAUDE.md` is not found. Never edit anything.
+
 ---
 
 ## Output format
@@ -186,6 +202,7 @@ that need to be installed manually in a Claude Code session.
 | 8 | Git remote | ✅/⚠️ | URL |
 | 9 | GitHub CLI | ✅/⚠️ | logged in or not |
 | 10 | Project-specific | ⚠️ MANUAL | see CLAUDE.md |
+| 11 | Startup context | ✅/⚠️ | N characters, level (advisory; omitted if not found) |
 
 ### Summary
 - ✅ X checks passed
