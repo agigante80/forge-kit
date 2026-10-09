@@ -153,3 +153,48 @@ Only decisions not already recorded on a ticket.
 - **The startup-context budget** (#297): *What a session loads before work begins*.
 - **Raising the `leak-guard` word ceiling or budget**: an agent never does; a shortfall is a
   maintainer question.
+
+## Close record
+
+Closed 2026-10-09, during an overnight run. **Outcome: re-shaped.** Four of the five expected
+tickets landed; #226 moved to `backlog` with its pick intact, because the downstream allow-file
+audit the maintainer agreed to run (2026-10-08) was not on the ticket when the other four were done.
+
+| Ticket | Landed | Notes |
+|---|---|---|
+| #417 | d79e5b0, 060a055, d93fd7e | All nine `killed_at_bound` rows dropped: each mutant already dies on a structural ledger row, so none needed calibrating; the private suite has no timing row |
+| #207 | 6fd695e, 2092900 | 15 entries (2 `root`, 8 `prefix`, 5 `email`, no `skip`) cover all 38 findings; `--history` exits 0; gate round 1 PASS |
+| #416 | 242090f, c8ea9c7, 9229dbe, 88d67c0, a24b76a | Character floor and two-whole-character redaction in every locale, in all three `redact` copies across both scanners; gate never returned PASS (3 rounds, the last on scenario formatting only) |
+| #391 | a430cc8, 44481d8, 51c3bc9, 3b5940f | `marker [name]` key in the public parser, ignore arm in the private one; gate never returned PASS (3 rounds, the last blocking item fixed in 3b5940f and not re-gated) |
+| #226 | none | Moved to `backlog`; body rewritten to the pick overnight, gate rounds 3 to 5 NEEDS-WORK, round 5's one significant fix (the widening audit command) applied and not re-gated; implementation waits for the audit |
+
+**The premortem, clause by clause:**
+
+- *#226 refused `*` in a downstream allow-file nobody had read*: avoided by not shipping. The
+  phase closed without #226, exactly as the plan allowed.
+- *#226 narrowed the private half silently*: did not arise; nothing in #226 shipped.
+- *A timing row was calibrated on the same noisy clock it judges*: avoided by removal. Every row
+  had a structural twin, so no bound survives to be calibrated.
+- *The locale pick was applied to one scanner*: avoided. #416 fixed the private floor and all
+  three `redact` copies (private bash, private `--history` awk, public), with a parity row per
+  locale in each suite.
+- *Words*: held. `leak-guard` stayed at 3355 words; #391 paid for its paragraph, and no baseline
+  or ceiling moved.
+- *Collisions on the markers*: did not happen; the four ran in sequence, and `forge-kit-security`
+  went 0.16.0 to 0.17.2.
+- *#207's entries masked a real finding*: avoided. The evidence was grepped for the maintainer's
+  username and name variants with no hit; every value was a placeholder.
+- *#207 cannot be expressed*: did not happen; no `skip` was needed.
+
+**What the plan did not foresee:**
+
+- **Two tickets landed without a gate PASS.** #416 and #391 each hit the three-round gate cap with
+  content accepted and a formatting or one-line doc item left; both were implemented and reviewed
+  anyway. Whether a gate that stops on formatting should hold implementation is a question for the
+  maintainer, not one this close answers.
+- **#416 changed behaviour downstream**: a one or two character multibyte name the `C` locale used
+  to accept now exits 2, recorded in `CHANGELOG.md`.
+- **The local suite counts drift each landing**, because `CLAUDE.md` is untracked and a worktree
+  cannot see it; the main checkout was updated by hand after each ticket.
+- The lows went to #437, #438, #439 and #440 (backlog). Added to #440: `marker [.]` is accepted
+  while `root` and `prefix` refuse all-punctuation entries (noted by #391's gate).
