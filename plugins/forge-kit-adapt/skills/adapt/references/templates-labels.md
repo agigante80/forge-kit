@@ -159,7 +159,7 @@ mkdir -p scripts || die "cannot create scripts/"
 [ -f scripts/sync-labels.sh ] || { cp "$KSH/sync-labels.sh" scripts/sync-labels.sh && chmod +x scripts/sync-labels.sh || die "could not copy scripts/sync-labels.sh"; echo "copied scripts/sync-labels.sh"; }
 if [ ! -f scripts/forge-lib.sh ]; then
   cp "$KSH/forge-lib.sh" scripts/forge-lib.sh || die "could not copy scripts/forge-lib.sh"; echo "copied scripts/forge-lib.sh"
-  [ "$host" = forgejo ] && echo "Forgejo: forge-lib.sh needs the base URL; follow the Step 3 item 4 .forge.conf flow before the first sync."
+  [ "$host" = forgejo ] && echo "Forgejo: forge-lib.sh needs the base URL and an allowlisted host; follow the Step 3 item 4 .forge.conf flow before the first sync."
 fi
 echo "Run: bash scripts/sync-labels.sh --check"
 ```
@@ -179,7 +179,8 @@ echo "Run: bash scripts/sync-labels.sh --check"
   `.forgejo/labels.yml` (per `FORGE_HOST`) from the library's type, priority and `critical` entries
   plus one entry per area, and never `contribution`.
 - **`scripts/sync-labels.sh` and `scripts/forge-lib.sh`**: copied only when absent, together, never
-  run. On Forgejo with `forge-lib.sh` newly copied, finish through the Step 3 item 4 `.forge.conf` flow.
+  run. On Forgejo with `forge-lib.sh` newly copied, finish through the Step 3 item 4 `.forge.conf` flow,
+  which includes allowlisting the host (forge-host, #442).
 - **Refusals** (exit 1, nothing written): a description outside the allow-list or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[a-z0-9][a-z0-9._-]*$`, a duplicate, or
   a type, priority or special label name.
 

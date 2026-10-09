@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 33 -->
+<!-- forge-host-version: 34 -->
 
 # forge-host: host-aware forge operations
 
@@ -65,7 +65,7 @@ Source it; call `forge_*` instead of `gh` directly:
 **`forge_api` on an invalid host (v29, either host):** returns 2 with the one `forge_host` line on stderr and sends nothing, under `FORGE_DRY_RUN=1` too. Every writer and reader that goes through it inherits this; `forge_tag_exists` returns 2 then, meaning *could not ask*, not *tag absent*.
 
 **`forge_api` exit codes (forgejo path, v5+):** 0 for 2xx, **44 for 404**, 22 for any other
-non-2xx (including a 3xx that survives `-L`), and curl's own code for a transport failure. A
+non-2xx (including any 3xx: since v36 redirects are never followed), and curl's own code for a transport failure. A
 caller that treats every non-zero as fatal will now reject the ordinary "this owner is a user,
 so it has no org labels" case; branch on 44. The status is NOT published as a variable,
 because callers read the body with `$(...)` and a variable set in that subshell is discarded.
@@ -137,6 +137,15 @@ does NOT reflect Actions (those are Checks), so the github path stays on `gh run
    for the API differences that adapter accounts for (PR-versus-issue, pagination, auth header).
 
 ## Supplying the token locally
+
+**The trust boundary (v36, #442).** `.forge.conf` is committed, so it is the repo's word, not
+yours. A `FORGE_API_URL` read from it gets the token only when its host (port included) is in
+your allowlist, `${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts`, one per line; the refusal prints
+the exact command that adds it. The URL must be https unless YOU export `FORGE_ALLOW_HTTP=1` (the file
+cannot), redirects are never followed, and the token reaches curl through `-K`, never argv. In
+the file, `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`. A URL or name you
+export yourself is trusted as-is. `forge_token_present` reports the token's variable name and
+whether it is set, without printing it.
 
 `.forge.conf` names the env var (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`); how the token
 gets INTO it depends on the context, detailed in `references/local-auth.md`:

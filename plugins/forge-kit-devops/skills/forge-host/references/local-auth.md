@@ -6,6 +6,19 @@ committed. This reference covers how the token durably gets INTO that env var on
 of machine, and the credential-helper fallback built into the adapter. Use placeholders
 (`forge.example.com`) in anything committed; never a private host.
 
+**Before any of this works (forge-lib v36, #442):** a `FORGE_API_URL` read from the committed
+`.forge.conf` gets the token only if its host is in your allowlist, and only over https:
+
+```sh
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/forge"
+printf '%s\n' forge.example.com >> "${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts"
+```
+
+Add the port too when the URL carries one (`forge.example.com:3000`). An http-only instance
+needs `FORGE_ALLOW_HTTP=1` exported in your environment; the file cannot set it. In the file,
+`FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`; export any other name
+yourself. Run `forge_token_present` to see which variable is read and whether it is set.
+
 ## 1. Mint the most restrictive token that works
 
 Forgejo user tokens carry scopes and an optional per-repository restriction. For the
@@ -87,8 +100,9 @@ need a PAT secret (see `forgejo-ci.md`).
 
 ## 3. The built-in fallback: git's credential helper
 
-If `FORGE_TOKEN_ENV` is empty, `_forge_token` asks git's configured credential helper for
-the instance host before erroring (`git credential fill`, non-interactive, read-only).
+If the variable `FORGE_TOKEN_ENV` names is empty, `_forge_token` asks git's configured credential helper for
+the instance host before erroring (`git credential fill`, non-interactive, read-only), after
+the same allowlist check, so a hostile `.forge.conf` cannot point the helper at another host.
 That is the same encrypted store (libsecret, osxkeychain, Windows Credential Manager)
 already holding your git-over-HTTPS password for the instance, so if `git push` works over
 HTTPS, the API calls work with zero extra setup. To seed it explicitly:
@@ -102,7 +116,7 @@ Notes: helpers key on protocol+host (port included), not per-repo; `git-credenti
 is a plaintext backend, prefer libsecret/osxkeychain; the fallback never prompts and never
 writes, it only reads. **Opt out** with `FORGE_NO_GIT_CREDENTIALS=1` (env or `.forge.conf`)
 to restore strict env-only behavior: the token must then come explicitly from
-`FORGE_TOKEN_ENV`, and an unset token fails closed instead of being auto-discovered.
+the variable `FORGE_TOKEN_ENV` names, and an unset token fails closed instead of being auto-discovered.
 
 ## 4. CLIs (fj, tea): convenient, but not the canonical store
 

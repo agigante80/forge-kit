@@ -6,7 +6,7 @@ description: >
   push-mirror back to GitHub. Use when moving one or more repos to your own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 9 -->
+<!-- github-to-forgejo-version: 10 -->
 
 # github-to-forgejo
 
@@ -56,11 +56,15 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
 - Write `.forge.conf` at the repo root (committed, the deterministic signal for forge-host):
   ```
   FORGE_HOST=forgejo
-  FORGE_API_URL=http://<host>:<port>     # base, no /api/v1
+  FORGE_API_URL=https://<host>:<port>    # base, no /api/v1
   FORGE_REPO=<owner>/<repo>
-  FORGE_TOKEN_ENV=FORGEJO_TOKEN
   FORGE_REMOTE=forgejo
   ```
+- **Trust the host on each machine** (forge-lib v36, #442): the token goes to a committed
+  URL only if `<host>:<port>` is a line in `${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts`
+  (the refusal prints the exact command to run). An http-only instance also needs
+  `FORGE_ALLOW_HTTP=1` exported in your environment, never in `.forge.conf`. A token variable
+  other than `FORGEJO_TOKEN` or `FORGE_TOKEN` must be named by an exported `FORGE_TOKEN_ENV`.
 
 ## Phase 1: Create + push the repo
 - Create it: `POST /api/v1/user/repos {"name":"<repo>","private":true}` (or the org endpoint).

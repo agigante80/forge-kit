@@ -235,6 +235,9 @@ budget_for() {
 # deliberately out of scope here (#150 tracks ticket-gate); the ratchet stops the debt growing
 # while that waits. Lower a baseline when a component shrinks, so the gain is locked in.
 #
+# LOWERED 2026-10-09: adapt 7144 to 7143 (#442). Step 3 item 4 stops asking for the token-env name,
+# which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
+#
 # LOWERED 2026-10-08: ticket-gate 5648 to 5642 (#433). Step 3B's "in the foreground (blocking, never
 # run_in_background)" is deleted: the installed Claude Code offers no foreground Agent call, and the
 # no-poll-loops hook's deny reason now carries the wait rule, so the agent prose says none (six words).
@@ -394,7 +397,7 @@ budget_for() {
 # its own initiative. Ask.
 baseline_for() {
   case "$1" in
-    adapt)       echo 7144 ;;
+    adapt)       echo 7143 ;;
     ticket-gate) echo 5642 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;

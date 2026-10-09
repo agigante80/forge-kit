@@ -33,10 +33,12 @@ docker exec -u git <forgejo-container> \
   forgejo admin user generate-access-token --username <user> --scopes all --raw
 ```
 
-Export it under the name your `.forge.conf` declares (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`):
+Export it under the name your `.forge.conf` declares (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`;
+the file may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`), and allowlist the host (#442):
 
 ```
 export FORGEJO_TOKEN=<token>
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/forge" && printf '%s\n' forge.example.com >> "${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts"
 ```
 
 Never commit the token. `--scopes all` is the **admin-CLI** form (valid there). The token API /

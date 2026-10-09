@@ -21,7 +21,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 7 -->
+<!-- health-check-version: 8 -->
 
 Tier: a mechanical role, so Sonnet at low effort, which in measurement reported the same missing items as a stronger tier while Haiku missed two of three.
 
@@ -146,9 +146,11 @@ Detect the host and check the matching credential (do NOT assume `gh`). Run it i
     source scripts/forge-lib.sh
     case "$(forge_host)" in
       github)  gh auth status 2>&1 | head -3 ;;
-      forgejo) var="${FORGE_TOKEN_ENV:-FORGEJO_TOKEN}"      # honor a renamed token env
-               if [ -n "${!var:-}" ]; then echo "Forgejo token ($var) present for $(forge_repo)"
-               else echo "WARN: Forgejo token env '$var' is empty"; fi ;;
+      forgejo) # the library validates the token variable's name; never expand it here
+               if ! declare -F forge_token_present >/dev/null; then
+                 echo "WARN: scripts/forge-lib.sh cannot check the token safely; run forge-adapt refresh"
+               elif var="$(forge_token_present)"; then echo "Forgejo token ($var) present for $(forge_repo)"
+               else echo "WARN: Forgejo token ${var:+env '$var' }is empty or its name is refused"; fi ;;
     esac
   else
     gh auth status 2>&1 | head -3        # legacy GitHub-only install
@@ -156,7 +158,9 @@ Detect the host and check the matching credential (do NOT assume `gh`). Run it i
 ```
 
 WARN if the detected host's credential is missing (GitHub: not logged into `gh`; Forgejo: the token
-env named by `FORGE_TOKEN_ENV` in `.forge.conf`, default `FORGEJO_TOKEN`, is empty). It is needed
+env named by `FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`, is empty or that name is refused). The
+snippet never expands the configured name itself: a committed `.forge.conf` is not trusted, and
+`forge_token_present` validates the name before reading it (#442). It is needed
 for issue management and ticket-gate. Never let this check abort the rest of the health report.
 
 ### 10. Project-specific checks (from CLAUDE.md)

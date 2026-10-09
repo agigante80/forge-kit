@@ -5,10 +5,18 @@
 FORGE_HOST=forgejo                    # github | forgejo
 FORGE_API_URL=https://forge.example.com   # your Forgejo base URL (NO trailing /api/v1, it is appended)
 FORGE_REPO=youruser/your-repo         # owner/name as it exists on the forge
-FORGE_TOKEN_ENV=FORGEJO_TOKEN         # name of the env var holding the access token (default: FORGEJO_TOKEN)
 FORGE_REMOTE=forgejo                  # optional: which git remote name points at the forge (default: origin)
 
-# The token itself is NEVER committed; only its env-var NAME lives here. Recommended
+# Trust boundary (#442): this file is committed, so whoever controls the repo controls it.
+# forge-lib.sh therefore sends the token to a FORGE_API_URL read from here ONLY if its
+# host (with any port) is listed, one per line, in your own allowlist:
+#   mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/forge" && printf '%s\n' forge.example.com >> "${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts"
+# The URL must be https; an http instance needs FORGE_ALLOW_HTTP=1 exported in YOUR
+# environment (it is ignored here). FORGE_TOKEN_ENV may name only FORGEJO_TOKEN or
+# FORGE_TOKEN in this file; any other name must be exported in your environment instead.
+# A FORGE_API_URL exported in your environment needs no allowlist entry.
+#
+# The token itself is NEVER committed. Recommended
 # default: the env block of ~/.claude/settings.json (user-global, set once for all
 # projects; put ONLY the token there, never FORGE_HOST/FORGE_API_URL). Alternatives:
 # OS keyring/pass + profile or direnv, per-project .claude/settings.local.json, a CI

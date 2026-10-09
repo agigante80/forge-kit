@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 35
+# forge-lib-version: 36
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -158,13 +158,39 @@
 #       so every issue was dropped and check-phases rules 1 and 4 and reassess's emptied check ran
 #       over nothing. It now uses `.pull_request | not`, false for an absent key and for null alike,
 #       the filter forge_issue_list already used. GitHub output is unchanged.
+#   v36 The Forgejo token is bound to where it may go (#442). A FORGE_API_URL from .forge.conf
+#       needs its host[:port] in ${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts or forge_api
+#       refuses with rc 2 and sends nothing; an exported FORGE_API_URL needs no entry. Every
+#       FORGE_API_URL must be https (http only with FORGE_ALLOW_HTTP=1 exported). The file may
+#       set FORGE_TOKEN_ENV only to FORGEJO_TOKEN or FORGE_TOKEN; another name must be exported.
+#       Redirects are no longer followed (a 3xx is rc 22). The token reaches curl through -K,
+#       never argv. New: forge_token_present, for a caller that only asks whether a token is set.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
 set -uo pipefail
 
+# Clear every key a .forge.conf set that still holds exactly what the file wrote; anything else is
+# the caller's, and env wins. Only the six known keys, so a listed name is never eval'd blind.
+# The loop walks the six LITERAL names and looks each up in the list: splitting the list itself
+# would use the caller's IFS, and a strict-mode IFS=$'\n\t' then cleared nothing (#442 round 2).
+_forge_clear_file_vals() {
+  local k
+  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_TOKEN_ENV FORGE_REMOTE FORGE_NO_GIT_CREDENTIALS; do
+    case " ${_FORGE_FROM_FILE-} " in *" $k "*) ;; *) continue ;; esac
+    eval "_forge_was=\${_FORGE_FILEVAL_$k-}"
+    [ "${!k-}" = "$_forge_was" ] && unset "$k"
+    unset "_FORGE_FILEVAL_$k"
+  done
+  unset _forge_was
+  _FORGE_FROM_FILE=""
+}
+
 # Never inherit these: an inherited _FORGE_TMPDIR would be trusted, written to with a predictable
 # name and never cleaned; an inherited memo guard would suppress the first config load.
+# A RE-SOURCE in the same shell first clears what the file set (#442 review): otherwise the next
+# load finds FORGE_API_URL already set, takes it for the caller's own, and skips the allowlist.
+_forge_clear_file_vals
 unset _FORGE_TMPDIR _FORGE_CONF_PWD _FORGE_FROM_FILE
 
 _forge_root() { git rev-parse --show-toplevel 2>/dev/null || pwd; }
@@ -211,13 +237,7 @@ _forge_load_conf() {
   # so a process moving between repos would otherwise keep the first repo's identity.
   # Only clear a key that still holds exactly what the file put there. Anything else is the
   # caller's, and env wins.
-  for k in ${_FORGE_FROM_FILE-}; do
-    eval "_forge_was=\${_FORGE_FILEVAL_$k-}"
-    [ "${!k-}" = "$_forge_was" ] && unset "$k"
-    unset "_FORGE_FILEVAL_$k"
-  done
-  unset _forge_was
-  _FORGE_FROM_FILE=""
+  _forge_clear_file_vals
   _FORGE_CONF_PWD="${PWD-}"
   f="$root/.forge.conf"
   [ -f "$f" ] || return 0
@@ -232,6 +252,9 @@ _forge_load_conf() {
       FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS)
         [ -n "${!k:-}" ] || { printf -v "$k" '%s' "$v"     # NOT exported: see the header note
                               printf -v "_FORGE_FILEVAL_$k" '%s' "$v"   # what the file wrote (#131.1)
+                              # set -a, or an exported empty value, would export it anyway, and a
+                              # child would take it for the caller's own (#442 review)
+                              export -n "$k" "_FORGE_FILEVAL_$k"
                               _FORGE_FROM_FILE="${_FORGE_FROM_FILE-} $k"; } ;;  # env wins; else file
     esac
   done < "$f"
@@ -350,10 +373,58 @@ forge_api_base() {
   esac
 }
 
-_forge_token() {
+# The characters a token variable name and a validated host may contain, spelled out rather than
+# written as ranges so no locale can widen them (#442: a UTF-8 [A-Za-z] admits a dotless i).
+_FORGE_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+
+# _forge_xtrace_off / _forge_xtrace_restore: every function that holds the token runs with xtrace
+# off (#442), because `set -x` in a caller printed it on four lines. The previous state is kept in
+# the caller's own `local _fx`, so nesting restores correctly.
+#
+# _forge_token_var: print the validated name of the variable that holds the Forgejo token (#442).
+# The name is checked BEFORE `${!var}`: a subscript such as `x[$(cmd)]` is evaluated by indirect
+# expansion, so an unchecked name from a committed .forge.conf ran code. A name from the file may
+# only be one of the two the docs use; any other identifier must come from the environment, which
+# is the user's own.
+_forge_token_var() {
   _forge_load_conf
   local var="${FORGE_TOKEN_ENV:-FORGEJO_TOKEN}"
-  if [ -n "${!var:-}" ]; then printf '%s' "${!var}"; return 0; fi
+  case "$var" in
+    [0123456789]*|*[!${_FORGE_ALNUM}_]*)
+      echo "forge-lib: FORGE_TOKEN_ENV is not a valid variable name" >&2; return 2 ;;
+  esac
+  case " ${_FORGE_FROM_FILE-} " in *" FORGE_TOKEN_ENV "*)
+    case "$var" in FORGEJO_TOKEN|FORGE_TOKEN) ;; *)
+      echo "forge-lib: FORGE_TOKEN_ENV in .forge.conf may only name FORGEJO_TOKEN or FORGE_TOKEN; export it in your environment to use another variable" >&2
+      return 2 ;; esac ;;
+  esac
+  printf '%s\n' "$var"
+}
+
+# forge_token_present: print the token variable's name; rc 0 when it holds a value, 1 when it is
+# empty, 2 when the name is refused. It never prints the token and never asks git's credential
+# helper, so a status check (health-check step 9) can call it without indirect expansion of its own.
+forge_token_present() {
+  local _fx=0 var rc=0; case $- in *x*) _fx=1; set +x ;; esac
+  if var="$(_forge_token_var)"; then
+    printf '%s\n' "$var"; [ -n "${!var:-}" ] || rc=1
+  else rc=2; fi
+  [ "$_fx" = 0 ] || set -x
+  return "$rc"
+}
+
+_forge_token() {
+  local _fx=0 rc; case $- in *x*) _fx=1; set +x ;; esac
+  _forge_token_impl; rc=$?
+  [ "$_fx" = 0 ] || set -x
+  return "$rc"
+}
+
+_forge_token_impl() {
+  _forge_load_conf
+  local var tok=""
+  var="$(_forge_token_var)" || return 2
+  if [ -n "${!var:-}" ]; then tok="${!var}"; fi
   # Fallback: ask git's credential helper for this instance (the mise pattern,
   # see references/local-auth.md). Reads the same encrypted store already used
   # for git-over-HTTPS; never prompts (GIT_TERMINAL_PROMPT=0, askpass stubbed:
@@ -366,7 +437,7 @@ _forge_token() {
   # with no prompt and no hang (verified), never to a prompt.
   local url proto host cred
   url="${FORGE_API_URL:-}"
-  if [ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then
+  if [ -z "$tok" ] && [ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then
     proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
     # The same authority rule as forge_host, port kept (#212): the old cut at `/` alone let
     # `https://evil.internal#@github.com` hand github.com's credential to evil.internal.
@@ -374,10 +445,67 @@ _forge_token() {
     cred=$(printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" \
              | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true git credential fill 2>/dev/null \
              | sed -n 's/^password=//p' | head -n1)
-    if [ -n "$cred" ]; then printf '%s' "$cred"; return 0; fi
+    [ -z "$cred" ] || { tok="$cred"; var="git's credential helper"; }
   fi
-  echo "forgejo: token env '$var' is empty and git's credential helper has no entry for '${host:-unset}'." >&2
-  echo "         Mint a scoped token and supply it; see forge-host references/local-auth.md." >&2
+  if [ -z "$tok" ]; then
+    echo "forgejo: token env '$var' is empty and git's credential helper has no entry for '${host:-unset}'." >&2
+    echo "         Mint a scoped token and supply it; see forge-host references/local-auth.md." >&2
+    return 2
+  fi
+  # The token is written into a curl config line (#442), whose quoted-string syntax gives a quote,
+  # a backslash or a line break meaning; refuse rather than escape, since no real token has them.
+  case "$tok" in *[\"\\]*|*[[:cntrl:]]*)
+    echo "forge-lib: token in $var cannot be passed to curl safely (it contains a quote, a backslash or a control character)" >&2
+    return 2 ;;
+  esac
+  printf '%s' "$tok"
+}
+
+# _forge_check_url: may the token be sent to FORGE_API_URL? rc 0 or rc 2 with a message (#442).
+# Every URL must be https, or http with FORGE_ALLOW_HTTP=1 exported (the file cannot set it, since
+# it is not a key _forge_load_conf reads). A URL that came from the committed .forge.conf must also
+# name a host the USER listed in ${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts: a clone of someone
+# else's repository must not be able to send this user's token to a host of its choosing. An
+# exported URL is the user's own and needs no entry. The scheme check lives here and NOT in
+# forge_host or forge_api_base, which adapt/SKILL.md calls with a scheme-less sentinel URL.
+_forge_check_url() {
+  _forge_load_conf   # in THIS shell: forge_api_base loaded it in a $(...) that is gone
+  local url="${FORGE_API_URL-}" h hp hf want
+  case "$url" in
+    https://*) ;;
+    http://*) [ "${FORGE_ALLOW_HTTP:-0}" = 1 ] || {
+      echo "forge-lib: refusing to send the token over http; use an https FORGE_API_URL, or export FORGE_ALLOW_HTTP=1 for a trusted LAN instance" >&2
+      return 2; } ;;
+    *) echo "forge-lib: FORGE_API_URL must be an https URL, not an option or another scheme" >&2; return 2 ;;
+  esac
+  case " ${_FORGE_FROM_FILE-} " in *" FORGE_API_URL "*) ;; *) return 0 ;; esac
+  # The RAW URL first: _forge_url_host strips userinfo, so a check on its output never sees the @
+  # of `https://allowed@evil/`, and `https://evil\@allowed/` extracts as `allowed`. Anything but
+  # printable ASCII (byte-wise, so a space, a control character or a UTF-8 lookalike), a
+  # backslash, or an @ in the authority is refused, printing nothing from the URL.
+  h="${url#*://}"; h="${h%%[/?#]*}"
+  case "$url" in *\\*) h="@" ;; esac
+  [ -z "$(printf '%s' "$url" | LC_ALL=C tr -d '\041-\176')" ] || h="@"
+  # Then the extracted host[:port], strictly: letters, digits, dot, hyphen, at most one colon, a
+  # host part not starting with - or ., and an all-digit port. A bracketed IPv6 literal is refused.
+  case "$h" in *@*) h="" ;; *) h="$(_forge_url_host "$url" keep-port)" ;; esac
+  hp="${h%%:*}"
+  case "$h" in
+    ''|*[!${_FORGE_ALNUM}.:-]*|*:*:*|*:) h="" ;;
+    *:*) case "${h#*:}" in *[!0123456789]*) h="" ;; esac ;;
+  esac
+  case "$hp" in ''|-*|.*) h="" ;; esac
+  if [ -z "$h" ]; then echo "forge-lib: invalid forge host in FORGE_API_URL (from .forge.conf)" >&2; return 2; fi
+  hf="${XDG_CONFIG_HOME:-${HOME-}/.config}/forge/hosts"
+  want="$(printf '%s' "$h" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  if [ -f "$hf" ] && LC_ALL=C grep -qixF -e "$want" <<< "$(LC_ALL=C sed 's/\r$//; s/^[[:space:]]*//; s/[[:space:]]*$//; /^#/d; /^$/d' "$hf")"; then
+    return 0
+  fi
+  {
+    printf 'forge-lib: %s (FORGE_API_URL from .forge.conf) is not in the forge host allowlist, so no token is sent.\n' "$h"
+    printf '           If you trust that host, add it and retry:\n'
+    printf "           mkdir -p \"\${XDG_CONFIG_HOME:-\$HOME/.config}/forge\" && printf '%%s\\\\n' %q >> \"\${XDG_CONFIG_HOME:-\$HOME/.config}/forge/hosts\"\n" "$h"
+  } >&2
   return 2
 }
 
@@ -401,34 +529,51 @@ forge_api() {
       if [ -n "$body" ]; then printf '%s' "$body" | gh api -X "$method" "${path#/}" --input -
       else gh api -X "$method" "${path#/}"; fi ;;
     forgejo)
-      # || return 2: in conditional callers (if out=$(forge_api ...); forge_ci_status)
-      # set -e does not fire on the assignment, and without the guard an EMPTY
-      # Authorization header would go over the wire and mask the real cause.
-      local base tok
-      base="$(forge_api_base)" || return 2
-      tok="$(_forge_token)"    || return 2
-      # NOT `curl -f` (issue #78.2): -f collapses every HTTP >= 400 into exit 22 with no body and
-      # no status, so a caller cannot tell 404 (an org with no labels: fine) from 401 or 500 (a
-      # real failure). The status is appended on its own line and split off here.
-      local out rc
-      if [ -n "$body" ]; then
-        # The body goes on STDIN (#409): `-d "$body"` put the whole payload in one execve argument,
-        # which Linux caps at MAX_ARG_STRLEN (131072), so a large body failed with rc 126.
-        out="$(printf '%s' "$body" | curl -sSL -w '\n%{http_code}' -X "$method" -H "Authorization: token $tok" -H 'Content-Type: application/json' --data-binary @- "$base$path")"; rc=$?
-      else
-        out="$(curl -sSL -w '\n%{http_code}' -X "$method" -H "Authorization: token $tok" "$base$path")"; rc=$?
-      fi
-      [ "$rc" -eq 0 ] || return "$rc"          # transport failure: curl's own code, no status
-      local status="${out##*$'\n'}"
-      printf '%s' "${out%$'\n'*}"
-      # The status is reported through the EXIT CODE, not a variable. Every caller reads the body
-      # with $(...), which runs this function in a SUBSHELL, so any variable set here is discarded
-      # before the caller can read it. An exit code is the one channel that survives.
-      case "$status" in
-        2*)  return 0 ;;
-        404) return 44 ;;
-        *)   echo "forge-lib: HTTP $status from $method $path" >&2; return 22 ;;
-      esac ;;
+      # The whole arm runs with xtrace off (#442): the token passes through it.
+      local _fx=0 rc; case $- in *x*) _fx=1; set +x ;; esac
+      _forge_api_forgejo "$method" "$path" "$body"; rc=$?
+      [ "$_fx" = 0 ] || set -x
+      return "$rc" ;;
+  esac
+}
+
+_forge_api_forgejo() {
+  local method="$1" path="$2" body="$3"
+  # || return 2: in conditional callers (if out=$(forge_api ...); forge_ci_status)
+  # set -e does not fire on the assignment, and without the guard an EMPTY
+  # Authorization header would go over the wire and mask the real cause.
+  # The URL is checked BEFORE the token is read, so a refused host never reaches git's
+  # credential helper either (#442).
+  local base tok proto=https
+  base="$(forge_api_base)" || return 2
+  _forge_check_url         || return 2
+  tok="$(_forge_token)"    || return 2
+  [ "${FORGE_ALLOW_HTTP:-0}" = 1 ] && proto=https,http
+  # NOT `curl -f` (issue #78.2): -f collapses every HTTP >= 400 into exit 22 with no body and
+  # no status, so a caller cannot tell 404 (an org with no labels: fine) from 401 or 500 (a
+  # real failure). The status is appended on its own line and split off here.
+  # #442: no -L, so a 3xx is reported rather than followed to wherever it points with the
+  # header; --proto refuses any other scheme; -g stops [] and {} in a path being globbed; --url
+  # means a URL beginning with - can never be read as an option; and the header travels in a -K
+  # config on a pipe, so the token is in no process's argv.
+  local out rc
+  if [ -n "$body" ]; then
+    # The body goes on STDIN (#409): `-d "$body"` put the whole payload in one execve argument,
+    # which Linux caps at MAX_ARG_STRLEN (131072), so a large body failed with rc 126.
+    out="$(printf '%s' "$body" | curl -sS -g --proto "=$proto" -K <(printf 'header = "Authorization: token %s"\n' "$tok") -w '\n%{http_code}' -X "$method" -H 'Content-Type: application/json' --data-binary @- --url "$base$path")"; rc=$?
+  else
+    out="$(curl -sS -g --proto "=$proto" -K <(printf 'header = "Authorization: token %s"\n' "$tok") -w '\n%{http_code}' -X "$method" --url "$base$path")"; rc=$?
+  fi
+  [ "$rc" -eq 0 ] || return "$rc"          # transport failure: curl's own code, no status
+  local status="${out##*$'\n'}"
+  printf '%s' "${out%$'\n'*}"
+  # The status is reported through the EXIT CODE, not a variable. Every caller reads the body
+  # with $(...), which runs this function in a SUBSHELL, so any variable set here is discarded
+  # before the caller can read it. An exit code is the one channel that survives.
+  case "$status" in
+    2*)  return 0 ;;
+    404) return 44 ;;
+    *)   echo "forge-lib: HTTP $status from $method $path" >&2; return 22 ;;
   esac
 }
 
