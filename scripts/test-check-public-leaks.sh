@@ -2208,7 +2208,7 @@ mk_mut unqroots 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;
 mk_mut unqusers 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;/        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=($val) ;;/'
 ( cd "$GLOBDIR" && "$MKM" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob-h.txt" >/dev/null 2>&1 ); expect "mutant (#391): the unquoted users append makes [a-z] a glob that silences /home/q/x" 0 "$?"
 # The compare in in_list_stripping is a quoted string equality. A token such as [a]*[b] holds a
-# real glob (any 7 bytes from a to b) that a bracket expression alone does not (review r1).
+# real glob (an a, any run, then a b) that a bracket expression alone does not (review r1).
 printf 'marker [a]*[b]\n' > "$WORK/mk-star-allow"
 printf 'see /home/a1234xb/x\nsee ~/a1234xb/x\n' > "$WORK/mk-star.txt"
 "$SCRIPT" --allow-file "$WORK/mk-star-allow" "$WORK/mk-star.txt" >/dev/null 2>&1; expect "marker [a]*[b] is a literal: /home/a1234xb/x and ~/a1234xb/x stay reported" 1 "$?"
@@ -2232,6 +2232,13 @@ printf 'marker [a]*]\n' > "$WORK/mk-star2-allow"
 printf 'see /home/abcd]/x\nsee ~/abcd]/x\n' > "$WORK/mk-star2.txt"
 "$SCRIPT" --allow-file "$WORK/mk-star2-allow" "$WORK/mk-star2.txt" >/dev/null 2>&1; expect "marker [a]*] is a literal: /home/abcd]/x and ~/abcd]/x stay reported" 1 "$?"
 "$MKM" --allow-file "$WORK/mk-star2-allow" "$WORK/mk-star2.txt" >/dev/null 2>&1; expect "mutant (#391): the unquoted compare also lets [a]*] silence both" 0 "$?"
+# The single-bracket form `[ x = $e ]` does not pattern match, but $e is still pathname-expanded:
+# from a directory holding a file that the glob matches, the mutant silences a finding (review r2).
+STARDIR="$WORK/stardir"; mkdir -p "$STARDIR"; : > "$STARDIR/a1234xb"; : > "$STARDIR/abcd]"
+( cd "$STARDIR" && "$SCRIPT" --allow-file "$WORK/mk-star-allow" "$WORK/mk-star.txt" >/dev/null 2>&1 ); expect "marker [a]*[b] stays literal from a directory holding a matching file" 1 "$?"
+( cd "$STARDIR" && "$SCRIPT" --allow-file "$WORK/mk-star2-allow" "$WORK/mk-star2.txt" >/dev/null 2>&1 ); expect "marker [a]*] stays literal from a directory holding a matching file" 1 "$?"
+mk_mut unqcmpsingle 's/^    \[ "\${s:0:n}" = "\$e" \] || continue/    [ "${s:0:n}" = $e ] || continue/'
+( cd "$STARDIR" && "$MKM" --allow-file "$WORK/mk-star-allow" "$WORK/mk-star.txt" >/dev/null 2>&1 ); expect "mutant (#391): the single-bracket unquoted compare lets a stray file silence [a]*[b]" 0 "$?"
 # U+2003 inside the token: accepted in every locale, as rule A's C-locale class yields it (#400, #403).
 for L in $locs; do
   printf 'marker [my%sco]\n' "$EMSP" > "$WORK/mk-allow"
