@@ -586,6 +586,7 @@ m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]
 }
 m416 floor "counting bytes at the floor" 's|^  if \[ "\$CHARS" -lt "\$MIN_NAME_LEN" \]; then$|  if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then|'
 m416 cut "keeping two bytes in the bash redact" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
+m416 mask "counting the mask in bytes" 's|k=\$(( CHARS - 2 ))|k=$(( ${#n} - 2 ))|'
 if [ -n "$utf8loc" ]; then
   m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
 else

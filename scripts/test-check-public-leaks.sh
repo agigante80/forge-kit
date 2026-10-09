@@ -1688,6 +1688,7 @@ m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]: a scratch c
   if [ "$sig" != "$GOOD416" ]; then ok "mutant (#416, $1): $2 changes a row"; else bad "mutant (#416, $1): $2 survives every row"; fi
 }
 m416 cut "keeping two bytes" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
+m416 mask "counting the mask in bytes" 's|k=\$(( CHARS - 2 ))|k=$(( ${#n} - 2 ))|'
 if [ -n "$ANYUTF8" ]; then
   m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
 else
