@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 28 -->
+<!-- leak-guard-version: 29 -->
 
 # Leak guard
 
@@ -173,7 +173,7 @@ check-private-leaks.sh --init [--list <path>]
 > `.leak-guard-allow` the public half reads, and this half honours only path globs from
 > it: a generated lockfile that happens to contain a listed name, a test fixture using one
 > as sample data. A **name** must never appear in it: the file is tracked and public, and
-> a name there rebuilds the index the list exists to avoid. `root`, `prefix` and `email`
+> a name there rebuilds the index the list exists to avoid. `root`, `prefix`, `marker` and `email`
 > are the public half's keys and are ignored here rather than refused, so one file serves
 > both scanners.
 > `skip` reaches `--history` too: it is applied to each path a blob was ever known by, and the

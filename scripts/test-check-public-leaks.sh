@@ -184,7 +184,7 @@ expect "near miss: ~/[mycoX]/x is still a root"              1 "$(scan_line 'see
 expect "near miss: /home/[mycoX]/x is still a user"         1 "$(scan_line 'see /home/[mycoX]/x' --allow-file "$WORK/allow-mk")"
 expect "near miss: /home/[myc]/x is still a user"           1 "$(scan_line 'see /home/[myc]/x' --allow-file "$WORK/allow-mk")"
 expect "without the entry ~/[myco]/x is still a root"        1 "$(scan_line 'see ~/[myco]/x')"
-for v in 'myco' '[myco' 'myco]' '[]' '[a/b]' '[a b]' '[a"b]' '[a`b]' '[a]/' ''; do
+for v in 'myco' '[myco' 'myco]' '[]' '[a/b]' '[a b]' '[a"b]' '[a`b]' '[a]/'; do
   printf 'marker %s\n' "$v" > "$WORK/bad-mk"
   "$SCRIPT" --allow-file "$WORK/bad-mk" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
   expect "marker '$v' refuses the run (#391)" 2 "$?"
@@ -2197,16 +2197,41 @@ expect "[myco] is a literal: ~/c/x is still a root"             1 "$(scan_line '
 # A glob in the token must stay a literal even with a matching file in the working directory.
 GLOBDIR="$WORK/globdir"; mkdir -p "$GLOBDIR"; : > "$GLOBDIR/q"
 printf 'marker [a-z]\n' > "$WORK/mk-glob-allow"
-printf 'see /home/q/x\nsee ~/q/x\n' > "$WORK/mk-glob.txt"
-( cd "$GLOBDIR" && "$SCRIPT" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob.txt" >/dev/null 2>&1 ); expect "marker [a-z] with a file q beside it leaves /home/q/x and ~/q/x reported" 1 "$?"
+printf 'see /home/q/x\n' > "$WORK/mk-glob-h.txt"; printf 'see ~/q/x\n' > "$WORK/mk-glob-r.txt"
+# One file per shape, so a mutant that widens only ONE of the two lists is killed by its own row.
+( cd "$GLOBDIR" && "$SCRIPT" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob-h.txt" >/dev/null 2>&1 ); expect "marker [a-z] with a file q beside it leaves /home/q/x reported" 1 "$?"
+( cd "$GLOBDIR" && "$SCRIPT" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob-r.txt" >/dev/null 2>&1 ); expect "marker [a-z] with a file q beside it leaves ~/q/x reported" 1 "$?"
 printf 'see /home/[a-z]/x\n' > "$WORK/mk-glob2.txt"
 ( cd "$GLOBDIR" && "$SCRIPT" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob2.txt" >/dev/null 2>&1 ); expect "and silences the literal /home/[a-z]/x" 0 "$?"
-mk_mut unqroot 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;/        ALLOW_ROOTS+=($val); PLACEHOLDER_USERS+=($val) ;;/'
-( cd "$GLOBDIR" && "$MKM" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob.txt" >/dev/null 2>&1 ); expect "mutant (#391): the unquoted append makes [a-z] a glob that silences /home/q/x" 0 "$?"
-# No unquoted-pattern-compare mutant, deliberately (gate r1 asked for one): a bracketed entry is at
-# least 3 bytes and in_list_stripping only compares a value truncated to the entry's length, while a
-# bracket expression in a case pattern matches ONE byte, so that mutant cannot silence anything
-# and is equivalent. The unquoted append above is the reachable one.
+mk_mut unqroots 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;/        ALLOW_ROOTS+=($val); PLACEHOLDER_USERS+=("$val") ;;/'
+( cd "$GLOBDIR" && "$MKM" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob-r.txt" >/dev/null 2>&1 ); expect "mutant (#391): the unquoted roots append makes [a-z] a glob that silences ~/q/x" 0 "$?"
+mk_mut unqusers 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;/        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=($val) ;;/'
+( cd "$GLOBDIR" && "$MKM" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob-h.txt" >/dev/null 2>&1 ); expect "mutant (#391): the unquoted users append makes [a-z] a glob that silences /home/q/x" 0 "$?"
+# The compare in in_list_stripping is a quoted string equality. A token such as [a]*[b] holds a
+# real glob (any 7 bytes from a to b) that a bracket expression alone does not (review r1).
+printf 'marker [a]*[b]\n' > "$WORK/mk-star-allow"
+printf 'see /home/a1234xb/x\nsee ~/a1234xb/x\n' > "$WORK/mk-star.txt"
+"$SCRIPT" --allow-file "$WORK/mk-star-allow" "$WORK/mk-star.txt" >/dev/null 2>&1; expect "marker [a]*[b] is a literal: /home/a1234xb/x and ~/a1234xb/x stay reported" 1 "$?"
+mk_mut unqcmp 's/^    \[ "\${s:0:n}" = "\$e" \] || continue/    [[ "${s:0:n}" == $e ]] || continue/'
+"$MKM" --allow-file "$WORK/mk-star-allow" "$WORK/mk-star.txt" >/dev/null 2>&1; expect "mutant (#391): an unquoted pattern compare lets [a]*[b] silence both" 0 "$?"
+# --history shares judge() with the tree modes (ticket unit-test list, review r1).
+mkrepo mk-hist
+hcommit note.md 'see /home/[myco]/x and ~/[myco]/y\n'
+printf 'marker [myco]\n' > "$WORK/mk-hallow"
+hrun --history --allow-file "$WORK/mk-hallow"; expect "--history: marker [myco] silences a one-blob repository (#391)" 0 "$RC"
+hrun --history; expect "--history: without the entry the same blob is reported (#391)" 1 "$RC"
+printf 'marker []\n' > "$WORK/mk-allow"
+"$SCRIPT" --allow-file "$WORK/mk-allow" "$WORK/lk-clean.txt" >/dev/null 2>"$WORK/err.txt"
+expect "marker [] exits 2" 2 "$?"
+contains "marker cannot be empty" "$(cat "$WORK/err.txt")" "and says the marker is empty"
+printf 'marker [a b]\n' > "$WORK/mk-allow"
+"$SCRIPT" --allow-file "$WORK/mk-allow" "$WORK/lk-clean.txt" >/dev/null 2>"$WORK/err.txt"
+contains "marker cannot contain a slash, whitespace, a double quote or a backtick" "$(cat "$WORK/err.txt")" "and the byte refusal names its class"
+contains "mk-allow:1:" "$(cat "$WORK/err.txt")" "and the line number"
+printf 'marker [a]*]\n' > "$WORK/mk-star2-allow"
+printf 'see /home/abcd]/x\nsee ~/abcd]/x\n' > "$WORK/mk-star2.txt"
+"$SCRIPT" --allow-file "$WORK/mk-star2-allow" "$WORK/mk-star2.txt" >/dev/null 2>&1; expect "marker [a]*] is a literal: /home/abcd]/x and ~/abcd]/x stay reported" 1 "$?"
+"$MKM" --allow-file "$WORK/mk-star2-allow" "$WORK/mk-star2.txt" >/dev/null 2>&1; expect "mutant (#391): the unquoted compare also lets [a]*] silence both" 0 "$?"
 # U+2003 inside the token: accepted in every locale, as rule A's C-locale class yields it (#400, #403).
 for L in $locs; do
   printf 'marker [my%sco]\n' "$EMSP" > "$WORK/mk-allow"

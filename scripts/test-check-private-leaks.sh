@@ -111,7 +111,7 @@ contains "git rm --cached" "$(cat "$WORK/err.txt")" "and says exactly how to fix
 expect "an untracked list in the same directory is fine" 1 "$?"
 
 echo "== the allow-file skips paths, honouring only skip (Task 3, forge-kit) =="
-# Same .leak-guard-allow the public half reads. This half honours only `skip`; root/prefix/email
+# Same .leak-guard-allow the public half reads. This half honours only `skip`; root/prefix/marker/email
 # are the public half's keys and must be ignored here rather than refused, so one file serves both.
 cat > "$WORK/allow" <<'ALLOW'
 # comment lines and blank lines are ignored
@@ -130,7 +130,7 @@ OUT="$( cd "$ALLOWREPO" && "$SCRIPT" --list "$WORK/list" --all --allow-file "$WO
 lacks "pnpm-lock.yaml" "$OUT" "a skip <glob> path is not reported"
 contains "leak.md" "$OUT" "an unskipped finding is still reported"
 expect "and the run exits 1 on the surviving finding" 1 "$rc"
-expect "root/prefix/email are ignored rather than refused: no stderr" "" "$(cat "$WORK/err.txt")"
+expect "root/prefix/marker/email are ignored rather than refused: no stderr" "" "$(cat "$WORK/err.txt")"
 # marker (#391) is the public half's key too: ignored here, never refused.
 printf 'marker [myco]\nskip pnpm-lock.yaml\n' > "$WORK/allow-marker"
 OUT="$( cd "$ALLOWREPO" && "$SCRIPT" --list "$WORK/list" --all --allow-file "$WORK/allow-marker" 2>"$WORK/err.txt" )"; rc=$?
