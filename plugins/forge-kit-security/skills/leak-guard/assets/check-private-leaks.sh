@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 25
+# check-private-leaks-version: 26
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -230,7 +230,7 @@ if [ -n "$ALLOW_FILE" ]; then
     [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value: $line"
     case "$key" in
       skip) SKIP_PATHS+=("$val") ;;
-      root|prefix|email)
+      root|prefix|marker|email)
         # These belong to check-public-leaks.sh. Sharing one file is intended; silently
         # ignoring a key is not, so say which scanner owns it.
         : ;;

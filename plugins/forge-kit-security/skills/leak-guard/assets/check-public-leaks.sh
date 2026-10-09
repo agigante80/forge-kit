@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 34
+# check-public-leaks-version: 35
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
@@ -430,12 +430,27 @@ if [ -n "$ALLOW_FILE" ]; then
         # Only the final byte is tested: punctuation inside a name (`a.b`, `o'brien`) is fine.
         [ "$STRIPPED" = "$rest" ] || die "$ALLOW_FILE:$lineno: prefix segment cannot end in punctuation (rule A strips it from the match before compare), so this entry could never match: $pfx"
         ALLOW_PREFIXES+=("$pfx") ;;
+      # A custom redaction marker (#391): the built-in three are literals, and `~/[myco]/` is a root
+      # unless the repository says its rewrite wrote that token. It joins BOTH lists the built-ins
+      # sit in, so it is accepted in a `~/` root and in a `/home/` segment. One bracketed token and
+      # nothing else: the unclosed `root [myco` spelling is deliberately not documented or pinned.
+      marker)
+        case "$val" in
+          \[*\]) : ;;
+          *) die "$ALLOW_FILE:$lineno: marker must be one bracketed token, [name]: $val" ;;
+        esac
+        mk="${val#\[}"; mk="${mk%\]}"
+        case "$mk" in
+          '') die "$ALLOW_FILE:$lineno: marker cannot be empty, write [name]: $val" ;;
+          *[$' \t\n\v\f\r']*|*/*|*'"'*|*'`'*) die "$ALLOW_FILE:$lineno: marker cannot contain a slash, whitespace, a double quote or a backtick (a path segment yields none of them), so this entry could never match: $val" ;;
+        esac
+        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;
       email)  ALLOW_EMAILS+=("$val") ;;
       skip)   SKIP_PATHS+=("$val") ;;
       # REFUSE rather than skip the entry. A silently ignored line in a security config is a guard
       # that reports a coverage it does not have, which is the failure this whole component exists
       # to end.
-      *)      die "$ALLOW_FILE:$lineno: unknown key '$key' (want root, prefix, email or skip)" ;;
+      *)      die "$ALLOW_FILE:$lineno: unknown key '$key' (want root, prefix, marker, email or skip)" ;;
     esac
   done < "$ALLOW_FILE"
 fi

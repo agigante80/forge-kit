@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 27 -->
+<!-- leak-guard-version: 28 -->
 
 # Leak guard
 
@@ -148,7 +148,7 @@ allow-file entry could name either.
 **Rule C, email addresses**, excluding the service accounts and the TLDs reserved by RFC 2606 and
 RFC 6761, which cannot reach a mailbox.
 
-The project's allow-file takes four keys, `root`, `prefix`, `email` and `skip`. An unrecognised key
+The project's allow-file takes five keys, `root`, `prefix`, `marker`, `email` and `skip`. An unrecognised key
 **refuses the whole run** rather than skipping the line, because a silently ignored entry in a
 security config is a guard reporting a coverage it does not have, and so does a `prefix` or `root`
 entry that could never match, since a dead entry in a tracked file reads as a decision somebody
@@ -158,8 +158,8 @@ carries whitespace, a double quote or a backtick, and when it ends in punctuatio
 strip could only ever match its own literal; bracketed `root` values are the exception to that last
 rule, since a redaction marker is such a literal. A `prefix` is refused for the same four shapes
 with no bracketed exception, because rule A compares the stripped match exactly, so an entry
-ending in punctuation never matches; the built-in redaction markers need no prefix entry. The
-file is tracked and public on purpose: everything in it is something the project decided it may show.
+ending in punctuation never matches; the built-in redaction markers need no prefix entry.
+The file is tracked and public on purpose: everything in it is something the project decided it may show.
 
 ## The private half
 
@@ -278,10 +278,9 @@ was a credential rather than waiting for the purge, because the purge does not u
 
 Do the rewrite anyway, so the working history is clean. Just do not report it as a deletion.
 
-**Replace the private string with a marker the scanner knows.** `check-public-leaks.sh` recognises
-two, as literals: `[redacted]`, which this remediation uses, and `***REMOVED***`, which is what
+**Replace the private string with a marker the scanner knows.** The scanner recognises two: `[redacted]`, which this remediation uses, and `***REMOVED***`, which is what
 `git filter-repo --replace-text` writes when an expression names no replacement. Either one in a
-`~/` root or a `/home/` segment is not reported, in the tree modes or under `--history`, with or
-without sentence punctuation after it, so the rewrite that removes the leak leaves the scan green. Any other replacement is reported as a root
-until the repository allows it, and a marker is never a shape: any other bracketed name is still
-a root.
+`~/` root or a `/home/` segment is not reported, in the tree modes or under `--history`, so the
+rewrite that removes the leak leaves the scan green. Any other replacement is reported as a root
+until the repository allows it with a `marker [name]` entry, one bracketed token or the run is
+refused: a marker is never a shape.

@@ -173,6 +173,40 @@ expect "mutant ledger (#227): the stepwise compare line exists" 1 "$(grep -c '^ 
 cmp -s "$SCRIPT" "$MUT227" && bad "mutant ledger (#227): the sed did not apply" || ok "mutant ledger (#227): the mutant differs from the script"
 printf 'see ~/[redacted-other]/notes\n' > "$WORK/m227.txt"
 lk_expect 227 1 "$MUT227" --allow-file "$WORK/allow-marker-other" "$WORK/m227.txt"
+
+echo "== the marker key: a custom redaction marker (#391) =="
+printf 'marker [myco]\n' > "$WORK/allow-mk"
+expect "marker [myco] silences ~/[myco]/x"                   0 "$(scan_line 'see ~/[myco]/x' --allow-file "$WORK/allow-mk")"
+expect "marker [myco] silences /home/[myco]/x"               0 "$(scan_line 'see /home/[myco]/x' --allow-file "$WORK/allow-mk")"
+expect "and /Users/[myco]/x"                                 0 "$(scan_line 'see /Users/[myco]/x' --allow-file "$WORK/allow-mk")"
+expect "and with sentence punctuation after it"              0 "$(scan_line 'cloned into ~/[myco].' --allow-file "$WORK/allow-mk")"
+expect "near miss: ~/[mycoX]/x is still a root"              1 "$(scan_line 'see ~/[mycoX]/x' --allow-file "$WORK/allow-mk")"
+expect "near miss: /home/[mycoX]/x is still a user"         1 "$(scan_line 'see /home/[mycoX]/x' --allow-file "$WORK/allow-mk")"
+expect "near miss: /home/[myc]/x is still a user"           1 "$(scan_line 'see /home/[myc]/x' --allow-file "$WORK/allow-mk")"
+expect "without the entry ~/[myco]/x is still a root"        1 "$(scan_line 'see ~/[myco]/x')"
+for v in 'myco' '[myco' 'myco]' '[]' '[a/b]' '[a b]' '[a"b]' '[a`b]' '[a]/' ''; do
+  printf 'marker %s\n' "$v" > "$WORK/bad-mk"
+  "$SCRIPT" --allow-file "$WORK/bad-mk" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "marker '$v' refuses the run (#391)" 2 "$?"
+done
+contains "marker must be one bracketed token" "$(printf 'marker myco\n' > "$WORK/bad-mk"; "$SCRIPT" --allow-file "$WORK/bad-mk" "$WORK/sample.txt" 2>&1 >/dev/null)" "and the refusal says what a marker is"
+contains "(want root, prefix, marker, email or skip)" "$(printf 'bogus x\n' > "$WORK/bad-mk"; "$SCRIPT" --allow-file "$WORK/bad-mk" "$WORK/sample.txt" 2>&1 >/dev/null)" "and the unknown-key message lists marker"
+# Mutants, each built from a copy: the script is never edited in place.
+mk_mut() {  # mk_mut <name> <sed expr>: build, prove it differs
+  MKM="$WORK/mutant-391-$1.sh"; sed "$2" "$SCRIPT" > "$MKM"; chmod +x "$MKM"
+  cmp -s "$SCRIPT" "$MKM" && bad "mutant ledger (#391 $1): the sed did not apply" || ok "mutant ledger (#391 $1): the mutant differs"
+}
+mk_mut noroot 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;/        PLACEHOLDER_USERS+=("$val") ;;/'
+printf 'see ~/[myco]/x\n' > "$WORK/m391a.txt"; printf 'see /home/[myco]/x\n' > "$WORK/m391b.txt"
+"$MKM" --allow-file "$WORK/allow-mk" "$WORK/m391a.txt" >/dev/null 2>&1; expect "mutant (#391): marker not added to the roots reports ~/[myco]/x" 1 "$?"
+mk_mut nouser 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;/        ALLOW_ROOTS+=("$val") ;;/'
+"$MKM" --allow-file "$WORK/allow-mk" "$WORK/m391b.txt" >/dev/null 2>&1; expect "mutant (#391): marker not added to the users reports /home/[myco]/x" 1 "$?"
+mk_mut noshape 's/^          \\\[\*\\\]) : ;;/          *) : ;;/'
+printf 'marker myco\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
+expect "mutant (#391): without the shape check marker myco is accepted, not refused" 0 "$?"
+mk_mut noslash "s/^          \\*\\[\$' .t.n.v.f.r'\\]\\*|\\*\\/\\*|/          *[\$' \\\\t\\\\n\\\\v\\\\f\\\\r']*|/"
+printf 'marker [a/b]\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
+expect "mutant (#391): without the slash refusal [a/b] is accepted, not refused" 0 "$?"
 expect "~/projects survives"                    no  "$(trips 'cloned into ~/projects/thing')"
 expect "~/.claude survives"                     no  "$(trips 'edit ~/.claude/settings.json')"
 expect "~/.config survives"                     no  "$(trips 'edit ~/.config/app.toml')"
@@ -2133,6 +2167,55 @@ TMPDIR='x=y' hrun --history
 expect "#405: a relative TMPDIR named x=y exits as an absolute one does ($abs_rc)" "$abs_rc" "$RC"
 expect "#405: and reports the same rows" "$abs_out" "$OUT"
 contains "home-path" "$OUT" "#405: and the finding is reported"
+
+echo "== the marker key: grammar edges, literal-not-glob, per-locale (#391, gate r1) =="
+# Each allow line is written to its own file; a refusal exits 2 before any scan, an accepted one
+# is run on a clean file so exit 0 means the entry loaded.
+mkrun() {  # mkrun <allow-line-bytes>: rc of a run with that one allow line
+  printf '%b' "$1" > "$WORK/mk-allow"; "$SCRIPT" --allow-file "$WORK/mk-allow" "$WORK/lk-clean.txt" >/dev/null 2>"$WORK/err.txt"; echo $?
+}
+expect "marker [\"x] is refused (not a bracketed token)"       2 "$(mkrun 'marker ["x]\n')"
+expect "marker [a<backtick>b] is refused"                       2 "$(mkrun 'marker [a`b]\n')"
+expect "marker [myco]x is refused (does not end in a bracket)"  2 "$(mkrun 'marker [myco]x\n')"
+expect "marker [myco] # note is refused (no trailing comments)" 2 "$(mkrun 'marker [myco] # note\n')"
+expect "marker [a]b] is accepted: it is not dead, a segment can hold it" 0 "$(mkrun 'marker [a]b]\n')"
+printf 'see /home/[a]b]/x\n' > "$WORK/mk-ab.txt"
+printf 'marker [a]b]\n' > "$WORK/mk-allow"
+expect "and marker [a]b] silences exactly /home/[a]b]/x"       0 "$("$SCRIPT" --allow-file "$WORK/mk-allow" "$WORK/mk-ab.txt" >/dev/null 2>&1; echo $?)"
+expect "marker [redacted] (a built-in) is accepted"             0 "$(mkrun 'marker [redacted]\n')"
+expect "CRLF line loads: marker [myco]<CRLF>"                   0 "$(mkrun 'marker [myco]\r\n')"
+expect "trailing spaces load: marker [myco]<spaces>"            0 "$(mkrun 'marker [myco]   \n')"
+printf 'marker [redacted]\r\nmarker [myco]\r\n' > "$WORK/mk-allow"
+expect "two CRLF lines (a built-in and a custom one) load on a clean tree" 0 "$("$SCRIPT" --allow-file "$WORK/mk-allow" "$WORK/lk-clean.txt" >/dev/null 2>"$WORK/err.txt"; echo $?)"
+expect "with empty stderr" "" "$(cat "$WORK/err.txt")"
+printf 'marker [myco]\n' > "$WORK/mk-allow"
+expect "[MYCO] stays reported: a marker is case-sensitive"      1 "$(scan_line 'see /home/[MYCO]/x' --allow-file "$WORK/mk-allow")"
+expect "/home/x[myco]/y is still a user"                        1 "$(scan_line 'see /home/x[myco]/y' --allow-file "$WORK/mk-allow")"
+expect "/home/[myco]abc/y is still a user"                      1 "$(scan_line 'see /home/[myco]abc/y' --allow-file "$WORK/mk-allow")"
+expect "[myco] is a literal: /home/m/x is still a user"         1 "$(scan_line 'see /home/m/x' --allow-file "$WORK/mk-allow")"
+expect "[myco] is a literal: ~/c/x is still a root"             1 "$(scan_line 'see ~/c/x' --allow-file "$WORK/mk-allow")"
+# A glob in the token must stay a literal even with a matching file in the working directory.
+GLOBDIR="$WORK/globdir"; mkdir -p "$GLOBDIR"; : > "$GLOBDIR/q"
+printf 'marker [a-z]\n' > "$WORK/mk-glob-allow"
+printf 'see /home/q/x\nsee ~/q/x\n' > "$WORK/mk-glob.txt"
+( cd "$GLOBDIR" && "$SCRIPT" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob.txt" >/dev/null 2>&1 ); expect "marker [a-z] with a file q beside it leaves /home/q/x and ~/q/x reported" 1 "$?"
+printf 'see /home/[a-z]/x\n' > "$WORK/mk-glob2.txt"
+( cd "$GLOBDIR" && "$SCRIPT" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob2.txt" >/dev/null 2>&1 ); expect "and silences the literal /home/[a-z]/x" 0 "$?"
+mk_mut unqroot 's/^        ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;/        ALLOW_ROOTS+=($val); PLACEHOLDER_USERS+=($val) ;;/'
+( cd "$GLOBDIR" && "$MKM" --allow-file "$WORK/mk-glob-allow" "$WORK/mk-glob.txt" >/dev/null 2>&1 ); expect "mutant (#391): the unquoted append makes [a-z] a glob that silences /home/q/x" 0 "$?"
+# No unquoted-pattern-compare mutant, deliberately (gate r1 asked for one): a bracketed entry is at
+# least 3 bytes and in_list_stripping only compares a value truncated to the entry's length, while a
+# bracket expression in a case pattern matches ONE byte, so that mutant cannot silence anything
+# and is equivalent. The unquoted append above is the reachable one.
+# U+2003 inside the token: accepted in every locale, as rule A's C-locale class yields it (#400, #403).
+for L in $locs; do
+  printf 'marker [my%sco]\n' "$EMSP" > "$WORK/mk-allow"
+  LC_ALL=$L "$SCRIPT" --allow-file "$WORK/mk-allow" "$WORK/lk-clean.txt" >/dev/null 2>"$WORK/err.txt"
+  expect "marker with U+2003 inside the token is accepted under $L (#391)" 0 "$?"
+done
+printf 'bogus x\n' > "$WORK/mk-allow"
+"$SCRIPT" --allow-file "$WORK/mk-allow" "$WORK/lk-clean.txt" >/dev/null 2>"$WORK/err.txt"
+expect "the unknown-key message is exact and lists marker" "check-public-leaks: $WORK/mk-allow:1: unknown key 'bogus' (want root, prefix, marker, email or skip)" "$(cat "$WORK/err.txt")"
 
 echo ""
 echo "passed: $passed  failed: $failed"

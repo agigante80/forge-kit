@@ -131,6 +131,21 @@ lacks "pnpm-lock.yaml" "$OUT" "a skip <glob> path is not reported"
 contains "leak.md" "$OUT" "an unskipped finding is still reported"
 expect "and the run exits 1 on the surviving finding" 1 "$rc"
 expect "root/prefix/email are ignored rather than refused: no stderr" "" "$(cat "$WORK/err.txt")"
+# marker (#391) is the public half's key too: ignored here, never refused.
+printf 'marker [myco]\nskip pnpm-lock.yaml\n' > "$WORK/allow-marker"
+OUT="$( cd "$ALLOWREPO" && "$SCRIPT" --list "$WORK/list" --all --allow-file "$WORK/allow-marker" 2>"$WORK/err.txt" )"; rc=$?
+expect "marker is ignored rather than refused: no stderr (#391)" "" "$(cat "$WORK/err.txt")"
+expect "and the run still exits 1 on the surviving finding (#391)" 1 "$rc"
+lacks "pnpm-lock.yaml" "$OUT" "and skip beside it still applies (#391)"
+# The key is ignored, not the line: a marker naming a listed name is still a finding when the
+# allow-file itself is scanned (the list in this fixture holds acme-migration, not myco).
+printf 'marker [acme-migration]\n' > "$WORK/allow-marker-name"
+OUT="$( "$SCRIPT" --list "$WORK/list" --allow-file "$WORK/allow-marker-name" "$WORK/allow-marker-name" 2>/dev/null )"; rc=$?
+expect "a marker line naming a listed name is still reported as a leak (#391)" 1 "$rc"
+# The mutant: the arm gone, so marker is an unknown key and the run is refused.
+MKP="$WORK/mutant-391.sh"; sed 's/^      root|prefix|marker|email)/      root|prefix|email)/' "$SCRIPT" > "$MKP"; chmod +x "$MKP"
+cmp -s "$SCRIPT" "$MKP" && bad "mutant ledger (#391): the sed did not apply" || ok "mutant ledger (#391): the mutant differs"
+( cd "$ALLOWREPO" && "$MKP" --list "$WORK/list" --all --allow-file "$WORK/allow-marker" >/dev/null 2>&1 ); expect "mutant (#391): without the ignore arm marker is refused with exit 2" 2 "$?"
 
 printf 'x\n' > "$WORK/sample2.txt"
 "$SCRIPT" --list "$WORK/list" --allow-file "$WORK/no-such-allow" "$WORK/sample2.txt" >/dev/null 2>"$WORK/err.txt"
