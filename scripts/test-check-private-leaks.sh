@@ -465,7 +465,7 @@ mkrepo selfid
 ( cd "$HREPO" && mkdir old && cp "$SCRIPT" old/check-private-leaks.sh && git add old && git commit -qm old ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "a past copy of the scanner at another path is not reported (its source names the list)" 0 "$rc"
 
-echo "== redact: the bash copy is linear, the awk copy is left alone on purpose (#217) =="
+echo "== redact: the bash copy is linear, the awk copy is a byte scan since #416 (#217) =="
 # The bash redact serves the owner warning, the tree modes and the list refusals, so it is
 # exercised here on the function itself (length 0 is unreachable through the CLI: an empty `=`
 # line dies with a fixed message first). The awk redact has no timed case: the grep -aiF
