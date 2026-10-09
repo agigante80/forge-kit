@@ -7,7 +7,15 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
-## Unreleased
+## v0.8.0 (2026-10-09)
+
+Nine phases since v0.7.0: contributor-docs learned what it still could not see, the gate's own
+correctness and friction were fixed, each portable-shell sweep closed its class with a guard
+rather than a list, every trip-wired ticket left waiting got its named text applied, the test
+suites stopped carrying tests that cannot fail, the leak guard's two scanners
+were made to agree in every locale and on every allow-file line, and the hard rules this repository
+states most often in prose (never discard work, never bulk delete, never trust an exit code a pipe
+hid, never poll for a subagent) are now held by hooks, day and night.
 
 ### Added
 
