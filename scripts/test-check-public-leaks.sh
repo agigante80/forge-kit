@@ -685,6 +685,9 @@ mutlib() {  # mutlib <sed script>: $WORK/mut holds the scanner beside a library 
 # A --history mutant of the SCANNER is built in $WORK/lone, beside an unedited library, and never
 # in $WORK itself, where the no-library negatives copy a scanner alone (#206).
 mkdir -p "$WORK/lone"; cp "$LIB" "$WORK/lone/"
+onediff() {  # onediff <a> <b>: "<removed> <added>" line counts; "1 1" is a one-line edit (#453)
+  printf '%s %s' "$(diff "$1" "$2" | grep -c '^<')" "$(diff "$1" "$2" | grep -c '^>')"
+}
 HREPO=""
 mkrepo() {  # mkrepo <name>: a fresh repository, cwd-independent; sets HREPO
   HREPO="$WORK/hist-$1"; rm -rf "$HREPO"; mkdir -p "$HREPO"
@@ -917,16 +920,51 @@ mkrepo locks
 ( cd "$HREPO" && printf 'same /home/alice/x\n' > aaa.lock && cp aaa.lock bbb.lock && git add aaa.lock bbb.lock && git commit -qm locks ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "content that only ever lived in lockfiles is not reported" 0 "$rc"
 # #207: allow entries reach --history. A root and an email silence only their own value, and a
-# multi-segment root is refused rather than ignored.
+# multi-segment root is refused rather than ignored. Each kind gets its own repo, so a row that
+# adds a commit cannot change what an earlier row read (#438).
 mkrepo allowhist
 ( cd "$HREPO" && printf 'see ~/foo/ and ab@cd.io here\n' > a.md && git add a.md && git commit -qm allowhist ) >/dev/null 2>&1
 hrun --history; expect "a root and an address are reported without an allow-file" 1 "$RC"
+contains "home-root:" "$OUT" "and the root is a finding of its own"
+contains "email: ab" "$OUT" "and the address is a finding of its own"
+printf 'root ~/foo\n' > "$WORK/hallow1"
+hrun --history --allow-file "$WORK/hallow1"; expect "allowing the root alone leaves the address reported" 1 "$RC"
+contains "email: ab" "$OUT" "and the finding left is the address"
+lacks "home-root:" "$OUT" "and the allowed root is not reported"
 printf 'root ~/foo\nemail ab@cd.io\n' > "$WORK/hallow2"
 hrun --history --allow-file "$WORK/hallow2"; expect "a root and an email entry silence exactly those values in history" 0 "$RC"
-( cd "$HREPO" && printf 'see ~/bar/ here\n' > b.md && git add b.md && git commit -qm other ) >/dev/null 2>&1
-hrun --history --allow-file "$WORK/hallow2"; expect "a different root is still reported" 1 "$RC"
+expect "and a single-segment root parses with nothing on stderr" "" "$ERR"
+# ~/foobar, not ~/bar: only a root the entry is a prefix of reaches the #239 lower bound, so only
+# it turns red when the bound is dropped (#438). The mutant runs before any later commit lands.
+( cd "$HREPO" && printf 'see ~/foobar/ here\n' > b.md && git add b.md && git commit -qm other ) >/dev/null 2>&1
+hrun --history --allow-file "$WORK/hallow2"; expect "a longer root the entry is a prefix of is still reported" 1 "$RC"
+contains "home-root: ~/fo" "$OUT" "and it is reported as a root"
+MUTHB="$WORK/lone/mutant-history-lower-bound.sh"
+sed 's#^    \[ "\$n" -ge "\$min" \] && ##' "$SCRIPT" > "$MUTHB"; chmod +x "$MUTHB"
+expect "mutant ledger (#438): the --history lower-bound mutant is a one-line edit" "1 1" "$(onediff "$SCRIPT" "$MUTHB")"
+( cd "$HREPO" && "$MUTHB" --history --allow-file "$WORK/hallow2" ) >/dev/null 2>&1
+expect "without the lower bound the root entry silences the longer root in history (mutant exits 0)" 0 "$?"
 printf 'root ~/foo/deeper\n' > "$WORK/hallow3"
 hrun --history --allow-file "$WORK/hallow3"; expect "a multi-segment root is refused (exit 2)" 2 "$RC"
+contains "root must name exactly one segment, because rule B matches one segment and nothing deeper: ~/foo/deeper" "$ERR" "and refused for that reason"
+mkrepo allowmail
+( cd "$HREPO" && printf 'mail ab@cd.io\n' > a.md && git add a.md && git commit -qm mail ) >/dev/null 2>&1
+hrun --history --allow-file "$WORK/hallow2"; expect "an email entry silences its own address in history" 0 "$RC"
+( cd "$HREPO" && printf 'mail zz@cd.io\n' > b.md && git add b.md && git commit -qm other ) >/dev/null 2>&1
+hrun --history --allow-file "$WORK/hallow2"; expect "a different address is still reported" 1 "$RC"
+contains "email: zz" "$OUT" "and the finding is that address"
+mkrepo allowprefix
+( cd "$HREPO" && printf 'see /home/runner/x\n' > a.md && git add a.md && git commit -qm prefix ) >/dev/null 2>&1
+printf 'prefix /home/runner\n' > "$WORK/hallow5"
+hrun --history --allow-file "$WORK/hallow5"; expect "a prefix entry silences its own path in history" 0 "$RC"
+( cd "$HREPO" && printf 'and /home/runnerx/y\n' > b.md && git add b.md && git commit -qm longer ) >/dev/null 2>&1
+hrun --history --allow-file "$WORK/hallow5"; expect "a longer name the prefix starts is still reported" 1 "$RC"
+contains "home-path: /home/ru" "$OUT" "and it is reported as a home path"
+MUTPX="$WORK/lone/mutant-history-prefix-glob.sh"
+sed 's#"\$p"|"\$p"/\*)#"$p"*)#' "$SCRIPT" > "$MUTPX"; chmod +x "$MUTPX"
+expect "mutant ledger (#438): the prefix-glob mutant is a one-line edit" "1 1" "$(onediff "$SCRIPT" "$MUTPX")"
+( cd "$HREPO" && "$MUTPX" --history --allow-file "$WORK/hallow5" ) >/dev/null 2>&1
+expect "with a bare \"\$p\"* glob the prefix silences the longer name (mutant exits 0)" 0 "$?"
 # A merge commit resolved to content in neither parent, and a file that exists only in the merge:
 # without -m on the path map, neither has an entry and the every-path rule would skip them vacuously.
 mkrepo merge
@@ -2043,8 +2081,11 @@ TAILBYTES
 printf 'root ~/forge-kit\n' > "$WORK/prefix-root"
 expect "an allow entry suppresses its own root" 0 "$(scan_line 'cloned into ~/forge-kit/x' --allow-file "$WORK/prefix-root")"
 expect "but NOT a longer root it is a prefix of" 1 "$(scan_line 'cloned into ~/forge-kit-private/x' --allow-file "$WORK/prefix-root")"
+# `#` delimits the sed: the pattern holds `||`, and a `|` delimiter left this file EMPTY, so the
+# rows below passed vacuously (#453). The one-line row stops a failed build passing again.
 MUT239B="$WORK/mutant-prefix-match.sh"
-sed 's|^    \[ "\$n" -ge "\$min" \] && \[ "\$n" -le "\${#s}" \] || continue$|    [ "$n" -le "${#s}" ] || continue|' "$SCRIPT" > "$MUT239B"; chmod +x "$MUT239B"
+sed 's#^    \[ "\$n" -ge "\$min" \] && ##' "$SCRIPT" > "$MUT239B"; chmod +x "$MUT239B"
+expect "mutant ledger (#453): the #239 mutant is a one-line edit" "1 1" "$(onediff "$SCRIPT" "$MUT239B")"
 grep -qF '[ "$n" -ge "$min" ]' "$SCRIPT" && ok "mutant ledger (#239): the lower bound exists" || bad "mutant ledger (#239): lower bound not found"
 grep -qF '[ "$n" -ge "$min" ]' "$MUT239B" && bad "mutant ledger (#239): the mutant kept the bound" || ok "mutant ledger (#239): the mutant drops the lower bound"
 printf 'cloned into ~/forge-kit-private/x\n' > "$WORK/pfx.txt"

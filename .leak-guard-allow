@@ -63,6 +63,8 @@ root [redacted
 # #223 removed) and 8 in commit messages of 2026-09-08 to 2026-09-18. Each was checked by grep
 # against the maintainer's username, name and address before it was added, and one entry per
 # distinct value, as narrow as its key allows, keeps a NEW finding standing alone.
+# They are not history-only: one parser fills the allow lists for every mode, so each entry also
+# silences its value in the tree scans (#438).
 root ~/foo
 root ~/home
 prefix /Users/alice
