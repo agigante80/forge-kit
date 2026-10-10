@@ -3275,8 +3275,10 @@ c450_q() {
   [ "$K442RC" = 0 ] && [ "$(wc -l < "$K/first")" = 2 ] && ! grep -qvxF -- -q "$K/first"; }
 c450_q && ok "#450: forge_api hands curl -q as its first argument on both the GET and the POST call" \
   || bad "#450: curl argv[1] was not -q on every call ($(tr '\n' ' ' < "$K/first"))"
-c450_curlrc() {  # real curl, a verbose .curlrc in CURL_HOME, a one-shot local server: no canary on stderr
+c450_curlrc_run() {  # real curl, a verbose .curlrc in CURL_HOME, a one-shot local server; sets K442RC and the files
   local port rc=1
+  # #462: an exported proxy would route 127.0.0.1 through it and turn the row red for a reason that is not the library's
+  unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY
   : > "$K/port"; mkdir -p "$K/curlhome"; echo verbose > "$K/curlhome/.curlrc"
   python3 -c '
 import http.server
@@ -3290,7 +3292,13 @@ h=http.server.HTTPServer(("127.0.0.1",0),H); print(h.server_port,flush=True); h.
   port=$(cat "$K/port")
   k442 "" NONE "PATH=$K442REALPATH" "CURL_HOME=$K/curlhome" FORGE_ALLOW_HTTP=1 "FORGE_API_URL=http://127.0.0.1:${port:-1}" FORGEJO_TOKEN=canary -- $GET1
   kill "$spid" 2>/dev/null; wait "$spid" 2>/dev/null
-  [ "$K442RC" = 0 ] && [ "$(cat "$K/out")" = '{"id":1}' ] && ! grep -q canary "$K/err" "$K/out"; }
+}
+c450_served() { [ "$K442RC" = 0 ] && [ "$(cat "$K/out")" = '{"id":1}' ]; }   # the request itself succeeded
+c450_curlrc() { c450_curlrc_run; c450_served && ! grep -q canary "$K/err" "$K/out"; }
+# #462: the mutant rows must die for the ONE reason the real-library run checks. A curl that hit port 1
+# on a slow runner (rc 7, empty body) used to count as a kill; now an unserved request survives this
+# case, so only a request that was answered correctly AND leaked the canary is a kill.
+c450_curlrc_leak() { c450_curlrc_run; if c450_served; then ! grep -q canary "$K/err" "$K/out"; else return 0; fi; }
 K442REALPATH=$PATH
 c450_curlrc && ok "#450: a verbose .curlrc does not leak the Authorization header through real curl" \
   || bad "#450: .curlrc verbose leaked or the request failed (rc $K442RC err $(head -c 300 "$K/err"))"
@@ -3306,8 +3314,8 @@ c450_q || bad "#450: c450_q fails on the real library"
 c450_curlrc || bad "#450: c450_curlrc fails on the real library"
 m442 "#450 -q dropped from the POST curl call (kills the argv row)" 'printf '"'%s'"' "$body" | curl -q -sS -g' 'printf '"'%s'"' "$body" | curl -sS -g' c450_q
 m442 "#450 -q dropped from the GET curl call (kills the argv row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_q
-m442 "#450 -q dropped from the GET curl call (kills the .curlrc row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_curlrc
-m442 "#450 -q not first on the GET curl call (curl ignores it, the .curlrc row dies)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -q -g' c450_curlrc
+m442 "#450 -q dropped from the GET curl call (kills the .curlrc row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_curlrc_leak
+m442 "#450 -q not first on the GET curl call (curl ignores it, the .curlrc row dies)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -q -g' c450_curlrc_leak
 
 # -- #449: round-1 lows from #442, and the dry run that refuses what the real run refuses -----------
 echo "== #449: #442 round-1 lows, dry-run URL validation, forge_url_check =="

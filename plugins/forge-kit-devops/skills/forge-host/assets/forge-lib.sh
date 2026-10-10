@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 38
+# forge-lib-version: 39
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -431,6 +431,15 @@ _forge_token_var() {
 # forge_token_present: print the token variable's name; rc 0 when it holds a value, 1 when it is
 # empty, 2 when the name is refused. It never prints the token and never asks git's credential
 # helper, so a status check (health-check step 9) can call it without indirect expansion of its own.
+forge_token_present() {
+  local _fx=0 var rc=0; case $- in *x*) _fx=1; set +x ;; esac
+  if var="$(_forge_token_var)"; then
+    printf '%s\n' "$var"; [ -n "${!var:-}" ] || rc=1
+  else rc=2; fi
+  [ "$_fx" = 0 ] || set -x
+  return "$rc"
+}
+
 # forge_url_check: would FORGE_API_URL be accepted? Silent rc 0 if so, else forge_api's own
 # refusal on stderr and rc 2. Forgejo only (a no-op on GitHub); reads no token. forge_api_base
 # is called inside $(...) because its ${FORGE_API_URL:?} would exit a non-interactive caller.
@@ -441,15 +450,6 @@ forge_url_check() {
   base="$(forge_api_base)" || return 2
   : "$base"
   _forge_check_url
-}
-
-forge_token_present() {
-  local _fx=0 var rc=0; case $- in *x*) _fx=1; set +x ;; esac
-  if var="$(_forge_token_var)"; then
-    printf '%s\n' "$var"; [ -n "${!var:-}" ] || rc=1
-  else rc=2; fi
-  [ "$_fx" = 0 ] || set -x
-  return "$rc"
 }
 
 _forge_token() {

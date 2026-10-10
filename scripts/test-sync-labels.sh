@@ -526,6 +526,14 @@ last=$(printf '%s\n' "$out" | tail -n1)
 [ "$last" = "sync-labels: o/r synced from $T/labels.yml (0 created, 1 updated)." ] \
   && ok "a real run with nothing missing says '0 created, 1 updated'" \
   || bad "real-run summary with nothing missing (last line: $last)"
+# #429: the rc was captured and never asserted, and the request log was never read: a mutant that
+# exits 1 here, or that also POSTs the label it is only updating, kept every row above green.
+[ "$rc" -eq 0 ] && ok "a real run with nothing missing and one drifted label exits 0" \
+  || bad "a real run with nothing missing and one drifted label exits 0 (rc=$rc)"
+[ "$(grep -c '^PATCH ' "$REQLOG")" = 1 ] && grep -q '^PATCH /repos/o/r/labels/bug ' "$REQLOG" \
+  && ! grep -q '^POST ' "$REQLOG" \
+  && ok "the drifted label gets exactly one PATCH and no POST" \
+  || bad "drifted label requests (want one PATCH bug, no POST): $(tr '\n' '|' < "$REQLOG")"
 # any value other than exactly 1 is a real run, so no [dry-run] line may appear for it either
 # (#333: the old message blamed the flag for any mismatch; this one names expected and actual).
 host_json '[{"id":1,"name":"bug","color":"d73a4a","description":"Something isn'"'"'t working"}]'
@@ -537,6 +545,7 @@ for v in true 0 ""; do
   else
     bad "FORGE_DRY_RUN='$v' real-run check: want last='$want' and no [dry-run] and a POST; got last='$last', dry-run lines=$(grep -cF '[dry-run]' <<< "$out"), POST logged=$(grep -c '^POST /repos/o/r/labels ' "$REQLOG")"
   fi
+  [ "$rc" -eq 0 ] && ok "FORGE_DRY_RUN='$v' real run exits 0" || bad "FORGE_DRY_RUN='$v' real run exits 0 (rc=$rc)"
 done
 
 # --- 9c. the github PATCH path percent-encodes the name (round-1 finding M2) --------------------

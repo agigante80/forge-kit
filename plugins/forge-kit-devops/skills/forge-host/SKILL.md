@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 36 -->
+<!-- forge-host-version: 37 -->
 
 # forge-host: host-aware forge operations
 
@@ -73,7 +73,8 @@ because callers read the body with `$(...)` and a variable set in that subshell 
 
 `FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them, and that includes
 GET: `forge_api` short-circuits on every method, so a read under the flag returns empty stdout with
-rc 0 rather than the real body, not only a suppressed write. Scope it to the write step alone, or
+rc 0 rather than the real body, not only a suppressed write. The one exception: a refused
+`FORGE_API_URL` makes the read return rc 2, because the dry run validates the URL the real run would. Scope it to the write step alone, or
 clear it around a read that must see the host. Run `bash forge-lib.sh detect` for a one-line
 host/repo/api/ci diagnostic.
 
