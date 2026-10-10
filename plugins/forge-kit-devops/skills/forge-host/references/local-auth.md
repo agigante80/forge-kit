@@ -127,3 +127,5 @@ the variable `FORGE_TOKEN_ENV` names, and an unset token fails closed instead of
   make them the canonical store for forge-kit components; use the lanes above. If you
   already use fj daily, minting one extra scoped PAT for the components keeps blast
   radius per-tool.
+
+A 301 or 307 (rc 22) means the repo moved: update `FORGE_REPO` or `FORGE_API_URL` to the new location.

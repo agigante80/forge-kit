@@ -1159,7 +1159,7 @@ echo "== #254: a dry-run milestone close =="
 # a truthy-looking non-1, #319). MC_LIB, when set, runs a scratch copy of the library (the ledger below).
 mc_run() {
   MCLOG="$T/mc.log"; : > "$MCLOG"
-  MCRC=$( ( . "${MC_LIB:-$LIB}"; export FORGE_HOST=forgejo FORGE_REPO=o/r
+  MCRC=$( ( . "${MC_LIB:-$LIB}"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example
             [ "$1" = 1 ] && export FORGE_DRY_RUN=1
             case "$1" in =*) export FORGE_DRY_RUN="${1#=}" ;; esac
             LISTJSON="${3-[]}"
@@ -1375,7 +1375,7 @@ esac
 (
   . "$LIB"
   REQLOG="$T/edit2.log"; : > "$REQLOG"
-  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+  export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
   forge_api() { echo "$1 $2" >> "$REQLOG"; printf '{}'; }
   forge_issue_edit 44 "new body" 2>/dev/null || exit 1
   [ ! -s "$REQLOG" ]
@@ -1499,7 +1499,7 @@ case "$MSERR" in *"Phase Z"*) ok "and names the title" ;; *) bad "refusal messag
 case "$MSLOG" in *PATCH*) bad "a PATCH was sent despite the refusal" ;; *) ok "and sends no PATCH (forge_issue_milestone, unresolvable title)" ;; esac
 # The dry-run guard runs BEFORE the resolution, or every title is unresolvable under it: paginate
 # returns a literal [] in dry-run, so a real title would take the refusal path (gate round 1).
-RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+RC=$( ( . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
         forge_api() { echo "REQUEST" >> "$T/ms2.log"; }
         : > "$T/ms2.log"
         forge_issue_milestone 12 "Phase A" >/dev/null 2>"$T/ms2.err"; echo $? ) )
@@ -2025,7 +2025,7 @@ done
 
 echo "== #248: a dry run decides BEFORE it would have fetched =="echo "== #248: a dry run decides BEFORE it would have fetched =="
 (
-  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
   # A stub that FAILS the case if it is called at all, for any method including GET. forge_api
   # short-circuits GET under dry-run and returns an empty body, so a guard placed after the fetch
   # would splice against an empty string: the shape #254 had in forge_milestone_close, inside the primitive
@@ -2196,7 +2196,7 @@ if [ "$(LC_ALL=C.UTF-8 bash -c 'x=$1; echo ${#x}' _ "$UTF_X" 2>/dev/null)" != 4 
   bad "#264 L3 precondition: LC_ALL=C.UTF-8 is not available on this runner (\${#x} of 'aé b' is not 4), so the character-count case cannot run"
 else
   (
-    . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+    . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
     forge_api() { exit 7; }
     err="$(LC_ALL=C.UTF-8 forge_issue_edit 7 "$UTF_X" 2>&1 >/dev/null)"; rc=$?
     [ "$rc" = 0 ] || exit 1
@@ -2213,7 +2213,7 @@ else
   esac
 fi
 (
-  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_DRY_RUN=1
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example FORGE_DRY_RUN=1
   err="$(forge_issue_edit 7 "" 2>&1)"; rc=$?
   [ "$rc" = 2 ] || exit 1
   grep -qF 'refusing to replace issue #7 with an empty body' <<< "$err" || exit 2
@@ -3087,13 +3087,22 @@ k442 "" NONE FORGE_HOST= FORGE_API_URL=x -- bash -c '"$1" remote add origin http
 [ "$K442RC" = 0 ] && [ "$(cat "$K/out")" = forgejo ] && ok "#442: forge_host still accepts a scheme-less sentinel URL (adapt relies on it)" || bad "#442: forge_host sentinel (rc $K442RC: $(cat "$K/out"))"
 
 # -- the curl invocation, both branches ----------------------------------------------------------
+# #449 item 1: the token-placement assertion lives in two NO-ARGUMENT wrappers, because m442 runs its
+# case as one word (K442LIB=... "$4"): a case that took an argument would be command-not-found and
+# every mutant paired with it would die vacuously. Each is asserted green on the real library first.
+c442_argv_get()  { k442 "" NONE FORGE_API_URL=https://f.invalid FORGEJO_TOKEN=canary -- $GET1
+                   [ "$K442RC" = 0 ] && k_cfg canary && [ "$(grep -c canary "$K/args")" = 0 ]; }
+c442_argv_post() { k442 "" NONE FORGE_API_URL=https://f.invalid FORGEJO_TOKEN=canary -- $POST1
+                   [ "$K442RC" = 0 ] && k_cfg canary && [ "$(grep -c canary "$K/args")" = 0 ]; }
+c442_argv_get  && ok "#449: c442_argv_get is green on the real library" || bad "#449: c442_argv_get fails on the real library"
+c442_argv_post && ok "#449: c442_argv_post is green on the real library" || bad "#449: c442_argv_post fails on the real library"
 for br in GET POST; do
   if [ "$br" = GET ]; then set -- $GET1; wurl=https://f.invalid/api/v1/repos/o/r/issues/1
   else set -- forge_api POST /repos/o/r/issues '{"title":"t"}'; wurl=https://f.invalid/api/v1/repos/o/r/issues; fi
   k442 "" NONE FORGE_API_URL=https://f.invalid FORGEJO_TOKEN=canary -- "$@"
   [ "$K442RC" = 0 ] && k_after --proto =https && k_after --url "$wurl" && grep -qx -- -g "$K/args" \
     && ok "#442: $br sends --proto =https, -g and --url before the URL" || bad "#442: $br argv: $(tr '\n' ' ' < "$K/args")"
-  k_cfg canary && ! grep -q canary "$K/args" && ok "#442: $br carries the token in the -K config and in no argv element" || bad "#442: $br token placement"
+  { if [ "$br" = GET ]; then c442_argv_get; else c442_argv_post; fi; } && ok "#442: $br carries the token in the -K config and in no argv element" || bad "#442: $br token placement"
   ! grep -qxE -- '-L|-[A-Za-z]*L[A-Za-z]*' "$K/args" && ok "#442: $br does not ask curl to follow redirects" || bad "#442: $br argv has -L"
 done
 set --
@@ -3168,27 +3177,61 @@ c442_ifs() {  # the same under a strict-mode IFS with no space in it, for a re-s
     forge_host >/dev/null; CDPATH= cd b && forge_api_base ) > "$K/out" 2>/dev/null
   [ "$(cat "$K/out")" = https://good.example/api/v1 ]; }
 c442_ifs && ok "#442: a strict-mode IFS still clears the file's values on re-source and on a move" || bad "#442: strict IFS kept a file value (rc $K442RC, base $(cat "$K/out"))"
-c442_allexport() {  # neither set -a nor an exported EMPTY value may hand the file's URL to a child as the caller's own
-  k442 "FORGE_API_URL=https://evil.invalid" NONE FORGEJO_TOKEN=canary -- bash -c "set -a; . \"\${K442LIB:-$LIB}\"; forge_host >/dev/null; bash -c '. \"\${K442LIB:-$LIB}\"; $GET1'"
-  [ "$K442RC" = 2 ] && k_nocurl || return 1
+c442_allexport_a() {  # set -a: the child's own ENVIRONMENT must hold no FORGE_API_URL (#449 item 9), not merely refuse it after re-sourcing
+  k442 "FORGE_API_URL=https://evil.invalid" NONE FORGEJO_TOKEN=canary -- bash -c "set -a; . \"\${K442LIB:-$LIB}\"; forge_host >/dev/null; env"
+  [ "$K442RC" = 0 ] && [ "$(grep -c '^FORGE_API_URL=' "$K/out")" = 0 ]; }
+c442_allexport_b() {  # an exported EMPTY value must not hand the file's URL to a child as the caller's own
   k442 "FORGE_API_URL=https://evil.invalid" NONE FORGEJO_TOKEN=canary FORGE_API_URL= -- bash -c ". \"\${K442LIB:-$LIB}\"; forge_host >/dev/null; bash -c '. \"\${K442LIB:-$LIB}\"; $GET1'"
   [ "$K442RC" = 2 ] && k_nocurl; }
-c442_allexport && ok "#442: under set -a or an exported empty URL a child still refuses the file URL" || bad "#442: the file URL reached a child as exported (rc $K442RC)"
+c442_allexport_a && ok "#449: c442_allexport_a is green on the real library" || bad "#449: c442_allexport_a fails on the real library"
+c442_allexport_b && ok "#449: c442_allexport_b is green on the real library" || bad "#449: c442_allexport_b fails on the real library"
+c442_allexport() { c442_allexport_a && c442_allexport_b; }
+c442_allexport && ok "#442: under set -a or an exported empty URL a child gets no file URL and still refuses it" || bad "#442: the file URL reached a child as exported (rc $K442RC)"
 
 # -- health-check step 9 -------------------------------------------------------------------------
 HC="$HERE/../plugins/forge-kit-devops/agents/health-check.md"
 sed -n '/^### 9. Forge auth/,/^### 10/p' "$HC" | sed -n '/^```bash$/,/^```$/p' | sed '1d;$d' > "$K/hc.sh"
-hc442() {  # hc442 <lib-copy> <conf> : run the step 9 block in a repo whose scripts/forge-lib.sh is <lib-copy>
-  rm -rf "$K/hc"; mkdir -p "$K/hc/scripts"; ( cd "$K/hc" && "$K442GIT" init -q . ); cp "$1" "$K/hc/scripts/forge-lib.sh"; rm -f "$T/PWNED"
-  printf 'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://f.invalid\n%s\n' "$2" > "$K/hc/.forge.conf"
-  ( cd "$K/hc" && FORGEJO_TOKEN=tok bash "$K/hc.sh" 2>&1 ); }
-[ -s "$K/hc.sh" ] && expect "#442: health-check step 9 reports a present token" "Forgejo token (FORGEJO_TOKEN) present for o/r" "$(hc442 "$LIB" '')" \
+hc442() {  # hc442 <lib-copy> <extra-conf> <hosts-text|NONE> [url-line]: run the step 9 block in a repo whose scripts/forge-lib.sh is <lib-copy>
+  # The case's own XDG_CONFIG_HOME, so its allowlist is exactly <hosts-text> whatever the suite exports globally (#449).
+  rm -rf "$K/hc" "$K/hcxdg"; mkdir -p "$K/hc/scripts" "$K/hcxdg/forge"; ( cd "$K/hc" && "$K442GIT" init -q . ); cp "$1" "$K/hc/scripts/forge-lib.sh"; rm -f "$T/PWNED"
+  [ "$3" = NONE ] || printf '%s\n' "$3" > "$K/hcxdg/forge/hosts"
+  printf 'FORGE_HOST=forgejo\nFORGE_REPO=o/r\n%s\n%s\n' "${4-FORGE_API_URL=https://f.invalid}" "$2" > "$K/hc/.forge.conf"
+  ( cd "$K/hc" && FORGE_NO_GIT_CREDENTIALS=1 XDG_CONFIG_HOME="$K/hcxdg" FORGEJO_TOKEN="${HC442TOK-tok}" bash "${HC442SH:-$K/hc.sh}" 2>&1 ); }
+[ -s "$K/hc.sh" ] && expect "#442: health-check step 9 reports a present token" "Forgejo token (FORGEJO_TOKEN) present for o/r" "$(hc442 "$LIB" '' f.invalid)" \
   || bad "#442: health-check step 9 block not found"
-out=$(hc442 "$LIB" "FORGE_TOKEN_ENV=x[\$(touch \"$T/PWNED\")]")
+out=$(hc442 "$LIB" "FORGE_TOKEN_ENV=x[\$(touch \"$T/PWNED\")]" f.invalid)
 [ ! -e "$T/PWNED" ] && grep -q WARN <<< "$out" && ok "#442: health-check step 9 never runs a hostile token name" || bad "#442: health-check hostile name: $out"
 sed 's/^forge_token_present()/old_present()/' "$LIB" > "$K/old-lib.sh"
-out=$(hc442 "$K/old-lib.sh" '')
+out=$(hc442 "$K/old-lib.sh" '' f.invalid)
 grep -q 'WARN.*forge-adapt refresh' <<< "$out" && ! grep -q present <<< "$out" && ok "#442: health-check step 9 warns on a library without forge_token_present" || bad "#442: health-check old library: $out"
+# #449 item 7: step 9 also asks the library whether the configured URL would be refused.
+c449_hc_green() { [ "$(hc442 "$LIB" '' f.invalid)" = "Forgejo token (FORGEJO_TOKEN) present for o/r" ]; }
+c449_hc_url() {  # unlisted https URL, then an http URL without the opt-in: a WARN with the library's own words, never "present"
+  local out; out=$(hc442 "$LIB" '' NONE)
+  grep -q '^WARN: .*not in the forge host allowlist' <<< "$out" && ! grep -q 'present for' <<< "$out" || return 1
+  out=$(hc442 "$LIB" '' f.invalid FORGE_API_URL=http://f.invalid)
+  grep -q '^WARN: .*refusing to send the token over http' <<< "$out" && ! grep -q 'present for' <<< "$out"; }
+c449_hc_old() {  # a v36-shaped library: the token function is there, forge_url_check is not
+  local out; out=$(hc442 "$K/old-url-lib.sh" '' NONE)
+  grep -q 'WARN.*forge-adapt refresh' <<< "$out" && ! grep -q 'present for' <<< "$out"; }
+c449_hc_both() {  # URL refused AND token empty: two WARN lines, the URL one first
+  local out; out=$(HC442TOK= hc442 "$LIB" '' NONE)
+  [ "$(grep -c '^WARN' <<< "$out")" = 2 ] && ! grep -q 'present for' <<< "$out" \
+    && grep -q 'allowlist' <<< "$(grep '^WARN' <<< "$out" | sed -n 1p)" && grep -q 'empty' <<< "$(grep '^WARN' <<< "$out" | sed -n 2p)"; }
+sed 's/^forge_url_check()/old_url_check()/' "$LIB" > "$K/old-url-lib.sh"
+{ c449_hc_green && ok "#449: health-check step 9 stays green for an allowlisted URL with a token" || bad "#449: step 9 green case: $(hc442 "$LIB" '' f.invalid)"; }
+{ c449_hc_url && ok "#449: health-check step 9 WARNs with the library's refusal for an unlisted host and for http, and prints no 'present for'" || bad "#449: step 9 URL case: $(hc442 "$LIB" '' NONE)"; }
+{ c449_hc_old && ok "#449: health-check step 9 does not go green on a library without forge_url_check" || bad "#449: step 9 old-library case: $(hc442 "$K/old-url-lib.sh" '' NONE)"; }
+{ c449_hc_both && ok "#449: health-check step 9 prints both WARN lines, URL first, when the URL and the token both fail" || bad "#449: step 9 both case: $(HC442TOK= hc442 "$LIB" '' NONE)"; }
+hcm() {  # hcm <name> <sed-expr> <case-fn>: the case must fail on the mutated step 9 block
+  sed "$2" "$K/hc.sh" > "$K/hc-mut.sh"
+  if cmp -s "$K/hc.sh" "$K/hc-mut.sh"; then bad "#449 step 9 mutant '$1' did not apply"; return; fi
+  if HC442SH="$K/hc-mut.sh" "$3"; then bad "#449 step 9 mutant '$1' survived $3"; else ok "#449 step 9 mutant '$1' dies"; fi
+}
+hcm "URL probe call dropped" 's|why="$(forge_url_check 2>&1)"|why="$(true)"|' c449_hc_url
+hcm "absent forge_url_check not treated as old" 's# || ! declare -F forge_url_check >/dev/null##' c449_hc_old
+hcm "present printed after a refused URL" 's#\[ "$url_ok" = 1 \] && echo#echo#' c449_hc_url
+hcm "URL refusal not printed when the token is also empty" 's#echo "WARN: $why"#:#' c449_hc_both
 
 # -- mutants: each guard removed must fail its case ----------------------------------------------
 m442() {  # m442 <name> <anchor> <replacement> <case-fn>
@@ -3210,15 +3253,17 @@ unset _FORGE_TMPDIR' c442_resource
 m442 "file list split on IFS" '  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_TOKEN_ENV FORGE_REMOTE FORGE_NO_GIT_CREDENTIALS; do
     case " ${_FORGE_FROM_FILE-} " in *" $k "*) ;; *) continue ;; esac' '  for k in ${_FORGE_FROM_FILE-}; do
     case "$k" in FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS) ;; *) continue ;; esac' c442_ifs
-m442 "file values left exportable" '                              export -n "$k" "_FORGE_FILEVAL_$k"
-' '' c442_allexport
+m442 "file values left exportable (set -a half)" '                              export -n "$k" "_FORGE_FILEVAL_$k"
+' '' c442_allexport_a
+m442 "file values left exportable (exported-empty half)" '                              export -n "$k" "_FORGE_FILEVAL_$k"
+' '' c442_allexport_b
 m442 "host check skipped" '  _forge_check_url         || return 2' '' c442_allow
 m442 "raw @ check skipped" '  case "$h" in *@*) h="" ;; *) h="$(_forge_url_host "$url" keep-port)" ;; esac' '  h="$(_forge_url_host "$url" keep-port)"' c442_userinfo
 m442 "name not validated" '    [0123456789]*|*[!${_FORGE_ALNUM}_]*)' '    "")' c442_name
 m442 "xtrace left on in forge_api" '      local _fx=0 rc; case $- in *x*) _fx=1; set +x ;; esac
       _forge_api_forgejo' '      local _fx=0 rc
       _forge_api_forgejo' c442_xtrace
-m442 "token back on argv" "-K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" --url" "-H \"Authorization: token \$tok\" -w '\\n%{http_code}' -X \"\$method\" --url" c442_xtrace
+m442 "token back on argv" "-K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" --url" "-H \"Authorization: token \$tok\" -w '\\n%{http_code}' -X \"\$method\" --url" c442_argv_get
 
 # -- #450 review M1: forge_api passes curl -q first, so a .curlrc never reaches the request ----------
 # curl reads the home .curlrc unless -q is its FIRST argument, and a `verbose` line there prints the
@@ -3263,6 +3308,158 @@ m442 "#450 -q dropped from the POST curl call (kills the argv row)" 'printf '"'%
 m442 "#450 -q dropped from the GET curl call (kills the argv row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_q
 m442 "#450 -q dropped from the GET curl call (kills the .curlrc row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_curlrc
 m442 "#450 -q not first on the GET curl call (curl ignores it, the .curlrc row dies)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -q -g' c450_curlrc
+
+# -- #449: round-1 lows from #442, and the dry run that refuses what the real run refuses -----------
+echo "== #449: #442 round-1 lows, dry-run URL validation, forge_url_check =="
+# Item 1: the argv assertion has its own mutants. A library that keeps -K and ALSO adds -H carries the
+# token on argv and in the config; only the argv count catches it, and c442_xtrace does not look.
+c442_argv_get || bad "#449: c442_argv_get fails on the real library"
+c442_argv_post || bad "#449: c442_argv_post fails on the real library"
+m442 "token beside -K (GET)" "out=\"\$(curl -q -sS -g --proto \"=\$proto\" -K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w" "out=\"\$(curl -q -sS -g --proto \"=\$proto\" -H \"Authorization: token \$tok\" -K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w" c442_argv_get
+m442 "token beside -K (POST)" "curl -q -sS -g --proto \"=\$proto\" -K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" -H 'Content-Type: application/json'" "curl -q -sS -g --proto \"=\$proto\" -H \"Authorization: token \$tok\" -K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" -H 'Content-Type: application/json'" c442_argv_post
+
+# Item 2: a comment may name only things the library defines. The check takes a library path and
+# prints the missing names, as unset_gaps does, so a mutant copy is judged without failing the suite.
+comment_gaps() {
+  local n
+  ( . "$1" >/dev/null 2>&1
+    grep -E '^[[:space:]]*#' "$1" | grep -oE '_forge_[A-Za-z0-9_]*[A-Za-z0-9]' | sort -u | while IFS= read -r n; do
+      declare -F "$n" >/dev/null || declare -p "$n" >/dev/null 2>&1 || printf '%s\n' "$n"
+    done )
+}
+expect "#449: every _forge_* identifier named in a library comment is defined" "" "$(comment_gaps "$LIB")"
+{ cat "$LIB"; printf '%s\n' '# see _forge_xtrace_off'; } > "$K/lib-comment.sh"
+expect "#449: mutant: a comment naming an undefined helper is reported by name" "_forge_xtrace_off" "$(comment_gaps "$K/lib-comment.sh")"
+
+# Item 3: forge_token_present holds the token, so it turns xtrace off like every other holder.
+c442_xtrace_present() {
+  k442 "" NONE FORGEJO_TOKEN=canary -- bash -c ". \"\${K442LIB:-$LIB}\"; set -x; forge_token_present; echo rc=\$?; case \$- in *x*) echo XON ;; esac"
+  [ "$(cat "$K/out")" = "$(printf 'FORGEJO_TOKEN\nrc=0\nXON')" ] && [ "$(grep -c canary "$K/err")" = 0 ] || return 1
+  k442 "" NONE FORGEJO_TOKEN= -- bash -c ". \"\${K442LIB:-$LIB}\"; set -x; forge_token_present; echo rc=\$?; case \$- in *x*) echo XON ;; esac"
+  [ "$(cat "$K/out")" = "$(printf 'FORGEJO_TOKEN\nrc=1\nXON')" ]; }
+c442_xtrace_present && ok "#449: forge_token_present under set -x prints the name, keeps xtrace on and leaves the token out of the trace" \
+  || bad "#449: forge_token_present under set -x (out $(cat "$K/out"), canary lines $(grep -c canary "$K/err"))"
+m442 "xtrace left on in forge_token_present" 'local _fx=0 var rc=0; case $- in *x*) _fx=1; set +x ;; esac' 'local _fx=0 var rc=0' c442_xtrace_present
+
+# Item 4: a backslash anywhere in a file URL is refused, not only in the authority.
+c449_backslash() {
+  k442 'FORGE_API_URL=https://forge.example.com/a\b' forge.example.com FORGEJO_TOKEN=tok -- $GET1
+  [ "$K442RC" = 2 ] && k_err "invalid forge host" && k_nocurl && ! k_err 'a\b' && ! k_err forge.example.com; }
+c449_backslash && ok "#449: a file URL with a backslash in its PATH is refused, curl never called, the URL not echoed" || bad "#449: path-level backslash (rc $K442RC: $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com/a" forge.example.com FORGEJO_TOKEN=tok -- $GET1
+[ "$K442RC" = 0 ] && k_after --url https://forge.example.com/a/api/v1/repos/o/r/issues/1 && ok "#449: the same URL without the backslash is accepted and rides behind --url" || bad "#449: clean path URL (rc $K442RC)"
+m442 "backslash check skipped" '  case "$url" in *\\*) h="@" ;; esac' '' c449_backslash
+
+# Item 5: the without-Claude-Code page says who reads which credential.
+WCC="$HERE/../docs/guides/without-claude-code.md"
+doc_cred() { grep -q 'FORGE_NO_GIT_CREDENTIALS' "$1" && grep -q 'FORGE_TOKEN_ENV' "$1" && [ "$(grep -c "auth are read from the environment by .forge-lib.sh." "$1")" = 0 ]; }
+doc_cred "$WCC" && ok "#449: without-claude-code.md names FORGE_TOKEN_ENV, the credential-helper fallback, and no longer credits forge-lib with gh's auth" || bad "#449: without-claude-code.md credential sentence"
+grep -v 'FORGE_NO_GIT_CREDENTIALS' "$WCC" > "$K/wcc-mut1.md"; { cat "$WCC"; printf '%s\n' 'auth are read from the environment by `forge-lib.sh`.'; } > "$K/wcc-mut2.md"
+! doc_cred "$K/wcc-mut1.md" && ! doc_cred "$K/wcc-mut2.md" && ok "#449 mutant: dropping the credential-helper note, or restoring the old sentence, fails the doc row" || bad "#449 mutant: the doc row survived a doc mutant"
+
+# Item 6: every Forgejo dry-run branch validates the URL as the real run does. The refused URL is a
+# file URL (conf) whose host is not allowlisted; the credential helper is ON so a token read would show.
+c449_refused() { [ "$K442RC" = 2 ] && k_err "not in the forge host allowlist" && ! grep -qF '[dry-run]' "$K/err" "$K/out" && [ ! -s "$K/out" ] && k_nocurl && ! grep -q '^credential' "$K/gitlog"; }
+c449_dr() { k442 "FORGE_API_URL=https://evil.invalid" NONE FORGE_DRY_RUN=1 FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- "$@"; c449_refused; }
+c449_dr_api() {
+  c449_dr $GET1 || return 1
+  k442 "" NONE FORGE_DRY_RUN=1 -- $GET1
+  [ "$K442RC" = 2 ] && k_err "FORGE_API_URL must be set in .forge.conf" && ! grep -qF '[dry-run]' "$K/err" || return 1
+  k442 "" NONE FORGE_API_URL=http://f.invalid FORGE_DRY_RUN=1 -- $GET1
+  [ "$K442RC" = 2 ] && k_err "refusing to send the token over http" && ! grep -qF '[dry-run]' "$K/err" && k_nocurl; }
+c449_dr_paginate()  { c449_dr forge_api_paginate /repos/o/r/issues; }
+c449_dr_list()      { c449_dr forge_issue_list open; }
+c449_dr_edit()      { c449_dr forge_issue_edit 1 body; }
+c449_dr_label()     { c449_dr forge_issue_label 1 bug; }
+c449_dr_region()    { c449_dr forge_body_region_set 1 gate gate-context text; }
+c449_dr_compose()   { c449_dr forge_body_compose_preserving 1 body; }
+c449_dr_close()     { c449_dr forge_milestone_close "Phase A"; }
+c449_dr_milestone() { c449_dr forge_issue_milestone 1 "Phase A" && c449_dr forge_issue_milestone 1 ""; }
+for fn in api paginate list edit label region compose close milestone; do
+  "c449_dr_$fn" && ok "#449 dry run, $fn: a refused file URL returns 2 with the real refusal, no [dry-run] line, nothing on stdout, no credential asked" \
+    || bad "#449 dry run, $fn (rc $K442RC out $(cat "$K/out") err $(cat "$K/err"))"
+done
+c449_dr_ok() {  # an accepted URL keeps its [dry-run] line and rc 0; GitHub is untouched
+  k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGE_DRY_RUN=1 -- $GET1
+  [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "[dry-run] GET https://forge.example.com/api/v1/repos/o/r/issues/1" ] && k_nocurl || return 1
+  k442 "" NONE FORGE_HOST=github FORGE_DRY_RUN=1 -- $GET1
+  [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "[dry-run] GET https://api.github.com/repos/o/r/issues/1" ] || return 1
+  k442 "" NONE FORGE_HOST=github -- forge_url_check
+  [ "$K442RC" = 0 ] && [ ! -s "$K/out" ] && [ ! -s "$K/err" ]; }
+c449_dr_ok && ok "#449 dry run: an allowlisted URL keeps its [dry-run] line and rc 0; on GitHub forge_api dry-runs as before and forge_url_check is a silent no-op" || bad "#449 dry run, accepted URL (rc $K442RC err $(cat "$K/err"))"
+c449_url_check() {  # forge_url_check: silent rc 0 when accepted, the refusal and rc 2 otherwise, no token read, never exits the caller
+  k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- forge_url_check
+  [ "$K442RC" = 0 ] && [ ! -s "$K/out" ] && [ ! -s "$K/err" ] && ! grep -q '^credential' "$K/gitlog" || return 1
+  k442 "FORGE_API_URL=https://evil.invalid" NONE FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- forge_url_check
+  [ "$K442RC" = 2 ] && [ ! -s "$K/out" ] && k_err "not in the forge host allowlist" && ! grep -q '^credential' "$K/gitlog" || return 1
+  k442 "" NONE -- bash -c ". \"\${K442LIB:-$LIB}\"; forge_url_check; echo \"rc=\$? after\""
+  [ "$(cat "$K/out")" = "rc=2 after" ] && k_err "FORGE_API_URL must be set"; }
+c449_dr_api && c449_dr_ok && c449_url_check && ok "#449: the dry-run cases and forge_url_check are green on the real library" || bad "#449: a dry-run case fails on the real library"
+# One mutant per dry-run branch, each with its own anchor (m442 needs exactly one match and the suite
+# forbids duplicate row texts). The anchor is the added check plus the branch's next line.
+CHK='forge_url_check || return 2'
+m449() { m442 "dry run skips the URL check ($1)" "$2" "$3" "$4"; }
+m449 forge_api "    $CHK   # #449: a dry run refuses what the real run refuses
+    # to stderr" "    # to stderr" c449_dr_api
+m442 "dry run skips the URL check (forge_api_paginate rc discarded)" '[ "$rc" = 0 ] || return "$rc"
+    printf '"'"'[]\n'"'"'; return 0' "printf '[]\\n'; return 0" c449_dr_paginate
+m449 forge_issue_list "    $CHK
+    printf '[dry-run] GET %s/repos/%s/issues?state" "    printf '[dry-run] GET %s/repos/%s/issues?state" c449_dr_list
+m449 forge_issue_edit "    $CHK
+    printf '[dry-run] replace body" "    printf '[dry-run] replace body" c449_dr_edit
+m449 forge_issue_label "    $CHK
+    printf '[dry-run] label issue" "    printf '[dry-run] label issue" c449_dr_label
+m449 _forge_region_write "    $CHK
+    printf '[dry-run] %s region" "    printf '[dry-run] %s region" c449_dr_region
+m449 forge_body_compose_preserving "    $CHK
+    printf '[dry-run] compose body" "    printf '[dry-run] compose body" c449_dr_compose
+m449 forge_milestone_close "    $CHK
+    printf '[dry-run] close milestone" "    printf '[dry-run] close milestone" c449_dr_close
+m449 forge_issue_milestone "    $CHK
+    if [ -n \"\$title\" ]; then printf '[dry-run] set milestone" "    if [ -n \"\$title\" ]; then printf '[dry-run] set milestone" c449_dr_milestone
+m442 "dry run checks the URL in the set arm only (forge_issue_milestone clear form)" "    $CHK
+    if [ -n \"\$title\" ]; then printf '[dry-run] set milestone" "    if [ -n \"\$title\" ]; then $CHK; printf '[dry-run] set milestone" c449_dr_milestone
+m442 "forge_url_check approves every URL" '  : "$base"
+  _forge_check_url
+}' '  : "$base"
+  return 0
+}' c449_dr_label
+m442 "forge_url_check is not a no-op on GitHub" '  [ "$host" = forgejo ] || return 0
+' '' c449_dr_ok
+m442 "forge_url_check calls forge_api_base bare" '  base="$(forge_api_base)" || return 2
+  : "$base"' '  forge_api_base >/dev/null || return 2
+  : "$base"' c449_url_check
+m442 "forge_url_check reads the token" '  : "$base"
+  _forge_check_url
+}' '  : "$base"
+  _forge_check_url || return 2
+  _forge_token >/dev/null 2>&1
+}' c449_url_check
+
+# Item 8: a 301 or 307 is reported, not followed, and the docs say what to do about it.
+c449_redirect() {
+  local st
+  for st in 301 307; do
+    k442 "" NONE FORGE_API_URL=https://f.invalid FORGEJO_TOKEN=tok K442STATUS=$st -- $GET1
+    [ "$K442RC" = 22 ] && [ "$(cat "$K/err")" = "forge-lib: HTTP $st from GET /repos/o/r/issues/1" ] && [ "$(wc -l < "$K/calls")" = 1 ] || return 1
+  done; }
+c449_redirect && ok "#449: a 301 and a 307 are rc 22 with the HTTP line, the redirect not followed, curl called once each" || bad "#449: 301/307 (rc $K442RC err $(cat "$K/err"))"
+m442 "a 3xx counted as success" '    2*)  return 0 ;;' '    2*|30*)  return 0 ;;' c449_redirect
+doc_redirect() { grep -qE '30[17].*FORGE_(REPO|API_URL)' "$1"; }
+FH="$HERE/../plugins/forge-kit-devops/skills/forge-host"
+for d in "$FH/SKILL.md" "$FH/references/local-auth.md"; do
+  doc_redirect "$d" && ok "#449: ${d#$HERE/../} tells the user to update FORGE_REPO or FORGE_API_URL on a 301 or 307" || bad "#449: ${d#$HERE/../} has no redirect remedy"
+  grep -vE '30[17]' "$d" > "$K/doc-mut.md"; ! doc_redirect "$K/doc-mut.md" && ok "#449 mutant: ${d#$HERE/../} without its 301/307 lines fails the redirect-remedy row" || bad "#449 mutant: redirect-remedy row survived for ${d#$HERE/../}"
+done
+
+# Item 10: nothing a set -a parent exports lets a child act on this library's tracking variables.
+c449_inherit() {
+  k442 "" NONE -- bash -c ". \"\${K442LIB:-$LIB}\"; echo \${FORGE_NO_GIT_CREDENTIALS-unset}"
+  [ "$K442RC" = 0 ] && [ "$(cat "$K/out")" = 1 ] || return 1
+  k442 "FORGE_REPO=o/r" NONE -- bash -c "unset FORGE_REPO; IFS=\$'\\n\\t'; set -a; . \"\${K442LIB:-$LIB}\"; forge_host >/dev/null; [ \"\$(forge_repo)\" = o/r ] && env"
+  [ "$K442RC" = 0 ] && [ "$(grep -c -E '^(_FORGE_FROM_FILE|_FORGE_FILEVAL_)' "$K/out")" = 0 ]; }
+c449_inherit && ok "#449: an exported caller value survives sourcing, and a set -a parent hands a child neither tracking name" || bad "#449: tracking variables (rc $K442RC: $(grep -E '^_FORGE_' "$K/out" | tr '\n' ' '))"
+m442 "tracking list left exportable" '                              export -n _FORGE_FROM_FILE; } ;;  # env wins; else file' '                              :; } ;;  # env wins; else file' c449_inherit
 
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"

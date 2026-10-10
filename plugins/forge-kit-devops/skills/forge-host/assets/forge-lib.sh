@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 37
+# forge-lib-version: 38
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -165,6 +165,12 @@
 #       set FORGE_TOKEN_ENV only to FORGEJO_TOKEN or FORGE_TOKEN; another name must be exported.
 #       Redirects are no longer followed (a 3xx is rc 22). The token reaches curl through -K,
 #       never argv. New: forge_token_present, for a caller that only asks whether a token is set.
+#   v38 Review lows of #442 (#449). New public forge_url_check: silent rc 0 when FORGE_API_URL would
+#       be accepted (https, and on the allowlist if it came from .forge.conf), else the refusal and
+#       rc 2; a no-op on GitHub, reads no token. Every dry-run branch now calls it first on
+#       Forgejo, so a dry run refuses what the real run refuses (forge_api_paginate returns
+#       forge_api's rc instead of printing `[]` after a refusal). A 3xx is rc 22: the remedy is a
+#       FORGE_API_URL that names the final location. Comment fixes only otherwise.
 #   v37 forge_ci_status and forge_ci_no_status_kind stop discarding forge_api's stderr (#450). A
 #       refusal (host not in the allowlist, non-https, empty or unsafe token, bad FORGE_TOKEN_ENV,
 #       invalid host) now reaches the caller's stderr, once, instead of leaving a bare
@@ -197,10 +203,18 @@ _forge_clear_file_vals() {
   _FORGE_FROM_FILE=""
 }
 
-# Never inherit these: an inherited _FORGE_TMPDIR would be trusted, written to with a predictable
-# name and never cleaned; an inherited memo guard would suppress the first config load.
+# These must not survive from the caller, so they are unset here, and the loader tries not to export
+# them (export -n on _FORGE_FROM_FILE; under `set -a` some can still leak, which is harmless because
+# a child re-sources and unsets them here): an inherited _FORGE_TMPDIR would be trusted, written to
+# with a predictable name and never cleaned; an inherited memo guard would suppress the first config
+# load; an inherited _FORGE_FROM_FILE would make a child treat the caller's own values as
+# file-sourced.
 # A RE-SOURCE in the same shell first clears what the file set (#442 review): otherwise the next
 # load finds FORGE_API_URL already set, takes it for the caller's own, and skips the allowlist.
+# _forge_clear_file_vals runs BEFORE the unset, so an INHERITED _FORGE_FROM_FILE and
+# _FORGE_FILEVAL_* list is acted on at source time: a key it names whose value matches is unset
+# (#449 item 10). That is not a security boundary: whoever controls the environment can set or
+# unset the config keys directly, so the list grants nothing they did not already have.
 _forge_clear_file_vals
 unset _FORGE_TMPDIR _FORGE_CONF_PWD _FORGE_FROM_FILE
 
@@ -266,7 +280,8 @@ _forge_load_conf() {
                               # set -a, or an exported empty value, would export it anyway, and a
                               # child would take it for the caller's own (#442 review)
                               export -n "$k" "_FORGE_FILEVAL_$k"
-                              _FORGE_FROM_FILE="${_FORGE_FROM_FILE-} $k"; } ;;  # env wins; else file
+                              _FORGE_FROM_FILE="${_FORGE_FROM_FILE-} $k"
+                              export -n _FORGE_FROM_FILE; } ;;  # env wins; else file
     esac
   done < "$f"
 }
@@ -388,9 +403,10 @@ forge_api_base() {
 # written as ranges so no locale can widen them (#442: a UTF-8 [A-Za-z] admits a dotless i).
 _FORGE_ALNUM='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
-# _forge_xtrace_off / _forge_xtrace_restore: every function that holds the token runs with xtrace
-# off (#442), because `set -x` in a caller printed it on four lines. The previous state is kept in
-# the caller's own `local _fx`, so nesting restores correctly.
+# xtrace guard: every function that holds the token runs with xtrace off (#442), because `set -x`
+# in a caller printed it on four lines. Each uses the inline pair `case $- in *x*) _fx=1; set +x ;;
+# esac` ... `[ "$_fx" = 0 ] || set -x`; the previous state is kept in the function's own
+# `local _fx`, so nesting restores correctly.
 #
 # _forge_token_var: print the validated name of the variable that holds the Forgejo token (#442).
 # The name is checked BEFORE `${!var}`: a subscript such as `x[$(cmd)]` is evaluated by indirect
@@ -415,6 +431,18 @@ _forge_token_var() {
 # forge_token_present: print the token variable's name; rc 0 when it holds a value, 1 when it is
 # empty, 2 when the name is refused. It never prints the token and never asks git's credential
 # helper, so a status check (health-check step 9) can call it without indirect expansion of its own.
+# forge_url_check: would FORGE_API_URL be accepted? Silent rc 0 if so, else forge_api's own
+# refusal on stderr and rc 2. Forgejo only (a no-op on GitHub); reads no token. forge_api_base
+# is called inside $(...) because its ${FORGE_API_URL:?} would exit a non-interactive caller.
+forge_url_check() {
+  local host base=""
+  host="$(forge_host)" || return 2
+  [ "$host" = forgejo ] || return 0
+  base="$(forge_api_base)" || return 2
+  : "$base"
+  _forge_check_url
+}
+
 forge_token_present() {
   local _fx=0 var rc=0; case $- in *x*) _fx=1; set +x ;; esac
   if var="$(_forge_token_var)"; then
@@ -531,6 +559,7 @@ forge_api() {
   local host
   host="$(forge_host)" || return 2   # forge_api-host-capture: ABOVE the dry-run guard, so a dry run refuses an invalid host too (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2   # #449: a dry run refuses what the real run refuses
     # to stderr, so it survives callers that redirect the JSON response to /dev/null
     printf '[dry-run] %s %s%s%s\n' "$method" "$(forge_api_base)" "$path" "${body:+  body=$body}" >&2
     return 0
@@ -615,7 +644,8 @@ forge_api_paginate() {
   case "$path" in *\?*) sep='&' ;; *) sep='?' ;; esac
   host="$(forge_host)" || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_api GET "${path}${sep}limit=50&page=1" >/dev/null   # prints the dry-run line
+    rc=0; forge_api GET "${path}${sep}limit=50&page=1" >/dev/null || rc=$?   # prints the dry-run line
+    [ "$rc" = 0 ] || return "$rc"
     printf '[]\n'; return 0
   fi
   if [ "$host" = github ]; then
@@ -921,6 +951,7 @@ _forge_region_write() {
   # GET under dry-run, returning 0 with an empty body, so a guard placed after the fetch would
   # splice against an empty string and report success.
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2
     printf '[dry-run] %s region %s of issue %s on %s (%s characters)\n' "$mode" "$region" "$n" "$(forge_repo)" "${#content}" >&2
     return 0
   fi
@@ -962,6 +993,7 @@ forge_body_compose_preserving() {
     echo "forge-lib: usage: forge_body_compose_preserving <issue> <new-body>" >&2; return 2; }
   forge_host >/dev/null || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2
     printf '[dry-run] compose body of issue %s on %s (%s characters)\n' "$n" "$(forge_repo)" "${#new}" >&2
     return 0
   fi
@@ -1072,6 +1104,7 @@ forge_issue_edit() {
   forge_host >/dev/null || return 2   # above the dry-run guard (#256): both hosts PATCH, but an invalid one must not dry-run clean
   local payload; payload="$(printf '%s' "$2" | _forge_payload forge_issue_edit '{body:$b}')" || return 2   # forge-lib: payload (edit)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2
     printf '[dry-run] replace body of issue %s on %s (%s characters)\n' "$1" "$(forge_repo)" "${#2}" >&2
     return 0
   fi
@@ -1086,6 +1119,7 @@ forge_issue_list() {
   local repo state host; repo="$(forge_repo)" || return 2; state="${1:-open}"
   host="$(forge_host)" || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2
     printf '[dry-run] GET %s/repos/%s/issues?state=%s (issues only, all pages)\n' "$(forge_api_base)" "$repo" "$state" >&2; return 0
   fi
   case "$host" in
@@ -1117,7 +1151,10 @@ forge_issue_label() {
   local n="$1"; shift; [ "$#" -gt 0 ] || return 0
   local repo host; repo="$(forge_repo)" || return 2
   host="$(forge_host)" || return 2   # above the dry-run guard (#256)
-  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then printf '[dry-run] label issue %s on %s with: %s\n' "$n" "$repo" "$*" >&2; return 0; fi
+  if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2
+    printf '[dry-run] label issue %s on %s with: %s\n' "$n" "$repo" "$*" >&2; return 0
+  fi
   case "$host" in
     github)
       forge_api POST "/repos/$repo/issues/$n/labels" "$(printf '%s\n' "$@" | jq -R . | jq -sc '{labels: .}')" >/dev/null ;;
@@ -1219,6 +1256,7 @@ forge_milestone_close() {
   # also prints the line and returns 0, because the caller already resolved it from a real read.
   forge_host >/dev/null || return 2   # above the dry-run guard: an invalid host must not dry-run clean (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2
     printf '[dry-run] close milestone %s on %s\n' "$title" "$repo" >&2
     return 0
   fi
@@ -1260,6 +1298,7 @@ forge_issue_milestone() {
   # milestone cases (set and clear); the real-mode ones pin the refusal itself.
   host="$(forge_host)" || return 2
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
+    forge_url_check || return 2
     if [ -n "$title" ]; then printf '[dry-run] set milestone of issue %s to %s on %s\n' "$n" "$title" "$repo" >&2
     else printf '[dry-run] clear the milestone of issue %s on %s\n' "$n" "$repo" >&2; fi
     return 0

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 35 -->
+<!-- forge-host-version: 36 -->
 
 # forge-host: host-aware forge operations
 
@@ -59,13 +59,14 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
 | `forge_issue_milestone_list` | EVERY open issue as `{number, milestone}`, the milestone being its title or `null`; it takes no argument, so filter by title yourself. PRs excluded on both hosts (Forgejo sends `"pull_request": null` on a plain issue, #446) |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
+| `forge_url_check` | silent rc 0 if `FORGE_API_URL` would be accepted (https, allowlisted when from `.forge.conf`), else the refusal and rc 2; no-op on GitHub, reads no token (v38, #449) |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
 | `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask; an invalid `FORGE_HOST` also answers `not_configured` with rc 0, after the one host line on stderr (v29); on Forgejo, `forge_api`'s stderr passes through untouched (v37, #450), so a refusal such as an unlisted host says why instead of a bare `not_configured` (stdout is still one word, rc 0; a real HTTP failure prints its line, and `FORGE_DRY_RUN=1` its `[dry-run]` line) |
 
 **`forge_api` on an invalid host (v29, either host):** returns 2 with the one `forge_host` line on stderr and sends nothing, under `FORGE_DRY_RUN=1` too. Every writer and reader that goes through it inherits this; `forge_tag_exists` returns 2 then, meaning *could not ask*, not *tag absent*.
 
 **`forge_api` exit codes (forgejo path, v5+):** 0 for 2xx, **44 for 404**, 22 for any other
-non-2xx (including any 3xx: since v36 redirects are never followed), and curl's own code for a transport failure. A
+non-2xx (including any 3xx: since v36 redirects are never followed; on a 301 or 307 update `FORGE_REPO` or `FORGE_API_URL` to the new location), and curl's own code for a transport failure. A
 caller that treats every non-zero as fatal will now reject the ordinary "this owner is a user,
 so it has no org labels" case; branch on 44. The status is NOT published as a variable,
 because callers read the body with `$(...)` and a variable set in that subshell is discarded.
@@ -146,6 +147,7 @@ cannot), redirects are never followed, and the token reaches curl through `-K`, 
 the file, `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`. A URL or name you
 export yourself is trusted as-is. `forge_token_present` reports the token's variable name and
 whether it is set, without printing it.
+On Forgejo every dry-run branch runs the same URL check first, so `FORGE_DRY_RUN=1` refuses what a real run refuses (rc 2); `forge_api_paginate` callers now see that rc.
 
 `.forge.conf` names the env var (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`); how the token
 gets INTO it depends on the context, detailed in `references/local-auth.md`:

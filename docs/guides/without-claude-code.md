@@ -160,9 +160,10 @@ or `.github/copilot-instructions.md` are `referred` when they do not reach `AGEN
 It reads tracked files from the git index, so it answers for a fresh clone rather than for your
 machine. Exit 0, 1, or 2 when it could not run.
 
-The Forgejo token (the variable `FORGE_TOKEN_ENV` names, default `FORGEJO_TOKEN`) and `gh`'s own
-auth are read from the environment by `forge-lib.sh`. It is never written to a
-file by any of these scripts, and you should not put it in one.
+`gh` reads its own auth. The Forgejo token comes from the variable `FORGE_TOKEN_ENV` names (default
+`FORGEJO_TOKEN`); when that is empty `forge-lib.sh` falls back to git's credential helper, which
+`FORGE_NO_GIT_CREDENTIALS=1` turns off. The token is never written to a file by any of these
+scripts, and you should not put it in one.
 
 ## 4. What do you NOT get?
 
