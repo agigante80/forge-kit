@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 30 -->
+<!-- leak-guard-version: 31 -->
 
 # Leak guard
 
@@ -158,7 +158,11 @@ carries whitespace, a double quote or a backtick, and when it ends in punctuatio
 strip could only ever match its own literal; bracketed `root` values are the exception to that last
 rule, since a redaction marker is such a literal. A `prefix` is refused for the same four shapes
 with no bracketed exception, because rule A compares the stripped match exactly, so an entry
-ending in punctuation never matches; the built-in redaction markers need no prefix entry.
+ending in punctuation never matches; the built-in redaction markers need no prefix entry. A `marker`
+is refused unless it is one bracketed token, `[name]`, so an unbracketed or half-bracketed value, an
+empty `[]`, and a name holding whitespace, a double quote, a backtick or a slash are all refused (a
+path segment yields none of them, so the entry could never match). An all-punctuation name such as
+`[.]` is allowed: it silences only its own literal.
 The file is tracked and public on purpose: everything in it is something the project decided it may show.
 
 ## The private half
@@ -278,9 +282,10 @@ was a credential rather than waiting for the purge, because the purge does not u
 
 Do the rewrite anyway, so the working history is clean. Just do not report it as a deletion.
 
-**Replace the private string with a marker the scanner knows.** The scanner recognises three: `[redacted]`, which this remediation uses, `<redacted>`, and `***REMOVED***`, which is what
+**Replace the private string with a marker the scanner knows.** The scanner recognises three:
+`[redacted]`, which this remediation uses, `<redacted>`, and `***REMOVED***`, which is what
 `git filter-repo --replace-text` writes when an expression names no replacement. Any of them in a
-`~/` root or a `/home/` segment is not reported, in the tree modes or under `--history`, so the
-rewrite that removes the leak leaves the scan green. Any other replacement is reported as a root
-until the repository allows it with a `marker [name]` entry, one bracketed token or the run is
-refused: a marker is never a shape.
+`~/` root or a `/home/` segment is not reported, in the tree modes or under `--history`, with or
+without sentence punctuation after it, so the rewrite that removes the leak leaves the scan green.
+Any other replacement is reported as a root until the repository allows it with a `marker [name]`
+entry, one bracketed token or the run is refused: a marker is never a shape.

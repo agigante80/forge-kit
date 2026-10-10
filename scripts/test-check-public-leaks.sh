@@ -184,11 +184,31 @@ expect "near miss: ~/[mycoX]/x is still a root"              1 "$(scan_line 'see
 expect "near miss: /home/[mycoX]/x is still a user"         1 "$(scan_line 'see /home/[mycoX]/x' --allow-file "$WORK/allow-mk")"
 expect "near miss: /home/[myc]/x is still a user"           1 "$(scan_line 'see /home/[myc]/x' --allow-file "$WORK/allow-mk")"
 expect "without the entry ~/[myco]/x is still a root"        1 "$(scan_line 'see ~/[myco]/x')"
-for v in 'myco' '[myco' 'myco]' '[]' '[a/b]' '[a b]' '[a"b]' '[a`b]' '[a]/'; do
+# Each refused value is pinned by its exit code AND by the message for its class (#440): an exit 2
+# from the wrong arm would otherwise pass. The tab row stops the whitespace alternative resting
+# on the space byte alone.
+M_SHAPE='marker must be one bracketed token, [name]'
+M_EMPTY='marker cannot be empty'
+M_BYTES='marker cannot contain a slash, whitespace, a double quote or a backtick (a path segment yields none of them), so this entry could never match'
+while IFS='|' read -r want v; do
+  case "$v" in TAB) v=$'[a\tb]' ;; esac
   printf 'marker %s\n' "$v" > "$WORK/bad-mk"
   "$SCRIPT" --allow-file "$WORK/bad-mk" "$WORK/sample.txt" >/dev/null 2>"$WORK/err.txt"
   expect "marker '$v' refuses the run (#391)" 2 "$?"
-done
+  case "$want" in shape) m="$M_SHAPE: $v" ;; empty) m="$M_EMPTY, write [name]: $v" ;; *) m="$M_BYTES: $v" ;; esac
+  contains "$m" "$(cat "$WORK/err.txt")" "marker '$v' is refused with the $want message (#440)"
+done <<'MKREFUSE'
+shape|myco
+shape|[myco
+shape|myco]
+shape|[a]/
+empty|[]
+bytes|[a/b]
+bytes|[a b]
+bytes|TAB
+bytes|[a"b]
+bytes|[a`b]
+MKREFUSE
 contains "marker must be one bracketed token" "$(printf 'marker myco\n' > "$WORK/bad-mk"; "$SCRIPT" --allow-file "$WORK/bad-mk" "$WORK/sample.txt" 2>&1 >/dev/null)" "and the refusal says what a marker is"
 contains "(want root, prefix, marker, email or skip)" "$(printf 'bogus x\n' > "$WORK/bad-mk"; "$SCRIPT" --allow-file "$WORK/bad-mk" "$WORK/sample.txt" 2>&1 >/dev/null)" "and the unknown-key message lists marker"
 # Mutants, each built from a copy: the script is never edited in place.
@@ -207,6 +227,68 @@ expect "mutant (#391): without the shape check marker myco is accepted, not refu
 mk_mut noslash "s/^          \\*\\[\$' .t.n.v.f.r'\\]\\*|\\*\\/\\*|/          *[\$' \\\\t\\\\n\\\\v\\\\f\\\\r']*|/"
 printf 'marker [a/b]\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
 expect "mutant (#391): without the slash refusal [a/b] is accepted, not refused" 0 "$?"
+# One alternative each (#440). The replaced text carries its neighbour so it matches the marker arm,
+# not the root or prefix arm that shares the same byte-class alternatives. mk_lit replaces a LITERAL substring (bash pattern in quotes, so no
+# regex or sed escaping to get wrong) and mk_mut's ledger proves it applied. Each deletes exactly
+# one alternative, so its row dies only because its own value reaches that arm.
+mk_lit() {  # mk_lit <name> <literal> <replacement>
+  local c; c="$(cat "$SCRIPT"; echo x)"; c="${c%x}"
+  MKM="$WORK/mutant-391-$1.sh"; printf '%s' "${c/"$2"/$3}" > "$MKM"; chmod +x "$MKM"
+  cmp -s "$SCRIPT" "$MKM" && bad "mutant ledger (#391 $1): the replacement did not apply" || ok "mutant ledger (#391 $1): the mutant differs"
+}
+mk_lit nows  $'*[$\x27 \\t\\n\\v\\f\\r\x27]*|*/*|' '*/*|'
+printf 'marker [a b]\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
+expect "mutant (#391): without the whitespace refusal [a b] is accepted, not refused" 0 "$?"
+printf 'marker [a\tb]\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
+expect "mutant (#391): and the tab form is accepted too" 0 "$?"
+mk_lit noquote $'*/*|*\x27"\x27*|' '*/*|'
+printf 'marker [a"b]\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
+expect "mutant (#391): without the double quote refusal [a-quote-b] is accepted, not refused" 0 "$?"
+mk_lit notick $'|*\x27`\x27*) die "$ALLOW_FILE:$lineno: marker cannot contain' $') die "$ALLOW_FILE:$lineno: marker cannot contain'
+printf 'marker [a`b]\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
+expect "mutant (#391): without the backtick refusal [a-backtick-b] is accepted, not refused" 0 "$?"
+mk_lit noempty $'\x27\x27) die "$ALLOW_FILE:$lineno: marker cannot be empty, write [name]: $val" ;;' $'\x27\x27) : ;;'
+printf 'marker []\n' > "$WORK/bad-mk"; "$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" >/dev/null 2>&1
+expect "mutant (#391): without the empty refusal [] is accepted, not refused" 0 "$?"
+# An all-punctuation name is a bracketed token like any other (#440; the 2026-10-09 comment on
+# the ticket). It silences exactly its own literal: a longer name or a trailing letter is still
+# a root, so the entry cannot hide a different directory.
+printf 'marker [.]\n' > "$WORK/allow-dot"
+expect "marker [.] silences /home/[.]/x"                      0 "$(scan_line 'see /home/[.]/x' --allow-file "$WORK/allow-dot")"
+expect "marker [.] silences ~/[.]/x"                          0 "$(scan_line 'see ~/[.]/x' --allow-file "$WORK/allow-dot")"
+expect "without the entry /home/[.]/x is reported"            1 "$(scan_line 'see /home/[.]/x')"
+printf 'see /home/[.]/x\n' > "$WORK/dot.txt"
+contains "/home/[.]/" "$("$SCRIPT" "$WORK/dot.txt")" "and the report names the segment"
+expect "near miss: /home/[..]/x stays reported"               1 "$(scan_line 'see /home/[..]/x' --allow-file "$WORK/allow-dot")"
+printf 'see /home/[..]/x\n' > "$WORK/dot2.txt"
+contains "/home/[..]/" "$("$SCRIPT" --allow-file "$WORK/allow-dot" "$WORK/dot2.txt")" "and the report names /home/[..]/"
+expect "prefix near miss: /home/[.]x/y stays reported"        1 "$(scan_line 'see /home/[.]x/y' --allow-file "$WORK/allow-dot")"
+expect "prefix near miss: ~/[.]x/y stays reported"            1 "$(scan_line 'see ~/[.]x/y' --allow-file "$WORK/allow-dot")"
+# Mutants for the [.] rows. nopunct refuses a one-byte punctuation name, so the accept rows die.
+# nobound drops the lower length bound and noeq drops the prefix equality, so the [.]x and [..]
+# near misses die. wrongmsg gives the empty arm the byte-class message, so the message rows die.
+mk_lit nopunct $'\x27\x27) die "$ALLOW_FILE:$lineno: marker cannot be empty' $'\x27\x27|[!a-zA-Z0-9]) die "$ALLOW_FILE:$lineno: marker cannot be empty'
+"$MKM" --allow-file "$WORK/allow-dot" "$WORK/dot.txt" >/dev/null 2>&1
+expect "mutant (#440): refusing a punctuation-only name makes marker [.] exit 2, not 0" 2 "$?"
+mk_lit nobound $'[ "$n" -ge "$min" ] && ' ''
+printf 'see /home/[.]x/y\n' > "$WORK/dotx.txt"; printf 'see ~/[.]x/y\n' > "$WORK/dotx2.txt"
+"$MKM" --allow-file "$WORK/allow-dot" "$WORK/dotx.txt" >/dev/null 2>&1
+expect "mutant (#440): without the lower bound marker [.] silences /home/[.]x/y" 0 "$?"
+"$MKM" --allow-file "$WORK/allow-dot" "$WORK/dotx2.txt" >/dev/null 2>&1
+expect "mutant (#440): and ~/[.]x/y" 0 "$?"
+mk_lit noeq $'    [ "${s:0:n}" = "$e" ] || continue\n' ''
+"$MKM" --allow-file "$WORK/allow-dot" "$WORK/dot2.txt" >/dev/null 2>&1
+expect "mutant (#440): without the prefix equality marker [.] silences /home/[..]/x" 0 "$?"
+mk_lit wrongmsg 'marker cannot be empty, write [name]' 'marker cannot contain a slash, whitespace, a double quote or a backtick (a path segment yields none of them), so this entry could never match'
+printf 'marker []\n' > "$WORK/bad-mk"
+lacks "marker cannot be empty" "$("$MKM" --allow-file "$WORK/bad-mk" "$WORK/lk-clean.txt" 2>&1 >/dev/null)" "mutant (#440): the empty arm with the wrong message no longer says the marker is empty"
+
+echo "== rule B: roots that are not a person's =="
+# The heading above this row is read from this file's own source (#440): a block inserted between a
+# heading and its rows silently re-labels them, as the #391 block once did to the rows below.
+HEAD_ABOVE="$(awk '/^echo "== /{h=$0} /^expect "~\/projects survives"/{print h; exit}' "$0")"
+contains "rule B" "$HEAD_ABOVE" "the heading above ~/projects survives names rule B (#440)"
+lacks "marker key" "$HEAD_ABOVE" "and is not the marker key heading (#440)"
 expect "~/projects survives"                    no  "$(trips 'cloned into ~/projects/thing')"
 expect "~/.claude survives"                     no  "$(trips 'edit ~/.claude/settings.json')"
 expect "~/.config survives"                     no  "$(trips 'edit ~/.config/app.toml')"
