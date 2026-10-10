@@ -21,7 +21,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 9 -->
+<!-- health-check-version: 10 -->
 
 Tier: a mechanical role, so Sonnet at low effort, which in measurement reported the same missing items as a stronger tier while Haiku missed two of three.
 
@@ -188,10 +188,10 @@ cb=$( { [ -f scripts/context-budget.sh ] && echo scripts/context-budget.sh; } \
   || ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/context-budget.sh 2>/dev/null \
   || find ~/.claude/plugins -name context-budget.sh -exec grep -m1 -Ho 'context-budget-version: [0-9]*' {} + 2>/dev/null \
      | sed 's/:context-budget-version: \([0-9]*\)$/	\1/' | sort -t"$(printf '\t')" -k2,2n -k1,1 | tail -1 | cut -f1 )
-[ -n "$cb" ] && [ -f CLAUDE.md ] && bash "$cb" . 2>&1 | grep -E '^(total|level|move candidate):'
+[ -n "$cb" ] && [ -f CLAUDE.md ] && bash "$cb" . 2>&1 | grep -E '^(total|level|move candidate|context-budget: marker refused):'
 ```
 
-Report the total and level as one row: `ok` is ✅, `warn` or `FAIL` is ⚠️, never ❌. Omit
+Report the total and level as one row (when a `context-budget: marker refused:` line is present, add its reason to the row, so a refused marker is not mistaken for a plain level): `ok` is ✅, `warn` or `FAIL` is ⚠️, never ❌. Omit
 the row when the asset or `CLAUDE.md` is not found. Never edit anything.
 
 ---

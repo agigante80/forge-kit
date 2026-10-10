@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# context-budget-version: 3
+# context-budget-version: 4
 # context-budget.sh: how many characters a project's next session loads before the first prompt (#297).
 #
 # Every @-import in CLAUDE.md is paid at the start of every session, every inheriting subagent and
@@ -93,7 +93,7 @@ slug() {
 # when the slug is over the length the CLI hashes.
 memory_file() {
   local d="$1" root s
-  root=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null) && root=$(physdir "$root") || root=""
+  root=$(unset GIT_DIR GIT_WORK_TREE; git -C "$d" rev-parse --show-toplevel 2>/dev/null) && root=$(physdir "$root") || root=""
   [ -n "$root" ] || root=$(physdir "$d")
   s=$(slug "$root")
   [ "${#s}" -le "$SLUG_MAX" ] || return 1
@@ -173,6 +173,7 @@ function marker(b,   t, n) {
   sub(/^context-budget:[ \t]*/, "", t)
   if (t !~ /^[0-9]/) { print "bad the level is missing or not a whole number"; return }
   match(t, /^[0-9]+/); n = substr(t, 1, RLENGTH); t = substr(t, RLENGTH + 1)
+  if (t ~ /^[^ \t]/) { print "bad the level is missing or not a whole number"; return }
   if (t !~ /^[ \t]+reason:/) { print "bad the reason is missing"; return }
   sub(/^[ \t]+reason:/, "", t); gsub(/[ \t]/, "", t)
   if (t == "") { print "bad the reason is empty"; return }
@@ -212,16 +213,16 @@ function fence_of(s,   t) {
 }
 function close_section() { if (start && size > FLAG) printf "%d\t%d\n", start, size; start = 0; size = 0 }
 {
-  line = $0; f = fence_of(line)
+  raw = $0; line = raw; sub(/\r$/, "", line); f = fence_of(line)
   if (fence != "") {
-    if (f != "" && substr(f, 1, 1) == substr(fence, 1, 1) && length(f) >= length(fence)) fence = ""
+    if (f != "" && substr(f, 1, 1) == substr(fence, 1, 1) && length(f) >= length(fence)) { t = line; sub(/^ ? ? ?[`~]+/, "", t); if (t ~ /^[ \t]*$/) fence = "" }
   } else if (f != "") {
     fence = f
   } else if (line ~ /^##?[ \t]/ || line ~ /^##?$/) {
     close_section()
     if (line ~ /^##([ \t]|$)/) start = NR
   }
-  if (start) size += length(line) + 1
+  if (start) size += length(raw) + 1
 }
 END { if (start && !nl) size -= 1; close_section() }
 '
@@ -271,7 +272,7 @@ measure() {
 
   markers=$(awk -v MODE=markers "$SCAN_AWK" < "$cm") || scan_failed
   bad=""
-  if [ "$(printf '%s\n' "$markers" | grep -c '^ok \|^bad ')" -gt 1 ]; then
+  if [ "$(printf '%s\n' "$markers" | grep -cE '^(ok|bad) ')" -gt 1 ]; then
     bad="more than one context-budget marker"
   elif grep -q '^bad ' <<< "$markers"; then
     bad=$(printf '%s\n' "$markers" | sed -n 's/^bad //p' | head -1)
@@ -362,7 +363,7 @@ fi
 [ -n "$(field memwhole)" ] && echo "MEMORY.md whole file: $(field memwhole) (not counted)"
 cat "$WORK/notes"
 while IFS="$(printf '\t')" read -r ln sz; do
-  heading=$(sed -n "${ln}p" "$root/CLAUDE.md" | sed 's/^##[ \t]*//; s/\r$//')
+  heading=$(awk -v n="$ln" 'NR == n { sub(/\r$/, ""); sub(/^##[ \t]*/, ""); print; exit }' "$root/CLAUDE.md")
   printf 'move candidate: line %s, %s chars, %s\n' "$ln" "$sz" "$heading"
 done < "$WORK/sections"
 

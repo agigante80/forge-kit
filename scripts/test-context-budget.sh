@@ -296,6 +296,123 @@ expect "a \$( ) token is only a file name" 0 "$rc"
 [ ! -e "$T/PWNED" ] && [ ! -e "$P/PWNED" ] && [ ! -e "$T/PWNED2.md" ] && ok "no command ran" || bad "no command ran"
 has "the oddly named file is counted as a file" "touch PWNED).md (hop 1)" "$out"
 
+echo "== #441: the review lows from #297 =="
+# Every fix below has a row that fails on the pre-fix asset, and a MUTANT row: the shipped text is
+# copied with the fix undone (mutate), the same row is run against the copy, and it must go red.
+REALSRC="$SRC"; REALSED=$(command -v sed)
+mutate() {  # mutate <src> <dst> <old> <new>: dst is src with the first literal <old> replaced; fails if absent
+  local c n; c=$(cat "$1"; printf x); c=${c%x}; n=${c/"$3"/"$4"}
+  [ "$c" != "$n" ] || return 1
+  printf '%s' "$n" > "$2"
+}
+dies() { if [ "$2" = red ]; then ok "mutant dies: $1"; else bad "mutant survived: $1"; fi; }
+
+# L1: a POSIX sed reads [ \t] as space, backslash or t, so a heading lost a leading t.
+mkdir -p "$T/posixsed"; printf '#!/bin/sh\nexec %s --posix "$@"\n' "$REALSED" > "$T/posixsed/sed"; chmod +x "$T/posixsed/sed"
+l1() {  # l1 <heading line>: the move-candidate row with a POSIX sed first on PATH
+  fresh l1; { printf '%s\n' "$1"; rep a 9000; printf '\n'; } > "$P/CLAUDE.md"
+  out=$(PATH="$T/posixsed:$PATH" LC_ALL=C bash "$SRC" "$P" 2>"$T/err"); rc=$?
+}
+l1 '## tools'
+has "L1: a heading keeps its first letter under a POSIX sed" "chars, tools" "$out"
+hasnt "L1: no clipped heading" "chars, ools" "$out"; expect "L1: exit 0" 0 "$rc"
+l1 '##   test'
+has "L1: extra blanks strip cleanly" "chars, test" "$out"; hasnt "L1: no clipped 'est'" "chars, est" "$out"
+expect "L1: one move candidate" 1 "$(grep -c '^move candidate' <<< "$out")"
+l1 "$(printf '## tools\r')"
+has "L1: a CRLF heading prints whole" "chars, tools" "$out"; hasnt "L1: and carries no carriage return" "$(printf '\r')" "$out"
+if mutate "$REALSRC" "$T/mut-l1.sh" "heading=\$(awk -v n=\"\$ln\" 'NR == n { sub(/\\r\$/, \"\"); sub(/^##[ \\t]*/, \"\"); print; exit }' \"\$root/CLAUDE.md\")" \
+  "heading=\$(sed -n \"\${ln}p\" \"\$root/CLAUDE.md\" | sed 's/^##[ \\t]*//; s/\\r\$//')"; then
+  SRC="$T/mut-l1.sh"; l1 '## tools'; SRC="$REALSRC"
+  r=green; grep -qF "chars, tools" <<< "$out" || r=red; dies "L1 old sed strip" "$r"
+else bad "mutant L1 did not apply"; fi
+
+# L2: a fence closes only on a closer whose remainder is blank, in SECTION_AWK as in SCAN_AWK.
+l2() {  # l2 <line>...: the lines, then 9000 a; runs $SRC
+  fresh l2; { printf '%s\n' "$@"; rep a 9000; printf '\n'; } > "$P/CLAUDE.md"; run "$P"
+}
+l2crlf() { fresh l2; { printf '## s\r\n```\r\n```\r\n## y\r\n'; rep a 9000; printf '\n'; } > "$P/CLAUDE.md"; run "$P"; }
+l2 '## s' '```' '```python' '## y'
+has "L2: an info-string line does not close the fence" "move candidate: line 1, " "$out"
+has "L2: the section is the first heading's" "chars, s" "$out"; hasnt "L2: not line 4" "line 4" "$out"; expect "L2: exit 0" 0 "$rc"
+l2 '## s' '```' '```  ' '## y'
+has "L2: a bare closer with trailing blanks closes" "move candidate: line 4, " "$out"
+has "L2: under heading y" "chars, y" "$out"; hasnt "L2: not under s" "chars, s" "$out"
+l2crlf
+has "L2: a CRLF bare closer closes" "move candidate: line 4, " "$out"; hasnt "L2: not line 1" "line 1" "$out"
+if mutate "$REALSRC" "$T/mut-l2a.sh" 'raw = $0; line = raw; sub(/\r$/, "", line); f = fence_of(line)' 'raw = $0; line = raw; f = fence_of(line)'; then
+  SRC="$T/mut-l2a.sh"; l2crlf; SRC="$REALSRC"
+  r=green; grep -qF "line 4, " <<< "$out" || r=red; dies "L2 without the CR strip" "$r"
+else bad "mutant L2a did not apply"; fi
+# the section scanner is the second awk program in the file: mutate its own close line
+if mutate "$REALSRC" "$T/mut-l2b.sh" 'length(f) >= length(fence)) { t = line; sub(/^ ? ? ?[`~]+/, "", t); if (t ~ /^[ \t]*$/) fence = "" }
+  } else if' 'length(f) >= length(fence)) fence = ""
+  } else if'; then
+  SRC="$T/mut-l2b.sh"; l2 '## s' '```' '```python' '## y'; SRC="$REALSRC"
+  r=green; grep -qF "line 1, " <<< "$out" || r=red; dies "L2 without the blank-remainder check" "$r"
+else bad "mutant L2b did not apply"; fi
+
+# L4: an inherited GIT_DIR / GIT_WORK_TREE must not redirect the git-root lookup.
+fresh l4; git init --quiet "$P"; mkdir -p "$P/pkg"; file "$P/pkg/CLAUDE.md" 100
+M=$(memdir "$P"); mkdir -p "$M"; file "$M/MEMORY.md" 70
+l4g=$P
+run "$P/pkg"; expect "L4: without GIT_DIR the git root's MEMORY.md is read (guard)" 170 "$(total)"
+GIT_DIR=.git run "$P/pkg"
+expect "L4: an inherited relative GIT_DIR does not change the total" 170 "$(total)"
+hasnt "L4: and MEMORY.md is not 'none'" "MEMORY.md, none" "$out"; expect "L4: exit 0" 0 "$rc"
+GIT_DIR="$P/.git" run "$P/pkg"; expect "L4: an inherited absolute GIT_DIR does not change it" 170 "$(total)"
+GIT_DIR=/nonexistent/.git GIT_WORK_TREE=/nonexistent run "$P/pkg"
+expect "L4: a GIT_DIR and GIT_WORK_TREE that resolve nowhere do not change it" 170 "$(total)"
+GIT_DIR=.git run --sweep "$l4g"; has "L4: and a sweep row agrees" "170	ok	$l4g/pkg" "$out"
+fresh nogit4; mkdir -p "$P/pkg"; file "$P/pkg/CLAUDE.md" 100; M=$(memdir "$P/pkg"); mkdir -p "$M"; file "$M/MEMORY.md" 30
+GIT_DIR=.git run "$P/pkg"; expect "L4: outside a git tree, with GIT_DIR set, the directory's own slug" 130 "$(total)"
+if mutate "$REALSRC" "$T/mut-l4.sh" 'root=$(unset GIT_DIR GIT_WORK_TREE; git -C "$d"' 'root=$(git -C "$d"'; then
+  fresh l4m; git init --quiet "$P"; mkdir -p "$P/pkg"; file "$P/pkg/CLAUDE.md" 100; M=$(memdir "$P"); mkdir -p "$M"; file "$M/MEMORY.md" 70
+  SRC="$T/mut-l4.sh"; GIT_DIR=.git run "$P/pkg"; SRC="$REALSRC"
+  r=green; [ "$(total)" = 170 ] || r=red; dies "L4 without the scoped unset" "$r"
+else bad "mutant L4 did not apply"; fi
+
+# L3: health-check step 11 keeps the refusal reason. The row reads the SHIPPED step, not a copy.
+HC="$ROOT/plugins/forge-kit-devops/agents/health-check.md"
+step11() {  # step11 <health-check.md>: the first bash block under "### 11."
+  awk '/^### 11\./ { s = 1; next } s && /^```bash/ { b = 1; next } b && /^```/ { exit } b' "$1"
+}
+l3() {  # l3 <health-check.md> <marker text>: runs step 11 in a fixture whose scripts/ holds the asset
+  local blk; blk=$(step11 "$1")
+  if [ -z "$blk" ]; then out="EMPTY-EXTRACTION"; return; fi
+  fresh l3; mkdir -p "$P/scripts"; cp "$REALSRC" "$P/scripts/context-budget.sh"
+  { printf '%s\n' "$2"; rep a 85000; printf '\n'; } > "$P/CLAUDE.md"
+  out=$(cd "$P" && bash -c "$blk" 2>&1)
+}
+[ -n "$(step11 "$HC")" ] && ok "L3: step 11's bash block is found in health-check.md" || bad "L3: step 11's bash block is found in health-check.md"
+l3 "$HC" '<!-- context-budget: 90000 reason: x -->'
+has "L3: a valid marker still gives the total row" "total: " "$out"; has "L3: and the level row" "level: " "$out"
+hasnt "L3: and no refusal" "context-budget: marker refused" "$out"
+l3 "$HC" '<!-- context-budget: 80000 reason: x -->'
+has "L3: a refused marker shows why on the row" "context-budget: marker refused: " "$out"
+has "L3: the reason is the rule" "above 80000" "$out"; has "L3: alongside the total" "total: " "$out"; has "L3: and the level" "level: " "$out"
+if mutate "$HC" "$T/mut-hc.md" "grep -E '^(total|level|move candidate|context-budget: marker refused):'" "grep -E '^(total|level|move candidate):'"; then
+  l3 "$T/mut-hc.md" '<!-- context-budget: 80000 reason: x -->'
+  r=green; grep -qF "marker refused" <<< "$out" || r=red; dies "L3 old grep drops the refusal" "$r"
+else bad "mutant L3 did not apply"; fi
+has "L3: the prose tells the agent to surface the reason" "add its reason to the row" "$(cat "$HC")"
+if mutate "$HC" "$T/mut-hcp.md" "add its reason to the row" "leave it out"; then
+  r=green; grep -qF "add its reason to the row" "$T/mut-hcp.md" || r=red; dies "L3 prose without the instruction" "$r"
+else bad "mutant L3 prose did not apply"; fi
+
+# Notes folded in: a decimal level names the number, and the marker count uses ERE.
+refuse "a decimal N" '<!-- context-budget: 90000.5 reason: x -->' "missing or not a whole number"
+if mutate "$REALSRC" "$T/mut-dec.sh" '  if (t ~ /^[^ \t]/) { print "bad the level is missing or not a whole number"; return }
+' ''; then
+  SRC="$T/mut-dec.sh"; refuse_probe() { fresh dec; { printf '<!-- context-budget: 90000.5 reason: x -->\n'; rep a 85000; printf '\n'; } > "$P/CLAUDE.md"; run "$P"; }; refuse_probe; SRC="$REALSRC"
+  r=green; grep -qF "missing or not a whole number" <<< "$err" || r=red; dies "decimal N falls to 'reason is missing'" "$r"
+else bad "mutant decimal did not apply"; fi
+has "ERE: the marker count uses grep -cE, not a GNU BRE alternation" "grep -cE '^(ok|bad) '" "$(cat "$REALSRC")"
+hasnt "ERE: and no \\| alternation is left" '\|' "$(grep -v '^ *#' "$REALSRC" | grep -F "grep -c")"
+if mutate "$REALSRC" "$T/mut-ere.sh" "grep -cE '^(ok|bad) '" "grep -c '^ok \\|^bad '"; then
+  r=green; grep -qF "grep -cE '^(ok|bad) '" "$T/mut-ere.sh" || r=red; dies "BRE alternation restored" "$r"
+else bad "mutant ERE did not apply"; fi
+
 echo "== usage =="
 fresh empty; run "$P"; expect "a <repo-dir> without CLAUDE.md exits 2" 2 "$rc"; has "naming the problem" "no CLAUDE.md" "$err"
 expect "with nothing on stdout" "" "$out"
