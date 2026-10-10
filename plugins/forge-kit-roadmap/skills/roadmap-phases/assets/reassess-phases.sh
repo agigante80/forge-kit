@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 9
+# reassess-phases-version: 10
 #
-# Reshapes docs/roadmap.md itself: the level above /phase review (#244), which asks whether ONE
-# phase is still aligned. This asks whether the ROADMAP is still the right plan (#249).
+# Reshapes the roadmap file and the milestones behind it, one level above /phase review (#244).
+# /phase review asks whether ONE phase is still aligned; this asks whether the ROADMAP is still
+# the right plan (#249).
 #
 #   reassess-phases.sh <op> [op args] [--roadmap FILE] [--check] [--reason TEXT]
 #     reorder <phase>  --before <phase>|--end
@@ -23,7 +24,9 @@
 #   0  done (or, under --check, nothing this reshape would do is refused)
 #   2  usage or environment error; NOTHING was written
 #   3  the roadmap is already malformed; NOTHING was written
-#   4  a ticket move failed part-way; the file half was not touched; re-running resumes and is safe
+#   4  a ticket move failed part-way; re-running resumes and is safe. For merge and delete (host
+#      first) the file is untouched; for split and rename the file half is written first, so the
+#      file is already changed and the re-run completes the host half
 #   5  a policy refusal on a well-formed file (a rule this reshape would break); NOTHING was written.
 #      That includes an unusable TMPDIR on refocus, merge and delete (#345): each runs its file half
 #      once on a scratch copy first. That 5 holds under a GitHub host and the suite's stub; on a

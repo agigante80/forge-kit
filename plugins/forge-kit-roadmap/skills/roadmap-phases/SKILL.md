@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 15 -->
+<!-- roadmap-phases-version: 16 -->
 
 # Roadmap phases
 
@@ -245,11 +245,12 @@ through `/phase reassess`; `--help` is the synopsis and this section is the rule
 
 Seven ops, each an atomic reshape of `roadmap.md` plus the milestones behind it:
 
-- **`reorder <name> --before|--after <other>|--end`**: moves the `##` block. No policy involved.
+- **`reorder <name> --before <other>|--end`**: moves the `##` block. No policy involved.
 - **`refocus <name> --prose "..."`**: rewrites a phase's prose without moving tickets.
 - **`rename <old> <new>`**: renames the heading and moves every ticket to a milestone under the new
   title. The old milestone is left on the host, **emptied, not deleted**.
-- **`split <name> --into <new> --move <n...> --before|--after|--end`**: adds a phase and moves the
+- **`split <name> --into <new> --move <n...> [--before <other>|--end]`**: adds a phase (with neither flag, right after
+  the source phase) and moves the
   named tickets into its milestone; everything left behind stays in the original.
 - **`merge <a> --into <b> --reason "..."`**: removes `a`, moves its tickets into `b`'s milestone,
   and appends the reason to `b`'s prose. `--reason` is not optional: it is the only record of why
@@ -257,7 +258,7 @@ Seven ops, each an atomic reshape of `roadmap.md` plus the milestones behind it:
 - **`delete <name> [--to <dest>]`**: removes the block. A phase with open tickets and no `--to`
   refuses; `--to` may name a phase or a STATE (`backlog` resolves to whichever phase carries that
   state), and the tickets move there first.
-- **`insert <name> --before|--after|--end --state <state> [--plan <path>] --prose "..."`**: adds a
+- **`insert <name> --before <other>|--end --state <state> [--plan <path>] --prose "..."`**: adds a
   new phase. `--state open` requires `--plan`, the same gate opening a phase always enforces (rule
   2), and refuses if another phase is already `open` (rule 3's at-most-one).
 
@@ -278,11 +279,13 @@ one does.
 
 Five exit codes, and each means something specific: `0` done, ending with `check-phases.sh`'s own
 verdict; `2` a usage or environment error, nothing written; `3` the roadmap was already malformed,
-nothing written; `4` a ticket move failed partway, the roadmap **file** untouched and the report
-naming what moved and what did not, so the identical command re-run resumes rather than repeating
+nothing written; `4` a ticket move failed partway, the report
+naming what moved and what did not (the roadmap **file** is untouched for merge and delete, which move
+tickets first, but already changed for split and rename, which write it first), so the identical command re-run resumes rather than repeating
 what already succeeded; `5` a policy refusal on an otherwise well-formed request, nothing written,
 message quoted rather than paraphrased. A merge, delete or refocus first validates on a scratch
-copy under `TMPDIR`; one it cannot make is a `5` too, nothing written, nothing moved.
+copy under `TMPDIR`; one it cannot make is a `5` too, nothing written, nothing moved. On a Forgejo host an unwritable
+`TMPDIR` exits `2` instead, because the startup milestone read reaches `mktemp -d` first.
 
 A milestone a reshape empties (rename, merge, or delete moving every ticket out) is **never
 deleted**, the same rule the plain edits below already follow: it stays on the host under its old

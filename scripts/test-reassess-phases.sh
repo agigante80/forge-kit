@@ -481,7 +481,7 @@ mv "$T/roadmap-lib.hidden" "$T/roadmap-lib.sh"
 # The second extractor: --help after an op is read in the flag loop (#447).
 out=$(cd "$T" && bash ./reassess-phases.sh reorder --help 2>&1); hrc=$?
 first447=$(printf '%s\n' "$out" | awk 'NF{print; exit}')
-case "$first447" in "Reshapes docs/roadmap.md itself"*) ok "reorder --help opens with the purpose line (#447)" ;; *) bad "reorder --help opens with the purpose line (#447) (got '$first447')" ;; esac
+case "$first447" in "Reshapes the roadmap file and the milestones"*) ok "reorder --help opens with the purpose line (#447)" ;; *) bad "reorder --help opens with the purpose line (#447) (got '$first447')" ;; esac
 expect "reorder --help exits 0 (#447)" 0 "$hrc"
 grep -q 'NO .awk -v. IN THIS FILE' <<< "$out" \
   && bad "reorder --help does not print the #259 maintainer note (#447)" \
@@ -507,7 +507,7 @@ out=$(cd "$T" && bash ./reassess-phases.sh --help 2>&1)
 hrc=$?
 # #447: the #259 maintainer note sits below the header, so --help opens with what the script does.
 first447=$(printf '%s\n' "$out" | awk 'NF{print; exit}')
-case "$first447" in "Reshapes docs/roadmap.md itself"*) ok "--help opens with the purpose line (#447)" ;; *) bad "--help opens with the purpose line (#447) (got '$first447')" ;; esac
+case "$first447" in "Reshapes the roadmap file and the milestones"*) ok "--help opens with the purpose line (#447)" ;; *) bad "--help opens with the purpose line (#447) (got '$first447')" ;; esac
 expect "--help exits 0 (#447)" 0 "$hrc"
 grep -q 'NO .awk -v. IN THIS FILE' <<< "$out" \
   && bad "--help does not print the #259 maintainer note (#447)" \
@@ -932,6 +932,17 @@ expect "and the preview names it as typed" "would reorder 'a\\tb' to the end" "$
 run reorder zzz --end --check
 expect "an unknown phase still refuses with 5" 5 "$rc"
 expect "and says so" "reassess-phases: no phase named 'zzz'" "$serr"
+
+# #423: every --flag SKILL.md documents for reorder, split and insert is one the script parses
+# (the docs once offered --after, which exits 2 "unknown flag"). An unknown flag dies at parse
+# time, before any op runs, so a probe call tells accepted from unknown.
+SKILL="$ROOT/plugins/forge-kit-roadmap/skills/roadmap-phases/SKILL.md"
+doc_flags=$(grep -E '^- \*\*`(reorder|split|insert) ' "$SKILL" | grep -oE -- '--[a-z]+' | sort -u)
+[ -n "$doc_flags" ] && ok "#423: SKILL.md documents flags for reorder, split and insert" || bad "#423: no flags found in SKILL.md"
+for f in $doc_flags; do
+  probe=$(cd "$T" && bash ./reassess-phases.sh reorder A "$f" x --check --roadmap docs/roadmap.md </dev/null 2>&1 >/dev/null)
+  absent "unknown flag" "$probe" "#423: the script accepts documented flag $f"
+done
 
 echo ""
 echo "reassess-phases tests: $pass passed, $fail failed"

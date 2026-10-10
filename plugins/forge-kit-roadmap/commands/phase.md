@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, reassess, close or triage a
 argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 15 -->
+<!-- phase-version: 16 -->
 
 # /phase
 
@@ -190,12 +190,13 @@ and refusal; this is the mechanism only.
 3. Once the user agrees, run it without `--check`. Its exit code decides what happens next:
    - `0`: done. It ends by running `check-phases.sh` itself and reports that verdict.
    - `3`: the roadmap was already malformed. Nothing was written. Quote the message; fix the file first.
-   - `4`: a ticket move failed partway through. Nothing on the roadmap file was touched, and the
+   - `4`: a ticket move failed partway through. The roadmap file is untouched for merge and delete
+     but already changed for split and rename (they write it first), and the
      report names what moved and what is still to move. Fix the underlying problem and re-run the
      identical command; it resumes rather than repeating what already moved.
    - `5`: refused. A rule this reshape would have broken, most often rewriting a `done` phase or
      leaving a phase with nowhere for its open tickets to go, or no writable `TMPDIR` for the scratch
-     validation. Nothing was written. Quote the
+     validation (on Forgejo that case exits `2`: the milestone read hits `mktemp -d` first). Nothing was written. Quote the
      message; either change the request or stand down.
    - anything else: a usage or environment error; quote it.
 4. Never omit `--reason` on a `merge`: it lands in the surviving phase's prose and is the only
