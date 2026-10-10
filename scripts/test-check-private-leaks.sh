@@ -487,16 +487,35 @@ echo "== redact: the bash copy is linear, the awk copy is a byte scan since #416
 # pre-filter before it stalls first at every size, so a bounded 256 KB case would fail even on a
 # correct fix. Its ledger pins the decision recorded in the scanner header, not behaviour.
 RFN="$(sed -n '/^char_len() {/,/^}/p;/^redact() {/,/^}/p' "$SCRIPT")"
-rshow() { LC_ALL="$1" bash -c "$RFN"'; for n in "" a ab abc "$(printf "jos\303\251")"; do printf "[%s]" "$(redact "$n")"; done' 2>&1; }
-expect "redact keeps a two-character prefix at lengths 0 to 3 and a multibyte name (C, characters since #416)" \
-  "[][a][ab][ab*][jo**]" "$(rshow C)"
+R439A=$'\200ab*'; R439B=$'\200\200ab**'; R439C=$'a\200\200\200\200\200b**'
+# rshow <locale> [function source]: the redact of each fixed name, one [..] each. The last three are
+# malformed (#439): a leading continuation byte, two of them, and a run of five.
+rshow() { LC_ALL="$1" bash -c "${2:-$RFN}"'; for n in "" a ab abc jose "$(printf "jos\303\251")" "$(printf "\200abc")" "$(printf "\200\200abcd")" "$(printf "a\200\200\200\200\200bcd")"; do printf "[%s]" "$(redact "$n")"; done' 2>&1; }
+RSHOW439="[][a][ab][ab*][jo**][jo**][${R439A}][${R439B}][${R439C}]"
+expect "redact keeps a two-character prefix at lengths 0 to 3, jose and a multibyte name, and the malformed names (C, #416, #439)" \
+  "$RSHOW439" "$(rshow C)"
 R217U="$(locale -a 2>/dev/null | grep -i 'utf' | head -1)"
 if [ -n "$R217U" ]; then
-  expect "and under a UTF-8 locale the multibyte name masks characters, as before" \
-    "[][a][ab][ab*][jo**]" "$(rshow "$R217U")"   # the same string as the C row above: parity (#416)
+  expect "and under a UTF-8 locale jose, josé and the malformed names print the same (parity, #416, #439)" \
+    "$RSHOW439" "$(rshow "$R217U")"
+  RFNNP="${RFN/"local LC_ALL=C n="/"local n="}"
+  if [ "$RFNNP" != "$RFN" ]; then ok "mutant ledger (#439, bash-pin): the unpinned function source differs"; else bad "mutant ledger (#439, bash-pin): the edit changed nothing"; fi
+  if [ "$(rshow "$R217U" "$RFNNP")" != "$RSHOW439" ]; then ok "mutant (#439, bash-pin): an unpinned redact changes a row under UTF-8"; else bad "mutant (#439, bash-pin): an unpinned redact survives every row"; fi
 else
   ok "(skipped, no UTF-8 locale on this machine) the multibyte redact case"
 fi
+# #439: the 1 MB function-level timing row. The input is built INSIDE the child shell, since one argv
+# string is capped at 128 KB (a 200 KB argument hit "Argument list too long"), and the 32 KB case in
+# the earlier rows cannot catch a quadratic strip (0.008 s there; 13 s at 1 MB). There is no bounded
+# helper in this suite, so the row is timed by elapsed seconds against a 5 s line. That bound is
+# UNCHECKED on bash 3.2 and macOS; the fix was measured on bash 5.2 only (well under 1 s).
+for L in C ${R217U:+"$R217U"}; do
+  t0=$SECONDS
+  r="$(LC_ALL="$L" bash -c "$RFN"'; run="$(head -c 1048576 /dev/zero | LC_ALL=C tr "\0" "\200")"; r="$(redact "a${run}bcd")"; if [ "$r" = "a${run}b**" ]; then echo same; else echo different; fi' 2>&1)"
+  el=$(( SECONDS - t0 ))
+  expect "a 1 MB run of continuation bytes prints a, the run, b and two stars under $L" same "$r"
+  if [ "$el" -le 5 ]; then ok "and the 1 MB redact finishes within the 5 s line under $L (${el} s)"; else bad "the 1 MB redact took ${el} s under $L, past the 5 s line"; fi
+done
 expect "the bash redact guards k <= 0 before slicing" 1 "$(grep -cF 'if [ "$k" -le 0 ]; then printf' "$SCRIPT")"
 expect "the bash redact builds its mask by doubling" 1 "$(grep -cF 's="$s$s"' "$SCRIPT")"
 expect "the awk redact keeps its per-byte loop (ledger)" 1 "$(grep -cF 'o = o "*"' "$SCRIPT")"
@@ -539,7 +558,8 @@ hrow416() {
   printf '%s\n' "$nm" > "$WORK/hlist416"
   local out rc
   out="$( cd "$HREPO" && LC_ALL=$2 "$1" --list "$WORK/hlist416" --history 2>"$WORK/err.txt" )"; rc=$?
-  echo "$rc|$(printf '%s\n' "$out" | sed -n 's/.*private-name: //p')|$(printf '%s\n' "$out" | sed -n 's/@.*//p')"
+  # sed runs under C: under a UTF-8 locale GNU sed's `.*` cannot cross a leading invalid byte (#439)
+  echo "$rc|$(printf '%s\n' "$out" | LC_ALL=C sed -n 's/.*private-name: //p')|$(printf '%s\n' "$out" | LC_ALL=C sed -n 's/@.*//p')"
 }
 for L in $locs; do
   expect "the 2-character list name is refused under $L, as the refusal text says" "2|" "$(row416 "$SCRIPT" "$L" "$WORK/t416-short" "$WORK/t416-s.txt")"
@@ -564,6 +584,23 @@ for L in $locs; do
   expect "--history cuts a 0xBF name at a character under $L" "1|$YY$YY**|$YY$YY**/n.md" "$(hrow416 "$SCRIPT" "$L" "$YY$YY${YY}a")"
   expect "--history cuts a 4-byte character name at a character under $L" "1|$EMO$EMO**|$EMO$EMO**/n.md" "$(hrow416 "$SCRIPT" "$L" "$EMO$EMO${EMO}x")"
 done
+# Malformed names (#439). The awk redact is the reference: --history rows in every locale, then the
+# bash copy through tree mode, in the C locale only. Under a UTF-8 locale GNU grep reports a file
+# holding invalid UTF-8 as "binary file matches" and tree mode prints no row at all (`0|`); that is
+# a separate defect (#456), so these tree rows are scoped to C rather than pinning it.
+M439A=$'\x80abc'; M439B=$'\x80\x80abcd'; M439C=$'a\x80\x80\x80\x80\x80bcd'
+i=0
+for nm in "$M439A" "$M439B" "$M439C"; do
+  i=$((i + 1)); printf '%s\n' "$nm" > "$WORK/t439-l$i"; printf 'see %s here\n' "$nm" > "$WORK/t439-s$i.txt"
+done
+for L in $locs; do
+  expect "--history keeps a leading continuation byte and two characters under $L (awk reference)" "1|$R439A|$R439A/n.md" "$(hrow416 "$SCRIPT" "$L" "$M439A")"
+  expect "--history keeps two leading continuation bytes under $L (awk reference)" "1|$R439B|$R439B/n.md" "$(hrow416 "$SCRIPT" "$L" "$M439B")"
+  expect "--history keeps a run of five continuation bytes under $L (awk reference)" "1|$R439C|$R439C/n.md" "$(hrow416 "$SCRIPT" "$L" "$M439C")"
+done
+expect "tree mode keeps a leading continuation byte and two characters (C)" "1|$R439A" "$(row416 "$SCRIPT" C "$WORK/t439-l1" "$WORK/t439-s1.txt")"
+expect "tree mode keeps two leading continuation bytes (C)" "1|$R439B" "$(row416 "$SCRIPT" C "$WORK/t439-l2" "$WORK/t439-s2.txt")"
+expect "tree mode keeps a run of five continuation bytes and the next character (C)" "1|$R439C" "$(row416 "$SCRIPT" C "$WORK/t439-l3" "$WORK/t439-s3.txt")"
 if command -v iconv >/dev/null 2>&1; then
   for L in $locs; do
     LC_ALL=$L "$SCRIPT" --list "$WORK/t416-list" "$WORK/t416-s.txt" > "$WORK/t416-out" 2>&1
@@ -575,7 +612,7 @@ fi
 # to differ (cmp) and to change at least one row of sig416, the signature of every row above.
 # The tr pin has no row on a GNU tr, which is bytewise in every locale, so its mutant runs behind a
 # stub tr that, like a multibyte-aware one, rejects the byte range unless LC_ALL=C. The redact pin
-# changes no output on bash 5.2, so it is pinned as text, and the comment above redact() says so.
+# changes output under a UTF-8 caller (#439), so the rshow rows and the bash-pin mutant pin it.
 mkdir -p "$WORK/lone"; cp "$LIB" "$WORK/lone/"
 SHIM416="$WORK/shim416"; mkdir -p "$SHIM416"
 printf '%s\n' '#!/bin/sh' "case \"\$*\" in *'\\200-\\277'*) [ \"\${LC_ALL:-}\" = C ] || { echo 'tr: Illegal byte sequence' >&2; exit 1; } ;; esac" "exec $(command -v tr) \"\$@\"" > "$SHIM416/tr"
@@ -583,8 +620,10 @@ chmod +x "$SHIM416/tr"
 sig416() {  # sig416 <script>: all the rows above, every locale, on one line
   local L s=""
   for L in $locs; do
-    s="$s $(row416 "$1" "$L" "$WORK/t416-short" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-list" "$WORK/t416-s.txt") $(hrow416 "$1" "$L") $(hrow416 "$1" "$L" "$YY$YY${YY}a") $(hrow416 "$1" "$L" "$EMO$EMO${EMO}x") $(row416 "$1" "$L" "$WORK/t416-yy2" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-yy4" "$WORK/t416-yys.txt")"
+    s="$s $(row416 "$1" "$L" "$WORK/t416-short" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-list" "$WORK/t416-s.txt") $(hrow416 "$1" "$L") $(hrow416 "$1" "$L" "$YY$YY${YY}a") $(hrow416 "$1" "$L" "$EMO$EMO${EMO}x") $(row416 "$1" "$L" "$WORK/t416-yy2" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-yy4" "$WORK/t416-yys.txt") $(hrow416 "$1" "$L" "$M439A") $(hrow416 "$1" "$L" "$M439B") $(hrow416 "$1" "$L" "$M439C")"
   done
+  # The tree-mode malformed rows are C only (#456: a UTF-8 locale prints `0|` there, whatever the redact does)
+  s="$s $(row416 "$1" C "$WORK/t439-l1" "$WORK/t439-s1.txt") $(row416 "$1" C "$WORK/t439-l2" "$WORK/t439-s2.txt") $(row416 "$1" C "$WORK/t439-l3" "$WORK/t439-s3.txt")"
   printf '%s' "$s"
 }
 GOOD416="$(sig416 "$SCRIPT")"
@@ -600,7 +639,7 @@ m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]
   if [ "$sig" != "$GOOD416" ]; then ok "mutant (#416, $1): $2 changes a row"; else bad "mutant (#416, $1): $2 survives every row"; fi
 }
 m416 floor "counting bytes at the floor" 's|^  if \[ "\$CHARS" -lt "\$MIN_NAME_LEN" \]; then$|  if [ "${#n}" -lt "$MIN_NAME_LEN" ]; then|'
-m416 cut "keeping two bytes in the bash redact" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
+m416 cut "keeping two bytes in the bash redact" 's|printf .%s%s. "\$p" |printf "%s%s" "${p:0:2}" |'
 m416 mask "counting the mask in bytes" 's|k=\$(( CHARS - 2 ))|k=$(( ${#n} - 2 ))|'
 if [ -n "$utf8loc" ]; then
   m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
@@ -609,10 +648,13 @@ else
 fi
 m416 awk-lo "an awk range starting above 0x80" 's|b >= "\\200" \&\& b <= "\\277"|b > "\\200" \&\& b <= "\\277"|'
 m416 awk-hi "an awk range ending below 0xBF" 's|b >= "\\200" \&\& b <= "\\277"|b >= "\\200" \&\& b <= "\\276"|'
-m416 bash-hi "a bash pattern ending below 0xBF" "s|\\[\$'\\\\200'-\$'\\\\277'\\]|[\$'\\\\200'-\$'\\\\276']|"
+m416 bash-hi "a bash class ending below 0xBF" '/^  c=/s|\\277|\\276|'
+m416 bash-lo "a bash class starting above 0x80" '/^  c=/s|\[\\200|[\\201|'
+m416 bash-lead "dropping the leading continuation class" 's|re="^\$c\*\$nc|re="^$nc|'
+m416 bash-cap "restoring a three-byte continuation cap" 's|re="^\$c\*\$nc\$c\*\$nc\$c\*"|re="^$c*$nc$c{0,3}$nc$c{0,3}"|'
 m416 awk-cut "dropping the awk redact's kept continuation bytes" 's|{ if (c <= 2) o = o b }|{ }|'
 m416 awk-bytes "the awk redact keeping two bytes" 's|if (c <= 2) o = o b; else o = o "\*"|if (c <= 2 \&\& length(o) < 2) o = o b; else o = o "*"|'
-expect "the bash redact pins the locale (ledger; no row can fail it on bash 5.2)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"
+expect "the bash redact pins the locale (ledger; the bash-pin mutant above kills its removal under UTF-8)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"
 
 echo "== --history: this scanner sources the library (#206) =="
 mkrepo forged

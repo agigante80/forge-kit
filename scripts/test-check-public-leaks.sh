@@ -1744,9 +1744,10 @@ CJK3=$'\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e'; CJKSTAR=$'\xe6\x97\xa5\xe6\x9c\xac
 locs416="C"; [ -n "$ANYUTF8" ] && locs416="C $ANYUTF8 LANG:$ANYUTF8"
 mkrepo cjk416
 hcommit c.md '/home/\346\227\245\346\234\254\350\252\236/x\n~/\346\227\245\346\234\254\350\252\236/y\n'
-# row416 <script> <locale> -> the two evidence strings, one per line, as `rc|home-path|home-root`
+# row416 <script> <locale> [repo] -> the two evidence strings, one per line, as `rc|home-path|home-root`
+# (repo defaults to $HREPO, the last mkrepo)
 row416() {
-  local out rc
+  local out rc HREPO="${3:-$HREPO}"
   # `LANG:<loc>` runs with LC_ALL UNSET and the locale in LANG, where redact's `local LC_ALL=C` is
   # not exported to tr, so only tr's own pin holds the byte semantics.
   case "$2" in
@@ -1774,6 +1775,24 @@ EMO416=$'\xf0\x9f\x98\x80'
 for L in $locs416; do   # 0x80 is the bottom of the continuation range (review r2)
   expect "a segment of 4-byte characters keeps two characters and masks two under $L" "1|/home/$EMO416$EMO416**/|" "$(row416 "$SCRIPT" "$L")"
 done
+# Malformed names (#439): the awk redact in the private --history path is the reference, and the
+# bash redact must print what it prints. A leading continuation byte is kept without counting a
+# character; a run of any length is kept whole (the old three-byte cap swallowed a real character).
+mkrepo lead416
+hcommit l.md '/home/\200abc/x\n'
+for L in $locs416; do
+  expect "a leading continuation byte is kept without counting a character under $L" "1|/home/"$'\x80'"ab*/|" "$(row416 "$SCRIPT" "$L")"
+done
+mkrepo lead2416
+hcommit l.md '/home/\200\200abcd/x\n'
+for L in $locs416; do
+  expect "two leading continuation bytes are kept and two characters follow under $L" "1|/home/"$'\x80\x80'"ab**/|" "$(row416 "$SCRIPT" "$L")"
+done
+mkrepo run416
+hcommit r.md '/home/a\200\200\200\200\200bcd/x\n'
+for L in $locs416; do   # five continuation bytes: the fourth must not turn into a lead byte
+  expect "a run of five continuation bytes is kept whole and the next character survives under $L" "1|/home/a"$'\x80\x80\x80\x80\x80'"b**/|" "$(row416 "$SCRIPT" "$L")"
+done
 mkrepo cjk416
 hcommit c.md '/home/\346\227\245\346\234\254\350\252\236/x\n~/\346\227\245\346\234\254\350\252\236/y\n'
 if command -v iconv >/dev/null 2>&1; then
@@ -1784,11 +1803,18 @@ if command -v iconv >/dev/null 2>&1; then
     expect "the report is valid UTF-8 under $L (no split sequence)" 0 "$?"
   done
 fi
-sig416() { local L s=""; for L in $locs416; do s="$s $(row416 "$1" "$L")"; done; printf '%s' "$s"; }
+# Every row above, on its own repo: row416 reads one repo, so the signature names each (#439).
+sig416() {
+  local L s="" r
+  for L in $locs416; do
+    for r in cjk416 jose416 yy416 emo416 lead416 lead2416 run416; do s="$s $(row416 "$1" "$L" "$WORK/hist-$r")"; done
+  done
+  printf '%s' "$s"
+}
 GOOD416="$(sig416 "$SCRIPT")"
 # The tr pin has no row on a GNU tr, which is bytewise in every locale, so its mutant runs behind a
 # stub tr that, like a multibyte-aware one, rejects the byte range unless LC_ALL=C. The redact pin
-# changes no output on bash 5.2, so it is pinned as text, and the comment above redact() says so.
+# changes output on malformed names under a UTF-8 caller (#439), so it has a behavioural mutant.
 SHIM416="$WORK/shim416"; mkdir -p "$SHIM416"
 printf '%s\n' '#!/bin/sh' "case \"\$*\" in *'\\200-\\277'*) [ \"\${LC_ALL:-}\" = C ] || { echo 'tr: Illegal byte sequence' >&2; exit 1; } ;; esac" "exec $(command -v tr) \"\$@\"" > "$SHIM416/tr"
 chmod +x "$SHIM416/tr"
@@ -1803,14 +1829,43 @@ m416() {  # m416 <name> <what it undoes> <sed script> [PATH prefix]: a scratch c
   case "$sig" in *" 127|"*|*" 126|"*) bad "mutant (#416, $1): the copy did not run ($sig)"; return ;; esac
   if [ "$sig" != "$GOOD416" ]; then ok "mutant (#416, $1): $2 changes a row"; else bad "mutant (#416, $1): $2 survives every row"; fi
 }
-m416 cut "keeping two bytes" 's|printf .%s%s. "\${n:0:i}" "\${s:0:k}"|printf "%s%s" "${n:0:2}" "${s:0:k}"|'
+# The redact mutants edit the regex lines, the way the function now reads (#439).
+m416 cut "keeping two bytes" 's|printf .%s%s. "\$p" |printf "%s%s" "${p:0:2}" |'
 m416 mask "counting the mask in bytes" 's|k=\$(( CHARS - 2 ))|k=$(( ${#n} - 2 ))|'
 if [ -n "$ANYUTF8" ]; then
   m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
 else
   ok "(skipped, no UTF-8 locale: the stub tr cannot tell a pinned tr from an unpinned one under C alone)"
 fi
-expect "redact pins the locale (ledger; no row can fail it on bash 5.2)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"
+# A range-edge edit on the class line, a dropped leading-run class, a restored cap, and a dropped
+# locale pin each change a row. bash-pin is killed under a UTF-8 caller only (the regex then fails
+# closed on a continuation byte and prints stars).
+m416 bash-hi "a bash class ending below 0xBF" '/^  c=/s|\\277|\\276|'
+m416 bash-lo "a bash class starting above 0x80" '/^  c=/s|\[\\200|[\\201|'
+m416 bash-lead "dropping the leading continuation class" 's|re="^\$c\*\$nc|re="^$nc|'
+m416 bash-cap "restoring a three-byte continuation cap" 's|re="^\$c\*\$nc\$c\*\$nc\$c\*"|re="^$c*$nc$c{0,3}$nc$c{0,3}"|'
+if [ -n "$ANYUTF8" ]; then
+  m416 bash-pin "an unpinned redact" 's|local LC_ALL=C n=|local n=|'
+else
+  ok "(skipped, no UTF-8 locale: the unpinned redact is the same as the pinned one under C alone)"
+fi
+expect "redact pins the locale (ledger; bash-pin above kills its removal under UTF-8)" 1 "$(grep -cF 'local LC_ALL=C n=' "$SCRIPT")"
+
+# Text ledger and lockstep (#439). The two scanners keep verbatim copies of char_len and redact (the
+# tree modes call them without leak-lib.sh), and nothing else ties them together.
+PRIV416="$ROOT/plugins/forge-kit-security/skills/leak-guard/assets/check-private-leaks.sh"
+expect "the public redact comment claims no verdict (it has none)" 0 "$(grep -cF 'never decides a verdict' "$SCRIPT")"
+expect "no char_len comment claims one unit per byte in any locale (public)" 0 "$(grep -cF 'one unit per byte in any locale' "$SCRIPT")"
+expect "no char_len comment claims one unit per byte in any locale (private)" 0 "$(grep -cF 'one unit per byte in any locale' "$PRIV416")"
+expect "both char_len comments scope the count to C and UTF-8" 2 "$(( $(grep -cF 'verified for C and UTF-8 only' "$SCRIPT") + $(grep -cF 'verified for C and UTF-8 only' "$PRIV416") ))"
+# same_fns <a> <b>: prints "identical" or "DIFFERENT" for the extracted char_len and redact
+same_fns() {
+  if cmp -s <(sed -n '/^char_len() {/,/^}/p;/^redact() {/,/^}/p' "$1") <(sed -n '/^char_len() {/,/^}/p;/^redact() {/,/^}/p' "$2"); then echo identical; else echo DIFFERENT; fi
+}
+expect "char_len and redact are identical in both scanners" identical "$(same_fns "$SCRIPT" "$PRIV416")"
+expect "the extract is not empty (the helper compares something)" 2 "$(sed -n '/^char_len() {/,/^}/p;/^redact() {/,/^}/p' "$SCRIPT" | grep -c '^[a-z_]*() {')"
+sed 's|k=\$(( CHARS - 2 ))|k=$(( CHARS - 3 ))|' "$PRIV416" > "$WORK/lone/lockstep416.sh"
+expect "a one-line edit in one redact is reported (the lockstep helper's negative)" DIFFERENT "$(same_fns "$SCRIPT" "$WORK/lone/lockstep416.sh")"
 
 # --- #217: the REDACTED --history report is linear too ----------------------------------------
 # redact() recounted ${#n} on every pass of a per-character loop, which is O(n) per count under a
@@ -1902,6 +1957,19 @@ EOF
     expect "the $arm evidence is $pre, then only *, then /" "$pre/" "$(ev217 "$OUT" "$arm" | LC_ALL=C tr -d '*')"
     expect "and the $arm mask covers every other byte" "$(( ${#pre} + 1048574 + 1 ))" "$(ev217 "$OUT" "$arm" | LC_ALL=C awk '{ print length($0) }')"
   done
+  # #439: the malformed shape. The rows above use only `a`, which a per-continuation-byte strip or a
+  # per-byte walk would pass. 256 KB is enough: on bash 5.2 an uncapped per-byte walk ran past 60 s
+  # at 256 KB while the anchored match took under 1 s, and the scanner's own UTF-8 cost on 1 MB
+  # (7.9 s against 1.2 s under C) left too thin a margin under the bound. The 20 s bound is UNCHECKED
+  # on bash 3.2 and macOS, so this row claims only what was measured: bash 5.2.
+  mkrepo redact439run
+  { printf '/home/a'; head -c 262144 /dev/zero | LC_ALL=C tr '\0' '\200'; printf 'bcd/\n'; } > "$HREPO/h.md"
+  ( cd "$HREPO" && git add h.md && git commit -qm h ) >/dev/null 2>&1
+  t0="$(date +%s)"; OUT="$( cd "$HREPO" && LC_ALL="$ANYUTF8" bounded 20 "$SCRIPT" --history 2>/dev/null )"; rc=$?; el=$(( $(date +%s) - t0 ))
+  expect "a 256 KB run of continuation bytes in a home segment is reported REDACTED within bounded 20 (${el} s)" 1 "$rc"
+  { printf '/home/a'; head -c 262144 /dev/zero | LC_ALL=C tr '\0' '\200'; printf 'b**/\n'; } > "$WORK/run439.want"
+  printf '%s\n' "$OUT" | LC_ALL=C sed -n 's/.*:1: home-path: //p' > "$WORK/run439.got"
+  cmp -s "$WORK/run439.want" "$WORK/run439.got" && ok "and the evidence is a, the whole run, b, then two stars" || bad "the 256 KB run evidence differs from a + run + b**"
 else
   ok "(skipped, no UTF-8 locale on this machine) the #217 multibyte and timing cases"
 fi

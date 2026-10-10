@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 26
+# check-private-leaks-version: 27
 #
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
 # paths this scanner hands to awk (`types`, `labels`, `names`) are built under `mktemp -d`, so they carry
@@ -94,11 +94,11 @@
 #
 # REDACTION COST (#217). The bash `redact` counts the length once and builds its mask by doubling,
 # as the public half's does, so it is linear in any locale. The awk `redact` that --history uses is
-# LEFT as a one-pass loop on purpose (#416 made it a per-BYTE scan that keeps two whole characters,
+# LEFT as a per-byte loop on purpose (#416 made it a per-BYTE scan that keeps two whole characters,
 # since it runs under LC_ALL=C and the old byte slice split a multibyte name in every caller
-# locale; re-measured at 262,144 bytes, gawk 0.07 s to 0.10 s and busybox awk 29.6 s to 31.6 s): its
-# input is always a listed name, so its cost is bounded
-# by a list entry (262,144 bytes cost gawk 0.16 s, mawk 5.3 s, busybox awk 71 s), and the one
+# locale). Its string concatenation is quadratic on busybox awk (re-measured at 262,144 bytes,
+# gawk 0.07 s to 0.10 s and busybox awk 29.6 s to 31.6 s), but its input is always a listed name,
+# so its cost is bounded by a list entry, and the one
 # pre-filter `grep -aiF` before it is slower at every size, so the awk loop is never the first thing
 # to stall. The suite's text-count ledger on that loop pins this DECISION, not behaviour: a change to
 # the awk copy updates the ledger and this paragraph together.
@@ -333,7 +333,7 @@ fi
 # 0xBF continuation bytes, so `${#n}` (bytes under C, characters under UTF-8) never decides a verdict.
 # Sets CHARS. The tr is pinned to C because only under C is it a byte filter (a multibyte-aware tr
 # can reject these bytes); the count after it needs no pin, since what is left holds no continuation
-# byte and reads as one unit per byte in any locale. One tr, so it is linear in any locale (#217);
+# byte and reads as one unit per byte (verified for C and UTF-8 only). One tr, so it is linear in any locale (#217);
 # the trailing x keeps $( ) from eating a final newline.
 char_len() {
   local t
@@ -341,21 +341,25 @@ char_len() {
   CHARS=$(( ${#t} - 1 ))
 }
 # redact keeps two whole characters (#416): a lead byte and its continuation bytes, twice, then one
-# star per remaining character. `local LC_ALL=C` makes ${n:i:1} index bytes whatever the caller's
-# locale. On bash 5.2 the unpinned function prints the same for every input tried, so the pin is
-# determinism for a bash that reads an invalid sequence as one character, and the suite pins it as
-# text (a ledger row), not as behaviour: no row can fail it here.
+# star per remaining character. `local LC_ALL=C` makes the match and the slice count bytes whatever the caller's
+# locale; the single regex match below is linear (a `%%` strip of each run is quadratic, 13 s at
+# 1 MB), and the awk `redact` in --history is the reference for malformed input: a leading
+# continuation byte is kept without counting, a run of any length is kept whole. The pin is
+# behaviour (#439): the suite's malformed-name rows differ without it under a UTF-8 caller. Scope
+# of the mask: in a single-byte encoding such as Windows-1252, bytes 0x80 to 0xBF include letters,
+# so the report can show up to the whole name (a 3-letter name such as Ziz with carons prints
+# unmasked); the awk copy does the same.
 redact() {
-  local LC_ALL=C n="$1" CHARS i=0 j cc=0 k s='*'
+  local LC_ALL=C n="$1" CHARS k p='' c nc re s='*'
   char_len "$n"; k=$(( CHARS - 2 ))
   if [ "$k" -le 0 ]; then printf '%s' "$n"; return; fi
-  while [ "$cc" -lt 2 ]; do   # two whole characters: a lead byte plus at most 3 continuation bytes
-    i=$(( i + 1 )); j=0
-    while [ "$j" -lt 3 ] && [[ "${n:i:1}" == [$'\200'-$'\277'] ]]; do i=$(( i + 1 )); j=$(( j + 1 )); done
-    cc=$(( cc + 1 ))
-  done
+  # The kept prefix in ONE anchored match: any leading continuation bytes, a lead byte and its
+  # continuation bytes, twice. The classes sit in variables, the bash 3.2 form. A failed match
+  # leaves p empty, so the name prints as stars only (fail closed): rc 2 keeps a stale BASH_REMATCH.
+  c=$'[\200-\277]'; nc=$'[^\200-\277]'; re="^$c*$nc$c*$nc$c*"
+  [[ $n =~ $re ]] && p=${BASH_REMATCH[0]}
   while [ ${#s} -lt "$k" ]; do s="$s$s"; done
-  printf '%s%s' "${n:0:i}" "${s:0:k}"
+  printf '%s%s' "$p" "${s:0:k}"
 }
 
 # The account that owns this repository on a PUBLIC forge is public by definition: it is in the
