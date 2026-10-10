@@ -7,7 +7,13 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
-## Unreleased
+## v0.9.0 (2026-10-11)
+
+Since v0.8.0: a committed `.forge.conf` can no longer send the Forgejo token to an arbitrary host
+(a host allowlist, https only, no redirects, and the token kept off argv; see the migration note),
+a new `context-budget` skill measures how much a project loads before the first prompt, and the
+review lows that had piled up as bundle tickets were triaged: each item fixed, dropped with its
+reason, or moved to a single-problem ticket, which took the open count from 40 to 25.
 
 ### Security
 
