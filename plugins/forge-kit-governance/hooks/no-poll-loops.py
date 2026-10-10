@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 5
+# no-poll-loops-version: 6
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -139,8 +139,16 @@ def poll_loop_on_artifact(command):
     if SUBAGENT_ARTIFACT.search(tail):
         return True
     # `F=/t/tasks/x.output; until [ -s $F ]; ...` in the same call.
-    return "$" in tail and bool(
-        re.search(r"\b\w+=\S*" + SUBAGENT_ARTIFACT.pattern, blanked[:m.start()]))
+    if "$" not in tail:
+        return False
+    before = command[:m.start()]
+    return bool(
+        re.search(r"\b\w+=\S*" + SUBAGENT_ARTIFACT.pattern, blanked[:m.start()])
+        # A QUOTED value (`F="..output"`) is blanked above, so read the raw text, but only where
+        # an assignment can start: after a separator, `export`, or the quote opening a
+        # `bash -c` script. `echo "F=...output"` (a quote right before F) stays prose (#432).
+        or re.search(r"(?:^|[;&|\n(]\s*|\bexport\s+|\s-\w*c\s+[\"'])\w+=[\"']?\S*"
+                     + SUBAGENT_ARTIFACT.pattern, before))
 
 
 def judge(command, background):
@@ -197,6 +205,8 @@ def self_test():
             ("DENY", "until [ -s /t/tasks/ab12.output ]; do sleep 5; done", None),
             ("DENY", "while [ ! -f /t/subagents/agent-ab12.jsonl ]; do sleep 5; done", True),
             ("DENY", "for i in $(seq 1 9); do sleep 15; stat /t/tasks/ab12.output; done", False),
+            ("DENY", 'F="/t/tasks/ab12.output"; until [ -s $F ]; do sleep 5; done', None),
+            ("DENY", "bash -c 'F=/t/tasks/ab12.output; until [ -s $F ]; do sleep 5; done'", None),
             ("ALLOW", "sleep 2", None),
             ("ALLOW", "sleep 240; echo waited", None),
             ("ALLOW", "sleep 20; gh run watch 123", True),

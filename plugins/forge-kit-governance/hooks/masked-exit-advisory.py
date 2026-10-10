@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# masked-exit-advisory-version: 2
+# masked-exit-advisory-version: 3
 """PostToolUse Bash advisory: a check's exit code is masked by the filter it is piped into (#420).
 
 `bash scripts/test-x.sh | tail -5` exits with the status of `tail`, not of the suite, so a
@@ -16,7 +16,8 @@ A `bash -c '...'` argument is analysed too (depth 2).
   and `scripts/check-*` paths, pytest, tox, nox, `python -m pytest|tox|nox|mypy|ruff`, npm, pnpm
   and yarn `test` (optionally via `run`), `make test|check`, `cargo test|check|clippy`,
   `go test|vet`, `git apply --check`, `git diff --check`, jest, vitest, bats, shellcheck, ruff,
-  mypy, tsc, eslint.
+  mypy, tsc, eslint. Not checks: a stage naming `--version`, `-V`, `--help` or `-h`, and
+  `ruff format` without `--check` or `--diff` (it rewrites files).
   Filters: tail, head, grep, egrep, fgrep, rg, sed, awk, cut, wc, tee, sort, uniq.
 NEUTRALISERS (no advisory), on tokens only: `-o pipefail` (any flag word with a leading `-` that
 contains `o`, so `set -eo pipefail` counts), `setopt pipefail`, and a variable READ of PIPESTATUS
@@ -84,6 +85,7 @@ SIMPLE_CHECKS = {"pytest", "py.test", "tox", "nox", "jest", "vitest", "bats", "s
                  "ruff", "mypy", "tsc", "eslint"}
 PY_MODULE_CHECKS = {"pytest", "tox", "nox", "mypy", "ruff"}
 PKG_MANAGERS = {"npm", "pnpm", "yarn"}
+INFO_FLAGS = {"--version", "-V", "--help", "-h"}
 FILTERS = {"tail", "head", "grep", "egrep", "fgrep", "rg", "sed", "awk", "cut", "wc", "tee",
            "sort", "uniq"}
 
@@ -162,11 +164,23 @@ def nonflags(args):
 
 def is_check(words):
     w = command_words(words)
+    # A version or help invocation runs no check (#436), and `ruff format` without --check or
+    # --diff REWRITES files, so it is a formatter, not a check.
+    if any(a in INFO_FLAGS for a in w[1:]):
+        return False
+    return _is_check(w)
+
+
+def _ruff_rewrites(args):
+    return nonflags(args)[:1] == ["format"] and not ({"--check", "--diff"} & set(args))
+
+
+def _is_check(w):
     if w and os.path.basename(w[0]) in INTERPRETERS:
         interp = os.path.basename(w[0])
         w = w[1:]
         if interp.startswith("python") and len(w) >= 2 and w[0] == "-m":
-            return w[1] in PY_MODULE_CHECKS
+            return w[1] in PY_MODULE_CHECKS and not (w[1] == "ruff" and _ruff_rewrites(w[2:]))
         while w and w[0].startswith("-"):
             w = w[1:]
     if not w:
@@ -176,7 +190,7 @@ def is_check(words):
         return True
     base = os.path.basename(head)
     if base in SIMPLE_CHECKS:
-        return True
+        return not (base == "ruff" and _ruff_rewrites(args))
     rest = nonflags(args)
     if base in PKG_MANAGERS:
         return rest[:1] == ["test"] or (rest[:1] in (["run"], ["run-script"]) and rest[1:2] == ["test"])

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 8
+# overnight-guard-version: 9
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -79,7 +79,15 @@ GIT_PATTERNS = [
     ("git tag -d", re.compile(r"\bgit\s+tag\b[^|;&\n]*(-d\b|--delete\b)")),
     ("git clean -f", re.compile(r"\bgit\s+clean\b[^|;&\n]*-\w*f")),
     ("git checkout discards working tree", re.compile(r"\bgit\s+checkout\b[^|;&\n]*(\s--\s|\s\.(\s|$)|-f\b|--force\b)")),
-    ("git restore discards working tree", re.compile(r"\bgit\s+restore\b(?![^|;&\n]*--staged)")),
+    # --staged alone only unstages, but --staged WITH --worktree (or -W, also inside a cluster such
+    # as -SW) rewrites the working tree too, in either order (#435). A switch forced with -f,
+    # --force or --discard-changes throws away local edits; plain `git switch <branch>` refuses
+    # to, and -C/--force-create resets a branch, not the tree, so it stays out.
+    ("git restore discards working tree", re.compile(
+        r"\bgit\s+restore\b(?![^|;&\n]*--staged)"
+        r"|\bgit\s+restore\b[^|;&\n]*(--worktree(?![\w-])|\s-[a-zA-Z]*W)")),
+    ("git switch discards working tree", re.compile(
+        r"\bgit\s+switch\b[^|;&\n]*(\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s--force(?![\w-])|\s--discard-changes(?![\w-]))")),
     ("git stash drop/clear", re.compile(r"\bgit\s+stash\s+(drop|clear)\b")),
 ]
 
