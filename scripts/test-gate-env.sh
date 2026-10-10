@@ -54,9 +54,13 @@ o=$(ge "$D"); [ "$(field "$o" rc)" != 0 ] && [ ! -s "$W/sourced" ] && ok "a miss
 echo "$W/case/nowhere/check-ticket-mechanics.sh" > "$D/mech"; o=$(ge "$D"); [ "$(field "$o" rc)" != 0 ] && [ ! -s "$W/sourced" ] && ok "a \$D/mech naming a missing checker: rc non-zero, nothing sourced" || bad "a dead \$D/mech was not refused: $o"
 # Sourced directly with the asset path known but D unset, the asset's own guard names \$D/mech.
 o=$(env -i PATH="$PATH" HOME="$W/home" SOURCED="$W/sourced" bash -c '. "'"$W/case/scripts/gate-env.sh"'"; echo "rc=$?"' 2>"$W/err")
-[ "$(field "$o" rc)" = 2 ] && grep -q '/mech; run Step 1 first' "$W/err" && ok "sourced with D unset, the asset refuses and names \$D/mech" || bad "the D guard did not fire: $o $(cat "$W/err")"
+[ "$(field "$o" rc)" = 2 ] && grep -q '/mech; run Step 0 first' "$W/err" && ok "sourced with D unset, the asset refuses and names \$D/mech" || bad "the D guard did not fire: $o $(cat "$W/err")"
 # A checker path that exists once Step 1 ran, then was removed: the asset names the stale record.
 fresh; layout "$W/case/scripts" with-lib; D="$W/case/d"; mkdir -p "$D"; echo "$W/case/scripts/check-ticket-mechanics.sh" > "$D/mech"; rm "$W/case/scripts/check-ticket-mechanics.sh"
+# #431 item 6: the header names Step 0, the step that writes $D/mech, not Step 1.
+hdr=$(sed -n 1,12p "$ASSET")
+{ grep -qF 'Step 0 sources it' <<< "$hdr" && grep -qF 'the checker Step 0 chose' <<< "$hdr" && ! grep -qE 'Step 1 (sources|chose)|Step 1 chose' <<< "$hdr"; } \
+  && ok "the header names Step 0 as the writer of \$D/mech (#431)" || bad "the header still names Step 1 as the writer of \$D/mech (#431)"
 o=$(ge "$D"); [ "$(field "$o" rc)" = 2 ] && grep -q 'which does not exist' "$W/err" && [ ! -s "$W/sourced" ] && ok "a checker removed after Step 1 is refused by name" || bad "a removed checker was not refused: $o $(cat "$W/err")"
 
 echo "== gate-env.sh: the plugin cache, colon-safe =="
@@ -101,7 +105,7 @@ chk_strict() { fresh; layout "$W/case/scripts" with-lib; D="$W/case/d"; mkdir -p
 chk_export() { fresh; layout "$W/case/scripts" with-lib; D="$W/case/d"; mkdir -p "$D"; echo "$W/case/scripts/check-ticket-mechanics.sh" > "$D/mech"
   o=$(ge "$D"); [ "$(field "$o" child)" = "$W/case/scripts/forge-lib.sh" ]; }
 chk_colon() { cache_case c30 30 'a:b' 31; o=$(ge "$D"); [ "$(tail -1 "$W/sourced")" = 'a:b' ]; }
-chk_guard() { o=$(env -i PATH="$PATH" HOME="$W/home" SOURCED="$W/sourced" bash -c '. "'"$ASSET"'"; echo "rc=$?"' 2>"$W/err"); [ "$(field "$o" rc)" = 2 ] && grep -q '/mech; run Step 1 first' "$W/err"; }
+chk_guard() { o=$(env -i PATH="$PATH" HOME="$W/home" SOURCED="$W/sourced" bash -c '. "'"$ASSET"'"; echo "rc=$?"' 2>"$W/err"); [ "$(field "$o" rc)" = 2 ] && grep -q '/mech; run Step 0 first' "$W/err"; }
 m_ge "FORGE_LIB file test removed" '[ -f "$FORGE_LIB" ] || { echo "ticket-gate: FORGE_LIB=$FORGE_LIB is not a file; refusing to fall back" >&2; return 2; }   # gate-env: strict' ':' chk_strict
 m_ge "FORGE_LIB not exported" 'export FORGE_LIB=$_ge_lib   # gate-env: export' 'FORGE_LIB=$_ge_lib' chk_export
 m_ge "colon-unsafe sort restored" "| sed 's/:forge-lib-version: \\([0-9]*\\)\$/	\\1/' | sort -t'	' -k2,2n -k1,1 | tail -1 | cut -f1)" "| sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)" chk_colon
@@ -111,7 +115,7 @@ m_ge "\$D/mech guard removed" 'if [ -z "${D:-}" ] || [ ! -s "$D/mech" ]; then' '
 # stay out of the total.
 crash_ok=1; crashed=0
 for x in 'exit 127' 'fi fi'; do
-  cap=$(m_ge crash-control '# gate-env-version: 1' "# gate-env-version: 1
+  cap=$(m_ge crash-control '# gate-env-version: 2' "# gate-env-version: 2
 $x" chk_strict)
   cmp -s "$W/mut.sh" "$ASSET" && crash_ok=0
   case "$cap" in *" dies"*|*" survived"*) crash_ok=0 ;; *"FAIL: mutant 'crash-control' crashed ("*) crashed=$((crashed + 1)) ;; esac

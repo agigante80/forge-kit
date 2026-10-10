@@ -69,7 +69,7 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
    - The issue's problem description
    - The acceptance criteria
    - Referenced files and route names
-   - The absolute path of the template file (`$PWD/$TPL_DIR/<type>.yml`), from which it copies each section's `label:` verbatim
+   - The absolute path of the template file (`$PWD/<0a's TPL_DIR>/<type>.yml`), from which it copies each section's `label:` verbatim
      as `## <label>` and follows the scenarios `placeholder:` shape (never its placeholder text), so
      its first output passes the heading and Given / When / Then checks without a second copy of
      either (#361)

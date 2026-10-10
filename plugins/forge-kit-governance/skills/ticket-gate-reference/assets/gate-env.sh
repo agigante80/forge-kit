@@ -1,11 +1,11 @@
-# gate-env-version: 1
+# gate-env-version: 2
 # gate-env.sh: what each ticket-gate Bash call must rebuild, because every call is a fresh shell
-# (#347). SOURCED, never run: Step 1 sources it right after writing $D/mech, and Steps 3A, 5 and 6
+# (#347). SOURCED, never run: Step 0 sources it right after writing $D/mech, and Steps 3A, 5 and 6
 # each open with
 #
 #   D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
 #
-# On success it sets MECH (the checker Step 1 chose), A (its directory) and GS (gate-status.sh),
+# On success it sets MECH (the checker Step 0 chose), A (its directory) and GS (gate-status.sh),
 # sources forge-lib.sh and EXPORTS FORGE_LIB as an absolute path, so count-gate-rounds.sh and
 # gate-status.sh, run after it, use the same copy. That also covers a plugin-cache install, where
 # their own `../../../../forge-kit-devops` fallback names a path that does not exist. On failure it
@@ -23,7 +23,7 @@
 # Needs: bash (sourced from the gate's Bash calls), find, grep, sed, sort.
 
 if [ -z "${D:-}" ] || [ ! -s "$D/mech" ]; then
-  echo "ticket-gate: no checker path in ${D:-<unset D>}/mech; run Step 1 first" >&2; return 2
+  echo "ticket-gate: no checker path in ${D:-<unset D>}/mech; run Step 0 first" >&2; return 2
 fi
 MECH=$(cat "$D/mech"); A=$(dirname "$MECH"); GS=$A/gate-status.sh
 [ -f "$MECH" ] || { echo "ticket-gate: $D/mech names $MECH, which does not exist" >&2; return 2; }

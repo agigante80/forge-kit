@@ -224,6 +224,16 @@ expect "a project-specific area label can be supplied" pass \
   "$(bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "robotics,feature" --area-labels "robotics" | awk -F'\t' '$1=="labels"{print $2}')"
 o="$(bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "$(printf 'backend\nfeature')")"
 expect "REGRESSION: newline-separated labels do not emit a phantom row" 7 "$(printf '%s\n' "$o" | wc -l | tr -d ' ')"
+# #430 item 4b: labels split on commas and newlines only, each trimmed, so a label with a space
+# is ONE label. Word-splitting read `needs api review` as three, and its `api` satisfied the area rule.
+expect "#430: a comma-space list still passes" pass "$(lbl "governance, enhancement")"
+expect "#430: a newline list still passes" pass "$(lbl "$(printf 'governance\nenhancement')")"
+expect "#430: a spaced label is one label, not three" fail "$(lbl "needs api review,enhancement")"
+o="$(bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "needs api review,enhancement" | awk -F'\t' '$1=="labels"{print $3}')"
+case "$o" in "no area label"*) ok "#430: the spaced label's evidence starts 'no area label'" ;; *) bad "#430: spaced label evidence (got '$o')" ;; esac
+mkdir -p "$WORK/globdir"; : > "$WORK/globdir/api"
+expect "#430: a glob character in a label stays literal (a* does not expand to the file api)" fail \
+  "$(cd "$WORK/globdir" && bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "a*,enhancement" | awk -F'\t' '$1=="labels"{print $2}')"
 
 echo "check-ticket-mechanics: GWT structure"
 expect "a specific negative Then passes" pass "$(outcome "$(run "$B" feature)" gwt)"
@@ -763,7 +773,23 @@ expect "#361: no prose copy of the scenarios label in the gate or its reference 
 printf 'Test scenarios (Given / When / Then)\n' >> "$WORK/gate-mut.md"
 [ "$(gwt_copies "$WORK/gate-mut.md")" -ge 1 ] && ok "#361: MUTANT: a pasted label is countable by gwt_copies" || bad "#361: gwt_copies cannot see a pasted label"
 [ "$(gwt_copies "$GATE" "$GREF/references/no-such-file.md")" = MISSING ] && ok "#361: MUTANT: a nonexistent path makes gwt_copies fail rather than count 0" || bad "#361: gwt_copies passes vacuously on a missing path"
-grep -qF 'The absolute path `$PWD/$TPL_DIR/<type>.yml`' "$GATE" && ok "#361: the 0c-iii dispatch names the template path" || bad "#361: the dispatch does not name the template path"
+grep -qF 'The absolute path `$PWD/<0a'"'"'s TPL_DIR>/<type>.yml`' "$GATE" && ok "#361: the 0c-iii dispatch names the template path" || bad "#361: the dispatch does not name the template path"
+# #431 item 1: $TPL_DIR is empty in a fresh shell, so the path names 0a's value; the $PWD/ keeps "absolute" true.
+# mut431 <name> <file> <from> <to> <pin phrase>: the pin must pass on the file and die on the one-line edit.
+mut431() { local m="$WORK/m431.txt"; sed "s|$3|$4|" "$2" > "$m"; cmp -s "$2" "$m" && { bad "#431: mutant '$1' did not apply"; return; }
+  grep -qF -- "$5" "$m" && bad "#431: mutant '$1' survived" || ok "#431: mutant '$1' dies"; }
+mut431 "restore \$TPL_DIR in the dispatch" "$GATE" '<0a.s TPL_DIR>/<type>.yml`' '$TPL_DIR/<type>.yml`' 'The absolute path `$PWD/<0a'"'"'s TPL_DIR>/<type>.yml`'
+mut431 'drop $PWD/ in the dispatch' "$GATE" 'The absolute path `$PWD/<0a' 'The absolute path `<0a' 'The absolute path `$PWD/<0a'"'"'s TPL_DIR>/<type>.yml`'
+grep -qF '$PWD/<0a'"'"'s TPL_DIR>/<type>.yml' "$DOC" && ok "#431: template-versioning.md names the resolvable template path" || bad "#431: template-versioning.md names an unresolvable template path"
+mut431 'restore $TPL_DIR in the doc' "$DOC" '<0a.s TPL_DIR>/<type>.yml' '$TPL_DIR/<type>.yml' '$PWD/<0a'"'"'s TPL_DIR>/<type>.yml'
+mut431 'drop $PWD/ in the doc' "$DOC" '\$PWD/<0a' '<0a' '$PWD/<0a'"'"'s TPL_DIR>/<type>.yml'
+grep -qxF 'Use 0a'"'"'s values below.' "$GATE" && ok "#431: Step 0a hands over 0a's values, not an unset variable" || bad "#431: Step 0a still says Use \$CURRENT_TPL_VER everywhere below"
+mut431 'restore the unset-variable sentence' "$GATE" "^Use 0a.s values below\\.\$" 'Use `$CURRENT_TPL_VER` everywhere below.' 'Use 0a'"'"'s values below.'
+# #430 item 1: 0a keeps the first marker only. #431 item 3: 0a ends by echoing the two values later steps reuse.
+grep -qF "| grep -oPm1 'template-version: \\K\\d+'" "$GATE" && ok "#430: Step 0a's extraction keeps the first marker only (-m1)" || bad "#430: Step 0a's extraction can print several markers"
+mut431 'Step 0a extraction without -m1' "$GATE" 'grep -oPm1 ' 'grep -oP ' "| grep -oPm1 'template-version: \\K\\d+'"
+grep -qxF 'echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"' "$GATE" && ok "#431: Step 0a echoes TPL_DIR and CURRENT_TPL_VER" || bad "#431: Step 0a echoes neither value"
+mut431 'Step 0a echo deleted' "$GATE" '^echo "TPL_DIR=.*$' '' 'echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"'
 grep -qF 'never placeholder text' "$GATE" && ok "#361: the never-placeholder-text instruction is kept" || bad "#361: never placeholder text was dropped"
 
 echo "check-ticket-mechanics: a gate-filled heading is never charged, and gate regions are not author text (#304)"
@@ -1064,6 +1090,15 @@ grep -q 'referred' <<< "$helptext" \
   && ok "--help describes the current referred-not-na rule" || bad "--help header is stale"
 grep -q -- '--dump-fields' <<< "$helptext" \
   && ok "--help documents every flag it accepts" || bad "--help omits a flag"
+# #455: the #259 maintainer note sits below the header, so --help opens with what the script does.
+first455=$(awk '{t=$0; sub(/^# ?/,"",t)} t!="" && t !~ /-version: /{print t; exit}' <<< "$helptext")
+case "$first455" in "Step 3A's mechanical checks"*) ok "--help opens with the purpose line (#455)" ;; *) bad "--help opens with the purpose line (#455) (got '$first455')" ;; esac
+grep -q 'NO .awk -v. IN THIS FILE' <<< "$helptext" \
+  && bad "--help does not print the #259 maintainer note (#455)" \
+  || ok "--help does not print the #259 maintainer note (#455)"
+hb455=$(awk 'NR>1 && /^$/{print NR; exit}' "$SCRIPT"); nl455=$(grep -n -m1 'NO .awk -v. IN THIS FILE' "$SCRIPT" | cut -d: -f1)
+expect "the #259 note stays in the source once, below the header (#455)" "1 below" \
+  "$(grep -c 'NO .awk -v. IN THIS FILE' "$SCRIPT") $([ "${nl455:-0}" -gt "${hb455:-0}" ] && echo below || echo above)"
 
 echo "check-ticket-mechanics: the label shape the gate writes is one check 4 reads (#273)"
 # The gate is constrained (ticket-gate.md Step 6 item 2 and the Step 0c-iii scenarios row);

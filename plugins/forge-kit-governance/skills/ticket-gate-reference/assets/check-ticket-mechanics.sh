@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 20
+# check-ticket-mechanics-version: 21
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -82,17 +82,6 @@
 # Region text is excluded as if absent, which is no more than an author could do by deleting it,
 # and the critic still reads the whole body.
 #
-# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
-# refuses one holding a newline, so every value reaches awk through ENVIRON (`CTM_*`). Classified
-# per site: `want` (section_of, template_subheadings) and `l` (role_required) are field LABELS read
-# from the project's own --template, caller text, and a label `Steps\tx` read as `Steps<TAB>x`, so
-# its filled section was reported empty; `p` (role_label) receives only the literal role patterns,
-# and `any`/`neg`/`pos` are built by marker_re from literals, both moved as hardening (not
-# reproducible), which also removes the trap where a future `\.` in a regex silently became `.`.
-# scripts/test-check-ticket-mechanics.sh counts zero `awk ... -v` lines (scripts/awkv-count.sh,
-# continuations joined). No awk takes a file operand either (#405): a `--body 'b=x.md'` operand
-# was read as an assignment, so files come in through `<`.
-#
 # Usage:
 #   check-ticket-mechanics.sh --body FILE --template FILE \
 #     --tpl-version N --current-tpl-version N --labels "a,b" \
@@ -122,6 +111,17 @@
 # Stdout is empty on any error, and a caller treats non-zero as a failed run, never as a
 # reason to fall back to matching ids itself.
 
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline, so every value reaches awk through ENVIRON (`CTM_*`). Classified
+# per site: `want` (section_of, template_subheadings) and `l` (role_required) are field LABELS read
+# from the project's own --template, caller text, and a label `Steps\tx` read as `Steps<TAB>x`, so
+# its filled section was reported empty; `p` (role_label) receives only the literal role patterns,
+# and `any`/`neg`/`pos` are built by marker_re from literals, both moved as hardening (not
+# reproducible), which also removes the trap where a future `\.` in a regex silently became `.`.
+# scripts/test-check-ticket-mechanics.sh counts zero `awk ... -v` lines (scripts/awkv-count.sh,
+# continuations joined). No awk takes a file operand either (#405): a `--body 'b=x.md'` operand
+# was read as an assignment, so files come in through `<`.
+#
 set -uo pipefail
 
 BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; LABELS_DOC=""; AREA_EXPLICIT=0
@@ -355,11 +355,14 @@ fi
 # Records Step 0b's rule exactly: an area label is required, a type label warns only. This
 # check never demands a label no step requires.
 has_label_from() {
+  # Labels split on commas and newlines ONLY, each trimmed (#430): a label may hold a space, and
+  # word-splitting read `needs api review` as three labels whose `api` met the area rule.
   local w l
   for w in $1; do
-    for l in $(printf '%s' "$LABELS" | tr ',\n' '  '); do
+    while IFS= read -r l; do
+      l="${l#"${l%%[![:space:]]*}"}"; l="${l%"${l##*[![:space:]]}"}"
       [ "$l" = "$w" ] && return 0
-    done
+    done <<< "$(printf '%s' "$LABELS" | tr ',' '\n')"
   done
   return 1
 }

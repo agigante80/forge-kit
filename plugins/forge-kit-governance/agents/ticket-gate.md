@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 72 -->
+<!-- ticket-gate-version: 73 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -72,8 +72,7 @@ printf '%s\n' "$MECH" > "$D/mech"; . "$(dirname "$MECH")/gate-env.sh" || exit 2 
 #### 0a. Template version check
 
 1. **Resolve the template directory (host-aware) and read the current version across ALL
-   work templates.** Reading only `feature.yml` mis-fires for `bug`/`security`/`infrastructure`
-   tickets. Read every template's marker and take the highest; the templates are held in
+   work templates.** Read every template's marker and take the highest; the templates are held in
    lockstep by `scripts/check-template-lockstep.sh`, so this single value is the current
    standard for every ticket type:
 ```bash
@@ -83,13 +82,14 @@ TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
   [ -d "$d" ] && { echo "$d"; break; }; done)
 # Guard the empty case: with no template dir, "$TPL_DIR"/*.yml would glob "/*.yml".
 CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)
+echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"
 ```
-Use `$CURRENT_TPL_VER` everywhere below.
+Use 0a's values below.
 
 2. **Fetch the issue body and check for version marker:**
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
-I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.body // ""' <<<"$I" | grep -oP 'template-version: \K\d+'
+I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.body // ""' <<<"$I" | grep -oPm1 'template-version: \K\d+'
 ```
 
 3. **Evaluate:**
@@ -140,7 +140,7 @@ Fast path: when the ONLY gap is `docs_impact`, synthesise it inline, then 0c-iv.
 Spawn a `general-purpose` sub-agent (`model: sonnet`) with:
 - The full issue body
 - The list of gaps identified in 0c-ii
-- The absolute path `$PWD/$TPL_DIR/<type>.yml`
+- The absolute path `$PWD/<0a's TPL_DIR>/<type>.yml`
 - Any external URLs in the issue body (the sub-agent may WebFetch these)
 
 Synthesis rules per section:
