@@ -55,7 +55,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.12.2 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.12.3 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.22.5 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.34.2 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
 | `forge-kit-review` | 0.7.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |

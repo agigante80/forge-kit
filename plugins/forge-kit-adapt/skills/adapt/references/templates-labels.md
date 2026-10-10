@@ -50,7 +50,10 @@ vname() {  # vname <name>: the allow-list, the fixed-name list and the duplicate
 }
 for a in ${LABEL_AREAS:-}; do vname "$a"; n=$((n + 1)); done
 [ "$n" -gt 0 ] || die "LABEL_AREAS is empty: ask the user which areas the project uses"
-okdesc() { case "$1" in ""|[!A-Za-z0-9]*|*[!A-Za-z0-9\ ,.\;\(\)/\'_-]*) return 1 ;; esac; }
+okdesc() {  # the allow-list, then GitHub's 100-character cap on a label description
+  case "$1" in ""|[!A-Za-z0-9]*|*[!A-Za-z0-9\ ,.\;\(\)/\'_-]*) return 1 ;; esac
+  [ "${#1}" -le 100 ]
+}
 while IFS= read -r l; do
   [ -n "$l" ] || continue
   case "$seen" in *" ${l%%=*} "*) ;; *) die "refused area description: ${l%%=*} (not in LABEL_AREAS)" ;; esac
@@ -66,9 +69,9 @@ kit_row() { K="| \`$1\` |" awk 'index($0, ENVIRON["K"]) == 1 { print; f = 1; exi
 # A description from the user or an existing doc is data: allow-list it, else use a neutral default.
 desc_for() {  # desc_for <name> [<doc to read the row from>]
   local d
-  d=$(printf '%s\n' "${LABEL_AREA_DESCS:-}" | sed -n "s/^$1=//p" | head -1)
+  d=$(printf '%s\n' "${LABEL_AREA_DESCS:-}" | N="$1" awk 'index($0, ENVIRON["N"] "=") == 1 { print substr($0, length(ENVIRON["N"]) + 2); exit }')
   if [ -z "$d" ] && [ -n "${2:-}" ]; then
-    d=$(N="$1" awk -F'|' '$2 ~ "^[ \t]*`" ENVIRON["N"] "`[ \t]*$" { gsub(/^[ \t]+|[ \t]+$/, "", $3); print $3; exit }' "$2")
+    d=$(N="$1" awk -F'|' '{ f = $2; gsub(/^[ \t]+|[ \t]+$/, "", f) } f == "`" ENVIRON["N"] "`" { gsub(/^[ \t]+|[ \t]+$/, "", $3); print $3; exit }' "$2")
   fi
   okdesc "$d" || d="Project-specific area"   # a doc-derived description that fails is neutral, not fatal
   printf '%s' "$d"
@@ -79,7 +82,11 @@ table_rows() {  # kit rows for the kit's areas, a neutral row for the rest
 }
 
 # Names read from an existing doc are validated before anything is written.
-if [ -f "$DOC" ]; then for a in $(area_names "$DOC"); do case "$seen" in *" $a "*) ;; *) vname "$a" ;; esac; done; fi
+# Line by line, so a name with a space is one name and vname refuses it, not two valid ones.
+if [ -f "$DOC" ]; then while IFS= read -r a; do [ -n "$a" ] || continue; case "$seen" in *" $a "*) ;; *) vname "$a" ;; esac; done <<EOF_NAMES
+$(area_names "$DOC")
+EOF_NAMES
+fi
 
 # 2. docs/guides/labels.md: absent -> written; present -> never clobbered.
 if [ ! -f "$DOC" ]; then
@@ -181,7 +188,7 @@ echo "Run: bash scripts/sync-labels.sh --check"
 - **`scripts/sync-labels.sh` and `scripts/forge-lib.sh`**: copied only when absent, together, never
   run. On Forgejo with `forge-lib.sh` newly copied, finish through the Step 3 item 4 `.forge.conf` flow,
   which includes allowlisting the host (forge-host, #442).
-- **Refusals** (exit 1, nothing written): a description outside the allow-list or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[a-z0-9][a-z0-9._-]*$`, a duplicate, or
+- **Refusals** (exit 1, nothing written): a description outside the allow-list, over 100 characters (GitHub's cap) or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[a-z0-9][a-z0-9._-]*$`, a duplicate, or
   a type, priority or special label name.
 
 Downstream agreement between the doc and the declaration is verified only by this report, since

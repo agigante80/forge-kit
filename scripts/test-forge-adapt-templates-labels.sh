@@ -263,6 +263,36 @@ sc_round1() {  # review round 1: the merge stays in the Area table, writes fail 
   ck "absent: and keeps its P0 row" yes "$(has '| `P0` |' "$(cat "$P/docs/guides/labels.md")")"
   ck "sync: sync-labels.sh is executable" yes "$([ -x "$P/scripts/sync-labels.sh" ] && echo yes || echo no)"
 }
+sc_round2() {  # #424: literal description lookup, the 100-character cap, a spaced doc name
+  local d100 d101 y
+  d100=$(printf 'x%.0s' $(seq 1 100)); d101="${d100}x"
+  # items 1: a dot in an area name is a dot, not a regex wildcard
+  proj; run LABEL_AREAS="a.b axb" FORGE_HOST=github LABEL_AREA_DESCS=$'axb=Only for axb'
+  y=$(cat "$P/.github/labels.yml")
+  ck "literal desc (given): a.b does not take axb's description" "Project-specific area" "$(awk '$0=="- name: a.b"{f=1;next} f&&/description:/{sub(/.*description: /,"");print;exit}' <<< "$y")"
+  ck "literal desc (given): axb keeps its own" "Only for axb" "$(awk '$0=="- name: axb"{f=1;next} f&&/description:/{sub(/.*description: /,"");print;exit}' <<< "$y")"
+  proj; mkdir -p "$P/docs/guides"
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `axb` | Axb row |\n| `a.b` | Dot row |\n' > "$P/docs/guides/labels.md"
+  run LABEL_AREAS="a.b axb" FORGE_HOST=github LABELS_MERGE=no
+  y=$(cat "$P/.github/labels.yml")
+  ck "literal desc (doc): a.b takes its own row" "Dot row" "$(awk '$0=="- name: a.b"{f=1;next} f&&/description:/{sub(/.*description: /,"");print;exit}' <<< "$y")"
+  ck "literal desc (doc): axb takes its own row" "Axb row" "$(awk '$0=="- name: axb"{f=1;next} f&&/description:/{sub(/.*description: /,"");print;exit}' <<< "$y")"
+  # item 2a: GitHub rejects a label description over 100 characters
+  proj; run LABEL_AREAS="api ops" FORGE_HOST=github LABEL_AREA_DESCS="ops=$d100"
+  ck "desc 100 chars: accepted" 0 "$rc"
+  proj; run LABEL_AREAS="api ops" FORGE_HOST=github LABEL_AREA_DESCS="ops=$d101"
+  ck "desc 101 chars: refused" 1 "$rc"
+  ck "desc 101 chars: names the area" yes "$(has 'refused area description: ops' "$err")"
+  ck "desc 101 chars: nothing written" "" "$(files)"
+  # item 4: a doc-derived name with a space is one name, and it is refused
+  proj; mkdir -p "$P/docs/guides"
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `my area` | Two words |\n' > "$P/docs/guides/labels.md"; S=$(sha "$P/docs/guides/labels.md")
+  run LABEL_AREAS="api" FORGE_HOST=github LABELS_MERGE=no
+  ck "spaced doc name: exit 1" 1 "$rc"
+  ck "spaced doc name: refused as one name" yes "$(has 'refused area name: my area' "$err")"
+  ck "spaced doc name: doc unchanged" "$S" "$(sha "$P/docs/guides/labels.md")"
+  ck "spaced doc name: no declaration written" no "$([ -e "$P/.github/labels.yml" ] && echo yes || echo no)"
+}
 sc_notemplates() {  # the labels step has no dependency on versioned issue templates
   proj; mkdir -p "$P/.github/ISSUE_TEMPLATE"; printf 'name: Feature\nbody: []\n' > "$P/.github/ISSUE_TEMPLATE/feature.yml"
   run LABEL_AREAS="api" FORGE_HOST=github
@@ -278,6 +308,7 @@ echo "== the declaration: host-aware, never shadowed =="; sc_decl
 echo "== sync-labels.sh and forge-lib.sh: absent-only, never run =="; sc_sync
 echo "== no versioned templates needed =="; sc_notemplates
 echo "== review round 1 fixtures =="; sc_round1
+echo "== #424 fixtures =="; sc_round2
 
 echo "== the kit's own doc carries the markers the installer drops =="
 KD=$(cat "$ROOT/docs/guides/labels.md")
@@ -322,7 +353,10 @@ mutant "forge-lib.sh is not copied beside a present sync-labels.sh" 's/^if \[ ! 
 mutant "the declaration ignores the doc table" 's/^areas=\$(area_names "\$DOC"); \[ -n "\$areas" \] || areas="\$LABEL_AREAS"/areas="$LABEL_AREAS"/' sc_decl
 mutant "a bad description is not refused" 's/^  okdesc "\${l#\*=}" || die .*$/  :/' sc_decl
 mutant "a description for an unlisted area is accepted" 's/\*) die "refused area description: \${l%%=\*} (not in LABEL_AREAS)" ;; esac/*) ;; esac/' sc_decl
-mutant "names read from an existing doc are not validated" '/^if \[ -f "\$DOC" \]; then for a in \$(area_names/d' sc_decl
+mutant "names read from an existing doc are not validated" 's/\*) vname "\$a" ;; esac; done <<EOF_NAMES/*) : ;; esac; done <<EOF_NAMES/' sc_decl
+mutant "a doc name is word-split again (a spaced name becomes two)" 's/while IFS= read -r a; do \[ -n "\$a" \] || continue;/for a in $(area_names "$DOC"); do/;s/done <<EOF_NAMES/done; : <<EOF_NAMES/' sc_round2
+mutant "the 100-character cap is removed" 's/^  \[ "\${#1}" -le 100 \]$/  :/' sc_round2
+mutant "the description lookup is a regex again" 's/awk .index(\$0, ENVIRON\["N"\] "=") == 1 {/awk '"'"'$0 ~ "^" ENVIRON["N"] "=" {/' sc_round2
 mutant "the merge awk never leaves the Area table" '/^        a && \/\^##\/ { a = 0 }$/d' sc_round1
 mutant "the merge landing check is skipped" 's/got=\$(area_names "\$DOC.tmp")/got="$missing"/' sc_round1
 mutant "the create path never leaves the Area table" '/^    area && \/\^##\/ { area = 0 }$/d' sc_round1

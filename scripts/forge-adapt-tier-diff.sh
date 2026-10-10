@@ -11,7 +11,8 @@
 #   tier: <key> local=<value> forge-kit=<value> (kept)
 #
 # An absent key reads `(absent)`, so it never collides with a literal `-` value (#290); an empty
-# value (`effort:`) counts as absent. Equal keys print nothing. `(kept)` is the policy, not a question: a tier
+# value (`effort:`) counts as absent. A literal `effort: (absent)` is NOT distinguished: it prints
+# exactly like a missing key (#428). Equal keys print nothing. `(kept)` is the policy, not a question: a tier
 # is a decision, the project's copy keeps its own, and refresh reports the upstream value beside it
 # rather than merging it. It reads files, not agents, so skills and commands are covered too, which
 # forge-adapt-agent-skills.sh never sees.
