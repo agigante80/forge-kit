@@ -73,6 +73,18 @@ class WriteTests(unittest.TestCase):
             self.assertIn("Memory index", idx)
             self.assertIn("- [My Fact](my-fact.md) - a short hook", idx)
 
+    def test_write_into_empty_index_adds_the_header(self):
+        # #422 item 2: a 0-byte MEMORY.md (crash, ENOSPC) must still get INDEX_HEADER.
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".claude", "memory"))
+            open(os.path.join(d, ".claude", "memory", "MEMORY.md"), "w").close()
+            r = run(d, ["write", "--slug", "my-fact", "--title", "My Fact",
+                        "--type", "project", "--description", "a short hook"], body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            idx = read(d, "MEMORY.md")
+            self.assertIn("Memory index", idx)
+            self.assertIn("- [My Fact](my-fact.md) - a short hook", idx)
+
     def test_write_is_idempotent_and_updates_in_place(self):
         with tempfile.TemporaryDirectory() as d:
             run(d, ["write", "--slug", "my-fact", "--title", "My Fact",
@@ -291,6 +303,16 @@ class OwnershipTests(unittest.TestCase):
             for slug in ("../x", "/etc/x", "a/b", "a..b", ".hid", ""):
                 self._refused(d, ["write", "--slug", slug] + self.WRITE[1:], body="b")
                 self._refused(d, ["remove", "--slug", slug])
+
+    def test_refusal_escapes_a_hostile_slug(self):
+        # #351 item 5: the slug is echoed with ascii(), so a newline or ESC in it
+        # cannot forge a second refusal line or reach the terminal raw.
+        slug = "a\nmemory.py: refusing slug b: x\033[31m"
+        with tempfile.TemporaryDirectory() as d:
+            for args in (["write", "--slug", slug] + self.WRITE[1:], ["remove", "--slug", slug]):
+                r = self._refused(d, args, body="b")
+                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                self.assertNotIn("\x1b", r.stderr)
 
     def test_directory_named_like_slug_refused(self):
         with tempfile.TemporaryDirectory() as d:

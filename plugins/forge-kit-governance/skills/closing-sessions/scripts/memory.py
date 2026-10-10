@@ -153,9 +153,9 @@ def line_pattern(slug):
 
 
 def index_with_line(existing, title, slug, description):
-    """The index text after upserting slug's line; existing is None when absent."""
+    """The index text after upserting slug's line; existing is None or empty when absent."""
     line = index_line(title, slug, description)
-    if existing is None:
+    if not existing:
         return INDEX_HEADER + "\n" + line
     pattern = line_pattern(slug)
     if pattern.search(existing):
@@ -180,7 +180,7 @@ _SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*", re.ASCII)
 
 
 def _refuse(slug, reason):
-    print(f"memory.py: refusing slug '{slug}': {reason}", file=sys.stderr)
+    print(f"memory.py: refusing slug {ascii(slug)}: {reason}", file=sys.stderr)
     return 1
 
 
