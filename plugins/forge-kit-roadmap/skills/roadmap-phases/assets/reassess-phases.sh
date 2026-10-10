@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 8
-#
-# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
-# refuses one holding a newline. Every site that took a value reads it through ENVIRON instead:
-# the MALFORMED diagnostic's `--roadmap` path and the phase NAME in phase_exists, phase_state and
-# next_phase_name are caller text (a phase named `a\tb` was refused as unknown, exit 5); the
-# `_read_prose` line bounds are numbers, moved as hardening only (not reproducible). The count in
-# scripts/test-reassess-phases.sh (scripts/awkv-count.sh) joins continuations. No awk takes a file
-# operand either (#405): a `name=value` operand is an assignment, so files come in through `<`.
+# reassess-phases-version: 9
 #
 # Reshapes docs/roadmap.md itself: the level above /phase review (#244), which asks whether ONE
 # phase is still aligned. This asks whether the ROADMAP is still the right plan (#249).
@@ -77,6 +69,13 @@
 # name which tickets moved and which did not, and a milestone is reported emptied only once a fresh
 # re-read confirms zero open tickets in it, never on faith that every call in the loop returned 0.
 
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline. Every site that took a value reads it through ENVIRON instead:
+# the MALFORMED diagnostic's `--roadmap` path and the phase NAME in phase_exists, phase_state and
+# next_phase_name are caller text (a phase named `a\tb` was refused as unknown, exit 5); the
+# `_read_prose` line bounds are numbers, moved as hardening only (not reproducible). The count in
+# scripts/test-reassess-phases.sh (scripts/awkv-count.sh) joins continuations. No awk takes a file
+# operand either (#405): a `name=value` operand is an assignment, so files come in through `<`.
 set -uo pipefail
 
 _HERE_LIB="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

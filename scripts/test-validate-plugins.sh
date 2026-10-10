@@ -220,7 +220,7 @@ expect "text above the first --- means no frontmatter (the line-1 test)" 0 "$rc"
 skfm ''
 printf -- '<!-- runner-version: 1 -->\n---\nname: runner\nagent: no-such-agent\n---\n' \
   > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"; run
-expect "a command opening with its marker has no frontmatter, whatever --- follows (ci-health.md)" 0 "$rc"
+expect "a command opening with its marker has no frontmatter, whatever --- follows (ci-health.md's shape before #447)" 0 "$rc"
 printf -- '---\nagent: no-such-agent\n---\n<!-- runner-version: 1 -->\n' \
   > "$T/tree/plugins/forge-kit-alpha/commands/runner.md"; run
 expect "a command frontmatter agent: naming no agent fails" 1 "$rc"
@@ -272,7 +272,7 @@ agent() {  # agent <name> [frontmatter lines]
   mkdir -p "$A/agents"
   printf -- '---\nname: %s\ndescription: d\n%b---\n<!-- %s-version: 1 -->\n' "$1" "${2:-}" "$1" > "$A/agents/$1.md"
 }
-cmd() {  # cmd <name> <body>: a command with no frontmatter, as three of the kit's are
+cmd() {  # cmd <name> <body>: a command with no frontmatter, a shape a project's own may use
   mkdir -p "$A/commands"
   printf -- '<!-- %s-version: 1 -->\n\n%s\n' "$1" "$2" > "$A/commands/$1.md"
 }

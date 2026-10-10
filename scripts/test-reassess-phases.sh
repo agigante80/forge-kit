@@ -478,6 +478,14 @@ run reorder Alpha --end
 expect "a missing roadmap-lib.sh refuses" 2 "$rc"
 contains "roadmap-lib.sh" "$out" "and names what is missing"
 mv "$T/roadmap-lib.hidden" "$T/roadmap-lib.sh"
+# The second extractor: --help after an op is read in the flag loop (#447).
+out=$(cd "$T" && bash ./reassess-phases.sh reorder --help 2>&1); hrc=$?
+first447=$(printf '%s\n' "$out" | awk 'NF{print; exit}')
+case "$first447" in "Reshapes docs/roadmap.md itself"*) ok "reorder --help opens with the purpose line (#447)" ;; *) bad "reorder --help opens with the purpose line (#447) (got '$first447')" ;; esac
+expect "reorder --help exits 0 (#447)" 0 "$hrc"
+grep -q 'NO .awk -v. IN THIS FILE' <<< "$out" \
+  && bad "reorder --help does not print the #259 maintainer note (#447)" \
+  || ok "reorder --help does not print the #259 maintainer note (#447)"
 
 mv "$T/forge-lib.sh" "$T/forge-lib.hidden"
 mkdir -p "$T/nohome"
@@ -496,6 +504,17 @@ expect "a malformed roadmap exits 3" 3 "$rc"
 expect "and nothing is sent to the host" "" "$(cat "$REQLOG")"
 
 out=$(cd "$T" && bash ./reassess-phases.sh --help 2>&1)
+hrc=$?
+# #447: the #259 maintainer note sits below the header, so --help opens with what the script does.
+first447=$(printf '%s\n' "$out" | awk 'NF{print; exit}')
+case "$first447" in "Reshapes docs/roadmap.md itself"*) ok "--help opens with the purpose line (#447)" ;; *) bad "--help opens with the purpose line (#447) (got '$first447')" ;; esac
+expect "--help exits 0 (#447)" 0 "$hrc"
+grep -q 'NO .awk -v. IN THIS FILE' <<< "$out" \
+  && bad "--help does not print the #259 maintainer note (#447)" \
+  || ok "--help does not print the #259 maintainer note (#447)"
+hb447=$(awk 'NR>1 && /^$/{print NR; exit}' "$T/reassess-phases.sh"); nl447=$(grep -n -m1 'NO .awk -v. IN THIS FILE' "$T/reassess-phases.sh" | cut -d: -f1)
+expect "the #259 note stays in the source once, below the header (#447)" "1 below" \
+  "$(grep -c 'NO .awk -v. IN THIS FILE' "$T/reassess-phases.sh") $([ "${nl447:-0}" -gt "${hb447:-0}" ] && echo below || echo above)"
 contains "reassess-phases.sh" "$out" "--help prints the synopsis"
 
 # #328: a refused refocus --plan writes nothing. The prose write used to land before the plan write

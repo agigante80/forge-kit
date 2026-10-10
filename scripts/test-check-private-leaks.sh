@@ -311,6 +311,17 @@ echo "== --help states the scanner's own reach =="
 # own statement about itself: the grep -a sentence #198 added, by its shared core (#199), and the
 # history limit with its pointer past it (#200), each needle occurring exactly once in --help.
 h="$("$SCRIPT" --help 2>&1)"
+hrc=$?
+# #447: the #259 maintainer note sits below the header, so --help opens with what the script does.
+first447=$(printf '%s\n' "$h" | awk 'NF{print; exit}')
+case "$first447" in "The private half of the leak guard"*) ok "check-private-leaks.sh --help opens with the purpose line (#447)" ;; *) bad "check-private-leaks.sh --help opens with the purpose line (#447) (got '$first447')" ;; esac
+expect "check-private-leaks.sh --help exits 0 (#447)" 0 "$hrc"
+grep -q 'NO .awk -v. IN THIS FILE' <<< "$h" \
+  && bad "check-private-leaks.sh --help does not print the #259 maintainer note (#447)" \
+  || ok "check-private-leaks.sh --help does not print the #259 maintainer note (#447)"
+hb447=$(awk 'NR>1 && /^$/{print NR; exit}' "$SCRIPT"); nl447=$(grep -n -m1 'NO .awk -v. IN THIS FILE' "$SCRIPT" | cut -d: -f1)
+expect "check-private-leaks.sh the #259 note stays in the source once, below the header (#447)" "1 below" \
+  "$(grep -c 'NO .awk -v. IN THIS FILE' "$SCRIPT") $([ "${nl447:-0}" -gt "${hb447:-0}" ] && echo below || echo above)"
 contains 'pass `grep -a` over a `git cat-file --batch` stream' "$h" \
   "check-private-leaks.sh --help states the grep -a rule for scanning the store by hand"
 # #191 replaced the "never looks at history" limit with the opt-in mode; these pin what the header

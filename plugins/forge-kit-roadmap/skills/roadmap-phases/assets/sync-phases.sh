@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# sync-phases-version: 11
-#
-# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
-# refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
-# `--roadmap` path (caller text), reads it through ENVIRON instead. scripts/test-sync-phases.sh
-# counts zero `awk ... -v` lines (scripts/awkv-count.sh, continuations joined). No awk takes a file
-# operand either (#405): a `name=value` operand is an assignment, so files come in through `<`.
+# sync-phases-version: 12
 #
 # Makes the host's milestones match docs/roadmap.md, or reports that they do not.
 #
@@ -35,6 +29,11 @@
 # ONE MALFORMED BLOCK STOPS THE WHOLE FILE, rather than syncing the phases it could parse. A partial
 # sync is exactly the drift this exists to end.
 
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
+# `--roadmap` path (caller text), reads it through ENVIRON instead. scripts/test-sync-phases.sh
+# counts zero `awk ... -v` lines (scripts/awkv-count.sh, continuations joined). No awk takes a file
+# operand either (#405): a `name=value` operand is an assignment, so files come in through `<`.
 set -uo pipefail
 
 # The roadmap format lives in roadmap-lib.sh, defined once (#162). Anchored to this script's own

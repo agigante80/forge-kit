@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 36
-#
-# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
-# paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
-# whatever the caller's TMPDIR is named. Under a TMPDIR named `t\tx` (backslash, t) the paths read
-# back with a TAB, every `getline` failed, and `--history` reported CLEAN over a committed finding.
-# Every value now reaches awk through ENVIRON (`LG_*`); the 0-or-1 flags (`orphans`) moved as
-# hardening only. The suite counts zero `awk ... -v` lines (scripts/awkv-count.sh, continuations
-# joined), and no awk takes a file operand (#405): under a TMPDIR named `x=y` one was an assignment.
+# check-public-leaks-version: 37
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -185,6 +177,13 @@
 # in the project that runs it, which keeps the exemption visible in that project's own config
 # rather than hidden in this file.
 
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value, and the temp
+# paths this scanner hands to awk (`types`, `labels`) are built under `mktemp -d`, so they carry
+# whatever the caller's TMPDIR is named. Under a TMPDIR named `t\tx` (backslash, t) the paths read
+# back with a TAB, every `getline` failed, and `--history` reported CLEAN over a committed finding.
+# Every value now reaches awk through ENVIRON (`LG_*`); the 0-or-1 flags (`orphans`) moved as
+# hardening only. The suite counts zero `awk ... -v` lines (scripts/awkv-count.sh, continuations
+# joined), and no awk takes a file operand (#405): under a TMPDIR named `x=y` one was an assignment.
 set -uo pipefail
 
 # --- portability ------------------------------------------------------------

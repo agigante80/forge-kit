@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# check-phases-version: 10
-#
-# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
-# refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
-# `--roadmap` path (caller text), reads it through ENVIRON instead: a path named `r\tmap.md` is
-# printed as typed rather than with a tab. scripts/test-check-phases.sh counts zero `awk ... -v`
-# lines (scripts/awkv-count.sh, continuations joined). No awk takes a file operand either (#405):
-# `--roadmap 'r=bad.md'` was read as an assignment and passed silently, so files come in through `<`.
+# check-phases-version: 11
 #
 # The roadmap-phases guard: four rules that make rolling wave planning mechanical.
 #
@@ -40,6 +33,12 @@
 # 0 saying so, the same posture check-private-leaks.sh takes for a missing name list. This group is
 # optional and must not break a project that declines it.
 
+# NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
+# refuses one holding a newline, so the one site that took a value, the MALFORMED diagnostic's
+# `--roadmap` path (caller text), reads it through ENVIRON instead: a path named `r\tmap.md` is
+# printed as typed rather than with a tab. scripts/test-check-phases.sh counts zero `awk ... -v`
+# lines (scripts/awkv-count.sh, continuations joined). No awk takes a file operand either (#405):
+# `--roadmap 'r=bad.md'` was read as an assignment and passed silently, so files come in through `<`.
 set -uo pipefail
 
 # The roadmap format lives in roadmap-lib.sh, defined once (#162). Anchored to this script's own

@@ -1551,6 +1551,17 @@ for asset in "$SCRIPT" "$ROOT/plugins/forge-kit-security/skills/leak-guard/asset
   lacks "leak-lib-version" "$h" "$a --help does not print the library's marker (#206)"
   lacks "$(sed -n '4s/^# //p' "$LIB")" "$h" "$a --help does not print the library's description"
 done
+h="$("$SCRIPT" --help 2>&1)"; hrc=$?
+# #447: the #259 maintainer note sits below the header, so --help opens with what the script does.
+first447=$(printf '%s\n' "$h" | awk 'NF{print; exit}')
+case "$first447" in "The public half of the leak guard"*) ok "check-public-leaks.sh --help opens with the purpose line (#447)" ;; *) bad "check-public-leaks.sh --help opens with the purpose line (#447) (got '$first447')" ;; esac
+expect "check-public-leaks.sh --help exits 0 (#447)" 0 "$hrc"
+grep -q 'NO .awk -v. IN THIS FILE' <<< "$h" \
+  && bad "check-public-leaks.sh --help does not print the #259 maintainer note (#447)" \
+  || ok "check-public-leaks.sh --help does not print the #259 maintainer note (#447)"
+hb447=$(awk 'NR>1 && /^$/{print NR; exit}' "$SCRIPT"); nl447=$(grep -n -m1 'NO .awk -v. IN THIS FILE' "$SCRIPT" | cut -d: -f1)
+expect "check-public-leaks.sh the #259 note stays in the source once, below the header (#447)" "1 below" \
+  "$(grep -c 'NO .awk -v. IN THIS FILE' "$SCRIPT") $([ "${nl447:-0}" -gt "${hb447:-0}" ] && echo below || echo above)"
 # The reach sentence #198 added is each scanner's own statement about itself, so it is pinned by
 # that scanner's suite rather than by the generic loop above (#199). The needle is the shared core
 # both headers print on one --help line; the reason after it is prose and may be reworded.

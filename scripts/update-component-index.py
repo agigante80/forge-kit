@@ -111,7 +111,7 @@ def _frontmatter_description(text):
 
 
 def _fallback_description(path, text):
-    """No frontmatter description: 3 commands, 4 hooks and 3 shell assets.
+    """No frontmatter description: hooks, shell assets, and any command written without one.
 
     Reading the prose that is already there beats leaving a quarter of the table blank, and it
     adds no new frontmatter requirement to any component. Each shape keeps its own rule, because

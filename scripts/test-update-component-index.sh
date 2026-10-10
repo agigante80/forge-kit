@@ -205,6 +205,19 @@ out="$(python3 "$GEN" --root "$FIX" 2>&1)"; rc=$?
 [ -f "$FIX/CLAUDE.md" ] && bad "without creating the file" || ok "without creating the file"
 grep -q 'component-index:start' "$FIX/README.md" && ok "the README region is still generated" || bad "the README region is still generated"
 
+# --- #447: the kit's two once-bare commands describe themselves, not their marker -------------
+for c in plugins/forge-kit-governance/commands/gate-ticket.md plugins/forge-kit-devops/commands/ci-health.md; do
+  d="$(python3 - "$GEN" "$ROOT/$c" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("gen", sys.argv[1]); gen = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gen)
+print(gen._frontmatter_description(open(sys.argv[2], encoding="utf-8").read()) or "")
+PY
+)"
+  case "$d" in ""|*-version:*) bad "$(basename "$c") has a frontmatter description, not its marker (got '$d')" ;;
+    *) ok "$(basename "$c") has a frontmatter description, not its marker (#447)" ;; esac
+done
+
 echo ""
 echo "update-component-index tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

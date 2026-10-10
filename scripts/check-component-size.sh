@@ -427,9 +427,9 @@ while IFS=$'\t' read -r group ctype name version path; do
   [ -f "$path" ] || continue
   words=$(count_words "$path") || exit 2
 
-  # THE ALWAYS-ON COST. A COMMAND is exempt from the floor rather than forgiven: three of this
-  # kit's commands carry no frontmatter at all, by convention (the name comes from the filename),
-  # and a slash command is found by that name rather than by a description. An agent or a skill is
+  # THE ALWAYS-ON COST. A COMMAND is exempt from the floor rather than forgiven: a command may
+  # carry no frontmatter at all (none of this kit's has since #447, but an installed project's own
+  # may), and a slash command is found by its filename rather than by a description. An agent or a skill is
   # selected by its description and by nothing else, so for those an empty one is a defect.
   plines=$(wc -l < "$path" | tr -d ' ')
   line_rows="${line_rows}${plines}\t${ctype}\t${name}\n"

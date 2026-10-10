@@ -375,12 +375,12 @@ D
 bash "$CHECK" --root "$FIX" >/dev/null 2>&1
 [ "$?" -ne 0 ] && ok "an empty description FAILS, for the same reason as a missing one"   || bad "an empty description FAILS, for the same reason as a missing one"
 
-# A COMMAND is exempt from the floor: three of this kit's commands carry no frontmatter at all by
-# convention, and a slash command is found by its filename rather than by a description.
+# A COMMAND is exempt from the floor: a command may carry no frontmatter at all (none of this kit's
+# has since #447, but a project's own may), and a slash command is found by its filename.
 rm -f "$DFIX"; rmdir "$(dirname "$DFIX")"
 cat > "$FIX/plugins/fix-g/commands/bare.md" <<'D'
 <!-- bare-version: 1 -->
-A command with no frontmatter, which is how three real ones in this kit are written.
+A command with no frontmatter, a shape a project's own commands may still use.
 D
 bash "$CHECK" --root "$FIX" >/dev/null 2>&1
 [ "$?" -eq 0 ] && ok "a command with no frontmatter does not fail the floor"   || bad "a command with no frontmatter does not fail the floor"

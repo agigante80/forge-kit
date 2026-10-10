@@ -559,6 +559,17 @@ echo "== usage =="
 run --nonsense
 expect "an unknown flag refuses the run" 2 "$rc"
 out=$(cd "$T" && bash ./check-phases.sh --help 2>&1)
+hrc=$?
+# #447: the #259 maintainer note sits below the header, so --help opens with what the script does.
+first447=$(printf '%s\n' "$out" | awk 'NF{print; exit}')
+case "$first447" in "The roadmap-phases guard: four rules"*) ok "--help opens with the purpose line (#447)" ;; *) bad "--help opens with the purpose line (#447) (got '$first447')" ;; esac
+expect "--help exits 0 (#447)" 0 "$hrc"
+grep -q 'NO .awk -v. IN THIS FILE' <<< "$out" \
+  && bad "--help does not print the #259 maintainer note (#447)" \
+  || ok "--help does not print the #259 maintainer note (#447)"
+hb447=$(awk 'NR>1 && /^$/{print NR; exit}' "$T/check-phases.sh"); nl447=$(grep -n -m1 'NO .awk -v. IN THIS FILE' "$T/check-phases.sh" | cut -d: -f1)
+expect "the #259 note stays in the source once, below the header (#447)" "1 below" \
+  "$(grep -c 'NO .awk -v. IN THIS FILE' "$T/check-phases.sh") $([ "${nl447:-0}" -gt "${hb447:-0}" ] && echo below || echo above)"
 contains "check-phases.sh" "$out" "--help prints the synopsis"
 grep -q "sed -n '[0-9]*,[0-9]*p'" "$T/check-phases.sh" \
   && bad "--help does not print a hardcoded line range" \

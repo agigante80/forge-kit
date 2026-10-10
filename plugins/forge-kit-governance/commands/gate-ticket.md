@@ -1,4 +1,9 @@
-<!-- gate-ticket-version: 7 -->
+---
+description: "Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo)."
+argument-hint: "<issue number>"
+---
+
+<!-- gate-ticket-version: 8 -->
 
 Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate
 agent detects the host via the `forge-host` adapter).
