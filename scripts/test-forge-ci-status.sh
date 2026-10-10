@@ -44,11 +44,25 @@ forge_repo() { echo owner/repo; }
 # forge_api GET <path>. STATUS_JSON and TASKS_JSON are set per case and served by path; every
 # request is logged so a case can assert which endpoints were (not) asked.
 REQLOG="$T/req.log"
+# A body of REFUSE, HTTP500 or HTTP404 makes the stub fail the way the real forge_api does (#450),
+# with the REAL texts, so a test cannot pass on a made-up string while the real message changes:
+#   REFUSE  rc 2, forge-lib.sh's allowlist refusal on stderr, nothing on stdout
+#   HTTP500 rc 22, the `forge-lib: HTTP 500 from <method> <path>` line (path taken from the request)
+#   HTTP404 rc 44, silent (the real forge_api prints nothing on a 404)
+_fail_like_forge_api() {   # <mode> <method> <path>
+  case "$1" in
+    REFUSE)  echo "forge-lib: forge.example.com (FORGE_API_URL from .forge.conf) is not in the forge host allowlist, so no token is sent." >&2; return 2 ;;
+    HTTP500) echo "forge-lib: HTTP 500 from $2 $3" >&2; return 22 ;;
+    HTTP404) return 44 ;;
+  esac
+  return 0
+}
 forge_api() {
   echo "$1 $2" >> "$REQLOG"
   case "$2" in
-    */commits/*/status) printf '%s' "$STATUS_JSON" ;;
-    */actions/tasks*)   [ "$TASKS_JSON" = "ERROR" ] && return 22; printf '%s' "$TASKS_JSON" ;;
+    */commits/*/status) _fail_like_forge_api "$STATUS_JSON" "$1" "$2" || return $?; printf '%s' "$STATUS_JSON" ;;
+    */actions/tasks*)   [ "$TASKS_JSON" = "ERROR" ] && return 22
+                        _fail_like_forge_api "$TASKS_JSON" "$1" "$2" || return $?; printf '%s' "$TASKS_JSON" ;;
     *) return 1 ;;
   esac
 }
@@ -58,6 +72,17 @@ run() {
   STATUS_JSON="$3"; TASKS_JSON="$4"; : > "$REQLOG"
   local got; got=$(cd "$T" && forge_ci_status "${5:-deadbeef}" 2>/dev/null)
   if [ "$got" = "$2" ]; then ok "$1"; else bad "$1 (expected '$2', got '$got')"; fi
+}
+# runerr <desc> <expected-word> <expected-stderr|-> <status-json> <tasks-json> [ref]: like run, and
+# also asserts stdout is exactly one line, rc 0, and stderr is exactly <expected-stderr> ("-" means
+# empty). Stderr is whatever forge_api printed, unchanged (#450).
+runerr() {
+  STATUS_JSON="$4"; TASKS_JSON="$5"; : > "$REQLOG"
+  local got want="$3" err rc; [ "$want" = - ] && want=""
+  got=$(cd "$T" && forge_ci_status "${6:-deadbeef}" 2>"$T/err"); rc=$?
+  err=$(cat "$T/err")
+  if [ "$got" = "$2" ] && [ "$rc" -eq 0 ] && [ "$err" = "$want" ]; then ok "$1"
+  else bad "$1 (expected '$2' rc 0 stderr '$want', got '$got' rc $rc stderr '$err')"; fi
 }
 row() { printf '{"status":"%s","description":"%s"}' "$1" "$2"; }
 red() { printf '{"total_count":%s,"state":"failure","statuses":[%s]}' "$1" "$2"; }
@@ -141,6 +166,51 @@ run "a short sha does not match an unrelated head_sha" none "$NOSTAT" \
 echo "== the run itself =="
 grep -q 'limit=' "$REQLOG" && ok "the tasks request bounds its page (one page, never a walk)" \
                             || bad "the tasks request set no page limit"
+
+echo "== (g) forge_api's stderr reaches the caller; stdout and rc stay the contract (#450) =="
+ALLOW='forge-lib: forge.example.com (FORGE_API_URL from .forge.conf) is not in the forge host allowlist, so no token is sent.'
+runerr "a refused status call shows the allowlist refusal and still answers not_configured (kills 2>/dev/null at the status site)" \
+    not_configured "$ALLOW" REFUSE '{}'
+STATUS_JSON=REFUSE; TASKS_JSON='{}'; got=$(cd "$T" && forge_ci_status deadbeef 2>/dev/null)
+[ "$(printf '%s\n' "$got" | wc -l)" -eq 1 ] && [ "$got" = not_configured ] \
+  && ok "the refusal leaves stdout one line, not_configured (kills merging stderr into stdout with 2>&1)" \
+  || bad "stdout after a refusal was '$got'"
+runerr "a refusal never reaches the tasks endpoint" not_configured "$ALLOW" REFUSE '{}'
+grep -q '/actions/tasks' "$REQLOG" && bad "a refusal still requested /actions/tasks" \
+                                     || ok "and /actions/tasks was never requested after a refusal"
+runerr "a tasks HTTP 500 shows forge_api's line and answers not_configured (kills fixing only the status site)" \
+    not_configured 'forge-lib: HTTP 500 from GET /repos/owner/repo/actions/tasks?limit=50&page=1' "$NOSTAT" HTTP500
+runerr "a tasks 404 stays silent" not_configured - "$NOSTAT" HTTP404
+runerr "a status HTTP 500 prints exactly its own line (a real rc 22 is not silent)" \
+    not_configured 'forge-lib: HTTP 500 from GET /repos/owner/repo/commits/deadbeef/status' HTTP500 '{}'
+runerr "a status 404 stays silent (kills a mutant that invents text)" not_configured - HTTP404 '{}'
+runerr "an empty status body stays silent" not_configured - '' '{}'
+runerr "a green path emits empty stderr (kills a blanket stderr echo)" success - \
+    '{"total_count":1,"state":"success","statuses":[]}' '{}'
+runerr "a cancelled path emits empty stderr" cancelled - "$(red 1 "$(row failure 'Has been cancelled')")" '{}'
+
+# -- #450 mutants, run as child processes of this suite against a mutated copy of the library ----
+# Each mutant must make the child fail; FORGE_CI450_CHILD stops the child running mutants itself.
+if [ -z "${FORGE_CI450_CHILD:-}" ]; then
+  echo "== (h) #450 mutants =="
+  mut450() {  # mut450 <name> <anchor> <replacement>
+    A450="$2" B450="$3" python3 - "$LIB" "$T/mut.sh" <<'PY' || { bad "mutant '$1': anchor not found once"; return; }
+import os, sys
+s = open(sys.argv[1]).read(); a = os.environ["A450"]
+if s.count(a) != 1: sys.exit(1)
+open(sys.argv[2], "w").write(s.replace(a, os.environ["B450"]))
+PY
+    if FORGE_CI450_CHILD=1 FORGE_LIB_UNDER_TEST="$T/mut.sh" bash "$0" > "$T/mut.out" 2>&1; then
+      bad "mutant '$1' survived"
+    else ok "mutant '$1' dies"; fi
+  }
+  ST='forge_api GET "/repos/$repo/commits/$sha/status")'
+  TK='forge_api GET "/repos/$repo/actions/tasks?limit=50&page=1")'
+  mut450 "status call stderr discarded" "$ST" "${ST%)} 2>/dev/null)"
+  mut450 "tasks call stderr discarded" "$TK" "${TK%)} 2>/dev/null)"
+  mut450 "status call stderr merged into stdout" "$ST" "${ST%)} 2>&1)"
+  mut450 "tasks call stderr merged into stdout" "$TK" "${TK%)} 2>&1)"
+fi
 
 echo
 echo "forge-ci-status tests: $pass passed, $fail failed"

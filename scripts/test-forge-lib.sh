@@ -2934,9 +2934,13 @@ K="$T/k442"; mkdir -p "$K/bin"; K442GIT=$(command -v git)
 cat > "$K/bin/curl" <<'STUB'
 #!/bin/sh
 echo call >> "$K442/calls"; printf '%s\n' "$@" >> "$K442/args"
+printf '%s\n' "${1-}" >> "$K442/first"
 prev=""; for a; do [ "$prev" = -K ] && cat "$a" >> "$K442/kcfg"; prev=$a; done
 case " $* " in *" --data-binary "*) cat > /dev/null ;; esac
-printf '%s\n%s' "${K442BODY-{\"id\":1}}" "${K442STATUS:-200}"
+# K442BODY, when set (empty included), is the whole body. `${K442BODY-{"id":1}}` is NOT used: the
+# first `}` closes the expansion and the second is appended literally to a set value (#450).
+if [ -n "${K442BODY+x}" ]; then body=$K442BODY; else body='{"id":1}'; fi
+printf '%s\n%s' "$body" "${K442STATUS:-200}"
 STUB
 cat > "$K/bin/git" <<'STUB'
 #!/bin/sh
@@ -2951,7 +2955,7 @@ chmod +x "$K/bin/curl" "$K/bin/git"
 k442() {
   local conf="$1" hosts="$2"; shift 2
   rm -rf "$K/r" "$K/xdg"; mkdir -p "$K/r" "$K/xdg/forge"; ( cd "$K/r" && "$K442GIT" init -q . )
-  : > "$K/args"; : > "$K/calls"; : > "$K/kcfg"; : > "$K/gitlog"; rm -f "$T/PWNED"
+  : > "$K/args"; : > "$K/first"; : > "$K/calls"; : > "$K/kcfg"; : > "$K/gitlog"; rm -f "$T/PWNED"
   [ -z "$conf" ] || printf '%s\n' "$conf" > "$K/r/.forge.conf"
   [ "$hosts" = NONE ] || printf '%s\n' "$hosts" > "$K/xdg/forge/hosts"
   ( cd "$K/r" || exit 99
@@ -3002,6 +3006,46 @@ c442_allow() {  # a file URL whose host is not listed: refused, nothing sent, no
   [ "$K442RC" = 2 ] && k_nocurl && ! grep -q '^credential' "$K/gitlog"; }
 c442_allow && k_err evil.invalid && k_err "not in the forge host allowlist" && grep -qxF -- "$EVIL_HINT" "$K/err" && ! grep -q canary "$K/out" "$K/err" \
   && ok "#442: a file URL whose host is not allowlisted is refused with the exact command to add it" || bad "#442: unlisted file host (rc $K442RC: $(cat "$K/err"))"
+
+# -- #450: forge_ci_status passes forge_api's stderr through ---------------------------------------
+# The answer stays one vocabulary word and rc 0; only the reason now reaches stderr. Each row runs
+# the REAL forge_api under the stub curl, so the texts asserted are the ones forge_api prints.
+CI450="forge_ci_status main"
+c450_word() { [ "$K442RC" = 0 ] && [ "$(cat "$K/out")" = not_configured ] && [ "$(wc -l < "$K/out")" = 1 ]; }
+c450_allow() {  # an unlisted file URL: the refusal once on stderr, nothing sent, no secret, no URL path
+  k442 "FORGE_API_URL=https://forge.example.com" "other.example.com" FORGEJO_TOKEN=canary -- $CI450
+  c450_word && k_nocurl && k_err "is not in the forge host allowlist" && k_err forge.example.com \
+    && [ "$(grep -cF 'is not in the forge host allowlist' "$K/err")" = 1 ] \
+    && ! grep -qE 'canary|/api/v1|/repos/' "$K/err"; }
+c450_allow && ok "#450: forge_ci_status shows the allowlist refusal once and still answers not_configured, rc 0" \
+  || bad "#450: allowlist refusal (rc $K442RC out $(cat "$K/out") err $(cat "$K/err"))"
+c450_http500() {
+  k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGEJO_TOKEN=tok K442STATUS=500 -- $CI450
+  c450_word && [ "$(cat "$K/err")" = "forge-lib: HTTP 500 from GET /repos/o/r/commits/main/status" ]; }
+c450_http500 && ok "#450: a status HTTP 500 prints exactly forge_api's own line, and the answer is one word" \
+  || bad "#450: status HTTP 500 (rc $K442RC err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGEJO_TOKEN=tok K442STATUS=404 -- $CI450
+c450_word && [ ! -s "$K/err" ] && ok "#450: a status 404 stays silent" || bad "#450: status 404 (err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGEJO_TOKEN=tok K442BODY= -- $CI450
+c450_word && [ ! -s "$K/err" ] && ok "#450: an empty status body stays silent" || bad "#450: empty status body (err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGEJO_TOKEN=tok 'K442BODY={"total_count":1,"state":"success","statuses":[]}' -- $CI450
+[ "$K442RC" = 0 ] && [ "$(cat "$K/out")" = success ] && [ ! -s "$K/err" ] && ok "#450: a healthy answer is success with an empty stderr" || bad "#450: healthy answer (out $(cat "$K/out") err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGEJO_TOKEN= -- $CI450
+c450_word && k_err "token env 'FORGEJO_TOKEN' is empty" && ok "#450: the empty-token refusal reaches stderr" || bad "#450: empty token (err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGEJO_TOKEN=tok "FORGE_TOKEN_ENV=1abc" -- $CI450
+c450_word && k_err "not a valid variable name" && ok "#450: a bad FORGE_TOKEN_ENV refusal reaches stderr" || bad "#450: bad token env (err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" forge.example.com 'FORGEJO_TOKEN=a"b' -- $CI450
+c450_word && k_err "cannot be passed to curl safely" && ! k_err 'a"b' && ok "#450: an unsafe-token refusal reaches stderr without the token" || bad "#450: unsafe token (err $(cat "$K/err"))"
+k442 "" NONE FORGE_API_URL=http://forge.lan/api/v1 FORGEJO_TOKEN=tok -- $CI450
+c450_word && k_err "refusing to send the token over http" && k_nocurl && ok "#450: the http refusal reaches stderr" || bad "#450: http refusal (err $(cat "$K/err"))"
+k442 "" NONE FORGE_API_URL=ftp://forge.lan/api/v1 FORGEJO_TOKEN=tok -- $CI450
+c450_word && k_err "must be an https URL" && ok "#450: the non-https refusal reaches stderr" || bad "#450: non-https refusal (err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com@evil.invalid" forge.example.com FORGEJO_TOKEN=tok -- $CI450
+c450_word && k_err "invalid forge host in FORGE_API_URL" && ! k_err evil.invalid && ok "#450: _forge_check_url's invalid-host refusal reaches stderr and prints no URL" || bad "#450: invalid file host (err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" forge.example.com FORGEJO_TOKEN=tok FORGE_DRY_RUN=1 -- $CI450
+c450_word && k_nocurl && [ "$(cat "$K/err")" = "[dry-run] GET https://forge.example.com/api/v1/repos/o/r/commits/main/status" ] \
+  && ! grep -qE 'allowlist|refusing|invalid forge host' "$K/err" && ok "#450: a dry run shows its single request line on stderr and is not mistaken for a refusal" \
+  || bad "#450: dry run (rc $K442RC err $(cat "$K/err"))"
 k442 "FORGE_API_URL=https://forge.example.com" NONE FORGEJO_TOKEN=tok -- $GET1
 [ "$K442RC" = 2 ] && k_err "not in the forge host allowlist" && k_nocurl && ok "#442: a missing hosts file refuses every file URL" || bad "#442: missing hosts file (rc $K442RC)"
 hint=$(grep -F 'mkdir -p' "$K/err"); rm -rf "$K/xdg/forge"   # a fresh machine: no forge/ directory yet
@@ -3084,7 +3128,7 @@ r442_real() {  # r442_real <lib>: rc 0 when the redirect was NOT followed
   [ "$rrc" = 22 ] && grep -q "HTTP 302" "$K/rerr" && [ ! -s "$K/blog" ]; }
 if command -v curl >/dev/null && command -v python3 >/dev/null; then
   r442_real "$LIB" && ok "#442: a real 302 to a second listener is not followed, and the second listener sees nothing" || bad "#442: real redirect (rc $rrc: $(cat "$K/rerr"); B log: $(cat "$K/blog" 2>/dev/null))"
-  { sed 's/curl -sS -g /curl -sSL -g /' "$LIB" > "$K/mutL.sh"; ! r442_real "$K/mutL.sh"; } && ok "#442 mutant '-L restored' dies on the real-redirect case" || bad "#442 mutant '-L restored' survived"
+  { sed 's/curl -q -sS -g /curl -q -sSL -g /' "$LIB" > "$K/mutL.sh"; ! r442_real "$K/mutL.sh"; } && ok "#442 mutant '-L restored' dies on the real-redirect case" || bad "#442 mutant '-L restored' survived"
 else bad "#442: the real-redirect case needs curl and python3"; fi
 
 # -- the token's own content, presence and fallback ----------------------------------------------
@@ -3175,6 +3219,50 @@ m442 "xtrace left on in forge_api" '      local _fx=0 rc; case $- in *x*) _fx=1;
       _forge_api_forgejo' '      local _fx=0 rc
       _forge_api_forgejo' c442_xtrace
 m442 "token back on argv" "-K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" --url" "-H \"Authorization: token \$tok\" -w '\\n%{http_code}' -X \"\$method\" --url" c442_xtrace
+
+# -- #450 review M1: forge_api passes curl -q first, so a .curlrc never reaches the request ----------
+# curl reads the home .curlrc unless -q is its FIRST argument, and a `verbose` line there prints the
+# Authorization header to stderr, which forge_ci_status now passes through. Two rows: the stub sees
+# argv[1] on every call (GET and a POST with a body), and real curl against a one-shot local server
+# with a verbose .curlrc leaks no canary.
+c450_q() {
+  k442 "" NONE FORGE_API_URL=https://f.invalid FORGEJO_TOKEN=tok -- bash -c ". \"\${K442LIB:-$LIB}\"; $GET1 >/dev/null && forge_api POST /repos/o/r/issues '{\"title\":\"t\"}' >/dev/null"
+  [ "$K442RC" = 0 ] && [ "$(wc -l < "$K/first")" = 2 ] && ! grep -qvxF -- -q "$K/first"; }
+c450_q && ok "#450: forge_api hands curl -q as its first argument on both the GET and the POST call" \
+  || bad "#450: curl argv[1] was not -q on every call ($(tr '\n' ' ' < "$K/first"))"
+c450_curlrc() {  # real curl, a verbose .curlrc in CURL_HOME, a one-shot local server: no canary on stderr
+  local port rc=1
+  : > "$K/port"; mkdir -p "$K/curlhome"; echo verbose > "$K/curlhome/.curlrc"
+  python3 -c '
+import http.server
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(s):
+        b=b"{\"id\":1}"; s.send_response(200); s.send_header("Content-Length",str(len(b))); s.end_headers(); s.wfile.write(b)
+    def log_message(s,*a): pass
+h=http.server.HTTPServer(("127.0.0.1",0),H); print(h.server_port,flush=True); h.handle_request()' > "$K/port" &
+  local spid=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$K/port" ] && break; sleep 0.1; done
+  port=$(cat "$K/port")
+  k442 "" NONE "PATH=$K442REALPATH" "CURL_HOME=$K/curlhome" FORGE_ALLOW_HTTP=1 "FORGE_API_URL=http://127.0.0.1:${port:-1}" FORGEJO_TOKEN=canary -- $GET1
+  kill "$spid" 2>/dev/null; wait "$spid" 2>/dev/null
+  [ "$K442RC" = 0 ] && [ "$(cat "$K/out")" = '{"id":1}' ] && ! grep -q canary "$K/err" "$K/out"; }
+K442REALPATH=$PATH
+c450_curlrc && ok "#450: a verbose .curlrc does not leak the Authorization header through real curl" \
+  || bad "#450: .curlrc verbose leaked or the request failed (rc $K442RC err $(head -c 300 "$K/err"))"
+
+# -- #450 mutants: each removes one stderr passthrough or lets it leak into stdout ---------------------
+c450_http500 || bad "#450: c450_http500 fails on the real library"
+c450_allow || bad "#450: c450_allow fails on the real library"
+m442 "#450 status stderr discarded (kills the allowlist row)" 'cs=$(forge_api GET "/repos/$repo/commits/$sha/status") ||' 'cs=$(forge_api GET "/repos/$repo/commits/$sha/status" 2>/dev/null) ||' c450_allow
+m442 "#450 status stderr discarded (kills the HTTP 500 row)" 'cs=$(forge_api GET "/repos/$repo/commits/$sha/status") ||' 'cs=$(forge_api GET "/repos/$repo/commits/$sha/status" 2>/dev/null) ||' c450_http500
+m442 "#450 status stderr merged into stdout (the one-line answer and an empty stderr both break)" 'cs=$(forge_api GET "/repos/$repo/commits/$sha/status") ||' 'cs=$(forge_api GET "/repos/$repo/commits/$sha/status" 2>&1) ||' c450_allow
+
+c450_q || bad "#450: c450_q fails on the real library"
+c450_curlrc || bad "#450: c450_curlrc fails on the real library"
+m442 "#450 -q dropped from the POST curl call (kills the argv row)" 'printf '"'%s'"' "$body" | curl -q -sS -g' 'printf '"'%s'"' "$body" | curl -sS -g' c450_q
+m442 "#450 -q dropped from the GET curl call (kills the argv row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_q
+m442 "#450 -q dropped from the GET curl call (kills the .curlrc row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_curlrc
+m442 "#450 -q not first on the GET curl call (curl ignores it, the .curlrc row dies)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -q -g' c450_curlrc
 
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"

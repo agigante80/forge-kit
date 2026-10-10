@@ -61,7 +61,11 @@ user, organization, package, …`). For CI, scope it down, e.g. `write:issue,wri
   which that endpoint flattens to `failure`, is read back as `cancelled` from the per-job
   description (#193). With no runner there are no statuses, so it returns `none`; `not_configured`
   means the API could not be asked, and only that keeps the local-gate fallback (e.g. `make test`
-  pre-push). **Job logs are not API-reachable** (so `ci-health` on Forgejo is detect-only).
+  pre-push). Since v37 the REASON for a `not_configured`
+  is on stderr: `forge_api`'s own refusal (host not in the allowlist, non-https, empty token) or
+  HTTP line, untouched, while stdout stays one word and rc 0 (#450). `forge_api` calls `curl -q`, so the user's `.curlrc` is
+  never read: a private CA or proxy for a self-hosted Forgejo must come from `CURL_CA_BUNDLE`,
+  `SSL_CERT_FILE` or `https_proxy` instead. **Job logs are not API-reachable** (so `ci-health` on Forgejo is detect-only).
   Confirming a real green run flips the status, and the auto-release lane, still want a runner:
   design in `forgejo-ci.md`.
 

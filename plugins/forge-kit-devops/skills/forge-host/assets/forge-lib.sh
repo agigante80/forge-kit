@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 36
+# forge-lib-version: 37
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -165,6 +165,17 @@
 #       set FORGE_TOKEN_ENV only to FORGEJO_TOKEN or FORGE_TOKEN; another name must be exported.
 #       Redirects are no longer followed (a 3xx is rc 22). The token reaches curl through -K,
 #       never argv. New: forge_token_present, for a caller that only asks whether a token is set.
+#   v37 forge_ci_status and forge_ci_no_status_kind stop discarding forge_api's stderr (#450). A
+#       refusal (host not in the allowlist, non-https, empty or unsafe token, bad FORGE_TOKEN_ENV,
+#       invalid host) now reaches the caller's stderr, once, instead of leaving a bare
+#       `not_configured` with no reason. stdout is unchanged (one vocabulary word) and so is rc 0.
+#       Side effects, intended: a real HTTP failure prints forge_api's own `HTTP <n>` line, and
+#       FORGE_DRY_RUN=1 prints its single `[dry-run]` request line. 404 and an empty body stay
+#       silent. The GitHub arm is unchanged.
+#       Both curl calls in forge_api now start with -q, so the user's .curlrc is never read: a
+#       `verbose` line there would print the Authorization header to the stderr this change exposes.
+#       Migration: -q drops EVERY .curlrc setting, so a private CA (`cacert`) or proxy set only there
+#       now fails (curl rc 60 or 7). Set it through CURL_CA_BUNDLE, SSL_CERT_FILE or https_proxy.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -560,9 +571,9 @@ _forge_api_forgejo() {
   if [ -n "$body" ]; then
     # The body goes on STDIN (#409): `-d "$body"` put the whole payload in one execve argument,
     # which Linux caps at MAX_ARG_STRLEN (131072), so a large body failed with rc 126.
-    out="$(printf '%s' "$body" | curl -sS -g --proto "=$proto" -K <(printf 'header = "Authorization: token %s"\n' "$tok") -w '\n%{http_code}' -X "$method" -H 'Content-Type: application/json' --data-binary @- --url "$base$path")"; rc=$?
+    out="$(printf '%s' "$body" | curl -q -sS -g --proto "=$proto" -K <(printf 'header = "Authorization: token %s"\n' "$tok") -w '\n%{http_code}' -X "$method" -H 'Content-Type: application/json' --data-binary @- --url "$base$path")"; rc=$?
   else
-    out="$(curl -sS -g --proto "=$proto" -K <(printf 'header = "Authorization: token %s"\n' "$tok") -w '\n%{http_code}' -X "$method" --url "$base$path")"; rc=$?
+    out="$(curl -q -sS -g --proto "=$proto" -K <(printf 'header = "Authorization: token %s"\n' "$tok") -w '\n%{http_code}' -X "$method" --url "$base$path")"; rc=$?
   fi
   [ "$rc" -eq 0 ] || return "$rc"          # transport failure: curl's own code, no status
   local status="${out##*$'\n'}"
@@ -1332,6 +1343,10 @@ forge_release_create() {
 # the sha is `pending`, none is `none`, and an endpoint that cannot be asked stays `not_configured`,
 # which keeps the runner-less fallback exactly where v13 had it. The sha match is a PREFIX match,
 # because the ref falls back to its literal, possibly short, form for a sha in another repository.
+# forge_api's stderr is NOT discarded at either call site (#450): a refusal (allowlist, non-https,
+# empty or unsafe token, bad FORGE_TOKEN_ENV, invalid host) is the only explanation a caller gets
+# for `not_configured`. Passthrough means untouched: nothing here adds, filters or rewrites it, and
+# a new stdout word was rejected because every caller `case`s on the vocabulary above.
 forge_ci_status() {
   local host
   # An invalid host is "could not ask": the one host line is already on stderr, and the answer is
@@ -1347,7 +1362,7 @@ forge_ci_status() {
       # too, which would double it via `|| printf`). Falls back to the literal ref if unresolved.
       sha=$(git rev-parse --verify "$1" 2>/dev/null || printf '%s' "$1")
       [ -n "$sha" ] || { echo not_configured; return 0; }                # empty ref arg
-      cs=$(forge_api GET "/repos/$repo/commits/$sha/status" 2>/dev/null) || { echo not_configured; return 0; }
+      cs=$(forge_api GET "/repos/$repo/commits/$sha/status") || { echo not_configured; return 0; }
       [ -n "$cs" ] || { echo not_configured; return 0; }                 # empty body / dry-run
       total=$(printf '%s' "$cs" | jq -r '.total_count // 0' 2>/dev/null)
       case "$total" in ''|*[!0-9]*) total=0 ;; esac
@@ -1378,7 +1393,7 @@ _forge_ci_failure_kind_from_status() {
 # catches null and false, not a type error.
 forge_ci_no_status_kind() {
   local repo="$1" sha="$2" tasks hit
-  tasks=$(forge_api GET "/repos/$repo/actions/tasks?limit=50&page=1" 2>/dev/null) || { echo not_configured; return 0; }
+  tasks=$(forge_api GET "/repos/$repo/actions/tasks?limit=50&page=1") || { echo not_configured; return 0; }
   [ -n "$tasks" ] || { echo not_configured; return 0; }
   hit=$(printf '%s' "$tasks" | jq -r --arg sha "$sha" \
     '[(if type == "object" then (.workflow_runs // []) else . end)[]?
