@@ -23,9 +23,11 @@ stands alone.
   historical placeholder under a dated comment, and none of them carries the maintainer's username
   or address (#207).
 - No `killed_at_bound` row in `scripts/test-check-public-leaks.sh` whose mutant a structural ledger
-  row already kills; each remaining row sets its bound to k times a measurement of the real scanner
-  on the same fixture, with k and the floor recorded beside the row, and the suite is green under 2 x
-  nproc load and on an idle fast machine with no bound raised to pass (#417).
+  row already kills, and the suite is green under 2 x nproc load and on an idle fast machine with no
+  bound raised to pass (#417). The real-scanner `bounded 10` and `bounded 20` rows keep their fixed
+  bounds by decision (#437): they are generous ceilings against a pathological regression, not
+  performance assertions, and a measured k times baseline would add flake surface and detect nothing
+  the fixed ceiling does not.
 - The private name floor counts characters by UTF-8 lead byte with the locale pinned, and redaction
   keeps two whole characters cut at a lead-byte boundary, in `check-private-leaks.sh` and in the
   public scanner's `redact()` that shares the shape; a parity row per locale (`C`, `C.UTF-8`) and
@@ -84,13 +86,12 @@ A premortem: it is the end of this phase and it failed. What happened?
 In order, one at a time. All five share the leak-guard markers and the plugin semver, and three
 share SKILL.md, so none runs in parallel.
 
-1. **#417** (P3, never gated): first, because it is a test-only change (no asset marker moves) and
-   it stops the next four from being judged by a suite that fails on a fast runner. Gate it, then:
-   list the `killed_at_bound` rows (public suite lines about 1602 to 1781), name for each the
-   structural ledger row that already kills the same mutant or find that none does, drop the former
-   and calibrate the latter. The ticket says to check the private suite for rows of the same shape;
-   a grep on 2026-10-08 finds no timing row there, so record that as the answer. The words cost is
-   zero.
+1. **#417** (P3, never gated): went first, because it was a test-only change (no asset marker
+   moved) and it stopped the next four from being judged by a suite that failed on a fast runner.
+   It was gated, then the `killed_at_bound` rows (public suite lines about 1602 to 1781) were
+   listed, each was matched to the structural ledger row that already kills the same mutant, and
+   all nine were dropped, so none needed calibrating. The private suite was checked for rows of the
+   same shape and has no timing row. The words cost was zero.
 2. **#207** (P3, never gated): second, because it is `.leak-guard-allow` only (no asset, no marker,
    no words) and from then on `--history` exits 0, so any later change that creates a finding
    stands alone. Gate it, then rerun the history scan with `--show-evidence` into `tmp/` (it prints
