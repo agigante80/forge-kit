@@ -18,7 +18,7 @@ The field notes from the five prunes that motivated it are in the
 |---|---|
 | R1 Character budget: warn at 40,000, fail at 80,000 | enforced by `context-budget.sh` |
 | R2 to R4, R6 to R10 | this page |
-| R5 Auditors must not regress it | #418 |
+| R5 Auditors must not regress it | this page (verdict below, #418) |
 | R11 Readers of `CLAUDE.md` also read the index targets | #298 (closed) |
 
 **R1. A character budget for always-loaded context.** `context-budget.sh` totals the load set in
@@ -39,6 +39,24 @@ Not every project has history to move; R3 applies only when there is some.
 
 **R4. A pointer, not a copy.** A fact lives in one file. When a topic moves to another repository,
 link it and delete the local copy.
+
+**R5. A component that writes to memory or `CLAUDE.md` adds to the on-demand index, not the
+always-loaded set.** Verdict, read at `b986518`. Covered: `coding-standards-auditor` and
+`closing-sessions` (`memory.py` and its `SKILL.md`). The auditor cannot grow the load set:
+`git grep -n '@' b986518 -- plugins/forge-kit-review/agents/coding-standards-auditor.md` exits 1
+with empty output (`coding-standards-auditor-version: 4`), and its Phase 4a adds at most the one
+plain line `Coding standards: see docs/coding-standards.md` (46 characters, not an import) while
+deleting inline standards. `closing-sessions` writes only under `.claude/memory/`, never
+`CLAUDE.md` and never the auto-memory directory R1 counts, and its `SKILL.md` has no `CLAUDE.md`
+write or import instruction. Its one growth path was the index line: a title or description with an
+`@` token at the start or after whitespace was written verbatim, so a project that `@`-imports
+`.claude/memory/MEMORY.md` would import a sibling file named in conversation. `memory.py` now wraps
+each such token in a code span (the grammar never imports from one) and refuses a token in a field
+that also has a backtick, naming the field and the token, with nothing written. Importing
+`.claude/memory/MEMORY.md` stays a deliberate R2 cost that grows by one index line with every close,
+without bound. Not covered, and left to a repo-wide R5 sweep: `contributor-docs` (instructs
+`@AGENTS.md` on its own line in `CLAUDE.md`), `adapt` (adds one plain line to a project
+`CLAUDE.md`), and any component added later.
 
 **R6. Sweep periodically.** `context-budget.sh --sweep <root>...` lists every repository under the
 roots you name, largest first, with its `MEMORY.md` included, so drift shows before it costs a

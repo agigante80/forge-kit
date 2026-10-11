@@ -42,6 +42,40 @@ def _one_line(value):
     return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
 
 
+# An @-import in the index (#418). MEMORY.md may itself be @-imported by a
+# project's CLAUDE.md, and the import grammar (docs/guides/startup-context.md)
+# imports a token at a line start or after whitespace. One rule serves BOTH the
+# title and the description, including a title "@x": the token is wrapped in a
+# code span, which the grammar never imports from. Do not narrow the title to a
+# whitespace-only anchor: one rule is easier to pin than two (round-2 gate).
+_AT_TOKEN = re.compile(r"(?<!\S)@\S+")
+
+
+def _code_span_at(value):
+    """value with each import-shaped @ token wrapped in a code span.
+
+    Works on text already through _one_line, so a newline is a space by then.
+    Callers refuse first (at_token_problem) when the text also has a backtick.
+    """
+    return _AT_TOKEN.sub(lambda m: "`" + m.group(0) + "`", value)
+
+
+def at_token_problem(field, value):
+    """Return why field's index text is refused, or None. Pure: touches no file.
+
+    A token in a field that also has a backtick is refused, not wrapped: the grammar names a code
+    span but does not say how a backtick already in the text pairs with an added
+    one, so refusal is the only form it establishes. Wrapping is the response to
+    a token with no backtick at all.
+    """
+    one = _one_line(value)
+    m = _AT_TOKEN.search(one)
+    if m and "`" in one:
+        return (f"{field} has an @ token ({ascii(m.group(0))}) in a field that also has a "
+                "backtick; reword it or drop the backtick")
+    return None
+
+
 def _needs_yaml_quote(value):
     if value == "":
         return True
@@ -58,7 +92,7 @@ def _yaml_scalar(value):
 
 
 def _md_link_text(value):
-    return (_one_line(value)
+    return (_code_span_at(_one_line(value))
             .replace("\\", "\\\\")
             .replace("[", "\\[")
             .replace("]", "\\]"))
@@ -77,7 +111,7 @@ def render_memory(slug, mem_type, description, body):
 
 
 def index_line(title, slug, description):
-    return f"- [{_md_link_text(title)}]({slug}.md) - {_one_line(description)}\n"
+    return f"- [{_md_link_text(title)}]({slug}.md) - {_code_span_at(_one_line(description))}\n"
 
 
 class _Refusal(Exception):
@@ -338,6 +372,12 @@ def cmd_write(args):
         body = raw.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
         return _refuse(args.slug, "stdin is not valid UTF-8")
+    # After the ownership and encode checks (#341's order) and before the first
+    # write, so a refusal leaves the tree untouched (#418).
+    for field, value in (("--title", args.title), ("--description", args.description)):
+        err = at_token_problem(field, value)
+        if err:
+            return _refuse(args.slug, err)
     os.makedirs(memory_dir(args.project_dir), exist_ok=True)
     mem_rel = os.path.join(MEMORY_SUBDIR, args.slug + ".md")
     idx_rel = os.path.join(MEMORY_SUBDIR, INDEX_NAME)

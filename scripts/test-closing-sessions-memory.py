@@ -582,6 +582,184 @@ class OwnershipTests(unittest.TestCase):
             self.assertIn("h\u00e9llo", read(d, "b.md"))
 
 
+class AtTokenTests(unittest.TestCase):
+    """#418 (R5): index text must not carry an import-shaped @ token, and a
+    write never reaches outside .claude/memory/. Fixture tokens are synthetic."""
+
+    def _w(self, slug="my-fact", title="My Fact", description="a short hook"):
+        return ["write", "--slug", slug, "--title", title, "--type", "project",
+                "--description", description]
+
+    @staticmethod
+    def _snapshot(d):
+        out = {}
+        for root, dirs, files in os.walk(d):
+            for n in dirs + files:
+                p = os.path.join(root, n)
+                rel = os.path.relpath(p, d)
+                if os.path.isdir(p):
+                    out[rel] = None
+                else:
+                    with open(p, "rb") as f:
+                        out[rel] = f.read()
+        return out
+
+    def _claude_md(self, d):
+        text = "# Project\n- `.claude/memory/topic-x.md`: when to read\n"
+        with open(os.path.join(d, "CLAUDE.md"), "w", encoding="utf-8") as f:
+            f.write(text)
+        return text.encode("utf-8")
+
+    def _index_line(self, d, slug="my-fact"):
+        lines = [ln for ln in read(d, "MEMORY.md").splitlines()
+                 if "(" + slug + ".md)" in ln]
+        self.assertEqual(len(lines), 1, lines)
+        return lines[0]
+
+    def test_write_leaves_claude_md_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            before = self._claude_md(d)
+            r = run(d, self._w(), body="The body.")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(os.path.join(d, "CLAUDE.md"), "rb") as f:
+                self.assertEqual(f.read(), before)
+
+    def test_write_touches_only_the_memory_dir(self):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as home:
+            self._claude_md(d)
+            before = set(self._snapshot(d))
+            r = run(d, self._w(), body="The body.", env={"HOME": home})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            new = set(self._snapshot(d)) - before
+            self.assertEqual(
+                new, {".claude", os.path.join(".claude", "memory"),
+                      os.path.join(".claude", "memory", "my-fact.md"),
+                      os.path.join(".claude", "memory", "MEMORY.md")})
+            self.assertEqual(os.listdir(home), [])
+
+    def test_remove_leaves_claude_md_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            before = self._claude_md(d)
+            run(d, self._w(), body="b")
+            snap = self._snapshot(d)
+            r = run(d, ["remove", "--slug", "my-fact"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            after = self._snapshot(d)
+            self.assertEqual(after["CLAUDE.md"], before)
+            changed = {k for k in set(snap) | set(after) if snap.get(k) != after.get(k)}
+            self.assertTrue(all(k.startswith(os.path.join(".claude", "memory"))
+                                for k in changed), changed)
+
+    def test_slug_aimed_at_claude_md_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            before = self._claude_md(d)
+            snap = self._snapshot(d)
+            r = run(d, self._w(slug="../../CLAUDE", title="T", description="d"), body="b")
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn("refusing slug '../../CLAUDE': not a plain slug", r.stderr)
+            self.assertEqual(self._snapshot(d), snap)
+            self.assertEqual(snap["CLAUDE.md"], before)
+
+    def test_description_at_path_is_code_spanned(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(description="uses @docs/big.md here"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d),
+                             "- [My Fact](my-fact.md) - uses `@docs/big.md` here")
+
+    def test_title_at_path_is_code_spanned(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(title="see @docs/a.md"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d),
+                             "- [see `@docs/a.md`](my-fact.md) - a short hook")
+
+    def test_title_leading_at_is_code_spanned(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(title="@x"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d), "- [`@x`](my-fact.md) - a short hook")
+
+    def test_description_starting_with_at_is_code_spanned(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(description="@docs/big.md first"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d),
+                             "- [My Fact](my-fact.md) - `@docs/big.md` first")
+
+    def test_at_after_newline_is_code_spanned(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(description="uses\n@docs/big.md"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d),
+                             "- [My Fact](my-fact.md) - uses `@docs/big.md`")
+
+    def test_non_import_at_text_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(description="ping dev@host now"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d),
+                             "- [My Fact](my-fact.md) - ping dev@host now")
+
+    def test_at_token_beside_a_backtick_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(description="uses `x` and @docs/big.md"), body="b")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("memory.py: refusing slug 'my-fact':", r.stderr)
+            self.assertIn("--description", r.stderr)
+            self.assertIn("'@docs/big.md'", r.stderr)
+            self.assertIn("reword", r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude")))
+            # Not adjacent: the rule is any backtick in the same field.
+            r = run(d, self._w(description="run `x()` then ping @bob"), body="b")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("'@bob'", r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude")))
+            r = run(d, self._w(title="a `b` @c"), body="b")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("--title", r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, ".claude")))
+
+    def test_symlink_refusal_wins_over_at_refusal(self):
+        with tempfile.TemporaryDirectory() as d:
+            mem = os.path.join(d, ".claude", "memory")
+            os.makedirs(mem)
+            with open(os.path.join(mem, "other.md"), "w") as f:
+                f.write("# x\n")
+            os.symlink("other.md", os.path.join(mem, "c.md"))
+            r = run(d, self._w(slug="c", description="`x` @docs/big.md"), body="n")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("symbolic link", r.stderr)
+            self.assertNotIn("@ token", r.stderr)
+
+    def test_wrapped_title_with_bracket_and_backslash_round_trips(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(title="@a]b\\"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = run(d, self._w(title="see @c]d\\ ok"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(read(d, "MEMORY.md").count("(my-fact.md)"), 1)
+            r = run(d, ["remove", "--slug", "my-fact"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("(my-fact.md)", read(d, "MEMORY.md"))
+
+    def test_rewrite_does_not_double_wrap(self):
+        with tempfile.TemporaryDirectory() as d:
+            for _ in range(2):
+                r = run(d, self._w(description="uses @docs/big.md here"), body="b")
+                self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d),
+                             "- [My Fact](my-fact.md) - uses `@docs/big.md` here")
+            self.assertNotIn("``", read(d, "MEMORY.md"))
+
+    def test_skill_md_lists_the_at_refusal_with_reword_and_retry(self):
+        with open(os.path.join(os.path.dirname(SCRIPT), "..", "SKILL.md"),
+                  encoding="utf-8") as f:
+            text = " ".join(f.read().split())
+        self.assertIn("An `@` token in a field that also has a backtick is refused "
+                      "too: reword the title or description and retry", text)
+
+
 class _Hang(BaseException):
     """Raised by the hang guard. A BaseException on purpose: TimeoutError is an
     OSError, which the helper's leaf open converts into an ordinary refusal, so
