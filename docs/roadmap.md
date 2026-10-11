@@ -279,6 +279,12 @@ plan: docs/plans/guards-and-scripts-that-miss-a-case.md
 
 Closed 2026-10-11, unattended, **done** (#456, #457, #458, #459, #460, #463, #464, #465, #466, #467, #469, #470, #471, #472, #473, #474, #475). Each guard or script now answers the neighbouring case it missed, pinned by a row that failed first and a mutant that dies. #458's probe refuted parent-side delivery, so #475 gives a subagent its own `no-poll-loops` wording keyed on `agent_id`. Two findings went to the backlog: #476 and #477 (a gate that ends its turn while its critic runs never posts its review).
 
+## Phase: Decided and never done
+state: open
+plan: docs/plans/decided-and-never-done.md
+
+Opened 2026-10-11 at the maintainer's request after a review of all fourteen open tickets. Six carry a recorded decision or need none, and wait only for the work: #476, #261, #454, #302, #220, #272. The tickets waiting on a maintainer answer (#477, #443, #444, #425, #445, #448) and #226 (waiting on the downstream audit) stay in the backlog.
+
 ## Phase: Backlog
 state: backlog
 
