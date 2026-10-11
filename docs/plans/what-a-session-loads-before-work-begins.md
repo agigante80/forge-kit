@@ -177,3 +177,26 @@ Only decisions not already recorded on a ticket.
   guide says so, no component enforces it.
 - **Raising any component baseline or budget:** an agent never does; a shortfall is a maintainer
   question.
+
+## Close record
+
+Closed 2026-10-11, unattended, outcome **done**. Both tickets landed in the plan's order. #297 shipped
+`context-budget` (a contract-tested shell asset and a thin skill in `forge-kit-devops`) and closed on
+2026-10-09, with its review lows in #441. #418 was gated twice: round 2's four mechanical items were
+folded into the body with no third round, and its maintainer question 4 never arose, because reading
+the two components found a real path to growth. `coding-standards-auditor` carries no `@` and needed
+no edit, but `closing-sessions`' `memory.py` wrote a title or description such as `uses @topic-x.md`
+into the `MEMORY.md` index verbatim, and a project that `@`-imports that index would then import the
+named file into every session. It now wraps such a token in a code span and refuses one beside a
+backtick (15e14ca). A background security review of that commit then found a parser differential:
+U+FEFF is whitespace to the CLI's JavaScript `\s` but not to Python's, so a token after it stayed
+importable. That was fixed with a row that failed first (d2abc71). One low was dropped: index lines
+written before the fix keep an unwrapped token until rewritten.
+
+**The premortem's sixth clause did not fire**, the one warning against an edit made only to match a
+ticket's wording: the edit followed a measured path, not the title. The optional `/context` probe
+was not run.
+
+The roadmap paragraph as it stood before closing, moved here verbatim:
+
+A bucket, split out 2026-10-01 when *What contributor-docs still cannot see* closed. #297 asks forge-kit to treat startup context (a project's CLAUDE.md, its transitive @-imports and the auto-memory MEMORY.md) as a budget, the way `check-component-size.sh` budgets component bodies. Its picks were recorded on 2026-10-07: a contract-tested shell asset plus a thin skill, called by `health-check` and `forge-adapt`; characters, warn at 40,000 and fail at 80,000, exit 1 over the fail level but wired into nothing by default; a `context-budget` marker in CLAUDE.md as the escape hatch; a shipped `--sweep <root>...` mode; R1 enforced and R2 to R10 in a `docs/guides` page; a report-only flag on any `##` section over 8,000 characters. R5, the edits to the components that write memory, is #418. **Opened 2026-10-09** with its plan in `docs/plans/what-a-session-loads-before-work-begins.md`. Opening rewrote #297 to the picks, but its gate stopped on the trip wire after three rounds, so nothing is ready to implement until the maintainer re-gates it.
