@@ -41,12 +41,16 @@ DOC=docs/guides/labels.md
 
 # 1. Validate every name and description (allow-list) before anything is written.
 fixed=" bug enhancement feature security infrastructure design documentation testing p0 p1 p2 p3 critical contribution "
-seen=" "; n=0
+seen=" "; seenlc=" "; n=0
+# seen keeps the ORIGINAL spelling (the description and doc-name checks below match it exactly);
+# seenlc is the lowercased copy only the duplicate check reads. Do not fold seen (#465).
 vname() {  # vname <name>: the allow-list, the fixed-name list and the duplicate check
-  case "$1" in ""|[!a-z0-9]*|*[!a-z0-9._-]*) die "refused area name: $1" ;; esac
-  case "$fixed" in *" $1 "*) die "refused area name: $1 (a type, priority or special label)" ;; esac
-  case "$seen" in *" $1 "*) die "refused area name: $1 (duplicate)" ;; esac
-  seen="$seen$1 "
+  local lc
+  case "$1" in ""|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) die "refused area name: $1 (allowed: letters, digits, dot, underscore and dash, starting with a letter or digit)" ;; esac
+  lc=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
+  case "$fixed" in *" $lc "*) die "refused area name: $1 (a type, priority or special label)" ;; esac
+  case "$seenlc" in *" $lc "*) die "refused area name: $1 (duplicate)" ;; esac
+  seen="$seen$1 "; seenlc="$seenlc$lc "
 }
 for a in ${LABEL_AREAS:-}; do vname "$a"; n=$((n + 1)); done
 [ "$n" -gt 0 ] || die "LABEL_AREAS is empty: ask the user which areas the project uses"
@@ -187,8 +191,8 @@ echo "Run: bash scripts/sync-labels.sh --check"
   plus one entry per area, and never `contribution`.
 - **`scripts/sync-labels.sh` and `scripts/forge-lib.sh`**: copied only when absent, together, never
   run. On Forgejo with `forge-lib.sh` newly copied, finish through the Step 3 item 4 `.forge.conf` flow.
-- **Refusals** (exit 1, nothing written): a description outside the allow-list, over 100 characters (GitHub's cap) or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[a-z0-9][a-z0-9._-]*$`, a duplicate, or
-  a type, priority or special label name.
+- **Refusals** (exit 1, nothing written): a description outside the allow-list, over 100 characters (GitHub's cap) or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[A-Za-z0-9][A-Za-z0-9._-]*$` (uppercase is allowed; the message names the rule), a duplicate, or
+  a type, priority or special label name, the last two compared without regard to case (`API` beside `api`, `P0`, `Bug`).
 
 Downstream agreement between the doc and the declaration is verified only by this report, since
 `check-label-taxonomy.sh` is forge-kit-only. Show the user the block's output, then confirm:

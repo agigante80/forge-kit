@@ -81,7 +81,7 @@ sc_absent() {  # labels.md absent: written, read by the gate, true downstream
 }
 sc_refuse() {  # every refusal exits 1 naming the name, and leaves nothing behind
   local bad_in
-  for bad_in in 'api bad|name' 'api Web' 'a:b' '-x' 'api api' 'bug' 'p0' 'contribution' 'a`b' '..'; do
+  for bad_in in 'api bad|name' 'a:b' '-x' 'api api' 'bug' 'p0' 'P0' 'Bug' 'api API' 'Critical' 'contribution' 'a`b' '..'; do
     proj; run LABEL_AREAS="$bad_in" FORGE_HOST=github
     ck "refuse [$bad_in]: exit 1" 1 "$rc"
     ck "refuse [$bad_in]: stderr says refused area name" yes "$(has 'refused area name' "$err")"
@@ -220,7 +220,7 @@ sc_round1() {  # review round 1: the merge stays in the Area table, writes fail 
   ck "unlandable merge: no stray temp file" "./docs/guides/labels.md " "$(files)"
   # a name read from an existing doc is refused before the doc is merged
   proj; mkdir -p "$P/docs/guides"
-  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `Frontend` | UI |\n' > "$P/docs/guides/labels.md"; S=$(sha "$P/docs/guides/labels.md")
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `Front:end` | UI |\n' > "$P/docs/guides/labels.md"; S=$(sha "$P/docs/guides/labels.md")
   run LABEL_AREAS="api" FORGE_HOST=github LABELS_MERGE=yes
   ck "early validation: exit 1" 1 "$rc"
   ck "early validation: the doc was not merged" "$S" "$(sha "$P/docs/guides/labels.md")"
@@ -293,6 +293,45 @@ sc_round2() {  # #424: literal description lookup, the 100-character cap, a spac
   ck "spaced doc name: doc unchanged" "$S" "$(sha "$P/docs/guides/labels.md")"
   ck "spaced doc name: no declaration written" no "$([ -e "$P/.github/labels.yml" ] && echo yes || echo no)"
 }
+sc_case() {  # #465: uppercase area names are valid, and the fixed-name and duplicate checks fold case
+  local y
+  proj; mkdir -p "$P/docs/guides"
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `api` | API |\n| `UI` | The UI |\n' > "$P/docs/guides/labels.md"; S=$(sha "$P/docs/guides/labels.md")
+  run LABEL_AREAS="api" FORGE_HOST=github LABELS_MERGE=no
+  ck "uppercase doc area: exit 0" 0 "$rc"
+  ck "uppercase doc area: the declaration carries UI" yes "$(has '- name: UI' "$(cat "$P/.github/labels.yml" 2>/dev/null)")"
+  ck "uppercase doc area: sync-labels.sh and forge-lib.sh copied" "yes yes" "$([ -f "$P/scripts/sync-labels.sh" ] && echo -n yes || echo -n no) $([ -f "$P/scripts/forge-lib.sh" ] && echo -n yes || echo -n no)"
+  ck "uppercase doc area: the doc is unchanged" "$S" "$(sha "$P/docs/guides/labels.md")"
+  o=$(mech "UI,bug" "$P/docs/guides/labels.md"); ck "uppercase doc area: the gate accepts UI,bug" pass "${o%%	*}"
+  proj; mkdir -p "$P/docs/guides"
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `api` | API |\n| `UI` | The UI |\n' > "$P/docs/guides/labels.md"
+  run LABEL_AREAS="api UI" FORGE_HOST=github LABELS_MERGE=no
+  ck "doc UI, confirmed UI: exit 0 (not a duplicate of itself)" 0 "$rc"
+  ck "doc UI, confirmed UI: no duplicate refusal" no "$(has duplicate "$err")"
+  ck "doc UI, confirmed UI: declared once" 1 "$(grep -cxF -- '- name: UI' "$P/.github/labels.yml" 2>/dev/null)"
+  proj; run LABEL_AREAS="api Web" FORGE_HOST=github LABEL_AREA_DESCS=$'Web=Website'
+  ck "confirmed Web: exit 0" 0 "$rc"
+  ck "confirmed Web: the Area table is api Web" "api Web" "$(names "$P/docs/guides/labels.md")"
+  y=$(cat "$P/.github/labels.yml" 2>/dev/null)
+  ck "confirmed Web: the description applies to Web" "Website" "$(awk '$0=="- name: Web"{f=1;next} f&&/description:/{sub(/.*description: /,"");print;exit}' <<< "$y")"
+  proj; mkdir -p "$P/docs/guides"
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `api` | API |\n' > "$P/docs/guides/labels.md"; S=$(sha "$P/docs/guides/labels.md")
+  run LABEL_AREAS="API" FORGE_HOST=github LABELS_MERGE=yes
+  ck "doc api, confirmed API: exit 1" 1 "$rc"
+  ck "doc api, confirmed API: refused as a duplicate" yes "$(has '(duplicate)' "$err")"
+  ck "doc api, confirmed API: the doc is not merged" "$S" "$(sha "$P/docs/guides/labels.md")"
+  ck "doc api, confirmed API: nothing else written" "./docs/guides/labels.md " "$(files)"
+  proj; run LABEL_AREAS="P0" FORGE_HOST=github
+  ck "P0 refused with the fixed-name rule" yes "$(has 'refused area name: P0 (a type, priority or special label)' "$err")"
+  ck "P0 refused: nothing written" "" "$(files)"
+  proj; run LABEL_AREAS="api API" FORGE_HOST=github
+  ck "api API refused with the duplicate rule" yes "$(has 'refused area name: API (duplicate)' "$err")"
+  proj; run LABEL_AREAS="API api" FORGE_HOST=github
+  ck "API api (uppercase first) refused with the duplicate rule" yes "$(has 'refused area name: api (duplicate)' "$err")"
+  ck "API api: nothing written" "" "$(files)"
+  proj; run LABEL_AREAS="a:b" FORGE_HOST=github
+  ck "a bad character names the rule that failed" yes "$(has 'letters, digits' "$err")"
+}
 sc_notemplates() {  # the labels step has no dependency on versioned issue templates
   proj; mkdir -p "$P/.github/ISSUE_TEMPLATE"; printf 'name: Feature\nbody: []\n' > "$P/.github/ISSUE_TEMPLATE/feature.yml"
   run LABEL_AREAS="api" FORGE_HOST=github
@@ -309,6 +348,7 @@ echo "== sync-labels.sh and forge-lib.sh: absent-only, never run =="; sc_sync
 echo "== no versioned templates needed =="; sc_notemplates
 echo "== review round 1 fixtures =="; sc_round1
 echo "== #424 fixtures =="; sc_round2
+echo "== #465 fixtures =="; sc_case
 
 echo "== the kit's own doc carries the markers the installer drops =="
 KD=$(cat "$ROOT/docs/guides/labels.md")
@@ -345,7 +385,12 @@ mutant "sync-labels.sh is run" '$a bash scripts/sync-labels.sh --check' sc_sync
 mutant "the host switch always writes .github" 's/forgejo) hdir=\.forgejo/forgejo) hdir=.github/' sc_decl
 mutant "an existing declaration is shadowed by a second one" 's/^if \[ -n "\$decl" \]; then/if false; then/' sc_decl
 mutant "the disagreement report is silenced" 's/echo "labels.yml does not declare:\${miss}"/:/' sc_decl
-mutant "the name allow-list is skipped" '/\[!a-z0-9\]\*|\*\[!a-z0-9\._-\]\*/d' sc_refuse
+mutant "the name allow-list is skipped" '/\[!A-Za-z0-9\]\*|\*\[!A-Za-z0-9\._-\]\*/d' sc_refuse
+mutant "the allow-list is lowercase-only again" 's/\[!A-Za-z0-9\]\*|\*\[!A-Za-z0-9\._-\]\*/[!a-z0-9]*|*[!a-z0-9._-]*/' sc_case
+mutant "the fixed-name check is case-sensitive" 's/case "\$fixed" in \*" \$lc "\*)/case "$fixed" in *" $1 "*)/' sc_case
+mutant "the duplicate check is case-sensitive" 's/case "\$seenlc" in \*" \$lc "\*)/case "$seenlc" in *" $1 "*)/' sc_case
+mutant "seenlc stores the original spelling" 's/seenlc="\$seenlc\$lc "/seenlc="$seenlc$1 "/' sc_case
+mutant "seen stores the lowercased name" 's/seen="\$seen\$1 "/seen="$seen$lc "/' sc_case
 mutant "the duplicate check is skipped" '/(duplicate)/d' sc_refuse
 mutant "the forge-kit-only paragraphs are kept" 's#/\^<!-- adapt-droppable: forge-kit-only/#/^NEVER-MATCHES/#' sc_absent
 mutant "contribution is written to the declaration" 's/P3 critical " awk/P3 critical contribution " awk/' sc_decl
