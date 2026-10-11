@@ -83,7 +83,9 @@ Gate each first; a gate that needs a judgment call the overnight run cannot make
 - Taken in: #457, #456, #460, #467, #463, #464, #459, #465, #466, #458.
 - Filed inside the phase and taken in: #469 (#457's review stopped on the trip wire leaving its
   32-option cap failing open; P3, fail closed at the cap). #470 (#467's review found `rm -rf 2>&1 /` allowed because the
-  segment is cut at the `&` of a redirection; P3).
+  segment is cut at the `&` of a redirection; P3). #471 (a backslash-newline joins words the guard
+  reads apart; P3). #472 (an uppercase area label misses the gate's lens routing; P3). #473 and #474
+  (two redirection spellings #470's review found still allowed; P3).
 - Left in the backlog with its reason: #454 (health-check step 9 and the credential helper; a
   report-wording fix in another area, still real after #468).
 - Closed as moot after #468: #451, #452.
