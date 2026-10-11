@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 14
+# overnight-guard-version: 15
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -107,11 +107,23 @@ def deny(reason):
 # command is denied too, which no real user types. GIT_CAP_PATTERN is the same chain with the
 # repeat fixed at GIT_PREFIX_MAX + 1 and no trailing subcommand, so it stays linear (3200 pairs
 # under 0.01 s: the leading chain matches and the scan stops).
+# REDIRECTIONS IN THE PREFIX (#473). A redirection between `git` and the subcommand (or between
+# global options) was not a prefix token, so no git rule saw the subcommand and `git 2>&1 reset
+# --hard` was allowed on both arms. _GIT_REDIR is a third alternative of the SAME bounded repeat, so
+# options and redirections interleave in any order and BOTH count toward GIT_PREFIX_MAX (33 mixed
+# tokens hit the cap label; the cap pattern and the matcher cannot disagree, being one chain). It
+# reads every operator (`>`, `>>`, `<`, `<<<`, `2>`, `>&N`, `&>`, `<&N`), with or without a space
+# before the target; the `&` arrives as REDIR_AMP from _flat(). LINEAR, because a naive
+# `\d*[<>]{1,3}\x01?\s*PIECE+` parses two ways and measured 9.8 s at 24 `>>a` tokens, doubling per
+# token: `>>a` was `>>` + `a` or `>` + `>a`, and the optional \x01 was also a bare piece character.
+# The target therefore may not start with `<`, `>` or REDIR_AMP (the lookahead), leaving one parse
+# per token. `>|` is #474.
 # A substitution body is bounded at 200 characters for the same reason: an unbounded `$(` scans to
 # the line end from every start (16 s at 6000 `git -c $(` starts). A longer body is still allowed,
 # a SEPARATE accepted gap that #469 did not close (the cap counts options, not value length).
 # test-hooks.py times four 200-token shapes (one ambiguity each) and an 800-pair retry shape
 # against both matchers.
+REDIR_AMP = "\x01"   # what _flat() writes for a redirection's `&` (see below)
 GIT_PREFIX_MAX = 32
 _GIT_ARG_OPT = r"(?:-C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source)"
 _GIT_PIECE = (r"""(?:[^\s|;&"'\\$`]"""            # a bare character
@@ -119,8 +131,10 @@ _GIT_PIECE = (r"""(?:[^\s|;&"'\\$`]"""            # a bare character
               r"""|\$(?!\()"""                     # `$HOME`, not the start of a substitution
               r"""|\$\([^)\n]{0,200}\)|`[^`\n]{0,200}`"""      # `$(git rev-parse --show-toplevel)`
               r"""|"(?:[^"\\\n]|\\.)*"|'[^'\n]*')""")
+_GIT_REDIR = (r"(?:\d*[<>]{1,3}" + REDIR_AMP + r"?|" + REDIR_AMP + r">{1,2})"   # the operator, one parse
+              r"\s*(?![<>" + REDIR_AMP + r"])" + _GIT_PIECE + r"+")                  # then its target
 _GIT_CHAIN = (r"\bgit(?:\s+(?:" + _GIT_ARG_OPT + r"(?:\s+" + _GIT_PIECE + r"+|=" + _GIT_PIECE + r"*)"
-              + r"|(?!" + _GIT_ARG_OPT + r"(?:[\s=|;&]|$))-[^\s|;&]+)){")
+              + r"|(?!" + _GIT_ARG_OPT + r"(?:[\s=|;&]|$))-[^\s|;&]+|" + _GIT_REDIR + r")){")
 GIT_PREFIX = _GIT_CHAIN + "0," + str(GIT_PREFIX_MAX) + r"}\s+"
 CAP_LABEL = "git with more than %d global options" % GIT_PREFIX_MAX
 GIT_CAP_PATTERN = re.compile(_GIT_CHAIN + str(GIT_PREFIX_MAX + 1) + "}")
@@ -134,7 +148,6 @@ G = GIT_PREFIX
 # `(?:[^|;&\n]|&(?=>)|...)*`: it is linear in one match but ~10x slower per character, and the git
 # patterns restart at every `git <sub>` token, so `git reset ` x6000 went from 2 s to 20 s (review r1);
 # and without `(?!>)` on the lookbehind branch `>&>&` takes two routes per `&` and is 2^n.
-REDIR_AMP = "\x01"
 _REDIR_AMP = re.compile(r"(?<=[<>])&|&(?=>)")
 
 
@@ -154,8 +167,14 @@ def _join(cmd):
     return _CONT.sub(r"\1", cmd)
 
 
+# A redirection glued to `git` (`git>x reset --hard`, `git&>x ...`) is `git` plus a redirection token
+# (#473 review r1). The chain wants whitespace before every token, and a second glued-token branch in
+# the regex would parse `>"a">"a"` two ways (2^n), so the space is inserted here, once, linearly.
+_GIT_GLUED = re.compile(r"\bgit(?=[<>" + REDIR_AMP + r"])")
+
+
 def _flat(cmd):
-    return _REDIR_AMP.sub(REDIR_AMP, cmd)
+    return _GIT_GLUED.sub("git ", _REDIR_AMP.sub(REDIR_AMP, cmd))
 
 
 GIT_PATTERNS = [

@@ -1535,6 +1535,87 @@ with tempfile.TemporaryDirectory() as _td:
     check("og linear: subprocess, 200 -c \"a\" tokens, judged and under 5s",
           (_p.returncode, time.monotonic() - _t0 < 5), (0, True))
 
+# #473: a redirection between `git` and its subcommand (or between global options) is part of the
+# prefix, on both arms. Redirections share ONE bounded repeat with the global options, so they count
+# toward GIT_PREFIX_MAX (the #469 cap). Each token must parse exactly one way (linear), and the
+# operator run `>>` must not also read as `>` plus a piece starting with `>` (measured 9.8 s at 24
+# tokens for the naive token).
+print("\n  -- overnight-guard: redirection before the subcommand (#473) --")
+_R473_DENY = [
+    ("git 2>&1 reset --hard", "git reset --hard"),
+    ("git >/dev/null reset --hard", "git reset --hard"),
+    ("git 2>/dev/null reset --hard", "git reset --hard"),
+    ("git >&2 reset --hard", "git reset --hard"),
+    ("git &>x reset --hard", "git reset --hard"),
+    ("git <in reset --hard", "git reset --hard"),
+    ("git > f reset --hard", "git reset --hard"),
+    ("git >>log reset --hard", "git reset --hard"),
+    ("git <&0 reset --hard", "git reset --hard"),
+    ('git >"my file" reset --hard', "git reset --hard"),
+    ("git <<<word reset --hard", "git reset --hard"),
+    ("git -C sub 2>&1 reset --hard", "git reset --hard"),
+    ("git 2>&1 -C sub reset --hard", "git reset --hard"),
+    ("git -c x=y >o -C sub 2>&1 reset --hard", "git reset --hard"),
+    ("git 2>&1 branch -D x", "git branch -D"),
+    ("git 2>&1 push --delete origin x", "git push --delete / :ref"),
+    ("git 2>&1 tag -d v1", "git tag -d"),
+    ("git 2>&1 clean -fd", "git clean -f"),
+    ("git 2>&1 checkout -- f", "git checkout discards working tree"),
+    ("git >x checkout -f", "git checkout discards working tree"),
+    ("git 2>&1 restore f", "git restore discards working tree"),
+    ("git 2>&1 switch -f main", "git switch discards working tree"),
+    ("git 2>&1 stash drop", "git stash drop/clear"),
+    ("git \\\n2>&1 reset --hard", "git reset --hard"),
+    # A redirection glued to `git` (review r1): the shell runs all of these as `git reset --hard`.
+    ("git>/dev/null reset --hard", "git reset --hard"),
+    ("git>x reset --hard", "git reset --hard"),
+    ("git<in reset --hard", "git reset --hard"),
+    ("git>&2 reset --hard", "git reset --hard"),
+    ("git&>x reset --hard", "git reset --hard"),
+    ("git>x -C sub 2>&1 clean -fd", "git clean -f"),
+]
+_R473_ALLOW = [
+    "git 2>&1 status", "git 2>&1 log --oneline", "git >out stash list", "git 2>&1 reset --soft",
+    "git 2>&1 push origin main", "git 2>&1 clean -n", "git 2>&1 branch -d x",
+    "git 2>&1 config user.name x", "echo 2>&1 reset --hard", "git > f status",
+    "git >>log -C sub status", "git &>x diff", "git>x status", "git2>x reset --hard",
+    "gitk>x reset --hard", "git>x reset --soft",
+]
+for _c, _label in _R473_DENY:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og 473 denies {_fn.__name__}: {_c!r}", _fn(_c), _label)
+for _c in _R473_ALLOW:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og 473 allows {_fn.__name__}: {_c!r}", _fn(_c), None)
+# The cap is shared: 32 mixed tokens are judged by subcommand, 33 hit the cap label.
+for _fn in (_og.match_tier3, _og.match_day):
+    _m32 = "git" + " 2>&1 -c x=y" * 16
+    _m33 = "git" + " 2>&1 -c x=y" * 16 + " >x"
+    check(f"og 473 cap: 32 mixed then status {_fn.__name__}", _fn(_m32 + " status"), None)
+    check(f"og 473 cap: 32 mixed then reset --hard {_fn.__name__}", _fn(_m32 + " reset --hard"), "git reset --hard")
+    check(f"og 473 cap: 33 mixed then status {_fn.__name__}", _fn(_m33 + " status"), _og.CAP_LABEL)
+    check(f"og 473 cap: 32 x '>>a' then status {_fn.__name__}", _fn("git" + " >>a" * 32 + " status"), None)
+    check(f"og 473 cap: 33 x '>>a' then status {_fn.__name__}", _fn("git" + " >>a" * 33 + " status"), _og.CAP_LABEL)
+# Timing. Ordinary rows under 100 ms (a token that parses two ways blows these by orders of magnitude).
+for _fn in (_og.match_tier3, _og.match_day):
+    for _name, _cmd in (("6000 x '2>&1 '", "git " + "2>&1 " * 6000 + "status"),
+                        ("32 x '>>a' status", "git" + " >>a" * 32 + " status"),
+                        ("33 x '>>a' status", "git" + " >>a" * 33 + " status"),
+                        ("32 x '&>x' status", "git" + " &>x" * 32 + " status"),
+                        ("32 x '<<<a' status", "git" + " <<<a" * 32 + " status"),
+                        ("32 x '2>&1' status", "git" + " 2>&1" * 32 + " status"),
+                        ("32 x quoted glued targets", "git" + ' >"a"' * 32 + " status"),
+                        ("3000 x glued 'git>x'", "git>x" * 3000 + " status")):
+        _t0 = time.monotonic()
+        _fn(_cmd)
+        check(f"og linear 473: {_name} {_fn.__name__} under 100ms", time.monotonic() - _t0 < 0.1, True)
+    # Restart-shape rows: every `git` is a fresh start, asserted at the suite's 8 s bound only.
+    for _name, _cmd in (("6000 x 'git 2>&1 ' restarts", "git 2>&1 " * 6000 + "status"),
+                        ("800 x 'git >x -c' retries", "git >x -c " * 800 + "x")):
+        _t0 = time.monotonic()
+        _fn(_cmd)
+        check(f"og linear 473: {_name} {_fn.__name__} under 8s", time.monotonic() - _t0 < 8, True)
+
 # #470: a redirection's `&` is not a command separator. `2>&1`, `&>`, `>&2`, `2>& 1` and `<&0` stay
 # inside the rm or git segment on both arms; only a `&` that is neither after `<`/`>` nor before `>`
 # splits. The overnight arm also drops redirections before judging the rm, so `> /dev/null` is allowed.
