@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 21
+# check-ticket-mechanics-version: 23
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -435,7 +435,13 @@ marker_re() { printf '^[[:space:]]*(%s)[[:space:]]*([(][^)]*[)])?[[:space:]]*:?[
 MARK_ANY="$(marker_re 'Positive|Negative')"; MARK_POS="$(marker_re Positive)"; MARK_NEG="$(marker_re Negative)"
 # Defined here, above their first use: check 4 reads them since #241, and bash resolves a
 # function at call time.
-looks_na()   { grep -qiE '(^|[^a-z])n/?a([^a-z]|$)|not applicable' <<< "$1"; }
+# An N/A claim (#459). The slash forms `N/A` and `n/a` and the phrase `not applicable` count
+# ANYWHERE in a line, as they always did: a missed claim becomes a blocking fail while a false
+# refer only misdirects, so they are not narrowed. The slashless `NA`/`na` is prose in
+# "the row reports `na`", so it counts only as a line's first word, after an optional list marker
+# (`-`, `*`, `1.`, `1)`), checkbox, a short `Label:` (`Unit tests: NA`) and bold or italic
+# wrapper. grep runs per line, so `^` is a line start.
+looks_na()   { grep -qiE '(^|[^a-z])n/a([^a-z]|$)|not applicable|^[[:space:]]*([-*][[:space:]]+|[0-9]+[.)][[:space:]]+)?(\[[ xX]\][[:space:]]+)?([A-Za-z][A-Za-z0-9 /-]{0,40}:[[:space:]]*)?([*][*]|__|[*]|_)?na([^a-z]|$)' <<< "$1"; }
 long_enough() { [ "$(printf '%s' "$1" | tr -d '[:space:]' | wc -c)" -gt 12 ]; }
 names_path() { grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rb|rs|java|kt|php|cs|sh|sql|md|yml|yaml)([^A-Za-z0-9]|$)' <<< "$1"; }
 # A ONE-LINE scenario (#233): after an optional list marker, optional bold or italic markup and

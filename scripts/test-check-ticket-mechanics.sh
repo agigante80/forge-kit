@@ -272,6 +272,31 @@ expect "an E2E N/A with no reason fails" fail "$(outcome "$(run "$E" feature)" e
 E="$(mkbody feature "e2evague.md" "" "" "we will test it somehow")"
 expect "an E2E section naming no path and claiming no N/A fails" fail "$(outcome "$(run "$E" feature)" e2e_tests)"
 
+# --- #459: a slashless `na` mention is prose; the slash and phrase forms stay claims anywhere, and
+# a slashless NA/na is a claim only as a line's first word (after an optional list, number,
+# checkbox or bold prefix). Narrowing only the slashless form is deliberate: a missed claim becomes
+# a blocking fail, while a false refer only misdirects, so the slash forms are not narrowed.
+U="$(mkbody feature "na459a.md" "" 'assert the row reports `na` for an empty body')"
+expect "#459: a backticked na mention in unit tests is prose, so it fails as no path (not a refer)" fail "$(outcome "$(run "$U" feature)" unit_tests)"
+U="$(mkbody feature "na459b.md" "" 'In `scripts/test-x.sh`, assert the row reports na for an empty body')"
+expect "#459: a bare na mention beside a named path passes" pass "$(outcome "$(run "$U" feature)" unit_tests)"
+E="$(mkbody feature "na459c.md" "" "" 'assert the row reports `na` for an empty body')"
+expect "#459: a backticked na mention in E2E tests is prose and fails" fail "$(outcome "$(run "$E" feature)" e2e_tests)"
+S="$(mkbody feature "na459d.md" "$(printf -- 'The state machine reports `na` for an empty body, which the scenarios below do not cover at all.')")"
+expect "#459: a backticked na mention in the scenarios section is prose, not an N/A claim" fail "$(outcome "$(run "$S" feature)" gwt)"
+for form in 'NA' 'Unit tests: NA' 'E2E: na, no UI' '- Unit tests: NA, docs only' 'na: docs only' '- [ ] NA: docs only' '* NA, docs only' '1. NA, docs only' '2) na docs only' '**NA**: docs only' '- **NA** docs only' '*NA*: docs only' '_na_ docs only' '  NA'; do
+  U="$(mkbody feature "na459claim.md" "" "$form")"
+  expect "#459: the leading-NA claim form [$form] stays an N/A claim" referred "$(outcome "$(run "$U" feature)" unit_tests)"
+done
+for form in 'None needed, this is N/A for a docs-only change' 'None needed, this is n/a for a docs-only change' 'None needed, this is not applicable for a docs-only change' 'Docs only. N/A' ; do
+  U="$(mkbody feature "na459mid.md" "" "$form")"
+  expect "#459: the claim [$form] still refers anywhere in the line" referred "$(outcome "$(run "$U" feature)" unit_tests)"
+done
+U="$(mkbody feature "na459e.md" "" 'None needed, this is na for a docs-only change')"
+expect "#459: a mid-sentence slashless na is not a claim (accepted: it fails as no path)" fail "$(outcome "$(run "$U" feature)" unit_tests)"
+U="$(mkbody feature "na459f.md" "" 'nano editor tests')"
+expect "#459: na as the start of a longer word is not a claim" fail "$(outcome "$(run "$U" feature)" unit_tests)"
+
 echo "check-ticket-mechanics: documentation impact"
 expect "naming a doc passes" pass "$(outcome "$(run "$B" feature)" docs_impact)"
 D="$(mkbody feature "docsnone.md" "" "" "" "None, this changes no documented behaviour whatsoever")"
@@ -461,6 +486,19 @@ grep -q 'cut -c1-1000' "$SCRIPT" && ok "mutant ledger: the script carries the 10
 ev="$(bash "$MUT" --body "$WORK/bare.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="sections"{print $3}')"
 n="$(printf '%s' "$ev" | sed -n 's/^heading absent (\([0-9]*\)):.*/\1/p')"; items="$(printf '%s' "${ev#*: }" | awk -F'; ' '{print NF}')"
 [ "$n" != "$items" ] && ok "mutant: with the old 160-byte cut the count disagrees with the items (the companion can fail)" || bad "mutant: the companion did not notice the cut"
+
+# #459 mutant: restore the slashless `n/?a` alternation on a copy; the na-mention rows must flip to referred.
+grep -qF 'n/a([^a-z]|$)|not applicable|^[[:space:]]*' "$SCRIPT" && ok "mutant ledger: the script carries the narrowed looks_na (#459)" || bad "mutant ledger: #459 looks_na not found"
+sed "s#^looks_na()   { grep -qiE '[^']*'#looks_na()   { grep -qiE '(^|[^a-z])n/?a([^a-z]|\$)|not applicable'#" "$SCRIPT" > "$MUT"
+grep -qF "n/?a" "$MUT" && ok "mutant ledger: the #459 mutant carries the old n/?a" || bad "mutant ledger: #459 mutant not built"
+mrun() { bash "$MUT" --body "$1" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null; }
+expect "mutant: the old n/?a reads the unit mention as a claim again (the #459 unit row can fail)" referred "$(outcome "$(mrun "$WORK/na459a.md")" unit_tests)"
+expect "mutant: the old n/?a refers the path-naming unit row (the #459 path row can fail)" referred "$(outcome "$(mrun "$WORK/na459b.md")" unit_tests)"
+expect "mutant: the old n/?a refers the E2E mention (the #459 E2E row can fail)" referred "$(outcome "$(mrun "$WORK/na459c.md")" e2e_tests)"
+expect "mutant: the old n/?a refers the scenarios mention (the #459 scenarios row can fail)" referred "$(outcome "$(mrun "$WORK/na459d.md")" gwt)"
+# Opposite mutant: anchor the slash form too; the mid-sentence claim must flip to fail.
+sed "s#^looks_na()   { grep -qiE '[^']*'#looks_na()   { grep -qiE '^[[:space:]]*(n/a|na)([^a-z]|\$)'#" "$SCRIPT" > "$MUT"
+expect "mutant: anchoring N/A too turns a mid-sentence claim into a fail (the claim-kept row can fail)" fail "$(outcome "$(mrun "$WORK/na459mid.md")" unit_tests)"
 
 # #359 mutant: restore the substring polarity test on a copy; the labelled-Negative fixture must flip.
 grep -q 'block = (\$0 ~ neg ? "Negative" : "Positive")' "$SCRIPT" && ok "mutant ledger: the script carries the anchored polarity test (#359)" || bad "mutant ledger: #359 expression not found"
