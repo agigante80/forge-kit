@@ -7,14 +7,11 @@ FORGE_API_URL=https://forge.example.com   # your Forgejo base URL (NO trailing /
 FORGE_REPO=youruser/your-repo         # owner/name as it exists on the forge
 FORGE_REMOTE=forgejo                  # optional: which git remote name points at the forge (default: origin)
 
-# Trust boundary (#442): this file is committed, so whoever controls the repo controls it.
-# forge-lib.sh therefore sends the token to a FORGE_API_URL read from here ONLY if its
-# host (with any port) is listed, one per line, in your own allowlist:
-#   mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/forge" && printf '%s\n' forge.example.com >> "${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts"
-# The URL must be https; an http instance needs FORGE_ALLOW_HTTP=1 exported in YOUR
+# Trust boundary (#442, #468): this file is committed, so whoever controls the repo controls it.
+# A FORGE_API_URL read from here is trusted like one you export (no allowlist); run forge-kit
+# commands only in repositories you trust. The URL must be https; an http instance needs FORGE_ALLOW_HTTP=1 exported in YOUR
 # environment (it is ignored here). FORGE_TOKEN_ENV may name only FORGEJO_TOKEN or
 # FORGE_TOKEN in this file; any other name must be exported in your environment instead.
-# A FORGE_API_URL exported in your environment needs no allowlist entry.
 #
 # The token itself is NEVER committed. Recommended
 # default: the env block of ~/.claude/settings.json (user-global, set once for all

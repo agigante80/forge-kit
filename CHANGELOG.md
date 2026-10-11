@@ -7,6 +7,12 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
+## Unreleased
+
+### Fixed
+
+- A `FORGE_API_URL` read from a committed `.forge.conf` is trusted again, exactly like an exported one, so the v0.9.0 migration step (writing `${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts`) is no longer needed and a stale hosts file is never read. The https rule, no redirects, the `-K` token and the `FORGE_TOKEN_ENV` limit stay. Accepted risk: a cloned repository's `.forge.conf` can name the server that receives your token, so run forge-kit commands only in repositories you trust. Markers: forge-lib 40, forge-host 38, health-check 11, github-to-forgejo 11, forge-adapt 75; groups forge-kit-devops 0.22.6 and forge-kit-adapt 0.12.4 (#468).
+
 ## v0.9.0 (2026-10-11)
 
 Since v0.8.0: a committed `.forge.conf` can no longer send the Forgejo token to an arbitrary host

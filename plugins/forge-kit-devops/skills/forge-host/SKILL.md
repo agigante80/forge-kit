@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 37 -->
+<!-- forge-host-version: 38 -->
 
 # forge-host: host-aware forge operations
 
@@ -59,7 +59,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
 | `forge_issue_milestone_list` | EVERY open issue as `{number, milestone}`, the milestone being its title or `null`; it takes no argument, so filter by title yourself. PRs excluded on both hosts (Forgejo sends `"pull_request": null` on a plain issue, #446) |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
-| `forge_url_check` | silent rc 0 if `FORGE_API_URL` would be accepted (https, allowlisted when from `.forge.conf`), else the refusal and rc 2; no-op on GitHub, reads no token (v38, #449) |
+| `forge_url_check` | silent rc 0 if `FORGE_API_URL` would be accepted (https), else the refusal and rc 2; no-op on GitHub, reads no token (v38, #449) |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags |
 | `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask; an invalid `FORGE_HOST` also answers `not_configured` with rc 0, after the one host line on stderr (v29); on Forgejo, `forge_api`'s stderr passes through untouched (v37, #450), so a refusal such as an unlisted host says why instead of a bare `not_configured` (stdout is still one word, rc 0; a real HTTP failure prints its line, and `FORGE_DRY_RUN=1` its `[dry-run]` line) |
 
@@ -140,12 +140,13 @@ does NOT reflect Actions (those are Checks), so the github path stays on `gh run
 
 ## Supplying the token locally
 
-**The trust boundary (v36, #442).** `.forge.conf` is committed, so it is the repo's word, not
-yours. A `FORGE_API_URL` read from it gets the token only when its host (port included) is in
-your allowlist, `${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts`, one per line; the refusal prints
-the exact command that adds it. The URL must be https unless YOU export `FORGE_ALLOW_HTTP=1` (the file
+**The trust boundary (v36, #442; v40, #468).** A `FORGE_API_URL` read from the committed
+`.forge.conf` is trusted exactly like one you export: there is no host allowlist and no per-machine
+file (v36 to v39 had one; a stale `forge/hosts` is never read). The residual risk is accepted: a
+cloned repository's `.forge.conf` can name the server that receives your token, so run forge-kit
+commands only in repositories you trust. The URL must be https unless YOU export `FORGE_ALLOW_HTTP=1` (the file
 cannot), redirects are never followed, and the token reaches curl through `-K`, never argv. In
-the file, `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`. A URL or name you
+the file, `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`. A name you
 export yourself is trusted as-is. `forge_token_present` reports the token's variable name and
 whether it is set, without printing it.
 On Forgejo every dry-run branch runs the same URL check first, so `FORGE_DRY_RUN=1` refuses what a real run refuses (rc 2); `forge_api_paginate` callers now see that rc.

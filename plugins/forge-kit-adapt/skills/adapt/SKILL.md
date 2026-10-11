@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 74 -->
+<!-- forge-adapt-version: 75 -->
 
 # forge-adapt
 
@@ -437,7 +437,7 @@ Rules for this step:
      unless the repo is GitHub-only, in which case they fall back to `gh`: copy `forge-lib.sh` to
      `scripts/` VERBATIM, and for a Forgejo or dual-remote repo (`$FORGE_HOST=forgejo`) copy
      `forge.conf.example` -> `.forge.conf`. Its base URL cannot be auto-detected, so ASK
-     (or read an existing `.forge.conf`), then remind the user to export the token and allowlist its host.
+     (or read an existing `.forge.conf`), then remind the user to export the token.
    - **Companion skills (agents only):** an agent carries reference material in a SKILL named in its
      `skills:` frontmatter, never its own `references/` (#124). Install each skill named, then
      rewrite the installed agent LAST, while the plugin-scoped names are still readable. **A missed

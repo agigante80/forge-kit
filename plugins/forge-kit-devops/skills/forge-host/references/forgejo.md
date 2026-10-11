@@ -34,11 +34,10 @@ docker exec -u git <forgejo-container> \
 ```
 
 Export it under the name your `.forge.conf` declares (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`;
-the file may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`), and allowlist the host (#442):
+the file may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`):
 
 ```
 export FORGEJO_TOKEN=<token>
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/forge" && printf '%s\n' forge.example.com >> "${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts"
 ```
 
 Never commit the token. `--scopes all` is the **admin-CLI** form (valid there). The token API /
@@ -62,7 +61,7 @@ user, organization, package, …`). For CI, scope it down, e.g. `write:issue,wri
   description (#193). With no runner there are no statuses, so it returns `none`; `not_configured`
   means the API could not be asked, and only that keeps the local-gate fallback (e.g. `make test`
   pre-push). Since v37 the REASON for a `not_configured`
-  is on stderr: `forge_api`'s own refusal (host not in the allowlist, non-https, empty token) or
+  is on stderr: `forge_api`'s own refusal (non-https, empty token) or
   HTTP line, untouched, while stdout stays one word and rc 0 (#450). `forge_api` calls `curl -q`, so the user's `.curlrc` is
   never read: a private CA or proxy for a self-hosted Forgejo must come from `CURL_CA_BUNDLE`,
   `SSL_CERT_FILE` or `https_proxy` instead. **Job logs are not API-reachable** (so `ci-health` on Forgejo is detect-only).

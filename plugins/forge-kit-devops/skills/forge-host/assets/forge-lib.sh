@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 39
+# forge-lib-version: 40
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -182,6 +182,13 @@
 #       `verbose` line there would print the Authorization header to the stderr this change exposes.
 #       Migration: -q drops EVERY .curlrc setting, so a private CA (`cacert`) or proxy set only there
 #       now fails (curl rc 60 or 7). Set it through CURL_CA_BUNDLE, SSL_CERT_FILE or https_proxy.
+#   v40 The #442 host allowlist is gone (#468, maintainer decision 2026-10-11). A FORGE_API_URL read
+#       from .forge.conf is trusted exactly like an exported one, so ${XDG_CONFIG_HOME:-$HOME/.config}
+#       /forge/hosts is never read and the v0.9.0 migration step (writing it) is not needed; a stale
+#       file is harmless. Kept from v36: https only (http with FORGE_ALLOW_HTTP=1 exported), no -L,
+#       --proto, the token through -K, xtrace suspended, FORGE_TOKEN_ENV limited in the file. The
+#       accepted residual risk: a cloned repository's .forge.conf can name the server that receives
+#       the token, so run forge commands only in repositories you trust.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -210,7 +217,8 @@ _forge_clear_file_vals() {
 # load; an inherited _FORGE_FROM_FILE would make a child treat the caller's own values as
 # file-sourced.
 # A RE-SOURCE in the same shell first clears what the file set (#442 review): otherwise the next
-# load finds FORGE_API_URL already set, takes it for the caller's own, and skips the allowlist.
+# load finds FORGE_API_URL already set and takes it for the caller's own (which would also let the
+# file's FORGE_TOKEN_ENV restriction be skipped).
 # _forge_clear_file_vals runs BEFORE the unset, so an INHERITED _FORGE_FROM_FILE and
 # _FORGE_FILEVAL_* list is acted on at source time: a key it names whose value matches is unset
 # (#449 item 10). That is not a security boundary: whoever controls the environment can set or
@@ -502,14 +510,15 @@ _forge_token_impl() {
 
 # _forge_check_url: may the token be sent to FORGE_API_URL? rc 0 or rc 2 with a message (#442).
 # Every URL must be https, or http with FORGE_ALLOW_HTTP=1 exported (the file cannot set it, since
-# it is not a key _forge_load_conf reads). A URL that came from the committed .forge.conf must also
-# name a host the USER listed in ${XDG_CONFIG_HOME:-$HOME/.config}/forge/hosts: a clone of someone
-# else's repository must not be able to send this user's token to a host of its choosing. An
-# exported URL is the user's own and needs no entry. The scheme check lives here and NOT in
+# it is not a key _forge_load_conf reads). A URL from .forge.conf is trusted like an exported one
+# (#468): the host allowlist #442 added here was dropped by the maintainer, who accepted that a
+# cloned repository's .forge.conf can name the server that gets the token. Do not reintroduce a
+# per-machine trust file. The URL reaches curl only behind --url and only the token goes in the -K
+# config, so no URL content can inject curl options. The scheme check lives here and NOT in
 # forge_host or forge_api_base, which adapt/SKILL.md calls with a scheme-less sentinel URL.
 _forge_check_url() {
   _forge_load_conf   # in THIS shell: forge_api_base loaded it in a $(...) that is gone
-  local url="${FORGE_API_URL-}" h hp hf want
+  local url="${FORGE_API_URL-}"
   case "$url" in
     https://*) ;;
     http://*) [ "${FORGE_ALLOW_HTTP:-0}" = 1 ] || {
@@ -517,35 +526,6 @@ _forge_check_url() {
       return 2; } ;;
     *) echo "forge-lib: FORGE_API_URL must be an https URL, not an option or another scheme" >&2; return 2 ;;
   esac
-  case " ${_FORGE_FROM_FILE-} " in *" FORGE_API_URL "*) ;; *) return 0 ;; esac
-  # The RAW URL first: _forge_url_host strips userinfo, so a check on its output never sees the @
-  # of `https://allowed@evil/`, and `https://evil\@allowed/` extracts as `allowed`. Anything but
-  # printable ASCII (byte-wise, so a space, a control character or a UTF-8 lookalike), a
-  # backslash, or an @ in the authority is refused, printing nothing from the URL.
-  h="${url#*://}"; h="${h%%[/?#]*}"
-  case "$url" in *\\*) h="@" ;; esac
-  [ -z "$(printf '%s' "$url" | LC_ALL=C tr -d '\041-\176')" ] || h="@"
-  # Then the extracted host[:port], strictly: letters, digits, dot, hyphen, at most one colon, a
-  # host part not starting with - or ., and an all-digit port. A bracketed IPv6 literal is refused.
-  case "$h" in *@*) h="" ;; *) h="$(_forge_url_host "$url" keep-port)" ;; esac
-  hp="${h%%:*}"
-  case "$h" in
-    ''|*[!${_FORGE_ALNUM}.:-]*|*:*:*|*:) h="" ;;
-    *:*) case "${h#*:}" in *[!0123456789]*) h="" ;; esac ;;
-  esac
-  case "$hp" in ''|-*|.*) h="" ;; esac
-  if [ -z "$h" ]; then echo "forge-lib: invalid forge host in FORGE_API_URL (from .forge.conf)" >&2; return 2; fi
-  hf="${XDG_CONFIG_HOME:-${HOME-}/.config}/forge/hosts"
-  want="$(printf '%s' "$h" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
-  if [ -f "$hf" ] && LC_ALL=C grep -qixF -e "$want" <<< "$(LC_ALL=C sed 's/\r$//; s/^[[:space:]]*//; s/[[:space:]]*$//; /^#/d; /^$/d' "$hf")"; then
-    return 0
-  fi
-  {
-    printf 'forge-lib: %s (FORGE_API_URL from .forge.conf) is not in the forge host allowlist, so no token is sent.\n' "$h"
-    printf '           If you trust that host, add it and retry:\n'
-    printf "           mkdir -p \"\${XDG_CONFIG_HOME:-\$HOME/.config}/forge\" && printf '%%s\\\\n' %q >> \"\${XDG_CONFIG_HOME:-\$HOME/.config}/forge/hosts\"\n" "$h"
-  } >&2
-  return 2
 }
 
 # forge_api <METHOD> <path> [json-body]   path is like  /repos/{owner}/{repo}/issues
@@ -1382,7 +1362,7 @@ forge_release_create() {
 # the sha is `pending`, none is `none`, and an endpoint that cannot be asked stays `not_configured`,
 # which keeps the runner-less fallback exactly where v13 had it. The sha match is a PREFIX match,
 # because the ref falls back to its literal, possibly short, form for a sha in another repository.
-# forge_api's stderr is NOT discarded at either call site (#450): a refusal (allowlist, non-https,
+# forge_api's stderr is NOT discarded at either call site (#450): a refusal (non-https,
 # empty or unsafe token, bad FORGE_TOKEN_ENV, invalid host) is the only explanation a caller gets
 # for `not_configured`. Passthrough means untouched: nothing here adds, filters or rewrites it, and
 # a new stdout word was rejected because every caller `case`s on the vocabulary above.

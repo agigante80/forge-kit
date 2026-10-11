@@ -46,12 +46,12 @@ forge_repo() { echo owner/repo; }
 REQLOG="$T/req.log"
 # A body of REFUSE, HTTP500 or HTTP404 makes the stub fail the way the real forge_api does (#450),
 # with the REAL texts, so a test cannot pass on a made-up string while the real message changes:
-#   REFUSE  rc 2, forge-lib.sh's allowlist refusal on stderr, nothing on stdout
+#   REFUSE  rc 2, forge-lib.sh's http refusal on stderr, nothing on stdout
 #   HTTP500 rc 22, the `forge-lib: HTTP 500 from <method> <path>` line (path taken from the request)
 #   HTTP404 rc 44, silent (the real forge_api prints nothing on a 404)
 _fail_like_forge_api() {   # <mode> <method> <path>
   case "$1" in
-    REFUSE)  echo "forge-lib: forge.example.com (FORGE_API_URL from .forge.conf) is not in the forge host allowlist, so no token is sent." >&2; return 2 ;;
+    REFUSE)  echo "forge-lib: refusing to send the token over http; use an https FORGE_API_URL, or export FORGE_ALLOW_HTTP=1 for a trusted LAN instance" >&2; return 2 ;;
     HTTP500) echo "forge-lib: HTTP 500 from $2 $3" >&2; return 22 ;;
     HTTP404) return 44 ;;
   esac
@@ -168,8 +168,8 @@ grep -q 'limit=' "$REQLOG" && ok "the tasks request bounds its page (one page, n
                             || bad "the tasks request set no page limit"
 
 echo "== (g) forge_api's stderr reaches the caller; stdout and rc stay the contract (#450) =="
-ALLOW='forge-lib: forge.example.com (FORGE_API_URL from .forge.conf) is not in the forge host allowlist, so no token is sent.'
-runerr "a refused status call shows the allowlist refusal and still answers not_configured (kills 2>/dev/null at the status site)" \
+ALLOW='forge-lib: refusing to send the token over http; use an https FORGE_API_URL, or export FORGE_ALLOW_HTTP=1 for a trusted LAN instance'
+runerr "a refused status call shows the http refusal and still answers not_configured (kills 2>/dev/null at the status site)" \
     not_configured "$ALLOW" REFUSE '{}'
 STATUS_JSON=REFUSE; TASKS_JSON='{}'; got=$(cd "$T" && forge_ci_status deadbeef 2>/dev/null)
 [ "$(printf '%s\n' "$got" | wc -l)" -eq 1 ] && [ "$got" = not_configured ] \

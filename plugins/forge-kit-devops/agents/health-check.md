@@ -21,7 +21,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 10 -->
+<!-- health-check-version: 11 -->
 
 Tier: a mechanical role, so Sonnet at low effort, which in measurement reported the same missing items as a stronger tier while Haiku missed two of three.
 
@@ -166,7 +166,7 @@ WARN if the detected host's credential is missing (GitHub: not logged into `gh`;
 env named by `FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`, is empty or that name is refused). The
 snippet never expands the configured name itself: a committed `.forge.conf` is not trusted, and
 `forge_token_present` validates the name before reading it (#442). `forge_url_check` also WARNs
-when `FORGE_API_URL` would be refused (not https, or not on the host allowlist), because a token
+when `FORGE_API_URL` would be refused (not https), because a token
 that is set is still useless then. It is needed
 for issue management and ticket-gate. Never let this check abort the rest of the health report.
 
