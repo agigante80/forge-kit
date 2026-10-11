@@ -68,7 +68,7 @@ A premortem: it is the end of this phase and it failed. What happened?
 One ticket at a time per plugin group, because the markers and the plugin semver serialize them.
 Gate each first; a gate that needs a judgment call the overnight run cannot make parks the ticket.
 
-1. **#457** (P2, security), **#467** (P3) and **#469** (P3): all `overnight-guard.py`, so one after
+1. **#457** (P2, security), **#467**, **#469** and **#470** (P3): all `overnight-guard.py`, so one after
    the other.
 2. **#456** (P2, security): `check-private-leaks.sh`, independent.
 3. **#460** (P2), then **#464**, then **#463**: the roadmap assets, in that order (#463's TAB
@@ -82,7 +82,8 @@ Gate each first; a gate that needs a judgment call the overnight run cannot make
 
 - Taken in: #457, #456, #460, #467, #463, #464, #459, #465, #466, #458.
 - Filed inside the phase and taken in: #469 (#457's review stopped on the trip wire leaving its
-  32-option cap failing open; P3, fail closed at the cap).
+  32-option cap failing open; P3, fail closed at the cap). #470 (#467's review found `rm -rf 2>&1 /` allowed because the
+  segment is cut at the `&` of a redirection; P3).
 - Left in the backlog with its reason: #454 (health-check step 9 and the credential helper; a
   report-wording fix in another area, still real after #468).
 - Closed as moot after #468: #451, #452.

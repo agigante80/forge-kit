@@ -277,7 +277,7 @@ Closed 2026-10-11, unattended, **done** (#297, #418). `context-budget` measures 
 state: open
 plan: docs/plans/guards-and-scripts-that-miss-a-case.md
 
-Opened 2026-10-11 during an unattended run. Ten tickets share one shape: a shipped guard or script is right for the case it was written for and wrong for a neighbouring one nobody fed it (#456, #457, #458, #459, #460, #463, #464, #465, #466, #467), plus #469 filed inside it. #451 and #452 closed as moot after #468; #454 stays in the backlog.
+Opened 2026-10-11 during an unattended run. Ten tickets share one shape: a shipped guard or script is right for the case it was written for and wrong for a neighbouring one nobody fed it (#456, #457, #458, #459, #460, #463, #464, #465, #466, #467), plus #469 and #470 filed inside it. #451 and #452 closed as moot after #468; #454 stays in the backlog.
 
 ## Phase: Backlog
 state: backlog
