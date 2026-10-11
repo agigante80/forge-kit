@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 6
+# test-reassess-phases-version: 7
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.
@@ -846,6 +846,136 @@ expect "a duplicate winner refuses" 5 "$rc"
 no_move "merge into a duplicate winner"
 unchanged "merge into a duplicate winner"
 
+echo "== #460 a multi-line reason or note is compared as a whole block, never line by line =="
+# Exact, whole-line block assertions: `contains` is `grep -qiF`, which treats a newline-bearing
+# needle as a LIST and so always matches when the needle holds an empty line (the defect itself).
+has_block() {  # has_block <label> <expected block> <text>: the block is a run of whole lines of text
+  if [[ $'\n'"$3"$'\n' == *$'\n'"$2"$'\n'* ]]; then ok "$1"; else bad "$1 (block not found whole in: $(tr '\n' '|' <<< "$3"))"; fi
+}
+win_prose() {  # Win's prose lines: after its state line, up to the next section, outer blank lines dropped
+  local p; p="$(sed -n '/^## Phase: Win$/,/^## /{ /^## /d; /^state: /d; p }' "$T/docs/roadmap.md")"
+  p="${p#"${p%%[!$'\n']*}"}"; printf '%s' "$p"
+}
+set_win() {  # set_win <line>...: plain_roadmap with Win's prose replaced; an empty argument is a blank line
+  plain_roadmap; sed -i '/^Win prose\.$/,$d' "$T/docs/roadmap.md"; printf '%s\n' "$@" >> "$T/docs/roadmap.md"
+}
+n_line() { grep -cxF -- "$1" "$T/docs/roadmap.md" || true; }
+rerun_ok() {  # rerun_ok <label> <expected Win prose, one string>
+  expect "$1: exits 0" 0 "$rc"
+  contains "'Win' prose already carries the merge reason; not appending again" "$sout" "$1: says it is already there"
+  expect "$1: Win's prose is as it was" "$2" "$(win_prose)"
+  absent "## Phase: Lose" "$(cat "$T/docs/roadmap.md")" "$1: Lose is gone"
+}
+m460() { ms345; printf '[]' > "$T/iss.json"; }
+
+set_win 'Win first paragraph' '' 'Win second paragraph'; m460
+run merge Lose --into Win --reason $'first\n\nsecond'
+expect "a blank line in the reason beside a blank line in Win exits 0" 0 "$rc"
+absent "already carries the merge reason" "$sout" "and does not claim it was already there"
+expect "and Win's prose gains the whole reason block" $'Win first paragraph\n\nWin second paragraph\n\nMerged "Lose" in: first\n\nsecond' "$(win_prose)"
+
+plain_roadmap; m460
+run merge Lose --into Win --reason $'alpha\nbeta'
+expect "a two-line reason exits 0" 0 "$rc"
+absent "already carries the merge reason" "$sout" "and is appended"
+expect "and Win's prose ends with the two lines" $'Win prose.\n\nMerged "Lose" in: alpha\nbeta' "$(win_prose)"
+
+set_win 'Win prose.' '' 'Merged "Lose" in: x'; m460; snap
+run merge Lose --into Win --reason $'x\nstate: done'
+expect "a first-line collision no longer hides a keyed line: exits 5" 5 "$rc"
+contains "reassess-phases: updating 'Win' prose failed" "$serr" "and names the failed write"
+unchanged "a first-line collision with a keyed line"
+no_move "a first-line collision with a keyed line"
+
+set_win 'Win prose.' '' 'Merged "Lose" in: first' '' 'second'; m460
+run merge Lose --into Win --reason $'first\n\nsecond'
+rerun_ok "a multi-line re-run" $'Win prose.\n\nMerged "Lose" in: first\n\nsecond'
+expect "a multi-line re-run: one copy of the first line" 1 "$(n_line 'Merged "Lose" in: first')"
+
+set_win 'Win prose.' '' 'Merged "Lose" in: first' '' 'second'; m460
+run merge Lose --into Win --reason $'first\n\nthird'
+expect "a block differing in its last line: exits 0" 0 "$rc"
+absent "already carries the merge reason" "$sout" "a block differing in its last line is not a re-run"
+has_block "and the new block is appended whole" $'Merged "Lose" in: first\n\nthird' "$(win_prose)"
+
+set_win 'Win prose.' '' 'Merged "Lose" in: r'; m460
+run merge Lose --into Win --reason r
+rerun_ok "a single-line re-run" $'Win prose.\n\nMerged "Lose" in: r'
+expect "a single-line re-run: one copy" 1 "$(n_line 'Merged "Lose" in: r')"
+
+set_win 'Win prose.' '' 'Merged "Lose" in: r'; m460
+run merge Lose --into Win --reason r2
+expect "a different single-line reason: exits 0" 0 "$rc"
+absent "already carries the merge reason" "$sout" "a different reason is appended"
+expect "and both reasons stand" $'Win prose.\n\nMerged "Lose" in: r\n\nMerged "Lose" in: r2' "$(win_prose)"
+
+plain_roadmap; m460
+run merge Lose --into Win --reason $'a\n\n'
+expect "a reason with trailing newlines: first run exits 0" 0 "$rc"
+expect "its trailing newlines are not written" $'Win prose.\n\nMerged "Lose" in: a' "$(win_prose)"
+set_win 'Win prose.' '' 'Merged "Lose" in: a'; m460
+run merge Lose --into Win --reason $'a\n\n'
+rerun_ok "a trailing-newline re-run" $'Win prose.\n\nMerged "Lose" in: a'
+expect "a trailing-newline re-run: one copy" 1 "$(n_line 'Merged "Lose" in: a')"
+
+set_win 'Win prose.' '' 'Merged "Lose" in: r2'; m460
+run merge Lose --into Win --reason r
+expect "a longer line is not the reason: exits 0" 0 "$rc"
+absent "already carries the merge reason" "$sout" "a longer line is not a re-run"
+expect "and the bare reason is appended" $'Win prose.\n\nMerged "Lose" in: r2\n\nMerged "Lose" in: r' "$(win_prose)"
+
+set_win 'Win prose.' '' 'see Merged "Lose" in: r'; m460
+run merge Lose --into Win --reason r
+expect "a wrapped line is not the reason: exits 0" 0 "$rc"
+absent "already carries the merge reason" "$sout" "a wrapped line is not a re-run"
+expect "and a bare reason line is appended" $'Win prose.\n\nsee Merged "Lose" in: r\n\nMerged "Lose" in: r' "$(win_prose)"
+
+plain_roadmap; m460; snap
+run merge Lose --into Win --reason $'\n'
+expect "a reason made only of newlines is refused: exits 2" 2 "$rc"
+contains "--reason needs text" "$serr" "and says a reason is needed"
+run delete Lose --to Win --reason $'\n\n'
+expect "a newline-only delete reason is refused too: exits 2" 2 "$rc"
+unchanged "a newline-only delete reason"
+no_move "a newline-only delete reason"
+unchanged "a newline-only reason"
+no_move "a newline-only reason"
+
+plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"
+run delete Lose --to Win --reason $'a\n\nb'
+expect "a multi-line delete reason: exits 0" 0 "$rc"
+absent "already recorded" "$sout" "is not reported as already recorded"
+has_block "and the Notes entry is written whole" $'- Deleted phase "Lose": a\n\nb' "$(cat "$T/docs/roadmap.md")"
+plain_roadmap; printf '\n## Notes\n\n- Deleted phase "Lose": a\n\nb\n' >> "$T/docs/roadmap.md"; ms345; printf '[]' > "$T/iss.json"
+run delete Lose --to Win --reason $'a\n\nb'
+expect "a delete retry with the whole note present: exits 0" 0 "$rc"
+contains "already recorded" "$sout" "reports it already recorded"
+expect "and leaves one copy" 1 "$(n_line '- Deleted phase "Lose": a')"
+
+plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"
+run delete Lose --to Win --reason $'\nwhy\n'
+expect "a delete reason with blank edges: exits 0" 0 "$rc"
+expect "its edges are stripped as merge strips them" 1 "$(n_line '- Deleted phase "Lose": why')"
+
+plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; snap
+run delete Lose --to Win --reason $'Dropped.\n\n## Phase: Evil\nstate: planned'
+expect "a delete note that opens a '## ' section refuses" 2 "$rc"
+contains "opens a '## ' section" "$serr" "and names the cause"
+no_move "delete with a section-opening note"
+unchanged "delete with a section-opening note"
+run delete Lose --to Win --reason $'Dropped.\n\n## Context' --check
+expect "--check agrees on the section-opening note" 2 "$rc"
+unchanged "delete with a section-opening note, --check"
+cp "$T/reassess-phases.sh" "$T/rp-keep.sh"
+grep -v "a note may not carry a line that opens" "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#460: mutant: the note section refusal was not removed"
+else
+  plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; run delete Lose --to Win --reason $'Dropped.\n\n## Phase: Evil\nstate: planned'
+  if [ "$rc" != 2 ]; then ok "#460: mutant: without the note refusal the section-opening delete exits $rc"
+  else bad "#460: mutant: without the note refusal the delete still refuses"; fi
+fi
+cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; rm -f "$T/rp-keep.sh"
+
 # Mutants: with the dry run turned into a no-op, the refusal cases above must fail again because the
 # ticket moves first. The sed replaces the CALL only and leaves the definition alone.
 cp "$T/reassess-phases.sh" "$T/rp-keep.sh"
@@ -864,6 +994,44 @@ else
   else bad "#345: mutant: without the merge dry run no MOVE was sent"; fi
 fi
 cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; rm -f "$T/rp-keep.sh"
+
+
+# #460 mutants: each edit is applied to a copy of the shipped script, proved applied with cmp, and
+# must make the named rows fail again. `r` queues the replacement line, `d` drops the original.
+mut460() {  # mut460 <label> <sed address> <replacement line> <rows...>: run the rows, expect a failure
+  local label="$1" addr="$2" repl="$3"
+  mut460_sig=""
+  printf '%s\n' "$repl" > "$T/mut460.line"
+  cp "$T/reassess-phases.sh" "$T/rp-keep.sh"
+  sed -e "${addr}"'{r '"$T/mut460.line" -e 'd}' "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+  if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#460: mutant ($label) was not applied"; cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; return; fi
+  local sig=""
+  set_win 'Win first paragraph' '' 'Win second paragraph'; m460; run merge Lose --into Win --reason $'first\n\nsecond'; sig="$sig$(grep -c 'already carries' <<< "$sout")"
+  set_win 'Win prose.' '' 'Merged "Lose" in: first' '' 'second'; m460; run merge Lose --into Win --reason $'first\n\nsecond'; sig="$sig$(grep -c 'already carries' <<< "$sout")"
+  set_win 'Win prose.' '' 'Merged "Lose" in: first' '' 'second'; m460; run merge Lose --into Win --reason $'first\n\nthird'; sig="$sig$(grep -c 'already carries' <<< "$sout")"
+  set_win 'Win prose.' '' 'Merged "Lose" in: r'; m460; run merge Lose --into Win --reason r; sig="$sig$(grep -c 'already carries' <<< "$sout")"
+  set_win 'Win prose.' '' 'Merged "Lose" in: r2'; m460; run merge Lose --into Win --reason r; sig="$sig$(grep -c 'already carries' <<< "$sout")"
+  set_win 'Win prose.' '' 'see Merged "Lose" in: r'; m460; run merge Lose --into Win --reason r; sig="$sig$(grep -c 'already carries' <<< "$sout")"
+  set_win 'Win prose.' '' 'Merged "Lose" in: a'; m460; run merge Lose --into Win --reason $'a\n\n'; sig="$sig$(grep -c 'already carries' <<< "$sout")"
+  plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; run delete Lose --to Win --reason $'a\n\nb'; sig="$sig$(grep -c 'already recorded' <<< "$sout")"
+  cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; rm -f "$T/rp-keep.sh" "$T/mut460.line"
+  # The shipped script's signature is 0 1 0 1 0 0 1 0 (re-run recognised only where it is one).
+  if [ "$sig" != 01010010 ]; then ok "#460: mutant ($label) is caught (signature $sig, not 01010010)"
+  else bad "#460: mutant ($label) survived"; fi
+  mut460_sig="$sig"
+}
+mut460 "the old list-of-patterns grep" '/^  if \[\[ .*\$wprose/' '  if grep -qxF -- "$sentence" <<< "$wprose"; then'
+expect "#460: the grep mutant treats the blank-line, near-miss and first-line rows as re-runs (signature)" 11110010 "$mut460_sig"
+mut460 "never matches" '/^  if \[\[ .*\$wprose/' '  if false; then'
+expect "#460: the never-match mutant misses every re-run (signature)" 00000000 "$mut460_sig"
+mut460 "first line only" '/^  if \[\[ .*\$wprose/' '  if grep -qxF -- "${sentence%%$'"'"'\n'"'"'*}" <<< "$wprose"; then'
+expect "#460: the first-line mutant treats the near-miss row as a re-run (signature)" 01110010 "$mut460_sig"
+mut460 "substring" '/^  if \[\[ .*\$wprose/' '  if [[ "$wprose" == *"$sentence"* ]]; then'
+expect "#460: the substring mutant matches the longer and wrapped lines (signature)" 01011110 "$mut460_sig"
+mut460 "no newline stripping" '/^  REASON="\${REASON#/' '  :'
+expect "#460: the no-normalisation mutant misses the trailing-newline re-run (signature)" 01010000 "$mut460_sig"
+mut460 "record_note on grep" '/^  \[\[ .*"- \$line"/' '  grep -qxF -- "- $line" "$ROADMAP" 2>/dev/null && { echo "already recorded: $line"; return 0; }'
+expect "#460: the record_note grep mutant reports the multi-line note recorded (signature)" 01010011 "$mut460_sig"
 
 base_roadmap; base_milestones; base_issues
 run bogus-op Alpha

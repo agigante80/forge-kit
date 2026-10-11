@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 16 -->
+<!-- roadmap-phases-version: 17 -->
 
 # Roadmap phases
 
@@ -254,8 +254,10 @@ Seven ops, each an atomic reshape of `roadmap.md` plus the milestones behind it:
   named tickets into its milestone; everything left behind stays in the original.
 - **`merge <a> --into <b> --reason "..."`**: removes `a`, moves its tickets into `b`'s milestone,
   and appends the reason to `b`'s prose. `--reason` is not optional: it is the only record of why
-  two phases became one, and it is what a future reader has instead of the deleted phase.
-- **`delete <name> [--to <dest>]`**: removes the block. A phase with open tickets and no `--to`
+  two phases became one, and it is what a future reader has instead of the deleted phase. A
+  multi-line reason is idempotent as a whole block, its outer newlines ignored.
+- **`delete <name> [--to <dest>] [--reason "..."]`**: removes the block and records the reason in
+  Notes (a multi-line one, as a whole block). A phase with open tickets and no `--to`
   refuses; `--to` may name a phase or a STATE (`backlog` resolves to whichever phase carries that
   state), and the tickets move there first.
 - **`insert <name> --before <other>|--end --state <state> [--plan <path>] --prose "..."`**: adds a

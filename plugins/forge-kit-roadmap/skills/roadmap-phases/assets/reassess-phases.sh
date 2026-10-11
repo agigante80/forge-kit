@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 10
+# reassess-phases-version: 11
 #
 # Reshapes the roadmap file and the milestones behind it, one level above /phase review (#244).
 # /phase review asks whether ONE phase is still aligned; this asks whether the ROADMAP is still
@@ -60,8 +60,10 @@
 # are naturally idempotent (setting a milestone to the value it already holds is a no-op); this
 # script makes the file side match by checking each write's INTENDED RESULT before making it: a
 # rename whose new heading is already in place, a merge whose target prose already carries the exact
-# reason sentence, a block already removed. Re-running after a partial failure resumes from there
-# rather than repeating or duplicating a write.
+# reason sentence block (the whole sentence, compared as contiguous whole lines, its leading and
+# trailing newlines ignored; a reason of nothing but newlines is refused), a note already in the
+# roadmap's Notes (compared the same way, as one block), a block already removed. Re-running after a partial failure
+# resumes from there rather than repeating or duplicating a write.
 #
 # INSERTING AN OPEN PHASE NEEDS A PLAN ALREADY ON DISK, with a "Fails if" section: check-phases.sh
 # rule 2 requires it, and writing a premortem is /phase plan's job, not something fabricated here. A
@@ -136,6 +138,13 @@ done
 # Contract (a) of #306: the flag implies --check. Without it the flag holds host writes only, never
 # roadmap-lib.sh's file writes, and a flagged delete bypassed its exit 5 refusal and rewrote the file.
 [ "${FORGE_DRY_RUN:-0}" = 1 ] && CHECK=1
+
+# #460: --reason's leading and trailing newlines are stripped ONCE, here, so merge and delete compare
+# and write the same text; a reason of nothing but newlines is refused whatever the op.
+if [ -n "$REASON" ]; then
+  REASON="${REASON#"${REASON%%[!$'\n']*}"}"; REASON="${REASON%"${REASON##*[!$'\n']}"}"
+  [ -n "$REASON" ] || die "--reason needs text, not only newlines"
+fi
 
 if [ -z "$ROADMAP" ]; then
   for c in docs/roadmap.md roadmap.md; do [ -f "$c" ] && { ROADMAP="$c"; break; }; done
@@ -254,8 +263,18 @@ act() {  # act <description> <command...>
   echo "$desc"; "$@"
 }
 record_note() {  # append a "- <line>" under a trailing "## Notes" section, once
-  local line="$1" cand
-  grep -qxF -- "- $line" "$ROADMAP" 2>/dev/null && { echo "already recorded: $line"; return 0; }
+  local line="$1" cand haystack
+  # #460: compare the WHOLE note as a block of whole lines. `grep -F` reads a newline-bearing pattern
+  # as a LIST, so one blank line of a multi-line reason matched any blank line of the roadmap and the
+  # note was never written. Trailing newlines go first, so the compare and the write agree. An
+  # unreadable roadmap gives an empty haystack, which never matches (today's tolerance).
+  line="${line%"${line##*[!$'\n']}"}"
+  haystack="$(cat "$ROADMAP" 2>/dev/null)"
+  [[ $'\n'"$haystack"$'\n' == *$'\n'"- $line"$'\n'* ]] && { echo "already recorded: $line"; return 0; }
+  # A column-0 "## " line in a multi-line note would close Notes or open a phase (#460 review). Refused
+  # before the --check return, so the dry run stops a delete before any ticket moves. Exit 2, like the
+  # malformed-result refusal below, which a well-formed injected phase would otherwise pass.
+  [[ $'\n'"$line" == *$'\n''## '* ]] && die "that note would leave the roadmap malformed: a note may not carry a line that opens a '## ' section"
   if [ "$CHECK" = 1 ]; then echo "would record: $line"; return 0; fi
   cand="$(_rm_tmp "$ROADMAP")"; [ -n "$cand" ] || die "cannot create a temp file beside '$ROADMAP'"
   cp -p "$ROADMAP" "$cand" 2>/dev/null || cp "$ROADMAP" "$cand"
@@ -445,8 +464,12 @@ op_split() {
 merge_file_half() {  # merge_file_half <loser> <winner>: the file half, on whatever $ROADMAP names
   local loser="$1" winner="$2" wprose sentence newprose
   wprose="$(_read_prose "$winner")" || wprose=""
+  # #460: the reason arrives with its leading and trailing newlines stripped (after argument parsing),
+  # so the compare and the append agree with what _read_prose returns (it trims blank edges). The
+  # test is a contiguous run of WHOLE lines of the full sentence: `grep -qxF` read a multi-line sentence as a list of patterns and let
+  # one colliding line (a blank one, or the first line) suppress the whole reason. Do not go back to it.
   sentence="Merged \"$loser\" in: $REASON"
-  if grep -qxF -- "$sentence" <<< "$wprose"; then
+  if [[ $'\n'"$wprose"$'\n' == *$'\n'"$sentence"$'\n'* ]]; then
     echo "'$winner' prose already carries the merge reason; not appending again"
   else
     if [ -n "$wprose" ]; then newprose="$wprose
@@ -462,7 +485,7 @@ op_merge() {
   local loser="${ARGS[0]-}"
   [ -n "$loser" ] || die "usage: reassess-phases.sh merge <loser> --into <winner> --reason TEXT"
   [ -n "$INTO" ] || die "merge needs --into <winner>"
-  [ -n "$REASON" ] || die "merge needs --reason TEXT to append to the surviving phase's prose"
+  [ -n "${REASON//$'\n'/}" ] || die "merge needs --reason TEXT to append to the surviving phase's prose"
   local winner="$INTO" gone=0
   phase_exists "$loser" || gone=1
   if [ "$gone" = 0 ]; then
