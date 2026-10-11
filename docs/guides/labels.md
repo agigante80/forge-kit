@@ -28,6 +28,10 @@ GitHub labels serve dual purpose: issue organization AND lens routing in ticket-
 | `tooling` | The guards, scripts and CI that enforce the rules | - |
 | `governance` | Templates, labels, ticket standards, the roadmap and the docs that carry them | - |
 
+Label names match without regard to case in the gate's lens routing and its labels check, so a project
+that spells an area `API` or `Privacy` still gets the `api` and `privacy` behaviour (#472). Only names
+this table lists are folded, so `Apiary` is not `api`.
+
 <!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
 **The last three are for a governance repository, and forge-kit is one (#188).** The six above them
 are product-application areas, written for the projects forge-kit is installed into: they describe

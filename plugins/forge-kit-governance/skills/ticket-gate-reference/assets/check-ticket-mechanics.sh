@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 23
+# check-ticket-mechanics-version: 24
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -357,11 +357,12 @@ fi
 has_label_from() {
   # Labels split on commas and newlines ONLY, each trimmed (#430): a label may hold a space, and
   # word-splitting read `needs api review` as three labels whose `api` met the area rule.
+  # Case folds (#472): GitHub holds one spelling per name, so `API` is the area `api`, never a new one.
   local w l
   for w in $1; do
     while IFS= read -r l; do
       l="${l#"${l%%[![:space:]]*}"}"; l="${l%"${l##*[![:space:]]}"}"
-      [ "$l" = "$w" ] && return 0
+      [ "$(printf '%s' "$l" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$w" | tr 'A-Z' 'a-z')" ] && return 0
     done <<< "$(printf '%s' "$LABELS" | tr ',' '\n')"
   done
   return 1

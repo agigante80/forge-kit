@@ -423,6 +423,38 @@ sc_tmpfile() {  # #466: outputs are published through their symlinks, beside the
   ck "dangling declaration: the message names .github/labels.yml" "forge-adapt: .github/labels.yml is a dangling symlink (its target directory does not exist): nothing written" "$(printf '%s\n' "$err" | tail -n 1)"
   ck "dangling declaration: the doc and docs/guides were not created" no "$([ -e "$P/docs" ] && echo yes || echo no)"
 }
+sc_case472() {  # #472: the kit's row and declaration are found without regard to case, written under the CONFIRMED spelling
+  local y m
+  proj; run LABEL_AREAS="API" FORGE_HOST=github
+  ck "API: exit 0" 0 "$rc"
+  m=$(grep -F '| `API` |' "$P/docs/guides/labels.md" 2>/dev/null)
+  ck "API: the row is named API with the kit description" yes "$(has '| `API` | API routes or contracts |' "$m")"
+  ck "API: the row is the kit's, not neutral" no "$(has 'Project-specific area' "$m")"
+  y=$(cat "$P/.github/labels.yml" 2>/dev/null)
+  ck "API: declared as - name: API once" 1 "$(grep -cxF -- '- name: API' "$P/.github/labels.yml" 2>/dev/null)"
+  ck "API: no lowercase api entry" 0 "$(grep -cxF -- '- name: api' "$P/.github/labels.yml" 2>/dev/null)"
+  ck "API: the kit colour bfd4f2" bfd4f2 "$(awk '$0=="- name: API"{f=1;next} f&&/color:/{gsub(/[^0-9a-f]/,"",$2);print $2;exit}' <<< "$y")"
+  proj; run LABEL_AREAS="Privacy" FORGE_HOST=github
+  ck "Privacy: exit 0" 0 "$rc"
+  m=$(grep -F '| `Privacy` |' "$P/docs/guides/labels.md" 2>/dev/null)
+  ck "Privacy: the row carries the kit's privacy description" no "$(has 'Project-specific area' "$m")"
+  ck "Privacy: declared as - name: Privacy" 1 "$(grep -cxF -- '- name: Privacy' "$P/.github/labels.yml" 2>/dev/null)"
+  ck "Privacy: the kit colour d4c5f9" d4c5f9 "$(awk '$0=="- name: Privacy"{f=1;next} f&&/color:/{gsub(/[^0-9a-f]/,"",$2);print $2;exit}' "$P/.github/labels.yml" 2>/dev/null)"
+  ck "Privacy: the gate accepts Privacy,bug against the written doc" pass "$(o=$(mech "Privacy,bug" "$P/docs/guides/labels.md"); echo "${o%%	*}")"
+  proj; run LABEL_AREAS="Ops" FORGE_HOST=github
+  ck "Ops: neutral description" yes "$(has '| `Ops` | Project-specific area |' "$(cat "$P/docs/guides/labels.md" 2>/dev/null)")"
+  ck "Ops: colour ededed" ededed "$(awk '$0=="- name: Ops"{f=1;next} f&&/color:/{gsub(/[^0-9a-f]/,"",$2);print $2;exit}' "$P/.github/labels.yml" 2>/dev/null)"
+  proj; run LABEL_AREAS="Apiary" FORGE_HOST=github
+  ck "Apiary: not treated as api (neutral)" yes "$(has '| `Apiary` | Project-specific area |' "$(cat "$P/docs/guides/labels.md" 2>/dev/null)")"
+  ck "Apiary: colour ededed" ededed "$(awk '$0=="- name: Apiary"{f=1;next} f&&/color:/{gsub(/[^0-9a-f]/,"",$2);print $2;exit}' "$P/.github/labels.yml" 2>/dev/null)"
+  proj; run LABEL_AREAS="aPi" FORGE_HOST=github
+  ck "aPi: the row is written as aPi with the kit description" yes "$(has '| `aPi` | API routes or contracts |' "$(cat "$P/docs/guides/labels.md" 2>/dev/null)")"
+  proj; mkdir -p "$P/docs/guides"
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `api` | API |\n' > "$P/docs/guides/labels.md"
+  run LABEL_AREAS="API" FORGE_HOST=github LABELS_MERGE=no
+  ck "#472 duplicate path: doc api, confirmed API still exits 1" 1 "$rc"
+  ck "#472 duplicate path: refused as a duplicate" yes "$(has '(duplicate)' "$err")"
+}
 sc_notemplates() {  # the labels step has no dependency on versioned issue templates
   proj; mkdir -p "$P/.github/ISSUE_TEMPLATE"; printf 'name: Feature\nbody: []\n' > "$P/.github/ISSUE_TEMPLATE/feature.yml"
   run LABEL_AREAS="api" FORGE_HOST=github
@@ -441,6 +473,7 @@ echo "== review round 1 fixtures =="; sc_round1
 echo "== #424 fixtures =="; sc_round2
 echo "== #465 fixtures =="; sc_case
 echo "== #466 fixtures =="; sc_tmpfile
+echo "== #472 fixtures =="; sc_case472
 
 echo "== the kit's own doc carries the markers the installer drops =="
 KD=$(cat "$ROOT/docs/guides/labels.md")
@@ -515,6 +548,10 @@ mutant "the declaration publishes over the link path" 's/publish "\$DECLF"/publi
 mutant "the new-file chmod step is deleted" '/^  else chmod /d' sc_tmpfile
 mutant "the 40-hop cap is removed" 's/ \[ "\$hops" -le 40 \] || die "\$1 is a symlink loop: nothing written"/ :/' sc_tmpfile
 mutant "the declaration is resolved after the doc is written" 's/^if \[ -z "\$decl" \]; then resolve .*$/:/;s/^  newscratch "\$DECLF"$/  resolve "$hdir\/labels.yml"; DECLF="$RESOLVED"; newscratch "$DECLF"/' sc_tmpfile
+mutant "the kit row lookup is exact-case again (#472)" 's/tolower(substr(\$0, 4, RLENGTH - 6)) == k/substr($0, 4, RLENGTH - 6) == ENVIRON["K"]/' sc_case472
+mutant "the kit declaration lookup is exact-case again (#472)" 's/tolower(\$0) == k {/$0 == "- name: " ENVIRON["K"] {/' sc_case472
+mutant "the kit row is written under the kit spelling, not the confirmed one (#472)" 's/print "| `" ENVIRON\["K"\] "` |" substr/print "| `api` |" substr/' sc_case472
+mutant "a supplied description no longer wins over a folded kit entry (#472)" 's/^kit_ok() .*$/kit_ok() { true; }/' sc_case
 
 echo ""
 echo "forge-adapt templates labels tests: $pass passed, $fail failed"

@@ -101,7 +101,12 @@ EOF_DESCS
 # The first backticked column of an Area labels table: the same read the gate trusts.
 area_names() { awk '/^### Area labels/{i=1;next} i&&/^##?#? /{exit} i&&/^[ \t]*\|[ \t]*`/{sub(/^[ \t]*\|[ \t]*`/,"");sub(/[ \t]*`.*/,"");print}' "$1"; }
 declares() { grep -qxF -- "- name: $2" "$1"; }
-kit_row() { K="| \`$1\` |" awk 'index($0, ENVIRON["K"]) == 1 { print; f = 1; exit } END { exit !f }' "$KDOC"; }
+# The kit lookups fold case (#472: `API` finds the kit's `api`) but WRITE the confirmed spelling. The
+# project's own declaration is still matched byte for byte, since sync-labels.sh looks names up that way.
+# A description the user supplied for a name spelled differently from the kit's wins over the kit entry.
+kit_ok() { declares "$KYML" "$1" || ! printf '%s\n' "${LABEL_AREA_DESCS:-}" | N="$1" awk 'index($0, ENVIRON["N"] "=") == 1 { f = 1 } END { exit !f }'; }
+kit_row() { kit_ok "$1" || return 1; K="$1" awk 'BEGIN { k = tolower(ENVIRON["K"]) } match($0, /^\| `[^`]*` \|/) && tolower(substr($0, 4, RLENGTH - 6)) == k { print "| `" ENVIRON["K"] "` |" substr($0, RLENGTH + 1); f = 1; exit } END { exit !f }' "$KDOC"; }
+kit_decl() { kit_ok "$1" || return 1; K="$1" awk 'BEGIN { k = tolower("- name: " ENVIRON["K"]) } tolower($0) == k { print "- name: " ENVIRON["K"]; p = 1; next } p && (/^[ \t]*$/ || /^#/) { exit } p { print } END { if (p) print ""; exit !p }' "$KYML"; }
 # A description from the user or an existing doc is data: allow-list it, else use a neutral default.
 desc_for() {  # desc_for <name> [<doc to read the row from>]
   local d
@@ -194,11 +199,7 @@ else
       /^#/ { p = 0 }
       p { print }' "$KYML"
     for a in $areas; do
-      if declares "$KYML" "$a"; then
-        N="- name: $a" awk '$0 == ENVIRON["N"] { p = 1 } p && (/^[ \t]*$/ || /^#/) { exit } p { print } END { print "" }' "$KYML"
-      else
-        printf -- '- name: %s\n  color: "ededed"\n  description: %s\n\n' "$a" "$(desc_for "$a" "$DOC")"
-      fi
+      kit_decl "$a" || printf -- '- name: %s\n  color: "ededed"\n  description: %s\n\n' "$a" "$(desc_for "$a" "$DOC")"
     done
   } > "$scratch" && publish "$DECLF" || die "could not write $hdir/labels.yml"
   echo "labels.yml: written to $hdir/labels.yml"
@@ -223,6 +224,10 @@ echo "Run: bash scripts/sync-labels.sh --check"
   block proposes the merge, and on an explicit `yes` only adds the Area table (or its missing rows).
   Any other difference from the library copy is the `refresh <name>` discipline: classify, show,
   write only on `yes`.
+- **Case (#472)**: the kit's row and declaration are found without regard to case, so a confirmed
+  `API` or `Privacy` gets the kit's description and colour (`bfd4f2`, `d4c5f9`) under the CONFIRMED
+  spelling, while an unknown name (`Ops`, `Apiary`) stays `Project-specific area` and `ededed`. A
+  description you supplied for a differently-spelled name wins over the kit's entry.
 - **The declaration**: if any of `.github/`, `.forgejo/`, `.gitea/` has a `labels.yml` it is left
   byte-identical, no second one is created, and the block only reports
   `labels.yml does not declare: <areas>`. Otherwise it writes `.github/labels.yml` or

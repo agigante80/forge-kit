@@ -235,6 +235,24 @@ mkdir -p "$WORK/globdir"; : > "$WORK/globdir/api"
 expect "#430: a glob character in a label stays literal (a* does not expand to the file api)" fail \
   "$(cd "$WORK/globdir" && bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "a*,enhancement" | awk -F'\t' '$1=="labels"{print $2}')"
 
+# #472: label names match without regard to case, against KNOWN area and type names only.
+expect "#472: API,bug passes under the fallback area list" pass "$(lbl "API,bug")"
+expect "#472: aPi,bug (mixed case) passes" pass "$(lbl "aPi,bug")"
+expect "#472: Privacy,feature passes" pass "$(lbl "Privacy,feature")"
+expect "#472: an uppercase type label is a type label (Backend,Feature)" pass "$(lbl "Backend,Feature")"
+expect "#472: Apiary,bug still fails (not api in any case)" fail "$(lbl "Apiary,bug")"
+expect "#472: an unknown area stays unknown (Ops,bug)" fail "$(lbl "Ops,bug")"
+mkdir -p "$WORK/case472"; printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `UI` | The UI |\n' > "$WORK/case472/labels.md"
+expect "#472: a doc row UI accepts label ui" pass \
+  "$(bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "ui,bug" --labels-doc "$WORK/case472/labels.md" 2>/dev/null | awk -F'\t' '$1=="labels"{print $2}')"
+MUT="$WORK/mut472.sh"
+sed 's/^      \[ "\$(printf .*&& return 0$/      [ "$l" = "$w" ] \&\& return 0/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#472: the case-fold mutant did not apply"; else
+  m="$(bash "$MUT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "API,bug" 2>/dev/null | awk -F'\t' '$1=="labels"{print $2}')"
+  m2="$(bash "$MUT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "Privacy,feature" 2>/dev/null | awk -F'\t' '$1=="labels"{print $2}')"
+  [ "$m" = fail ] && [ "$m2" = fail ] && ok "#472: MUTANT: removing the case fold fails API,bug and Privacy,feature" || bad "#472: MUTANT survived: the case fold is not pinned ('$m' '$m2')"
+fi
+
 echo "check-ticket-mechanics: GWT structure"
 expect "a specific negative Then passes" pass "$(outcome "$(run "$B" feature)" gwt)"
 V="$(mkbody feature "vague.md" "$(printf 'Positive\n- Given: a user\n- When: they act\n- Then: it works\n\nNegative\n- Given: bad input\n- When: they act\n- Then: it should not work')")"
@@ -1325,6 +1343,20 @@ pre="$(grep -nF '> "$D/mech"' "$GATE" | head -1 | cut -d: -f1)"; zc="$(grep -n '
 [ -n "$pre" ] && [ -n "$zc" ] && [ "$pre" -lt "$zc" ] && ok "#213: \$MECH is resolved before Step 0c" || bad "#213: Step 0c comes before the \$MECH preamble ($pre, $zc)"
 DOC_ROLES='check-ticket-mechanics.sh --roles'
 grep -qF -- "$DOC_ROLES" "$DOC" && ok "#213: template-versioning.md names where Step 0c gets the role labels" || bad "#213: template-versioning.md does not name --roles"
+
+# #472: the gate's lens routing is prose a model reads, so a grep contract pins that Step 2.5 states
+# the case rule ONCE and that the two label-keyed rows it governs still key on the lowercase names.
+CASE_PHRASE='Label names match without regard to case'
+n472="$(grep -cF "$CASE_PHRASE" "$GATE")"
+[ "$n472" = 1 ] && ok "#472: ticket-gate.md states the case rule exactly once" || bad "#472: the case rule appears $n472 times in ticket-gate.md"
+gate_pin '| API-design brief | label `api` OR body matches' "$GATE" && gate_pin '| Privacy regime | label `privacy` |' "$GATE" \
+  && ok "#472: the API-design and Privacy rows still key on the lowercase names the rule folds" || bad "#472: a routing row no longer keys on label api or privacy"
+sed "s/$CASE_PHRASE/Label names match exactly/" "$GATE" > "$WORK/gate-case-mut.md"
+cmp -s "$GATE" "$WORK/gate-case-mut.md" && bad "#472: the case-rule mutant did not apply"
+[ "$(grep -cF "$CASE_PHRASE" "$WORK/gate-case-mut.md")" = 1 ] && bad "#472: MUTANT survived: the case-rule contract passes with the sentence gone" || ok "#472: MUTANT: deleting the case-rule sentence fails the contract"
+sed 's/| API-design brief | label `api` OR/| API-design brief | label `API` OR/' "$GATE" > "$WORK/gate-row-mut.md"
+cmp -s "$GATE" "$WORK/gate-row-mut.md" && bad "#472: the row mutant did not apply"
+gate_pin '| API-design brief | label `api` OR body matches' "$WORK/gate-row-mut.md" && bad "#472: MUTANT survived: the row pin passes with the row reworded" || ok "#472: MUTANT: rewording the API row fails the pin"
 
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"

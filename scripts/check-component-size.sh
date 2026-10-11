@@ -238,6 +238,10 @@ budget_for() {
 # LOWERED 2026-10-09: adapt 7144 to 7143 (#442). Step 3 item 4 stops asking for the token-env name,
 # which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
 #
+# LOWERED 2026-10-11: ticket-gate 5642 to 5639 (#472). Step 2.5 gains one 13-word sentence saying label
+# names match without regard to case; the same-length preamble sentence "You never produce numeric scores"
+# is deleted (Step 4 and the description already say no numeric scorecard), and the file ends 3 under.
+#
 # LOWERED 2026-10-08: ticket-gate 5648 to 5642 (#433). Step 3B's "in the foreground (blocking, never
 # run_in_background)" is deleted: the installed Claude Code offers no foreground Agent call, and the
 # no-poll-loops hook's deny reason now carries the wait rule, so the agent prose says none (six words).
@@ -398,7 +402,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
-    ticket-gate) echo 5642 ;;
+    ticket-gate) echo 5639 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac
