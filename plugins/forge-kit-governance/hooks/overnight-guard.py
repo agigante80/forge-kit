@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 13
+# overnight-guard-version: 14
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -136,6 +136,22 @@ G = GIT_PREFIX
 # and without `(?!>)` on the lookbehind branch `>&>&` takes two routes per `&` and is 2^n.
 REDIR_AMP = "\x01"
 _REDIR_AMP = re.compile(r"(?<=[<>])&|&(?=>)")
+
+
+# A backslash-newline continuation is removed outright by the shell before it splits words, so the
+# command run is the joined one: `git \<nl>reset --hard` and `gi\<nl>t reset --hard` are both
+# `git reset --hard` (#471). Join with the EMPTY string, never a space (a space misses `gi\<nl>t`).
+# An even run of backslashes before the newline is escaped backslashes, not a continuation
+# (`git \\<nl>reset` runs `git \`, then a separate `reset`), so the pattern consumes a whole run
+# from its start (the lookbehind) and keeps all but the last backslash of an odd run. Linear: a
+# match can only begin at the start of a run. NOT quote-aware: a backslash-newline inside single
+# quotes, which the shell keeps, is joined too and may match; that is the guard's documented
+# quoted-text over-match class (see DAY_TAIL). A literal two-character `\n` has no newline.
+_CONT = re.compile(r"(?<!\\)((?:\\\\)*)\\\n")
+
+
+def _join(cmd):
+    return _CONT.sub(r"\1", cmd)
 
 
 def _flat(cmd):
@@ -341,7 +357,6 @@ def _strip_redirs(seg):
 def is_bulk_delete(cmd):
     # OVERNIGHT rule, unchanged by #419: only the FIRST rm in a payload is judged, so
     # `rm -f a.txt && rm -rf $HOME/x` is allowed overnight (pinned by test-hooks.py).
-    cmd = cmd.replace("\\\n", " ")   # a continued line is one command (#467 review: same as daytime)
     cmd = _flat(cmd)
     m = re.search(r"\brm\b[^|;&\n]*", cmd)
     if not m:
@@ -372,7 +387,7 @@ def day_bulk_delete(cmd):
     # read across the whole segment, redirections dropped, `\<newline>` joined, a
     # trailing `)`/`}`/backtick ignored. A bare `.` target is NOT judged: GNU rm refuses it,
     # and a `.` inside `$(find . ...)` must stay allowed.
-    cmd = _flat(cmd.replace("\\\n", " "))
+    cmd = _flat(cmd)
     for m in re.finditer(r"(?<![\w.$-])(?<!git )rm\b[^|;&\n]*", cmd):
         seg = _strip_redirs(m.group(0))
         # GNU rm permutes arguments, so flags may follow a target: judge the whole segment.
@@ -386,6 +401,7 @@ def day_bulk_delete(cmd):
 
 
 def match_tier3(cmd):
+    cmd = _join(cmd)
     flat = _flat(cmd)
     for label, rx in GIT_PATTERNS + SECRET_PATTERNS:
         if rx.search(flat if rx in _GIT_RX else cmd):
@@ -398,6 +414,7 @@ def match_tier3(cmd):
 def match_day(cmd):
     # GIT_PATTERNS plus bulk delete; SECRET_PATTERNS are deliberately absent (reading .env and
     # `curl ... | sh` installers are routine by day; decided in #419).
+    cmd = _join(cmd)
     flat = _flat(cmd)
     for label, rx in GIT_PATTERNS:
         if rx.search(flat):

@@ -1604,6 +1604,56 @@ with tempfile.TemporaryDirectory() as _td:
         _p = run(bash(_c), hook=GUARD, project_dir=_night, cwd=str(_night))
         check(f"og subprocess overnight: {_c}", ("deny" if _p.stdout.strip() else "allow"), _want)
 
+# #471: a backslash-newline continuation is removed by the shell, so the matchers read the joined
+# command. Joined with the EMPTY string (`gi\<nl>t`), and only an odd backslash run is a continuation.
+print("\n  -- overnight-guard: backslash-newline continuation (#471) --")
+_NL = chr(10)
+_BS = chr(92)
+_CONT_DENY = [
+    ("git " + _BS + _NL + "reset --hard", "git reset --hard"),
+    ("git -C x " + _BS + _NL + "clean -fd", "git clean -f"),
+    ("git reset " + _BS + _NL + "--hard", "git reset --hard"),
+    ("gi" + _BS + _NL + "t reset --hard", "git reset --hard"),
+    ("rm -rf " + _BS + _NL + "/", "rm -rf dangerous target"),
+    ("r" + _BS + _NL + "m -rf /", "rm -rf dangerous target"),
+]
+_CONT_ALLOW = [
+    "git " + _BS * 2 + _NL + "reset --hard",
+    "git " + _BS * 4 + _NL + "reset --hard",
+    # three backslashes: an escaped one plus a continuation, so the word is the literal `\reset`
+    "git " + _BS * 3 + _NL + "reset --hard",
+    # a naive replace of backslash-newline turns an even run into `\--hard` and wrongly denies
+    "git reset --soft " + _BS * 2 + _NL + "--hard",
+    "git reset --soft " + _BS * 4 + _NL + "--hard",
+    "git commit -m 'fix the " + _BS + "n handling'",
+]
+for _c, _label in _CONT_DENY:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og continuation denies {_fn.__name__}: {_c!r}", _fn(_c), _label)
+for _c in _CONT_ALLOW:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og continuation allows {_fn.__name__}: {_c!r}", _fn(_c), None)
+for _fn in (_og.match_tier3, _og.match_day):
+    for _name, _cmd in (("5000 backslashes then a letter", _BS * 5000 + "x"),
+                        ("5000 backslashes then a newline", "git " + _BS * 5000 + _NL + "reset"),
+                        ("5000 '" + _BS * 2 + "' pairs", (_BS * 2 + " ") * 5000)):
+        _t0 = time.monotonic()
+        _fn(_cmd)
+        check(f"og linear: {_name} {_fn.__name__} under 100ms", time.monotonic() - _t0 < 0.1, True)
+with tempfile.TemporaryDirectory() as _td:
+    _night = pathlib.Path(_td).resolve() / "night"
+    (_night / ".claude").mkdir(parents=True)
+    (_night / ".claude" / "overnight").mkdir()
+    (_night / ".claude" / "overnight" / "active.md").write_text("manifest")
+    _day = pathlib.Path(_td).resolve() / "day"
+    (_day / ".claude").mkdir(parents=True)
+    (_day / ".claude" / "no-destructive").write_text("")
+    for _c, _want in (("git " + _BS + _NL + "reset --hard", "deny"),
+                      ("git " + _BS * 2 + _NL + "reset --hard", "allow")):
+        for _arm, _proj in (("overnight", _night), ("daytime", _day)):
+            _p = run(bash(_c), hook=GUARD, project_dir=_proj, cwd=str(_proj))
+            check(f"og subprocess {_arm}: {_c!r}", ("deny" if _p.stdout.strip() else "allow"), _want)
+
 # #467: the worktree-target scan is a single pass over the segment. Each shape gives a matcher built
 # from nested quantifiers, or one that restarts at every opener, a reason to go quadratic.
 print("\n  -- overnight-guard: worktree rm target scan runs in linear time (#467) --")

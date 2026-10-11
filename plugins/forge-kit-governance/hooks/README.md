@@ -44,7 +44,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 |---|---|---|---|
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
-| `overnight-guard.py` | PreToolUse | 13 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
+| `overnight-guard.py` | PreToolUse | 14 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
@@ -147,6 +147,8 @@ harmless 33-option command is denied too. Up to 32 options the subcommand decide
 one gap this leaves is a deliberate one: an alias defined
 inline (`git -c alias.x='reset --hard' x`, or `--config-env` pointing at one) runs a destructive
 command under another name, and the guard does not defend against evasion.
+
+A backslash-newline continuation is joined before any matcher reads the command (#471), exactly as the shell removes it: with the empty string, so `git \` + newline + `reset --hard` and `gi\` + newline + `t reset --hard` are both `git reset --hard`. An even run of backslashes before the newline is escaped backslashes, not a continuation, so `git \\` + newline + `reset --hard` stays allowed. The join is not quote-aware: a backslash-newline inside single quotes, which the shell keeps, is joined too and can match, the same quoted-text over-match the guard already has. A literal two-character `\n` is unaffected.
 
 A redirection is not a command separator (#470). The `rm` and git matchers share one flattening step in which a `&`
 right after `<` or `>` (`2>&1`, `>&2`, `<&0`) or right before `>` (`&>x`) stays inside the segment, so
