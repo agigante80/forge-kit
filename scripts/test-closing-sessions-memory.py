@@ -694,6 +694,15 @@ class AtTokenTests(unittest.TestCase):
             self.assertEqual(self._index_line(d),
                              "- [My Fact](my-fact.md) - uses `@docs/big.md`")
 
+    def test_at_after_a_bom_is_code_spanned(self):
+        # U+FEFF is whitespace to a JavaScript \s (the CLI's import scan) but not
+        # to Python's, so a (?<!\S) anchor alone left this token importable.
+        with tempfile.TemporaryDirectory() as d:
+            r = run(d, self._w(description="uses\ufeff@docs/big.md"), body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self._index_line(d),
+                             "- [My Fact](my-fact.md) - uses\ufeff`@docs/big.md`")
+
     def test_non_import_at_text_is_left_alone(self):
         with tempfile.TemporaryDirectory() as d:
             r = run(d, self._w(description="ping dev@host now"), body="b")

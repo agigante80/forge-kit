@@ -48,7 +48,9 @@ def _one_line(value):
 # title and the description, including a title "@x": the token is wrapped in a
 # code span, which the grammar never imports from. Do not narrow the title to a
 # whitespace-only anchor: one rule is easier to pin than two (round-2 gate).
-_AT_TOKEN = re.compile(r"(?<!\S)@\S+")
+# "Whitespace" is the union of Python's \s and JavaScript's: U+FEFF is \s to the
+# CLI's JavaScript scan but not to Python, so it is added to the class here.
+_AT_TOKEN = re.compile(r"(?<![^\s\ufeff])@[^\s\ufeff]+")
 
 
 def _code_span_at(value):
