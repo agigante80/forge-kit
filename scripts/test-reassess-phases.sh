@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 7
+# test-reassess-phases-version: 8
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.
@@ -1119,6 +1119,112 @@ for f in $doc_flags; do
   probe=$(cd "$T" && bash ./reassess-phases.sh reorder A "$f" x --check --roadmap docs/roadmap.md </dev/null 2>&1 >/dev/null)
   absent "unknown flag" "$probe" "#423: the script accepts documented flag $f"
 done
+
+echo "== #464 --check refuses what the real run refuses, for rename, insert, split and reorder =="
+# Each case runs --check, then the real run, on the same fixture: both must exit 5 with the same
+# message, and neither may write or contact the host. #423's TAB --plan rows are #463's, not here.
+pair464() {  # pair464 <label> <args...>
+  local label="$1"; shift
+  base_roadmap; base_milestones; base_issues; snap
+  run "$@" --check; local crc=$rc cerr="$serr"
+  expect "$label: --check exits 5" 5 "$crc"
+  unchanged "$label, --check"; no_request "$label, --check"
+  run "$@"
+  expect "$label: the real run exits 5 too" 5 "$rc"
+  expect "$label: and prints the same refusal" "$serr" "$cerr"
+  unchanged "$label, real"
+}
+pair464 "rename to a '#' name" rename Alpha '#bad'
+pair464 "insert a '#' name" insert '#bad' --end --state planned --prose p
+pair464 "split into a '#' name" split Alpha --into '#bad' --move 1
+pair464 "reorder before itself" reorder Alpha --before Alpha
+base_roadmap; base_milestones; base_issues; snap
+run rename Alpha Gamma --check
+expect "a valid rename --check exits 0" 0 "$rc"; unchanged "valid rename --check"
+absent "renamed in the roadmap only" "$serr" "a valid rename --check prints no completed-action note on stderr"
+run insert Gamma --before Beta --state planned --prose p --check
+expect "a valid insert --check exits 0" 0 "$rc"; unchanged "valid insert --check"
+run split Alpha --into Gamma --move 1 --check
+expect "a valid split --check exits 0" 0 "$rc"; unchanged "valid split --check"
+run reorder Beta --before Alpha --check
+expect "a valid reorder --check exits 0" 0 "$rc"; unchanged "valid reorder --check"
+run reorder Beta --end --check
+expect "a valid reorder --end --check exits 0" 0 "$rc"; unchanged "valid reorder --end --check"
+run split Alpha --into Gamma --move 1 --end --check
+expect "a valid split --end --check exits 0" 0 "$rc"
+run split Alpha --into Gamma --move 1 --before Beta --check
+expect "a valid split --before --check exits 0" 0 "$rc"
+run insert Gamma --end --state planned --prose p --check
+expect "a valid insert --end --check exits 0" 0 "$rc"
+
+echo "== #464 an unwritable TMPDIR refuses the four --check dry runs, and only --check =="
+if [ "$(id -u)" = 0 ]; then
+  echo "  skip: running as root, a mode 555 directory is still writable"
+else
+  mkdir -p "$T/tmp464-ro"; chmod 555 "$T/tmp464-ro"
+  base_roadmap; base_milestones; base_issues; snap
+  RUN_TMPDIR="$T/tmp464-ro" run rename Alpha Gamma --check
+  expect "rename --check, unwritable TMPDIR: exits 5" 5 "$rc"
+  contains "to validate the rename; nothing written" "$serr" "rename: names the rename"
+  RUN_TMPDIR="$T/tmp464-ro" run insert Gamma --end --state planned --prose p --check
+  expect "insert --check, unwritable TMPDIR: exits 5" 5 "$rc"
+  contains "to validate the insert; nothing written" "$serr" "insert: names the insert"
+  RUN_TMPDIR="$T/tmp464-ro" run split Alpha --into Gamma --move 1 --check
+  expect "split --check, unwritable TMPDIR: exits 5" 5 "$rc"
+  contains "to validate the split; nothing written" "$serr" "split: names the split"
+  RUN_TMPDIR="$T/tmp464-ro" run reorder Beta --end --check
+  expect "reorder --check, unwritable TMPDIR: exits 5" 5 "$rc"
+  contains "to validate the reorder; nothing written" "$serr" "reorder: names the reorder"
+  unchanged "the four unwritable-TMPDIR --check runs"
+  RUN_TMPDIR="$T/tmp464-ro" run rename Ghost Alpha --check
+  expect "an idempotent rename --check needs no scratch copy: exits 0" 0 "$rc"
+  absent "scratch copy" "$serr" "and makes none"
+  RUN_TMPDIR="$T/tmp464-ro" run reorder Beta --before Alpha
+  expect "a REAL reorder needs no TMPDIR: exits 0" 0 "$rc"
+  base_roadmap
+  RUN_TMPDIR="$T/tmp464-ro" run rename Alpha Omega
+  expect "a REAL rename needs no TMPDIR: exits 0" 0 "$rc"
+  chmod 755 "$T/tmp464-ro"
+fi
+mkdir -p "$T/tmp464-ok"; base_roadmap; base_milestones; base_issues
+RUN_TMPDIR="$T/tmp464-ok" run rename Alpha '#bad' --check
+RUN_TMPDIR="$T/tmp464-ok" run reorder Alpha --before Alpha --check
+RUN_TMPDIR="$T/tmp464-ok" run reorder Beta --end --check
+RUN_TMPDIR="$T/tmp464-ok" run split Alpha --into Gamma --move 1 --check
+empty_dir "four --check runs" "$T/tmp464-ok"
+
+# Mutants, each applied to a cp backup and restored from it. A dropped dry run lets the bad --check
+# exit 0; a dropped CHECK guard makes a real reorder need TMPDIR; a dropped wrap exits 2, not 5.
+cp "$T/reassess-phases.sh" "$T/rp-keep.sh"
+mut464() {  # mut464 <label> <sed script> <expect-rc-of-a-survivor> <args...>
+  local label="$1" script="$2" want="$3"; shift 3
+  sed "$script" "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+  if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#464: mutant ($label) was not applied"; return; fi
+  base_roadmap; base_milestones; base_issues
+  run "$@"
+  if [ "$rc" = "$want" ]; then ok "#464: mutant ($label) is caught (exit $rc, the real run exits 5)"
+  else bad "#464: mutant ($label) survived (exit $rc)"; fi
+}
+mut464 "rename dry run dropped" 's/dry_run rename rename_file_half/: rename rename_file_half/' 0 rename Alpha '#bad' --check
+mut464 "insert dry run dropped" 's/\[ "\$CHECK" = 1 \] && dry_run "\$what" insert_file_half/: "$what" insert_file_half/' 0 insert '#bad' --end --state planned --prose p --check
+mut464 "split dry run dropped" 's/\[ "\$CHECK" = 1 \] && dry_run "\$what" insert_file_half/: "$what" insert_file_half/' 0 split Alpha --into '#bad' --move 1 --check
+mut464 "reorder dry run dropped" 's/dry_run reorder reorder_file_half/: reorder reorder_file_half/' 0 reorder Alpha --before Alpha --check
+mut464 "rename wrap dropped" 's/roadmap_rename "\$ROADMAP" "\$1" "\$2" || refuse "rename failed"/roadmap_rename "$ROADMAP" "$1" "$2"/' 2 rename Alpha '#bad' --check
+mut464 "insert wrap dropped" 's/"\$prose" || refuse "insert failed"$/"$prose"/' 2 insert '#bad' --end --state planned --prose p --check
+# CHECK guard dropped on reorder: a real reorder under an unwritable TMPDIR now refuses.
+if [ "$(id -u)" != 0 ]; then
+  chmod 555 "$T/tmp464-ro"
+  sed 's/\[ "\$CHECK" = 1 \] && dry_run reorder/dry_run reorder/' "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+  if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#464: mutant (reorder CHECK guard dropped) was not applied"
+  else
+    base_roadmap; base_milestones; base_issues
+    RUN_TMPDIR="$T/tmp464-ro" run reorder Beta --before Alpha
+    if [ "$rc" = 5 ]; then ok "#464: mutant (reorder CHECK guard dropped) is caught (real run exit 5)"
+    else bad "#464: mutant (reorder CHECK guard dropped) survived"; fi
+  fi
+  chmod 755 "$T/tmp464-ro"
+fi
+cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; rm -f "$T/rp-keep.sh"
 
 echo ""
 echo "reassess-phases tests: $pass passed, $fail failed"

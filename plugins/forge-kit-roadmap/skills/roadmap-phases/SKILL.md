@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 17 -->
+<!-- roadmap-phases-version: 18 -->
 
 # Roadmap phases
 
@@ -264,7 +264,7 @@ Seven ops, each an atomic reshape of `roadmap.md` plus the milestones behind it:
   new phase. `--state open` requires `--plan`, the same gate opening a phase always enforces (rule
   2), and refuses if another phase is already `open` (rule 3's at-most-one).
 
-A new name (`rename`, `insert`, `split --into`) is refused by the library (return 2, naming the class; `reassess-phases.sh` reports it as exit 5, and `--check` does not yet pre-validate names) when it is
+A new name (`rename`, `insert`, `split --into`) is refused by the library (return 2, naming the class; `reassess-phases.sh` reports it as exit 5, and `--check` refuses it too, #464) when it is
 empty, carries a control character (a tab splits the rows), starts or ends with a blank, starts
 with `-` (no op could address it again) or starts with `#` (policy). Writing a plan onto a phase
 with no `plan:` line adds one directly after its `state:` line; two `state:` or two `plan:` lines
@@ -286,7 +286,7 @@ naming what moved and what did not (the roadmap **file** is untouched for merge 
 tickets first, but already changed for split and rename, which write it first), so the identical command re-run resumes rather than repeating
 what already succeeded; `5` a policy refusal on an otherwise well-formed request, nothing written,
 message quoted rather than paraphrased. A merge, delete or refocus first validates on a scratch
-copy under `TMPDIR`; one it cannot make is a `5` too, nothing written, nothing moved. On a Forgejo host an unwritable
+copy under `TMPDIR`, and so do `rename`, `insert`, `split` and `reorder` under `--check` only (#464); one it cannot make is a `5` too, nothing written, nothing moved. On a Forgejo host an unwritable
 `TMPDIR` exits `2` instead, because the startup milestone read reaches `mktemp -d` first.
 
 A milestone a reshape empties (rename, merge, or delete moving every ticket out) is **never

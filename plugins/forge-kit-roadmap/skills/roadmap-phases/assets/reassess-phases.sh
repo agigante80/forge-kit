@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reassess-phases-version: 11
+# reassess-phases-version: 12
 #
 # Reshapes the roadmap file and the milestones behind it, one level above /phase review (#244).
 # /phase review asks whether ONE phase is still aligned; this asks whether the ROADMAP is still
@@ -29,7 +29,8 @@
 #      file is already changed and the re-run completes the host half
 #   5  a policy refusal on a well-formed file (a rule this reshape would break); NOTHING was written.
 #      That includes an unusable TMPDIR on refocus, merge and delete (#345): each runs its file half
-#      once on a scratch copy first. That 5 holds under a GitHub host and the suite's stub; on a
+#      once on a scratch copy first, and on rename, insert, split and reorder under --check only (#464:
+#      their writers refuse atomically, so a real run needs no TMPDIR). That 5 holds under a GitHub host and the suite's stub; on a
 #      Forgejo host the startup milestone read reaches forge_api_paginate's `mktemp -d` first, so an
 #      unwritable TMPDIR exits 2 ("could not list milestones"), which "2, environment" already covers.
 #   N  whatever check-phases.sh's own verdict exits, reported verbatim, as the LAST act of a real run
@@ -38,7 +39,8 @@
 # would break, a done phase it would rewrite, a milestone it would need to delete or reopen. A
 # refusal (exit 5) happens before any writer touches the ROADMAP or any forge_issue_milestone call,
 # so the roadmap file is byte-identical to before and the host receives no request. The writers may
-# run first on a scratch copy under TMPDIR (refocus, merge and delete, #328 and #345), never on the
+# run first on a scratch copy under TMPDIR (refocus, merge and delete, #328 and #345; rename, insert,
+# split and reorder under --check, #464), never on the
 # roadmap and never on the host: the library is its own oracle, so no refusal condition is copied
 # into this script.
 #
@@ -253,7 +255,11 @@ scratch_copy() {  # scratch_copy <what>: a fresh copy of $ROADMAP in $_SCRATCH, 
 dry_run() {  # dry_run <what> <fn> <args...>: run a file half ONCE on the scratch copy, live writers, no output
   local what="$1"; shift
   scratch_copy "$what"
-  ( ROADMAP="$_SCRATCH"; CHECK=0; "$@" ) >/dev/null || exit $?
+  # #464 review: stderr is held and replayed only on a refusal, because roadmap_rename's success note
+  # ("renamed in the roadmap only") would otherwise claim an action a preview never took.
+  local errs rc=0
+  errs="$( ( ROADMAP="$_SCRATCH"; CHECK=0; "$@" ) 2>&1 >/dev/null )" || rc=$?
+  if [ "$rc" != 0 ]; then [ -z "$errs" ] || printf '%s\n' "$errs" >&2; exit "$rc"; fi
 }
 
 # --- write-gated helpers: --check reports, otherwise performs and reports ------------------------
@@ -336,6 +342,15 @@ finalize() {
 }
 
 # --- ops -------------------------------------------------------------------------------------------
+reorder_file_half() {  # reorder_file_half <phase> <--before X|--end>: the file half, on whatever $ROADMAP names
+  local phase="$1"; shift
+  if [ "$1" = --end ]; then
+    act "reorder '$phase' to the end" roadmap_reorder "$ROADMAP" "$phase" --end || refuse "reorder failed"
+  else
+    act "reorder '$phase' before '$2'" roadmap_reorder "$ROADMAP" "$phase" --before "$2" || refuse "reorder failed"
+  fi
+}
+
 op_reorder() {
   local phase="${ARGS[0]-}"
   [ -n "$phase" ] || die "usage: reassess-phases.sh reorder <phase> --before <phase>|--end"
@@ -343,9 +358,14 @@ op_reorder() {
   { [ -n "$BEFORE" ] || [ "$END" = 1 ]; } || die "usage: reassess-phases.sh reorder <phase> --before <phase>|--end"
   if [ -n "$BEFORE" ]; then
     phase_exists "$BEFORE" || refuse "no phase named '$BEFORE' to reorder before"
-    act "reorder '$phase' before '$BEFORE'" roadmap_reorder "$ROADMAP" "$phase" --before "$BEFORE" || refuse "reorder failed"
+    # #464: under --check the file half runs once on a scratch copy first (decision 7 of #423: CHECK
+    # only, because the writer refuses atomically and a real run needs no TMPDIR). The target is passed
+    # explicitly, so the half runs the same on the copy and on the roadmap.
+    [ "$CHECK" = 1 ] && dry_run reorder reorder_file_half "$phase" --before "$BEFORE"
+    reorder_file_half "$phase" --before "$BEFORE"
   else
-    act "reorder '$phase' to the end" roadmap_reorder "$ROADMAP" "$phase" --end || refuse "reorder failed"
+    [ "$CHECK" = 1 ] && dry_run reorder reorder_file_half "$phase" --end
+    reorder_file_half "$phase" --end
   fi
   finalize
 }
@@ -383,6 +403,18 @@ Refocused: $REASON"
   finalize
 }
 
+insert_file_half() {  # insert_file_half <--before X|--end> <name> <state> <plan> <prose> <description>
+  local where=() name state plan prose desc
+  if [ "$1" = --end ]; then where=(--end); shift; else where=(--before "$2"); shift 2; fi
+  name="$1"; state="$2"; plan="$3"; prose="$4"; desc="$5"
+  act "$desc" roadmap_insert_at "$ROADMAP" "${where[@]}" "$name" "$state" "$plan" "$prose" || refuse "insert failed"
+}
+insert_do() {  # insert_do <what> <half args...>: the dry run under --check only (#464), then the real half
+  local what="$1"; shift
+  [ "$CHECK" = 1 ] && dry_run "$what" insert_file_half "$@"
+  insert_file_half "$@"
+}
+
 op_insert() {
   local name="${ARGS[0]-}"
   [ -n "$name" ] || die "usage: reassess-phases.sh insert <name> --before <phase>|--end --state STATE --prose TEXT [--plan PATH] [--reason TEXT]"
@@ -408,9 +440,9 @@ Why now: $REASON"
     echo "'$name' is already in the roadmap; skipping the insert (idempotent re-run)"
   elif [ -n "$BEFORE" ]; then
     phase_exists "$BEFORE" || refuse "no phase named '$BEFORE' to insert before"
-    act "insert '$name' before '$BEFORE'" roadmap_insert_at "$ROADMAP" --before "$BEFORE" "$name" "$STATE" "${PLAN:-}" "$prose" || refuse "insert failed"
+    insert_do insert --before "$BEFORE" "$name" "$STATE" "${PLAN:-}" "$prose" "insert '$name' before '$BEFORE'"
   else
-    act "insert '$name' at the end" roadmap_insert_at "$ROADMAP" --end "$name" "$STATE" "${PLAN:-}" "$prose" || refuse "insert failed"
+    insert_do insert --end "$name" "$STATE" "${PLAN:-}" "$prose" "insert '$name' at the end"
   fi
   sync_milestones
   finalize
@@ -443,15 +475,15 @@ op_split() {
     echo "'$INTO' already exists; skipping the insert (idempotent re-run)"
   elif [ -n "$BEFORE" ]; then
     phase_exists "$BEFORE" || refuse "no phase named '$BEFORE' to insert before"
-    act "insert '$INTO' before '$BEFORE'" roadmap_insert_at "$ROADMAP" --before "$BEFORE" "$INTO" "$state" "${PLAN:-}" "$prose" || refuse "insert failed"
+    insert_do split --before "$BEFORE" "$INTO" "$state" "${PLAN:-}" "$prose" "insert '$INTO' before '$BEFORE'"
   elif [ "$END" = 1 ]; then
-    act "insert '$INTO' at the end" roadmap_insert_at "$ROADMAP" --end "$INTO" "$state" "${PLAN:-}" "$prose" || refuse "insert failed"
+    insert_do split --end "$INTO" "$state" "${PLAN:-}" "$prose" "insert '$INTO' at the end"
   else
     local succ; succ="$(next_phase_name "$phase")"
     if [ -n "$succ" ]; then
-      act "insert '$INTO' right after '$phase' (before '$succ')" roadmap_insert_at "$ROADMAP" --before "$succ" "$INTO" "$state" "${PLAN:-}" "$prose" || refuse "insert failed"
+      insert_do split --before "$succ" "$INTO" "$state" "${PLAN:-}" "$prose" "insert '$INTO' right after '$phase' (before '$succ')"
     else
-      act "insert '$INTO' right after '$phase' (at the end)" roadmap_insert_at "$ROADMAP" --end "$INTO" "$state" "${PLAN:-}" "$prose" || refuse "insert failed"
+      insert_do split --end "$INTO" "$state" "${PLAN:-}" "$prose" "insert '$INTO' right after '$phase' (at the end)"
     fi
   fi
   sync_milestones
@@ -515,6 +547,10 @@ op_merge() {
   finalize
 }
 
+rename_file_half() {  # rename_file_half <old> <new>: the file half, on whatever $ROADMAP names
+  act "rename '$1' to '$2' in the roadmap" roadmap_rename "$ROADMAP" "$1" "$2" || refuse "rename failed"
+}
+
 op_rename() {
   local old="${ARGS[0]-}" new="${ARGS[1]-}"
   { [ -n "$old" ] && [ -n "$new" ]; } || die "usage: reassess-phases.sh rename <old> <new>"
@@ -526,7 +562,8 @@ op_rename() {
     phase_exists "$new" && refuse "a phase named '$new' is already in the roadmap"
   fi
   if [ "$already" = 0 ]; then
-    act "rename '$old' to '$new' in the roadmap" roadmap_rename "$ROADMAP" "$old" "$new" || refuse "rename failed"
+    [ "$CHECK" = 1 ] && dry_run rename rename_file_half "$old" "$new"
+    rename_file_half "$old" "$new"
   else
     echo "'$old' is already renamed to '$new'; skipping the file half (idempotent re-run)"
   fi
