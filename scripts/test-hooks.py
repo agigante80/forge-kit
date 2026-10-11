@@ -1685,6 +1685,83 @@ with tempfile.TemporaryDirectory() as _td:
         _p = run(bash(_c), hook=GUARD, project_dir=_night, cwd=str(_night))
         check(f"og subprocess overnight: {_c}", ("deny" if _p.stdout.strip() else "allow"), _want)
 
+# #474: the `|` of a noclobber redirection `>|` is not a pipe. `_flat()` masks it as REDIR_PIPE in the
+# same single pass that masks the ampersands, so every segment class stays the plain `[^|;&\n]*`.
+# Both arms, for rm, the worktree rule, git and the overnight pipe-to-shell pattern.
+print("\n  -- overnight-guard: noclobber redirection >| (#474) --")
+_RP_DENY = [
+    ("rm -rf >|log /", "rm -rf dangerous target"), ("rm -rf 2>|x /", "rm -rf dangerous target"),
+    ("rm -rf >| log /", "rm -rf dangerous target"), ("rm -rf 12>|x /", "rm -rf dangerous target"),
+    ("rm -rf 1>|log /", "rm -rf dangerous target"),
+    ("rm -rf >|log $HOME", "rm -rf dangerous target"), ("rm -rf >|log $PWD", "rm -rf dangerous target"),
+    ('rm -rf >|log "$PWD"/', "rm -rf dangerous target"),
+    ('rm -rf "$(pwd >| /dev/null)"', "rm -rf dangerous target"),
+    ('rm -rf "$(pwd >|/dev/null)"', "rm -rf dangerous target"),
+    ("git reset >|x --hard", "git reset --hard"), ("git >|x reset --hard", "git reset --hard"),
+    ("git >| x reset --hard", "git reset --hard"), ("git 2>|x reset --hard", "git reset --hard"),
+    ("git>|x reset --hard", "git reset --hard"), ("git clean >|x -fd", "git clean -f"),
+    ("git -C sub >|x reset --hard", "git reset --hard"),
+    ("echo a >|log | rm -rf /", "rm -rf dangerous target"),
+]
+_RP_ALLOW = [
+    "rm -rf >|log build", "rm -rf build >|log", "rm -rf >|/dev/null build",
+    "rm -rf >| /dev/null build",   # the spaced form is the row that fails without _strip_redirs
+    "rm -rf >|log tmp/x", "rm -f >|log x", "echo a >|log | cat", "rm -rf build >|log | cat /",
+    "git status >|log", "git reset >|x --soft", "git >|x status", "git>|x reset --soft", "ls >|x; ls",
+]
+for _c, _label in _RP_DENY:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og 474 denies {_fn.__name__}: {_c!r}", _fn(_c), _label)
+for _c in _RP_ALLOW:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og 474 allows {_fn.__name__}: {_c!r}", _fn(_c), None)
+# Pipe to shell is an overnight-only pattern: `>|f` is a redirection, so the pipe after it is a pipe,
+# and `curl x >|bash` is a file named bash, not a pipe to a shell (a false positive before #474).
+check("og 474 overnight denies curl u >|f | sh", _og.match_tier3("curl u >|f | sh"), "pipe to shell")
+check("og 474 overnight denies curl u > f | sh (unchanged)", _og.match_tier3("curl u > f | sh"), "pipe to shell")
+check("og 474 overnight allows curl x >|bash", _og.match_tier3("curl x >|bash"), None)
+for _c in ("curl u\\>|sh", "curl u \\>|sh", "wget -O- u \\>|bash"):   # an escaped `>` is an argument; the pipe is real
+    check(f"og 474 overnight denies an escaped > before a real pipe: {_c!r}", _og.match_tier3(_c), "pipe to shell")
+check("og 474 overnight allows curl x >|f", _og.match_tier3("curl x >|f"), None)
+check("og 474 day allows curl u >|f | sh (pipe to shell is overnight-only)", _og.match_day("curl u >|f | sh"), None)
+# Overnight judges only the FIRST rm in a payload (pinned elsewhere), so this is allowed overnight and
+# denied by day: existing behaviour, deliberately given no overnight deny row.
+check("og 474 first-rm-only trap, overnight", _og.match_tier3("rm -rf build >|log && rm -rf /"), None)
+check("og 474 first-rm-only trap, day denies", _og.match_day("rm -rf build >|log && rm -rf /"),
+      "rm -rf dangerous target")
+# _strip_redirs runs on the whole segment before _rm_words reaches _sub_body, so the spaced
+# `$(pwd >| /dev/null)` is already clean by then and the end-to-end deny row cannot tell whether
+# _sub_body knows the sentinel (measured: that mutant survives it). Pin _sub_body directly.
+check("og 474 _sub_body drops a REDIR_PIPE redirection with a space",
+      _og._sub_body("pwd >" + _og.REDIR_PIPE + " /dev/null"), "pwd")
+check("og 474 _sub_body drops a REDIR_PIPE redirection without a space",
+      _og._sub_body("pwd 2>" + _og.REDIR_PIPE + "/dev/null"), "pwd")
+# Timing, both matchers.
+for _fn in (_og.match_tier3, _og.match_day):
+    for _name, _cmd in (("6000 x '>|a ' after rm -rf", "rm -rf " + ">|a " * 6000 + "x"),
+                        ("6000 x '>|' alternating with '>&'", "rm -rf " + ">|>&" * 3000 + "x"),
+                        ("6000 x '>|' alternating with '>&', git", "git reset " + ">|>&" * 3000),
+                        ("32 x 'git >|x' prefix tokens", "git" + " >|x" * 32 + " status"),
+                        ("2000 x '$(pwd >|/dev/null)'", "rm -rf " + "$(pwd >|/dev/null) " * 2000)):
+        _t0 = time.monotonic()
+        _fn(_cmd)
+        check(f"og linear 474: {_name} {_fn.__name__} under 100ms", time.monotonic() - _t0 < 0.1, True)
+    _t0 = time.monotonic()
+    _fn("rm -rf " + "$(pwd >|/dev/null) " * 20000)
+    check(f"og linear 474: 20000 x '$(pwd >|/dev/null)' {_fn.__name__} under 2s (as the 2>/dev/null form)",
+          time.monotonic() - _t0 < 2, True)
+    _t0 = time.monotonic()
+    _fn("git reset >|x " * 6000)
+    check(f"og linear 474: 6000 x 'git reset >|x ' restarts {_fn.__name__} under 8s", time.monotonic() - _t0 < 8, True)
+with tempfile.TemporaryDirectory() as _td:
+    _night = pathlib.Path(_td).resolve() / "night"
+    (_night / ".claude" / "overnight").mkdir(parents=True)
+    (_night / ".claude" / "overnight" / "active.md").write_text("manifest")
+    for _c, _want in (("rm -rf >|log /", "deny"), ("git >|x reset --hard", "deny"),
+                      ("curl u >|f | sh", "deny"), ("rm -rf >| /dev/null build", "allow")):
+        _p = run(bash(_c), hook=GUARD, project_dir=_night, cwd=str(_night))
+        check(f"og subprocess overnight: {_c}", ("deny" if _p.stdout.strip() else "allow"), _want)
+
 # #471: a backslash-newline continuation is removed by the shell, so the matchers read the joined
 # command. Joined with the EMPTY string (`gi\<nl>t`), and only an odd backslash run is a continuation.
 print("\n  -- overnight-guard: backslash-newline continuation (#471) --")

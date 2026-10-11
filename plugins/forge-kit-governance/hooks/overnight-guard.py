@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 15
+# overnight-guard-version: 16
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -117,13 +117,16 @@ def deny(reason):
 # `\d*[<>]{1,3}\x01?\s*PIECE+` parses two ways and measured 9.8 s at 24 `>>a` tokens, doubling per
 # token: `>>a` was `>>` + `a` or `>` + `>a`, and the optional \x01 was also a bare piece character.
 # The target therefore may not start with `<`, `>` or REDIR_AMP (the lookahead), leaving one parse
-# per token. `>|` is #474.
+# per token. The `>|` sentinel (REDIR_PIPE, #474) follows the same rule: the operator reads
+# `[REDIR_AMP REDIR_PIPE]?` once and the target lookahead excludes both.
 # A substitution body is bounded at 200 characters for the same reason: an unbounded `$(` scans to
 # the line end from every start (16 s at 6000 `git -c $(` starts). A longer body is still allowed,
 # a SEPARATE accepted gap that #469 did not close (the cap counts options, not value length).
 # test-hooks.py times four 200-token shapes (one ambiguity each) and an 800-pair retry shape
 # against both matchers.
 REDIR_AMP = "\x01"   # what _flat() writes for a redirection's `&` (see below)
+REDIR_PIPE = "\x02"  # what _flat() writes for the `|` of a noclobber redirection `>|` (#474)
+_REDIR_MARK = REDIR_AMP + REDIR_PIPE
 GIT_PREFIX_MAX = 32
 _GIT_ARG_OPT = r"(?:-C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source)"
 _GIT_PIECE = (r"""(?:[^\s|;&"'\\$`]"""            # a bare character
@@ -131,8 +134,8 @@ _GIT_PIECE = (r"""(?:[^\s|;&"'\\$`]"""            # a bare character
               r"""|\$(?!\()"""                     # `$HOME`, not the start of a substitution
               r"""|\$\([^)\n]{0,200}\)|`[^`\n]{0,200}`"""      # `$(git rev-parse --show-toplevel)`
               r"""|"(?:[^"\\\n]|\\.)*"|'[^'\n]*')""")
-_GIT_REDIR = (r"(?:\d*[<>]{1,3}" + REDIR_AMP + r"?|" + REDIR_AMP + r">{1,2})"   # the operator, one parse
-              r"\s*(?![<>" + REDIR_AMP + r"])" + _GIT_PIECE + r"+")                  # then its target
+_GIT_REDIR = (r"(?:\d*[<>]{1,3}[" + _REDIR_MARK + r"]?|" + REDIR_AMP + r">{1,2})"   # the operator, one parse
+              r"\s*(?![<>" + _REDIR_MARK + r"])" + _GIT_PIECE + r"+")                  # then its target
 _GIT_CHAIN = (r"\bgit(?:\s+(?:" + _GIT_ARG_OPT + r"(?:\s+" + _GIT_PIECE + r"+|=" + _GIT_PIECE + r"*)"
               + r"|(?!" + _GIT_ARG_OPT + r"(?:[\s=|;&]|$))-[^\s|;&]+|" + _GIT_REDIR + r")){")
 GIT_PREFIX = _GIT_CHAIN + "0," + str(GIT_PREFIX_MAX) + r"}\s+"
@@ -148,7 +151,18 @@ G = GIT_PREFIX
 # `(?:[^|;&\n]|&(?=>)|...)*`: it is linear in one match but ~10x slower per character, and the git
 # patterns restart at every `git <sub>` token, so `git reset ` x6000 went from 2 s to 20 s (review r1);
 # and without `(?!>)` on the lookbehind branch `>&>&` takes two routes per `&` and is 2^n.
-_REDIR_AMP = re.compile(r"(?<=[<>])&|&(?=>)")
+# `>|` (noclobber, #474) is the same kind of operator: a `|` right after a `>` is never a pipe, so it
+# becomes REDIR_PIPE in that same pass (`rm -rf >|log /` is judged whole, while `a >|log | b` still
+# splits at the second `|`, which follows a space). _strip_redirs and _sub_body accept it; the spaced
+# `>| /dev/null` is what needs that (the unspaced target class swallows the sentinel either way).
+# A backslash-escaped `\>` is a literal argument, so its `|` IS a pipe (`curl u\>|sh`): the mask
+# skips a `>` that follows a backslash (round 1). An even run (`\\>|`) is then left unmasked too,
+# which only errs towards the old, cut segment.
+_REDIR_AMP = re.compile(r"(?<=[<>])&|&(?=>)|(?:(?<=[^\\]>)|(?<=^>))\|")
+
+
+def _mask(m):
+    return REDIR_PIPE if m.group(0) == "|" else REDIR_AMP
 
 
 # A backslash-newline continuation is removed outright by the shell before it splits words, so the
@@ -170,11 +184,11 @@ def _join(cmd):
 # A redirection glued to `git` (`git>x reset --hard`, `git&>x ...`) is `git` plus a redirection token
 # (#473 review r1). The chain wants whitespace before every token, and a second glued-token branch in
 # the regex would parse `>"a">"a"` two ways (2^n), so the space is inserted here, once, linearly.
-_GIT_GLUED = re.compile(r"\bgit(?=[<>" + REDIR_AMP + r"])")
+_GIT_GLUED = re.compile(r"\bgit(?=[<>" + REDIR_AMP + r"])")   # REDIR_PIPE never follows `git` directly
 
 
 def _flat(cmd):
-    return _GIT_GLUED.sub("git ", _REDIR_AMP.sub(REDIR_AMP, cmd))
+    return _GIT_GLUED.sub("git ", _REDIR_AMP.sub(_mask, cmd))
 
 
 GIT_PATTERNS = [
@@ -211,6 +225,9 @@ SECRET_PATTERNS = [
     ("secret file access", re.compile(r"/secrets?/")),
     ("pipe to shell", re.compile(r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(sh|bash|zsh|python\d?)\b")),
 ]
+# Patterns that read the _flat() text: the git rules and, since #474, pipe-to-shell, whose `[^|]*`
+# would otherwise stop at the `|` of `>|` (`curl u >|f | sh` allowed, `curl x >|bash` denied).
+_FLAT_RX = set(_GIT_RX) | {rx for label, rx in SECRET_PATTERNS if label == "pipe to shell"}
 
 
 def _rm_force_recursive(seg):
@@ -244,7 +261,7 @@ _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 def _sub_body(body):
     # Redirections inside a substitution (`$(pwd 2>/dev/null)`) do not change what it prints.
     # The lookbehind keeps a long digit run from being rescanned from every digit (linear).
-    return " ".join(re.sub(r"(?<!\d)\d*[<>]+\s*[&\x01]?\s*[^\s)`]*", " ", body).split())
+    return " ".join(re.sub(r"(?<!\d)\d*[<>]+\s*[&\x01\x02]?\s*[^\s)`]*", " ", body).split())
 
 
 def _rm_words(seg):
@@ -370,7 +387,7 @@ def _strip_redirs(seg):
     # Drop output redirections (`> f`, `2>&1`, `&>f`, `>& f`) so a target such as /dev/null is not
     # read as an rm target (#470, both arms). A REDIR_AMP left in a word
     # (`<&0`) is inert: `<` ends the word. The lookbehind keeps the digit run linear.
-    return re.sub(r"(?<!\d)\d*" + REDIR_AMP + r"?>>?" + REDIR_AMP + r"?\s*[^\s)`]+", " ", seg)
+    return re.sub(r"(?<!\d)\d*" + REDIR_AMP + r"?>>?[" + _REDIR_MARK + r"]?\s*[^\s)`]+", " ", seg)
 
 
 def is_bulk_delete(cmd):
@@ -423,7 +440,7 @@ def match_tier3(cmd):
     cmd = _join(cmd)
     flat = _flat(cmd)
     for label, rx in GIT_PATTERNS + SECRET_PATTERNS:
-        if rx.search(flat if rx in _GIT_RX else cmd):
+        if rx.search(flat if rx in _FLAT_RX else cmd):
             return label
     if is_bulk_delete(cmd):
         return "rm -rf dangerous target"
