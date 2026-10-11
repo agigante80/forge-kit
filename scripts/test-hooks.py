@@ -1119,6 +1119,64 @@ with tempfile.TemporaryDirectory() as td:
     check("npl reason bans the poll loop", "poll loop" in low, True)
     check("npl reason names no foreground call", "foreground" in low, False)
     check("npl reason names no blocking call", "blocking" in low, False)
+    # #475: the top-level text stays byte-for-byte what it was before the subagent branch.
+    check("npl top-level reason is byte-for-byte unchanged", reason, (
+        "no-poll-loops: do not wait on a dispatched subagent in the shell. A subagent returns "
+        "through the harness: its completion notification is appended to the next tool result. "
+        "Keep doing independent work and let the notification arrive; with none left, end your "
+        "turn and the completion notification resumes you. Never queue a background sleep or a "
+        "poll loop on a task's output file or transcript to wait for it."))
+
+    # #475: a SUBAGENT's payload carries agent_id and agent_type (probed on 2.1.296; the top
+    # level's carries neither, and an --agent main thread carries agent_type only). A subagent that ends its turn is not resumed when its child
+    # finishes: the child's result reaches the top-level session as a separate notification and
+    # the parent gets only the subagent's last text. So a subagent gets its own wording.
+    def npl_reason(payload):
+        p = run(payload, hook=NPL, project_dir=on, cwd=str(on))
+        if p.returncode != 0 or '"deny"' not in p.stdout:
+            return None
+        return json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+
+    def as_sub(payload, **fields):
+        return dict(payload, **fields)
+
+    WAITER = bg("sleep 240; echo waited")
+    sub = npl_reason(as_sub(WAITER, agent_id="a1b2c3", agent_type="ticket-gate"))
+    sub_low = (sub or "").lower()
+    check("npl subagent waiter still denied", sub is not None, True)
+    check("npl subagent reason is not the top-level text", sub != reason, True)
+    check("npl subagent reason says the result goes to the top level",
+          "its result reaches the top-level session as a separate notification" in sub_low, True)
+    check("npl subagent reason says the parent gets only the last text",
+          "your parent receives only your last text" in sub_low, True)
+    check("npl subagent reason says end the turn naming what still runs",
+          "end your turn with a line naming each agent still running" in sub_low, True)
+    check("npl subagent reason does not promise resumption", "resumes you" in sub_low, False)
+    check("npl subagent reason does not forbid ending the turn",
+          re.search(r"(never|do not|don't)\s+end\s+(the|your)\s+turn", sub_low) is None, True)
+    check("npl subagent reason bans the poll loop", "poll loop" in sub_low, True)
+    check("npl subagent reason names no foreground call", "foreground" in sub_low, False)
+    check("npl subagent reason names no blocking call", "blocking" in sub_low, False)
+    # Only a non-empty string agent_id counts as a subagent; agent_type alone, or an empty or
+    # non-string agent_id, does not.
+    check("npl agent_id alone gets the subagent reason",
+          npl_reason(as_sub(WAITER, agent_id="a1b2c3")), sub)
+    # agent_type alone is what the main thread of a `claude --agent` session sends (2.1.296 hook
+    # schema: agent_id is absent there), so it is the top level and must get REASON.
+    check("npl agent_type alone (--agent main thread) gets the top-level reason",
+          npl_reason(as_sub(WAITER, agent_type="general-purpose")), reason)
+    check("npl empty agent_id gets the top-level reason",
+          npl_reason(as_sub(WAITER, agent_id="")), reason)
+    check("npl null agent_type gets the top-level reason",
+          npl_reason(as_sub(WAITER, agent_type=None)), reason)
+    check("npl non-string agent_id gets the top-level reason",
+          npl_reason(as_sub(WAITER, agent_id=42)), reason)
+    # The poll-loop arm and the Monitor tool branch the same way.
+    check("npl subagent poll loop gets the subagent reason",
+          npl_reason(as_sub(NPL_DENY[8][1], agent_id="a1b2c3", agent_type="ticket-gate")), sub)
+    check("npl subagent Monitor loop gets the subagent reason",
+          npl_reason({"tool_name": "Monitor", "agent_id": "a1b2c3",
+                      "tool_input": {"command": f"until [ -s {T} ]; do sleep 5; done"}}), sub)
 
     # Sentinel absent means allow, even for the exact observed waiter. Another hook's
     # sentinel is not this hook's.

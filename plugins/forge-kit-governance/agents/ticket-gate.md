@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 74 -->
+<!-- ticket-gate-version: 75 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -296,7 +296,7 @@ element 5 is re-derived by the critic rather than re-sourced.
 - If research reveals incorrect assumptions in the ticket, they become blocking items with
   the corrections listed
 - Log all research in the review's **Best practices** section (sources inline); no separate section
-- Research does NOT block the review - it enhances context. If a search fails, log it and proceed.
+- Research does NOT block the review. If a search fails, log it and proceed.
 
 ### Step 2.9: Codebase exploration
 
@@ -332,7 +332,7 @@ under Step 6's lifecycle:
 Write it with Step 6's primitives, minus the verdict block.
 
 If no relevant files exist, write `greenfield area: no existing patterns in scope` and note
-this to the critic (absence of patterns is itself useful architectural context).
+this to the critic.
 
 **3. Pass the populated section to the critic** in Step 3B, alongside the issue body and
 project files.
@@ -369,10 +369,9 @@ ticket may claim no E2E specs, and whether a "none" reason holds.
 
 ### Step 3B: The critic (one agent)
 
-Launch ONE `general-purpose` sub-agent (`model: sonnet`; `opus` per the round table): the critic. It receives the **review packet**: the
+Launch ONE `general-purpose` sub-agent (`model: sonnet`; `opus` per the round table): the critic. If you end your turn while it runs, you are not resumed: its verdict reaches the top-level session, not your result (#475). It receives the **review packet**: the
 issue title + body, the project context from Step 2, the research from Step 2.7, the
-`Codebase Context` from Step 2.9, and the Step 3A results. Its output contract has exactly six elements (the shape of
-the 2026-08-27 backlog reviews this design was validated on):
+`Codebase Context` from Step 2.9, and the Step 3A results. Its output contract has exactly six elements:
 
 1. **Verdict** - PASS or NEEDS-WORK, with the one-sentence reason.
 2. **Per-section pushback** - for each ticket section, what holds up and what does not,

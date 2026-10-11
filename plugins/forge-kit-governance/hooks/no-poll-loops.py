@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 7
+# no-poll-loops-version: 8
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -37,6 +37,7 @@ CLAUDE_PROJECT_DIR is unset.
 
 Contract (PreToolUse, same as block-dashes and overnight-guard):
   stdin  <- {"tool_name": "Bash" (or "Monitor"), "tool_input": {"command": ..., "run_in_background": ...}}
+            plus "agent_id" (and "agent_type") when a subagent made the call (#475)
   stdout -> deny: hookSpecificOutput.permissionDecision = "deny" ; else nothing
   exit   -> ALWAYS 0. Fails OPEN on anything it cannot parse or judge.
 
@@ -60,22 +61,44 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 # (2.1.294) offers no foreground switch in a stock install: the Agent schema drops
 # run_in_background and every dispatch comes back "launched in the background", at top level
 # and inside a subagent. A reason (or Step 3B) that commanded a blocking call named something the
-# agent could not do, and "never end the turn" forbade the only correct wait. So the reason names
-# no blocking call at all and stays correct whichever way a release falls. Verified on 2.1.294: top level and a subagent get "launched in the background" and the
-# completion notification arrives (a gate run ended its turn twice with dispatches running and was
-# resumed). #458 re-probed on 2.1.296 (2026-10-11, two sessions each). Verified: a one-shot
-# headless `claude -p` run resumes on the notification, under both text and stream-json output.
-# Not verified, REFUTED: a subagent's PARENT does not receive the verdict if that subagent ends its turn with
-# a child outstanding (the parent's Agent result is only the subagent's last text; the verdict
-# reaches the top level as a separate notification), so the end-your-turn advice below is
-# incomplete for a subagent that dispatched a child; the REASON change is #475.
-# Do not re-add a foreground instruction without re-probing.
+# agent could not do, and "never end the turn" forbade the only correct wait. So neither reason
+# names a blocking call and each stays correct whichever way a release falls. Do not re-add a
+# foreground instruction without re-probing.
+#
+# What happens when an agent ends its turn with a dispatch outstanding depends on WHO ends it.
+# Probed on 2.1.296 (#458, #475; 2026-10-11, two sessions each, evidence on both tickets):
+#   - The TOP-LEVEL session is resumed by the completion notification: seen interactively on
+#     2.1.294, and verified for a one-shot headless `claude -p` on 2.1.296 (text and stream-json
+#     output alike). That is REASON below.
+#   - A SUBAGENT is NOT resumed. Its parent's Agent result is only the subagent's last text, no
+#     second notification under its task id follows, and the child's result reaches the
+#     top-level session as a separate notification (#475 Q1 and Q2, 2 of 2). That is
+#     SUBAGENT_REASON: say so, and end the turn naming what still runs.
+# The 2.1.294 note that "a gate run ended its turn twice with dispatches running and was resumed"
+# does not hold for a subagent on 2.1.296; only top-level resumption is verified. Not probed: a
+# subagent ending its turn with background SHELL work (not an agent) outstanding.
+# A subagent's hook payload carries agent_id and agent_type, the top level's neither (#475 Q3).
+# Only agent_id, as a non-empty string, selects the subagent text; anything else gets REASON.
+# This deliberately reverses #475's "either field counts": the 2.1.296 hook schema documents
+# agent_id as "Absent for the main thread, even in --agent sessions. Use this field (not
+# agent_type) to distinguish subagent calls", and sets agent_type on the main thread of a
+# `claude --agent` session too. Counting agent_type alone would tell that top-level session it
+# is a subagent that will not be resumed, which is false (review round 1 of #475).
 REASON = (
     "no-poll-loops: do not wait on a dispatched subagent in the shell. A subagent returns "
     "through the harness: its completion notification is appended to the next tool result. "
     "Keep doing independent work and let the notification arrive; with none left, end your "
     "turn and the completion notification resumes you. Never queue a background sleep or a "
     "poll loop on a task's output file or transcript to wait for it."
+)
+SUBAGENT_REASON = (
+    "no-poll-loops: do not wait on a dispatched subagent in the shell. You are a subagent: if "
+    "you end your turn while an agent you dispatched is still running, you are not resumed when "
+    "it finishes. Its result reaches the top-level session as a separate notification, and your "
+    "parent receives only your last text. Keep doing independent work; with none left, end your "
+    "turn with a line naming each agent still running and what it was asked, so your parent "
+    "knows that result arrives separately. Never queue a background sleep or a poll loop on a "
+    "task's output file or transcript to wait for it."
 )
 
 # A background sleep that does nothing: the whole command, nothing else.
@@ -163,6 +186,12 @@ def judge(command, background):
     return poll_loop_on_artifact(command)
 
 
+def is_subagent(payload):
+    """agent_id marks a subagent; agent_type alone also appears on an --agent main thread."""
+    value = payload.get("agent_id")
+    return isinstance(value, str) and value != ""
+
+
 def enabled(payload):
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd")
     return isinstance(root, str) and root != "" and os.path.exists(os.path.join(root, SENTINEL))
@@ -180,7 +209,7 @@ def main():
     if not isinstance(command, str) or not enabled(payload):
         return 0
     if judge(command, tin.get("run_in_background")):
-        return deny()
+        return deny(SUBAGENT_REASON if is_subagent(payload) else REASON)
     return 0
 
 

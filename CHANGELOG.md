@@ -7,6 +7,12 @@ own semver in `plugins/<group>/.claude-plugin/plugin.json` and move independentl
 Note that a release tag does not gate distribution. `/plugin marketplace add agigante80/forge-kit`
 tracks the repository, so users are already served from the default branch.
 
+## Unreleased
+
+### Fixed
+
+- **`no-poll-loops` told a subagent to end its turn and wait to be resumed, which returns only its last text to its parent** (`no-poll-loops-version` 7 to 8, `ticket-gate-version` 74 to 75, `forge-kit-governance` 0.34.18 to 0.34.19; #475; `scripts/test-hooks.py`). Probed on Claude Code 2.1.296 in two sessions: a subagent that ends its turn with a dispatched agent still running is not resumed when it finishes, no second notification follows under its task id, and the child's result reaches the top-level session as a separate notification. A subagent's hook payload carries `agent_id` and `agent_type` and the top level's carries neither, so the deny reason now branches: a payload whose `agent_id` is a non-empty string gets a subagent text (`agent_type` alone does not count, because the main thread of a `claude --agent` session carries it too) saying the result goes to the top level and to end the turn naming each agent still running; the top-level text is byte-for-byte unchanged and pinned by an equality row. The comment above `REASON` is rewritten from the probe. `ticket-gate` Step 3B states the same limit for its critic, paid for by three trims in the same file, so its size baseline falls 5639 to 5637. Mutants: the branch removed, the branch inverted, `agent_type` alone counted, an empty string counted and a non-string counted (all killed).
+
 ## v0.9.1 (2026-10-11)
 
 Since v0.9.0: the phase "Guards and scripts that miss a case" worked through its tickets one at a time. `overnight-guard` now reads redirections (`2>&1`, `>|`, a redirection before the git subcommand), backslash-newline continuations, global options past its cap, and raw control bytes the way the shell does, so each of those spellings of a destructive command is denied. The labels block in forge-adapt publishes through symlinks without replacing them or clobbering `.tmp` siblings, and area labels match without regard to case across the gate, the labels block and the mechanics check. The `no-poll-loops` cases left unverified by #433 were probed on Claude Code 2.1.296 (#458). Left open for a maintainer decision: #475 (what `no-poll-loops` should tell a subagent) and #476.

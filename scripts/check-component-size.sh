@@ -238,6 +238,11 @@ budget_for() {
 # LOWERED 2026-10-09: adapt 7144 to 7143 (#442). Step 3 item 4 stops asking for the token-env name,
 # which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
 #
+# LOWERED 2026-10-11: ticket-gate 5639 to 5637 (#475). Step 3B gains a 22-word limit sentence (an ended
+# subagent is not resumed; the critic's verdict reaches the top-level session), paid for by deleting
+# Step 3B's validation-history parenthetical, Step 2.9's "absence of patterns" aside and Step 2.7's
+# "it enhances context" clause (24), and the 2 left over are locked in.
+#
 # LOWERED 2026-10-11: ticket-gate 5642 to 5639 (#472). Step 2.5 gains one 13-word sentence saying label
 # names match without regard to case; the same-length preamble sentence "You never produce numeric scores"
 # is deleted (Step 4 and the description already say no numeric scorecard), and the file ends 3 under.
@@ -402,7 +407,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
-    ticket-gate) echo 5639 ;;
+    ticket-gate) echo 5637 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac
