@@ -1535,6 +1535,75 @@ with tempfile.TemporaryDirectory() as _td:
     check("og linear: subprocess, 200 -c \"a\" tokens, judged and under 5s",
           (_p.returncode, time.monotonic() - _t0 < 5), (0, True))
 
+# #470: a redirection's `&` is not a command separator. `2>&1`, `&>`, `>&2`, `2>& 1` and `<&0` stay
+# inside the rm or git segment on both arms; only a `&` that is neither after `<`/`>` nor before `>`
+# splits. The overnight arm also drops redirections before judging the rm, so `> /dev/null` is allowed.
+print("\n  -- overnight-guard: a redirection is not a separator (#470) --")
+_REDIR_DENY = [
+    "rm -rf 2>&1 /", 'rm -rf 2>&1 "$PWD"', "rm -rf &>/dev/null /", "rm -rf >&2 /",
+    "rm -rf 2>& 1 /", "rm -rf <&0 /", "rm -rf build &> /dev/null /",
+    "git reset 2>&1 --hard", "git clean 2>&1 -fd", "git push 2>&1 --delete origin x",
+    "git branch 2>&1 -D x", "git tag 2>&1 -d v1", "git checkout 2>&1 -f", "git restore 2>&1 f",
+    "git switch 2>&1 -f main", "git reset &>/dev/null --hard", "git reset >&2 --hard",
+]
+_REDIR_ALLOW = [
+    "rm -rf build > /dev/null", "rm -rf build 2> /dev/null", "rm -rf build &> /dev/null",
+    "rm -rf build >& /dev/null", "rm -rf build 2>&1", "rm -rf build > /dev/null 2>&1",
+    "git status 2>&1 --short", "git reset 2>&1 --soft",
+    "a >&2 & rm -f x", "sleep 1 & git reset --soft",
+    "rm -rf build >&2 & echo hi", "git reset >&2 & git status --hard",
+]
+for _c in _REDIR_DENY:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og redirection denies {_fn.__name__}: {_c}", _fn(_c) is not None, True)
+for _c in _REDIR_ALLOW:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og redirection allows {_fn.__name__}: {_c}", _fn(_c), None)
+# Round 2 (#470): stripping a redirection must stop at a substitution closer, or it eats the `)` of
+# `$(pwd 2>/dev/null)` and the worktree verdict flips both ways.
+for _c in ("rm -rf $(pwd 2>/dev/null) x", "rm -rf $(git rev-parse --show-toplevel 2>/dev/null) ./a",
+           "rm -rf $(pwd 2>&1) x", "rm -rf $(pwd 2>&1) .", "rm -rf $(pwd <& 0) x"):
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og redirection inside a substitution still denies {_fn.__name__}: {_c}",
+              _fn(_c) is not None, True)
+for _c in ("rm -rf $(git rev-parse --show-toplevel 2>/dev/null)/build", 'rm -rf "$(pwd 2>/dev/null)/dist"',
+           "rm -rf $(pwd 2>&1)/build"):
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og redirection inside a substitution, subdirectory allowed {_fn.__name__}: {_c}",
+              _fn(_c), None)
+# A real separator still splits, after a redirection too.
+for _c in ("sleep 1 & rm -rf /", "git status 2>&1 & git reset --hard", "echo >&2 & git reset --hard"):
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og real & still splits, {_fn.__name__}: {_c}", _fn(_c) is not None, True)
+check("og real & still splits after a redirection (day judges every rm)",
+      _og.match_day("rm -rf build >&2 & rm -rf /") is not None, True)
+# Linear: long runs of redirection ampersands.
+for _fn in (_og.match_tier3, _og.match_day):
+    for _name, _cmd in (("5000 '2>&1 '", "rm -rf " + "2>&1 " * 5000 + "x"),
+                        ("5000 '&>x '", "git reset " + "&>x " * 5000 + "x"),
+                        ("5000 '&' with no end", "rm " + "&" * 5000),
+                        ("5000 '>&' alternating, git (2^n if ambiguous)", "git reset " + ">&" * 5000),
+                        ("5000 '<&' alternating, rm", "rm -rf " + "<&" * 5000 + "x")):
+        _t0 = time.monotonic()
+        _fn(_cmd)
+        check(f"og linear: {_name} {_fn.__name__} under 100ms", time.monotonic() - _t0 < 0.1, True)
+# The restart shape: every `git reset` is a fresh start that scans to the segment end. That was already
+# quadratic (about 2.4 s at 6000 on the plain class), and an alternation-based segment class made it
+# 10x slower (review r1), so the bound pins the plain class: under 8 s for both matchers at 6000.
+for _fn in (_og.match_tier3, _og.match_day):
+    for _w in ("git reset ", "git branch "):
+        _t0 = time.monotonic()
+        _fn(_w * 6000)
+        check(f"og linear: 6000 {_w!r} restarts {_fn.__name__} under 8s", time.monotonic() - _t0 < 8, True)
+with tempfile.TemporaryDirectory() as _td:
+    _night = pathlib.Path(_td).resolve() / "night"
+    (_night / ".claude" / "overnight").mkdir(parents=True)
+    (_night / ".claude" / "overnight" / "active.md").write_text("manifest")
+    for _c, _want in (("rm -rf 2>&1 /", "deny"), ("git reset 2>&1 --hard", "deny"),
+                      ("rm -rf build > /dev/null", "allow")):
+        _p = run(bash(_c), hook=GUARD, project_dir=_night, cwd=str(_night))
+        check(f"og subprocess overnight: {_c}", ("deny" if _p.stdout.strip() else "allow"), _want)
+
 # #467: the worktree-target scan is a single pass over the segment. Each shape gives a matcher built
 # from nested quantifiers, or one that restarts at every opener, a reason to go quadratic.
 print("\n  -- overnight-guard: worktree rm target scan runs in linear time (#467) --")

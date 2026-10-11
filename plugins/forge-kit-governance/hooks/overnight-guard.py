@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 12
+# overnight-guard-version: 13
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -125,6 +125,23 @@ GIT_PREFIX = _GIT_CHAIN + "0," + str(GIT_PREFIX_MAX) + r"}\s+"
 CAP_LABEL = "git with more than %d global options" % GIT_PREFIX_MAX
 GIT_CAP_PATTERN = re.compile(_GIT_CHAIN + str(GIT_PREFIX_MAX + 1) + "}")
 G = GIT_PREFIX
+# A redirection's `&` is not a command separator (#470). `2>&1`, `>&2`, `<&0` (a `&` right after `<` or
+# `>`) and `&>x` (a `&` right before `>`) belong to the segment, so `rm -rf 2>&1 /` and
+# `git reset 2>&1 --hard` are judged whole, while `a >&2 & rm -rf /` still splits at the second `&`.
+# ONE definition serves the rm matchers and GIT_PATTERNS: _flat() swaps exactly those ampersands for
+# REDIR_AMP once, in a single linear pass, and every segment class below stays the plain, C-speed
+# `[^|;&\n]*`. Do NOT instead widen that class into an alternation such as
+# `(?:[^|;&\n]|&(?=>)|...)*`: it is linear in one match but ~10x slower per character, and the git
+# patterns restart at every `git <sub>` token, so `git reset ` x6000 went from 2 s to 20 s (review r1);
+# and without `(?!>)` on the lookbehind branch `>&>&` takes two routes per `&` and is 2^n.
+REDIR_AMP = "\x01"
+_REDIR_AMP = re.compile(r"(?<=[<>])&|&(?=>)")
+
+
+def _flat(cmd):
+    return _REDIR_AMP.sub(REDIR_AMP, cmd)
+
+
 GIT_PATTERNS = [
     # Past the option cap the subcommand is out of sight, so deny (#469). Listed FIRST on purpose
     # (round 1 tried last and a test caught it): the cap matches a long chain in one pass, while the
@@ -149,6 +166,8 @@ GIT_PATTERNS = [
         G + r"switch\b[^|;&\n]*(\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s--force(?![\w-])|\s--discard-changes(?![\w-]))")),
     ("git stash drop/clear", re.compile(G + r"stash\s+(drop|clear)\b")),
 ]
+
+_GIT_RX = [rx for _, rx in GIT_PATTERNS]
 
 SECRET_PATTERNS = [
     ("secret file access", re.compile(r"(^|[\s=/'\"])\.env(?!\.(example|sample|template|dist)\b)(\.[\w.]+)?(\b|['\"]|$)")),
@@ -190,7 +209,7 @@ _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 def _sub_body(body):
     # Redirections inside a substitution (`$(pwd 2>/dev/null)`) do not change what it prints.
     # The lookbehind keeps a long digit run from being rescanned from every digit (linear).
-    return " ".join(re.sub(r"(?<!\d)\d*[<>]+\s*&?\S*", " ", body).split())
+    return " ".join(re.sub(r"(?<!\d)\d*[<>]+\s*[&\x01]?\s*[^\s)`]*", " ", body).split())
 
 
 def _rm_words(seg):
@@ -312,14 +331,22 @@ def _rm_dangerous(seg):
     return any(_is_worktree_word(w) for w in _rm_words(seg))
 
 
+def _strip_redirs(seg):
+    # Drop output redirections (`> f`, `2>&1`, `&>f`, `>& f`) so a target such as /dev/null is not
+    # read as an rm target (#470, both arms). A REDIR_AMP left in a word
+    # (`<&0`) is inert: `<` ends the word. The lookbehind keeps the digit run linear.
+    return re.sub(r"(?<!\d)\d*" + REDIR_AMP + r"?>>?" + REDIR_AMP + r"?\s*[^\s)`]+", " ", seg)
+
+
 def is_bulk_delete(cmd):
     # OVERNIGHT rule, unchanged by #419: only the FIRST rm in a payload is judged, so
     # `rm -f a.txt && rm -rf $HOME/x` is allowed overnight (pinned by test-hooks.py).
     cmd = cmd.replace("\\\n", " ")   # a continued line is one command (#467 review: same as daytime)
+    cmd = _flat(cmd)
     m = re.search(r"\brm\b[^|;&\n]*", cmd)
     if not m:
         return False
-    seg = m.group(0)
+    seg = _strip_redirs(m.group(0))
     return _rm_force_recursive(seg) and _rm_dangerous(seg)
 
 
@@ -345,9 +372,9 @@ def day_bulk_delete(cmd):
     # read across the whole segment, redirections dropped, `\<newline>` joined, a
     # trailing `)`/`}`/backtick ignored. A bare `.` target is NOT judged: GNU rm refuses it,
     # and a `.` inside `$(find . ...)` must stay allowed.
-    cmd = cmd.replace("\\\n", " ")
+    cmd = _flat(cmd.replace("\\\n", " "))
     for m in re.finditer(r"(?<![\w.$-])(?<!git )rm\b[^|;&\n]*", cmd):
-        seg = re.sub(r"(?<!\d)\d*>>?\s*&?\S+", " ", m.group(0))   # lookbehind: linear on a digit run
+        seg = _strip_redirs(m.group(0))
         # GNU rm permutes arguments, so flags may follow a target: judge the whole segment.
         if not _rm_force_recursive(seg):
             continue
@@ -359,8 +386,9 @@ def day_bulk_delete(cmd):
 
 
 def match_tier3(cmd):
+    flat = _flat(cmd)
     for label, rx in GIT_PATTERNS + SECRET_PATTERNS:
-        if rx.search(cmd):
+        if rx.search(flat if rx in _GIT_RX else cmd):
             return label
     if is_bulk_delete(cmd):
         return "rm -rf dangerous target"
@@ -370,8 +398,9 @@ def match_tier3(cmd):
 def match_day(cmd):
     # GIT_PATTERNS plus bulk delete; SECRET_PATTERNS are deliberately absent (reading .env and
     # `curl ... | sh` installers are routine by day; decided in #419).
+    flat = _flat(cmd)
     for label, rx in GIT_PATTERNS:
-        if rx.search(cmd):
+        if rx.search(flat):
             return label
     return day_bulk_delete(cmd)
 
