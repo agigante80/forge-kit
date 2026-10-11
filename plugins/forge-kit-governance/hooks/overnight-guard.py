@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 10
+# overnight-guard-version: 11
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -24,6 +24,10 @@ so a project-local copy is inert without the file. forge-adapt creates it with t
 
 Not adversary-proof: matching is on the command string and catches a drifting
 model doing the obvious thing, not a deliberate evasion.
+
+Worktree target (#467): rm -rf of $PWD, $CLAUDE_PROJECT_DIR, $(pwd) or $(git rev-parse
+--show-toplevel) is a dangerous target, found by reading the target words as a shell does. The
+overnight arm still judges only the first rm of a payload (a known limit, pinned in test-hooks.py).
 
 Known gap: a bare "git checkout <file>" (discarding one file without "--") is
 not caught, because a regex cannot tell it apart from "git checkout <branch>";
@@ -149,15 +153,154 @@ def _rm_force_recursive(seg):
     return force and recursive
 
 
+# THE WORKTREE AS A TARGET (#467). `rm -rf "$PWD"` deletes the project, uncommitted work included.
+# Spellings are not enumerated; the segment is split into words the way a shell does it, and a
+# word is the worktree when its expansion IS one of the root expressions plus only slashes.
+# Word grammar (sh): whitespace separates words; inside one word, adjacent pieces concatenate;
+# a piece is a backslash escape (literal char), '...' (all literal, so '$PWD' is a file name),
+# "..." (literal except $, backtick and backslash, so "$PWD" expands), $(...), `...`, ${...},
+# $NAME, or a bare character. One left-to-right pass, every branch advances, so it is linear: an
+# unterminated opener swallows the rest of the segment instead of rescanning (no regex retries).
+_ROOT_PARAM = re.compile(r"(?:PWD|CLAUDE_PROJECT_DIR)(?::?[-=?][^}]*|%%?/)?")
+# A substitution body whose output IS the worktree: pwd (builtin, command or a path, -L/-P
+# options), the repo toplevel, or realpath/readlink of `.`. The body is whitespace-normalised and
+# fullmatched, so `$(pwd /x)`, `$(pwdx)` and `$(find ...)` are never the worktree.
+_ROOT_SUB = re.compile(
+    r"(?:(?:builtin|command) )?(?:\S*/)?pwd(?: -[LP]+)*"
+    r"|git(?: --no-pager| --no-optional-locks| -C \.)* rev-parse --show-toplevel"
+    r"|(?:realpath|readlink -f|readlink -e) \.")
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _sub_body(body):
+    # Redirections inside a substitution (`$(pwd 2>/dev/null)`) do not change what it prints.
+    # The lookbehind keeps a long digit run from being rescanned from every digit (linear).
+    return " ".join(re.sub(r"(?<!\d)\d*[<>]+\s*&?\S*", " ", body).split())
+
+
+def _rm_words(seg):
+    """Split seg into shell words; each word is a list of (kind, text), kind lit|param|sub.
+
+    A literal run is a list of strings (joined by the caller), so a very long word is built in
+    linear time. `(`, `)`, `<` and `>` end a word, and the word after a redirection operator is
+    its target, not an argument. A backtick with no closer in the segment ends a word (the closer
+    sits in a part of the payload the rm segment was cut away from).
+    """
+    words, cur, i, n, skip = [], None, 0, len(seg), False
+
+    def lit(w, ch):
+        if w and w[-1][0] == "lit":
+            w[-1][1].append(ch)
+        else:
+            w.append(("lit", [ch]))
+
+    def end_word():
+        nonlocal cur, skip
+        if cur is not None:
+            if skip:
+                skip = False
+            else:
+                words.append(cur)
+            cur = None
+
+    def expand(w, i):
+        # seg[i] is `$` or a backtick. Returns the index after the expansion.
+        c = seg[i]
+        if c == "`":
+            j = seg.find("`", i + 1)
+            j = n if j < 0 else j
+            w.append(("sub", _sub_body(seg[i + 1:j])))
+            return j + 1
+        nxt = seg[i + 1:i + 2]
+        if nxt == "(":
+            depth, j = 1, i + 2
+            while j < n and depth:
+                depth += (seg[j] == "(") - (seg[j] == ")")
+                j += 1
+            w.append(("sub", _sub_body(seg[i + 2:j - 1 if depth == 0 else j])))
+            return j
+        if nxt == "{":
+            j = seg.find("}", i + 2)
+            j = n if j < 0 else j
+            w.append(("param", seg[i + 2:j]))
+            return j + 1
+        m = _NAME.match(seg, i + 1)
+        if m:
+            w.append(("param", m.group(0)))
+            return m.end()
+        lit(w, "$")
+        return i + 1
+
+    while i < n:
+        c = seg[i]
+        if cur is None and c == "#":
+            break   # a word-initial `#` starts a comment: nothing after it is an argument
+        if c.isspace() or c in "()<>" or (c == "`" and seg.find("`", i + 1) < 0):
+            end_word()
+            if seg.startswith("<<<", i):
+                i += 3   # a here-string's word is DATA fed to the command (`xargs rm`), so it is kept
+                continue
+            skip = skip or c in "<>"
+            i += 1
+            continue
+        if cur is None:
+            cur = []
+        if c == "\\":
+            if i + 1 < n:
+                lit(cur, seg[i + 1])
+            i += 2
+        elif c == "'":
+            j = seg.find("'", i + 1)
+            j = n if j < 0 else j
+            lit(cur, seg[i + 1:j])
+            i = j + 1
+        elif c == '"':
+            i += 1
+            while i < n and seg[i] != '"':
+                if seg[i] == "\\" and i + 1 < n:
+                    lit(cur, seg[i + 1] if seg[i + 1] in '$`"\\' else seg[i:i + 2])
+                    i += 2
+                elif seg[i] in "$`":
+                    i = expand(cur, i)
+                else:
+                    lit(cur, seg[i])
+                    i += 1
+            i += 1
+        elif c in "$`":
+            i = expand(cur, i)
+        else:
+            lit(cur, c)
+            i += 1
+    end_word()
+    return words
+
+
+def _is_worktree_word(w):
+    w = [(k, "".join(t) if k == "lit" else t) for k, t in w]
+    w = [(k, t) for k, t in w if not (k == "lit" and t == "")]
+    if not w:
+        return False
+    kind, text = w[0]
+    if kind == "param":
+        if not _ROOT_PARAM.fullmatch(text):
+            return False
+    elif kind != "sub" or not _ROOT_SUB.fullmatch(text):
+        return False
+    return all(k == "lit" and t.strip("/") == "" for k, t in w[1:])
+
+
 def _rm_dangerous(seg):
     # A dangerous target may be preceded by whitespace, "=", or a quote (a quote
     # before the path must not hide it, mirroring the .env pattern's prefix class).
-    return bool(re.search(r"(^|[\s='\"])(/|~|\$\{?HOME)", seg)) or ".." in seg
+    if re.search(r"(^|[\s='\"])(/|~|\$\{?HOME)", seg) or ".." in seg:
+        return True
+    return any(_is_worktree_word(w) for w in _rm_words(seg))
 
 
 def is_bulk_delete(cmd):
     # OVERNIGHT rule, unchanged by #419: only the FIRST rm in a payload is judged, so
     # `rm -f a.txt && rm -rf $HOME/x` is allowed overnight (pinned by test-hooks.py).
+    cmd = cmd.replace("\\\n", " ")   # a continued line is one command (#467 review: same as daytime)
     m = re.search(r"\brm\b[^|;&\n]*", cmd)
     if not m:
         return False
@@ -189,7 +332,7 @@ def day_bulk_delete(cmd):
     # and a `.` inside `$(find . ...)` must stay allowed.
     cmd = cmd.replace("\\\n", " ")
     for m in re.finditer(r"(?<![\w.$-])(?<!git )rm\b[^|;&\n]*", cmd):
-        seg = re.sub(r"\d*>>?\s*&?\S+", " ", m.group(0))
+        seg = re.sub(r"(?<!\d)\d*>>?\s*&?\S+", " ", m.group(0))   # lookbehind: linear on a digit run
         # GNU rm permutes arguments, so flags may follow a target: judge the whole segment.
         if not _rm_force_recursive(seg):
             continue

@@ -44,7 +44,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 |---|---|---|---|
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
-| `overnight-guard.py` | PreToolUse | 10 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
+| `overnight-guard.py` | PreToolUse | 11 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
@@ -123,10 +123,19 @@ rm .claude/no-poll-loops                          # opt out
 Two arms behind one script. The overnight arm is armed by a run's `.claude/overnight/active.md` and
 denies the whole Tier-3 list. The daytime arm (#419) is armed by its own sentinel,
 `.claude/no-destructive`, and denies only the git discards (`reset --hard`, `clean -f`, `checkout .`,
-`restore` and the like) and bulk delete: `rm -rf` of a dangerous target (any absolute path, `~`, `$HOME`, or `..`), or of a
+`restore` and the like) and bulk delete: `rm -rf` of a dangerous target (any absolute path, `~`, `$HOME`, `..`, or the worktree itself, see below), or of a
 relative target ending in a wildcard (`tmp/*`, `./*`, `dir/*`). `rm -rf tmp/some-dir` stays allowed.
 Secrets and pipe-to-shell are overnight-only. When both sentinels exist the overnight arm wins. The
 daytime arm fails open on a malformed payload; the overnight arm still fails closed.
+
+`rm -rf` of the worktree itself is denied on both arms (#467): a target word that expands to
+`$PWD`, `$CLAUDE_PROJECT_DIR` (braced, quoted or with a trailing slash), `$(pwd)`, a backtick `pwd`,
+or `$(git rev-parse --show-toplevel)`. The target words are read by shell word-splitting, so
+quoting, `--`, and any target position count (`rm -rf "$PWD/build" "$PWD"` denies), while a
+subdirectory (`"$PWD/build"`), a longer name (`$PWDX`, `$(pwd)x`), single-quoted text (`'$PWD'`)
+and any other substitution (`$(find ...)`) stay allowed. Known limit: the overnight arm judges only
+the FIRST `rm` of a payload, so `rm -f x && rm -rf "$PWD"` is allowed overnight and denied by day.
+String matching also stays evadable (`d=$PWD; rm -rf "$d"`).
 
 Git global options are tolerated between `git` and the subcommand (#457): `git -C sub reset --hard`,
 `git -c k=v checkout .`, `git --no-pager stash drop` and `git -C "my dir" reset --hard` are denied

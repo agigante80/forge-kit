@@ -478,6 +478,54 @@ def bash(cmd):
 # line that is data, and the hook says so in its own header instead of implying it solved this.
 HEREDOC_LIMIT = 'git switch main\ncat <<EOF\ngit checkout -- some/file\nEOF'
 
+# #467: rm -rf aimed at the worktree ITSELF. The matcher reads the target words by shell
+# word-splitting and expansion grammar, so these rows are grammar classes, not a spelling list:
+# quoting and concatenation, a trailing slash run, the `--` terminator, any target position, the
+# braced forms and the root substitutions. Both lists run on the overnight arm (DENY_CMDS and
+# ALLOW_CMDS) and on the daytime arm (the loops in the daytime section below).
+WT_DENY = [
+    'rm -rf "$PWD"', "rm -rf $PWD", "rm -rf ${PWD}", 'rm -rf "${PWD}"', "rm -rf $(pwd)",
+    'rm -rf "$(pwd)"', "rm -rf `pwd`", 'rm -rf "`pwd`"', "rm -r -f $PWD",
+    'rm --recursive --force "$PWD"', "rm -rf $PWD/", 'rm -rf "$PWD"/', "rm -rf $PWD//",
+    'rm -rf -- "$PWD"', "rm -rf -- $PWD", 'rm -rf "$PWD/build" "$PWD"',
+    'rm -rf "$PWD" "$PWD/build"', "rm -rf build $PWD dist",
+    "rm -fr $PWD", "rm build -rf $PWD",
+    'rm -rf "${CLAUDE_PROJECT_DIR}"', "rm -rf $CLAUDE_PROJECT_DIR", 'rm -rf "$CLAUDE_PROJECT_DIR"',
+    "rm -rf ${CLAUDE_PROJECT_DIR}", 'rm -rf "$CLAUDE_PROJECT_DIR"/',
+    "rm -rf $(git rev-parse --show-toplevel)", 'rm -rf "$(git rev-parse --show-toplevel)"',
+    "rm -rf `git rev-parse --show-toplevel`",
+    # Word grammar: adjacent quoted pieces, inner blanks, options of pwd, a defaulting expansion.
+    "rm -rf ''\"$PWD\"", "rm -rf \"$PWD\"''", 'rm -rf $PWD""', 'rm -rf "$( pwd )"',
+    'rm -rf "$(pwd -P)"', "rm -rf $(pwd -L)", 'rm -rf "$(  git   rev-parse  --show-toplevel )"',
+    'rm -rf "${PWD:?}"', 'rm -rf "${PWD:-.}"', "rm -rf $(builtin pwd)",
+    "rm -rf $PWD\\/",
+    # Review r1 (#467): a word ends at ( ) < >, a redirection target is not an argument, the
+    # closing backtick or paren of an enclosing substitution is not part of the target, and a
+    # continued line is one command on both arms.
+    "xargs rm -rf <<< \"$PWD\"", "xargs rm -rf <<<$PWD",
+    "(rm -rf $PWD)", '(rm -rf "$PWD")', 'true && (rm -rf "$PWD")', "echo $(rm -rf $PWD)",
+    "echo `rm -rf $PWD`", 'rm -rf $PWD>/dev/null', 'rm -rf "$PWD">>log', 'rm -rf $PWD</dev/null',
+    'rm -rf "$(pwd 2>/dev/null)"', 'rm -rf "$(git rev-parse --show-toplevel 2>/dev/null)"',
+    'rm -rf "$(/bin/pwd)"', 'rm -rf "$(pwd -LP)"', 'rm -rf "$(git -C . rev-parse --show-toplevel)"',
+    'rm -rf "$(realpath .)"', 'rm -rf \\\n"$PWD"', 'rm -rf \\\n$PWD',
+]
+WT_ALLOW = [
+    'rm -rf "$PWD/build"', "rm -rf ${PWD}/dist", "rm -rf $(pwd)/build", "rm -rf $PWDX",
+    'rm -f "$PWD/a.txt"', "echo $PWD && rm -rf build", 'rm -rf "$CLAUDE_PROJECT_DIR/build"',
+    "rm -rf $(git rev-parse --show-toplevel)/dist", "rm -rf $CLAUDE_PROJECT_DIRX",
+    "rm -rf ./build",
+    # Quoting and escaping that make the text literal, or make a longer name.
+    "rm -rf '$PWD'", "rm -rf \\$PWD", "rm -rf '$(pwd)'", 'rm -rf "$PWD"x', "rm -rf $(pwd)x",
+    'rm -rf "$PWD/"build', 'rm -rf "$(pwd -P)/build"', 'rm -rf "${PWD}/dist"',
+    'rm -rf "$(git rev-parse --show-toplevel)/dist"', "rm -rf $(git rev-parse --git-dir)",
+    'git -C "$PWD" status', 'echo "$PWD" "$(pwd)"',
+    "rm -rf $(pwdx)", "rm -rf $(pwd -x)", "rm -rf $(git rev-parse --show-toplevel --git-dir)",
+    # A redirection target is not an rm argument; (echo $PWD) is not an rm at all.
+    'rm -rf build > "$PWD"', 'rm -rf build 2>"$PWD"', "(echo $PWD)", "rm -rf build)x",
+    # A word-initial # is a comment (the old / rule is untouched by this).
+    "rm -rf build # wipe $PWD", "rm -rf build # $(pwd)", "rm -rf build #$PWD", "rm -rf a#$PWD",
+]
+
 DENY_CMDS = [
     "git reset --hard HEAD~1", "git branch -D feature", "git push --delete origin x",
     "git push origin :feature", "git tag -d v1.0", "git clean -fdx",
@@ -496,7 +544,7 @@ DENY_CMDS = [
     "cat .env.local",
     'rm -rf "/"', "rm -rf '/etc'", 'rm -rf "$HOME/x"', "rm -rf ${HOME}/y",
     "rm --recursive --force /", "rm -fR /opt",
-]
+] + WT_DENY
 ALLOW_CMDS = [
     "git status", "git branch -d merged", "git checkout main", "git checkout -b feature/x",
     "git restore --staged file.py", "git switch main",
@@ -515,7 +563,7 @@ ALLOW_CMDS = [
     'git reset --soft HEAD~1\necho "unrelated --hard appears later"',
     'git branch -d merged\necho "prose about -D elsewhere"',
     'git tag v1.0\necho "a note mentioning -d"',
-]
+] + WT_ALLOW
 
 with tempfile.TemporaryDirectory() as td:
     td = pathlib.Path(td).resolve()
@@ -735,6 +783,18 @@ with tempfile.TemporaryDirectory() as td:
         check(f"day denies: {cmd[:30]!r}", outcome(p), DENY)
         if p.returncode == 0 and p.stdout.strip():
             check(f"day reason exact: {cmd[:24]!r}", reason_of(p), day_msg("rm -rf dangerous target"))
+
+    # --- #467: rm -rf of the worktree itself, daytime arm (exact reason), then the first-rm limit
+    for cmd in WT_DENY:
+        p = go(bash(cmd), day)
+        check(f"day wt denies: {cmd[:34]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"day wt reason exact: {cmd[:26]!r}", reason_of(p), day_msg("rm -rf dangerous target"))
+    # Overnight judges only the FIRST rm (known limit, stated in the hook README); daytime judges all.
+    p = go(bash('rm -f x && rm -rf "$PWD"'), night)
+    check("overnight first-rm limit: later rm -rf $PWD allowed", outcome(p), ALLOW)
+    p = go(bash('rm -f x && rm -rf "$PWD"'), day)
+    check("day judges every rm: later rm -rf $PWD denied", outcome(p), DENY)
 
     # --- daytime: relative wildcard targets (maintainer pick, 2026-10-08)
     for cmd in ["rm -rf tmp/*", "rm -rf ./*", "rm -rf dir/*", "rm -rf *", "rm -rf tmp/impl-*",
@@ -1446,6 +1506,42 @@ with tempfile.TemporaryDirectory() as _td:
              project_dir=_night, cwd=str(_night))
     check("og linear: subprocess, 200 -c \"a\" tokens, judged and under 5s",
           (_p.returncode, time.monotonic() - _t0 < 5), (0, True))
+
+# #467: the worktree-target scan is a single pass over the segment. Each shape gives a matcher built
+# from nested quantifiers, or one that restarts at every opener, a reason to go quadratic.
+print("\n  -- overnight-guard: worktree rm target scan runs in linear time (#467) --")
+_RM_SHAPES = [
+    ("200 $PWD targets", "rm -rf" + " $PWD/x" * 200),
+    ("200 unterminated $( openers", "rm -rf" + " $(" * 200),
+    ("200 unterminated ${ openers", "rm -rf" + " ${" * 200),
+    ("200 unterminated backticks", "rm -rf" + " `" * 200),
+    ("200 unterminated double quotes", "rm -rf" + ' "a' * 200),
+    ("200 quote/escape mix", "rm -rf" + ' "\\"' * 200),
+    ("200 empty pieces", "rm -rf " + '""' * 200 + "$PWD"),
+]
+for _name, _body in _RM_SHAPES:
+    for _fn in (_og.match_tier3, _og.match_day):
+        _t0 = time.monotonic()
+        _fn(_body)
+        check(f"rm linear: {_name} {_fn.__name__} under 100ms", time.monotonic() - _t0 < 0.1, True)
+# Review r1 (#467): one very long word (list-joined literals) and one long digit run inside a
+# substitution body (redirection strip) were the two places a rescan could hide.
+# (is_bulk_delete, not match_tier3 below: the older secret patterns are quadratic on a long word.)
+_t0 = time.monotonic()
+_og._rm_words("rm -rf " + "a" * 1000000)
+check("rm linear: one 1,000,000-character word under 2s", time.monotonic() - _t0 < 2, True)
+for _fn in (_og.is_bulk_delete, _og.match_day):
+    _t0 = time.monotonic()
+    _fn("rm -rf $(" + "1" * 200000 + ")")
+    check(f"rm linear: 200000-digit substitution body {_fn.__name__} under 2s", time.monotonic() - _t0 < 2, True)
+for _fn in (_og.match_day,):
+    _t0 = time.monotonic()
+    _fn("rm -rf" + " <" * 100000 + " x")
+    check(f"rm linear: 100000 redirection operators {_fn.__name__} under 2s", time.monotonic() - _t0 < 2, True)
+for _fn in (_og.match_tier3, _og.match_day):
+    _t0 = time.monotonic()
+    _fn("rm -rf" + " $(" * 20000)
+    check(f"rm linear: 20000 unterminated openers {_fn.__name__} under 1s", time.monotonic() - _t0 < 1, True)
 
 # --- adapt's hooks.md installs the sentinel (#420) ---------------------------
 print("\n  -- forge-adapt hooks.md: masked-exit-advisory row (#420) --")
