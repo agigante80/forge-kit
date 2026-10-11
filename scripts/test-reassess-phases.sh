@@ -966,8 +966,16 @@ unchanged "delete with a section-opening note"
 run delete Lose --to Win --reason $'Dropped.\n\n## Context' --check
 expect "--check agrees on the section-opening note" 2 "$rc"
 unchanged "delete with a section-opening note, --check"
+for kl in 'state: done' 'plan: docs/plans/x.md'; do
+  plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; snap
+  run delete Lose --to Win --reason "gone"$'\n'"$kl"
+  expect "a delete note carrying a column-0 '${kl%%:*}:' line refuses" 2 "$rc"
+  contains "column-0 '${kl%%:*}:' line" "$serr" "and names the keyed line"
+  no_move "delete with a '${kl%%:*}:' note"
+  unchanged "delete with a '${kl%%:*}:' note"
+done
 cp "$T/reassess-phases.sh" "$T/rp-keep.sh"
-grep -v "a note may not carry a line that opens" "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+grep -v '^  _rm_prose_ok "\$line"' "$T/rp-keep.sh" > "$T/reassess-phases.sh"
 if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#460: mutant: the note section refusal was not removed"
 else
   plain_roadmap; ms345; printf '[{"number":11,"milestone":"Lose"}]' > "$T/iss.json"; run delete Lose --to Win --reason $'Dropped.\n\n## Phase: Evil\nstate: planned'

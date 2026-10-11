@@ -271,10 +271,10 @@ record_note() {  # append a "- <line>" under a trailing "## Notes" section, once
   line="${line%"${line##*[!$'\n']}"}"
   haystack="$(cat "$ROADMAP" 2>/dev/null)"
   [[ $'\n'"$haystack"$'\n' == *$'\n'"- $line"$'\n'* ]] && { echo "already recorded: $line"; return 0; }
-  # A column-0 "## " line in a multi-line note would close Notes or open a phase (#460 review). Refused
-  # before the --check return, so the dry run stops a delete before any ticket moves. Exit 2, like the
-  # malformed-result refusal below, which a well-formed injected phase would otherwise pass.
-  [[ $'\n'"$line" == *$'\n''## '* ]] && die "that note would leave the roadmap malformed: a note may not carry a line that opens a '## ' section"
+  # A column-0 "## ", "state:" or "plan:" line in a multi-line note would close Notes, open a phase or
+  # rewrite the last phase's keyed lines (#460 review). The library's own prose rule decides, so no
+  # refusal condition is copied here. Exit 2, like the malformed-result refusal below.
+  _rm_prose_ok "$line" || die "that note would leave the roadmap malformed; nothing written"
   if [ "$CHECK" = 1 ]; then echo "would record: $line"; return 0; fi
   cand="$(_rm_tmp "$ROADMAP")"; [ -n "$cand" ] || die "cannot create a temp file beside '$ROADMAP'"
   cp -p "$ROADMAP" "$cand" 2>/dev/null || cp "$ROADMAP" "$cand"
