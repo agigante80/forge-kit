@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 6
+# no-poll-loops-version: 7
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -63,8 +63,13 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 # agent could not do, and "never end the turn" forbade the only correct wait. So the reason names
 # no blocking call at all and stays correct whichever way a release falls. Verified on 2.1.294: top level and a subagent get "launched in the background" and the
 # completion notification arrives (a gate run ended its turn twice with dispatches running and was
-# resumed). Not verified: a one-shot headless `claude -p` run, and whether a subagent's PARENT
-# receives a verdict if that subagent ends its turn with a child outstanding. Do not re-add a foreground instruction without re-probing.
+# resumed). #458 re-probed on 2.1.296 (2026-10-11, two sessions each). Verified: a one-shot
+# headless `claude -p` run resumes on the notification, under both text and stream-json output.
+# Not verified, REFUTED: a subagent's PARENT does not receive the verdict if that subagent ends its turn with
+# a child outstanding (the parent's Agent result is only the subagent's last text; the verdict
+# reaches the top level as a separate notification), so the end-your-turn advice below is
+# incomplete for a subagent that dispatched a child; the REASON change is #475.
+# Do not re-add a foreground instruction without re-probing.
 REASON = (
     "no-poll-loops: do not wait on a dispatched subagent in the shell. A subagent returns "
     "through the harness: its completion notification is appended to the next tool result. "

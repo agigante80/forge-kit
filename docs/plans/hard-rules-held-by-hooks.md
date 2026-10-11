@@ -98,7 +98,8 @@ Closed 2026-10-08. **Outcome: done.** Every expected ticket landed; nothing was 
 - *#433 was settled from the docs*: avoided. The fact was read from the installed binary's schema
   builder and confirmed by a probe dispatch inside a subagent. The new advice holds either way,
   since it never names a blocking call. Headless `claude -p` and a subagent ending its turn with
-  a child outstanding stay unverified, recorded in #434.
+  a child outstanding were probed in #458 (2.1.296): the first resumes, the second does not
+  deliver the verdict to the parent (follow-up #475).
 - *The overnight guard changed*: did not. The three overnight reason strings are now pinned by
   exact equality with mutants, and a differential over the old and new hook found no overnight
   regression.
