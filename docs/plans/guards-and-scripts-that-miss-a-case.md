@@ -86,6 +86,9 @@ Gate each first; a gate that needs a judgment call the overnight run cannot make
   segment is cut at the `&` of a redirection; P3). #471 (a backslash-newline joins words the guard
   reads apart; P3). #472 (an uppercase area label misses the gate's lens routing; P3). #473 and #474
   (two redirection spellings #470's review found still allowed; P3).
+- Filed inside the phase and left open for a maintainer decision: #475 (#458's probe refuted parent-side
+  delivery; the gate's round 1 needs the fix direction chosen). Filed outside the phase: #476
+  (`forge-gate-mechanics.sh` picks the template case-sensitively, found by #472's review).
 - Left in the backlog with its reason: #454 (health-check step 9 and the credential helper; a
   report-wording fix in another area, still real after #468).
 - Closed as moot after #468: #451, #452.
