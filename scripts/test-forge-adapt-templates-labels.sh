@@ -49,10 +49,15 @@ N=0
 proj() { N=$((N + 1)); P="$T/p$N"; mkdir -p "$P"; }   # sets P to a fresh empty project
 sha() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
 out=""; err=""; rc=0
+TMO=""; command -v timeout >/dev/null 2>&1 && TMO="timeout 10"   # a looping mutant is killed, not waited for
 # run [VAR=value ...]: the block in $P under a clean env.
 run() {
-  out=$(cd "$P" && env -i PATH="$T/stub:$PATH" HOME="$T/home" FORGE_KIT_DIR="${KIT:-$ROOT}" "$@" bash -c "$BLOCK" 2>"$T/err"); rc=$?
+  out=$(cd "$P" && env -i PATH="$T/stub:$PATH" HOME="$T/home" FORGE_KIT_DIR="${KIT:-$ROOT}" "$@" $TMO bash -c "$BLOCK" 2>"$T/err"); rc=$?
   err=$(cat "$T/err")
+  # #466: no scratch file may outlive a run (success, die or failed landing check). Recorded through ck,
+  # so a mutant that drops the trap is seen in QUIET mode; silent when clean to keep the report short.
+  r=$(find "$P" \( -name '.*.??????' \) 2>/dev/null)
+  [ -z "$r" ] || ck "no scratch residue after a run: $r" "" "$r"
 }
 names() { awk '/^### Area labels/{i=1;next} i&&/^##?#? /{exit} i&&/^[ \t]*\|[ \t]*`/{sub(/^[ \t]*\|[ \t]*`/,"");sub(/[ \t]*`.*/,"");printf "%s ", $0}' "$1" | sed 's/ $//'; }
 # mech <labels> <doc>: the gate's own labels row, "<status>\t<evidence>".
@@ -332,6 +337,92 @@ sc_case() {  # #465: uppercase area names are valid, and the fixed-name and dupl
   proj; run LABEL_AREAS="a:b" FORGE_HOST=github
   ck "a bad character names the rule that failed" yes "$(has 'letters, digits' "$err")"
 }
+sc_tmpfile() {  # #466: outputs are published through their symlinks, beside the real target, never via a .tmp name
+  local tbl='# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `api` | Our API |\n' S old
+  old=$(umask)
+  # absolute and relative links to a 0640 doc
+  for kind in abs rel; do
+    proj; mkdir -p "$P/real" "$P/docs/guides"; printf "$tbl" > "$P/real/labels.md"; chmod 640 "$P/real/labels.md"
+    if [ $kind = abs ]; then ln -s "$P/real/labels.md" "$P/docs/guides/labels.md"; else ln -s ../../real/labels.md "$P/docs/guides/labels.md"; fi
+    run LABEL_AREAS="api web" FORGE_HOST=github LABELS_MERGE=yes
+    ck "$kind symlink merge: exit 0" 0 "$rc"
+    ck "$kind symlink merge: the path is still a symlink" yes "$([ -L "$P/docs/guides/labels.md" ] && echo yes || echo no)"
+    ck "$kind symlink merge: the target gained the row" "api web" "$(names "$P/real/labels.md")"
+    ck "$kind symlink merge: the target keeps mode 640" "$P/real/labels.md" "$(find "$P/real/labels.md" -perm 640)"
+    ck "$kind symlink merge: real/ holds nothing else" "labels.md" "$(ls -A "$P/real")"
+  done
+  # an unlandable merge on a symlinked doc changes nothing
+  proj; mkdir -p "$P/real" "$P/docs/guides"; printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| api | Our API |\n' > "$P/real/labels.md"
+  ln -s "$P/real/labels.md" "$P/docs/guides/labels.md"; S=$(sha "$P/real/labels.md")
+  run LABEL_AREAS="api" FORGE_HOST=github LABELS_MERGE=yes
+  ck "unlandable symlink merge: exit 1" 1 "$rc"
+  ck "unlandable symlink merge: says it did not land" yes "$(has 'merge did not land in the Area labels table' "$err")"
+  ck "unlandable symlink merge: still a symlink" yes "$([ -L "$P/docs/guides/labels.md" ] && echo yes || echo no)"
+  ck "unlandable symlink merge: target unchanged" "$S" "$(sha "$P/real/labels.md")"
+  ck "unlandable symlink merge: real/ holds nothing else" "labels.md" "$(ls -A "$P/real")"
+  # a user's .tmp siblings are never read, written or removed
+  proj; mk_old_doc; mkdir -p "$P/.github"; echo "MY NOTES" > "$P/docs/guides/labels.md.tmp"; echo "MY NOTES" > "$P/.github/labels.yml.tmp"
+  run LABEL_AREAS="api web" FORGE_HOST=github LABELS_MERGE=yes
+  ck "user .tmp files: exit 0" 0 "$rc"
+  ck "user .tmp files: labels.md.tmp untouched" "MY NOTES" "$(cat "$P/docs/guides/labels.md.tmp")"
+  ck "user .tmp files: labels.yml.tmp untouched" "MY NOTES" "$(cat "$P/.github/labels.yml.tmp")"
+  ck "user .tmp files: the row is merged" "api web" "$(names "$P/docs/guides/labels.md")"
+  ck "user .tmp files: the declaration is written" yes "$([ -f "$P/.github/labels.yml" ] && echo yes || echo no)"
+  proj; mkdir -p "$P/docs/guides" "$P/.github"; echo "MY NOTES" > "$P/docs/guides/labels.md.tmp"; echo "MY NOTES" > "$P/.github/labels.yml.tmp"
+  run LABEL_AREAS="api" FORGE_HOST=github
+  ck "user .tmp files on an absent-doc install: both untouched" "MY NOTES MY NOTES" "$(cat "$P/docs/guides/labels.md.tmp" "$P/.github/labels.yml.tmp" | tr '\n' ' ' | sed 's/ $//')"
+  # a dangling link is refused before anything is created
+  proj; mkdir -p "$P/docs/guides"; ln -s nodir/labels.md "$P/docs/guides/labels.md"
+  run LABEL_AREAS="api" FORGE_HOST=github
+  ck "dangling doc link: exit 1" 1 "$rc"
+  ck "dangling doc link: the exact message" "forge-adapt: docs/guides/labels.md is a dangling symlink (its target directory does not exist): nothing written" "$(printf '%s\n' "$err" | tail -n 1)"
+  ck "dangling doc link: the link is unchanged" nodir/labels.md "$(readlink "$P/docs/guides/labels.md")"
+  ck "dangling doc link: no .github, no declaration" no "$([ -e "$P/.github" ] && echo yes || echo no)"
+  # a doc linked to an ABSENT file in an existing directory is created through the link
+  proj; mkdir -p "$P/real" "$P/docs/guides"; ln -s "$P/real/labels.md" "$P/docs/guides/labels.md"
+  run LABEL_AREAS="api" FORGE_HOST=github
+  ck "doc link to an absent file: exit 0" 0 "$rc"
+  ck "doc link to an absent file: still a symlink" yes "$([ -L "$P/docs/guides/labels.md" ] && echo yes || echo no)"
+  ck "doc link to an absent file: the target holds the table" api "$(names "$P/real/labels.md")"
+  # a read-only doc (0444) is still merged and keeps its mode (skipped as root, which ignores modes)
+  if [ "$(id -u)" != 0 ]; then
+    proj; mk_old_doc; chmod 444 "$P/docs/guides/labels.md"
+    run LABEL_AREAS="api web" FORGE_HOST=github LABELS_MERGE=yes
+    ck "read-only doc: exit 0" 0 "$rc"
+    ck "read-only doc: the row is merged" "api web" "$(names "$P/docs/guides/labels.md")"
+    ck "read-only doc: still mode 444" "$P/docs/guides/labels.md" "$(find "$P/docs/guides/labels.md" -perm 444)"
+    # an unreadable doc (0200) is refused, not wiped down to the new table (round 2 review)
+    proj; mk_old_doc; S=$(cat "$P/docs/guides/labels.md"); chmod 200 "$P/docs/guides/labels.md"
+    run LABEL_AREAS="api web" FORGE_HOST=github LABELS_MERGE=yes
+    ck "unreadable doc: exit 1" 1 "$rc"
+    chmod 600 "$P/docs/guides/labels.md"
+    ck "unreadable doc: byte-identical" "$S" "$(cat "$P/docs/guides/labels.md")"
+  fi
+  # a link loop is refused (run under timeout, so a capless resolver is killed, exit 124)
+  proj; mkdir -p "$P/docs/guides"; ln -s loop.md "$P/docs/guides/labels.md"; ln -s labels.md "$P/docs/guides/loop.md"
+  run LABEL_AREAS="api" FORGE_HOST=github   # without timeout(1) a capless mutant would hang, but the real block cannot
+  ck "link loop: exit 1" 1 "$rc"
+  ck "link loop: the exact message" "forge-adapt: docs/guides/labels.md is a symlink loop: nothing written" "$(printf '%s\n' "$err" | tail -n 1)"
+  ck "link loop: both links unchanged" "loop.md labels.md" "$(readlink "$P/docs/guides/labels.md") $(readlink "$P/docs/guides/loop.md")"
+  # a declaration linked to an ABSENT file in an existing directory is written through (a link to an
+  # existing one is report-only, as before), at the umask mode
+  proj; mkdir -p "$P/.github" "$P/other"; ln -s "$P/other/labels.yml" "$P/.github/labels.yml"
+  umask 022; run LABEL_AREAS="api" FORGE_HOST=github; umask "$old"
+  ck "declaration link: exit 0" 0 "$rc"
+  ck "declaration link: still a symlink" yes "$([ -L "$P/.github/labels.yml" ] && echo yes || echo no)"
+  ck "declaration link: the target now declares api" yes "$(has '- name: api' "$(cat "$P/other/labels.yml" 2>/dev/null)")"
+  ck "declaration link: the target is created at the umask mode" "$P/other/labels.yml" "$(find "$P/other/labels.yml" -perm 644 2>/dev/null)"
+  ck "declaration link: the second directory holds nothing else" "labels.yml" "$(ls -A "$P/other")"
+  # a NEW doc and a NEW declaration get the umask default, not mktemp's 0600
+  proj; umask 022; run LABEL_AREAS="api" FORGE_HOST=github; umask "$old"
+  ck "new files under umask 022: both are mode 644" "2" "$(find "$P/docs/guides/labels.md" "$P/.github/labels.yml" -perm 644 | wc -l | tr -d ' ')"
+  # both outputs are resolved before the first write
+  proj; mkdir -p "$P/.github"; ln -s nodir/labels.yml "$P/.github/labels.yml"
+  run LABEL_AREAS="api" FORGE_HOST=github
+  ck "dangling declaration, absent doc: exit 1" 1 "$rc"
+  ck "dangling declaration: the message names .github/labels.yml" "forge-adapt: .github/labels.yml is a dangling symlink (its target directory does not exist): nothing written" "$(printf '%s\n' "$err" | tail -n 1)"
+  ck "dangling declaration: the doc and docs/guides were not created" no "$([ -e "$P/docs" ] && echo yes || echo no)"
+}
 sc_notemplates() {  # the labels step has no dependency on versioned issue templates
   proj; mkdir -p "$P/.github/ISSUE_TEMPLATE"; printf 'name: Feature\nbody: []\n' > "$P/.github/ISSUE_TEMPLATE/feature.yml"
   run LABEL_AREAS="api" FORGE_HOST=github
@@ -349,6 +440,7 @@ echo "== no versioned templates needed =="; sc_notemplates
 echo "== review round 1 fixtures =="; sc_round1
 echo "== #424 fixtures =="; sc_round2
 echo "== #465 fixtures =="; sc_case
+echo "== #466 fixtures =="; sc_tmpfile
 
 echo "== the kit's own doc carries the markers the installer drops =="
 KD=$(cat "$ROOT/docs/guides/labels.md")
@@ -403,14 +495,26 @@ mutant "a doc name is word-split again (a spaced name becomes two)" 's/while IFS
 mutant "the 100-character cap is removed" 's/^  \[ "\${#1}" -le 100 \]$/  :/' sc_round2
 mutant "the description lookup is a regex again" 's/awk .index(\$0, ENVIRON\["N"\] "=") == 1 {/awk '"'"'$0 ~ "^" ENVIRON["N"] "=" {/' sc_round2
 mutant "the merge awk never leaves the Area table" '/^        a && \/\^##\/ { a = 0 }$/d' sc_round1
-mutant "the merge landing check is skipped" 's/got=\$(area_names "\$DOC.tmp")/got="$missing"/' sc_round1
+mutant "the merge landing check is skipped" 's/got=\$(area_names "\$scratch")/got="$missing"/' sc_round1
 mutant "the create path never leaves the Area table" '/^    area && \/\^##\/ { area = 0 }$/d' sc_round1
-mutant "a failed doc write is swallowed" 's/ || die "could not write \$DOC"//' sc_round1
+mutant "a failed doc write is swallowed" 's/ || die "could not write \$DOC"//g;s/ || die "cannot create a temporary file beside \$1"//' sc_round1
 mutant "a failed script copy is swallowed" 's/ || die "could not copy scripts\/forge-lib.sh"//' sc_round1
 mutant "a colon is allowed in a description" 's/\[!A-Za-z0-9\\ ,\./[!A-Za-z0-9\\:\\ ,./' sc_round1
 mutant "a hash is allowed in a description" 's/\[!A-Za-z0-9\\ ,\./[!A-Za-z0-9\\#\\ ,./' sc_round1
 mutant "the declaration match is a substring" 's/grep -qxF -- "- name: \$2"/grep -qF -- "- name: $2"/' sc_round1
 mutant "critical is no longer a fixed name" 's/ testing p0 p1 p2 p3 critical contribution/ testing p0 p1 p2 p3 contribution/' sc_round1
+mutant "the trap that removes the scratch file is deleted" '/^trap /d' sc_tmpfile
+mutant "the doc publishes over the link path, not the resolved target" 's/publish "\$DOCF"/publish "$DOC"/' sc_tmpfile
+mutant "the create path publishes over the link path" '/^  newscratch "\$DOCF"$/,/^  . "\$KDOC"/s/publish "\$DOCF"/publish "$DOC"/' sc_tmpfile
+mutant "a failed read of the target is ignored" 's/ || die "cannot read \$1: nothing written"//' sc_tmpfile
+mutant "a read-only target is not made writable while composing" '/^    \[ -w "\$scratch" \]/d' sc_tmpfile
+mutant "a relative link is resolved as if absolute" 's|\*) d=\${p%/\*}; \[ "\$d" = "\$p" \] \&\& d=\.; p="\$d/\$l" ;; esac|*) p="$l" ;; esac|' sc_tmpfile
+mutant "the merge composes into a fixed DOC.tmp again" 's/ > "\$scratch" || die "could not write \$DOC"/ > "$DOC.tmp" || die "could not write $DOC"/' sc_tmpfile
+mutant "the dangling-link check is deleted" '/^  \[ "\$hops" -eq 0 \] || \[ -d "\$d" \] || die /d' sc_tmpfile
+mutant "the declaration publishes over the link path" 's/publish "\$DECLF"/publish "$hdir\/labels.yml"/' sc_tmpfile
+mutant "the new-file chmod step is deleted" '/^  else chmod /d' sc_tmpfile
+mutant "the 40-hop cap is removed" 's/ \[ "\$hops" -le 40 \] || die "\$1 is a symlink loop: nothing written"/ :/' sc_tmpfile
+mutant "the declaration is resolved after the doc is written" 's/^if \[ -z "\$decl" \]; then resolve .*$/:/;s/^  newscratch "\$DECLF"$/  resolve "$hdir\/labels.yml"; DECLF="$RESOLVED"; newscratch "$DECLF"/' sc_tmpfile
 
 echo ""
 echo "forge-adapt templates labels tests: $pass passed, $fail failed"

@@ -38,6 +38,38 @@ for f in "$KDOC" "$KYML" "$KSH/sync-labels.sh" "$KSH/forge-lib.sh"; do
   [ -f "$f" ] || die "library file missing: $f (refresh the library as in S2 and retry)"
 done
 DOC=docs/guides/labels.md
+# Every output is composed into a scratch file BESIDE its real (symlink-resolved) target and renamed
+# over it (#466): a symlink survives, the target keeps its mode, a failed write leaves the original
+# intact, and no predictable name (a user's own .tmp file) is ever touched. The trap is set before
+# the first mktemp and runs on every exit, including die.
+scratch=""
+trap 'rm -f "$scratch"' EXIT
+resolve() {  # resolve <path>: sets RESOLVED to the file a symlink chain ends at (no readlink -f: bash 3.2, BSD)
+  local p="$1" hops=0 l d
+  while [ -L "$p" ]; do
+    hops=$((hops + 1)); [ "$hops" -le 40 ] || die "$1 is a symlink loop: nothing written"
+    l=$(readlink "$p") || die "cannot read the symlink $1: nothing written"
+    case "$l" in /*) p="$l" ;; *) d=${p%/*}; [ "$d" = "$p" ] && d=.; p="$d/$l" ;; esac
+  done
+  d=${p%/*}; [ "$d" = "$p" ] && d=.; [ -n "$d" ] || d=/
+  [ "$hops" -eq 0 ] || [ -d "$d" ] || die "$1 is a dangling symlink (its target directory does not exist): nothing written"
+  RESOLVED="$p"
+}
+newscratch() {  # newscratch <final target>: sets scratch to a new file beside it, carrying its mode
+  local d=${1%/*} b=${1##*/}
+  [ "$d" != "$1" ] || d=.; [ -n "$d" ] || d=/
+  scratch=$(mktemp "$d/.$b.XXXXXX") || die "cannot create a temporary file beside $1"
+  ro=""
+  if [ -e "$1" ]; then   # an existing target: its mode (compose with >, which keeps it)
+    cp -p "$1" "$scratch" || die "cannot read $1: nothing written"   # unchecked, a failed cat below would wipe it
+    [ -w "$scratch" ] || { chmod u+w "$scratch"; ro=1; }   # a read-only target: writable while composing, restored by publish
+  else chmod "$(printf '%o' $(( 0666 & ~$(umask) )))" "$scratch"   # a new one: mktemp made 0600, mv would keep it
+  fi
+}
+publish() {  # publish <final target>: rename the scratch file over it, restoring a read-only mode first
+  [ -z "$ro" ] || chmod u-w "$scratch"
+  mv -f "$scratch" "$1"   # -f: without it mv asks before replacing a read-only file in a terminal
+}
 
 # 1. Validate every name and description (allow-list) before anything is written.
 fixed=" bug enhancement feature security infrastructure design documentation testing p0 p1 p2 p3 critical contribution "
@@ -92,9 +124,15 @@ $(area_names "$DOC")
 EOF_NAMES
 fi
 
+# Resolve BOTH outputs before anything is written, so a refused link leaves nothing behind.
+decl=""; for d in .github .forgejo .gitea; do [ -f "$d/labels.yml" ] && { decl="$d/labels.yml"; break; }; done
+resolve "$DOC"; DOCF="$RESOLVED"
+if [ -z "$decl" ]; then resolve "$hdir/labels.yml"; DECLF="$RESOLVED"; fi
+
 # 2. docs/guides/labels.md: absent -> written; present -> never clobbered.
 if [ ! -f "$DOC" ]; then
   mkdir -p docs/guides || die "cannot create docs/guides"
+  newscratch "$DOCF"
   # forge-kit-only paragraphs become the adapt-dropped tombstone; the Area rows become the user's.
   ROWS="$(table_rows ${LABEL_AREAS})" awk '
     function flush() { print "<!-- adapt-dropped: forge-kit-only -->"; print ""; drop = 0 }
@@ -105,7 +143,7 @@ if [ ! -f "$DOC" ]; then
     area && /^##/ { area = 0 }
     { print }
     END { if (drop) flush() }
-  ' "$KDOC" > "$DOC.tmp" && mv "$DOC.tmp" "$DOC" || die "could not write $DOC"
+  ' "$KDOC" > "$scratch" && publish "$DOCF" || die "could not write $DOC"
   echo "labels.md: written to $DOC ($n areas)"
 else
   have=$(area_names "$DOC"); missing=""
@@ -114,6 +152,7 @@ else
   if [ -z "$missing" ]; then
     echo "labels.md: $DOC left unchanged (its Area labels table already lists every confirmed area)"
   elif [ "$merge" = yes ]; then
+    newscratch "$DOCF"
     if grep -q '^### Area labels' "$DOC"; then
       ROWS="$(table_rows $missing)" awk '
         /^### Area labels/ { a = 1; line[NR] = $0; next }
@@ -121,14 +160,14 @@ else
         a && /^\|[ \t]*`/ { last = NR }
         { line[NR] = $0 }
         END { for (i = 1; i <= NR; i++) { print line[i]; if (i == last) print ENVIRON["ROWS"] } }
-      ' "$DOC" > "$DOC.tmp" || die "could not write $DOC"
+      ' "$DOC" > "$scratch" || die "could not write $DOC"
     else
-      { cat "$DOC"; printf '\n### Area labels\n| Label | Description | Triggers |\n|---|---|---|\n'; table_rows $missing; } > "$DOC.tmp" || die "could not write $DOC"
+      { cat "$DOC"; printf '\n### Area labels\n| Label | Description | Triggers |\n|---|---|---|\n'; table_rows $missing; } > "$scratch" || die "could not write $DOC"
     fi
     # The rows must have landed in the table the gate reads; else leave the doc untouched.
-    got=$(area_names "$DOC.tmp")
-    for a in $missing; do printf '%s\n' "$got" | grep -qxF -- "$a" || { rm -f "$DOC.tmp"; die "merge did not land in the Area labels table of $DOC (left unchanged): add $a by hand"; }; done
-    mv "$DOC.tmp" "$DOC" || die "could not write $DOC"
+    got=$(area_names "$scratch")
+    for a in $missing; do printf '%s\n' "$got" | grep -qxF -- "$a" || die "merge did not land in the Area labels table of $DOC (left unchanged): add $a by hand"; done
+    publish "$DOCF" || die "could not write $DOC"
     echo "labels.md: merged these Area labels rows into $DOC: $missing"
   elif [ "$merge" = no ]; then
     echo "labels.md: $DOC left unchanged (merge declined)"
@@ -138,8 +177,7 @@ else
   fi
 fi
 
-# 3. The declaration: any of the three present -> untouched, only REPORT; else write it for the host.
-decl=""; for d in .github .forgejo .gitea; do [ -f "$d/labels.yml" ] && { decl="$d/labels.yml"; break; }; done
+# 3. The declaration (found above): any of the three present -> untouched, only REPORT; else write it for the host.
 areas=$(area_names "$DOC"); [ -n "$areas" ] || areas="$LABEL_AREAS"
 if [ -n "$decl" ]; then
   miss=""; for a in $areas; do declares "$decl" "$a" || miss="$miss $a"; done
@@ -147,6 +185,7 @@ if [ -n "$decl" ]; then
   else echo "labels.yml: $decl declares every area"; fi
 else
   mkdir -p "$hdir" || die "cannot create $hdir"
+  newscratch "$DECLF"
   {
     # The kit's type, priority and critical entries verbatim; never its areas or `contribution`.
     KEEP=" bug enhancement feature security infrastructure design documentation testing P0 P1 P2 P3 critical " awk '
@@ -161,7 +200,7 @@ else
         printf -- '- name: %s\n  color: "ededed"\n  description: %s\n\n' "$a" "$(desc_for "$a" "$DOC")"
       fi
     done
-  } > "$hdir/labels.yml.tmp" && mv "$hdir/labels.yml.tmp" "$hdir/labels.yml" || die "could not write $hdir/labels.yml"
+  } > "$scratch" && publish "$DECLF" || die "could not write $hdir/labels.yml"
   echo "labels.yml: written to $hdir/labels.yml"
 fi
 
@@ -191,6 +230,15 @@ echo "Run: bash scripts/sync-labels.sh --check"
   plus one entry per area, and never `contribution`.
 - **`scripts/sync-labels.sh` and `scripts/forge-lib.sh`**: copied only when absent, together, never
   run. On Forgejo with `forge-lib.sh` newly copied, finish through the Step 3 item 4 `.forge.conf` flow.
+- **Publishing** (all three outputs): each is composed into a `mktemp` file beside its REAL target (a
+  symlink is followed with a `readlink` loop, 40 hops, no `readlink -f`) and renamed over it. A
+  symlinked `labels.md` stays a symlink and its target gains the content at its own mode; a new file
+  gets the umask default (`mktemp` makes 0600, so the block sets the mode); a failed write or merge
+  leaves the original byte-identical; no `.tmp` sibling of a project file is read or removed; no
+  scratch file survives a run. A `labels.yml` linked to an existing file is still report-only.
+- **Read-only target**: a `labels.md` at mode 0444 is merged like any other, and keeps 0444.
+- **Link refusals** (exit 1, before anything is created, for both outputs): a dangling link (its
+  target directory does not exist) and a link loop, each named by path.
 - **Refusals** (exit 1, nothing written): a description outside the allow-list, over 100 characters (GitHub's cap) or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[A-Za-z0-9][A-Za-z0-9._-]*$` (uppercase is allowed; the message names the rule), a duplicate, or
   a type, priority or special label name, the last two compared without regard to case (`API` beside `api`, `P0`, `Bug`).
 
