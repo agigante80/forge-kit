@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 28
+# check-private-leaks-version: 29
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -731,7 +731,12 @@ for f in "${FILES[@]}"; do
   # ONE grep per file per list, matching every name at once from a pattern file, rather than one
   # grep per (file x name). At ten names and five thousand files the old shape was fifty thousand
   # process spawns on every push, in a component shipped into other people's repositories. The
-  # substring grep stays unpinned (pinning it would make a non-ASCII name miss its other case); the
+  # substring grep stays unpinned (pinning it would make a non-ASCII name miss its other case) but
+  # reads with -a (#456): under a UTF-8 caller GNU grep otherwise treats a match whose bytes are
+  # invalid UTF-8 (a Windows-1252 or Latin-1 name) as binary, prints "binary file matches" instead of
+  # the line, and the name is never reported. The -Iq skip above only sees the first matching line, so
+  # a file with a NUL later on is now scanned past it (before, grep stopped at that buffer): the safer
+  # direction for a leak guard, and the whole-word grep below still stops there. The
   # whole-word grep (#222) runs only when there are tokens, under LC_ALL=C so its boundaries are the
   # ASCII set the list loop enforces.
   while IFS= read -r g; do
@@ -741,7 +746,7 @@ for f in "${FILES[@]}"; do
     printf '%s:%s: private-name: %s\n' "$f" "${g%%:*}" "$shown"
     violations=$((violations + 1))
   done < <(
-    [ -s "$PATFILE" ] && grep -noiF -f "$PATFILE" 2>/dev/null < "$scanfile"
+    [ -s "$PATFILE" ] && grep -anoiF -f "$PATFILE" 2>/dev/null < "$scanfile"
     [ -s "$WORDFILE" ] && LC_ALL=C grep -noiFw -f "$WORDFILE" 2>/dev/null < "$scanfile"
   )
 done

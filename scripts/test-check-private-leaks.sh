@@ -596,10 +596,13 @@ for L in $locs; do
   expect "--history cuts a 4-byte character name at a character under $L" "1|$EMO$EMO**|$EMO$EMO**/n.md" "$(hrow416 "$SCRIPT" "$L" "$EMO$EMO${EMO}x")"
 done
 # Malformed names (#439). The awk redact is the reference: --history rows in every locale, then the
-# bash copy through tree mode, in the C locale only. Under a UTF-8 locale GNU grep reports a file
-# holding invalid UTF-8 as "binary file matches" and tree mode prints no row at all (`0|`); that is
-# a separate defect (#456), so these tree rows are scoped to C rather than pinning it.
+# bash copy through tree mode, also in every locale. Tree mode reads the file with `grep -a` (#456):
+# without it a UTF-8 caller's GNU grep reports a file holding invalid UTF-8 as "binary file matches"
+# and prints no row at all (`0|`), so these rows are the regression pin for that flag.
 M439A=$'\x80abc'; M439B=$'\x80\x80abcd'; M439C=$'a\x80\x80\x80\x80\x80bcd'
+R456=$'\x8eI\x9ee*'   # two whole characters then the mask, as the C locale prints it (\x8e, then I\x9e glued, e kept, k masked)
+printf '%s\n' $'\x8eI\x9eek' > "$WORK/t456-l"; printf 'by %s.\n' $'\x8eI\x9eek' > "$WORK/t456-s.txt"
+printf '%s\n' $'JOS\xc3\x89-proj' > "$WORK/t456-jl"; printf 'see %s\n' $'jos\xc3\xa9-proj' > "$WORK/t456-js.txt"
 i=0
 for nm in "$M439A" "$M439B" "$M439C"; do
   i=$((i + 1)); printf '%s\n' "$nm" > "$WORK/t439-l$i"; printf 'see %s here\n' "$nm" > "$WORK/t439-s$i.txt"
@@ -609,9 +612,25 @@ for L in $locs; do
   expect "--history keeps two leading continuation bytes under $L (awk reference)" "1|$R439B|$R439B/n.md" "$(hrow416 "$SCRIPT" "$L" "$M439B")"
   expect "--history keeps a run of five continuation bytes under $L (awk reference)" "1|$R439C|$R439C/n.md" "$(hrow416 "$SCRIPT" "$L" "$M439C")"
 done
-expect "tree mode keeps a leading continuation byte and two characters (C)" "1|$R439A" "$(row416 "$SCRIPT" C "$WORK/t439-l1" "$WORK/t439-s1.txt")"
-expect "tree mode keeps two leading continuation bytes (C)" "1|$R439B" "$(row416 "$SCRIPT" C "$WORK/t439-l2" "$WORK/t439-s2.txt")"
-expect "tree mode keeps a run of five continuation bytes and the next character (C)" "1|$R439C" "$(row416 "$SCRIPT" C "$WORK/t439-l3" "$WORK/t439-s3.txt")"
+for L in $locs; do
+  expect "tree mode keeps a leading continuation byte and two characters under $L" "1|$R439A" "$(row416 "$SCRIPT" "$L" "$WORK/t439-l1" "$WORK/t439-s1.txt")"
+  expect "tree mode keeps two leading continuation bytes under $L" "1|$R439B" "$(row416 "$SCRIPT" "$L" "$WORK/t439-l2" "$WORK/t439-s2.txt")"
+  expect "tree mode keeps a run of five continuation bytes and the next character under $L" "1|$R439C" "$(row416 "$SCRIPT" "$L" "$WORK/t439-l3" "$WORK/t439-s3.txt")"
+  expect "a Windows-1252 name in a Windows-1252 file is found, redacted, under $L (#456)" "1|$R456" "$(row416 "$SCRIPT" "$L" "$WORK/t456-l" "$WORK/t456-s.txt")"
+done
+# Neighbouring behaviour -a must not change by accident (#456): an ASCII name in a Latin-1 file was
+# always found, and a NUL after the first matching line is now scanned past (the safer direction).
+printf 'secretproj\n' > "$WORK/t456-al"; printf 'caf\xe9 secretproj here\n' > "$WORK/t456-as.txt"
+{ head -c 200000 /dev/zero | tr '\0' 'x' | fold -w 80; printf '\nbin\0data\nsecretproj late\n'; } > "$WORK/t456-late.bin.txt"
+for L in $locs; do
+  expect "an ASCII name in a Latin-1 file is found under $L (#456)" "1|se********" "$(row416 "$SCRIPT" "$L" "$WORK/t456-al" "$WORK/t456-as.txt")"
+  expect "a name after a late NUL byte is reported under $L (#456, accepted side effect of -a)" "1|se********" "$(row416 "$SCRIPT" "$L" "$WORK/t456-al" "$WORK/t456-late.bin.txt")"
+done
+# Non-ASCII case folding is why the substring grep is not pinned to C (#456): JOSE-acute listed upper
+# case matches the same name in lower case under a UTF-8 locale, and under C it cannot.
+if [ -n "$utf8loc" ]; then
+  expect "a non-ASCII listed name matches its other case under $utf8loc (#456)" "1|jo*******" "$(row416 "$SCRIPT" "$utf8loc" "$WORK/t456-jl" "$WORK/t456-js.txt")"
+fi
 if command -v iconv >/dev/null 2>&1; then
   for L in $locs; do
     LC_ALL=$L "$SCRIPT" --list "$WORK/t416-list" "$WORK/t416-s.txt" > "$WORK/t416-out" 2>&1
@@ -632,9 +651,9 @@ sig416() {  # sig416 <script>: all the rows above, every locale, on one line
   local L s=""
   for L in $locs; do
     s="$s $(row416 "$1" "$L" "$WORK/t416-short" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-list" "$WORK/t416-s.txt") $(hrow416 "$1" "$L") $(hrow416 "$1" "$L" "$YY$YY${YY}a") $(hrow416 "$1" "$L" "$EMO$EMO${EMO}x") $(row416 "$1" "$L" "$WORK/t416-yy2" "$WORK/t416-s.txt") $(row416 "$1" "$L" "$WORK/t416-yy4" "$WORK/t416-yys.txt") $(hrow416 "$1" "$L" "$M439A") $(hrow416 "$1" "$L" "$M439B") $(hrow416 "$1" "$L" "$M439C")"
+    # tree-mode malformed and Windows-1252 rows, and the case-folding row (#456)
+    s="$s $(row416 "$1" "$L" "$WORK/t439-l1" "$WORK/t439-s1.txt") $(row416 "$1" "$L" "$WORK/t439-l2" "$WORK/t439-s2.txt") $(row416 "$1" "$L" "$WORK/t439-l3" "$WORK/t439-s3.txt") $(row416 "$1" "$L" "$WORK/t456-l" "$WORK/t456-s.txt") $(row416 "$1" "$L" "$WORK/t456-jl" "$WORK/t456-js.txt")"
   done
-  # The tree-mode malformed rows are C only (#456: a UTF-8 locale prints `0|` there, whatever the redact does)
-  s="$s $(row416 "$1" C "$WORK/t439-l1" "$WORK/t439-s1.txt") $(row416 "$1" C "$WORK/t439-l2" "$WORK/t439-s2.txt") $(row416 "$1" C "$WORK/t439-l3" "$WORK/t439-s3.txt")"
   printf '%s' "$s"
 }
 GOOD416="$(sig416 "$SCRIPT")"
@@ -656,6 +675,12 @@ if [ -n "$utf8loc" ]; then
   m416 tr-pin "an unpinned tr" 's/| LC_ALL=C tr -d/| tr -d/' "$SHIM416"
 else
   ok "(skipped, no UTF-8 locale: the stub tr cannot tell a pinned tr from an unpinned one under C alone)"
+fi
+if [ -n "$utf8loc" ]; then
+  m416 grep-a "dropping -a from the tree substring grep (#456)" 's/grep -anoiF -f "\$PATFILE"/grep -noiF -f "$PATFILE"/'
+  m416 grep-c-pin "pinning the tree substring grep to C, which loses non-ASCII case folding (#456)" 's/grep -anoiF -f "\$PATFILE"/LC_ALL=C grep -anoiF -f "$PATFILE"/'
+else
+  ok "(skipped, no UTF-8 locale: the -a and C-pin mutants only differ under a UTF-8 caller, #456)"
 fi
 m416 awk-lo "an awk range starting above 0x80" 's|b >= "\\200" \&\& b <= "\\277"|b > "\\200" \&\& b <= "\\277"|'
 m416 awk-hi "an awk range ending below 0xBF" 's|b >= "\\200" \&\& b <= "\\277"|b >= "\\200" \&\& b <= "\\276"|'
