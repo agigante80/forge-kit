@@ -140,7 +140,11 @@ String matching also stays evadable (`d=$PWD; rm -rf "$d"`).
 Git global options are tolerated between `git` and the subcommand (#457): `git -C sub reset --hard`,
 `git -c k=v checkout .`, `git --no-pager stash drop` and `git -C "my dir" reset --hard` are denied
 exactly like the bare forms, and `git -c reset.hard=1 status` stays allowed because an option value
-is never read as the subcommand. The one gap this leaves is a deliberate one: an alias defined
+is never read as the subcommand. A run of more than 32 global options is denied in both arms (#469),
+because the scan is bounded at 32 to stay linear and the subcommand beyond the bound is out of
+sight; the reason says the command is too long to judge rather than calling it destructive, and a
+harmless 33-option command is denied too. Up to 32 options the subcommand decides, as before. The
+one gap this leaves is a deliberate one: an alias defined
 inline (`git -c alias.x='reset --hard' x`, or `--config-env` pointing at one) runs a destructive
 command under another name, and the guard does not defend against evasion.
 

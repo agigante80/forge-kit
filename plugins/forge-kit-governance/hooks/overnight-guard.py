@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 11
+# overnight-guard-version: 12
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -33,7 +33,8 @@ Known gap: a bare "git checkout <file>" (discarding one file without "--") is
 not caught, because a regex cannot tell it apart from "git checkout <branch>";
 the modern "git restore <file>" form is caught broadly.
 
-Known gap (#457): git global options are tolerated before the subcommand (GIT_PREFIX below), but
+Past 32 global options the git command is denied outright (#469, too long to judge). Known gap
+(#457): git global options up to that cap are tolerated before the subcommand (GIT_PREFIX below), but
 an alias defined inline, `git -c alias.x='reset --hard' x`, or `--config-env` pointing at an
 alias, runs a destructive command under an arbitrary name. That is deliberate evasion, which this
 guard does not defend against; it is not a bypass to file.
@@ -99,12 +100,18 @@ def deny(reason):
 # quoted piece. (2) Retries: every `git` token is a fresh start, and `git -c git -c git -c ... x`
 # makes each start walk the rest of the chain, which is quadratic and was measured at 55 s for
 # 3200 pairs. The repeat is therefore bounded at GIT_PREFIX_MAX options, which makes the whole scan
-# linear in the input (3200 pairs now take about 0.6 s). More options than that before the
-# subcommand is deliberate evasion and is allowed, the same class as the inline-alias gap in the
-# docstring. A substitution body is bounded at 200 characters for the same reason: an unbounded
-# `$(` scans to the line end from every start (16 s at 6000 `git -c $(` starts), and a longer body is
-# allowed, the same evasion class. test-hooks.py times four 200-token shapes (one ambiguity each) and an 800-pair retry
-# shape against both matchers.
+# linear in the input (3200 pairs now take about 0.6 s). A run past the cap is DENIED (#469), not
+# allowed: the guard cannot see the subcommand, so it fails closed at the bound it chose itself.
+# That reverses the earlier "deliberate evasion, allowed" call (#457), which left a destructive
+# subcommand behind 33 global options open on both arms; the cost is that a harmless 33-option
+# command is denied too, which no real user types. GIT_CAP_PATTERN is the same chain with the
+# repeat fixed at GIT_PREFIX_MAX + 1 and no trailing subcommand, so it stays linear (3200 pairs
+# under 0.01 s: the leading chain matches and the scan stops).
+# A substitution body is bounded at 200 characters for the same reason: an unbounded `$(` scans to
+# the line end from every start (16 s at 6000 `git -c $(` starts). A longer body is still allowed,
+# a SEPARATE accepted gap that #469 did not close (the cap counts options, not value length).
+# test-hooks.py times four 200-token shapes (one ambiguity each) and an 800-pair retry shape
+# against both matchers.
 GIT_PREFIX_MAX = 32
 _GIT_ARG_OPT = r"(?:-C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source)"
 _GIT_PIECE = (r"""(?:[^\s|;&"'\\$`]"""            # a bare character
@@ -112,11 +119,19 @@ _GIT_PIECE = (r"""(?:[^\s|;&"'\\$`]"""            # a bare character
               r"""|\$(?!\()"""                     # `$HOME`, not the start of a substitution
               r"""|\$\([^)\n]{0,200}\)|`[^`\n]{0,200}`"""      # `$(git rev-parse --show-toplevel)`
               r"""|"(?:[^"\\\n]|\\.)*"|'[^'\n]*')""")
-GIT_PREFIX = (r"\bgit(?:\s+(?:" + _GIT_ARG_OPT + r"(?:\s+" + _GIT_PIECE + r"+|=" + _GIT_PIECE + r"*)"
-              + r"|(?!" + _GIT_ARG_OPT + r"(?:[\s=|;&]|$))-[^\s|;&]+)){0,"
-              + str(GIT_PREFIX_MAX) + r"}\s+")
+_GIT_CHAIN = (r"\bgit(?:\s+(?:" + _GIT_ARG_OPT + r"(?:\s+" + _GIT_PIECE + r"+|=" + _GIT_PIECE + r"*)"
+              + r"|(?!" + _GIT_ARG_OPT + r"(?:[\s=|;&]|$))-[^\s|;&]+)){")
+GIT_PREFIX = _GIT_CHAIN + "0," + str(GIT_PREFIX_MAX) + r"}\s+"
+CAP_LABEL = "git with more than %d global options" % GIT_PREFIX_MAX
+GIT_CAP_PATTERN = re.compile(_GIT_CHAIN + str(GIT_PREFIX_MAX + 1) + "}")
 G = GIT_PREFIX
 GIT_PATTERNS = [
+    # Past the option cap the subcommand is out of sight, so deny (#469). Listed FIRST on purpose
+    # (round 1 tried last and a test caught it): the cap matches a long chain in one pass, while the
+    # later patterns each rescan it (3200 pairs: 0.6 s versus under 0.01 s). The price is that a
+    # payload holding both a real destructive command and a 33-option run reports the cap label;
+    # it is denied either way. The reason names the cap, not a destructive command (see _what).
+    (CAP_LABEL, GIT_CAP_PATTERN),
     ("git reset --hard", re.compile(G + r"reset\b[^|;&\n]*--hard\b")),
     ("git branch -D", re.compile(G + r"branch\b[^|;&\n]*(-D\b|--delete\b[^|;&\n]*--force\b|--force\b[^|;&\n]*--delete\b)")),
     ("git push --delete / :ref", re.compile(G + r"push\b[^|;&\n]*(--delete\b|\s:\S)")),
@@ -368,8 +383,15 @@ DAY_TAIL = (" A command that only quotes a dangerous string can go through the W
             " Do not retry another way; tell the user what you wanted to remove or discard.")
 
 
+def _what(hit, kind):
+    # The cap deny (#469) cannot see a subcommand, so it must not claim a destructive command.
+    if hit == CAP_LABEL:
+        return f"a {hit} (too long to judge)"
+    return f"{kind} ({hit})"
+
+
 def day_reason(hit):
-    return (f"overnight-guard: blocked a destructive command ({hit}); .claude/no-destructive is"
+    return (f"overnight-guard: blocked {_what(hit, 'a destructive command')}; .claude/no-destructive is"
             f" present in this project.{DAY_TAIL}")
 
 
@@ -397,7 +419,7 @@ def main():
     if overnight:
         hit = match_tier3(command)
         if hit:
-            return deny(f"overnight-guard: blocked a Tier-3 destructive command ({hit}) during an armed overnight run." + PARK)
+            return deny(f"overnight-guard: blocked {_what(hit, 'a Tier-3 destructive command')} during an armed overnight run." + PARK)
         return 0
     hit = match_day(command)
     if hit:

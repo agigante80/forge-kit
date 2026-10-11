@@ -755,9 +755,31 @@ with tempfile.TemporaryDirectory() as td:
         ("git -C $HOME reset --hard", "git reset --hard"),
         ("git" + " -c x=y" * 32 + " reset --hard", "git reset --hard"),
     ]
-    # The documented cap (GIT_PREFIX_MAX = 32 options): one more is deliberate evasion and allowed.
-    p = go(bash("git" + " -c x=y" * 33 + " reset --hard"), night)
-    check("og night: 33 options exceed the cap and are allowed (documented gap)", outcome(p), ALLOW)
+    # The cap (GIT_PREFIX_MAX = 32 options, #469): one more fails closed on both arms, with a reason
+    # that says the run is too long to judge rather than claiming a destructive command.
+    CAP_LABEL_T = "git with more than 32 global options"
+    cap_night = ("overnight-guard: blocked a " + CAP_LABEL_T + " (too long to judge) during an "
+                 "armed overnight run." + PARK_TXT)
+    cap_day = ("overnight-guard: blocked a " + CAP_LABEL_T + " (too long to judge); "
+               ".claude/no-destructive is present in this project." + DAY_TAIL_TXT)
+    for cmd in ["git" + " -c x=y" * 33 + " reset --hard",
+                "git" + " -c x=y" * 33 + " status",
+                "git" + " --no-pager" * 33 + " reset --hard",
+                "git" + " --no-pager" * 33 + " status",
+                "git" + " -p" * 40 + " log",
+                "echo hi; git" + " -c x=y" * 33 + " log"]:
+        p = go(bash(cmd), night)
+        check(f"og night cap denies: {cmd[:30]!r}...{cmd[-12:]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"og night cap reason: {cmd[-12:]!r}", reason_of(p), cap_night)
+        p = go(bash(cmd), day)
+        check(f"og day cap denies: {cmd[:30]!r}...{cmd[-12:]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"og day cap reason: {cmd[-12:]!r}", reason_of(p), cap_day)
+    for cmd in ["git" + " -c x=y" * 32 + " status","git" + " --no-pager" * 32 + " log"]:
+        for arm, proj_dir in (("night", night), ("day", day)):
+            p = go(bash(cmd), proj_dir)
+            check(f"og {arm} 32 options still judged by subcommand: {cmd[-12:]!r}", outcome(p), ALLOW)
     for cmd, label in OG_DENY:
         p = go(bash(cmd), night)
         check(f"og night denies: {cmd[:34]!r}", outcome(p), DENY)
@@ -1490,6 +1512,12 @@ for _fn in (_og.match_tier3, _og.match_day):
     _t0 = time.monotonic()
     _fn("git -c " * 800 + "x")
     check(f"og linear: 800 'git -c' retries {_fn.__name__} under 1s", time.monotonic() - _t0 < 1, True)
+# #469: the cap pattern scans a 3200-pair run (the leading chain denies) in linear time too.
+for _fn in (_og.match_tier3, _og.match_day):
+    _t0 = time.monotonic()
+    _hit = _fn("git -c " * 3200 + "x")
+    check(f"og linear: 3200 'git -c' pairs {_fn.__name__} denied under 100ms",
+          (_hit, time.monotonic() - _t0 < 0.1), (_og.CAP_LABEL, True))
 for _name, _body in _SHAPES:
     for _suffix in ("", " reset --hard", " status"):
         for _fn in (_og.match_tier3, _og.match_day):
