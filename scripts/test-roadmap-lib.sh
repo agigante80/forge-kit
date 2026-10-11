@@ -790,6 +790,103 @@ else
 fi
 rm -f "$T/k.md" "$T/k.orig" "$T/rl-keyed.sh"
 
+echo "== a plan path must not carry a control character (#463) =="
+# One helper, _rm_plan_ok, called by roadmap_set_plan (right after _rm_prepare, BEFORE the state
+# count) and by roadmap_insert_at (right after _rm_name_ok). Every refusal is 3, names the class,
+# never echoes the path and leaves the file untouched. The class is pinned to ASCII control bytes by
+# LC_ALL=C inside the helper, so a UTF-8 caller cannot widen it to U+0085 or U+2028.
+fixture "$T/pc.md"; cp "$T/pc.md" "$T/pcbefore.md"
+for pp in "$(printf 'zqzq\tzqzq')" "$(printf 'zqzq\rzqzq')" "$(printf 'zqzq\177zqzq')" "$(printf 'zqzq\001zqzq')" "$(printf 'zqzq\nzqzq')"; do
+  run roadmap_set_plan "$T/pc.md" Beta "$pp"
+  expect "plan-path: set_plan refuses a control character with 3" 3 "$RC"
+  contains "control character" "$ERR" "plan-path: and the message names the class"
+  lacks "zqzq" "$ERR" "plan-path: and never echoes the path"
+  expect "plan-path: and the file is byte-identical" "" "$(diff "$T/pcbefore.md" "$T/pc.md")"
+  run roadmap_insert_at "$T/pc.md" --end Zed planned "$pp" ""
+  expect "plan-path: insert_at --end refuses a control character with 3" 3 "$RC"
+  contains "control character" "$ERR" "plan-path: and the message names the class (insert_at --end)"
+  lacks "zqzq" "$ERR" "plan-path: and never echoes the path (insert_at --end)"
+  expect "plan-path: and the file is byte-identical (insert_at --end)" "" "$(diff "$T/pcbefore.md" "$T/pc.md")"
+  run roadmap_insert_at "$T/pc.md" --before Gamma Zed planned "$pp" ""
+  expect "plan-path: insert_at --before refuses a control character with 3" 3 "$RC"
+  contains "control character" "$ERR" "plan-path: and the message names the class (insert_at --before)"
+  expect "plan-path: and the file is byte-identical (insert_at --before)" "" "$(diff "$T/pcbefore.md" "$T/pc.md")"
+done
+expect "plan-path: no Zed heading exists after the refused inserts" 0 "$(grep -c '^## Phase: Zed' "$T/pc.md")"
+run roadmap_set_plan "$T/pc.md" Beta docs/plans/beta-v2.md
+expect "plan-path: a clean path still returns 0" 0 "$RC"
+expect "plan-path: and the parse row has exactly three fields" 3 "$(. "$LIB"; parse_roadmap "$T/pc.md" | awk -F'\t' '$1 == "Beta" { print NF }')"
+run roadmap_set_plan "$T/pc.md" Beta 'docs/plans/a\tb.md'
+expect "plan-path: a literal backslash and t is accepted" 0 "$RC"
+expect "plan-path: and written verbatim" 1 "$(grep -cF 'plan: docs/plans/a\tb.md' "$T/pc.md")"
+fixture "$T/pc.md"; cp "$T/pc.md" "$T/pcbefore.md"
+run roadmap_set_plan "$T/pc.md" Nope "$(printf 'a\tb')"
+expect "plan-path: a missing phase with a TAB path is still 5 (the helper runs after _rm_prepare)" 5 "$RC"
+contains "no phase named" "$ERR" "plan-path: and the message is the missing phase"
+run roadmap_insert_at "$T/pc.md" --end "$(printf 'a\tb')" planned "$(printf 'p\tq')" ""
+expect "plan-path: a name AND a plan both carrying a TAB return the name's 2" 2 "$RC"
+expect "plan-path: and the file is byte-identical (name wins)" "" "$(diff "$T/pcbefore.md" "$T/pc.md")"
+twostate "$T/ts.md" 1; cp "$T/ts.md" "$T/tsbefore.md"
+run roadmap_set_plan "$T/ts.md" Beta "$(printf 'a\tb')"
+expect "plan-path: a TAB path on a two-state block is 3, not the state count's 5" 3 "$RC"
+expect "plan-path: and the file is byte-identical (two-state)" "" "$(diff "$T/tsbefore.md" "$T/ts.md")"
+# A host with no C.UTF-8 locale falls back to C, which would make the UTF-8 rows vacuous (and the
+# pin mutant a false survivor), so they run only where the locale exists.
+U8=""
+if grep -qix 'C\.utf-\?8' <<< "$(locale -a 2>/dev/null)"; then U8=C.UTF-8
+else echo "  skip: no C.UTF-8 locale on this host, the UTF-8 plan-path rows are not run"; fi
+for loc in C $U8; do
+  for pp in "" docs/plans/ok.md "$(printf 'a\302\205b')" "$(printf 'a\342\200\250b')" "$(printf 'caf\303\251')"; do
+    fixture "$T/pc.md"
+    RC=$( ( export LC_ALL=$loc; . "$LIB"; roadmap_set_plan "$T/pc.md" Beta "$pp" >/dev/null 2>&1; echo $? ) )
+    expect "plan-path: set_plan under $loc accepts '$(printf '%s' "$pp" | od -An -c | tr -s ' ' | head -c 24)'" 0 "$RC"
+    fixture "$T/pc.md"
+    RC=$( ( export LC_ALL=$loc; . "$LIB"; roadmap_insert_at "$T/pc.md" --end Zed planned "$pp" "" >/dev/null 2>&1; echo $? ) )
+    expect "plan-path: insert_at under $loc accepts the same path" 0 "$RC"
+  done
+  fixture "$T/pc.md"; cp "$T/pc.md" "$T/pcbefore.md"
+  RC=$( ( export LC_ALL=$loc; . "$LIB"; roadmap_set_plan "$T/pc.md" Beta "$(printf 'a\177b')" >/dev/null 2>&1; echo $? ) )
+  expect "plan-path: DEL is still refused under $loc" 3 "$RC"
+  expect "plan-path: and the file is byte-identical under $loc" "" "$(diff "$T/pcbefore.md" "$T/pc.md")"
+done
+fixture "$T/pc.md"
+if [ -n "$U8" ]; then
+  LCA=$( ( export LC_ALL=C.UTF-8; . "$LIB"; roadmap_set_plan "$T/pc.md" Beta x >/dev/null 2>&1; echo "$LC_ALL" ) | tail -1 )
+  expect "plan-path: the helper leaves the caller's LC_ALL alone" C.UTF-8 "$LCA"
+fi
+run _rm_plan_ok ""
+expect "plan-path: the helper accepts an empty path on its own" 0 "$RC"
+
+# Mutants, each built from a cp backup of the library and run in a subshell; the survivor's rc is
+# the wrong answer the mutant gives, so a mutant is caught when the new case's rc differs from it.
+cp "$LIB" "$T/rl-keep.sh"
+TABP="$(printf 'a\tb')"; U85="$(printf 'a\302\205b')"
+mutpp() {  # mutpp <label> <wrong-rc> <sed script> -- <command...>
+  local label="$1" wrong="$2" script="$3"; shift 4
+  sed "$script" "$T/rl-keep.sh" > "$T/rl-mut.sh"
+  if cmp -s "$T/rl-keep.sh" "$T/rl-mut.sh"; then bad "#463: mutant ($label) was not applied"; return; fi
+  fixture "$T/pm.md"; twostate "$T/pm2.md" 1
+  RC=$( ( . "$T/rl-mut.sh"; "$@" >/dev/null 2>&1; echo $? ) )
+  if [ "$RC" = "$wrong" ]; then ok "#463: mutant ($label) is caught (it returns the wrong $RC)"
+  else bad "#463: mutant ($label) survived (rc $RC, the wrong answer is $wrong)"; fi
+}
+SP='/^roadmap_set_plan() {$/,/^}$/'; IA='/^roadmap_insert_at() {$/,/^}$/'
+mutpp "set_plan call removed" 0 "$SP{/^  _rm_plan_ok \"\$path\" || return \$?\$/d}" -- roadmap_set_plan "$T/pm.md" Beta "$TABP"
+mutpp "insert_at call removed" 0 "$IA{/^  _rm_plan_ok \"\$plan\" || return \$?\$/d}" -- roadmap_insert_at "$T/pm.md" --end Zed planned "$TABP" ""
+mutpp "class narrowed to TAB" 0 "/^_rm_plan_ok() {\$/,/^}\$/s/\\*\\[\\[:cntrl:\\]\\]\\*)/*\"$(printf '\t')\"*)/" -- roadmap_set_plan "$T/pm.md" Beta "$(printf 'a\177b')"
+mutpp "helper returns 2" 2 "/^_rm_plan_ok() {\$/,/^}\$/s/return 3/return 2/" -- roadmap_set_plan "$T/pm.md" Beta "$TABP"
+[ -z "$U8" ] || mutpp "locale pin removed" 3 "/^_rm_plan_ok() {\$/,/^}\$/{/local LC_ALL=C/d}" -- env LC_ALL=C.UTF-8 bash -c '. "$1"; roadmap_set_plan "$2" Beta "$3"' _ "$T/rl-mut.sh" "$T/pm.md" "$U85"
+mutpp "set_plan call moved before _rm_prepare" 3 "$SP{/^  _rm_plan_ok \"\$path\" || return \$?\$/d;/^  _rm_prepare \"\$f\" \"\$phase\" || return \$?\$/i\\
+  _rm_plan_ok \"\$path\" || return \$?
+}" -- roadmap_set_plan "$T/pm.md" Nope "$TABP"
+mutpp "set_plan call moved after the state count" 5 "$SP{/^  _rm_plan_ok \"\$path\" || return \$?\$/d;/^  np=\"\$(_rm_keyed/i\\
+  _rm_plan_ok \"\$path\" || return \$?
+}" -- roadmap_set_plan "$T/pm2.md" Beta "$TABP"
+mutpp "insert_at call moved before _rm_name_ok" 3 "$IA{/^  _rm_plan_ok \"\$plan\" || return \$?\$/d;/^  _rm_name_ok \"\$name\" || return \$?\$/i\\
+  _rm_plan_ok \"\$plan\" || return \$?
+}" -- roadmap_insert_at "$T/pm.md" --end "$TABP" planned "$TABP" ""
+rm -f "$T/rl-keep.sh" "$T/rl-mut.sh" "$T/pm.md" "$T/pm2.md"
+
 echo ""
 echo "roadmap-lib tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-reassess-phases-version: 8
+# test-reassess-phases-version: 9
 #
 # Contract test for reassess-phases.sh (#249): the reshape script that answers whether the
 # ROADMAP itself is still the right plan, one level above /phase review's single-phase question.
@@ -1122,7 +1122,7 @@ done
 
 echo "== #464 --check refuses what the real run refuses, for rename, insert, split and reorder =="
 # Each case runs --check, then the real run, on the same fixture: both must exit 5 with the same
-# message, and neither may write or contact the host. #423's TAB --plan rows are #463's, not here.
+# message, and neither may write or contact the host. The TAB --plan rows are #463's, in the next section.
 pair464() {  # pair464 <label> <args...>
   local label="$1"; shift
   base_roadmap; base_milestones; base_issues; snap
@@ -1224,6 +1224,41 @@ if [ "$(id -u)" != 0 ]; then
   fi
   chmod 755 "$T/tmp464-ro"
 fi
+cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; rm -f "$T/rp-keep.sh"
+
+echo "== #463 a control character in --plan is refused by the real run and by --check =="
+# refocus already dry-runs roadmap_set_plan under --check; insert and split reach roadmap_insert_at
+# through the dry run #464 added, so these rows need that dry run. Each pair runs --check, then the
+# real run, on one fixture: both exit 5 with the same refusal, nothing is written, no host request.
+TABPLAN="$(printf 'p\tq')"
+pair464 "refocus with a TAB plan" refocus Alpha --prose x --plan "$TABPLAN"
+pair464 "insert with a TAB plan" insert Zed --end --state planned --plan "$TABPLAN" --prose x
+pair464 "split with a TAB plan" split Alpha --into Zed --move 1 --plan "$TABPLAN"
+base_roadmap; base_milestones; base_issues; snap
+run insert Zed --end --state planned --plan "$TABPLAN" --prose x --check
+expect "insert --check with a TAB plan exits 5" 5 "$rc"
+absent "would insert" "$sout$serr" "and prints no 'would insert' line"
+contains "control character" "$serr" "and names the class"
+unchanged "insert --check with a TAB plan"
+run split Alpha --into Zed --move 1 --plan "$TABPLAN" --check
+expect "split --check with a TAB plan exits 5" 5 "$rc"
+absent "would insert" "$sout$serr" "and prints no 'would insert' line (split)"
+unchanged "split --check with a TAB plan"
+run insert Zed --end --state planned --plan docs/plans/zed.md --prose x --check
+expect "a clean-plan insert --check still exits 0" 0 "$rc"
+# Mutants: the insert/split dry run dropped must let the TAB plan through --check.
+cp "$T/reassess-phases.sh" "$T/rp-keep.sh"
+mut463() {  # mut463 <label> <sed script> <args...>
+  local label="$1" script="$2"; shift 2
+  sed "$script" "$T/rp-keep.sh" > "$T/reassess-phases.sh"
+  if cmp -s "$T/rp-keep.sh" "$T/reassess-phases.sh"; then bad "#463: mutant ($label) was not applied"; return; fi
+  base_roadmap; base_milestones; base_issues
+  run "$@"
+  if [ "$rc" = 0 ]; then ok "#463: mutant ($label) is caught (--check wrongly exits 0, the real run exits 5)"
+  else bad "#463: mutant ($label) survived (exit $rc)"; fi
+}
+mut463 "insert --check validation removed" 's/\[ "\$CHECK" = 1 \] && dry_run "\$what" insert_file_half/: "$what" insert_file_half/' insert Zed --end --state planned --plan "$TABPLAN" --prose x --check
+mut463 "split --check validation removed" 's/\[ "\$CHECK" = 1 \] && dry_run "\$what" insert_file_half/: "$what" insert_file_half/' split Alpha --into Zed --move 1 --plan "$TABPLAN" --check
 cp "$T/rp-keep.sh" "$T/reassess-phases.sh"; rm -f "$T/rp-keep.sh"
 
 echo ""

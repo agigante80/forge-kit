@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 18 -->
+<!-- roadmap-phases-version: 19 -->
 
 # Roadmap phases
 
@@ -268,7 +268,8 @@ A new name (`rename`, `insert`, `split --into`) is refused by the library (retur
 empty, carries a control character (a tab splits the rows), starts or ends with a blank, starts
 with `-` (no op could address it again) or starts with `#` (policy). Writing a plan onto a phase
 with no `plan:` line adds one directly after its `state:` line; two `state:` or two `plan:` lines
-refuse with 5.
+refuse with 5. A plan path carrying a control character (a tab, CR, DEL ...) is refused with 3 by
+`set_plan` and `insert_at`, and `--check` agrees; an empty path stays legal.
 
 **Every op that would touch a `done` phase refuses**, on either side of a merge, as the loser of a
 split, as the target of a refocus or delete. A closed phase is history; reshaping it would rewrite

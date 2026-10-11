@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-lib-version: 12
+# roadmap-lib-version: 13
 #
 # The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162).
 #
@@ -53,6 +53,12 @@
 # keyed line equal to the block's current value used to land as a second keyed line (rc 0) through
 # set_prose and insert_at. BEHAVIOUR CHANGE: a keyed prose line with a DIFFERENT value moves from rc 3
 # (the parse-back) to rc 5 (this guard, before the file is touched).
+#
+# v13 (#463) makes a plan path carrying an ASCII control character (TAB, CR, LF, DEL, SOH ...) a
+# refusal, rc 3, from set_plan and insert_at. A TAB used to land with rc 0, and parse_roadmap then
+# emitted a four-column row that every later set_plan on that phase refused. ONE helper,
+# _rm_plan_ok, beside _rm_name_ok. An empty path stays legal. In set_plan it runs right after
+# _rm_prepare, so a missing phase keeps rc 5, and before the block's state and plan counts.
 
 # --- portability ------------------------------------------------------------
 # macOS still ships bash 3.2 and a BSD readlink with no -f, and this is installed into other
@@ -150,7 +156,8 @@ parse_roadmap() {
 # ABSENCE IS FILLED, AMBIGUITY REFUSES (#260). set_plan on a block with zero `plan:` lines and a
 # non-empty path writes ONE `plan: <path>` line directly after the single `state:` line, which is
 # the order insert_at writes. More than one `state:` or more than one `plan:` still returns 5, and
-# the `state:` count runs on EVERY set_plan call, replace and empty-path branches included, so a
+# the `state:` count runs on EVERY set_plan call that gets past the path check (#463: a control
+# character in the path is refused first, rc 3), replace and empty-path branches included, so a
 # no-op can never mask a malformed block (a two-`state:` block that set_plan once accepted is now
 # refused, as set_state always did). An empty path on a plan-less block is an rc 0 no-op. A block
 # with no `state:` line is malformed and returns 3 from _rm_prepare. set_plan never creates a block.
@@ -392,6 +399,23 @@ roadmap_set_state() {
   _rm_commit "$f" "$cand"; rc=$?; rm -f "$cand"; return $rc
 }
 
+# _rm_plan_ok <path> -> 3 when the plan path carries an ASCII control character (#463). ONE
+# definition, called by roadmap_set_plan and roadmap_insert_at, for the reason _rm_name_ok is one.
+# The path becomes the third TSV column of the phase row, so a TAB splits the row, and the
+# parse-back cannot see it because intent and write agree. 3, not _rm_name_ok's 2, because an LF
+# in the path was already 3 (the parse-back) and the two must not differ by character. The message
+# names the class and never echoes the path. An empty path is legal. `local LC_ALL=C` pins the class
+# to the ASCII control bytes whatever the caller's locale: unpinned, [[:cntrl:]] also matches U+0085
+# and U+2028 under a UTF-8 locale, which are ordinary characters in a path and survive the TSV row.
+# The assignment is local, so the caller's LC_ALL is untouched.
+_rm_plan_ok() {
+  local LC_ALL=C
+  case "${1-}" in
+    *[[:cntrl:]]*) _rm_die "the plan path carries a control character (a tab, CR or newline would split the roadmap's rows)" 3; return 3 ;;
+  esac
+  return 0
+}
+
 # roadmap_set_plan <file> <phase> <path>
 roadmap_set_plan() {
   # Arity is counted, never inferred from emptiness. An EMPTY plan path is a legal value, not a
@@ -402,7 +426,11 @@ roadmap_set_plan() {
   local f="${1-}" phase="${2-}" path="${3-}" cand rc np
   [ -n "$f" ] && [ -n "$phase" ] || { _rm_die "usage: roadmap_set_plan <file> <phase> <path>"; return 2; }
   _rm_prepare "$f" "$phase" || return $?
-  # The state count runs FIRST and on every call (see ABSENCE IS FILLED in the header).
+  # The path is validated right after the phase is found (a missing phase keeps rc 5) and before
+  # the block's counts. It reads no file, so it cannot mask a malformed block, only a bad argument.
+  _rm_plan_ok "$path" || return $?
+  # The state count runs first among the block checks and on every call (see ABSENCE IS FILLED in
+  # the header).
   [ "$(_rm_keyed "$f" "$RM_START" "$RM_END" state)" -le 1 ] || {
     _rm_die "the '$phase' block carries more than one column-0 state line; a writer cannot act on it" 5; return 5; }
   np="$(_rm_keyed "$f" "$RM_START" "$RM_END" plan)"
@@ -469,6 +497,7 @@ roadmap_insert_at() {
   [ -n "$f" ] && [ -n "$name" ] && [ -n "$st" ] || { _rm_die "usage: roadmap_insert_at <file> --before <phase>|--end <name> <state> <plan> <prose>"; return 2; }
   [ "$where" != --before ] || [ -n "$ref" ] || { _rm_die "usage: roadmap_insert_at <file> --before <phase> <name> <state> <plan> <prose>"; return 2; }
   _rm_name_ok "$name" || return $?
+  _rm_plan_ok "$plan" || return $?
   case "$st" in planned|open|done|backlog) ;; *) _rm_die "unknown state '$st'"; return 2 ;; esac
   _rm_prose_ok "$prose" || return 5
   [ -f "$f" ] || { _rm_die "no such roadmap: $f"; return 2; }
