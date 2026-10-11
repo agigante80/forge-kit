@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 9
+# overnight-guard-version: 10
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -28,6 +28,11 @@ model doing the obvious thing, not a deliberate evasion.
 Known gap: a bare "git checkout <file>" (discarding one file without "--") is
 not caught, because a regex cannot tell it apart from "git checkout <branch>";
 the modern "git restore <file>" form is caught broadly.
+
+Known gap (#457): git global options are tolerated before the subcommand (GIT_PREFIX below), but
+an alias defined inline, `git -c alias.x='reset --hard' x`, or `--config-env` pointing at an
+alias, runs a destructive command under an arbitrary name. That is deliberate evasion, which this
+guard does not defend against; it is not a bypass to file.
 """
 import json
 import os
@@ -72,23 +77,58 @@ def deny(reason):
 # line that is itself a destructive command still denies, because no regex over a shell payload can
 # tell a line that RUNS from a line that is DATA. Writing a document that quotes such a command, in
 # the same tool call, is therefore still refused. Write the file with a different tool.
+#
+# THE GIT PREFIX (#457). A git global option between `git` and the subcommand used to bypass every
+# rule (`git -C sub reset --hard`). GIT_PREFIX is git's usage-line grammar, not a list of spellings:
+# any dash token is a global option, and the options that take a value (-C, -c, and --git-dir,
+# --work-tree, --namespace, --config-env, --attr-source in their space and = forms) also consume that value, so a
+# value naming a subcommand (`git -c reset.hard=1 status`) is never mistaken for one. Quoted values
+# may hold spaces. Prefix matching can only add denies.
+#
+# IT MUST STAY LINEAR, and that is the load-bearing part: Python's re has no backtracking limit and
+# a hook that times out does not deny, so an ambiguous prefix fails the overnight arm OPEN. Two
+# separate costs, both closed. (1) Ambiguity inside one match: every token must parse exactly one
+# way. Option names: the dash-token alternative refuses the argument options followed by
+# whitespace, `=`, a shell separator or the end, so `-c` and `--git-dir=x` match only the argument
+# alternative. Values: every piece starts with a character no other piece can start with (a bare
+# character excludes quotes, backslash, `$` before `(`, and backtick), so `"a"` matches only the
+# quoted piece. (2) Retries: every `git` token is a fresh start, and `git -c git -c git -c ... x`
+# makes each start walk the rest of the chain, which is quadratic and was measured at 55 s for
+# 3200 pairs. The repeat is therefore bounded at GIT_PREFIX_MAX options, which makes the whole scan
+# linear in the input (3200 pairs now take about 0.6 s). More options than that before the
+# subcommand is deliberate evasion and is allowed, the same class as the inline-alias gap in the
+# docstring. A substitution body is bounded at 200 characters for the same reason: an unbounded
+# `$(` scans to the line end from every start (16 s at 6000 `git -c $(` starts), and a longer body is
+# allowed, the same evasion class. test-hooks.py times four 200-token shapes (one ambiguity each) and an 800-pair retry
+# shape against both matchers.
+GIT_PREFIX_MAX = 32
+_GIT_ARG_OPT = r"(?:-C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source)"
+_GIT_PIECE = (r"""(?:[^\s|;&"'\\$`]"""            # a bare character
+              r"""|\\."""                          # a backslash escape: `my\ dir`
+              r"""|\$(?!\()"""                     # `$HOME`, not the start of a substitution
+              r"""|\$\([^)\n]{0,200}\)|`[^`\n]{0,200}`"""      # `$(git rev-parse --show-toplevel)`
+              r"""|"(?:[^"\\\n]|\\.)*"|'[^'\n]*')""")
+GIT_PREFIX = (r"\bgit(?:\s+(?:" + _GIT_ARG_OPT + r"(?:\s+" + _GIT_PIECE + r"+|=" + _GIT_PIECE + r"*)"
+              + r"|(?!" + _GIT_ARG_OPT + r"(?:[\s=|;&]|$))-[^\s|;&]+)){0,"
+              + str(GIT_PREFIX_MAX) + r"}\s+")
+G = GIT_PREFIX
 GIT_PATTERNS = [
-    ("git reset --hard", re.compile(r"\bgit\s+reset\b[^|;&\n]*--hard\b")),
-    ("git branch -D", re.compile(r"\bgit\s+branch\b[^|;&\n]*(-D\b|--delete\b[^|;&\n]*--force\b|--force\b[^|;&\n]*--delete\b)")),
-    ("git push --delete / :ref", re.compile(r"\bgit\s+push\b[^|;&\n]*(--delete\b|\s:\S)")),
-    ("git tag -d", re.compile(r"\bgit\s+tag\b[^|;&\n]*(-d\b|--delete\b)")),
-    ("git clean -f", re.compile(r"\bgit\s+clean\b[^|;&\n]*-\w*f")),
-    ("git checkout discards working tree", re.compile(r"\bgit\s+checkout\b[^|;&\n]*(\s--\s|\s\.(\s|$)|-f\b|--force\b)")),
+    ("git reset --hard", re.compile(G + r"reset\b[^|;&\n]*--hard\b")),
+    ("git branch -D", re.compile(G + r"branch\b[^|;&\n]*(-D\b|--delete\b[^|;&\n]*--force\b|--force\b[^|;&\n]*--delete\b)")),
+    ("git push --delete / :ref", re.compile(G + r"push\b[^|;&\n]*(--delete\b|\s:\S)")),
+    ("git tag -d", re.compile(G + r"tag\b[^|;&\n]*(-d\b|--delete\b)")),
+    ("git clean -f", re.compile(G + r"clean\b[^|;&\n]*-\w*f")),
+    ("git checkout discards working tree", re.compile(G + r"checkout\b[^|;&\n]*(\s--\s|\s\.(\s|$)|-f\b|--force\b)")),
     # --staged alone only unstages, but --staged WITH --worktree (or -W, also inside a cluster such
     # as -SW) rewrites the working tree too, in either order (#435). A switch forced with -f,
     # --force or --discard-changes throws away local edits; plain `git switch <branch>` refuses
     # to, and -C/--force-create resets a branch, not the tree, so it stays out.
     ("git restore discards working tree", re.compile(
-        r"\bgit\s+restore\b(?![^|;&\n]*--staged)"
-        r"|\bgit\s+restore\b[^|;&\n]*(--worktree(?![\w-])|\s-[a-zA-Z]*W)")),
+        G + r"restore\b(?![^|;&\n]*--staged)"
+        r"|" + G + r"restore\b[^|;&\n]*(--worktree(?![\w-])|\s-[a-zA-Z]*W)")),
     ("git switch discards working tree", re.compile(
-        r"\bgit\s+switch\b[^|;&\n]*(\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s--force(?![\w-])|\s--discard-changes(?![\w-]))")),
-    ("git stash drop/clear", re.compile(r"\bgit\s+stash\s+(drop|clear)\b")),
+        G + r"switch\b[^|;&\n]*(\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s--force(?![\w-])|\s--discard-changes(?![\w-]))")),
+    ("git stash drop/clear", re.compile(G + r"stash\s+(drop|clear)\b")),
 ]
 
 SECRET_PATTERNS = [

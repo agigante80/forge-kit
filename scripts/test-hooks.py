@@ -676,6 +676,58 @@ with tempfile.TemporaryDirectory() as td:
     p = go({"tool_name": "Grep", "tool_input": {"pattern": "git reset --hard", "path": "docs/"}}, day)
     check("day allows the same search through the Grep tool", outcome(p), ALLOW)
 
+    # --- git global options before the subcommand (#457): both arms, every pattern family.
+    # The grammar is git's usage line, not a list of spellings: zero-argument dash tokens, the
+    # options that take a separate argument (-C, -c, and the space forms of --git-dir, --work-tree,
+    # --namespace, --config-env), the = forms, and quoted values.
+    OG_DENY = [
+        ("git -C sub reset --hard", "git reset --hard"),
+        ("git -c k=v checkout .", "git checkout discards working tree"),
+        ("git --git-dir=x --work-tree=y reset --hard", "git reset --hard"),
+        ("git -p clean -fd", "git clean -f"),
+        ("git --bare branch -D x", "git branch -D"),
+        ("git --no-pager stash drop", "git stash drop/clear"),
+        ("git --git-dir x reset --hard", "git reset --hard"),
+        ('git -C "my dir" reset --hard', "git reset --hard"),
+        ("git -c 'k=v w' reset --hard", "git reset --hard"),
+        ('git -c k="v w" reset --hard', "git reset --hard"),
+        ("git -C sub push --delete origin x", "git push --delete / :ref"),
+        ("git -C sub tag -d v1", "git tag -d"),
+        ("git -C sub restore .", "git restore discards working tree"),
+        ("git -C sub switch -f main", "git switch discards working tree"),
+        ("git --config-env k=V --namespace n --paginate -P reset --hard", "git reset --hard"),
+        ("git --exec-path=/x --no-replace-objects --literal-pathspecs reset --hard", "git reset --hard"),
+        ("git -C a -C b -c x=y --work-tree w clean -f", "git clean -f"),
+        ("git --attr-source HEAD reset --hard", "git reset --hard"),
+        ("git -C my\\ dir reset --hard", "git reset --hard"),
+        ("git -C $(git rev-parse --show-toplevel) reset --hard", "git reset --hard"),
+        ("git -C `pwd` reset --hard", "git reset --hard"),
+        ('git -c core.x="a\\"b" reset --hard', "git reset --hard"),
+        ("git --git-dir= reset --hard", "git reset --hard"),
+        ("git -C $HOME reset --hard", "git reset --hard"),
+        ("git" + " -c x=y" * 32 + " reset --hard", "git reset --hard"),
+    ]
+    # The documented cap (GIT_PREFIX_MAX = 32 options): one more is deliberate evasion and allowed.
+    p = go(bash("git" + " -c x=y" * 33 + " reset --hard"), night)
+    check("og night: 33 options exceed the cap and are allowed (documented gap)", outcome(p), ALLOW)
+    for cmd, label in OG_DENY:
+        p = go(bash(cmd), night)
+        check(f"og night denies: {cmd[:34]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"og night reason: {cmd[:30]!r}", reason_of(p),
+                  OVERNIGHT_TIER3.replace("git reset --hard", label))
+        p = go(bash(cmd), day)
+        check(f"og day denies: {cmd[:34]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"og day reason: {cmd[:30]!r}", reason_of(p), day_msg(label))
+    for cmd in ["git -C sub status", "git -C sub log", "git -c reset.hard=1 status",
+                "git checkout -b feature/x", "git -c reset.x=1 status", 'git -C "my dir" status',
+                "git --git-dir=reset status", "git -p log", "git --no-pager diff",
+                "git -C $(pwd) status", "git --attr-source HEAD status"]:
+        for arm, proj_dir in (("night", night), ("day", day)):
+            p = go(bash(cmd), proj_dir)
+            check(f"og {arm} allows: {cmd[:34]!r}", outcome(p), ALLOW)
+
     # --- daytime: bulk delete, dangerous targets
     for cmd in ["rm -rf /", "rm -rf ~/data", "rm -rf ../sibling", 'rm -rf "$HOME/x"',
                 "rm --recursive --force /", "rm -f a.txt && rm -rf $HOME/x"]:
@@ -1349,6 +1401,51 @@ with tempfile.TemporaryDirectory() as td:
     check("mea registered, ordinary command", mea_out(p), QUIET)
     p = invoke_mea(proot, None, masked_cmd)
     check("mea registered, no CLAUDE_PROJECT_DIR", mea_out(p), QUIET, extra="(fail open)")
+
+# --- overnight-guard: the git prefix is linear in every shape (#457) ---------------------------
+# A hook that times out does not deny, so a backtracking prefix fails the overnight arm OPEN. Each
+# shape below pins one ambiguity: option names, the = form, and quoted versus bare values. The
+# matchers are timed in-process (a linear match is microseconds; the ambiguous prefixes do not
+# terminate at 200 tokens), plus one subprocess row at the existing 5s bound.
+print("\n  -- overnight-guard: git prefix runs in linear time (#457) --")
+import importlib.util
+import time
+_spec = importlib.util.spec_from_file_location("overnight_guard_under_test", GUARD)
+_og = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_og)
+_SHAPES = [
+    ("200 -c tokens", "git" + " -c" * 200),
+    ("200 -C -C pairs", "git" + " -C -C" * 200),
+    ("200 --git-dir=x tokens", "git" + " --git-dir=x" * 200),
+    ('200 -c "a" tokens', "git" + ' -c "a"' * 200),
+]
+# The substitution shape: an unbounded `$(` body scans to the end of the line from every start.
+for _fn in (_og.match_tier3, _og.match_day):
+    _t0 = time.monotonic()
+    _fn("git -c $(" * 3000 + "x")
+    check(f"og linear: 3000 'git -c $(' starts {_fn.__name__} under 1s", time.monotonic() - _t0 < 1, True)
+# The retry shape: every `git` value is a fresh start of the same chain, so an unbounded repeat is
+# quadratic (55 s at 3200 pairs). 800 pairs take about 3.4 s unbounded and well under 1 s bounded.
+for _fn in (_og.match_tier3, _og.match_day):
+    _t0 = time.monotonic()
+    _fn("git -c " * 800 + "x")
+    check(f"og linear: 800 'git -c' retries {_fn.__name__} under 1s", time.monotonic() - _t0 < 1, True)
+for _name, _body in _SHAPES:
+    for _suffix in ("", " reset --hard", " status"):
+        for _fn in (_og.match_tier3, _og.match_day):
+            _t0 = time.monotonic()
+            _fn(_body + _suffix)
+            check(f"og linear: {_name}{_suffix!r} {_fn.__name__} under 100ms",
+                  time.monotonic() - _t0 < 0.1, True)
+with tempfile.TemporaryDirectory() as _td:
+    _night = pathlib.Path(_td).resolve() / "night"
+    (_night / ".claude" / "overnight").mkdir(parents=True)
+    (_night / ".claude" / "overnight" / "active.md").write_text("manifest")
+    _t0 = time.monotonic()
+    _p = run(bash("git" + ' -c "a"' * 200 + " reset --hard"), hook=GUARD,
+             project_dir=_night, cwd=str(_night))
+    check("og linear: subprocess, 200 -c \"a\" tokens, judged and under 5s",
+          (_p.returncode, time.monotonic() - _t0 < 5), (0, True))
 
 # --- adapt's hooks.md installs the sentinel (#420) ---------------------------
 print("\n  -- forge-adapt hooks.md: masked-exit-advisory row (#420) --")

@@ -44,7 +44,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 |---|---|---|---|
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
-| `overnight-guard.py` | PreToolUse | 8 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
+| `overnight-guard.py` | PreToolUse | 10 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
@@ -127,6 +127,13 @@ denies the whole Tier-3 list. The daytime arm (#419) is armed by its own sentine
 relative target ending in a wildcard (`tmp/*`, `./*`, `dir/*`). `rm -rf tmp/some-dir` stays allowed.
 Secrets and pipe-to-shell are overnight-only. When both sentinels exist the overnight arm wins. The
 daytime arm fails open on a malformed payload; the overnight arm still fails closed.
+
+Git global options are tolerated between `git` and the subcommand (#457): `git -C sub reset --hard`,
+`git -c k=v checkout .`, `git --no-pager stash drop` and `git -C "my dir" reset --hard` are denied
+exactly like the bare forms, and `git -c reset.hard=1 status` stays allowed because an option value
+is never read as the subcommand. The one gap this leaves is a deliberate one: an alias defined
+inline (`git -c alias.x='reset --hard' x`, or `--config-env` pointing at one) runs a destructive
+command under another name, and the guard does not defend against evasion.
 
 **forge-adapt creates the sentinel when it installs the hook, in both install shapes.** The
 `hooks.json` gate runs Python only when either sentinel exists.
