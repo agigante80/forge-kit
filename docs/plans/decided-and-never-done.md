@@ -42,6 +42,8 @@ gated before the work starts, so no backlog ticket remains whose only blocker is
   - #448: `review-sizing` carries the procedure to offer a filtered default `.full-review-sensitive`,
     written only on approval and never over an existing file; forge-adapt's `references/commands.md`
     points at it.
+- Both leak scanners read a `skip` entry as an exact path or a `*/` suffix, and a glob in a `skip`
+  line exits 2 with a message, in the private and the public half alike (#226, option 1).
 - Each ticket is closed against a named commit, `Validate` is green on `main`, and no component
   baseline is raised.
 
@@ -95,17 +97,20 @@ parks the ticket in the backlog with the question named.
 9. **#443** (measurement only, no code): S to M, needs two real gate runs.
 10. **#477** (governance): probe first, then (b) only if the interactive gate ends early. M. After
     #425, because both may edit `ticket-gate.md` Step 0b to 3B.
-11. **#272** (roadmap, a new asset and suite): L, last. Rewrite to the four answers, gate.
+11. **#226** (security, both leak scanners): M. Option 1, literal-or-suffix `skip` in both halves;
+    gated PASS 2026-10-11. Refresh the stale markers, line numbers and the "four keys" quote first.
+12. **#272** (roadmap, a new asset and suite): L, last. Rewrite to the four answers, gate.
 
 ## Taken in or left in the backlog
 
 - Taken in: #476, #261, #454, #302, #220, #272.
 - Taken in after the decision brief (2026-10-11): #477, #443, #425, #445, #448.
+- Taken in after its audit (2026-10-11): #226. The downstream allow-file audit (posted on the
+  ticket, HEAD only) found 0 glob lines, 0 widening and 0 narrowing entries, so option 1 changes no
+  existing line's meaning.
 - Closed as decided: #444 (one critic always; reopen when #443's numbers and a content-keyed section
   fallback exist).
-- Left in the backlog with its reason: #226 (option 1 reconfirmed 2026-10-11; waits on the
-  maintainer's downstream allow-file audit, whose script is now in its body, then a final gate run),
-  #282 (a recorded deferral with a review date of 2027-01-11, not work).
+- Left in the backlog with its reason: #282 (a recorded deferral with a review date of 2027-01-11, not work).
 
 ## Out of scope
 
