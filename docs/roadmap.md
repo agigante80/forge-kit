@@ -283,7 +283,7 @@ Closed 2026-10-11, unattended, **done** (#456, #457, #458, #459, #460, #463, #46
 state: open
 plan: docs/plans/decided-and-never-done.md
 
-Opened 2026-10-11 at the maintainer's request after a review of all fourteen open tickets. Six carry a recorded decision or need none, and wait only for the work: #476, #261, #454, #302, #220, #272. The tickets waiting on a maintainer answer (#477, #443, #444, #425, #445, #448) and #226 (waiting on the downstream audit) stay in the backlog.
+Opened 2026-10-11 at the maintainer's request after a review of all fourteen open tickets. Six carried a recorded decision or needed none, and waited only for the work: #476, #261, #454, #302, #220, #272. The same day the maintainer answered the decision brief for the rest, which added #477, #443, #425, #445 and #448; #444 closed as decided (one critic always), and #226 (waiting on the downstream audit) and #282 (a dated deferral) stay in the backlog.
 
 ## Phase: Backlog
 state: backlog
