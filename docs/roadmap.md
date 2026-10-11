@@ -274,10 +274,10 @@ plan: docs/plans/what-a-session-loads-before-work-begins.md
 Closed 2026-10-11, unattended, **done** (#297, #418). `context-budget` measures what a session loads before the first prompt; #418 found `closing-sessions` could write an import-shaped `@` into `MEMORY.md` and now code-spans it, and a background security review added U+FEFF to its whitespace.
 
 ## Phase: Guards and scripts that miss a case
-state: open
+state: done
 plan: docs/plans/guards-and-scripts-that-miss-a-case.md
 
-Opened 2026-10-11 during an unattended run. Ten tickets share one shape: a shipped guard or script is right for the case it was written for and wrong for a neighbouring one nobody fed it (#456, #457, #458, #459, #460, #463, #464, #465, #466, #467), plus #469 and #470 filed inside it. #451 and #452 closed as moot after #468; #454 stays in the backlog.
+Closed 2026-10-11, unattended, **done** (#456, #457, #458, #459, #460, #463, #464, #465, #466, #467, #469, #470, #471, #472, #473, #474, #475). Each guard or script now answers the neighbouring case it missed, pinned by a row that failed first and a mutant that dies. #458's probe refuted parent-side delivery, so #475 gives a subagent its own `no-poll-loops` wording keyed on `agent_id`. Two findings went to the backlog: #476 and #477 (a gate that ends its turn while its critic runs never posts its review).
 
 ## Phase: Backlog
 state: backlog

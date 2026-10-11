@@ -99,3 +99,29 @@ Gate each first; a gate that needs a judgment call the overnight run cannot make
   locale): pre-existing, no reported user, recorded in the run's decisions file.
 - The overnight arm judging only the first `rm` in a compound command (#467 states it as a known
   limit).
+
+## Close record
+
+Closed 2026-10-11, unattended, outcome **done**. All ten tickets taken in at opening landed, and so
+did the seven filed inside the phase (#469 to #475). The plan expected ten; seventeen closed, and the
+difference is the phase's own thesis at work: four of the seven came from a review of an
+`overnight-guard` fix finding the next spelling over (#469, #470, #473, #474), which is the
+premortem's first clause firing on the reviews rather than on users. #471 came from the same reading
+of the shell grammar. #472 extended #465's case rule from the labels block to the gate's lens routing
+and the mechanics check.
+
+#458's probe (Claude Code 2.1.296, two sessions) refuted parent-side delivery: a subagent that ends its
+turn with a child running is not resumed, and the child's result reaches the top level. #475 was
+re-gated with that decision and landed in cb5aa50: `no-poll-loops` gives a subagent a separate
+reason, keyed on a non-empty `agent_id` alone, because the binary's schema says `agent_type` is also
+set on a `claude --agent` main thread. `ticket-gate` Step 3B states the limit, and its baseline fell
+from 5642 to 5637 across #472 and #475. No baseline was raised.
+
+Filed for the backlog at close: #476 (`forge-gate-mechanics.sh` picks the template case-sensitively,
+found by #472's review) and #477 (`/gate-ticket` has no recovery path when the gate ends its turn
+while its critic runs, found by #475's review). The premortem's clauses on a slow guard and on a
+`--check` that disagrees with the real run did not fire; #457's timing row and #464's dry run held.
+
+The roadmap paragraph as it stood before closing, moved here verbatim:
+
+Opened 2026-10-11 during an unattended run. Ten tickets share one shape: a shipped guard or script is right for the case it was written for and wrong for a neighbouring one nobody fed it (#456, #457, #458, #459, #460, #463, #464, #465, #466, #467), plus #469 and #470 filed inside it. #451 and #452 closed as moot after #468; #454 stays in the backlog.
