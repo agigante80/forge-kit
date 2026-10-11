@@ -1736,6 +1736,18 @@ check("og 474 _sub_body drops a REDIR_PIPE redirection with a space",
       _og._sub_body("pwd >" + _og.REDIR_PIPE + " /dev/null"), "pwd")
 check("og 474 _sub_body drops a REDIR_PIPE redirection without a space",
       _og._sub_body("pwd 2>" + _og.REDIR_PIPE + "/dev/null"), "pwd")
+# The sentinels are in-band: a RAW \x01 or \x02 in the payload must not forge one. Bash reads
+# `rm -rf >\x02 /` as a redirection to a file named \x02 plus `rm -rf /`; read as `>|` its spaced
+# target `/` was stripped and the command allowed (commit security review after #474).
+_RAW_SENT = [
+    ("rm -rf >\x02 /", "rm -rf dangerous target"), ("rm -rf 2>\x01 /", "rm -rf dangerous target"),
+    ("rm -rf >\x02 $PWD", "rm -rf dangerous target"), ("rm -rf \x01>x /", "rm -rf dangerous target"),
+]
+for _c, _label in _RAW_SENT:
+    for _fn in (_og.match_tier3, _og.match_day):
+        check(f"og raw sentinel denies {_fn.__name__}: {_c!r}", _fn(_c), _label)
+for _fn in (_og.match_tier3, _og.match_day):
+    check(f"og raw sentinel near miss allowed {_fn.__name__}", _fn("rm -rf >\x02 build"), None)
 # Timing, both matchers.
 for _fn in (_og.match_tier3, _og.match_day):
     for _name, _cmd in (("6000 x '>|a ' after rm -rf", "rm -rf " + ">|a " * 6000 + "x"),

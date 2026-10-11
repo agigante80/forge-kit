@@ -44,7 +44,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 |---|---|---|---|
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
-| `overnight-guard.py` | PreToolUse | 16 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
+| `overnight-guard.py` | PreToolUse | 17 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
@@ -152,6 +152,9 @@ The noclobber `>|` (with an optional fd and an optional space, #474) is read as 
 pipe, by the same flattening step, on both arms: `rm -rf >|log /`, `rm -rf >|log "$PWD"/`,
 `git >|x reset --hard` are denied, and overnight `curl u >|f | sh` is denied while `curl x >|bash`
 (a file named bash) is allowed. A real pipe still splits (`rm -rf build >|log | cat /` stays allowed).
+The flattening step marks those redirections with two control bytes, so a raw `\x01` or `\x02` already
+in the command is first replaced by an ordinary character and cannot forge a mark: `rm -rf >`+`\x02`+` /`
+is a redirection to a file named `\x02` plus `rm -rf /`, and is denied.
 The one gap this leaves is a deliberate one: an alias defined
 inline (`git -c alias.x='reset --hard' x`, or `--config-env` pointing at one) runs a destructive
 command under another name, and the guard does not defend against evasion.

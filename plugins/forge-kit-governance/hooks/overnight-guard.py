@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 16
+# overnight-guard-version: 17
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -187,8 +187,16 @@ def _join(cmd):
 _GIT_GLUED = re.compile(r"\bgit(?=[<>" + REDIR_AMP + r"])")   # REDIR_PIPE never follows `git` directly
 
 
+# The sentinels are in-band, so a payload that already holds a raw \x01 or \x02 would forge one:
+# `rm -rf >\x02 /` is a redirection to a file named \x02 plus `rm -rf /`, but read as `>|` its
+# spaced target `/` was stripped and the command allowed. A raw sentinel byte is first replaced by
+# an ordinary word character, so only _flat() itself ever writes one. _flat() runs once per raw
+# command, never on its own output, which would erase the sentinels it wrote.
+_NO_MARK = str.maketrans(_REDIR_MARK, "__")
+
+
 def _flat(cmd):
-    return _GIT_GLUED.sub("git ", _REDIR_AMP.sub(_mask, cmd))
+    return _GIT_GLUED.sub("git ", _REDIR_AMP.sub(_mask, cmd.translate(_NO_MARK)))
 
 
 GIT_PATTERNS = [
