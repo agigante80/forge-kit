@@ -98,7 +98,18 @@ run; expect "and the same fixture with one pipe appended is flagged, so the self
 echo "== mutants =="
 cp "$HERE/guard-lib.sh" "$T/"
 # mut <old> <new>: the guard with the literal text <old> replaced by <new>, as $T/g-mut.sh.
-mut() { local g; g=$(cat "$G"); [[ $g == *"$1"* ]] || return 1; printf '%s\n' "${g//"$1"/"$2"}" > "$T/g-mut.sh"; }
+mut() { local g; g=$(cat "$G"); [[ $g == *"$1"* ]] || return 1; printf '%s\n' "$(subst "$g" "$1" "$2")" > "$T/g-mut.sh"; }
+# subst <text> <old> <new>: every literal <old> replaced by <new>. The expansion sits in an
+# assignment, since bash 3.2 keeps a quoted replacement's quotes inside double quotes, and the
+# replacement stays quoted, since bash 5.2's patsub_replacement reads a bare & as the match (#480).
+subst() { local r; r=${1//"$2"/"$3"}; printf '%s' "$r"; }
+# The shape rows (#480): mut on a fixture a quoted replacement (3.2) and a bare one (5.2) both get
+# wrong, and a check that mut still calls subst.
+GSAVE="$G"; G="$T/shape"; printf 'a OLD & b\n' > "$G"; mut OLD 'N&W'; G="$GSAVE"
+s480="$(cat "$T/g-mut.sh"; printf x)"
+[ "$s480" = "a N&W & b
+x" ] && ok "mut substitutes the literal text on this bash: a N&W & b and a newline" || bad "mut substitutes the literal text (got '${s480%x}')"
+grep -qw subst <<< "$(declare -f mut)" && ok "mut builds its mutant through subst" || bad "mut no longer calls subst"
 # killed <label> <fixture> <rows...>: the mutant must run (rc 0 or 1) and NOT give the fixture's
 # correct rows; a mutant that crashes is reported as crashed, never as killed (#360).
 killed() { local label="$1"; F="$2"; shift 2; GUARD="$T/g-mut.sh" run

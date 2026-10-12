@@ -55,8 +55,12 @@ extract() {
 fill() {
   local c; c="$(cat "$1"; printf x)"; c="${c%x}"
   case "$c" in *"$2"*) ;; *) die "placeholder '$2' not found in $(basename "$1")" ;; esac
-  printf '%s' "${c//"$2"/"$3"}" > "$1"
+  subst "$c" "$2" "$3" > "$1"
 }
+# subst <text> <old> <new>: every literal <old> replaced by <new>. The expansion sits in an
+# assignment, since bash 3.2 keeps a quoted replacement's quotes inside double quotes, and the
+# replacement stays quoted, since bash 5.2's patsub_replacement reads a bare & as the match (#480).
+subst() { local r; r=${1//"$2"/"$3"}; printf '%s' "$r"; }
 
 newrepo() {  # newrepo: a throwaway repo with the three covered paths; sets R
   R="$(mktemp -d "$T/repo.XXXXXX")"
@@ -124,6 +128,12 @@ run_cases() {  # run_cases <srcdir>: every case against those snippets, as ok/ba
   c_step4_own && ok "step 4 reads its own run's document list" || bad "step 4 read another run's document list"
   c_step4_none && ok "step 4 with an id no step 1 printed reports no snapshot" || bad "step 4 with an unknown id did not report no snapshot"
 }
+
+echo "== fill substitutes literally on this bash (#480) =="
+# A fixture a quoted replacement inside double quotes (bash 3.2) and a bare one (bash 5.2) both get wrong.
+printf 'a OLD & b' > "$T/shape"; fill "$T/shape" OLD 'N&W'
+expect "fill turns a OLD & b into a N&W & b" 'a N&W & b' "$(cat "$T/shape")"
+grep -qw subst <<< "$(declare -f fill)" && ok "fill substitutes through subst" || bad "fill no longer calls subst"
 
 echo "== the real command =="
 extract "$DOC" "$T/real"

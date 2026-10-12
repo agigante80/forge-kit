@@ -275,12 +275,18 @@ echo "== mutants, each must fail its named case =="
 . "$ROOT/scripts/mutant-crash.sh"
 # rm_live: a mutant build still runs the full fixture to rc 0 (so a kill is never a crash).
 rm_live() { local o; o=$(cd "$R" && CALLS="$T/calls" FX="$FX" bash "$MB/review-mechanics.sh" "$M" 2>/dev/null) && [ -n "$o" ]; }
+# subst <text> <old> <new>: every literal <old> replaced by <new>. The expansion sits in an
+# assignment, since bash 3.2 keeps a quoted replacement's quotes inside double quotes, and the
+# replacement stays quoted, since bash 5.2's patsub_replacement reads a bare & as the match (#480).
+subst() { local r; r=${1//"$2"/"$3"}; printf '%s' "$r"; }
+# The shape rows: a fixture a quoted replacement (3.2) and a bare one (5.2) both get wrong.
+expect "the mutant build's substitution turns a OLD & b into a N&W & b" 'a N&W & b' "$(subst 'a OLD & b' OLD 'N&W')"
 # mutant <name> <old> <new> <check-fn>: <old> must occur exactly once; the check must FAIL.
 mutant() {
   local name="$1" old="$2" new="$3" fn="$4" c held=0 why  # [live] as $5
   c="$(cat "$REAL"; printf x)"; c="${c%x}"
   case "$c" in *"$old"*"$old"*) bad "mutant $name: anchor occurs twice"; return ;; *"$old"*) ;; *) bad "mutant $name: anchor not found"; return ;; esac
-  MB="$T/mut"; rm -rf "$MB"; printf '%s' "${c//"$old"/"$new"}" > "$T/mut.sh"; bin "$MB" "$T/mut.sh"
+  MB="$T/mut"; rm -rf "$MB"; subst "$c" "$old" "$new" > "$T/mut.sh"; bin "$MB" "$T/mut.sh"
   RUN_BIN="$MB" "$fn" && held=1
   # live: the kill IS a bash diagnostic on the case's stderr, so liveness gets its own log.
   if [ "${5:-}" = live ]; then why=$(mutant_crash_reason_live "$T/mut.sh" rm_live)
@@ -300,6 +306,7 @@ chk_cause()    { FAIL_LIST='forge-lib: HTTP 401 Unauthorized' run "$M"; [ "$rc" 
 # The refusal log's own check, on one refusal: a trace there must not pass as a named message.
 chk_trace()    { : > "$T/refusals"; mv "$R/docs/roadmap.md" "$T/rm.bak"; run "$M"; mv "$T/rm.bak" "$R/docs/roadmap.md"
   [ "$rc" = 2 ] && ! grep -qE "$TRACE_RE" "$T/refusals"; }
+grep -qw subst <<< "$(declare -f mutant)" && ok "mutant builds its mutant through subst" || bad "mutant no longer calls subst"
 mutant "message boundary dropped" '#$N([^0-9]|\$)" --format=%H "$RANGE" -- &&' '#$N" --format=%H "$RANGE" -- &&' chk_boundary
 mutant "diff boundary dropped" '-S"#$N([^0-9]|\$)"' '-S"#$N"' chk_boundary
 mutant "boundary without \$" '#$N([^0-9]|\$)" --format=%H "$RANGE" -- &&

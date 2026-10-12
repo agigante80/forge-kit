@@ -600,6 +600,9 @@ echo "== redact: the bash copy is linear, the awk copy is a byte scan since #416
 # line dies with a fixed message first). The awk redact has no timed case: the grep -aiF
 # pre-filter before it stalls first at every size, so a bounded 256 KB case would fail even on a
 # correct fix. Its ledger pins the decision recorded in the scanner header, not behaviour.
+# Sourced here (definitions only) for the #439 bash-pin mutant's crash check below and for hm_kill
+# further down (#360, #480); the private r<0 mutant it once served is the public suite's now (#206).
+. "$ROOT/scripts/mutant-crash.sh"
 RFN="$(sed -n '/^char_len() {/,/^}/p;/^redact() {/,/^}/p' "$SCRIPT")"
 R439A=$'\200ab*'; R439B=$'\200\200ab**'; R439C=$'a\200\200\200\200\200b**'
 # rshow <locale> [function source]: the redact of each fixed name, one [..] each. The last three are
@@ -612,17 +615,33 @@ R217U="$(locale -a 2>/dev/null | grep -i 'utf' | head -1)"
 if [ -n "$R217U" ]; then
   expect "and under a UTF-8 locale jose, josé and the malformed names print the same (parity, #416, #439)" \
     "$RSHOW439" "$(rshow "$R217U")"
-  RFNNP="${RFN/"local LC_ALL=C n="/"local n="}"
-  if [ "$RFNNP" != "$RFN" ]; then ok "mutant ledger (#439, bash-pin): the unpinned function source differs"; else bad "mutant ledger (#439, bash-pin): the edit changed nothing"; fi
-  if [ "$(rshow "$R217U" "$RFNNP")" != "$RSHOW439" ]; then ok "mutant (#439, bash-pin): an unpinned redact changes a row under UTF-8"; else bad "mutant (#439, bash-pin): an unpinned redact survives every row"; fi
+  # Built with sed: bash 3.2 keeps a quoted replacement's quotes inside "${v/"a"/"b"}" (#480).
+  RFNNP="$(printf '%s\n' "$RFN" | sed 's/local LC_ALL=C n=/local n=/')"
+  # The shape ledger gates the mutant run: the unpinned line (scanner line 362 minus the pin) once,
+  # the pinned line gone. A malformed mutant fails here and is never run.
+  R439NEW="  local n=\"\$1\" CHARS k p='' c nc re s='*'"; R439OLD="  local LC_ALL=C n=\"\$1\" CHARS k p='' c nc re s='*'"
+  r439n=$(grep -cxF -e "$R439NEW" <<< "$RFNNP"); r439o=$(grep -cxF -e "$R439OLD" <<< "$RFNNP")
+  if [ "$r439n" = 1 ] && [ "$r439o" = 0 ]; then
+    ok "mutant ledger (#439, bash-pin): the unpinned function is the real function minus the pin"
+    # No time bound, by design: a bound would credit a hang as a kill (#330), judge a mutant by wall
+    # time (#417) and add a fourth bounded copy (#261). The ledger above keeps a malformed one out.
+    r439m="$(rshow "$R217U" "$RFNNP")"
+    if grep -qE -e "$MUTANT_CRASH_RE" <<< "$r439m"; then bad "mutant (#439, bash-pin) crashed ($(grep -m1 -E -e "$MUTANT_CRASH_RE" <<< "$r439m"))"
+    elif [ "$r439m" != "$RSHOW439" ]; then ok "mutant (#439, bash-pin): an unpinned redact changes a row under UTF-8"
+    else bad "mutant (#439, bash-pin): an unpinned redact survives every row"; fi
+  else
+    bad "mutant ledger (#439, bash-pin): want the unpinned line once and the pinned line absent, got $r439n and $r439o; the line built: '$(grep -m1 -F 'CHARS k p=' <<< "$RFNNP")'"
+  fi
 else
   ok "(skipped, no UTF-8 locale on this machine) the multibyte redact case"
 fi
 # #439: the 1 MB function-level timing row. The input is built INSIDE the child shell, since one argv
 # string is capped at 128 KB (a 200 KB argument hit "Argument list too long"), and the 32 KB case in
 # the earlier rows cannot catch a quadratic strip (0.008 s there; 13 s at 1 MB). There is no bounded
-# helper in this suite, so the row is timed by elapsed seconds against a 5 s line. That bound is
-# UNCHECKED on bash 3.2 and macOS; the fix was measured on bash 5.2 only (well under 1 s).
+# helper in this suite, so the row is timed by elapsed seconds against a 5 s line. Measured on bash
+# 3.2.57 with the #220 harness (#480, 2026-10-12): 0.21 s under C and 0.67 s under C.utf8, the
+# input build included (the gate's run read 0.26 s and 0.97 s), all well under that line,
+# and well under 1 s on bash 5.2. BSD tr and the macOS filesystem stay unchecked (#220).
 for L in C ${R217U:+"$R217U"}; do
   t0=$SECONDS
   r="$(LC_ALL="$L" bash -c "$RFN"'; run="$(head -c 1048576 /dev/zero | LC_ALL=C tr "\0" "\200")"; r="$(redact "a${run}bcd")"; if [ "$r" = "a${run}b**" ]; then echo same; else echo different; fi' 2>&1)"
@@ -810,8 +829,6 @@ case "$ERR" in check-private-leaks:*) ok "with this scanner's own prefix" ;; *) 
 expect "and nothing on stdout" "" "$OUT"
 ( cd "$HREPO" && "$WORK/nolib/check-private-leaks.sh" --list "$WORK/hlist" --all ) >/dev/null 2>&1
 expect "while the tree modes still run without it (the leak in forged.md is reported)" 1 "$?"
-# Sourced for hm_kill below (#360); the private r<0 mutant it once served is the public suite's now (#206).
-. "$ROOT/scripts/mutant-crash.sh"
 
 
 echo "== the tree modes fail closed (#208) =="
