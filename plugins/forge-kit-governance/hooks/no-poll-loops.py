@@ -62,8 +62,11 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 # run_in_background and every dispatch comes back "launched in the background", at top level
 # and inside a subagent. A reason (or Step 3B) that commanded a blocking call named something the
 # agent could not do, and "never end the turn" forbade the only correct wait. So neither reason
-# names a blocking call and each stays correct whichever way a release falls. Do not re-add a
-# foreground instruction without re-probing.
+# names a blocking call and each stays correct whichever way a release falls. That reading was
+# of 2.1.294. Re-probed by #477 on 2.1.296: interactive dispatches run in the background, and
+# `-p` dispatches run in the foreground unless run_in_background is set (#475 set it), so the
+# `-p`-scoped foreground wording in Step 3B and gate-ticket.md stands on that probe. Do not
+# widen it beyond `-p` without re-probing.
 #
 # What happens when an agent ends its turn with a dispatch outstanding depends on WHO ends it,
 # and for a subagent on the MODE. Probed on 2.1.296 (#458, #475, #477; evidence on each ticket):
@@ -77,8 +80,9 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 #     `-p` subagent's dispatch returns inline, so the shape does not arise (#477, 2 of 2).
 #   - A SUBAGENT in an INTERACTIVE session IS resumed by each child's notification, inside the
 #     same context: a real gate ended its turn four times with dispatches running and went on to
-#     post its review (#477). A subagent resumed by background SHELL work finishing was also seen
-#     interactively, once (#477 point 4).
+#     post its review (#477). That is not true of background SHELL work: a subagent that ended
+#     its turn with a shell outstanding was resumed when it finished, but its parent had already
+#     taken its first result, and the second reached the top-level session (#477 point 4, once).
 # SUBAGENT_REASON names both modes, and its instruction (end the turn naming what still runs)
 # is right in both: interactive it costs one line, headless it is how the parent learns a
 # result arrives separately.

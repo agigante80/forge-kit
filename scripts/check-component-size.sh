@@ -240,7 +240,7 @@ budget_for() {
 #
 # LOWERED 2026-10-12: ticket-gate 5637 to 5635 (#477). Step 3B's #475 limit sentence claimed an
 # ended subagent is never resumed; #477's probe showed that holds only headless, so it is rewritten
-# to name both modes in the same 20 words, which this counter reads as 2 fewer.
+# to name both modes, and the rewrite measures 2 words shorter (net -2).
 #
 # LOWERED 2026-10-11: ticket-gate 5639 to 5637 (#475). Step 3B gains a 22-word limit sentence (an ended
 # subagent is not resumed; the critic's verdict reaches the top-level session), paid for by deleting
