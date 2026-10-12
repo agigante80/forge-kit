@@ -62,41 +62,25 @@ over or overwritten: it is already a declaration.
 1. **Start broad.** The first hand-written list in the project that prompted #448 missed several
    risky areas, so the default errs wide and the user narrows it. Lockfiles and manifests stay out: they would send nearly
    every round back to `full`.
-2. **Keep the patterns that match a tracked path**, with the same test `size-review.sh` applies:
+2. **Keep the patterns that match a tracked path**, with the same test `size-review.sh` applies.
+   The `grep` only shortens the list first, so a large repository stays inside a Bash timeout:
 
    ```bash
-   files=$(git ls-files)
-   while IFS= read -r p; do
+   files=$(git ls-files | grep -E '^\.git(hub|hooks)/|(^|/)(auth|security|crypto|migrations|hooks|terraform|infra)/|(^|/)(Dockerfile|docker-compose|\.env)')
+   for p in '.github/workflows/*' '.github/CODEOWNERS' '.githooks/*' 'auth/*' '*/auth/*' \
+            'security/*' '*/security/*' 'crypto/*' '*/crypto/*' 'migrations/*' '*/migrations/*' \
+            'hooks/*' '*/hooks/*' 'Dockerfile*' 'docker-compose*.yml' '.env*' '*/.env*' \
+            'terraform/*' '*/terraform/*' 'infra/*' '*/infra/*'; do
      while IFS= read -r f; do [[ $f == $p ]] && { echo "$p"; break; }; done <<<"$files"
-   done <<'EOF'
-   .github/workflows/*
-   .github/CODEOWNERS
-   .githooks/*
-   auth/*
-   */auth/*
-   security/*
-   */security/*
-   crypto/*
-   */crypto/*
-   migrations/*
-   */migrations/*
-   hooks/*
-   */hooks/*
-   Dockerfile*
-   docker-compose*.yml
-   .env*
-   */.env*
-   terraform/*
-   */terraform/*
-   infra/*
-   */infra/*
-   EOF
+   done
    ```
 
 3. **Add CODEOWNERS paths as hints.** If `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`
    exists, take the first field of each rule line (skip comments and blanks, strip a CR) and
    translate it to this file's glob: drop a leading `/`, turn a trailing `/` into `/*`, and add a
-   `*/` form for an unanchored directory. Owners are never copied. Mark each one `(hint)`; a bare
+   `*/` form for an unanchored directory. A rule with no trailing `/` and no glob character may
+   be a directory, so it also gets a `<path>/*` form (and `*/<path>/*` when unanchored): bare
+   `scripts` would match only a file of that name. Owners are never copied. Mark each one `(hint)`; a bare
    `*` rule is shown but never pre-kept, since it makes every round `full`.
 4. **Show, edit, approve.** Print the list (or, when nothing matched, an empty list saying so) and
    let the user drop, add or reword lines. Write `.full-review-sensitive` only on explicit approval,
