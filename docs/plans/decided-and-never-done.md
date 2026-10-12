@@ -119,3 +119,11 @@ parks the ticket in the backlog with the question named.
   other two.
 - Re-opening a recorded decision because a different option now looks better. A finding that the
   pick no longer fits goes to the maintainer as a comment on the ticket.
+
+## Status (2026-10-12)
+
+Eleven of the twelve tickets are closed. #425 is the exception, and the phase stays open for it on
+purpose. Its gate tripped the review loop's trip wire: two consecutive rounds found a defect in the
+previous round's fix. It waits on one question to the maintainer, posted at
+https://github.com/agigante80/forge-kit/issues/425#issuecomment-6120284336. Close the phase after
+#425 ships or is closed with a reason.
