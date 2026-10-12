@@ -73,7 +73,7 @@ Medium-only round 1 find something a skipped round 2 would have shipped.
 
 `.full-review/` is a local runtime directory that projects running `/full-review` are told to
 gitignore (this repository's `.gitignore` does not list it). Starting a fresh loop archives into
-`round-<N>/` again, so a second loop overwrites the first loop's reports of the same round number: copy a loop's reports
+`round-<N>/` again, so a second loop may overwrite, or mix with, the first loop's reports of the same round number: copy a loop's reports
 out before starting the next one, or only the latest loop survives. The count is collected by
 hand, per machine.
 
