@@ -812,9 +812,9 @@ with tempfile.TemporaryDirectory() as td:
         check(f"day wt denies: {cmd[:34]!r}", outcome(p), DENY)
         if p.returncode == 0 and p.stdout.strip():
             check(f"day wt reason exact: {cmd[:26]!r}", reason_of(p), day_msg("rm -rf dangerous target"))
-    # Overnight judges only the FIRST rm (known limit, stated in the hook README); daytime judges all.
+    # Both arms judge every rm of a payload (#478; overnight used to judge only the first).
     p = go(bash('rm -f x && rm -rf "$PWD"'), night)
-    check("overnight first-rm limit: later rm -rf $PWD allowed", outcome(p), ALLOW)
+    check("overnight judges every rm: later rm -rf $PWD denied", outcome(p), DENY)
     p = go(bash('rm -f x && rm -rf "$PWD"'), day)
     check("day judges every rm: later rm -rf $PWD denied", outcome(p), DENY)
 
@@ -840,14 +840,33 @@ with tempfile.TemporaryDirectory() as td:
         check(f"day r1 denies: {cmd[:28]!r}", outcome(p), DENY)
     for cmd in ["docker run --rm -v \"$PWD\":/src -w /src golang:1.22 go test -race -failfast ./...",
                 "docker run --rm alpine ls -lrf /", "rm -rf tmp/impl-213 2> /dev/null",
-                "rm -rf tmp/impl-213 > /dev/null 2>&1", "git rm -rf tmp/*",
-                "rm -rf $(find . -name __pycache__ -type d)", "rm -rf dist $(ls .)"]:
+                "rm -rf tmp/impl-213 > /dev/null 2>&1", "git rm -rf tmp/*"]:
         p = go(bash(cmd), day)
         check(f"day r1 allows: {cmd[:28]!r}", outcome(p), ALLOW)
-    # Overnight keeps its rule: no wildcard class, and only the FIRST rm is judged.
-    for cmd in ["rm -rf tmp/*", "rm -rf ./*", "rm -f a.txt && rm -rf $HOME/x"]:
+    # #478: a substitution target stays allowed, now pinned on both arms.
+    for cmd in ["rm -rf $(find . -name __pycache__ -type d)", "rm -rf dist $(ls .)"]:
+        for arm, proj_dir in (("night", night), ("day", day)):
+            p = go(bash(cmd), proj_dir)
+            check(f"{arm} substitution target allows: {cmd[:28]!r}", outcome(p), ALLOW)
+    # Overnight keeps its rule: no wildcard class.
+    for cmd in ["rm -rf tmp/*", "rm -rf ./*"]:
         p = go(bash(cmd), night)
         check(f"overnight unchanged allows: {cmd[:24]!r}", outcome(p), ALLOW)
+    # #478: overnight judges every rm, so a later dangerous one is denied.
+    for cmd in ["rm -f a.txt && rm -rf $HOME/x"]:
+        p = go(bash(cmd), night)
+        check(f"overnight every-rm denies: {cmd[:24]!r}", outcome(p), DENY)
+        if p.returncode == 0 and p.stdout.strip():
+            check(f"overnight every-rm reason: {cmd[:24]!r}", reason_of(p),
+                  OVERNIGHT_TIER3.replace("git reset --hard", "rm -rf dangerous target"))
+    # #478: overnight reads an rm COMMAND WORD with the daytime pattern, so `git rm` and the `rm` of
+    # `docker run --rm` are not rm segments (both were denied overnight before), while a real rm
+    # after another command still is.
+    for cmd in ["git rm -rf /", "docker run --rm alpine ls -lrf /"]:
+        p = go(bash(cmd), night)
+        check(f"overnight command-word allows: {cmd[:28]!r}", outcome(p), ALLOW)
+    p = go(bash("git status && rm -rf /"), night)
+    check("overnight command-word: git status && rm -rf / denied", outcome(p), DENY)
     p = go(bash("rm -rf tmp/*"), both)
     check("both sentinels: wildcard allowed (overnight first)", outcome(p), ALLOW)
 
@@ -885,6 +904,86 @@ with tempfile.TemporaryDirectory() as td:
     # Overnight stays fail closed for the same two shapes (exact strings pinned above).
     check("overnight non-string command denies",
           outcome(go({"tool_name": "Bash", "tool_input": {"command": 123}}, night)), DENY)
+
+# --- #478: a project-root alias and a cd before rm -rf, on both arms -------------
+# The hook walks the segments left to right, carrying the ROOT-tainted names and the tracked cwd.
+# <proj> below is the fixture's own basename (`day` or `night`). Every deny asserts the exact reason.
+print("\n  -- overnight-guard: alias and cd before rm -rf (#478) --")
+
+
+def bash_cwd(cmd, cwd):
+    return {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": cwd}
+
+
+NIGHT_DANGER = OVERNIGHT_TIER3.replace("git reset --hard", "rm -rf dangerous target")
+DAY_DANGER = day_msg("rm -rf dangerous target")
+
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    arms = {}
+    for arm, sentinel in (("night", ".claude/overnight/active.md"), ("day", ".claude/no-destructive")):
+        proj = td / arm
+        (proj / sentinel).parent.mkdir(parents=True, exist_ok=True)
+        (proj / sentinel).write_text("manifest")
+        # A fixture ROOT whose own path has a `tmp` component, for the narrower unknown-cwd rule.
+        tproj = td / "t" / arm / "tmp" / "proj"
+        (tproj / sentinel).parent.mkdir(parents=True, exist_ok=True)
+        (tproj / sentinel).write_text("manifest")
+        # A project reached through a symlink: CLAUDE_PROJECT_DIR=<td>/s/<arm>/link/proj.
+        real = td / "s" / arm / "real"
+        (real / "proj" / sentinel).parent.mkdir(parents=True, exist_ok=True)
+        (real / "proj" / sentinel).write_text("manifest")
+        os.symlink(real, td / "s" / arm / "link")
+        arms[arm] = (proj, tproj, td / "s" / arm, NIGHT_DANGER if arm == "night" else DAY_DANGER)
+
+    def expect(label, payload, proj_dir, want, reason):
+        p = run(payload, hook=GUARD, project_dir=proj_dir, cwd=str(proj_dir))
+        check(label, outcome(p), want)
+        if want == DENY and p.returncode == 0 and p.stdout.strip():
+            check(label + " (exact reason)", reason_of(p), reason)
+
+    ALIAS_DENY = ['D=$PWD; rm -rf "$D"', 'D="$PWD"; rm -rf $D', 'D=$(pwd) && rm -rf "${D}"',
+                  'D=.; rm -rf "$D"', 'export D=$CLAUDE_PROJECT_DIR; rm -rf "$D"/',
+                  'A=$PWD; B="$A"; rm -rf "$B"', 'cd .. && rm -rf "$OLDPWD"']
+    ALIAS_ALLOW = ['D=$PWD/build; rm -rf "$D"', 'D=$(mktemp -d); rm -rf "$D"', 'D=$PWD; D=build; rm -rf "$D"',
+                   'rm -rf "$D"', 'read D; rm -rf "$D"']
+    CD_DENY = ["cd .. && rm -rf {p}", "cd ..; rm -rf {p}", "false || cd .. && rm -rf {p}",
+               "cd -P .. && rm -rf {p}", "pushd .. && rm -rf {p}", "cd {parent} && rm -rf {p}",
+               'cd "$X" && rm -rf {p}', "cd - && rm -rf {p}", "cd .. && rm -rf *",
+               "rm -f a && cd .. && rm -rf {p}", 'cd "$X" && cd sub && rm -rf {p}',
+               "cd ./sub/../.. && rm -rf {p}", "(cd ..) && rm -rf {p}", "(cd .. && rm -rf {p})"]
+    CD_ALLOW = ["cd sub && rm -rf out", "cd tmp && rm -rf impl-213", "rm -rf tmp/impl-213",
+                'cd "$X" && rm -rf build', "rm -rf build/ && cd ..", "cd .. && cd {p} && rm -rf build"]
+    for arm, (proj, tproj, sdir, reason) in arms.items():
+        fill = {"p": proj.name, "parent": str(proj.parent)}
+        for cmd in ALIAS_DENY:
+            expect(f"478 {arm} alias denies: {cmd[:34]!r}", bash(cmd), proj, DENY, reason)
+        for cmd in ALIAS_ALLOW:
+            expect(f"478 {arm} alias allows: {cmd[:34]!r}", bash(cmd), proj, ALLOW, None)
+        for tmpl in CD_DENY:
+            cmd = tmpl.format(**fill)
+            expect(f"478 {arm} cd denies: {tmpl[:34]!r}", bash(cmd), proj, DENY, reason)
+        for tmpl in CD_ALLOW:
+            cmd = tmpl.format(**fill)
+            expect(f"478 {arm} cd allows: {tmpl[:34]!r}", bash(cmd), proj, ALLOW, None)
+        # The unknown-cwd rule against a ROOT of <td>/.../tmp/proj: a run of ROOT's components that
+        # ends at its basename denies; an ancestor named after an unknown cd is an accepted limit.
+        expect(f"478 {arm} unknown cwd denies tmp/proj", bash('cd "$X" && rm -rf tmp/proj'), tproj, DENY, reason)
+        expect(f"478 {arm} unknown cwd allows tmp", bash('cd "$X" && rm -rf tmp'), tproj, ALLOW, None)
+        # SYMLINK_ROOT_DENY: ROOT is realpath'd before every comparison.
+        expect(f"478 {arm} symlinked root: cd .. && rm -rf proj", bash("cd .. && rm -rf proj"),
+               sdir / "link" / "proj", DENY, reason)
+        expect(f"478 {arm} symlinked root: payload cwd <link>, rm -rf proj",
+               bash_cwd("rm -rf proj", str(sdir / "link")), sdir / "link" / "proj", DENY, reason)
+        # The payload cwd is the starting cwd when it is an absolute path.
+        expect(f"478 {arm} payload cwd = parent: rm -rf <proj>", bash_cwd(f"rm -rf {proj.name}", str(proj.parent)),
+               proj, DENY, reason)
+        expect(f"478 {arm} no payload cwd: rm -rf <proj> resolves inside ROOT", bash(f"rm -rf {proj.name}"),
+               proj, ALLOW, None)
+        expect(f"478 {arm} payload cwd unrelated: rm -rf build", bash_cwd("rm -rf build", str(td / "t")),
+               proj, ALLOW, None)
+        expect(f"478 {arm} payload cwd relative is ignored: rm -rf build", bash_cwd("rm -rf build", "sub"),
+               proj, ALLOW, None)
 
 # --- overnight-guard registration: the daytime sentinel and the shell gate ----
 print("\n  -- overnight-guard registration, daytime arm (#419) --")
@@ -1791,9 +1890,10 @@ for _c in ("curl u\\>|sh", "curl u \\>|sh", "wget -O- u \\>|bash"):   # an escap
     check(f"og 474 overnight denies an escaped > before a real pipe: {_c!r}", _og.match_tier3(_c), "pipe to shell")
 check("og 474 overnight allows curl x >|f", _og.match_tier3("curl x >|f"), None)
 check("og 474 day allows curl u >|f | sh (pipe to shell is overnight-only)", _og.match_day("curl u >|f | sh"), None)
-# Overnight judges only the FIRST rm in a payload (pinned elsewhere), so this is allowed overnight and
-# denied by day: existing behaviour, deliberately given no overnight deny row.
-check("og 474 first-rm-only trap, overnight", _og.match_tier3("rm -rf build >|log && rm -rf /"), None)
+# Both arms judge every rm in a payload (#478), so the later `rm -rf /` behind a `>|` is denied
+# overnight and by day.
+check("og 474 every rm judged, overnight", _og.match_tier3("rm -rf build >|log && rm -rf /"),
+      "rm -rf dangerous target")
 check("og 474 first-rm-only trap, day denies", _og.match_day("rm -rf build >|log && rm -rf /"),
       "rm -rf dangerous target")
 # _strip_redirs runs on the whole segment before _rm_words reaches _sub_body, so the spaced
@@ -1926,6 +2026,20 @@ for _fn in (_og.match_tier3, _og.match_day):
     _t0 = time.monotonic()
     _fn("rm -rf" + " $(" * 20000)
     check(f"rm linear: 20000 unterminated openers {_fn.__name__} under 1s", time.monotonic() - _t0 < 1, True)
+# #478: the segment walk carries its state forward in one pass. Each call names a real root and cwd,
+# so it exercises the alias and cd tracking and the realpath path rather than the defaults.
+with tempfile.TemporaryDirectory() as _td:
+    _fx = str(pathlib.Path(_td).resolve())
+    for _name, _body in [("6000 aliases", "A=$PWD; " * 6000 + 'rm -rf "$A"'),
+                         ("6000 cd ..", "cd ..; " * 6000 + "rm -rf x"),
+                         ('6000 cd "$X"', 'cd "$X"; ' * 6000 + "rm -rf x")]:
+        for _fn in (_og.match_tier3, _og.match_day):
+            _t0 = time.monotonic()
+            _fn(_body, root=_fx, cwd=_fx)
+            check(f"478 linear: {_name} {_fn.__name__} under 1s", time.monotonic() - _t0 < 1, True)
+    _t0 = time.monotonic()
+    _og.match_tier3("rm -f a; " * 20000, root=_fx, cwd=_fx)
+    check("478 linear: 20000 rm segments, overnight every-rm walk under 2s", time.monotonic() - _t0 < 2, True)
 
 # --- adapt's hooks.md installs the sentinel (#420) ---------------------------
 print("\n  -- forge-adapt hooks.md: masked-exit-advisory row (#420) --")

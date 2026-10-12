@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 17
+# overnight-guard-version: 18
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -26,8 +26,16 @@ Not adversary-proof: matching is on the command string and catches a drifting
 model doing the obvious thing, not a deliberate evasion.
 
 Worktree target (#467): rm -rf of $PWD, $CLAUDE_PROJECT_DIR, $(pwd) or $(git rev-parse
---show-toplevel) is a dangerous target, found by reading the target words as a shell does. The
-overnight arm still judges only the first rm of a payload (a known limit, pinned in test-hooks.py).
+--show-toplevel) is a dangerous target, found by reading the target words as a shell does.
+
+Segment walk (#478): both arms judge EVERY rm command word of a payload, walking the segments left
+to right and carrying the names assigned a ROOT word (`D=$PWD; rm -rf "$D"`, `B="$A"`, `$OLDPWD`
+after a cd away from ROOT) and the tracked cwd (`cd .. && rm -rf <project>` denies; `cd .. && rm -rf
+*` denies on both arms). ROOT, the starting cwd, cd targets and rm targets are realpath'd. The shapes
+tracked, the shapes NOT followed (read, eval, set --, for, arrays, printf -v, source, assignments in
+$( ) or a subshell, inherited variables, CDPATH, symlinks made in the same payload, subshell scope)
+and the unknown-cwd false positive (`cd "$X" && rm -rf <project>` denies whatever $X holds) are
+listed at _Walk below.
 
 Known gap: a bare "git checkout <file>" (discarding one file without "--") is
 not caught, because a regex cannot tell it apart from "git checkout <branch>";
@@ -39,6 +47,7 @@ an alias defined inline, `git -c alias.x='reset --hard' x`, or `--config-env` po
 alias, runs a destructive command under an arbitrary name. That is deliberate evasion, which this
 guard does not defend against; it is not a bypass to file.
 """
+import fnmatch
 import json
 import os
 import re
@@ -383,12 +392,184 @@ def _is_worktree_word(w):
     return all(k == "lit" and t.strip("/") == "" for k, t in w[1:])
 
 
-def _rm_dangerous(seg):
+def _norm(w):
+    # A word as (kind, text) pieces with the empty literals dropped.
+    w = [(k, "".join(t) if k == "lit" else t) for k, t in w]
+    return [(k, t) for k, t in w if not (k == "lit" and t == "")]
+
+
+def _lit(w):
+    # The text of an all-literal (normalised) word, or None when it holds an expansion.
+    if not w:
+        return ""
+    return w[0][1] if len(w) == 1 and w[0][0] == "lit" else None
+
+
+def _param_alone(w):
+    # The name of `$NAME`, `${NAME}` or `"$NAME"`, optionally followed by slashes only; else None.
+    if w and w[0][0] == "param" and _NAME.fullmatch(w[0][1]) \
+            and all(k == "lit" and t.strip("/") == "" for k, t in w[1:]):
+        return w[0][1]
+    return None
+
+
+def _real(path):
+    try:
+        return os.path.realpath(path)
+    except (ValueError, OSError):   # an embedded NUL byte: compare it unresolved
+        return os.path.normpath(path)
+
+
+# THE SEGMENT WALK (#478). A target can name the project without spelling it: through a name
+# assigned earlier (`D=$PWD; rm -rf "$D"`) or after a directory change (`cd .. && rm -rf <project>`).
+# Both live in an EARLIER segment than the rm, so the matchers walk the segments left to right in one
+# pass, carrying the ROOT-tainted names and the tracked cwd. ROOT is the protected root resolved with
+# realpath once; the cwd starts at the payload's absolute `cwd`, else ROOT, and every cd target and rm
+# target is realpath'd too, so a project reached through a symlink compares in one namespace.
+#   Tracked: NAME=value, and export/declare/local/readonly/typeset NAME=value (a value that is a ROOT
+#   word, `.`, or a tainted name taints; any other value clears); cd, pushd, popd, builtin cd and
+#   command cd, with -L -P -e -@ and -- stripped.
+#   NOT followed (accepted limits): read, eval, set --, for NAME in, arrays, printf -v, a sourced
+#   file, an assignment inside $( ) or a subshell, any variable inherited from the environment,
+#   CDPATH, and symlinks created earlier in the same payload. Parentheses are not scoped, so a cd in
+#   a subshell is treated as persisting: `(cd ..) && rm -rf <project>` is a false deny.
+#   An UNKNOWN cwd (`cd -`, popd, pushd with no argument or +N/-N, or a cd argument holding any
+#   other expansion) is sticky for the rest of the payload. Under it a relative target is denied only
+#   when its components are a run of ROOT's components ending at ROOT's basename; known false
+#   positive: `cd "$X" && rm -rf <project>` is denied even when $X holds an unrelated directory with a
+#   `<project>` of its own, and an ancestor named that way (`cd "$X" && rm -rf tmp`) is not denied.
+_SEG = re.compile(r"[^|;&\n]+")
+_RM_CMD = re.compile(r"(?<![\w.$-])(?<!git )rm\b[^|;&\n]*")   # a command word `rm`, not git rm or --rm
+_STMT_HINT = re.compile(r"=|\b(?:cd|pushd|popd)\b")
+_KEYWORDS = frozenset(("if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"))
+_DECLARE = frozenset(("export", "declare", "local", "readonly", "typeset"))
+_CD_OPT = re.compile(r"-[LPe@]+")
+_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
+
+
+class _Walk:
+    def __init__(self, root=None, cwd=None):
+        raw = root if isinstance(root, str) and root else os.getcwd()
+        self.root = _real(raw)
+        self.parts = [p for p in self.root.split("/") if p]
+        self.cwd = _real(cwd) if isinstance(cwd, str) and os.path.isabs(cwd) else self.root
+        self.oldpwd = None
+        self.tainted = set()
+
+    def hits_root(self, path):
+        # The path is ROOT or one of its ancestors.
+        return path == self.root or self.root.startswith(path.rstrip("/") + "/")
+
+    def root_word(self, w):
+        # w is normalised. A ROOT word: a worktree spelling, a tainted name, or $OLDPWD left at ROOT.
+        if _is_worktree_word(w):
+            return True
+        name = _param_alone(w)
+        return name is not None and (name in self.tainted
+                                     or (name == "OLDPWD" and self.oldpwd == self.root))
+
+    def statement(self, words):
+        ws = [_norm(w) for w in words]
+        i = 0
+        while i < len(ws) and _lit(ws[i]) in _KEYWORDS:
+            i += 1
+        if i < len(ws) and _lit(ws[i]) in ("builtin", "command"):
+            i += 1
+        head = _lit(ws[i]) if i < len(ws) else None
+        if head in ("cd", "pushd", "popd"):
+            self.cd(head, ws[i + 1:])
+            return
+        if head in _DECLARE:
+            assigns = [w for w in ws[i + 1:] if not (_lit(w) or "").startswith("-")]
+        else:
+            assigns = ws[i:]
+            if not assigns or any(not (w and w[0][0] == "lit" and _ASSIGN.match(w[0][1])) for w in assigns):
+                return   # a command, not a statement of assignments (`x=1 make` sets nothing here)
+        for w in assigns:
+            m = _ASSIGN.match(w[0][1]) if w and w[0][0] == "lit" else None
+            if not m:
+                continue
+            value = ([("lit", m.group(2))] if m.group(2) else []) + w[1:]
+            if self.root_word(value) or _lit(value) in (".", "./"):
+                self.tainted.add(m.group(1))
+            else:
+                self.tainted.discard(m.group(1))
+
+    def cd(self, head, args):
+        if self.cwd is None:
+            return   # UNKNOWN is sticky
+        new = None
+        if head != "popd":
+            while args and _CD_OPT.fullmatch(_lit(args[0]) or ""):
+                args = args[1:]
+            if args and _lit(args[0]) == "--":
+                args = args[1:]
+            if not args:
+                new = None if head == "pushd" else _real(os.path.expanduser("~"))
+            else:
+                a, t = args[0], _lit(args[0])
+                if t is not None:
+                    if (head == "cd" and t == "-") or (head == "pushd" and re.fullmatch(r"[+-]\d+", t)):
+                        new = None
+                    elif t == "~" or t.startswith("~/"):
+                        new = _real(os.path.join(os.path.expanduser("~"), t[2:]))
+                    else:
+                        new = _real(os.path.join(self.cwd, t))
+                elif _param_alone(a) == "HOME":
+                    new = _real(os.path.expanduser("~"))
+                elif self.root_word(a):
+                    new = self.root
+                elif _param_alone(a) == "OLDPWD" and self.oldpwd is not None:
+                    new = self.oldpwd
+        self.oldpwd, self.cwd = self.cwd, new
+
+    def target_dangerous(self, w):
+        # w is a normalised rm target word (not an option).
+        if self.root_word(w):
+            return True
+        if _param_alone(w) == "OLDPWD" and self.oldpwd is not None:
+            return self.hits_root(self.oldpwd)
+        t = _lit(w)
+        if not t or t.startswith(("/", "~")):
+            return False   # empty, or already judged by the absolute-path rule
+        glob = any(c in t for c in "*?[")
+        if self.cwd is None:
+            comps = [c for c in t.split("/") if c not in ("", ".")]
+            return (not glob and 0 < len(comps) <= len(self.parts)
+                    and comps == self.parts[len(self.parts) - len(comps):])
+        if not glob:
+            return self.hits_root(_real(os.path.join(self.cwd, t)))
+        # A glob whose directory is a strict ancestor of ROOT and that matches ROOT's next component.
+        d, base = os.path.split(t.rstrip("/"))
+        if any(c in d for c in "*?["):
+            return False
+        d = _real(os.path.join(self.cwd, d))
+        prefix = d.rstrip("/") + "/"
+        if not self.root.startswith(prefix):
+            return False
+        return fnmatch.fnmatchcase(self.root[len(prefix):].split("/")[0], base)
+
+
+def _rm_dangerous(seg, st=None):
     # A dangerous target may be preceded by whitespace, "=", or a quote (a quote
     # before the path must not hide it, mirroring the .env pattern's prefix class).
     if re.search(r"(^|[\s='\"])(/|~|\$\{?HOME)", seg) or ".." in seg:
         return True
-    return any(_is_worktree_word(w) for w in _rm_words(seg))
+    words = _rm_words(seg)
+    if any(_is_worktree_word(w) for w in words):
+        return True
+    if st is None:
+        return False
+    opts = True
+    for w in words[1:]:   # words[0] is the rm command word itself
+        w = _norm(w)
+        t = _lit(w)
+        if opts and t is not None and t.startswith("-"):
+            opts = t != "--"
+            continue
+        if st.target_dangerous(w):
+            return True
+    return False
 
 
 def _strip_redirs(seg):
@@ -398,15 +579,26 @@ def _strip_redirs(seg):
     return re.sub(r"(?<!\d)\d*" + REDIR_AMP + r"?>>?[" + _REDIR_MARK + r"]?\s*[^\s)`]+", " ", seg)
 
 
-def is_bulk_delete(cmd):
-    # OVERNIGHT rule, unchanged by #419: only the FIRST rm in a payload is judged, so
-    # `rm -f a.txt && rm -rf $HOME/x` is allowed overnight (pinned by test-hooks.py).
-    cmd = _flat(cmd)
-    m = re.search(r"\brm\b[^|;&\n]*", cmd)
-    if not m:
-        return False
-    seg = _strip_redirs(m.group(0))
-    return _rm_force_recursive(seg) and _rm_dangerous(seg)
+def _rm_segments(cmd, root=None, cwd=None):
+    # One left-to-right pass (#478): yields each `rm -rf` segment, redirections stripped, with
+    # whether it hits a dangerous target given the state built from the segments before it.
+    st = _Walk(root, cwd)
+    for m in _SEG.finditer(_flat(cmd)):
+        seg = m.group(0)
+        r = _RM_CMD.search(seg)
+        if r:
+            rs = _strip_redirs(r.group(0))
+            # GNU rm permutes arguments, so flags may follow a target: judge the whole segment.
+            if _rm_force_recursive(rs):
+                yield rs, _rm_dangerous(rs, st)
+        elif _STMT_HINT.search(seg):
+            st.statement(_rm_words(seg))
+
+
+def is_bulk_delete(cmd, root=None, cwd=None):
+    # OVERNIGHT rule: every rm command word in the payload is judged (#478; it used to be the first
+    # only). There is no wildcard class overnight, except a glob reaching ROOT from an ancestor cwd.
+    return any(danger for _, danger in _rm_segments(cmd, root, cwd))
 
 
 def _rm_wildcard(seg):
@@ -424,38 +616,35 @@ def _rm_wildcard(seg):
     return False
 
 
-def day_bulk_delete(cmd):
-    # DAYTIME judges EVERY rm segment (overnight judges the first only), so
-    # `rm -rf build && rm -rf tmp/*` and `cd tmp && rm -rf *` are both caught.
-    # Review r1 (#419): a command word `rm` only (not `docker run --rm` or `git rm`), flags
-    # read across the whole segment, redirections dropped, `\<newline>` joined, a
-    # trailing `)`/`}`/backtick ignored. A bare `.` target is NOT judged: GNU rm refuses it,
-    # and a `.` inside `$(find . ...)` must stay allowed.
-    cmd = _flat(cmd)
-    for m in re.finditer(r"(?<![\w.$-])(?<!git )rm\b[^|;&\n]*", cmd):
-        seg = _strip_redirs(m.group(0))
-        # GNU rm permutes arguments, so flags may follow a target: judge the whole segment.
-        if not _rm_force_recursive(seg):
-            continue
-        if _rm_dangerous(seg):
+def day_bulk_delete(cmd, root=None, cwd=None):
+    # DAYTIME judges EVERY rm segment, so `rm -rf build && rm -rf tmp/*` and `cd tmp && rm -rf *`
+    # are both caught. Review r1 (#419): a command word `rm` only (not `docker run --rm` or
+    # `git rm`), flags read across the whole segment, redirections dropped, `\<newline>` joined, a
+    # trailing `)`/`}`/backtick ignored. A bare `.` target is judged only through the tracked cwd
+    # (#478): a `.` inside `$(find . ...)` is not a literal target and stays allowed. The dangerous
+    # check runs before the wildcard one, so `cd .. && rm -rf *` reports the dangerous label.
+    for seg, danger in _rm_segments(cmd, root, cwd):
+        if danger:
             return "rm -rf dangerous target"
         if _rm_wildcard(seg):
             return "rm -rf wildcard target"
     return None
 
 
-def match_tier3(cmd):
+def match_tier3(cmd, root=None, cwd=None):
+    # root is the raw protected root (realpath'd by the walk; os.getcwd() when None); cwd is the
+    # payload cwd, used as the starting cwd only when it is an absolute path.
     cmd = _join(cmd)
     flat = _flat(cmd)
     for label, rx in GIT_PATTERNS + SECRET_PATTERNS:
         if rx.search(flat if rx in _FLAT_RX else cmd):
             return label
-    if is_bulk_delete(cmd):
+    if is_bulk_delete(cmd, root=root, cwd=cwd):
         return "rm -rf dangerous target"
     return None
 
 
-def match_day(cmd):
+def match_day(cmd, root=None, cwd=None):
     # GIT_PATTERNS plus bulk delete; SECRET_PATTERNS are deliberately absent (reading .env and
     # `curl ... | sh` installers are routine by day; decided in #419).
     cmd = _join(cmd)
@@ -463,7 +652,7 @@ def match_day(cmd):
     for label, rx in GIT_PATTERNS:
         if rx.search(flat):
             return label
-    return day_bulk_delete(cmd)
+    return day_bulk_delete(cmd, root=root, cwd=cwd)
 
 
 PARK = " Do not retry; record it in .claude/overnight/decisions.md and move on."
@@ -507,11 +696,11 @@ def main():
             return deny("overnight-guard: Bash call with no readable command while armed; blocked (fail closed)." + PARK)
         return 0   # daytime arm: fail open
     if overnight:
-        hit = match_tier3(command)
+        hit = match_tier3(command, root=proj, cwd=payload.get("cwd"))
         if hit:
             return deny(f"overnight-guard: blocked {_what(hit, 'a Tier-3 destructive command')} during an armed overnight run." + PARK)
         return 0
-    hit = match_day(command)
+    hit = match_day(command, root=proj, cwd=payload.get("cwd"))
     if hit:
         return deny(day_reason(hit))
     return 0
