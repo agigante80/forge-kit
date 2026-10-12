@@ -577,6 +577,50 @@ printf '/home/alice/x\n' > "$WORK/docs/leaky.md"
 ( cd "$WORK" && "$SCRIPT" --allow-file "$WORK/allow" docs/leaky.md ) >/dev/null 2>&1
 expect "a skip entry excludes that path" 0 "$?"
 
+echo "== skip is an exact path or a path suffix, and a wildcard is refused (#226) =="
+# The private half now matches skip by this rule too, so one .leak-guard-allow line means one thing.
+SKREPO="$WORK/skip226"; mkdir -p "$SKREPO"
+( cd "$SKREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t
+  mkdir -p src/deep lib vendor/src/deep 'app/[slug]' app/s
+  printf 'clean\n' > src/a.log
+  for f in src/deep/leak.log lib/x.log vendor/src/deep/leak.log 'app/[slug]/page.tsx' app/s/page.tsx; do
+    printf 'see /home/alice/x\n' > "$f"; done
+  git add -A && git commit -qm seed ) >/dev/null 2>&1
+S226=""
+srun226() {  # srun226 <allow-file line>...: one --all run; OUT, ERR and RC as variables
+  printf '%s\n' "$@" > "$WORK/allow226"
+  OUT="$( cd "$SKREPO" && "${S226:-$SCRIPT}" --all --allow-file "$WORK/allow226" 2>"$WORK/err.txt" )"; RC=$?; ERR="$(cat "$WORK/err.txt")"
+}
+srun226 'skip src/deep/leak.log'
+lacks "src/deep/leak.log:" "$OUT" "skip src/deep/leak.log silences that path"
+lacks "vendor/src/deep/leak.log" "$OUT" "and the same relative path under another parent (suffix)"
+contains "lib/x.log:1: home-path: /home/alice/" "$OUT" "while lib/x.log is still reported"
+expect "and the run exits 1" 1 "$RC"
+srun226 'skip leak.log'
+lacks "leak.log" "$OUT" "skip leak.log (a bare suffix) silences both nested leak.log files"
+contains "lib/x.log:1:" "$OUT" "and lib/x.log is still reported"
+srun226 'skip eep/leak.log'
+contains "src/deep/leak.log:1:" "$OUT" "near-miss: a suffix not starting at a slash matches nothing"
+srun226 'skip app/[slug]/page.tsx'
+lacks "app/[slug]/page.tsx" "$OUT" "skip app/[slug]/page.tsx is accepted and matches its literal path"
+contains "app/s/page.tsx:1:" "$OUT" "and app/s/page.tsx is still reported"
+expect "with exit 1 and no refusal" "1|" "$RC|$ERR"
+srun226 'skip [slug]/page.tsx'
+lacks "app/[slug]/page.tsx" "$OUT" "skip [slug]/page.tsx silences app/[slug]/page.tsx as a literal suffix"
+contains "app/s/page.tsx:1:" "$OUT" "and the suffix compare is quoted too: app/s/page.tsx is still reported"
+for v in 'src/*.log' '?x' '*'; do
+  srun226 '# a comment' '' "skip $v"
+  expect "skip $v is refused with exit 2 at parse, with no report" "2|" "$RC|$OUT"
+  expect "and the message names file, line and the value" \
+    "check-public-leaks: $WORK/allow226:3: skip is matched as an exact path or a path suffix, so a wildcard could never match: $v" "$ERR"
+done
+# The mutant: the refusal deleted, so the glob is accepted and silently dead.
+S226="$WORK/mutant-226-norefuse.sh"; sed '/skip is matched as an exact path or a path suffix/d' "$SCRIPT" > "$S226"; chmod +x "$S226"
+cmp -s "$SCRIPT" "$S226" && bad "mutant ledger (#226): the refusal sed did not apply" || ok "mutant ledger (#226): the refusal mutant differs"
+srun226 'skip src/*.log'
+expect "mutant (#226): without the refusal skip src/*.log is accepted, dead, and the run reports" 1 "$RC"
+S226=""
+
 echo "== git modes =="
 REPO="$WORK/repo"
 mkdir -p "$REPO" && ( cd "$REPO"
@@ -916,6 +960,17 @@ hrun --history --allow-file "$WORK/hallow"; rc=$RC; expect "with zzz.md skipped 
 ( cd "$HREPO" && cp zzz.md keep.md && git add keep.md && git commit -qm keep ) >/dev/null 2>&1
 hrun --history --allow-file "$WORK/hallow"; rc=$RC; expect "a third, unskipped path brings it back" 1 "$rc"
 contains "keep.md@" "$OUT" "reported at that path"
+# #226: the suffix rule decides a blob's paths under --history, and a wildcard is refused there too.
+mkrepo suffix226
+( cd "$HREPO" && mkdir -p deep && printf 'one /home/alice/x\n' > deep/zzz.md && printf 'two /home/alice/x\n' > xzzz.md \
+  && git add -A && git commit -qm add ) >/dev/null 2>&1
+hrun --history --allow-file "$WORK/hallow"; rc=$RC
+lacks "deep/zzz.md@" "$OUT" "--history: skip zzz.md silences deep/zzz.md as a path suffix (#226)"
+contains "xzzz.md@" "$OUT" "--history: and xzzz.md, which ends in it without a slash, is still reported (#226)"
+printf 'skip *.md\n' > "$WORK/hallow226"
+hrun --history --allow-file "$WORK/hallow226"; rc=$RC
+expect "--history: skip *.md is refused with exit 2 (#226)" 2 "$rc"
+contains "hallow226:1: skip is matched as an exact path or a path suffix" "$ERR" "--history: and says why (#226)"
 mkrepo locks
 ( cd "$HREPO" && printf 'same /home/alice/x\n' > aaa.lock && cp aaa.lock bbb.lock && git add aaa.lock bbb.lock && git commit -qm locks ) >/dev/null 2>&1
 hrun --history; rc=$RC; expect "content that only ever lived in lockfiles is not reported" 0 "$rc"

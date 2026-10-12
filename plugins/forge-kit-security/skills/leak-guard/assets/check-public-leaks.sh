@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-public-leaks-version: 37
+# check-public-leaks-version: 38
 #
 # The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses.
 #
@@ -445,7 +445,13 @@ if [ -n "$ALLOW_FILE" ]; then
         esac
         ALLOW_ROOTS+=("$val"); PLACEHOLDER_USERS+=("$val") ;;
       email)  ALLOW_EMAILS+=("$val") ;;
-      skip)   SKIP_PATHS+=("$val") ;;
+      # skip_by_name() compares a skip value QUOTED, as an exact path or a slash-anchored suffix,
+      # so `*` and `?` are literal there and a value holding one is a dead entry that reads as a
+      # glob. Refused, as check-private-leaks.sh refuses it, so one shared line has one meaning
+      # (#226). `[` is NOT refused: `app/[slug]/page.tsx` is a real path and matches literally.
+      skip)
+        case "$val" in *[*?]*) die "$ALLOW_FILE:$lineno: skip is matched as an exact path or a path suffix, so a wildcard could never match: $val" ;; esac
+        SKIP_PATHS+=("$val") ;;
       # REFUSE rather than skip the entry. A silently ignored line in a security config is a guard
       # that reports a coverage it does not have, which is the failure this whole component exists
       # to end.

@@ -3,7 +3,7 @@ name: leak-guard
 description: Stop the developer's own machine leaking into a repository that is about to be made public. Home paths, "~/" roots and email addresses are caught in the open by a CI-runnable scanner; private project names are caught by a list held OUTSIDE the repository, because a committed denylist of the names you are hiding is an index pointing at them. Use when setting up a repo that will go public, when a scan reports a hit, or when someone asks how to remove something already pushed.
 ---
 
-<!-- leak-guard-version: 31 -->
+<!-- leak-guard-version: 32 -->
 
 # Leak guard
 
@@ -150,19 +150,17 @@ RFC 6761, which cannot reach a mailbox.
 
 The project's allow-file takes five keys, `root`, `prefix`, `marker`, `email` and `skip`. An unrecognised key
 **refuses the whole run** rather than skipping the line, because a silently ignored entry in a
-security config is a guard reporting a coverage it does not have, and so does a `prefix` or `root`
-entry that could never match, since a dead entry in a tracked file reads as a decision somebody
-made. A `root` is refused when it is entirely punctuation, when it is not exactly one segment
-(rule B matches one segment and nothing deeper, though a trailing slash is tolerated), when it
-carries whitespace, a double quote or a backtick, and when it ends in punctuation, which after the
-strip could only ever match its own literal; bracketed `root` values are the exception to that last
-rule, since a redaction marker is such a literal. A `prefix` is refused for the same four shapes
-with no bracketed exception, because rule A compares the stripped match exactly, so an entry
-ending in punctuation never matches; the built-in redaction markers need no prefix entry. A `marker`
-is refused unless it is one bracketed token, `[name]`, so an unbracketed or half-bracketed value, an
-empty `[]`, and a name holding whitespace, a double quote, a backtick or a slash are all refused (a
-path segment yields none of them, so the entry could never match). An all-punctuation name such as
-`[.]` is allowed: it silences only its own literal.
+security config is a guard reporting a coverage it does not have; so does an entry that could never
+match, since a dead entry in a tracked file reads as a decision. A `root` is refused when it is
+entirely punctuation, when it is not exactly one segment (rule B matches one; a trailing slash is
+tolerated), when it carries whitespace, a double quote or a backtick, and when it ends in
+punctuation, which after the strip could only match its own literal; a bracketed `root` is exempt
+from that last rule, being such a literal. A `prefix` is refused for the same four shapes with no
+bracketed exception, because rule A compares the stripped match exactly; the built-in redaction
+markers need no prefix entry. A `marker` must be one bracketed token, `[name]`, whose name holds no
+whitespace, double quote, backtick or slash (a path segment yields none of them); `[.]` silences
+only its own literal. A `skip` is a path, in both halves: exact, or the same relative path under
+any parent; no wildcards, so a value containing `*` or `?` is refused, and `[` is literal.
 The file is tracked and public on purpose: everything in it is something the project decided it may show.
 
 ## The private half
@@ -174,9 +172,9 @@ check-private-leaks.sh --init [--list <path>]
 ```
 
 > **The allow-file takes `skip` and nothing else.** It is the same
-> `.leak-guard-allow` the public half reads, and this half honours only path globs from
-> it: a generated lockfile that happens to contain a listed name, a test fixture using one
-> as sample data. A **name** must never appear in it: the file is tracked and public, and
+> `.leak-guard-allow` the public half reads, and this half honours only its `skip` paths,
+> matched by the same rule, for a generated lockfile that happens to contain a listed name or a
+> test fixture using one as sample data. A **name** must never appear in it: the file is tracked and public, and
 > a name there rebuilds the index the list exists to avoid. `root`, `prefix`, `marker` and `email`
 > are the public half's keys and are ignored here rather than refused, so one file serves
 > both scanners.
@@ -184,7 +182,7 @@ check-private-leaks.sh --init [--list <path>]
 > blob is scanned unless every one of those paths is skipped (the rule stated above), so a
 > permanent fixture can be silenced in the weekly history scan without weakening the list. A
 > blob with NO known path, one that `--orphans` reaches or that the path map never saw, cannot
-> match a path glob and is judged as before; that is the intended rule, not a gap.
+> match a `skip` path and is judged as before; that is the intended rule, not a gap.
 
 **It reports a redacted name by default**, two leading characters and the length, and `--show-names`
 prints it in full. The class of leak this component exists to stop is pasted output, and this hook's

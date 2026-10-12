@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-private-leaks-version: 29
+# check-private-leaks-version: 30
 #
 # The private half of the leak guard: project and folder NAMES that must not become public.
 #
@@ -221,14 +221,20 @@ if [ -n "$ALLOW_FILE" ]; then
     line="${raw%$'\r'}"
     # An ASCII byte list, never `[[:space:]]` (#403), as check-public-leaks.sh trims its allow-file:
     # a caller-locale class trimmed an edge U+2003 under UTF-8 only, so `skip s.md<EMSP>` was a
-    # different glob by locale.
+    # different path by locale.
     line="${line#"${line%%[!$' \t\n\v\f\r']*}"}"
     line="${line%"${line##*[!$' \t\n\v\f\r']}"}"
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%% *}"; val="${line#* }"
     [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value: $line"
     case "$key" in
-      skip) SKIP_PATHS+=("$val") ;;
+      # The public half's rule (#226): skip_by_name() compares the value QUOTED, as an exact path
+      # or a slash-anchored suffix, so a `*` or `?` could never match and is refused. The message
+      # leaves the value out: this runs before the names list is loaded, and a value such as
+      # `<name>/*.md` can carry a listed name. `[` is literal and accepted.
+      skip)
+        case "$val" in *[*?]*) die "$ALLOW_FILE:$lineno: skip is matched as an exact path or a path suffix, so a wildcard could never match" ;; esac
+        SKIP_PATHS+=("$val") ;;
       root|prefix|marker|email)
         # These belong to check-public-leaks.sh. Sharing one file is intended; silently
         # ignoring a key is not, so say which scanner owns it.
@@ -538,14 +544,17 @@ skip_by_name() {  # skip_by_name <path> [<lowercased basename>]
     *.lock|package-lock.json|npm-shrinkwrap.json|yarn.lock|pnpm-lock.yaml|composer.lock \
     |gemfile.lock|poetry.lock|cargo.lock|go.sum|*.lockb) return 0 ;;
   esac
-  # The allow-file skip, a glob over the whole path, in the one place both modes ask (#206: it was
-  # a loop after each call site, and the --history copy kept the shared history block from being
-  # one). It applies to a KNOWN path: a --history blob with no path at all (--orphans, or one the
-  # map never saw) is resolved to `keep=blob` before this is called, so it cannot be silenced by a
-  # path glob and is not meant to be.
+  # The allow-file skip, in the one place both modes ask (#206: it was a loop after each call site,
+  # and the --history copy kept the shared history block from being one). An exact path or the
+  # same relative path under any parent, compared QUOTED exactly as check-public-leaks.sh does
+  # (#226): it was an unquoted case glob, so `*` crossed `/` and `skip *` silenced the whole scan.
+  # It applies to a KNOWN path: a --history blob with no path at all (--orphans, or one the map
+  # never saw) is resolved to `keep=blob` before this is called, so it cannot be silenced by a
+  # skip entry and is not meant to be.
   local s
   for s in ${SKIP_PATHS+"${SKIP_PATHS[@]}"}; do
-    case "$1" in $s) return 0 ;; esac
+    [ "$1" = "$s" ] && return 0
+    case "$1" in */"$s") return 0 ;; esac
   done
   return 1
 }

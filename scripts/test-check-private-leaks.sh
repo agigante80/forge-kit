@@ -127,7 +127,7 @@ ALLOWREPO="$WORK/allow-repo"; mkdir -p "$ALLOWREPO"
   printf 'the acme-migration repo\n' > leak.md
   git add -A && git commit -qm seed ) >/dev/null 2>&1
 OUT="$( cd "$ALLOWREPO" && "$SCRIPT" --list "$WORK/list" --all --allow-file "$WORK/allow" 2>"$WORK/err.txt" )"; rc=$?
-lacks "pnpm-lock.yaml" "$OUT" "a skip <glob> path is not reported"
+lacks "pnpm-lock.yaml" "$OUT" "a skipped path is not reported"
 contains "leak.md" "$OUT" "an unskipped finding is still reported"
 expect "and the run exits 1 on the surviving finding" 1 "$rc"
 expect "root/prefix/marker/email are ignored rather than refused: no stderr" "" "$(cat "$WORK/err.txt")"
@@ -171,6 +171,75 @@ expect "with no stderr complaint about the comment or blank lines" "" "$(cat "$W
 "$SCRIPT" --list "$WORK/list" --allow-file >/dev/null 2>"$WORK/err.txt"
 expect "--allow-file as the last argument dies rather than silently no-opping" 2 "$?"
 contains "needs a path" "$(cat "$WORK/err.txt")" "and says so"
+
+echo "== skip is an exact path or a path suffix, as in the public half (#226) =="
+# One .leak-guard-allow, one rule: this half used to read `skip` as an unquoted case glob, so `*`
+# crossed `/`, `skip *` silenced the whole scan with exit 0, and `[slug]` was a class. Now `$s` is
+# quoted, as the public matcher has it, and a value holding `*` or `?` is refused at parse.
+printf 'acmeinc\n' > "$WORK/list226"
+SKREPO="$WORK/skip226"; mkdir -p "$SKREPO"
+( cd "$SKREPO" && git init -q . && git config user.email t@t.invalid && git config user.name t
+  mkdir -p src/deep lib vendor/src/deep 'app/[slug]' app/s
+  printf 'clean\n' > src/a.log
+  for f in src/deep/leak.log lib/x.log vendor/src/deep/leak.log 'app/[slug]/page.tsx' app/s/page.tsx; do
+    printf 'the acmeinc repo\n' > "$f"; done
+  git add -A && git commit -qm seed ) >/dev/null 2>&1
+# srun226 <allow-file line>...: one --all run with those lines; OUT, ERR and RC as variables.
+srun226() {
+  printf '%s\n' "$@" > "$WORK/allow226"
+  OUT="$( cd "$SKREPO" && "${S226:-$SCRIPT}" --list "$WORK/list226" --all --allow-file "$WORK/allow226" 2>"$WORK/err.txt" )"; RC=$?; ERR="$(cat "$WORK/err.txt")"
+}
+srun226 'skip src/deep/leak.log'
+lacks "src/deep/leak.log:" "$OUT" "skip src/deep/leak.log silences that path"
+lacks "vendor/src/deep/leak.log" "$OUT" "and the same relative path under another parent (suffix)"
+contains "lib/x.log:1: private-name: ac*****" "$OUT" "while lib/x.log is still reported"
+expect "and the run exits 1" 1 "$RC"
+srun226 'skip leak.log'
+lacks "leak.log" "$OUT" "skip leak.log (a bare suffix) silences both nested leak.log files"
+contains "lib/x.log:1:" "$OUT" "and lib/x.log is still reported"
+expect "and the run exits 1" 1 "$RC"
+srun226 'skip app/[slug]/page.tsx'
+lacks "app/[slug]/page.tsx" "$OUT" "skip app/[slug]/page.tsx matches its literal path"
+contains "app/s/page.tsx:1:" "$OUT" "and the bracket is no class: app/s/page.tsx is still reported"
+expect "and the run exits 1 with no refusal" "1|" "$RC|$ERR"
+srun226 'skip [slug]/page.tsx'
+lacks "app/[slug]/page.tsx" "$OUT" "skip [slug]/page.tsx silences app/[slug]/page.tsx as a literal suffix"
+contains "app/s/page.tsx:1:" "$OUT" "and the suffix compare is quoted too: app/s/page.tsx is still reported"
+srun226 'skip app/s/page.tsx'
+lacks "app/s/page.tsx" "$OUT" "skip app/s/page.tsx silences that path"
+contains "app/[slug]/page.tsx:1:" "$OUT" "and app/[slug]/page.tsx is still reported"
+srun226 'skip src/deep/leak.lo'
+contains "src/deep/leak.log:1:" "$OUT" "near-miss: a partial final segment matches nothing"
+srun226 'skip deep/leak.log'
+lacks "leak.log" "$OUT" "a suffix starting at a slash silences both nested files"
+srun226 'skip eep/leak.log'
+contains "src/deep/leak.log:1:" "$OUT" "near-miss: a suffix not starting at a slash matches nothing"
+for v in 'src/*.log' '*' '*/*' '?*' '*.lock' 'src/leak.lo?'; do
+  srun226 '# a comment' '' "skip $v"
+  expect "skip $v is refused with exit 2 at parse, with no report" "2|" "$RC|$OUT"
+  expect "and the message names file and line, but not the value" \
+    "check-private-leaks: $WORK/allow226:3: skip is matched as an exact path or a path suffix, so a wildcard could never match" "$ERR"
+done
+# The parser runs before the names list is loaded, so a refused value may carry a listed name: it
+# must not reach stderr, in a tree mode or in --history.
+srun226 'skip acmeinc/*.md'
+expect "skip acmeinc/*.md is refused in --all" 2 "$RC"
+lacks "acmeinc" "$ERR" "and the listed name in the value is not printed"
+OUT="$( cd "$SKREPO" && "$SCRIPT" --list "$WORK/list226" --history --allow-file "$WORK/allow226" 2>"$WORK/err.txt" )"; RC=$?; ERR="$(cat "$WORK/err.txt")"
+expect "and in --history" 2 "$RC"
+lacks "acmeinc" "$ERR" "with the listed name still not printed"
+contains "allow226:1: skip is matched as an exact path" "$ERR" "but the file and line are"
+# The mutants, run here on scratch copies: the matcher with `$s` unquoted again, and the refusal gone.
+S226="$WORK/mutant-226-unquoted.sh"; sed 's/^    \[ "\$1" = "\$s" \] && return 0$/    case "$1" in $s) return 0 ;; esac/' "$SCRIPT" > "$S226"; chmod +x "$S226"
+cmp -s "$SCRIPT" "$S226" && bad "mutant ledger (#226): the unquoted sed did not apply" || ok "mutant ledger (#226): the unquoted mutant differs"
+srun226 'skip app/[slug]/page.tsx'
+contains "app/[slug]/page.tsx:1:" "$OUT" "mutant (#226): unquoted, [slug] is a class again and the named file is reported"
+lacks "app/s/page.tsx" "$OUT" "mutant (#226): and the unrelated app/s/page.tsx is silenced"
+S226="$WORK/mutant-226-norefuse.sh"; sed '/skip is matched as an exact path or a path suffix/d' "$SCRIPT" > "$S226"; chmod +x "$S226"
+cmp -s "$SCRIPT" "$S226" && bad "mutant ledger (#226): the refusal sed did not apply" || ok "mutant ledger (#226): the refusal mutant differs"
+srun226 'skip src/*.log'
+expect "mutant (#226): without the refusal skip src/*.log is accepted (dead) and the run reports" 1 "$RC"
+S226=""
 
 echo "== allow-file and name-list trims use one ASCII byte list in every locale (#403) =="
 # A `[[:space:]]` trim followed the caller's locale: under UTF-8 it took an edge U+2003 off a `skip`
@@ -422,6 +491,25 @@ OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" --history --allow-file "$W
 lacks "fixture.txt@" "$OUT" "a name in a skipped path from an OLD commit is not reported under --history --allow-file"
 contains "other.md@" "$OUT" "the same name in an unskipped historical path is still reported"
 expect "and the run exits 1 on the surviving finding" 1 "$rc"
+# #226: --history reaches the same skip_by_name, so the same rule decides a blob's paths. Distinct
+# content per path, since identical content at two paths is one blob.
+mkrepo history-suffix
+( cd "$HREPO" && mkdir -p deep d && printf 'secretproj one\n' > deep/fixture.txt \
+  && printf 'secretproj two\n' > xfixture.txt && printf 'secretproj three\n' > 'd/[ab].txt' \
+  && printf 'secretproj four\n' > d/a.txt && git add -A && git commit -qm add \
+  && git rm -rq deep d xfixture.txt && git commit -qm remove ) >/dev/null 2>&1
+printf 'skip fixture.txt\nskip d/[ab].txt\n' > "$WORK/hsuffixallow"
+OUT="$( cd "$HREPO" && "$SCRIPT" --list "$WORK/hlist" --history --allow-file "$WORK/hsuffixallow" 2>/dev/null )"; rc=$?
+lacks "deep/fixture.txt@" "$OUT" "--history: skip fixture.txt silences deep/fixture.txt as a path suffix (#226)"
+contains "xfixture.txt@" "$OUT" "--history: and xfixture.txt, which ends in it without a slash, is still reported (#226)"
+lacks "[ab].txt@" "$OUT" "--history: skip d/[ab].txt matches its literal path (#226)"
+contains "d/a.txt@" "$OUT" "--history: and the bracket is no class, so d/a.txt is still reported (#226)"
+expect "--history: and the run exits 1 (#226)" 1 "$rc"
+# The unquoted-matcher mutant under --history, in $WORK/lone beside the library.
+mkdir -p "$WORK/lone"; cp "$LIB" "$WORK/lone/leak-lib.sh"
+sed 's/^    \[ "\$1" = "\$s" \] && return 0$/    case "$1" in $s) return 0 ;; esac/' "$SCRIPT" > "$WORK/lone/mut226.sh"; chmod +x "$WORK/lone/mut226.sh"
+OUT="$( cd "$HREPO" && "$WORK/lone/mut226.sh" --list "$WORK/hlist" --history --allow-file "$WORK/hsuffixallow" 2>/dev/null )"
+lacks "d/a.txt@" "$OUT" "mutant (#226): unquoted under --history, [ab] is a class and d/a.txt is silenced"
 
 echo "== --history: every ref a mirror push sends (#210) =="
 # Mirrors the public suite's section with a listed name. The enumeration code is DUPLICATED from
