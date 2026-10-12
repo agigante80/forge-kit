@@ -127,3 +127,42 @@ purpose. Its gate tripped the review loop's trip wire: two consecutive rounds fo
 previous round's fix. It waits on one question to the maintainer, posted at
 https://github.com/agigante80/forge-kit/issues/425#issuecomment-6120284336. Close the phase after
 #425 ships or is closed with a reason.
+
+## Close record
+
+Closed 2026-10-13, unattended. **Outcome: done.** All twelve expected tickets landed and nothing was
+moved out. #282 stayed in the backlog as planned and was later closed as a deferral dated 2027-01-11.
+
+| Ticket | Landed | Notes |
+|---|---|---|
+| #476 | 1582acb | Template picker folds the label case |
+| #261 | b38b44e, 34234e1 | Option 3: notes and pointers in all three copies of `bounded()` |
+| #454 | ae83973, 5bd3333, 1d3f013 | Credential-helper token read through forge_api's path, bounded |
+| #302 | c1a38f8, 6375653 | Option B: `max-lines` referred, `max-bytes` still fails |
+| #220 | a987893, 346a01d | Harness recipe built for real; surfaced #480 |
+| #425 | 6aeb2b4, d485ca2, 70f1a5d | Decision (a): Step 0b blocks a ticket with no area label when `labels.md` is absent |
+| #448 | 10eebe1, 3876dd3, d8fcdfa, 0100ee7 | Offer of a default `.full-review-sensitive` |
+| #445 | 8056011, 598fc9d, 9e7cfa6 | Round 2 stays `always`; guide page |
+| #443 | none | Measurement only; decision posted on the ticket (not A) |
+| #477 | 27aab86, aeebf71, e94e583 | Probe record; `no-poll-loops` wording covers both modes |
+| #226 | cee1b76, c8da2ee, 3611185 | Option 1: literal or suffix `skip` in both scanners |
+| #272 | 45ce8f3, ab9a046, 3dcb315, 0408efb, a301d25 | `review-mechanics.sh` with its own suite |
+
+**The premortem, clause by clause:**
+
+- *A body was rewritten to a pick the maintainer did not make*: did not happen. Each rewrite quoted
+  the recorded answer and was gated against it.
+- *A stale decision implemented to the letter*: avoided once. #425's gate tripped the review loop's
+  trip wire, and the ticket went back to the maintainer as a question rather than being finished.
+- *#272 swallowed the phase*: did not. It ran last and landed.
+- *The harness was claimed without being built*: did not. #220 closed on a real build, which is how
+  #480 was found.
+- *The token leaked into a report*: did not. #454's rows pin that the value never appears.
+- *One probe was called the truth for both modes*: avoided. #477 probed interactively and its wording
+  now covers both modes.
+- *The inline critic kept the old word count*: not reached; #477 shortened Step 3B instead.
+- *A measurement became the decision*: did not. #443 posted numbers and a separate decision.
+- *A one-line fix grew into a gate change*: did not. #476 stayed in the picker.
+
+No baseline was raised. The ticket-gate baseline only fell, ending at 5634. Four bugs found along
+the way became the next phase, *What the last phase turned up*.

@@ -280,18 +280,20 @@ plan: docs/plans/guards-and-scripts-that-miss-a-case.md
 Closed 2026-10-11, unattended, **done** (#456, #457, #458, #459, #460, #463, #464, #465, #466, #467, #469, #470, #471, #472, #473, #474, #475). Each guard or script now answers the neighbouring case it missed, pinned by a row that failed first and a mutant that dies. #458's probe refuted parent-side delivery, so #475 gives a subagent its own `no-poll-loops` wording keyed on `agent_id`. Two findings went to the backlog: #476 and #477 (a gate that ends its turn while its critic runs never posts its review).
 
 ## Phase: Decided and never done
-state: open
+state: done
 plan: docs/plans/decided-and-never-done.md
 
-Opened 2026-10-11 at the maintainer's request after a review of all fourteen open tickets. Six carried a recorded decision or needed none, and waited only for the work: #476, #261, #454, #302, #220, #272. The same day the maintainer answered the decision brief for the rest, which added #477, #443, #425, #445 and #448; #444 closed as decided (one critic always). #226 joined after its downstream allow-file audit found no line whose meaning option 1 changes, and passed the gate; #282 (a dated deferral) stays in the backlog.
+Closed 2026-10-13, unattended, **done** (#476, #261, #454, #302, #220, #425, #448, #445, #443, #477, #226, #272). Every recorded decision landed as picked, its body rewritten and gated first: the template picker folds case, the bash 3.2 harness has a recipe, `/phase review` steps 1 to 4 call a contract-tested asset, and Step 0b blocks a ticket with no area label when `labels.md` is absent. #425 waited a day on a trip-wire question; the ticket-gate baseline only fell, to 5634. #443 measured and kept the step order; #282 was later closed as a dated deferral.
 
 ## Phase: What the last phase turned up
-state: planned
+state: open
 plan: docs/plans/what-the-last-phase-turned-up.md
 
-Planned 2026-10-12, unattended, to open when *Decided and never done* closes, at the maintainer's request to leave no open ticket. Four bugs the previous phase found while doing its own work: #478 (overnight-guard misses a project delete through an alias or after a `cd`), #479 (a lowercase one-line GWT scenario fails where it should be referred), #480 (a private leak suite row hangs under bash 3.2) and #484 (a depth-2 subagent's late result, probed interactively).
+Planned 2026-10-12, unattended, and opened 2026-10-13 when *Decided and never done* closed, at the maintainer's request to leave no open ticket. Four bugs the previous phase found while doing its own work: #478 (overnight-guard misses a project delete through an alias or after a `cd`), #479 (a lowercase one-line GWT scenario fails where it should be referred), #480 (a private leak suite row hangs under bash 3.2) and #484 (a depth-2 subagent's late result, probed interactively).
 
 ## Phase: Backlog
 state: backlog
 
 Tickets whose home is not yet known. A decision to decide later, and visible as such.
+
+Closed deferrals with a review date: #282 (2027-01-11; reopen it, do not refile).
