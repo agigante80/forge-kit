@@ -238,6 +238,10 @@ budget_for() {
 # LOWERED 2026-10-09: adapt 7144 to 7143 (#442). Step 3 item 4 stops asking for the token-env name,
 # which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
 #
+# LOWERED 2026-10-12: ticket-gate 5637 to 5635 (#477). Step 3B's #475 limit sentence claimed an
+# ended subagent is never resumed; #477's probe showed that holds only headless, so it is rewritten
+# to name both modes in the same 20 words, which this counter reads as 2 fewer.
+#
 # LOWERED 2026-10-11: ticket-gate 5639 to 5637 (#475). Step 3B gains a 22-word limit sentence (an ended
 # subagent is not resumed; the critic's verdict reaches the top-level session), paid for by deleting
 # Step 3B's validation-history parenthetical, Step 2.9's "absence of patterns" aside and Step 2.7's
@@ -407,7 +411,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
-    ticket-gate) echo 5637 ;;
+    ticket-gate) echo 5635 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 8
+# no-poll-loops-version: 9
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -65,18 +65,23 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 # names a blocking call and each stays correct whichever way a release falls. Do not re-add a
 # foreground instruction without re-probing.
 #
-# What happens when an agent ends its turn with a dispatch outstanding depends on WHO ends it.
-# Probed on 2.1.296 (#458, #475; 2026-10-11, two sessions each, evidence on both tickets):
+# What happens when an agent ends its turn with a dispatch outstanding depends on WHO ends it,
+# and for a subagent on the MODE. Probed on 2.1.296 (#458, #475, #477; evidence on each ticket):
 #   - The TOP-LEVEL session is resumed by the completion notification: seen interactively on
 #     2.1.294, and verified for a one-shot headless `claude -p` on 2.1.296 (text and stream-json
 #     output alike). That is REASON below.
-#   - A SUBAGENT is NOT resumed. Its parent's Agent result is only the subagent's last text, no
-#     second notification under its task id follows, and the child's result reaches the
-#     top-level session as a separate notification (#475 Q1 and Q2, 2 of 2). That is
-#     SUBAGENT_REASON: say so, and end the turn naming what still runs.
-# The 2.1.294 note that "a gate run ended its turn twice with dispatches running and was resumed"
-# does not hold for a subagent on 2.1.296; only top-level resumption is verified. Not probed: a
-# subagent ending its turn with background SHELL work (not an agent) outstanding.
+#   - A SUBAGENT in a headless `-p` run whose child was dispatched with run_in_background is NOT
+#     resumed. Its parent's Agent result is only the subagent's last text, no second
+#     notification under its task id follows, and the child's result reaches the top-level
+#     session as a separate notification (#475 Q1 and Q2, 2 of 2). Without run_in_background a
+#     `-p` subagent's dispatch returns inline, so the shape does not arise (#477, 2 of 2).
+#   - A SUBAGENT in an INTERACTIVE session IS resumed by each child's notification, inside the
+#     same context: a real gate ended its turn four times with dispatches running and went on to
+#     post its review (#477). A subagent resumed by background SHELL work finishing was also seen
+#     interactively, once (#477 point 4).
+# SUBAGENT_REASON names both modes, and its instruction (end the turn naming what still runs)
+# is right in both: interactive it costs one line, headless it is how the parent learns a
+# result arrives separately.
 # A subagent's hook payload carries agent_id and agent_type, the top level's neither (#475 Q3).
 # Only agent_id, as a non-empty string, selects the subagent text; anything else gets REASON.
 # This deliberately reverses #475's "either field counts": the 2.1.296 hook schema documents
@@ -92,13 +97,14 @@ REASON = (
     "poll loop on a task's output file or transcript to wait for it."
 )
 SUBAGENT_REASON = (
-    "no-poll-loops: do not wait on a dispatched subagent in the shell. You are a subagent: if "
-    "you end your turn while an agent you dispatched is still running, you are not resumed when "
-    "it finishes. Its result reaches the top-level session as a separate notification, and your "
-    "parent receives only your last text. Keep doing independent work; with none left, end your "
-    "turn with a line naming each agent still running and what it was asked, so your parent "
-    "knows that result arrives separately. Never queue a background sleep or a poll loop on a "
-    "task's output file or transcript to wait for it."
+    "no-poll-loops: do not wait on a dispatched subagent in the shell. You are a subagent. In an "
+    "interactive session you are resumed when an agent you dispatched finishes. In a headless "
+    "(`-p`) run, if you end your turn while an agent you dispatched with run_in_background is "
+    "still running, you are not resumed: its result reaches the top-level session as a separate "
+    "notification, and your parent receives only your last text. Keep doing independent work; "
+    "with none left, end your turn with a line naming each agent still running and what it was "
+    "asked, so your parent knows where that result goes. Never queue a background sleep or a "
+    "poll loop on a task's output file or transcript to wait for it."
 )
 
 # A background sleep that does nothing: the whole command, nothing else.

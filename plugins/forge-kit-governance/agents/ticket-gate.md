@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 75 -->
+<!-- ticket-gate-version: 76 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -369,7 +369,7 @@ ticket may claim no E2E specs, and whether a "none" reason holds.
 
 ### Step 3B: The critic (one agent)
 
-Launch ONE `general-purpose` sub-agent (`model: sonnet`; `opus` per the round table): the critic. If you end your turn while it runs, you are not resumed: its verdict reaches the top-level session, not your result (#475). It receives the **review packet**: the
+Launch ONE `general-purpose` sub-agent (`model: sonnet`; `opus` per the round table): the critic. Interactive, its finish resumes you; under `-p`, never set run_in_background: its verdict would reach the top-level session, not you (#477). It receives the **review packet**: the
 issue title + body, the project context from Step 2, the research from Step 2.7, the
 `Codebase Context` from Step 2.9, and the Step 3A results. Its output contract has exactly six elements:
 

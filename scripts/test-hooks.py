@@ -1128,9 +1128,11 @@ with tempfile.TemporaryDirectory() as td:
         "poll loop on a task's output file or transcript to wait for it."))
 
     # #475: a SUBAGENT's payload carries agent_id and agent_type (probed on 2.1.296; the top
-    # level's carries neither, and an --agent main thread carries agent_type only). A subagent that ends its turn is not resumed when its child
-    # finishes: the child's result reaches the top-level session as a separate notification and
-    # the parent gets only the subagent's last text. So a subagent gets its own wording.
+    # level's carries neither, and an --agent main thread carries agent_type only). In a headless
+    # `-p` run a subagent that ends its turn with a run_in_background child outstanding is not
+    # resumed: the child's result reaches the top-level session as a separate notification and
+    # the parent gets only the subagent's last text. #477's probe showed an INTERACTIVE subagent
+    # is resumed by the child's notification, so the wording names both modes.
     def npl_reason(payload):
         p = run(payload, hook=NPL, project_dir=on, cwd=str(on))
         if p.returncode != 0 or '"deny"' not in p.stdout:
@@ -1152,6 +1154,13 @@ with tempfile.TemporaryDirectory() as td:
     check("npl subagent reason says end the turn naming what still runs",
           "end your turn with a line naming each agent still running" in sub_low, True)
     check("npl subagent reason does not promise resumption", "resumes you" in sub_low, False)
+    # #477: the lost-result claim holds only headless, and an interactive subagent IS resumed.
+    check("npl subagent reason says an interactive subagent is resumed",
+          "in an interactive session you are resumed when an agent you dispatched finishes"
+          in sub_low, True)
+    check("npl subagent reason scopes not-resumed to a headless background dispatch",
+          re.search(r"in a headless \(`-p`\) run, [^.]*run_in_background[^.]*you are not resumed",
+                    sub_low) is not None, True)
     check("npl subagent reason does not forbid ending the turn",
           re.search(r"(never|do not|don't)\s+end\s+(the|your)\s+turn", sub_low) is None, True)
     check("npl subagent reason bans the poll loop", "poll loop" in sub_low, True)
