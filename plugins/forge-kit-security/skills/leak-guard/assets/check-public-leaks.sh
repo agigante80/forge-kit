@@ -451,6 +451,7 @@ if [ -n "$ALLOW_FILE" ]; then
       # (#226). `[` is NOT refused: `app/[slug]/page.tsx` is a real path and matches literally.
       skip)
         case "$val" in *[*?]*) die "$ALLOW_FILE:$lineno: skip is matched as an exact path or a path suffix, so a wildcard could never match: $val" ;; esac
+        case "$val" in */) die "$ALLOW_FILE:$lineno: skip names a file, so a value ending in / could never match: $val" ;; esac
         SKIP_PATHS+=("$val") ;;
       # REFUSE rather than skip the entry. A silently ignored line in a security config is a guard
       # that reports a coverage it does not have, which is the failure this whole component exists

@@ -226,7 +226,9 @@ if [ -n "$ALLOW_FILE" ]; then
     line="${line%"${line##*[!$' \t\n\v\f\r']}"}"
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%% *}"; val="${line#* }"
-    [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value: $line"
+    # Neither this message nor the unknown-key one prints the line or the key: the names list is
+    # not loaded yet, and a bare `<name>/x.md` line or a `<name> x` key can carry a listed name.
+    [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value (the line is not printed)"
     case "$key" in
       # The public half's rule (#226): skip_by_name() compares the value QUOTED, as an exact path
       # or a slash-anchored suffix, so a `*` or `?` could never match and is refused. The message
@@ -234,12 +236,13 @@ if [ -n "$ALLOW_FILE" ]; then
       # `<name>/*.md` can carry a listed name. `[` is literal and accepted.
       skip)
         case "$val" in *[*?]*) die "$ALLOW_FILE:$lineno: skip is matched as an exact path or a path suffix, so a wildcard could never match" ;; esac
+        case "$val" in */) die "$ALLOW_FILE:$lineno: skip names a file, so a value ending in / could never match" ;; esac
         SKIP_PATHS+=("$val") ;;
       root|prefix|marker|email)
         # These belong to check-public-leaks.sh. Sharing one file is intended; silently
         # ignoring a key is not, so say which scanner owns it.
         : ;;
-      *) die "$ALLOW_FILE:$lineno: unknown key '$key' (this scanner wants skip)" ;;
+      *) die "$ALLOW_FILE:$lineno: unknown key, not printed (this scanner wants skip)" ;;
     esac
   done < "$ALLOW_FILE"
 fi

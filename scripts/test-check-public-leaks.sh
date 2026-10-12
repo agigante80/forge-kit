@@ -614,6 +614,10 @@ for v in 'src/*.log' '?x' '*'; do
   expect "and the message names file, line and the value" \
     "check-public-leaks: $WORK/allow226:3: skip is matched as an exact path or a path suffix, so a wildcard could never match: $v" "$ERR"
 done
+srun226 'skip src/deep/'
+expect "skip src/deep/ (a trailing slash) is refused with exit 2, with no report" "2|" "$RC|$OUT"
+expect "and the message says why, with the value" \
+  "check-public-leaks: $WORK/allow226:1: skip names a file, so a value ending in / could never match: src/deep/" "$ERR"
 # The mutant: the refusal deleted, so the glob is accepted and silently dead.
 S226="$WORK/mutant-226-norefuse.sh"; sed '/skip is matched as an exact path or a path suffix/d' "$SCRIPT" > "$S226"; chmod +x "$S226"
 cmp -s "$SCRIPT" "$S226" && bad "mutant ledger (#226): the refusal sed did not apply" || ok "mutant ledger (#226): the refusal mutant differs"

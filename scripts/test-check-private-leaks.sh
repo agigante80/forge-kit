@@ -155,7 +155,16 @@ contains "allow-file not found" "$(cat "$WORK/err.txt")" "and the message says s
 printf 'bogus key\n' > "$WORK/bad-allow"
 "$SCRIPT" --list "$WORK/list" --allow-file "$WORK/bad-allow" "$WORK/sample2.txt" >/dev/null 2>"$WORK/err.txt"
 expect "an unknown allow-file key refuses the run" 2 "$?"
-contains "unknown key" "$(cat "$WORK/err.txt")" "and names the offending key"
+contains "unknown key" "$(cat "$WORK/err.txt")" "and says the key is unknown"
+printf 'NorthStar x\n' > "$WORK/bad-allow-name"
+"$SCRIPT" --list "$WORK/list" --allow-file "$WORK/bad-allow-name" "$WORK/sample2.txt" >/dev/null 2>"$WORK/err.txt"
+expect "an unknown key that is a listed name refuses the run" 2 "$?"
+lacks "NorthStar" "$(cat "$WORK/err.txt")" "and the key is not printed (the names list is not loaded yet)"
+printf 'NorthStar/x.md\n' > "$WORK/bad-allow-bare"
+"$SCRIPT" --list "$WORK/list" --allow-file "$WORK/bad-allow-bare" "$WORK/sample2.txt" >/dev/null 2>"$WORK/err.txt"
+expect "a bare path line with no key refuses the run" 2 "$?"
+lacks "NorthStar" "$(cat "$WORK/err.txt")" "and the line, which carries a listed name, is not printed"
+contains "entry has no value" "$(cat "$WORK/err.txt")" "but the reason is"
 
 cat > "$WORK/blank-allow" <<'ALLOW2'
 # just a comment
@@ -220,6 +229,10 @@ for v in 'src/*.log' '*' '*/*' '?*' '*.lock' 'src/leak.lo?'; do
   expect "and the message names file and line, but not the value" \
     "check-private-leaks: $WORK/allow226:3: skip is matched as an exact path or a path suffix, so a wildcard could never match" "$ERR"
 done
+srun226 'skip src/deep/'
+expect "skip src/deep/ (a trailing slash) is refused with exit 2, with no report" "2|" "$RC|$OUT"
+expect "and the message says why, without the value" \
+  "check-private-leaks: $WORK/allow226:1: skip names a file, so a value ending in / could never match" "$ERR"
 # The parser runs before the names list is loaded, so a refused value may carry a listed name: it
 # must not reach stderr, in a tree mode or in --history.
 srun226 'skip acmeinc/*.md'
