@@ -621,7 +621,7 @@ if [ -n "$R217U" ]; then
   # the pinned line gone. A malformed mutant fails here and is never run.
   R439NEW="  local n=\"\$1\" CHARS k p='' c nc re s='*'"; R439OLD="  local LC_ALL=C n=\"\$1\" CHARS k p='' c nc re s='*'"
   r439n=$(grep -cxF -e "$R439NEW" <<< "$RFNNP"); r439o=$(grep -cxF -e "$R439OLD" <<< "$RFNNP")
-  if [ "$r439n" = 1 ] && [ "$r439o" = 0 ]; then
+  if [ "$r439n" = 1 ] && [ "$r439o" = 0 ] && [ "$RFNNP" != "$RFN" ]; then
     ok "mutant ledger (#439, bash-pin): the unpinned function is the real function minus the pin"
     # No time bound, by design: a bound would credit a hang as a kill (#330), judge a mutant by wall
     # time (#417) and add a fourth bounded copy (#261). The ledger above keeps a malformed one out.

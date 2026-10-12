@@ -98,7 +98,7 @@ run; expect "and the same fixture with one pipe appended is flagged, so the self
 echo "== mutants =="
 cp "$HERE/guard-lib.sh" "$T/"
 # mut <old> <new>: the guard with the literal text <old> replaced by <new>, as $T/g-mut.sh.
-mut() { local g; g=$(cat "$G"); [[ $g == *"$1"* ]] || return 1; printf '%s\n' "$(subst "$g" "$1" "$2")" > "$T/g-mut.sh"; }
+mut() { local g; g=$(cat "$G"); [[ $g == *"$1"* ]] || return 1; { subst "$g" "$1" "$2"; echo; } > "$T/g-mut.sh"; }
 # subst <text> <old> <new>: every literal <old> replaced by <new>. The expansion sits in an
 # assignment, since bash 3.2 keeps a quoted replacement's quotes inside double quotes, and the
 # replacement stays quoted, since bash 5.2's patsub_replacement reads a bare & as the match (#480).
