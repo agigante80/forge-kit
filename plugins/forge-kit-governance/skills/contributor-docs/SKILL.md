@@ -3,7 +3,7 @@ name: contributor-docs
 description: Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones it, whatever agent or person reads them. Write AGENTS.md as a map to tracked docs, align CONTRIBUTING and the PR template with it, and run a portable check that fails when a named npm or pnpm script, make or just target, or relative link does not exist in what a clone gets. Use when a project gains a second contributor or a second AI agent, when setting up or auditing AGENTS.md or CONTRIBUTING.md, or when a contributor doc names a command that fails.
 ---
 
-<!-- contributor-docs-version: 18 -->
+<!-- contributor-docs-version: 19 -->
 
 # Contributor docs
 
@@ -36,8 +36,8 @@ Keep only what an agent would otherwise get wrong:
 - **A documentation map**: one line per tracked doc saying when to read it.
 
 Leave out what the code already says, style an auto-formatter enforces, and anything true only on
-the maintainer's machine. Keep it short: the check's default budget is 150 lines and 32 KiB, since
-Codex truncates the file at 32 KiB, and a file that long is a copy rather than a map.
+the maintainer's machine. Keep it short: past 32 KiB Codex truncates the file (a fail); past 150
+lines it is usually a copy rather than a map (referred).
 
 ## Aligning the other two entry points
 
@@ -98,7 +98,8 @@ comment is read:
   `CLAUDE.md` is local only; a chain, absolute, escaping, directory or dangling target fails, unread.
   Every doc, Makefile and justfile is read as its index blob under the same rule (an unstaged edit
   is not judged), and an untracked `--docs` path must be a regular file inside the repository (#309).
-- **max-lines**, **max-bytes**: the budget above.
+- **max-lines**: referred past the budget above.
+- **max-bytes**: fails past it.
 - **command**: inside code spans and fenced blocks only, since prose naming a command is not an
   instruction. Only these shapes can FAIL: `npm run X` and `pnpm run X` from the root (`run-script`
   is an alias, judged the same way), with a literal

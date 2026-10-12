@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 25
+# check-contributor-docs-version: 26
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -33,8 +33,11 @@
 #              symlink, whose physical directory is inside the repository. Relative links inside a
 #              symlinked doc resolve from the link's own directory, as GitHub renders them. Every row
 #              field has its control bytes printed as `?`, so no name or link text forges a row.
-#   max-lines  AGENTS.md within --max-lines (150, counted as wc -l counts).
-#   max-bytes  AGENTS.md within --max-bytes (32768: Codex truncates the file at 32 KiB).
+#   max-lines  AGENTS.md within --max-lines (150, counted as wc -l counts), else REFERRED, never a
+#              fail (#302, maintainer decision 2026-10-07, option B): a line count is a heuristic
+#              that cannot tell a copy from a long, well-built map. Do not make it fail again.
+#   max-bytes  AGENTS.md within --max-bytes (32768: Codex truncates the file at 32 KiB), else FAIL:
+#              the one external limit, past which a reader silently loses text.
 #   command    Only inside code spans and fenced blocks. The FAIL set is a closed allowlist: the two
 #              root shapes `npm run X` and `pnpm run X` (`run`, or its alias `run-script`, straight
 #              after the package manager, #353; a literal name, no flag but --silent/-s, a tracked
@@ -325,7 +328,7 @@ fi
 if [ "$agents_ok" = 1 ]; then   # safe_open: size
   n=$(wc -l < "$T/agents" | tr -d ' ') b=$(wc -c < "$T/agents" | tr -d ' ')
   if [ "$n" -le "$max_lines" ]; then row pass max-lines AGENTS.md "$n lines, budget $max_lines"
-  else row fail max-lines AGENTS.md "$n lines exceeds the budget of $max_lines"; fi
+  else row referred max-lines AGENTS.md "$n lines exceeds the budget of $max_lines; a long file is usually a copy rather than a map, a person must look"; fi
   if [ "$b" -le "$max_bytes" ]; then row pass max-bytes AGENTS.md "$b bytes, budget $max_bytes"
   else row fail max-bytes AGENTS.md "$b bytes exceeds the budget of $max_bytes"; fi
 fi

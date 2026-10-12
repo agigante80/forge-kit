@@ -179,11 +179,26 @@ c_ignored() { new; agents 'x\n'; git -C "$R" commit --quiet -m a; tput_ .gitigno
   rc_is 1 && row fail required "ignored"; }
 c_symlink() { new; put CLAUDE.md 'x\n'; tput_ .gitignore 'CLAUDE.md\n'; ln -s CLAUDE.md "$R/AGENTS.md"; git -C "$R" add AGENTS.md; run
   rc_is 1 && row fail required "CLAUDE.md, which is not tracked"; }
-c_150() { new; nlines 150; run; rc_is 0 && row pass max-lines "150 lines"; }
+# #302 (maintainer decision 2026-10-07, option B): past the line budget is `referred`, never a
+# fail; past the byte budget (Codex truncates at 32 KiB) stays a fail.
+# wlines <n> <w>: a tracked AGENTS.md of n lines of w bytes each, newline included.
+wlines() { local l; l=$(printf 'a%.0s' $(seq 1 $(($2 - 1)))); for _ in $(seq 1 "$1"); do printf '%s\n' "$l"; done > "$R/AGENTS.md"; git -C "$R" add AGENTS.md; }
+c_150() { new; nlines 150; run
+  rc_is 0 && row pass max-lines "150 lines" && [ "$(count referred max-lines)" = 0 ]; }
 c_151() { new; nlines 151; run
-  rc_is 1 && row fail max-lines "151 lines exceeds the budget of 150"; }
+  rc_is 0 && row referred max-lines "151 lines exceeds the budget of 150" && nostatus fail; }
 c_bytes() { new; agents "$(printf 'a%.0s' $(seq 1 32768))\n"; run
-  rc_is 1 && row fail max-bytes "32769 bytes"; }
+  rc_is 1 && row fail max-bytes "32769 bytes exceeds the budget of 32768"; }
+c_bytes_at() { new; agents "$(printf 'a%.0s' $(seq 1 32767))\n"; run
+  rc_is 0 && row pass max-bytes "32768 bytes" && nostatus fail; }
+c_both_over() { new; wlines 400 100; run
+  rc_is 1 && row referred max-lines "400 lines exceeds the budget of 150" && row fail max-bytes "40000 bytes exceeds"; }
+c_lines_only() { new; wlines 400 50; run
+  rc_is 0 && row referred max-lines "400 lines exceeds the budget of 150" && row pass max-bytes "20000 bytes"; }
+c_maxlines_200() { new; nlines 151; run --max-lines 200
+  rc_is 0 && row pass max-lines "151 lines, budget 200" && [ "$(count referred max-lines)" = 0 ]; }
+c_maxlines_100() { new; nlines 151; run --max-lines 100
+  rc_is 0 && row referred max-lines "151 lines exceeds the budget of 100"; }
 
 echo "== required and size =="
 case_ c_tracked "a tracked 40-line AGENTS.md passes required and max-lines"
@@ -191,9 +206,14 @@ case_ c_untracked "an untracked, ignored AGENTS.md fails as not tracked"
 case_ c_missing "an absent AGENTS.md fails as missing, never as not tracked"
 case_ c_ignored "a tracked AGENTS.md that an ignore rule matches fails as ignored"
 case_ c_symlink "a tracked symlink to an untracked CLAUDE.md fails"
-case_ c_150 "exactly 150 lines passes"
-case_ c_151 "151 lines fails naming 151 and 150"
-case_ c_bytes "32769 bytes fails naming 32769"
+case_ c_150 "exactly 150 lines passes, no referred max-lines row"
+case_ c_151 "151 lines is referred naming 151 and 150, exit 0 (#302)"
+case_ c_bytes "32769 bytes fails naming 32769 and 32768"
+case_ c_bytes_at "exactly 32768 bytes passes, exit 0"
+case_ c_both_over "400 lines and 40000 bytes: the referred line row survives beside the byte fail, exit 1"
+case_ c_lines_only "400 lines and 20000 bytes: referred lines, passing bytes, exit 0"
+case_ c_maxlines_200 "--max-lines 200 with 151 lines passes, nothing referred"
+case_ c_maxlines_100 "--max-lines 100 with 151 lines is referred naming 100, exit 0"
 
 # ---------------------------------------------------------------- #309: one safe read, no outside content
 # Every negative asserts the outside token never reaches stdout or stderr, by CONTENT (#305): a read
@@ -2482,6 +2502,11 @@ NR == 1 {' 'EXTRACT='\''
   mutant "anchor class loses the pipe" c_anchor_pipe 'gsub(/[ \t;&|(][A-Za-z_]' 'gsub(/[ \t;&(][A-Za-z_]'
   mutant "anchor class loses the open parenthesis" c_anchor_paren 'gsub(/[ \t;&|(][A-Za-z_]' 'gsub(/[ \t;&|][A-Za-z_]'
   mutant "substitution anywhere refers the row (two segments)" c_subst_multi_neg '  if (index(text, "=")) {' $'  if (text ~ /\\$\\(/) { gsub(/;/, "; X=X ", text); text = "X=X " text }\n  if (index(text, "=")) {'
+  # #302: the size budgets. Line over budget is referred, byte over budget fails.
+  mutant "size: line row reverted to fail" c_151 'else row referred max-lines' 'else row fail max-lines'
+  mutant "size: byte row relaxed to referred" c_bytes 'else row fail max-bytes' 'else row referred max-bytes'
+  mutant "size: line row dropped silently" c_151 'else row referred max-lines AGENTS.md' 'else : row referred max-lines AGENTS.md'
+  mutant "size: --max-lines ignored" c_maxlines_200 'max_lines=$2; shift 2' 'shift 2'
 else
   bad "python3 is needed to build the mutants"
 fi
