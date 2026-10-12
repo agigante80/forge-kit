@@ -111,6 +111,19 @@ pkg() { tput_ package.json "{\"scripts\":{$1}}\n"; }
 # the wait then reaps it, so the suite exits only once the cleanup is done. The watcher only
 # sleeps, so it takes KILL. The bound-expiry path above already sends TERM (a plain `kill`), for
 # the same reason. Do not turn either into KILL.
+# WHY THE OTHER COPIES' SIGNAL NOTE DOES NOT APPLY HERE: they bound with SIGALRM, read only status
+# 142 as 124 and follow ALRM with KILL after a grace (#315, #402). This copy sends plain TERM at the
+# bound with no escalation and reads every status >= 128 as 124, so a command that dies of any
+# signal of its own is also reported as killed at the bound; do not copy #315's note in here.
+# STDIO, as in the other two copies: the watcher is spawned while set -m is still on, so it is its
+# own group and the kill reaches its sleep, and its stdio is detached so that sleep cannot hold a
+# capture pipe open. Written the naive way (neither), OUT=$(... bounded ...) in run() blocks for
+# the whole bound even when the command returns at once (measured 2026-10-12: a 4 s bound held the
+# capture 4 s with both removed and returned at once with either one removed alone; either
+# suffices, so tidying one away leaves a single line between the suite and a hang).
+# COPIES (#261): the original, in scripts/test-check-public-leaks.sh, carries both notes and
+# records why there is no lockstep guard or shared helper; scripts/test-forge-lib.sh carries the
+# same body and notes as the original.
 bounded() {
   local secs="$1"; shift
   ( set -m

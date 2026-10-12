@@ -374,6 +374,14 @@ bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the
     kill -- -"$w" 2>/dev/null
     [ "$rc" -eq 142 ] && rc=124; exit "$rc" )
 }
+# The watcher is spawned while set -m is still on, so it is its own group and the kill reaches its
+# sleep, and its stdio is detached so that sleep cannot hold a capture pipe open: written the naive
+# way, OUT="$(bounded 10 ...)" blocks for the whole bound even when the command returns at once.
+# COPIES (#261): this helper is defined three times. scripts/test-check-public-leaks.sh holds the
+# original, with the same body and notes, and records why there is no lockstep guard or shared
+# helper; scripts/test-check-contributor-docs.sh is deliberately divergent (plain TERM at the
+# bound, no KILL escalation, an INT/TERM trap, every status >= 128 read as 124). A change to the
+# signals, the watcher or these notes here means checking the other two.
 
 # --- #315: bounded() keeps another signal's status instead of reading it as the bound's 124 ---
 bounded 10 sh -c 'kill -USR1 $$' >/dev/null 2>&1

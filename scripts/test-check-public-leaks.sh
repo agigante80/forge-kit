@@ -1616,6 +1616,16 @@ bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the
 # The watcher is spawned while set -m is still on, so it is its own group and the kill reaches its
 # sleep, and its stdio is detached so that sleep cannot hold a capture pipe open: written the naive
 # way, OUT="$(bounded 10 ...)" blocks for the whole bound even when the command returns at once.
+# COPIES (#261): this helper is defined three times. Here is the original; scripts/test-forge-lib.sh
+# carries the same body and the same notes; scripts/test-check-contributor-docs.sh is deliberately
+# divergent (plain TERM at the bound, no KILL escalation, an INT/TERM trap, every status >= 128
+# read as 124). A change to the signals, the watcher or these notes in one copy means checking the
+# other two. NO LOCKSTEP GUARD AND NO SHARED HELPER, weighed in #261: the two matching bodies were
+# byte-identical when it was weighed, so a guard would have found nothing; a guard compares code
+# and cannot protect these notes, which are what failed to travel; a guard would need an exception
+# for the divergent copy on day one, and a shared helper would force that copy into a flag
+# (scripts/guard-lib.sh shares only where consumers could never legitimately differ). A review
+# that proposes either is re-litigating #261.
 # #417: no row below judges a MUTANT by wall time. The former timed-mutant rows told a
 # quadratic mutant from the linear scanner by a fixed bound sized against one runner's speed: a
 # fast CI runner finished #217's home-arm cut mutant in 16 s under a 20 s bound and Validate failed
