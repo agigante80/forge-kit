@@ -2956,6 +2956,12 @@ if [ "$1" = credential ]; then cat > /dev/null; [ -z "${K442CREDSLEEP-}" ] || sl
 exec "$K442GIT" "$@"
 STUB
 chmod +x "$K/bin/curl" "$K/bin/git"
+# #454 round 2: a logging `timeout` in its own dir, put first on PATH only by c454_default, so no
+# other row's gitlog sees it. It hands on to the real one.
+mkdir -p "$K/tbin"
+if K454TMO=$(command -v timeout); then
+  printf '#!/bin/sh\necho "timeout $*" >> "$K442/gitlog"\nexec %s "$@"\n' "$K454TMO" > "$K/tbin/timeout"; chmod +x "$K/tbin/timeout"
+fi
 # k442 <conf-text> <hosts-text|NONE> [VAR=value ...] -- <command words>: <hosts-text> is a stale forge/hosts (#468, never read; NONE writes none). Runs the command in the
 # case repo; stdout, stderr and rc land in $K/out, $K/err and K442RC. FORGE_HOST, FORGE_REPO and
 # FORGE_NO_GIT_CREDENTIALS=1 are the defaults, and a VAR=value after them overrides.
@@ -3269,6 +3275,19 @@ c454_slow() {  # #454 review M1: a helper that blocks past the bound gives the W
 if command -v timeout >/dev/null 2>&1; then
   { c454_slow && ok "#454: a helper that blocks past _FORGE_CRED_SECS gives the WARN within the bound" || bad "#454: step 9 slow-helper case: $(hc454 "$LIB" '' K442CRED=x K442CREDSLEEP=6 _FORGE_CRED_SECS=1)"; }
 else ok "#454: slow-helper row skipped, no timeout on this machine"; fi
+c454_default() {  # #454 round 2: with nothing set, step 9 bounds the helper read at 10 seconds
+  local out; out=$(hc454 "$(L454)" '' K442CRED=cred-454-canary PATH="$K/tbin:$K/bin:$PATH")
+  grep -q 'present for o/r' <<< "$out" && grep -qx 'timeout 10 git credential fill' "$K/gitlog"; }
+c454_ifs() {  # #454 round 2: a strict-mode IFS still reaches the helper through the bound
+  local out; hc454 "$(L454)" '' >/dev/null
+  out=$(cd "$K/hc" && env -u FORGEJO_TOKEN -u FORGE_TOKEN -u FORGE_NO_GIT_CREDENTIALS -u FORGE_ALLOW_HTTP \
+    PATH="$K/bin:$PATH" K442="$K" K442GIT="$K442GIT" XDG_CONFIG_HOME="$K/hcxdg" K442CRED=cred-454-canary \
+    bash -c 'IFS=$(printf "\n\t"); . scripts/forge-lib.sh; forge_token_available' 2>&1)
+  [ "$out" = "git's credential helper" ]; }
+if [ -x "$K/tbin/timeout" ]; then
+  { c454_default && ok "#454: step 9 bounds the helper read at the 10 second default" || bad "#454: default bound: $(cat "$K/gitlog")"; }
+  { c454_ifs && ok "#454: a strict-mode IFS still finds a helper-only token under the bound" || bad "#454: strict IFS probe: $(cd "$K/hc" && K442CRED=x PATH="$K/bin:$PATH" K442="$K" bash -c 'IFS=$(printf "\n\t"); . scripts/forge-lib.sh; forge_token_available' 2>&1)"; }
+else ok "#454: default-bound and strict-IFS rows skipped, no timeout on this machine"; fi
 { c454_both && ok "#454: a refused URL with no token still prints the empty-token WARN" || bad "#454: step 9 both case: $(hc454 "$LIB" '' FORGE_API_URL=http://f.invalid)"; }
 
 # -- mutants: each guard removed must fail its case ----------------------------------------------
@@ -3309,7 +3328,11 @@ m442 "#454 xtrace left on in the probe" 'forge_token_available() {
 m442 "#454 helper asked before the URL check" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif tok="$(_forge_token_impl 2>/dev/null)" && forge_url_check >/dev/null 2>&1; then' c454_url
 m442 "#454 refused URL skips the env report" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif ! forge_url_check >/dev/null 2>&1; then return 0
   elif tok="$(_forge_token_impl 2>/dev/null)"; then' c454_both
-command -v timeout >/dev/null 2>&1 && m442 "#454 helper read not bounded" ' $_tmo git credential fill' ' git credential fill' c454_slow
+command -v timeout >/dev/null 2>&1 && m442 "#454 helper read not bounded" 'timeout "$_secs" git credential fill' 'git credential fill' c454_slow
+[ -x "$K/tbin/timeout" ] && m442 "#454 probe sets no default bound" '  local _FORGE_CRED_SECS="${_FORGE_CRED_SECS:-10}"
+' '' c454_default
+[ -x "$K/tbin/timeout" ] && m442 "#454 bound as an unquoted word" '{ if [ -n "$_secs" ]; then GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS=/bin/true timeout "$_secs" git credential fill
+                 else GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS=/bin/true git credential fill; fi; }' 'GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS=/bin/true ${_secs:+timeout $_secs} git credential fill' c454_ifs
 m442 "token back on argv" "-K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" --url" "-H \"Authorization: token \$tok\" -w '\\n%{http_code}' -X \"\$method\" --url" c442_argv_get
 
 # -- #450 review M1: forge_api passes curl -q first, so a .curlrc never reaches the request ----------

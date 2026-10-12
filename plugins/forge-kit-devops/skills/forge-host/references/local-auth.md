@@ -112,7 +112,7 @@ is a plaintext backend, prefer libsecret/osxkeychain; git itself never prompts h
 fallback never writes, it only reads, but a helper may open its own unlock dialog or sign-in. **Opt out** with `FORGE_NO_GIT_CREDENTIALS=1` (env or `.forge.conf`)
 to restore strict env-only behavior: the token must then come explicitly from
 the variable `FORGE_TOKEN_ENV` names, and an unset token fails closed instead of being auto-discovered.
-`forge_token_available` (forge-lib v41, #454) reports a helper-held token as `git's credential
+`forge_token_available` (forge-lib v41, its helper read bounded since v42, #454) reports a helper-held token as `git's credential
 helper` without printing it; health-check step 9 uses it, so this fallback no longer draws a false
 "token is empty" WARN there once the URL is accepted; there it bounds the helper read at 10 seconds
 where `timeout` exists.

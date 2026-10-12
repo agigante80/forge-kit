@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 42
+# forge-lib-version: 43
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -510,8 +510,9 @@ _forge_token_impl() {
   # with no prompt and no hang (verified), never to a prompt. GCM_INTERACTIVE=never stops
   # git-credential-manager opening its own sign-in. A caller that sets _FORGE_CRED_SECS to digits
   # gets the read under `timeout` when it exists; forge_api sets none and is unbounded as before.
-  local url proto host cred _tmo=""
-  case "${_FORGE_CRED_SECS:-}" in ''|*[!0123456789]*) ;; *) command -v timeout >/dev/null 2>&1 && _tmo="timeout $_FORGE_CRED_SECS" ;; esac
+  # A branch, not an unquoted `$cmd` word: a strict-mode IFS without a space would not split it.
+  local url proto host cred _secs=""
+  case "${_FORGE_CRED_SECS:-}" in ''|*[!0123456789]*) ;; *) command -v timeout >/dev/null 2>&1 && _secs="$_FORGE_CRED_SECS" ;; esac
   url="${FORGE_API_URL:-}"
   if [ -z "$tok" ] && [ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then
     proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
@@ -519,7 +520,8 @@ _forge_token_impl() {
     # `https://evil.internal#@github.com` hand github.com's credential to evil.internal.
     case "$url" in *://*) host="$(_forge_url_host "$url" keep-port)" ;; *) host="$(_forge_url_host "https://$url" keep-port)" ;; esac
     cred=$(printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" \
-             | GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS=/bin/true $_tmo git credential fill 2>/dev/null \
+             | { if [ -n "$_secs" ]; then GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS=/bin/true timeout "$_secs" git credential fill
+                 else GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS=/bin/true git credential fill; fi; } 2>/dev/null \
              | sed -n 's/^password=//p' | head -n1)
     [ -z "$cred" ] || { tok="$cred"; var="git's credential helper"; }
   fi
