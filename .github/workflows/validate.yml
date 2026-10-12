@@ -389,6 +389,11 @@ jobs:
       - name: mutant-crash helper tests
         run: bash scripts/test-mutant-crash.sh
 
+      # Issue #220: the bash 3.2 / Apple awk harness builder's refusal and reuse paths. The SUITE
+      # runs here; the build itself never does (it compiles and fetches, so it is run by hand).
+      - name: Mac shell harness builder tests
+        run: bash scripts/test-build-mac-shell-harness.sh
+
       # Issue #407: /phase's resolved values reach every later Bash call through phase-env.sh.
       - name: /phase fresh-shell contract tests
         run: bash scripts/test-phase-env.sh
