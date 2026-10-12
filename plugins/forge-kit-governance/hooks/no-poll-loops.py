@@ -80,12 +80,13 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 #     `-p` subagent's dispatch returns inline, so the shape does not arise (#477, 2 of 2).
 #   - A SUBAGENT in an INTERACTIVE session IS resumed by each child's notification, inside the
 #     same context: a real gate ended its turn four times with dispatches running and went on to
-#     post its review (#477). That is not true of background SHELL work: a subagent that ended
-#     its turn with a shell outstanding was resumed when it finished, but its parent had already
-#     taken its first result, and the second reached the top-level session (#477 point 4, once).
+#     post its review (#477); its parent was the top level. A subagent resumed after its parent
+#     has already taken its first result delivers the second to the top-level session, not the
+#     parent: seen once, at depth 2 with background SHELL work (#477 point 4). Whether a depth-2
+#     Agent dispatch behaves the same is not probed.
 # SUBAGENT_REASON names both modes, and its instruction (end the turn naming what still runs)
-# is right in both: interactive it costs one line, headless it is how the parent learns a
-# result arrives separately.
+# is right in both: interactive at depth 1 it costs one line, and headless, or deeper than depth
+# 1, it is how the parent learns a result arrives separately.
 # A subagent's hook payload carries agent_id and agent_type, the top level's neither (#475 Q3).
 # Only agent_id, as a non-empty string, selects the subagent text; anything else gets REASON.
 # This deliberately reverses #475's "either field counts": the 2.1.296 hook schema documents
