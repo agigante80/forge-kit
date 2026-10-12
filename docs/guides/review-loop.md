@@ -50,10 +50,16 @@ that matters most. So: **a conditional round 2 runs `code-reviewer` on its front
 does, never at the `sonnet` pin**, and the lens phases stay no lower than round 1. Whoever adopts a
 conditional round 2 changes rule 8 and the `model-tiers.md` row in the same commit.
 
+The #445 decision worded this as "runs at the standard tier". It is written as "on its frontmatter"
+here on purpose: `model-tiers.md` defines the standard tier as `sonnet`, the very pin the same
+decision rules out, so the literal wording contradicts itself. Its intent, no downgrade, is what
+this section keeps.
+
 ## 4. How to count round-2 yield
 
-Each completed run leaves its report at `.full-review/round-<N>/05-final-report.md`, and a
-verify-fixes round tags every finding `in-prior-fix: yes/no` (rule 7). For each loop that reached
+A run writes its report to `.full-review/05-final-report.md`. It moves under
+`.full-review/round-<N>/` only when the NEXT run starts and archives it, so the last round of a
+loop (often round 2 itself) is still at the top level: read it there. A verify-fixes round tags every finding `in-prior-fix: yes/no` (rule 7). For each loop that reached
 round 2:
 
 1. Read round 1's report and note the highest severity it found (Critical, High, Medium or Low).
@@ -66,8 +72,10 @@ Grouped by round-1 severity, the rows answer the open question: how often does a
 Medium-only round 1 find something a skipped round 2 would have shipped.
 
 `.full-review/` is a local runtime directory that projects running `/full-review` are told to
-gitignore (this repository's `.gitignore` does not list it). The archives exist only where people
-keep them, so the count accrues per machine and must be collected by hand.
+gitignore (this repository's `.gitignore` does not list it). Starting a fresh loop archives into
+`round-<N>/` again, so a second loop overwrites the first loop's reports of the same round number: copy a loop's reports
+out before starting the next one, or only the latest loop survives. The count is collected by
+hand, per machine.
 
 ## 5. Declined for now
 
