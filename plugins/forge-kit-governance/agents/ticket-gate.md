@@ -178,12 +178,11 @@ The review runs against the enriched body. Do NOT return BLOCKED here.
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
 I=$(forge_issue_view <NUMBER>) || exit 2; L=$(jq -r '[.labels[].name]|join(",")' <<<"$I"); echo "$L"
-[ -f docs/guides/labels.md ] || { jq -r '.body // ""' <<<"$I" >"$D/body.md"; "$MECH" --body "$D/body.md" --template <0a's TPL_DIR>/<type>.yml --labels "$L" --labels-doc docs/guides/labels.md | grep ^labels; }
+[ -f docs/guides/labels.md ] || { jq -r '.body // ""' <<<"$I" >"$D/body.md"; "$MECH" --body "$D/body.md" --template <0a's TPL_DIR>/<type, else feature>.yml --labels "$L" --labels-doc docs/guides/labels.md | grep ^labels; }
 ```
 
-2. **No AREA label** in `docs/guides/labels.md` (never restate it, #188) or, doc absent, a `fail`
-   row: `BLOCKED - LABELS_REQUIRED`; comment "Needs an area label; see docs/guides/labels.md."
-   plus its evidence.
+2. `BLOCKED - LABELS_REQUIRED` on: doc present, no AREA label (never restated, #188); doc absent,
+   a `fail` row. Comment "Needs an area label (docs/guides/labels.md)." plus the row.
 
 ---
 
