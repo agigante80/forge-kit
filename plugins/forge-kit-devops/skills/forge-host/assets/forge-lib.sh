@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 40
+# forge-lib-version: 41
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -189,6 +189,10 @@
 #       --proto, the token through -K, xtrace suspended, FORGE_TOKEN_ENV limited in the file. The
 #       accepted residual risk: a cloned repository's .forge.conf can name the server that receives
 #       the token, so run forge commands only in repositories you trust.
+#   v41 New: forge_token_available (#454), for a status check that asks whether forge_api would find
+#       a token: the environment variable's name, or `git's credential helper` when only the helper
+#       holds one (FORGE_NO_GIT_CREDENTIALS=1 still turns that off). forge_token_present is
+#       unchanged and still never asks the helper. health-check step 9 now calls the new probe.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -444,6 +448,25 @@ forge_token_present() {
   if var="$(_forge_token_var)"; then
     printf '%s\n' "$var"; [ -n "${!var:-}" ] || rc=1
   else rc=2; fi
+  [ "$_fx" = 0 ] || set -x
+  return "$rc"
+}
+
+# forge_token_available: would forge_api find a token? Prints the variable's name, or the text
+# `git's credential helper` when only the helper holds one; rc as forge_token_present (#454). The
+# helper is asked through _forge_token_impl itself, so this probe and the request path cannot
+# disagree, and only after the name is validated and forge_url_check accepts the URL, as in
+# forge_api. On a refused URL it still reports the environment token, so a caller can print both
+# problems. Its own guard is the ONLY xtrace guard on the helper read: the token sits in a local
+# and is never printed. forge_token_present stays env only.
+forge_token_available() {
+  local _fx=0 var rc=0 tok=""; case $- in *x*) _fx=1; set +x ;; esac
+  if ! var="$(_forge_token_var)"; then rc=2
+  elif [ -n "${!var:-}" ]; then printf '%s\n' "$var"
+  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then
+    printf '%s\n' "git's credential helper"
+  else printf '%s\n' "$var"; rc=1; fi
+  tok=""
   [ "$_fx" = 0 ] || set -x
   return "$rc"
 }

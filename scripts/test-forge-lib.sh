@@ -3184,9 +3184,9 @@ hc442() {  # hc442 <lib-copy> <extra-conf> <hosts-text|NONE> [url-line]: run the
   || bad "#442: health-check step 9 block not found"
 out=$(hc442 "$LIB" "FORGE_TOKEN_ENV=x[\$(touch \"$T/PWNED\")]" NONE)
 [ ! -e "$T/PWNED" ] && grep -q WARN <<< "$out" && ok "#442: health-check step 9 never runs a hostile token name" || bad "#442: health-check hostile name: $out"
-sed 's/^forge_token_present()/old_present()/' "$LIB" > "$K/old-lib.sh"
+sed 's/^forge_token_available()/old_available()/' "$LIB" > "$K/old-lib.sh"
 out=$(hc442 "$K/old-lib.sh" '' NONE)
-grep -q 'WARN.*forge-adapt refresh' <<< "$out" && ! grep -q present <<< "$out" && ok "#442: health-check step 9 warns on a library without forge_token_present" || bad "#442: health-check old library: $out"
+grep -q 'WARN.*forge-adapt refresh' <<< "$out" && ! grep -q present <<< "$out" && ok "#454: health-check step 9 warns on a library without forge_token_available" || bad "#454: health-check old library: $out"
 # #449 item 7: step 9 also asks the library whether the configured URL would be refused.
 c449_hc_green() { [ "$(hc442 "$LIB" '' NONE)" = "Forgejo token (FORGEJO_TOKEN) present for o/r" ]; }
 c449_hc_url() {  # an http URL without the opt-in: a WARN with the library's own words, never "present"
@@ -3214,6 +3214,56 @@ hcm "URL probe call dropped" 's|why="$(forge_url_check 2>&1)"|why="$(true)"|' c4
 hcm "absent forge_url_check not treated as old" 's# || ! declare -F forge_url_check >/dev/null##' c449_hc_old
 hcm "present printed after a refused URL" 's#\[ "$url_ok" = 1 \] && echo#echo#' c449_hc_url
 hcm "URL refusal not printed when the token is also empty" 's#echo "WARN: $why"#:#' c449_hc_both
+# #454: step 9 reports a token only git's credential helper holds, as forge_api would find it.
+# hc454 <lib-copy> <extra-conf> [VAR=value ...]: hc442's repo, but no pinned FORGE_NO_GIT_CREDENTIALS
+# or token, so the opt-out comes from <extra-conf> or a VAR=value. A URL a row changes goes in as a
+# VAR=value (the environment), because _forge_load_conf keeps the file's FIRST FORGE_API_URL line.
+# HC454X=1 runs the block under bash -x. Output is stdout and stderr merged; $K/gitlog is per run.
+hc454() {
+  local lib="$1" conf="$2"; shift 2
+  rm -rf "$K/hc"; mkdir -p "$K/hc/scripts"; ( cd "$K/hc" && "$K442GIT" init -q . ); cp "$lib" "$K/hc/scripts/forge-lib.sh"; rm -f "$T/PWNED"
+  printf 'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://f.invalid\n%s\n' "$conf" > "$K/hc/.forge.conf"
+  : > "$K/gitlog"
+  ( cd "$K/hc" && env -u FORGEJO_TOKEN -u FORGE_TOKEN -u FORGE_NO_GIT_CREDENTIALS -u FORGE_ALLOW_HTTP -u K442CRED \
+      PATH="$K/bin:$PATH" K442="$K" K442GIT="$K442GIT" XDG_CONFIG_HOME="$K/hcxdg" "$@" bash ${HC454X:+-x} "$K/hc.sh" 2>&1 ); }
+L454() { printf '%s' "${K442LIB:-$LIB}"; }
+c454_helper() {  # helper-only token: exactly the present line, no WARN, one credential fill
+  local out; out=$(hc454 "$(L454)" '' K442CRED=cred-454-canary)
+  [ "$out" = "Forgejo token (git's credential helper) present for o/r" ] && [ "$(grep -c '^credential fill' "$K/gitlog")" = 1 ]; }
+c454_xtrace() {  # the canary appears in no output, plain or under bash -x, and both still say present
+  local out outx; out=$(hc454 "$(L454)" '' K442CRED=cred-454-canary); outx=$(HC454X=1 hc454 "$(L454)" '' K442CRED=cred-454-canary)
+  ! grep -q 'cred-454-canary' <<< "$out$outx" && grep -q 'present for o/r' <<< "$out" && grep -q 'present for o/r' <<< "$outx"; }
+c454_none() {  # neither the environment nor the helper has a token: the WARN, rc 0
+  local out rc; out=$(hc454 "$(L454)" ''); rc=$?
+  [ "$rc" = 0 ] && grep -q "^WARN: Forgejo token env 'FORGEJO_TOKEN'" <<< "$out" && ! grep -q present <<< "$out"; }
+c454_optout() {  # FORGE_NO_GIT_CREDENTIALS=1 in the file: the helper is never asked
+  local out; out=$(hc454 "$(L454)" FORGE_NO_GIT_CREDENTIALS=1 K442CRED=cred-454-canary)
+  grep -q "^WARN: Forgejo token env 'FORGEJO_TOKEN'" <<< "$out" && ! grep -q '^credential' "$K/gitlog"; }
+c454_optout_env() {  # the opt-out leaves an environment token intact
+  local out; out=$(hc454 "$(L454)" FORGE_NO_GIT_CREDENTIALS=1 K442CRED=cred-454-canary FORGEJO_TOKEN=tok)
+  [ "$out" = "Forgejo token (FORGEJO_TOKEN) present for o/r" ] && ! grep -q '^credential' "$K/gitlog"; }
+c454_url() {  # a refused URL: the library's WARN, no present, the helper never asked, no canary
+  local out; out=$(hc454 "$(L454)" '' K442CRED=cred-454-canary FORGE_API_URL=http://f.invalid)
+  grep -q '^WARN: .*refusing to send the token over http' <<< "$out" && ! grep -q present <<< "$out" \
+    && ! grep -q '^credential' "$K/gitlog" && ! grep -q 'cred-454-canary' <<< "$out"; }
+c454_envwins() {  # an environment token wins and the helper is not asked
+  local out; out=$(hc454 "$(L454)" '' K442CRED=cred-454-canary FORGEJO_TOKEN=tok)
+  [ "$out" = "Forgejo token (FORGEJO_TOKEN) present for o/r" ] && ! grep -q '^credential' "$K/gitlog"; }
+c454_name() {  # a hostile FORGE_TOKEN_ENV never runs and never reaches the helper
+  local out; out=$(hc454 "$(L454)" "FORGE_TOKEN_ENV=x[\$(touch \"$T/PWNED\")]" K442CRED=cred-454-canary)
+  grep -q WARN <<< "$out" && [ ! -e "$T/PWNED" ] && ! grep -q '^credential' "$K/gitlog" && ! grep -q 'cred-454-canary' <<< "$out"; }
+{ c454_helper && ok "#454: step 9 reports a helper-only token as present, with one credential fill" || bad "#454: step 9 helper case: $(hc454 "$LIB" '' K442CRED=cred-454-canary) / $(cat "$K/gitlog")"; }
+{ c454_xtrace && ok "#454: the helper's token appears in no step 9 output, plain or under bash -x" || bad "#454: step 9 canary case leaked or lost present"; }
+{ c454_none && ok "#454: step 9 WARNs, rc 0, when neither the environment nor the helper has a token" || bad "#454: step 9 no-token case: $(hc454 "$LIB" '')"; }
+{ c454_optout && ok "#454: FORGE_NO_GIT_CREDENTIALS=1 in .forge.conf keeps step 9 off the helper" || bad "#454: step 9 opt-out case: $(hc454 "$LIB" FORGE_NO_GIT_CREDENTIALS=1 K442CRED=cred-454-canary) / $(cat "$K/gitlog")"; }
+{ c454_optout_env && ok "#454: the opt-out still reports an environment token" || bad "#454: step 9 opt-out env case: $(hc454 "$LIB" FORGE_NO_GIT_CREDENTIALS=1 FORGEJO_TOKEN=tok)"; }
+{ c454_url && ok "#454: a refused FORGE_API_URL never reaches the helper and prints no present" || bad "#454: step 9 refused-URL case: $(hc454 "$LIB" '' K442CRED=cred-454-canary FORGE_API_URL=http://f.invalid) / $(cat "$K/gitlog")"; }
+{ c454_envwins && ok "#454: an environment token wins and the helper is not asked" || bad "#454: step 9 env-wins case: $(hc454 "$LIB" '' K442CRED=cred-454-canary FORGEJO_TOKEN=tok) / $(cat "$K/gitlog")"; }
+{ c454_name && ok "#454: a hostile FORGE_TOKEN_ENV never runs and never reaches the helper" || bad "#454: step 9 hostile-name case: $(cat "$K/gitlog")"; }
+c454_both() {  # c449_hc_both's shape through hc454: a refused URL still reports the empty env token
+  local out; out=$(hc454 "$(L454)" '' FORGE_API_URL=http://f.invalid)
+  [ "$(grep -c '^WARN' <<< "$out")" = 2 ] && grep -q 'empty' <<< "$(grep '^WARN' <<< "$out" | sed -n 2p)"; }
+{ c454_both && ok "#454: a refused URL with no token still prints the empty-token WARN" || bad "#454: step 9 both case: $(hc454 "$LIB" '' FORGE_API_URL=http://f.invalid)"; }
 
 # -- mutants: each guard removed must fail its case ----------------------------------------------
 m442() {  # m442 <name> <anchor> <replacement> <case-fn>
@@ -3244,6 +3294,15 @@ m442 "name not validated" '    [0123456789]*|*[!${_FORGE_ALNUM}_]*)' '    "")' c
 m442 "xtrace left on in forge_api" '      local _fx=0 rc; case $- in *x*) _fx=1; set +x ;; esac
       _forge_api_forgejo' '      local _fx=0 rc
       _forge_api_forgejo' c442_xtrace
+# #454 mutants. The probe reads the helper through _forge_token_impl under its OWN single guard,
+# so removing that one pair leaves the helper read traced and the canary row must die.
+m442 "#454 opt-out ignored" '[ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then' '[ -n "$url" ]; then' c454_optout
+m442 "#454 xtrace left on in the probe" 'forge_token_available() {
+  local _fx=0 var rc=0 tok=""; case $- in *x*) _fx=1; set +x ;; esac' 'forge_token_available() {
+  local _fx=0 var rc=0 tok=""' c454_xtrace
+m442 "#454 helper asked before the URL check" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif tok="$(_forge_token_impl 2>/dev/null)" && forge_url_check >/dev/null 2>&1; then' c454_url
+m442 "#454 refused URL skips the env report" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif ! forge_url_check >/dev/null 2>&1; then return 0
+  elif tok="$(_forge_token_impl 2>/dev/null)"; then' c454_both
 m442 "token back on argv" "-K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" --url" "-H \"Authorization: token \$tok\" -w '\\n%{http_code}' -X \"\$method\" --url" c442_argv_get
 
 # -- #450 review M1: forge_api passes curl -q first, so a .curlrc never reaches the request ----------

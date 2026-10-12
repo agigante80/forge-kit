@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 38 -->
+<!-- forge-host-version: 39 -->
 
 # forge-host: host-aware forge operations
 
@@ -147,8 +147,8 @@ cloned repository's `.forge.conf` can name the server that receives your token, 
 commands only in repositories you trust. The URL must be https unless YOU export `FORGE_ALLOW_HTTP=1` (the file
 cannot), redirects are never followed, and the token reaches curl through `-K`, never argv. In
 the file, `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`. A name you
-export yourself is trusted as-is. `forge_token_present` reports the token's variable name and
-whether it is set, without printing it.
+export yourself is trusted as-is. `forge_token_present` reports whether the token variable is
+set, never printing it; `forge_token_available` (#454) also counts git's credential helper.
 On Forgejo every dry-run branch runs the same URL check first, so `FORGE_DRY_RUN=1` refuses what a real run refuses (rc 2); `forge_api_paginate` callers now see that rc.
 
 `.forge.conf` names the env var (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`); how the token

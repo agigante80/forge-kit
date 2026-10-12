@@ -12,7 +12,8 @@ accepted: a cloned repository's `.forge.conf` can name the server that receives 
 run forge-kit commands only in repositories you trust. An http-only instance
 needs `FORGE_ALLOW_HTTP=1` exported in your environment; the file cannot set it. In the file,
 `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`; export any other name
-yourself. Run `forge_token_present` to see which variable is read and whether it is set.
+yourself. Run `forge_token_present` to see which variable is read and whether it is set, or
+`forge_token_available` to include the credential-helper fallback below (section 3).
 
 ## 1. Mint the most restrictive token that works
 
@@ -111,6 +112,9 @@ is a plaintext backend, prefer libsecret/osxkeychain; the fallback never prompts
 writes, it only reads. **Opt out** with `FORGE_NO_GIT_CREDENTIALS=1` (env or `.forge.conf`)
 to restore strict env-only behavior: the token must then come explicitly from
 the variable `FORGE_TOKEN_ENV` names, and an unset token fails closed instead of being auto-discovered.
+`forge_token_available` (forge-lib v41, #454) reports a helper-held token as `git's credential
+helper` without printing it; health-check step 9 uses it, so this fallback no longer draws a false
+"token is empty" WARN there.
 
 ## 4. CLIs (fj, tea): convenient, but not the canonical store
 
