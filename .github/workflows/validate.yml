@@ -403,6 +403,11 @@ jobs:
       - name: Phase review snapshot tests
         run: bash scripts/test-phase-review-snapshot.sh
 
+      # Issue #272: /phase review steps 1 to 4 read through review-mechanics.sh, which prints rows
+      # (guard lines, range, tickets, comments, commits) and no verdict, run over a fixture history.
+      - name: Phase review mechanics tests
+        run: bash scripts/test-review-mechanics.sh
+
       # Issue #278: size-review.sh decides whether a /full-review round skips the security phase, so
       # a wrong answer in one direction reviews a sensitive change without it.
       - name: Review-sizing tests

@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, reassess, close or triage a
 argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 16 -->
+<!-- phase-version: 17 -->
 
 # /phase
 
@@ -17,7 +17,7 @@ acting, and when a guard refuses something, quote its message rather than paraph
 here it expands to nothing. Resolve by
 search, in this order: the project's own copy; a forge-kit checkout's tree, which is newer than
 anything installed; then the highest `<name>-version` marker across installed copies, lexically
-last path as the tie-break. `phase-env.sh` resolves the six assets so and writes them to a file:
+last path as the tie-break. `phase-env.sh` resolves the seven assets so and writes them to a file:
 
 ```bash
 resolve() {  # resolve <asset.sh>
@@ -30,7 +30,7 @@ E=$(git rev-parse --git-path forge-kit-phase-env) && PE=$(resolve phase-env.sh) 
   sed -n 's/^\([A-Z][A-Z]\)=/using \1=/p' "$E" | sed "s|$HOME|~|g"
 ```
 
-**Every later Bash call is a fresh shell.** Each one reading `CP`, `SP`, `FL`, `RL`, `DD`, `RP` or
+**Every later Bash call is a fresh shell.** Each one reading `CP`, `SP`, `FL`, `RL`, `DD`, `RP`, `RM` or
 a function `FL`/`RL` define, prose steps included, opens with
 `. "$(git rev-parse --git-path forge-kit-phase-env)" || exit 2`, which also sets forge-lib's
 `set -uo pipefail`. A missing asset stops only what reads it. Never reimplement the checks in prose.
@@ -105,7 +105,15 @@ grep -m1 -o 'forge-lib-version: [0-9]*' "${FL:?}"; : "${RL:?}"
 The two libraries are SOURCED, not run; an empty one stops here, naming it. The version must be 25
 or higher. `DD` is often empty, and the skill says what the review does then.
 
-1. Run `bash "${CP:?}"` and report its verdict verbatim. Then, before any write, snapshot
+1. Run the entry point, which reads what steps 1 to 4 need and prints rows, never a verdict:
+
+```bash
+. "$(git rev-parse --git-path forge-kit-phase-env)" || exit 2
+FORGE_LIB="${FL:?}" ROADMAP_LIB="${RL:?}" CHECK_PHASES="${CP:?}" bash "${RM:?}" "<phase>"
+```
+   Add `--range <a>..<b>` only under the skill's range rule. Exit 2 means nothing was read: quote
+   its stderr and stop. Report the `check_phases` rows (both streams) verbatim; exit 1 is that
+   guard failing, and the other rows are still complete. Then, before any write, snapshot
    the local paths the second-run proof covers: `docs/roadmap.md`, the plan `docs/plans/<phase>.md`
    and each document of step 4's `<documents>` (computed here, once). The listing is a FILE under the
    git dir (a shell variable does not survive the tool calls a run spans) holding one
@@ -125,14 +133,15 @@ or higher. `DD` is often empty, and the skill says what the review does then.
     if [ -e "$p" ]; then printf '%s  %s\n' "$(git hash-object -- "$p")" "$p"; else printf 'absent  %s\n' "$p"; fi
   done > "$SNAP" && echo "run id: ${SNAP##*.}" )
 ```
-2. Read the plan, the phase's roadmap prose, and EVERY ticket in the milestone, open and closed,
-   including its comments through `forge_issue_comments`, excluding any comment whose first line is
-   exactly `## Superseded body (phase review)`: that is a body a past rewrite replaced, not
-   something that happened during this phase.
-3. Report each ticket against the tree: implemented, naming the commit or commits under the
-   skill's rule above, partly implemented (naming what is missing), not started, or superseded.
-4. If `DD` is set, run `bash "$DD" --range <base>^..HEAD --docs <documents>`, read its rows.
-   `<base>` is derived by the skill's range rule, never restated here. `<documents>` is a
+2. Read the plan, the phase's roadmap prose, and the `ticket` and `comment` rows: EVERY ticket in
+   the milestone, open and closed, with its comments. A comment whose first line is exactly
+   `## Superseded body (phase review)` is a `superseded` row instead, a body a past rewrite
+   replaced, not something that happened during this phase; `preserved` names the one already
+   holding the ticket's current body.
+3. Report each ticket against the tree from its `commit` rows (`none` when no commit names it):
+   implemented, naming the commit or commits under the skill's rule above, partly implemented (naming what is missing), not started, or superseded.
+4. If `DD` is set, run `bash "$DD" --range <range> --docs <documents>`, read its rows.
+   `<range>` is the `range` row's second field alone, never its third. `<documents>` is a
    comma-separated `<doc>[,<doc>...]`, the project's standing documents for which `git cat-file -e
    HEAD:<doc>` succeeds, read from the snapshot file, not memory:
 

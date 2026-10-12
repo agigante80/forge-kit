@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# phase-env-version: 1
+# phase-env-version: 2
 # phase-env.sh: what each /phase Bash call must rebuild, because every call is a fresh shell (#407).
 # RUN, never sourced. /phase's resolve block runs it once:
 #
 #   bash "$PE" > "$(git rev-parse --git-path forge-kit-phase-env)"
 #
-# and every later Bash call that reads CP, SP, FL, RL, DD, RP or a function FL/RL define opens with
+# and every later Bash call that reads CP, SP, FL, RL, DD, RP, RM or a function FL/RL define opens with
 #
 #   . "$(git rev-parse --git-path forge-kit-phase-env)" || exit 2
 #
@@ -40,7 +40,7 @@ resolve() {  # resolve <asset.sh>: an absolute path, or nothing
 }
 
 for pair in CP=check-phases.sh SP=sync-phases.sh FL=forge-lib.sh RL=roadmap-lib.sh \
-            DD=check-doc-drift.sh RP=reassess-phases.sh; do
+            DD=check-doc-drift.sh RP=reassess-phases.sh RM=review-mechanics.sh; do
   printf '%s=%q\n' "${pair%%=*}" "$(resolve "${pair#*=}")"
 done
 printf '%s\n' 'if [ -n "$FL" ]; then . "$FL"; fi' 'if [ -n "$RL" ]; then . "$RL"; fi' ':'

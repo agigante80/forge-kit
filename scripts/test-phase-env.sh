@@ -32,11 +32,13 @@ grep -qF -- "\`$SRC\`" "$DOC" && ok "phase.md states the rule's source line verb
 VB=$(fence "forge-lib-version: [0-9]*") || { echo "no single version-check block in $DOC"; exit 1; }
 STATUS1=$(span 'bash "${CP:?}"'); CLOSE4=$(span 'bash "${SP:?}"'); RP1=$(span 'bash "${RP:?}" --help')
 [ -n "$STATUS1" ] && [ -n "$CLOSE4" ] && [ -n "$RP1" ] && ok "the guarded CP, SP and RP reads are in phase.md" || bad "a guarded read is missing from phase.md"
+# /phase review step 1's call (#272) is a fenced block, already opening with the source line.
+RM1=$(fence 'bash "${RM:?}"') || { echo "no single review-mechanics block in $DOC"; exit 1; }
 
 # fixture [asset...]: a repo whose scripts/ holds the stubs and libraries named (default: all).
 fixture() {
   R="$T/r.$RANDOM$RANDOM"; mkdir -p "$R/scripts"; git -C "$R" init -q
-  local a; for a in ${@:-check-phases.sh sync-phases.sh reassess-phases.sh check-doc-drift.sh forge-lib.sh roadmap-lib.sh}; do
+  local a; for a in ${@:-check-phases.sh sync-phases.sh reassess-phases.sh check-doc-drift.sh review-mechanics.sh forge-lib.sh roadmap-lib.sh}; do
     case "$a" in
       forge-lib.sh)   cp "$LIB" "$R/scripts/" ;;
       roadmap-lib.sh) cp "$ASSETS/roadmap-lib.sh" "$R/scripts/" ;;
@@ -60,6 +62,9 @@ fresh "$VB"; [ "$rc" = 0 ] && grep -q '^forge-lib-version: [0-9]' <<< "$out" && 
 fresh 'type forge_issue_comments roadmap_set_prose >/dev/null && echo both'
 [ "$out" = both ] && ok "/phase review steps 2 and 6 see forge_issue_comments and roadmap_set_prose" || bad "the sourced functions are missing: '$err'"
 fresh "$RP1"; [ "$rc" = 0 ] && [ "$out" = "reassess-phases --help" ] && ok "/phase reassess runs reassess-phases.sh in a fresh shell" || bad "/phase reassess: rc $rc out '$out'"
+fresh "$RM1"; [ "$rc" = 0 ] && [ "$out" = "review-mechanics <phase>" ] && [ -z "$err" ] && ok "/phase review step 1 runs review-mechanics.sh in a fresh shell" || bad "/phase review step 1: rc $rc out '$out' err '$err'"
+fresh "$RM1 >/dev/null; env | grep -E '^(FORGE_LIB|ROADMAP_LIB|CHECK_PHASES)=' | sort"
+[ -z "$out" ] && ok "the three overrides reach that call only, never the caller's shell" || bad "override leaked: '$out'"
 fresh '[ -n "$DD" ] && bash "$DD" --range a..b'; [ "$out" = "check-doc-drift --range a..b" ] && ok "/phase review step 4 runs check-doc-drift.sh when DD is set" || bad "step 4 with DD: '$out'"
 ( cd "$R" && mkdir -p sub && cd sub && env -i PATH="$PATH" HOME="$EH" bash -c "$SRC
 $STATUS1" ) >"$T/o" 2>&1; [ "$(cat "$T/o")" = "check-phases " ] && ok "the source line works from a subdirectory" || bad "from a subdirectory: '$(cat "$T/o")'"
@@ -72,6 +77,9 @@ fresh '[ -n "$DD" ] && bash "$DD" --range a..b; echo done'; [ "$out" = done ] &&
 fresh "$RP1 --check"; [ "$rc" != 0 ] && [ -z "$out" ] && grep -q 'RP: parameter null or not set' <<< "$err" \
   && ! grep -q 'No such file or directory\|command not found' <<< "$err" \
   && ok "/phase reassess with reassess-phases.sh unresolvable stops: 'RP: parameter null or not set'" || bad "reassess with RP missing: rc $rc out '$out' err '$err'"
+fresh "$RM1"; [ "$rc" != 0 ] && [ -z "$out" ] && grep -q 'RM: parameter null or not set' <<< "$err" \
+  && ! grep -q 'No such file or directory\|command not found' <<< "$err" \
+  && ok "/phase review step 1 with review-mechanics.sh unresolvable stops: 'RM: parameter null or not set'" || bad "review with RM missing: rc $rc out '$out' err '$err'"
 fixture check-phases.sh sync-phases.sh forge-lib.sh
 fresh "$STATUS1"; [ "$rc" = 0 ] && [ "$out" = "check-phases " ] && [ -z "$err" ] && ok "with roadmap-lib.sh unresolvable, /phase status step 1 still runs (rc 0, empty stderr)" || bad "status with RL empty: rc $rc out '$out' err '$err'"
 fresh "$VB"; [ "$rc" != 0 ] && grep -q 'RL: parameter null or not set' <<< "$err" && ok "and /phase review's version check stops naming RL" || bad "review with RL empty: rc $rc err '$err'"
@@ -90,16 +98,18 @@ $STATUS1" 2>&1)
 [ "$out" = high ] && ok "the highest marker wins although its path holds a colon (phase.md's resolve and phase-env.sh)" || bad "colon path: '$out'"
 
 echo "== no read of a resolved value is left unguarded in phase.md =="
-lint() { grep -nE '"\$(CP|SP|RP|FL|RL)"' "$1"; }
-[ -z "$(lint "$DOC")" ] && ok "every CP, SP, RP, FL and RL read is \${X:?}" || bad "unguarded reads: $(lint "$DOC")"
+lint() { grep -nE '"\$(CP|SP|RP|FL|RL|RM)"' "$1"; }
+[ -z "$(lint "$DOC")" ] && ok "every CP, SP, RP, FL, RL and RM read is \${X:?}" || bad "unguarded reads: $(lint "$DOC")"
 sed 's/bash "${RP:?}" --help/bash "$RP" --help/' "$DOC" > "$T/phase-mut.md"
 [ -n "$(lint "$T/phase-mut.md")" ] && ok "mutant: a read restored to bare \"\$RP\" fails the lint" || bad "mutant: the lint missed a bare \"\$RP\""
 out=$(cd "$T/colon" && env -i PATH="$PATH" HOME="$EH" bash -c 'RP=; bash "$RP" --help' 2>&1)
 case "$out" in *"No such file or directory"*) ok "and that bare read is the 'bash \"\"' failure #407 removes" ;; *) bad "bare RP read: '$out'" ;; esac
+sed 's/bash "${RM:?}" "<phase>"/bash "$RM" "<phase>"/' "$DOC" > "$T/phase-mut.md"
+[ -n "$(lint "$T/phase-mut.md")" ] && ok "mutant: step 1's call restored to bare \"\$RM\" fails the lint" || bad "mutant: the lint missed a bare \"\$RM\""
 
 echo "== mutants of phase-env.sh =="
 . "$ROOT/scripts/mutant-crash.sh"
-# pe_live: the build, with all six assets present, still resolves and runs /phase status step 1
+# pe_live: the build, with all seven assets present, still resolves and runs /phase status step 1
 # (#360). It never reads the case's stderr, because two genuine kills ARE bash diagnostics; it
 # writes the resolve output and its own fresh shell's stderr to stderr, the log
 # mutant_crash_reason_live reads.
@@ -130,10 +140,10 @@ mutant "no FL source" "$P_NOFL" check-phases.sh forge-lib.sh roadmap-lib.sh -- '
 mutant "bare && last line" "$P_AND" check-phases.sh forge-lib.sh -- "$STATUS1" "check-phases "
 mutant "a missing DD fails the file" "$P_DD" check-phases.sh forge-lib.sh roadmap-lib.sh -- "$STATUS1" "check-phases "
 # pe_search_live: the colon-search build, run in an empty repository under the empty HOME, still
-# prints its six assignments and exits 0 (#360).
+# prints its seven assignments and exits 0 (#360).
 pe_search_live() {
   local o; o=$(CDPATH= cd -- "$T/colon2" && env -i PATH="$PATH" HOME="$EH" bash "$T/pe-sort.sh") || return 1
-  [ "$(printf '%s\n' "$o" | grep -c '^[A-Z][A-Z]=')" = 6 ]
+  [ "$(printf '%s\n' "$o" | grep -c '^[A-Z][A-Z]=')" = 7 ]
 }
 pe_search_mutant() {  # pe_search_mutant <name> <awk program>: the colon-path pick must be lost
   local name="$1" why

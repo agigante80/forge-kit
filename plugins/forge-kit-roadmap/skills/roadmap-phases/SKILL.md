@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 19 -->
+<!-- roadmap-phases-version: 20 -->
 
 # Roadmap phases
 
@@ -105,6 +105,10 @@ otherwise runs by hand, and every rule below exists because doing it by hand los
 **It reviews the one `open` phase, and REFUSES otherwise**, naming every open phase or the absence
 of one rather than guessing. A name given explicitly overrides that.
 
+**`review-mechanics.sh` is the mechanism for steps 1 to 4** (`/phase review` step 1): rows, never
+a verdict, and no write. It reads EVERY issue in the repository through `forge_issue_list all`,
+because the open-only listing loses closed tickets, so its cost grows with the repository.
+
 **It reads the COMMENTS, not only the bodies.** A body is what someone intended; the comments are
 what happened. A gate verdict, a decision, a correction, and an approach abandoned for a better one
 all live there. A review that reads bodies alone re-states the intent it was supposed to check.
@@ -112,8 +116,9 @@ all live there. A review that reads bodies alone re-states the intent it was sup
 **Implementation is judged against the TREE, never against the ticket.** A ticket that says "done"
 over a tree that does not carry the change is the exact state this review exists to find. So
 implemented means a named file carries the named behaviour, or a suite carries the named case, and
-the review names the commit or commits, found with `git log --grep "#<N>"` over the phase's range
-and then `git log -S` on the behaviour itself. **Where either search returns more than one commit
+the review names the commit or commits: the `commit` rows search the `#<N>` token, word-bounded,
+in message and diff over the phase's range, and a `git log -S` on the behaviour itself stays the
+reviewer's. **Where either search returns more than one commit
 touching the named file, list them oldest first and mark the one after which the tree carries the
 whole behaviour** ("complete at `<sha>`"); if no single commit completes it, report partly
 implemented, naming what is missing, rather than picking one. A single match keeps today's wording.
@@ -121,11 +126,11 @@ Report each ticket as implemented (with the commit or commits), partly implement
 missing), not started, or superseded (with what replaced it).
 
 **The phase's range starts at the commit that ADDED its plan file and INCLUDES it**, ending at
-`HEAD`: take the sha from `git log --diff-filter=A --format=%H -- <plan> | tail -1` and use
-`<sha>^..HEAD`, since `<sha>..HEAD` excludes it. That commit is usually substantive
+`HEAD`: `<sha>^..HEAD`, since `<sha>..HEAD` excludes it. That commit is usually substantive
 rather than a bare plan file, so excluding it reads its own ticket as not started. It is derived
-rather than judged: a plan becomes required exactly at `planned` to `open`, which dates the start. Where the plan file predates the phase opening, or is the
-repository's first commit, say so and take the range from the user.
+rather than judged: a plan becomes required exactly at `planned` to `open`, which dates the start. The script refuses, naming the plan,
+when no commit added it or it is the repository's first commit; there, and where the plan predates
+the phase opening, say so, take the range from the user and pass it as `--range`.
 
 **It SHOWS before it acts.** The first pass writes nothing anywhere and reports every act it would
 perform with its reason. `FORGE_DRY_RUN=1` cannot hold that pass: `forge_api` short-circuits on it
