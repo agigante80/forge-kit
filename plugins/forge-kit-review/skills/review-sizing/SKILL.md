@@ -78,9 +78,9 @@ over or overwritten: it is already a declaration.
 3. **Add CODEOWNERS paths as hints.** If `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`
    exists, take the first field of each rule line (skip comments and blanks, strip a CR) and
    translate it to this file's glob: drop a leading `/`, turn a trailing `/` into `/*`, and add a
-   `*/` form for an unanchored directory. A rule with no trailing `/` and no glob character may
-   be a directory, so it also gets a `<path>/*` form (and `*/<path>/*` when unanchored): bare
-   `scripts` would match only a file of that name. Owners are never copied. Mark each one `(hint)`; a bare
+   `*/` form for any unanchored rule (`Makefile` also owns `sub/Makefile`). A rule with no
+   trailing `/` and no glob character may be a directory, so it also gets a `<path>/*` form (and
+   `*/<path>/*` when unanchored): bare `scripts` would match only a file of that name. Owners are never copied. Mark each one `(hint)`; a bare
    `*` rule is shown but never pre-kept, since it makes every round `full`.
 4. **Show, edit, approve.** Print the list (or, when nothing matched, an empty list saying so) and
    let the user drop, add or reword lines. Write `.full-review-sensitive` only on explicit approval,
