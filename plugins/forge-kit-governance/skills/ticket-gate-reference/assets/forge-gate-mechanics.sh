@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 5
+# forge-gate-mechanics-version: 6
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -109,8 +109,12 @@ printf '%s' "$body" > "$BODY_FILE"
 TPL_VER=$(grep -o 'template-version: [0-9]*' "$BODY_FILE" | grep -o '[0-9]*' | head -1)
 
 if [ -z "$TEMPLATE" ]; then
+  # The type label matches without regard to case, as the labels check does since #472, so a `Bug`
+  # ticket is not judged against the fallback (#476). A folded COPY: $labels itself goes to the
+  # checker as written. `tr`, not ${labels,,}, which bash 3.2 (macOS) lacks.
+  labels_lc=$(printf '%s' "$labels" | tr 'A-Z' 'a-z')
   [ -n "$TYPE" ] || for t in bug security infrastructure design feature; do
-    case ",$labels," in *",$t,"*) TYPE="$t"; break ;; esac
+    case ",$labels_lc," in *",$t,"*) TYPE="$t"; break ;; esac
   done
   [ -n "$TYPE" ] || TYPE=feature
   TEMPLATE="$TPL_DIR/$TYPE.yml"

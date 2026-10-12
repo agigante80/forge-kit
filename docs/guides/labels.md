@@ -31,6 +31,8 @@ GitHub labels serve dual purpose: issue organization AND lens routing in ticket-
 Label names match without regard to case in the gate's lens routing and its labels check, so a project
 that spells an area `API` or `Privacy` still gets the `api` and `privacy` behaviour (#472). Only names
 this table lists are folded, so `Apiary` is not `api`.
+The type label that picks the template in `forge-gate-mechanics.sh` matches the same way, so a `Bug`
+ticket is checked against `bug.yml` while `Bugfix` falls back to `feature.yml` (#476).
 
 <!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
 **The last three are for a governance repository, and forge-kit is one (#188).** The six above them

@@ -57,7 +57,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 |---|---|---|---|
 | `forge-kit-adapt` | 0.12.7 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.22.6 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.34.19 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
+| `forge-kit-governance` | 0.34.20 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
 | `forge-kit-review` | 0.7.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.15.19 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.17.6 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
@@ -268,7 +268,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | shell asset | `check-contributor-docs` | v25 |  | check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who |
 | `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v24 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
 | `forge-kit-governance` | shell asset | `count-gate-rounds` | v3 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
-| `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v5 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
+| `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v6 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
 | `forge-kit-governance` | shell asset | `gate-env` | v2 |  | gate-env.sh: what each ticket-gate Bash call must rebuild, because every call is a fresh shell |
 | `forge-kit-governance` | shell asset | `gate-status` | v10 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
 | `forge-kit-review` | agent | `architect-review` | v3 | 1059 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |

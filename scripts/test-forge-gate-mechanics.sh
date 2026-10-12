@@ -40,6 +40,8 @@ LIB
 proj() {
   rm -rf "$T/proj"; mkdir -p "$T/proj/$1"
   cp "$ROOT/.github/ISSUE_TEMPLATE/feature.yml" "$T/proj/$1/feature.yml"
+  # bug.yml too, so a type label can be seen choosing a template other than the fallback (#476).
+  cp "$ROOT/.github/ISSUE_TEMPLATE/bug.yml" "$T/proj/$1/bug.yml"
 }
 
 # A body carrying every heading the real template declares, each with content, so a `fail` row can
@@ -160,6 +162,28 @@ proj .forgejo/ISSUE_TEMPLATE; issue "$FULL" feature P2 api
 run 42
 expect "a .forgejo template dir is found" 0 "$rc"
 contains "referred" "$out" "and the run produced real rows"
+
+echo "== the type label picks the template without regard to case (#476) =="
+# Since #472 the labels check folds case, so a `Bug` ticket passes it; the template choice must
+# agree, or that ticket is judged against feature.yml, the fallback.
+proj .github/ISSUE_TEMPLATE
+for lab in bug Bug BUG; do
+  issue "$FULL" "$lab" P2 api
+  run 42
+  contains "against .github/ISSUE_TEMPLATE/bug.yml" "$out" "a ticket labelled $lab is checked against bug.yml"
+done
+# Only whole label names fold, exactly as `Apiary` is not `api` in the labels check.
+issue "$FULL" Bugfix P2 api
+run 42
+contains "against .github/ISSUE_TEMPLATE/feature.yml" "$out" "a ticket labelled Bugfix falls back to feature.yml"
+lacks "bug.yml" "$out" "and is not checked against bug.yml"
+# The fold is a copy for the type loop only: the checker still gets the labels as written.
+issue "$FULL" Bug P2 api
+direct=$(cd "$T/proj" && bash "$BIN/check-ticket-mechanics.sh" --body "$T/full-body.md" \
+  --template .github/ISSUE_TEMPLATE/bug.yml --tpl-version 6 --current-tpl-version 6 --labels "Bug,P2,api" 2>/dev/null)
+via=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechanics.sh" 42 --format tsv 2>/dev/null)
+[ -n "$direct" ] && [ "$direct" = "$via" ] && ok "the checker receives the original-case labels" \
+  || bad "the checker receives the original-case labels (diff: $(diff <(printf '%s' "$direct") <(printf '%s' "$via") | head -2 | tr '\n' ' '))"
 
 echo "== no template directory at all is reported, not guessed =="
 rm -rf "$T/proj"; mkdir -p "$T/proj"; issue "$FULL" feature P2 api
