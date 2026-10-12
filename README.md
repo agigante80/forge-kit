@@ -55,10 +55,10 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.12.7 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.12.8 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.22.9 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.35.0 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
-| `forge-kit-review` | 0.7.0 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
+| `forge-kit-review` | 0.7.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.15.19 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.17.6 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
@@ -276,7 +276,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | agent | `code-simplifier` | v3 | 450 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
 | `forge-kit-review` | agent | `coding-standards-auditor` | v4 | 1310 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
 | `forge-kit-review` | command | `full-review` | v12 | 3990 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
-| `forge-kit-review` | skill | `review-sizing` | v1 | 545 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
+| `forge-kit-review` | skill | `review-sizing` | v2 | 831 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |
 | `forge-kit-roadmap` | command | `phase` | v16 | 2040 | Work the roadmap. |
 | `forge-kit-roadmap` | skill | `roadmap-phases` | v19 | 3637 | Rolling wave planning made mechanical. |

@@ -7,7 +7,7 @@ description: |
   and for anyone declaring a project's sensitive paths; it decides nothing itself.
 ---
 
-<!-- review-sizing-version: 1 -->
+<!-- review-sizing-version: 2 -->
 
 # Review sizing
 
@@ -52,6 +52,56 @@ means full on every round; an EMPTY one is a declaration that nothing is sensiti
 
 Declare what a small change can still break badly: hooks, security components, CI workflows,
 guards, shipped executables.
+
+## Generating the file
+
+forge-adapt offers a candidate file whenever `/full-review` is recommended or installed and
+`.full-review-sensitive` is absent (#448). An existing file, even an empty one, is never offered
+over or overwritten: it is already a declaration.
+
+1. **Start broad.** The first hand-written list in the project that prompted #448 missed several
+   risky areas, so the default errs wide and the user narrows it. Lockfiles and manifests stay out: they would send nearly
+   every round back to `full`.
+2. **Keep the patterns that match a tracked path**, with the same test `size-review.sh` applies:
+
+   ```bash
+   files=$(git ls-files)
+   while IFS= read -r p; do
+     while IFS= read -r f; do [[ $f == $p ]] && { echo "$p"; break; }; done <<<"$files"
+   done <<'EOF'
+   .github/workflows/*
+   .github/CODEOWNERS
+   .githooks/*
+   auth/*
+   */auth/*
+   security/*
+   */security/*
+   crypto/*
+   */crypto/*
+   migrations/*
+   */migrations/*
+   hooks/*
+   */hooks/*
+   Dockerfile*
+   docker-compose*.yml
+   .env*
+   */.env*
+   terraform/*
+   */terraform/*
+   infra/*
+   */infra/*
+   EOF
+   ```
+
+3. **Add CODEOWNERS paths as hints.** If `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`
+   exists, take the first field of each rule line (skip comments and blanks, strip a CR) and
+   translate it to this file's glob: drop a leading `/`, turn a trailing `/` into `/*`, and add a
+   `*/` form for an unanchored directory. Owners are never copied. Mark each one `(hint)`; a bare
+   `*` rule is shown but never pre-kept, since it makes every round `full`.
+4. **Show, edit, approve.** Print the list (or, when nothing matched, an empty list saying so) and
+   let the user drop, add or reword lines. Write `.full-review-sensitive` only on explicit approval,
+   with exactly the approved lines under a one-line `#` header. Declined, or edited down to nothing,
+   writes no file: rule 4 keeps every round `full`, and the next forge-adapt run offers again.
 
 ## The threshold, measured
 

@@ -13,4 +13,14 @@ entry points that delegate to agents, so recommend the command alongside the age
 Recommend `/gate-ticket` whenever `ticket-gate` is recommended: they are a pair. `/ci-health`
 only when GitHub Actions workflows actually exist.
 
+**Sensitive-path offer (#448).** Whenever `/full-review` is recommended or already installed
+(a plugin-registered one counts) and `.full-review-sensitive` is absent at the project root, add
+one section under the tables showing the candidate list built by the "Generating the file" section
+of `$FORGE_KIT_DIR/plugins/forge-kit-review/skills/review-sizing/SKILL.md`. Until that file
+exists, `size-review.sh` sizes every round `full`. The user approves by replying `sensitive`
+(alone or beside component names), with any edits to the list; that reply goes to Step 3, which
+writes the approved list even when no component is picked. `none`, or a reply without `sensitive`,
+declines: nothing is written and the next run offers again. Never offer over an existing file,
+even an empty one. `refresh`/`drift` and `refresh <name>` never offer or write it.
+
 **Retired in #178**: `/pr-enhance`. The original is `comprehensive-review@claude-code-workflows`.
