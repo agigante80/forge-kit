@@ -1621,7 +1621,7 @@ bounded() {  # bounded <secs> <cmd...>: cmd in its own process group; 124 if the
 # divergent (plain TERM at the bound, no KILL escalation, an INT/TERM trap, every status >= 128
 # read as 124). A change to the signals, the watcher or these notes in one copy means checking the
 # other two. NO LOCKSTEP GUARD AND NO SHARED HELPER, weighed in #261: the two matching bodies were
-# byte-identical when it was weighed, so a guard would have found nothing; a guard compares code
+# identical once comments are stripped when it was weighed, so a guard would have found nothing; a guard compares code
 # and cannot protect these notes, which are what failed to travel; a guard would need an exception
 # for the divergent copy on day one, and a shared helper would force that copy into a flag
 # (scripts/guard-lib.sh shares only where consumers could never legitimately differ). A review
