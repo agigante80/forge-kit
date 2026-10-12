@@ -630,7 +630,7 @@ if [ -n "$R217U" ]; then
     elif [ "$r439m" != "$RSHOW439" ]; then ok "mutant (#439, bash-pin): an unpinned redact changes a row under UTF-8"
     else bad "mutant (#439, bash-pin): an unpinned redact survives every row"; fi
   else
-    bad "mutant ledger (#439, bash-pin): want the unpinned line once and the pinned line absent, got $r439n and $r439o; the line built: '$(grep -m1 -F 'CHARS k p=' <<< "$RFNNP")'"
+    bad "mutant ledger (#439, bash-pin): want the unpinned line once, the pinned line absent and the function changed, got $r439n and $r439o (changed: $([ "$RFNNP" != "$RFN" ] && echo yes || echo no)); the line built: '$(grep -m1 -F 'CHARS k p=' <<< "$RFNNP")'"
   fi
 else
   ok "(skipped, no UTF-8 locale on this machine) the multibyte redact case"
