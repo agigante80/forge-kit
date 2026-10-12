@@ -442,6 +442,38 @@ case "$(gwt_ev "$(run "$N5" feature)")" in "one-line scenario"*) ok "#233/#241: 
 O7="$(mkbody feature "one7.md" "$(printf -- '- Positive: Given a. When b.\n- Negative: Given d. When e.')")"
 expect "#233: a one-line bullet with no Then is not a scenario and still fails 0/0 (near miss)" fail "$(outcome "$(run "$O7" feature)" gwt)"
 
+# --- #479: the one-line detector is case-insensitive, so a lowercase one-liner refers like the
+# capitalised one instead of failing 0/0. The rows marked guard fail before AND after the fix:
+# they prove `-i` did not widen the match past a real scenario, not that the fix works.
+one479() { mkbody feature "one479-$1.md" "$2"; }
+gwt479() { gwt_ev "$(run "$1" feature)"; }
+L1="$(one479 lkw '- Positive. given a user, when they click save, then the file is written.')"
+expect "#479: lowercase given/when/then with a capitalised marker refers" referred "$(outcome "$(run "$L1" feature)" gwt)"
+case "$(gwt479 "$L1")" in "one-line scenario form"*) ok "#479: and its evidence names the one-line scenario form" ;; *) bad "#479: lowercase keyword evidence: $(gwt479 "$L1")" ;; esac
+L2="$(one479 lmk '- positive: Given a user, When they click save, Then the file is written.')"
+expect "#479: a lowercase marker word refers" referred "$(outcome "$(run "$L2" feature)" gwt)"
+case "$(gwt479 "$L2")" in "one-line scenario form"*) ok "#479: and its evidence names the one-line scenario form" ;; *) bad "#479: lowercase marker evidence: $(gwt479 "$L2")" ;; esac
+L3="$(one479 cap '- Positive. Given a user, When they click save, Then the file is written.')"
+expect "#479: the capitalised one-liner still refers" referred "$(outcome "$(run "$L3" feature)" gwt)"
+L4="$(one479 nothen '- Positive. given a user, when they click save.')"
+case "$(outcome "$(run "$L4" feature)" gwt)|$(gwt479 "$L4")" in "fail|"*"found 0 positive, 0 negative"*) ok "#479 guard: a lowercase one-liner with no then still fails 0/0" ;; *) bad "#479 guard: no-then lowercase: $(gwt479 "$L4")" ;; esac
+L5="$(one479 nogiven '- positive: a user, when they click save, then the file is written.')"
+case "$(outcome "$(run "$L5" feature)" gwt)|$(gwt479 "$L5")" in "fail|"*"found 0 positive, 0 negative"*) ok "#479 guard: a lowercase one-liner with no given still fails 0/0" ;; *) bad "#479 guard: no-given lowercase: $(gwt479 "$L5")" ;; esac
+case "$(gwt479 "$O7")" in *"found 0 positive, 0 negative"*) ok "#479 guard: the O7 no-Then near miss keeps the 0/0 message" ;; *) bad "#479 guard: O7 message changed: $(gwt479 "$O7")" ;; esac
+L6="$(one479 caps '- POSITIVE: GIVEN a, WHEN b, THEN c.')"
+case "$(outcome "$(run "$L6" feature)" gwt)|$(gwt479 "$L6")" in "referred|one-line scenario form"*) ok "#479: an all-caps one-liner refers" ;; *) bad "#479: all caps: $(gwt479 "$L6")" ;; esac
+L7="$(one479 mixed '- pOsItIvE: gIvEn a, wHeN b, tHeN c.')"
+case "$(outcome "$(run "$L7" feature)" gwt)|$(gwt479 "$L7")" in "referred|one-line scenario form"*) ok "#479: a mixed-case one-liner refers" ;; *) bad "#479: mixed case: $(gwt479 "$L7")" ;; esac
+L8="$(one479 bold '- **negative**: Given a, When b, Then c.')"
+case "$(outcome "$(run "$L8" feature)" gwt)|$(gwt479 "$L8")" in "referred|one-line scenario form"*) ok "#479: a bold lowercase marker one-liner refers" ;; *) bad "#479: bold lowercase: $(gwt479 "$L8")" ;; esac
+L9="$(one479 forgiven '- Positive. forgiven a user, when they click save, then the file is written.')"
+case "$(outcome "$(run "$L9" feature)" gwt)|$(gwt479 "$L9")" in "fail|"*"found 0 positive, 0 negative"*) ok "#479 guard: forgiven is not given, so the word boundary still holds under -i" ;; *) bad "#479 guard: forgiven: $(gwt479 "$L9")" ;; esac
+# The accepted side effect, pinned so it is not re-litigated: the one-line branch runs before the
+# block count, so a stray lowercase prose one-liner inside a valid pair refers (a capitalised one
+# already did). A false refer costs a critic read, never a blocking verdict.
+L10="$(one479 stray "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\npositive: given a prose note, when read, then ignored.')")"
+case "$(outcome "$(run "$L10" feature)" gwt)|$(gwt479 "$L10")" in "referred|one-line scenario form"*) ok "#479: stray lowercase one-liner in a valid pair refers" ;; *) bad "#479: stray lowercase one-liner in a valid pair: $(outcome "$(run "$L10" feature)" gwt) $(gwt479 "$L10")" ;; esac
+
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
 # An optional fourth field is the field's description line, and an optional fifth, `gate-owned`,
 # adds that YAML comment to the field block (#304); every older call keeps its shape.
@@ -524,6 +556,14 @@ grep -q 'block = (\$0 ~ neg ? "Negative" : "Positive")' "$SCRIPT" && ok "mutant 
 sed 's/(\$0 ~ neg ? "Negative" : "Positive")/(index($0, "Positive") ? "Positive" : "Negative")/' "$SCRIPT" > "$MUT"
 ev="$(bash "$MUT" --body "$WORK/wc1.md" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels x 2>/dev/null | awk -F'\t' '$1=="gwt"{print $3}')"
 case "$ev" in *"(Positive: 2 When lines)"*) ok "mutant: the substring test names the labelled Negative Positive (the #359 companion can fail)" ;; *) bad "mutant: substring test not detected: $ev" ;; esac
+
+# #479 mutant: drop the case-insensitivity on a copy; both lowercase one-liners must flip to fail.
+grep -qF 'grep -m1 -iE "$ONE_LINE"' "$SCRIPT" && ok "mutant ledger: the script carries the case-insensitive one-line detector (#479)" || bad "mutant ledger: #479 grep -m1 -iE line not found"
+sed 's/grep -m1 -iE "\$ONE_LINE"/grep -m1 -E "$ONE_LINE"/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the case-sensitivity mutant did not apply"; else
+  expect "mutant: a case-sensitive detector fails the lowercase keyword row (the #479 row can fail)" fail "$(outcome "$(mrun "$L1")" gwt)"
+  expect "mutant: a case-sensitive detector fails the lowercase marker row (the #479 row can fail)" fail "$(outcome "$(mrun "$L2")" gwt)"
+fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.
 grep -q 'NR>1{printf "; "}' "$SCRIPT" && ok "mutant ledger: the script carries the awk join (#365)" || bad "mutant ledger: #365 awk join not found"

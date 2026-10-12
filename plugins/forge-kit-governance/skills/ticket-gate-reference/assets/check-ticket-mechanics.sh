@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 25
+# check-ticket-mechanics-version: 26
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -480,6 +480,13 @@ names_path() { grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py
 # inverted the verdict. A separate detector, run BEFORE the block count and the When/Then scans;
 # widening the marker regex instead would read the line as a block with zero When lines and fail
 # it one site later, which is what `**Positive**: Given ...` did on v9.
+# Its consumer runs it CASE-INSENSITIVELY (`grep -iE`, #479): `positive: given a, when b, then c.`
+# is the same scenario in lower case, and a case-sensitive detector failed it 0/0. It errs wide for
+# the `looks_na` reason: a miss becomes a blocking fail, a false refer only sends the line to the
+# critic. The `(^|[^A-Za-z])` boundaries still hold under -i, so `forgiven` is not `given`.
+# Accepted side effect: this branch runs before the block count, so a stray prose one-liner (any
+# case) inside an otherwise valid block pair refers instead of passing. The block `marker_re`
+# stays case-sensitive; a lowercase BLOCK marker is a separate question (#479 out of scope).
 ONE_LINE='^[[:space:]]*([-*][[:space:]]+)?([*][*]|__|[*]|_)?(Positive|Negative)([*][*]|__|[*]|_)?[.:].*(^|[^A-Za-z])Given([^A-Za-z]|$).*(^|[^A-Za-z])When([^A-Za-z]|$).*(^|[^A-Za-z])Then([^A-Za-z]|$)'
 if [ -z "$SCENARIOS_LABEL" ]; then
   row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"
@@ -490,7 +497,7 @@ else
   else
     pos_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_POS")
     neg_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_NEG")
-    one_line="$(printf '%s\n' "$SCENARIOS" | grep -m1 -E "$ONE_LINE")"
+    one_line="$(printf '%s\n' "$SCENARIOS" | grep -m1 -iE "$ONE_LINE")"
     # Order: a reasoned N/A (#241) is tested first, as check 5 tests it before a path, and only
     # where NO block exists, so an N/A mentioned inside a real pair is still a pair; then the
     # one-line form (#233); then the block count. A bare N/A with no reason is still a fail.
