@@ -12,8 +12,8 @@
 #                   /home segment; ONE bracketed token, so [name] and nothing else
 #   email <addr>    an address that is deliberately published
 #   skip <path>     a file excluded from the scan, in both halves: exact, or the same relative path
-#                   under any parent; no wildcards, so a value containing * or ? is refused, and
-#                   [ is literal
+#                   under any parent; no wildcards, so a value containing * or ? is refused, as is
+#                   one ending in / (a skip names a file, never a directory), and [ is literal
 #
 # This file is scanned like any other, and it passes by construction: every entry allows the very
 # string it is written with. Only the comments have to be written in the placeholder forms, which

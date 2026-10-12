@@ -160,7 +160,7 @@ bracketed exception, because rule A compares the stripped match exactly; the bui
 markers need no prefix entry. A `marker` must be one bracketed token, `[name]`, whose name holds no
 whitespace, double quote, backtick or slash (a path segment yields none of them); `[.]` silences
 only its own literal. A `skip` is a path, in both halves: exact, or the same relative path under
-any parent; no wildcards, so a value containing `*` or `?` is refused, as is one ending in `/` (it names a file), and `[` is literal.
+any parent; no wildcards, so a value containing `*` or `?` is refused, as is one ending in `/` (a skip names a file, never a directory), and `[` is literal.
 The file is tracked and public on purpose: everything in it is something the project decided it may show.
 
 ## The private half

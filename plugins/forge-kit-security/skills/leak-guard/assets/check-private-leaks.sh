@@ -226,6 +226,7 @@ if [ -n "$ALLOW_FILE" ]; then
     line="${line%"${line##*[!$' \t\n\v\f\r']}"}"
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%% *}"; val="${line#* }"
+    val="${val#"${val%%[!$' \t\n\v\f\r']*}"}"              # two spaces after the key are not part of the value, as in check-public-leaks.sh (#240)
     # Neither this message nor the unknown-key one prints the line or the key: the names list is
     # not loaded yet, and a bare `<name>/x.md` line or a `<name> x` key can carry a listed name.
     [ "$key" != "$val" ] || die "$ALLOW_FILE:$lineno: entry has no value (the line is not printed)"

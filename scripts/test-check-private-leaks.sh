@@ -217,6 +217,8 @@ contains "app/s/page.tsx:1:" "$OUT" "and the suffix compare is quoted too: app/s
 srun226 'skip app/s/page.tsx'
 lacks "app/s/page.tsx" "$OUT" "skip app/s/page.tsx silences that path"
 contains "app/[slug]/page.tsx:1:" "$OUT" "and app/[slug]/page.tsx is still reported"
+srun226 'skip  src/deep/leak.log'
+lacks "src/deep/leak.log:" "$OUT" "two spaces after skip are not part of the value: the path is still silenced"
 srun226 'skip src/deep/leak.lo'
 contains "src/deep/leak.log:1:" "$OUT" "near-miss: a partial final segment matches nothing"
 srun226 'skip deep/leak.log'
