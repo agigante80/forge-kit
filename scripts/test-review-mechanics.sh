@@ -290,7 +290,7 @@ mutant() {
   else ok "mutant $name dies"; fi
 }
 chk_boundary() { run "$M"; [ "$(count commit 8)" = 1 ] && has "commit${TAB}8${TAB}none" && has "commit${TAB}27${TAB}none"; }
-chk_pickaxe()  { run "$M"; [ "$(rows commit | awk -F'\t' '$2 == 7 { print $3 }' | paste -sd' ' -)" = "$A $B $C $G" ]; }
+chk_pickaxe()  { run "$M"; [ "$(rows commit | awk -F'\t' '$2 == 7 { print $3 }' | paste -sd' ' -)" = "$A $B $C $H $I $G" ]; }
 chk_closed()   { run "$M"; has "ticket${TAB}6${TAB}closed${TAB}six"; }
 chk_anchor()   { run "$M"; [ "$(count superseded 10)" = 0 ] && [ "$(count comment 10)" = 1 ]; }
 chk_range()    { run "$M"; [ "$(rows commit | awk -F'\t' '$2 == 5 { print $3 }')" = "$P" ]; }
