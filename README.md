@@ -188,7 +188,7 @@ Four artifacts here are portable, and they are the ones that carry the rules:
 | `.github/ISSUE_TEMPLATE/` | Six templates carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
 | `.github/labels.yml` | The label taxonomy that routes issues, applied by `sync-labels.sh`, which never deletes a label it does not recognise |
 | `docs/guides/ticket-standards.md` | **The canonical rules**, not a summary. The gate is only allowed to restate it in enumerated places, and `check-restatements.sh` fails the build if the two disagree. Any agent that can read markdown can hold a ticket to it. |
-| The shell assets | Every one bash 3.2 compatible with no package manager, so they run in any CI. The leak guard's `--history` mode is written for macOS (bash 3.2, Apple's awk) and verified against Apple's awk source and bash 3.2 built on Linux, not on a Mac; a report from one is a ticket, not a surprise |
+| The shell assets | Every one bash 3.2 compatible with no package manager, so they run in any CI. The leak guard's `--history` mode is written for macOS (bash 3.2, Apple's awk) and verified against Apple's awk source and bash 3.2 built on Linux, not on a Mac; a report from one is a ticket, not a surprise. `scripts/build-mac-shell-harness.sh` rebuilds that bash and awk from pinned sources on a Linux machine with a compiler, and its `--help` holds the command that runs both leak suites under them |
 
 Copy those into your project and any AI, or none, can work to the same standard.
 **[docs/guides/without-claude-code.md](docs/guides/without-claude-code.md) is the entry point**: what
@@ -365,6 +365,7 @@ the generated, CI-verified index (#96) and the version-bump gate this repo now r
 - `docs/guides/labels.md`: label taxonomy and agent routing
 - `docs/guides/versioning.md`: the three version levels and which guard enforces each
 - `docs/guides/model-tiers.md`: what each component may run on and how hard it thinks, by role, with the probes and the measurement behind it
+- `docs/guides/review-loop.md`: why `/full-review` always runs round 2, the evidence behind it, and how to count round-2 yield
 - `scripts/check-doc-drift.sh`: which documents a range of commits made stale, reported per line and never as a build failure
 - `docs/roadmap.md`: what is being worked on now, and what each closed phase concluded
 - `CHANGELOG.md`: umbrella release history
