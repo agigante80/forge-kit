@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 18
+# overnight-guard-version: 19
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -439,12 +439,36 @@ def _real(path):
 #   positive: `cd "$X" && rm -rf <project>` is denied even when $X holds an unrelated directory with a
 #   `<project>` of its own, and an ancestor named that way (`cd "$X" && rm -rf tmp`) is not denied.
 _SEG = re.compile(r"[^|;&\n]+")
-_RM_CMD = re.compile(r"(?<![\w.$-])(?<!git )rm\b[^|;&\n]*")   # a command word `rm`, not git rm or --rm
+# A command word `rm`: not part of a longer word or `$rm`, and not docker's `--rm`. A `-` alone before
+# it is no exclusion (round 1 of #478): `${RM:-rm} -rf /` and `"${RM-rm}" -rf ~` run rm. `git rm` is
+# excluded by _git_sub, not by a lookbehind, because `(?<!git )` also matched a USER named git:
+# `sudo -u git rm -rf ~` and `runuser -u git rm -rf "$HOME"` run rm. No tail on the pattern: the
+# segment is cut at the match start once, so a run of `git rm` candidates stays linear.
+_RM_WORD = re.compile(r"(?<![\w.$])(?<!--)rm\b")
 _STMT_HINT = re.compile(r"=|\b(?:cd|pushd|popd)\b")
 _KEYWORDS = frozenset(("if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"))
 _DECLARE = frozenset(("export", "declare", "local", "readonly", "typeset"))
 _CD_OPT = re.compile(r"-[LPe@]+")
 _ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
+
+
+def _git_sub(seg, i):
+    # The `rm` at seg[i] is git's subcommand: the word before it is exactly `git` and the word before
+    # that is not an option (`sudo -u git rm` runs rm as the user git; `--user=git rm` and `-ugit rm`
+    # fail the "exactly" test). Index walks only, each over words no other candidate walks: linear.
+    j = i
+    while j > 0 and seg[j - 1] in " \t":
+        j -= 1
+    k = j - 3
+    if j == i or k < 0 or seg[k:j] != "git" or (k > 0 and seg[k - 1] not in " \t"):
+        return False
+    m = k
+    while m > 0 and seg[m - 1] in " \t":
+        m -= 1
+    s = m
+    while s > 0 and seg[s - 1] not in " \t":
+        s -= 1
+    return m == 0 or seg[s] != "-"
 
 
 class _Walk:
@@ -480,7 +504,7 @@ class _Walk:
             self.cd(head, ws[i + 1:])
             return
         if head in _DECLARE:
-            assigns = [w for w in ws[i + 1:] if not (_lit(w) or "").startswith("-")]
+            assigns = ws[i + 1:]   # an option (`declare -r`, `export -n`) is skipped by the loop below
         else:
             assigns = ws[i:]
             if not assigns or any(not (w and w[0][0] == "lit" and _ASSIGN.match(w[0][1])) for w in assigns):
@@ -488,7 +512,7 @@ class _Walk:
         for w in assigns:
             m = _ASSIGN.match(w[0][1]) if w and w[0][0] == "lit" else None
             if not m:
-                continue
+                continue   # skip, never stop: `declare -r D=$PWD` still assigns D (round 1 of #478)
             value = ([("lit", m.group(2))] if m.group(2) else []) + w[1:]
             if self.root_word(value) or _lit(value) in (".", "./"):
                 self.tainted.add(m.group(1))
@@ -500,10 +524,12 @@ class _Walk:
             return   # UNKNOWN is sticky
         new = None
         if head != "popd":
-            while args and _CD_OPT.fullmatch(_lit(args[0]) or ""):
-                args = args[1:]
-            if args and _lit(args[0]) == "--":
-                args = args[1:]
+            k = 0   # an index, not args = args[1:], which made 40000 options quadratic (8 s)
+            while k < len(args) and _CD_OPT.fullmatch(_lit(args[k]) or ""):
+                k += 1
+            if k < len(args) and _lit(args[k]) == "--":
+                k += 1
+            args = args[k:]
             if not args:
                 new = None if head == "pushd" else _real(os.path.expanduser("~"))
             else:
@@ -585,9 +611,11 @@ def _rm_segments(cmd, root=None, cwd=None):
     st = _Walk(root, cwd)
     for m in _SEG.finditer(_flat(cmd)):
         seg = m.group(0)
-        r = _RM_CMD.search(seg)
+        r = _RM_WORD.search(seg)
+        while r and _git_sub(seg, r.start()):
+            r = _RM_WORD.search(seg, r.end())
         if r:
-            rs = _strip_redirs(r.group(0))
+            rs = _strip_redirs(seg[r.start():])
             # GNU rm permutes arguments, so flags may follow a target: judge the whole segment.
             if _rm_force_recursive(rs):
                 yield rs, _rm_dangerous(rs, st)

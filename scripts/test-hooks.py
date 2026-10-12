@@ -984,6 +984,37 @@ with tempfile.TemporaryDirectory() as td:
                proj, ALLOW, None)
         expect(f"478 {arm} payload cwd relative is ignored: rm -rf build", bash_cwd("rm -rf build", "sub"),
                proj, ALLOW, None)
+        # Round 1 of #478. Each row below failed on the mutant named beside it.
+        # A user named git, and `rm` inside a parameter default, still run rm (was allowed overnight
+        # by the daytime pattern's `(?<!git )` lookbehind and its `-` class; also allowed by day).
+        for cmd in ["sudo -u git rm -rf ~", 'runuser -u git rm -rf "$HOME"', "${RM:-rm} -rf /",
+                    '"${RM-rm}" -rf ~']:
+            expect(f"478 r1 {arm} rm command word denies: {cmd[:34]!r}", bash(cmd), proj, DENY, reason)
+        for cmd in ["git rm -rf /", "sudo git rm -rf /", "docker run --rm alpine ls -lrf /"]:
+            expect(f"478 r1 {arm} git rm / --rm allows: {cmd[:34]!r}", bash(cmd), proj, ALLOW, None)
+        r1 = {"p": proj.name, "top": proj.parts[1], "p2": proj.name[:2]}
+        R1_DENY = [
+            "cd / && rm -rf {top}",                 # hits_root is an ancestor test, not equality
+            "builtin cd .. && rm -rf {p}",          # builtin skipped to the real command word
+            "command cd .. && rm -rf {p}",          # command skipped likewise
+            "if cd ..; then rm -rf {p}; fi",        # the `if` keyword skipped
+            "{{ cd ..; rm -rf {p}; }}",             # the `{` keyword skipped
+            'declare -r D=$PWD; rm -rf "$D"',       # declare's option skipped before the assignment
+            "cd .. && rm -rf {p2}*",                # a glob from a parent that matches ROOT
+            'cd .. && cd sub2 && rm -rf "$OLDPWD"',  # $OLDPWD is the parent: an ancestor of ROOT
+        ]
+        for tmpl in R1_DENY:
+            expect(f"478 r1 {arm} denies: {tmpl[:34]!r}", bash(tmpl.format(**r1)), proj, DENY, reason)
+        # A cd to ~, $HOME or the project resolves (an UNKNOWN cwd would deny `rm -rf <proj>`).
+        for tmpl in ["cd ~ && rm -rf {p}", "cd $HOME && rm -rf {p}", 'cd "$CLAUDE_PROJECT_DIR" && rm -rf {p}']:
+            expect(f"478 r1 {arm} resolved cd allows: {tmpl[:34]!r}", bash(tmpl.format(**r1)), proj, ALLOW, None)
+        # A glob from a parent that does NOT match ROOT is no dangerous target: allowed overnight,
+        # and by day denied only by the wildcard class, with the wildcard label.
+        if arm == "night":
+            expect("478 r1 night non-matching parent glob allows", bash("cd .. && rm -rf zz*"), proj, ALLOW, None)
+        else:
+            expect("478 r1 day non-matching parent glob is a wildcard, not dangerous", bash("cd .. && rm -rf zz*"),
+                   proj, DENY, day_msg("rm -rf wildcard target"))
 
 # --- overnight-guard registration: the daytime sentinel and the shell gate ----
 print("\n  -- overnight-guard registration, daytime arm (#419) --")

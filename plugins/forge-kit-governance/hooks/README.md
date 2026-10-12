@@ -159,7 +159,8 @@ file, assignments inside `$( )` or a subshell, inherited variables, `CDPATH`, an
 same payload. A `cd` inside a subshell is treated as persisting, so `(cd ..) && rm -rf <project>` is
 a false deny. String matching stays evadable by a deliberate agent. The overnight arm reads the
 `rm` command word as the daytime arm does, so `git rm -rf /` and `docker run --rm ...` are not rm
-segments on either arm, and it still has no general wildcard class (`rm -rf tmp/*` and `rm -rf ./*`
+segments on either arm, while `sudo -u git rm -rf ~` (a user named git) and `${RM:-rm} -rf /` are
+denied on both, and it still has no general wildcard class (`rm -rf tmp/*` and `rm -rf ./*`
 stay allowed overnight).
 
 Git global options are tolerated between `git` and the subcommand (#457): `git -C sub reset --hard`,
