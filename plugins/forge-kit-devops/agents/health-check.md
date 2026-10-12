@@ -21,7 +21,7 @@ color: cyan
 tools: ["Bash", "Read", "Glob", "Grep"]
 ---
 
-<!-- health-check-version: 12 -->
+<!-- health-check-version: 13 -->
 
 Tier: a mechanical role, so Sonnet at low effort, which in measurement reported the same missing items as a stronger tier while Haiku missed two of three.
 
@@ -163,10 +163,12 @@ Detect the host and check the matching credential (do NOT assume `gh`). Run it i
 ```
 
 WARN if the detected host's credential is missing (GitHub: not logged into `gh`; Forgejo: the token
-env named by `FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`, is empty and git's credential helper has no
-entry for the host, or that name is refused). A token only the helper holds is reported as
+env named by `FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`, is empty and, for an accepted URL, git's
+credential helper has no entry for the host (a refused URL skips the helper), or that name is
+refused). A token only the helper holds is reported as
 `git's credential helper`, because `forge_api` falls back to it too, unless
-`FORGE_NO_GIT_CREDENTIALS=1` (#454). The snippet never expands the configured name itself: a
+`FORGE_NO_GIT_CREDENTIALS=1` (#454). The helper read is bounded at 10 seconds where `timeout`
+exists. The snippet never expands the configured name itself: a
 committed `.forge.conf` is not trusted, and `forge_token_available` validates the name before
 reading it (#442), asks the helper only for an accepted URL, and never prints the token. `forge_url_check` also WARNs
 when `FORGE_API_URL` would be refused (not https), because a token

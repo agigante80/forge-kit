@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 41
+# forge-lib-version: 42
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -456,11 +456,14 @@ forge_token_present() {
 # `git's credential helper` when only the helper holds one; rc as forge_token_present (#454). The
 # helper is asked through _forge_token_impl itself, so this probe and the request path cannot
 # disagree, and only after the name is validated and forge_url_check accepts the URL, as in
-# forge_api. On a refused URL it still reports the environment token, so a caller can print both
+# forge_api. The helper read is bounded at _FORGE_CRED_SECS (default 10) where `timeout` exists, so
+# a helper that waits on an unlock dialog or a browser sign-in cannot stall a health check; stock
+# macOS has no `timeout` and stays unbounded (#454 review). On a refused URL it still reports the environment token, so a caller can print both
 # problems. Its own guard is the ONLY xtrace guard on the helper read: the token sits in a local
 # and is never printed. forge_token_present stays env only.
 forge_token_available() {
   local _fx=0 var rc=0 tok=""; case $- in *x*) _fx=1; set +x ;; esac
+  local _FORGE_CRED_SECS="${_FORGE_CRED_SECS:-10}"
   if ! var="$(_forge_token_var)"; then rc=2
   elif [ -n "${!var:-}" ]; then printf '%s\n' "$var"
   elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then
@@ -504,8 +507,11 @@ _forge_token_impl() {
   # The stub is an ABSOLUTE path on purpose: a PATH-resolved name could be
   # hijacked by a planted binary inside this credential-handling flow. If
   # /bin/true is absent (NixOS-likes), the miss degrades to a clean rc!=0
-  # with no prompt and no hang (verified), never to a prompt.
-  local url proto host cred
+  # with no prompt and no hang (verified), never to a prompt. GCM_INTERACTIVE=never stops
+  # git-credential-manager opening its own sign-in. A caller that sets _FORGE_CRED_SECS to digits
+  # gets the read under `timeout` when it exists; forge_api sets none and is unbounded as before.
+  local url proto host cred _tmo=""
+  case "${_FORGE_CRED_SECS:-}" in ''|*[!0123456789]*) ;; *) command -v timeout >/dev/null 2>&1 && _tmo="timeout $_FORGE_CRED_SECS" ;; esac
   url="${FORGE_API_URL:-}"
   if [ -z "$tok" ] && [ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then
     proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
@@ -513,7 +519,7 @@ _forge_token_impl() {
     # `https://evil.internal#@github.com` hand github.com's credential to evil.internal.
     case "$url" in *://*) host="$(_forge_url_host "$url" keep-port)" ;; *) host="$(_forge_url_host "https://$url" keep-port)" ;; esac
     cred=$(printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" \
-             | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true git credential fill 2>/dev/null \
+             | GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS=/bin/true $_tmo git credential fill 2>/dev/null \
              | sed -n 's/^password=//p' | head -n1)
     [ -z "$cred" ] || { tok="$cred"; var="git's credential helper"; }
   fi

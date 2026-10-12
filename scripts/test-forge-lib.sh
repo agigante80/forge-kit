@@ -2952,7 +2952,7 @@ STUB
 cat > "$K/bin/git" <<'STUB'
 #!/bin/sh
 echo "$*" >> "$K442/gitlog"
-if [ "$1" = credential ]; then cat > /dev/null; [ -n "${K442CRED-}" ] && printf 'password=%s\n' "$K442CRED"; exit 0; fi
+if [ "$1" = credential ]; then cat > /dev/null; [ -z "${K442CREDSLEEP-}" ] || sleep "$K442CREDSLEEP"; [ -n "${K442CRED-}" ] && printf 'password=%s\n' "$K442CRED"; exit 0; fi
 exec "$K442GIT" "$@"
 STUB
 chmod +x "$K/bin/curl" "$K/bin/git"
@@ -3263,6 +3263,12 @@ c454_name() {  # a hostile FORGE_TOKEN_ENV never runs and never reaches the help
 c454_both() {  # c449_hc_both's shape through hc454: a refused URL still reports the empty env token
   local out; out=$(hc454 "$(L454)" '' FORGE_API_URL=http://f.invalid)
   [ "$(grep -c '^WARN' <<< "$out")" = 2 ] && grep -q 'empty' <<< "$(grep '^WARN' <<< "$out" | sed -n 2p)"; }
+c454_slow() {  # #454 review M1: a helper that blocks past the bound gives the WARN, not a stall
+  local out s=$SECONDS; out=$(hc454 "$(L454)" '' K442CRED=cred-454-canary K442CREDSLEEP=6 _FORGE_CRED_SECS=1)
+  [ $((SECONDS - s)) -lt 5 ] && grep -q "WARN: Forgejo token env 'FORGEJO_TOKEN' is empty" <<< "$out" && ! grep -q present <<< "$out"; }
+if command -v timeout >/dev/null 2>&1; then
+  { c454_slow && ok "#454: a helper that blocks past _FORGE_CRED_SECS gives the WARN within the bound" || bad "#454: step 9 slow-helper case: $(hc454 "$LIB" '' K442CRED=x K442CREDSLEEP=6 _FORGE_CRED_SECS=1)"; }
+else ok "#454: slow-helper row skipped, no timeout on this machine"; fi
 { c454_both && ok "#454: a refused URL with no token still prints the empty-token WARN" || bad "#454: step 9 both case: $(hc454 "$LIB" '' FORGE_API_URL=http://f.invalid)"; }
 
 # -- mutants: each guard removed must fail its case ----------------------------------------------
@@ -3303,6 +3309,7 @@ m442 "#454 xtrace left on in the probe" 'forge_token_available() {
 m442 "#454 helper asked before the URL check" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif tok="$(_forge_token_impl 2>/dev/null)" && forge_url_check >/dev/null 2>&1; then' c454_url
 m442 "#454 refused URL skips the env report" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif ! forge_url_check >/dev/null 2>&1; then return 0
   elif tok="$(_forge_token_impl 2>/dev/null)"; then' c454_both
+command -v timeout >/dev/null 2>&1 && m442 "#454 helper read not bounded" ' $_tmo git credential fill' ' git credential fill' c454_slow
 m442 "token back on argv" "-K <(printf 'header = \"Authorization: token %s\"\\n' \"\$tok\") -w '\\n%{http_code}' -X \"\$method\" --url" "-H \"Authorization: token \$tok\" -w '\\n%{http_code}' -X \"\$method\" --url" c442_argv_get
 
 # -- #450 review M1: forge_api passes curl -q first, so a .curlrc never reaches the request ----------

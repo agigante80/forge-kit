@@ -108,13 +108,14 @@ printf 'protocol=https\nhost=forge.example.com\nusername=<you>\npassword=<token>
 ```
 
 Notes: helpers key on protocol+host (port included), not per-repo; `git-credential-store`
-is a plaintext backend, prefer libsecret/osxkeychain; the fallback never prompts and never
-writes, it only reads. **Opt out** with `FORGE_NO_GIT_CREDENTIALS=1` (env or `.forge.conf`)
+is a plaintext backend, prefer libsecret/osxkeychain; git itself never prompts here and the
+fallback never writes, it only reads, but a helper may open its own unlock dialog or sign-in. **Opt out** with `FORGE_NO_GIT_CREDENTIALS=1` (env or `.forge.conf`)
 to restore strict env-only behavior: the token must then come explicitly from
 the variable `FORGE_TOKEN_ENV` names, and an unset token fails closed instead of being auto-discovered.
 `forge_token_available` (forge-lib v41, #454) reports a helper-held token as `git's credential
 helper` without printing it; health-check step 9 uses it, so this fallback no longer draws a false
-"token is empty" WARN there.
+"token is empty" WARN there once the URL is accepted; there it bounds the helper read at 10 seconds
+where `timeout` exists.
 
 ## 4. CLIs (fj, tea): convenient, but not the canonical store
 
