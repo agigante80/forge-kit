@@ -246,7 +246,8 @@ mkdir -p "$WORK/case472"; printf '# L\n\n### Area labels\n| Label | Description 
 expect "#472: a doc row UI accepts label ui" pass \
   "$(bash "$SCRIPT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "ui,bug" --labels-doc "$WORK/case472/labels.md" 2>/dev/null | awk -F'\t' '$1=="labels"{print $2}')"
 MUT="$WORK/mut472.sh"
-sed 's/^      \[ "\$(printf .*&& return 0$/      [ "$l" = "$w" ] \&\& return 0/' "$SCRIPT" > "$MUT"
+# The fold lives in lc(), shared by every label comparison since #425 factored the split rule out.
+sed '/^lc() {/s/ | tr .A-Z. .a-z.//' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#472: the case-fold mutant did not apply"; else
   m="$(bash "$MUT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "API,bug" 2>/dev/null | awk -F'\t' '$1=="labels"{print $2}')"
   m2="$(bash "$MUT" --body "$B" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "Privacy,feature" 2>/dev/null | awk -F'\t' '$1=="labels"{print $2}')"
@@ -575,13 +576,45 @@ case "${o#*	}" in *"protocol, client"*) ok "and the fail message lists the table
 case "${o#*	}" in *server*) bad "a malformed row became an area" ;; *) ok "a row whose first column is not backticked is not an area" ;; esac
 o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/labels.md" --area-labels "components")"
 expect "an explicit --area-labels wins over the doc" pass "${o%%	*}"
+# #425: a MISSING doc keeps the compiled-in nine but says so, and a label outside both compiled-in
+# sets (a candidate) is referred to Step 3B rather than failed, since the checker cannot tell a
+# project's own area from any other label. Only type labels alone, or none, still fail.
+NOTICE="labels.md not found; using forge-kit's built-in nine areas. Run forge-adapt Templates mode, \"Labels\" step, to declare yours."
+NINE="no area label (one of: api, privacy, web, mobile, backend, database, components, tooling, governance)"
+has_notice() { case "$1" in *"$NOTICE"*) return 0 ;; *) return 1 ;; esac; }
 o="$(lbldoc "protocol,feature" --labels-doc "$WORK/proj/docs/guides/nope.md")"
-expect "a missing doc keeps the compiled-in default (protocol is not in it)" fail "${o%%	*}"
+expect "a missing doc refers a project's own area (protocol) to Step 3B" referred "${o%%	*}"
+if has_notice "${o#*	}"; then ok "and the referred row carries the notice"; else bad "referred row lacks the notice: '${o#*	}'"; fi
 o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/nope.md")"
 expect "and the default still admits its own areas" pass "${o%%	*}"
+case "${o#*	}" in "labels: components,feature"*) ok "and the pass row keeps its labels evidence" ;; *) bad "pass evidence: '${o#*	}'" ;; esac
+if has_notice "${o#*	}"; then ok "and the pass row carries the notice"; else bad "pass row lacks the notice: '${o#*	}'"; fi
+o="$(lbldoc "feature" --labels-doc "$WORK/proj/docs/guides/nope.md")"
+expect "a missing doc and only a type label still fails" fail "${o%%	*}"
+case "${o#*	}" in "$NINE"*) ok "and the fail row names the nine" ;; *) bad "fail evidence: '${o#*	}'" ;; esac
+if has_notice "${o#*	}"; then ok "and the fail row carries the notice"; else bad "fail row lacks the notice: '${o#*	}'"; fi
+o="$(lbldoc "feature,P3" --labels-doc "$WORK/proj/docs/guides/nope.md")"
+expect "a missing doc refers feature,P3 (the checker has no priority set)" referred "${o%%	*}"
+if has_notice "${o#*	}"; then ok "and that referred row carries the notice"; else bad "feature,P3 row lacks the notice: '${o#*	}'"; fi
+o="$(lbldoc "components" --labels-doc "$WORK/proj/docs/guides/nope.md")"
+expect "a missing doc and an area with no type label warns" warn "${o%%	*}"
+case "${o#*	}" in "no type label (one of: bug, enhancement, feature, security, infrastructure, design, documentation, testing)"*) ok "and the warn row names the type set" ;; *) bad "warn evidence: '${o#*	}'" ;; esac
+if has_notice "${o#*	}"; then ok "and the warn row carries the notice"; else bad "warn row lacks the notice: '${o#*	}'"; fi
+o="$(lbldoc "Feature, bug " --labels-doc "$WORK/proj/docs/guides/nope.md")"
+expect "type labels in another case and with stray spaces are no candidate: still fail" fail "${o%%	*}"
+case "${o#*	}" in "$NINE"*) ok "and that fail row names the nine" ;; *) bad "normalised fail evidence: '${o#*	}'" ;; esac
+if has_notice "${o#*	}"; then ok "and that fail row carries the notice"; else bad "normalised fail row lacks the notice: '${o#*	}'"; fi
+o="$(lbldoc "nope,feature")"
+expect "no --labels-doc at all still fails an unknown area" fail "${o%%	*}"
+if has_notice "${o#*	}"; then bad "no --labels-doc emitted the notice"; else ok "and carries no notice"; fi
+o="$(lbldoc "protocol,feature" --labels-doc "$WORK/proj/docs/guides/nope.md" --area-labels "components")"
+if has_notice "${o#*	}"; then bad "an explicit --area-labels emitted the notice"; else ok "an explicit --area-labels is the area set: no notice"; fi
+o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/labels.md")"
+case "${o#*	}" in *"not found"*|*"Templates mode"*) bad "a present doc with a table emitted the notice: '${o#*	}'" ;; *) ok "a present doc with a table gives no notice" ;; esac
 printf '# Labels\n\nno table here\n' > "$WORK/proj/docs/guides/empty.md"
 o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/empty.md")"
 expect "a PRESENT doc with no area table is referred, never silently judged on the default" referred "${o%%	*}"
+expect "and its evidence is unchanged, with no notice" "no Area labels table in $WORK/proj/docs/guides/empty.md; Step 3B rules on the area and type labels" "${o#*	}"
 printf '### Area labels\n| Label |\n|---|\n' > "$WORK/proj/docs/guides/norows.md"
 o="$(lbldoc "components,feature" --labels-doc "$WORK/proj/docs/guides/norows.md")"
 expect "a table heading with no rows is referred too, never an empty set" referred "${o%%	*}"

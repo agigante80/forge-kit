@@ -238,6 +238,10 @@ budget_for() {
 # LOWERED 2026-10-09: adapt 7144 to 7143 (#442). Step 3 item 4 stops asking for the token-env name,
 # which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
 #
+# LOWERED 2026-10-12: ticket-gate 5635 to 5634 (#425). Step 0b items 1 to 3 become two items: with
+# labels.md absent, 0b runs check-ticket-mechanics.sh on its own fetch and blocks on a fail row; the
+# type-label warning is left to Step 3A's warn row (net -1).
+#
 # LOWERED 2026-10-12: ticket-gate 5637 to 5635 (#477). Step 3B's #475 limit sentence claimed an
 # ended subagent is never resumed; #477's probe showed that holds only headless, so it is rewritten
 # to name both modes, and the rewrite measures 2 words shorter (net -2).
@@ -411,7 +415,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
-    ticket-gate) echo 5635 ;;
+    ticket-gate) echo 5634 ;;
     full-review) echo 3990 ;;
     *)           echo 0 ;;
   esac

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 6
+# forge-gate-mechanics-version: 7
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -27,7 +27,8 @@
 # different plugin groups, so the fallbacks below reach across. Absent either one, this REFUSES:
 # a check that cannot run must never report clean, which is the posture every guard here takes.
 # It also reads the project's `docs/guides/labels.md` from the project root (#204): that table is
-# the area set check 2 judges against; absent, the checker's compiled-in default applies.
+# the area set check 2 judges against; absent, the checker uses its compiled-in nine, says so in
+# the labels row, and refers a label outside its compiled-in sets rather than failing it (#425).
 #
 # NO DEPENDENCY ON THE HARNESS CLI ANYWHERE IN THIS PATH. That is the entire point of the script,
 # and its contract test asserts it by scanning this file as well as by running it.
@@ -143,8 +144,9 @@ $("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" --dump-fields 2>/dev/null)
 FIELDS
 fi
 
-# --labels-doc is the project's own area set (#204); the checker keeps its default when the file
-# is absent, so this is passed unconditionally and the two callers cannot diverge on it.
+# --labels-doc is the project's own area set (#204). When the file is absent the checker announces
+# its compiled-in fallback and refers an unknown label (#425), so this is passed unconditionally
+# and the two callers cannot diverge on it.
 rows=$("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" \
         ${TPL_VER:+--tpl-version "$TPL_VER"} --current-tpl-version "$CURRENT_TPL_VER" \
         --labels "$labels" --labels-doc docs/guides/labels.md) || die "the checker could not read the body or the template"

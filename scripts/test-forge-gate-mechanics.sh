@@ -107,11 +107,12 @@ expect "the summary's referred count matches the rows" "$want_ref" "$got_ref"
 
 echo "== the TSV passthrough is byte-identical to the checker's own output =="
 # If the entry point filtered or re-judged a row, this is where it would show. The direct run
-# passes no --labels-doc, so this holds only while $T/proj has no docs/guides/labels.md: the #204
-# section below creates one and removes it again; keep it below this block.
+# passes the same --labels-doc the entry point does, because since #425 an absent doc is announced
+# in the labels row, so a direct run without the flag would differ by that notice alone.
 cp "$T/full-body.md" "$T/body.md"
 direct=$(cd "$T/proj" && bash "$BIN/check-ticket-mechanics.sh" --body "$T/body.md" \
-  --template .github/ISSUE_TEMPLATE/feature.yml --tpl-version 6 --current-tpl-version 6 --labels "feature,P2,api" 2>/dev/null)
+  --template .github/ISSUE_TEMPLATE/feature.yml --tpl-version 6 --current-tpl-version 6 --labels "feature,P2,api" \
+  --labels-doc docs/guides/labels.md 2>/dev/null)
 [ -n "$direct" ] && ok "the checker produced rows to compare against" \
   || bad "the checker produced rows to compare against (an empty comparison passes vacuously)"
 via=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechanics.sh" 42 --format tsv 2>/dev/null)
@@ -121,15 +122,19 @@ via=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechan
 echo "== the project's own area set reaches the checker (#204) =="
 # The entry point passes --labels-doc docs/guides/labels.md unconditionally, so a project whose
 # table declares `protocol` and whose ticket carries only `protocol` gets `labels pass`; without
-# the doc the same ticket fails on the compiled-in nine.
+# the doc the same ticket is referred with the notice (#425), since `protocol` is in neither
+# compiled-in set and only Step 3B can judge whether it is the project's area.
+NOTICE="labels.md not found; using forge-kit's built-in nine areas. Run forge-adapt Templates mode, \"Labels\" step, to declare yours."
 mkdir -p "$T/proj/docs/guides"
 printf '### Area labels\n| Label |\n|---|\n| `protocol` |\n\n### Type labels\n' > "$T/proj/docs/guides/labels.md"
 issue "$(cat "$T/full-body.md")" feature P2 protocol
 out=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechanics.sh" 42 --format tsv 2>/dev/null)
 expect "a ticket carrying only the project's own area passes check 2 through the entry point" pass "$(printf '%s\n' "$out" | awk -F'\t' '$1=="labels"{print $2}')"
+lacks "Templates mode" "$out" "a present doc gives no notice through the entry point"
 rm "$T/proj/docs/guides/labels.md"
 out=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechanics.sh" 42 --format tsv 2>/dev/null)
-expect "without the doc the same ticket fails on the compiled-in set" fail "$(printf '%s\n' "$out" | awk -F'\t' '$1=="labels"{print $2}')"
+expect "without the doc the same ticket is referred, never failed on the compiled-in set" referred "$(printf '%s\n' "$out" | awk -F'\t' '$1=="labels"{print $2}')"
+contains "$NOTICE" "$(printf '%s\n' "$out" | awk -F'\t' '$1=="labels"{print $3}')" "and the labels row carries the notice"
 
 echo "== a failing check exits non-zero, a referred one does not =="
 # Template-shaped on purpose: since #184 a body that was never template-shaped exits 0 with an
@@ -180,7 +185,8 @@ lacks "bug.yml" "$out" "and is not checked against bug.yml"
 # The fold is a copy for the type loop only: the checker still gets the labels as written.
 issue "$FULL" Bug P2 api
 direct=$(cd "$T/proj" && bash "$BIN/check-ticket-mechanics.sh" --body "$T/full-body.md" \
-  --template .github/ISSUE_TEMPLATE/bug.yml --tpl-version 6 --current-tpl-version 6 --labels "Bug,P2,api" 2>/dev/null)
+  --template .github/ISSUE_TEMPLATE/bug.yml --tpl-version 6 --current-tpl-version 6 --labels "Bug,P2,api" \
+  --labels-doc docs/guides/labels.md 2>/dev/null)
 via=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechanics.sh" 42 --format tsv 2>/dev/null)
 [ -n "$direct" ] && [ "$direct" = "$via" ] && ok "the checker receives the original-case labels" \
   || bad "the checker receives the original-case labels (diff: $(diff <(printf '%s' "$direct") <(printf '%s' "$via") | head -2 | tr '\n' ' '))"

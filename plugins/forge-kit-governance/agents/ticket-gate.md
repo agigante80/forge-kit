@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 76 -->
+<!-- ticket-gate-version: 77 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -177,16 +177,13 @@ The review runs against the enriched body. Do NOT return BLOCKED here.
 1. **Fetch labels:**
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
-I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.labels[].name' <<<"$I"
+I=$(forge_issue_view <NUMBER>) || exit 2; L=$(jq -r '[.labels[].name]|join(",")' <<<"$I"); echo "$L"
+[ -f docs/guides/labels.md ] || { jq -r '.body // ""' <<<"$I" >"$D/body.md"; "$MECH" --body "$D/body.md" --template <0a's TPL_DIR>/<type>.yml --labels "$L" --labels-doc docs/guides/labels.md | grep ^labels; }
 ```
 
-2. **Check for at least one AREA label**, as defined in `docs/guides/labels.md`. Never restate
-   that set here (#188). If missing:
-   Return `BLOCKED - LABELS_REQUIRED`. Post comment: "Issue must have at least one area
-   label for lens routing. See docs/guides/labels.md."
-
-3. **Warn if no type label** (same doc). If missing: log the
-   warning in the review but do NOT block.
+2. **No AREA label** in `docs/guides/labels.md` (never restate it, #188) or, doc absent, a `fail`
+   row: `BLOCKED - LABELS_REQUIRED`; comment "Needs an area label; see docs/guides/labels.md."
+   plus its evidence.
 
 ---
 

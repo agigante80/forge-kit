@@ -6,7 +6,8 @@ versioned templates, because the gate's check 2 reads it for any project.
 
 **Why.** `check-ticket-mechanics.sh --labels-doc docs/guides/labels.md` takes the project's area set
 from the first backticked column of that doc's `### Area labels` table. Without the doc the gate
-silently falls back to forge-kit's compiled-in nine.
+falls back to forge-kit's compiled-in nine, says so in its `labels` row, and can only refer a
+project's own area to its critic rather than accept it (#425).
 
 **Ask first, then run the block once.** Ask the user which areas the project uses and offer
 forge-kit's nine as a pick-list. `components`, `tooling` and `governance` are governance-repo

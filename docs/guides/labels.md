@@ -92,16 +92,20 @@ unexercisable in the repo that ships it. A manual instruction is what allowed th
 ## Adding project-specific labels
 
 The area table above IS the set the gate checks against: both `ticket-gate` (Step 3A) and
-`forge-gate-mechanics.sh` pass this file to `check-ticket-mechanics.sh --labels-doc`, and the
-first column of the `### Area labels` table replaces the compiled-in default (#204). To add an area,
+`forge-gate-mechanics.sh` pass this file to `check-ticket-mechanics.sh --labels-doc`, and with
+this file absent `ticket-gate` Step 0b runs the checker too, blocking a ticket whose `labels`
+row fails (#425). The first column of the `### Area labels` table replaces the compiled-in default (#204). To add an area,
 add a row to that table and the matching entry to your label declaration (`.github/labels.yml`
 on GitHub; `sync-labels.sh` puts it on the host).
 
 <!-- adapt-droppable: forge-kit-only (forge-adapt removes this where the project is not forge-kit) -->
 `check-label-taxonomy.sh` fails the build in forge-kit if the two disagree.
 
-Without this file the checker falls back to forge-kit's nine, so a project that renames its areas
-needs the doc installed, not only the labels:
+Without this file the checker falls back to forge-kit's nine and says so in the `labels` row
+(`labels.md not found; using forge-kit's built-in nine areas...`). A label in neither the nine nor
+the type set is then reported `referred`, for the gate's critic to judge, rather than failed; a
+ticket carrying only type labels, or none, still fails, and Step 0b blocks it (#425). So a project
+that renames its areas needs the doc installed, not only the labels:
 ```yaml
 - name: my-domain
   color: "c5def5"

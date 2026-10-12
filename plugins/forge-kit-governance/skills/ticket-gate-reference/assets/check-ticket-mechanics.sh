@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 24
+# check-ticket-mechanics-version: 25
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -92,8 +92,11 @@
 # `docs/guides/labels.md`, and the first column of its `### Area labels` table REPLACES the
 # compiled-in nine (one definition, #188: a union would keep forge-kit's areas as areas in every
 # project forever). Both callers pass it. An explicit `--area-labels` still wins. A doc that is
-# missing, or has no such table, means the compiled-in default and never a wider set, so this
-# flag can narrow what check 2 accepts but cannot loosen it.
+# present with no such table refers check 2. A doc that is MISSING (#425) keeps the compiled-in
+# nine and says so in the row's evidence, and a ticket label outside both compiled-in sets is
+# then REFERRED rather than failed, because without the doc the checker cannot tell a project's
+# own area from a priority or host label; only type labels alone, or none, still fail. So a
+# missing doc loosens check 2 to a referral, never to a pass.
 #
 # Emits TSV to stdout: <check>\t<outcome>\t<evidence>, outcome in pass|fail|warn|na|referred.
 # Exit 0 whenever the checks ran, so a FAIL is data, and so is a version it cannot parse. Exit
@@ -170,12 +173,14 @@ fi
 # The section ends at the next heading of one to three hashes, since a `## Priority labels` after
 # the table used to be swallowed into the area set (review); a `####` inside it is read through as
 # Markdown nesting. Explicit --area-labels wins. A doc that is
-# ABSENT keeps the default. A doc that is present but carries no such table is REFERRED at check 2
+# ABSENT keeps the default, sets DOC_ABSENT and is announced in check 2's evidence (#425), where
+# a label outside both compiled-in sets is referred. A doc that is present but carries no such table is REFERRED at check 2
 # rather than silently judged on the default, because forge-gate-mechanics.sh passes this flag
 # unconditionally and a project whose table differs in heading level or case would otherwise be
 # widened back to the nine with nothing saying so. TYPE_LABELS stays compiled-in: a project's own
 # type only draws a warn row here, never a fail.
-DOC_NO_TABLE=0
+DOC_NO_TABLE=0; DOC_ABSENT=0
+if [ "$AREA_EXPLICIT" -eq 0 ] && [ -n "$LABELS_DOC" ] && [ ! -f "$LABELS_DOC" ]; then DOC_ABSENT=1; fi
 if [ "$AREA_EXPLICIT" -eq 0 ] && [ -n "$LABELS_DOC" ] && [ -f "$LABELS_DOC" ]; then
   doc_areas="$(awk '
     /^### Area labels/ { inside = 1; next }
@@ -352,29 +357,52 @@ else
 fi
 
 # --- check 2: labels --------------------------------------------------------------------
-# Records Step 0b's rule exactly: an area label is required, a type label warns only. This
-# check never demands a label no step requires.
+# Step 0b's rule: an area label is required, a type label warns only. This check never demands a
+# label no step requires. With the doc absent, Step 0b runs this check itself and blocks on its
+# `fail` row (#425), so that row and Step 0b's block are one rule.
+lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+# The ONE split rule, shared by has_label_from and has_candidate: labels split on commas and
+# newlines ONLY, each trimmed (#430), since a label may hold a space and word-splitting read
+# `needs api review` as three labels whose `api` met the area rule; and each case folded (#472),
+# since GitHub holds one spelling per name, so `API` is the area `api`, never a new one.
+ticket_labels() {
+  local l
+  while IFS= read -r l; do
+    l="${l#"${l%%[![:space:]]*}"}"; l="${l%"${l##*[![:space:]]}"}"
+    printf '%s\n' "$(lc "$l")"
+  done <<< "$(printf '%s' "$LABELS" | tr ',' '\n')"
+}
+in_set() { local w; for w in $2; do [ "$1" = "$(lc "$w")" ] && return 0; done; return 1; }
 has_label_from() {
-  # Labels split on commas and newlines ONLY, each trimmed (#430): a label may hold a space, and
-  # word-splitting read `needs api review` as three labels whose `api` met the area rule.
-  # Case folds (#472): GitHub holds one spelling per name, so `API` is the area `api`, never a new one.
-  local w l
-  for w in $1; do
-    while IFS= read -r l; do
-      l="${l#"${l%%[![:space:]]*}"}"; l="${l%"${l##*[![:space:]]}"}"
-      [ "$(printf '%s' "$l" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$w" | tr 'A-Z' 'a-z')" ] && return 0
-    done <<< "$(printf '%s' "$LABELS" | tr ',' '\n')"
-  done
+  local l
+  while IFS= read -r l; do in_set "$l" "$1" && return 0; done <<< "$(ticket_labels)"
   return 1
 }
+# A candidate (#425) is one ticket label in neither compiled-in set. It is a per-label test, not
+# has_label_from: "any label matches" cannot say whether one label is outside both sets. There is
+# no priority set, so `P3` is a candidate too, and Step 3B judges it.
+has_candidate() {
+  local l
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    in_set "$l" "$AREA_LABELS" || in_set "$l" "$TYPE_LABELS" || return 0
+  done <<< "$(ticket_labels)"
+  return 1
+}
+note=""
+[ "$DOC_ABSENT" -eq 0 ] || note="; labels.md not found; using forge-kit's built-in nine areas. Run forge-adapt Templates mode, \"Labels\" step, to declare yours."
 if [ "$DOC_NO_TABLE" -eq 1 ]; then
   row labels referred "no Area labels table in $LABELS_DOC; Step 3B rules on the area and type labels"
 elif ! has_label_from "$AREA_LABELS"; then
-  row labels fail "no area label (one of: ${AREA_LABELS// /, })"
+  if [ "$DOC_ABSENT" -eq 1 ] && has_candidate; then
+    row labels referred "no built-in area label; Step 3B rules on whether a project label is the area$note"
+  else
+    row labels fail "no area label (one of: ${AREA_LABELS// /, })$note"
+  fi
 elif ! has_label_from "$TYPE_LABELS"; then
-  row labels warn "no type label (one of: ${TYPE_LABELS// /, })"
+  row labels warn "no type label (one of: ${TYPE_LABELS// /, })$note"
 else
-  row labels pass "labels: $LABELS"
+  row labels pass "labels: $LABELS$note"
 fi
 
 # --- check 3: required sections present -------------------------------------------------
