@@ -132,7 +132,7 @@ run() { : > "$T/calls"
   out=$(cd "$R" && CALLS="$T/calls" FX="$FX" bash "${RUN_BIN:-$BIN}/review-mechanics.sh" "$@" 2>"$T/err"); rc=$?
   err=$(cat "$T/err"); [ "$rc" = 2 ] && cat "$T/err" >> "$T/refusals"; return 0; }
 rows() { printf '%s\n' "$out" | awk -F'\t' -v k="$1" '$1 == k'; }
-has() { printf '%s\n' "$out" | grep -qxF -- "$1"; }
+has() { grep -qxF -- "$1" <<< "$out"; }
 count() { printf '%s\n' "$out" | awk -F'\t' -v k="$1" -v n="$2" '$1 == k && $2 == n { c++ } END { print c + 0 }'; }
 
 newrepo full
@@ -152,7 +152,7 @@ expect "the ticket rows come in number order" "5 6 7 8 10 11 12 13 27" "$(rows t
 echo "== step 2: superseded bodies are not history =="
 [ "$(count comment 7)" = 1 ] && has "comment${TAB}7${TAB}72${TAB}Shipped in abc1234" \
   && ok "#7: exactly one comment row, carrying 'Shipped in abc1234'" || bad "#7 comments: $(rows comment)"
-printf '%s\n' "$out" | grep -q 'old body' && bad "a row carries the superseded 'old body'" || ok "no row carries the superseded 'old body'"
+grep -q 'old body' <<< "$out" && bad "a row carries the superseded 'old body'" || ok "no row carries the superseded 'old body'"
 has "superseded${TAB}7${TAB}71" && ok "the marked comment is a superseded row" || bad "superseded: $(rows superseded)"
 has "comment${TAB}10${TAB}101${TAB}Previously: x $MARK old" && [ "$(count superseded 10)" = 0 ] && [ "$(count comment 10)" = 1 ] \
   && ok "a marker below the first line stays history: a comment row, no superseded row, count equals comments" || bad "#10: $(rows comment | grep "${TAB}10${TAB}")"
@@ -173,7 +173,7 @@ has "commit${TAB}27${TAB}none" && ok "#27 does not match the #272 commit" || bad
 expect "#5: the plan's add commit is in the range, the commit before it is not" "$P" "$(rows commit | awk -F'\t' '$2 == 5 { print $3 }' | paste -sd' ' -)"
 
 echo "== rows, never a verdict =="
-printf '%s\n' "$out" | grep -qwE 'PASS|aligned|done' && bad "a verdict word in stdout" || ok "no PASS, aligned or done in stdout"
+grep -qwE 'PASS|aligned|done' <<< "$out" && bad "a verdict word in stdout" || ok "no PASS, aligned or done in stdout"
 S=$(rows summary)
 expect "the summary counts rows by kind" "summary${TAB}forge_lib=1${TAB}check_phases=1${TAB}range=1${TAB}ticket=9${TAB}comment=3${TAB}superseded=3${TAB}preserved=1${TAB}commit=14" "$S"
 [ "$(printf '%s\n' "$out" | tail -1)" = "$S" ] && ok "the summary is the last row" || bad "summary not last"
@@ -192,10 +192,10 @@ expect "git status is unchanged by a run" "$st" "$(git -C "$R" status --porcelai
 bad_calls=$(grep -vE '^(issue_list all|comments [0-9]+)$' "$T/calls")
 [ -z "$bad_calls" ] && ok "the transport saw reads only" || bad "unexpected calls: $bad_calls"
 for w in 'claude ' 'CLAUDE_PLUGIN_ROOT' forge_issue_edit 'forge_issue_comment ' forge_body_ roadmap_set_ forge_issue_close forge_issue_milestone; do
-  grep -v '^[[:space:]]*#' "$REAL" | grep -qF -- "$w" && bad "the script names '$w'" || ok "no code line of the script names '$w'"
+  grep -qF -- "$w" <<< "$(grep -v '^[[:space:]]*#' "$REAL")" && bad "the script names '$w'" || ok "no code line of the script names '$w'"
 done
 FORGE_TOKEN=SENTINEL-272 GH_TOKEN=SENTINEL-272 run "$M"
-printf '%s%s' "$out" "$err" | grep -q SENTINEL-272 && bad "the token sentinel leaked" || ok "a token in the environment reaches neither stream"
+grep -q SENTINEL-272 <<< "$out$err" && bad "the token sentinel leaked" || ok "a token in the environment reaches neither stream"
 FORGE_DRY_RUN=1; export FORGE_DRY_RUN; run "$M"; unset FORGE_DRY_RUN
 [ "$out" = "$first" ] && ok "an exported FORGE_DRY_RUN=1 cannot fake the reads (scoped to 0, #306)" || bad "FORGE_DRY_RUN=1 changed the rows (rc $rc)"
 
