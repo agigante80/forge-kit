@@ -276,7 +276,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | agent | `code-simplifier` | v3 | 450 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
 | `forge-kit-review` | agent | `coding-standards-auditor` | v4 | 1310 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
 | `forge-kit-review` | command | `full-review` | v12 | 3990 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
-| `forge-kit-review` | skill | `review-sizing` | v2 | 831 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
+| `forge-kit-review` | skill | `review-sizing` | v2 | 889 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |
 | `forge-kit-roadmap` | command | `phase` | v16 | 2040 | Work the roadmap. |
 | `forge-kit-roadmap` | skill | `roadmap-phases` | v19 | 3637 | Rolling wave planning made mechanical. |
