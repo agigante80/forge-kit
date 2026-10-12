@@ -68,13 +68,16 @@
 # tree that git does not ignore is refused.
 #
 # STAMP: <dir>/.mac-shell-harness-stamp holds exactly these lines, in this order:
-#   format=1
+#   format=2
 #   bash_url=<url>
 #   bash_sha256=<digest>
 #   awk_repo=<url>
 #   awk_commit=<sha>
-# A build is reusable only when the stamp equals the one the current pins produce and bin/bash and
-# bin/awk are executable.
+#   recipe_sha256=<digest of this script>
+# A build is reusable only when the stamp equals the one the current pins and THIS script produce,
+# and bin/bash and bin/awk run and report the expected versions. The recipe digest covers the
+# flags, the shims and every build command, so any edit here rebuilds rather than reusing binaries
+# an older recipe made; a stamp next to other binaries is caught by the version check.
 #
 # TEST SEAMS (read from the environment). Any of them other than HARNESS_DIR prints a WARNING, so a
 # seam cannot silently weaken a pin on a real build.
@@ -97,6 +100,9 @@ PIN_AWK_COMMIT='a958d4fe53ff6c37a17d7c0a1875fd2fc5e3ec90'
 BASH_CFLAGS='-O2 -std=gnu89'
 AWK_CFLAGS='-O2 -std=gnu11'
 STAMP_NAME='.mac-shell-harness-stamp'
+WANT_BASH='3.2.57(*)-release'       # a case pattern: the build number is not part of the pin
+WANT_AWK='awk version 20200816'
+SELF="${BASH_SOURCE[0]}"
 
 usage() {
   cat <<'EOF'
@@ -175,13 +181,26 @@ if [ "$(git -C "$anc" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; th
   done
 fi
 
+if command -v sha256sum >/dev/null 2>&1; then SHA() { sha256sum | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then SHA() { shasum -a 256 | cut -d' ' -f1; }
+else SHA() { return 1; }; NO_SHA=1; fi
 stamp_text() {
-  printf 'format=1\nbash_url=%s\nbash_sha256=%s\nawk_repo=%s\nawk_commit=%s\n' \
-    "$BASH_URL" "$BASH_SHA256" "$AWK_REPO" "$AWK_COMMIT"
+  local recipe; recipe="$(SHA < "$SELF")" && [ -n "$recipe" ] || return 1
+  printf 'format=2\nbash_url=%s\nbash_sha256=%s\nawk_repo=%s\nawk_commit=%s\nrecipe_sha256=%s\n' \
+    "$BASH_URL" "$BASH_SHA256" "$AWK_REPO" "$AWK_COMMIT" "$recipe"
+}
+# versions_ok <bin dir>: the binaries run and are the pinned versions, not merely executable files.
+versions_ok() {
+  local b a
+  b="$("$1/bash" -c 'echo "$BASH_VERSION"' 2>/dev/null)" || return 1
+  a="$("$1/awk" --version 2>/dev/null)" || return 1
+  case "$b" in $WANT_BASH) ;; *) return 1 ;; esac
+  [ "$a" = "$WANT_AWK" ]
 }
 reusable() {
+  local want
   [ -f "$DIR/$STAMP_NAME" ] && [ -x "$DIR/bin/bash" ] && [ -x "$DIR/bin/awk" ] \
-    && [ "$(cat "$DIR/$STAMP_NAME")" = "$(stamp_text)" ]
+    && want="$(stamp_text)" && [ "$(cat "$DIR/$STAMP_NAME")" = "$want" ] && versions_ok "$DIR/bin"
 }
 caveats() {
   say "these binaries are built for $(uname -m) $(uname -s): they prove the shell and awk VERSION and"
@@ -218,12 +237,11 @@ fi
 # Step 1: preflight, before any fetch.
 CC="${CC:-cc}"
 missing=""
-for t in "$CC" make git curl tar gzip; do
+# Only CC's first word is a program: `ccache gcc` is a valid CC that make runs as given.
+for t in "${CC%% *}" make git curl tar gzip; do
   command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
 done
-if command -v sha256sum >/dev/null 2>&1; then SHA() { sha256sum | cut -d' ' -f1; }
-elif command -v shasum >/dev/null 2>&1; then SHA() { shasum -a 256 | cut -d' ' -f1; }
-else missing="$missing sha256sum(or-shasum)"; fi
+[ -z "${NO_SHA:-}" ] || missing="$missing sha256sum(or-shasum)"
 if command -v bison >/dev/null 2>&1; then BISON_FROM=system
 else
   BISON_FROM=apt
@@ -314,6 +332,7 @@ bdir="$(ls -d "$SRC"/bash-*/ 2>/dev/null | head -1)"
 cp "$bdir/bash" "$PARTIAL/bin/bash" || fail "cannot install bash"
 bash_ver="$("$PARTIAL/bin/bash" -c 'echo "$BASH_VERSION"')" || fail "the built bash does not run"
 say "built: bash $bash_ver"
+versions_ok "$PARTIAL/bin" || fail "the built binaries are not $WANT_BASH and $WANT_AWK"
 
 # Step 7: stamp last, then the rename that makes it a finished build.
 rm -rf -- "$SRC" || fail "cannot remove the build scratch"

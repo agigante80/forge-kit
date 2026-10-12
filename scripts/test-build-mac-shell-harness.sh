@@ -59,18 +59,23 @@ run() {
     "$BASHBIN" "$SCRIPT" "$@" > "$T/out" 2> "$T/err"
   RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 }
-# The stamp the default pins produce, in the format the script header documents.
+# The stamp the default pins and the script under test produce, in the format the header documents.
+RECIPE="$(sha256sum < "$SCRIPT" | cut -d' ' -f1)"
 stamp() {
-  printf 'format=1\nbash_url=%s\nbash_sha256=%s\nawk_repo=%s\nawk_commit=%s\n' \
+  printf 'format=2\nbash_url=%s\nbash_sha256=%s\nawk_repo=%s\nawk_commit=%s\nrecipe_sha256=%s\n' \
     "${1:-https://ftp.gnu.org/gnu/bash/bash-3.2.57.tar.gz}" \
     "${2:-3fa9daf85ebf35068f090ce51283ddeeb3c75eb5bc70b1a4a7cb05868bfe06a4}" \
     "${3:-https://github.com/apple-oss-distributions/awk.git}" \
-    "${4:-a958d4fe53ff6c37a17d7c0a1875fd2fc5e3ec90}"
+    "${4:-a958d4fe53ff6c37a17d7c0a1875fd2fc5e3ec90}" \
+    "${5:-$RECIPE}"
 }
-# fake_build <dir> [stamp args]: a complete-looking build, as the script leaves one.
+# fake_build <dir> [stamp args]: a complete-looking build, as the script leaves one. Its binaries
+# report the pinned versions, as real ones would (FB_BASH and FB_AWK override them).
 fake_build() {
   local d="$1"; shift
-  mkdir -p "$d/bin"; printf '#!/bin/sh\n' > "$d/bin/bash"; printf '#!/bin/sh\n' > "$d/bin/awk"
+  mkdir -p "$d/bin"
+  printf '#!/bin/sh\necho "%s"\n' "${FB_BASH:-3.2.57(1)-release}" > "$d/bin/bash"
+  printf '#!/bin/sh\necho "%s"\n' "${FB_AWK:-awk version 20200816}" > "$d/bin/awk"
   chmod +x "$d/bin/bash" "$d/bin/awk"; stamp "$@" > "$d/.mac-shell-harness-stamp"
 }
 
@@ -88,6 +93,9 @@ run "$P_NOCC" HARNESS_DIR="$T/o-nocc" --
 expect "no compiler: exit 1" 1 "$RC"
 has "no compiler: the refusal names cc" "$ERR" "missing required tool(s): cc"
 expect "no compiler: stdout is empty" "" "$OUT"
+run "$P_NOCC" HARNESS_DIR="$T/o-ccw" CC="nosuch-wrapper cc" --
+has "a CC with arguments is checked by its first word" "$ERR" "missing required tool(s): nosuch-wrapper"
+hasnt "and the arguments are not read as a tool name" "$ERR" "nosuch-wrapper cc"
 [ ! -e "$T/o-nocc" ] && [ ! -e "$T/o-nocc.partial" ] && ok "no compiler: no output or .partial directory is left" \
   || bad "no compiler: an output directory was created"
 run "$P_BUILD" HARNESS_DIR="$T/o-cc" CC=no-such-compiler --
@@ -184,6 +192,21 @@ expect "and nothing is reported on stdout" "" "$OUT"
 fake_build "$T/o-x"; rm "$T/o-x/bin/awk"
 run "$P_REUSE" HARNESS_DIR="$T/o-x" -- --bin-dir
 expect "a stamped build missing bin/awk is not reused" 1 "$RC"
+FB_BASH='5.2.21(1)-release' fake_build "$T/o-v5"
+run "$P_REUSE" HARNESS_DIR="$T/o-v5" -- --bin-dir
+expect "MUTANT: a matching stamp beside a bash 5 is not reused" 1 "$RC"
+FB_AWK='awk version 20240728' fake_build "$T/o-va"
+run "$P_REUSE" HARNESS_DIR="$T/o-va" -- --bin-dir
+expect "MUTANT: a matching stamp beside another awk is not reused" 1 "$RC"
+FB_BASH='3.2.57(2)-release' fake_build "$T/o-b2"
+run "$P_REUSE" HARNESS_DIR="$T/o-b2" -- --bin-dir
+expect "another bash build number of 3.2.57 is still the pin" 0 "$RC"
+fake_build "$T/o-rc" "" "" "" "" "$(printf 'e%.0s' $(seq 64))"
+run "$P_REUSE" HARNESS_DIR="$T/o-rc" -- --bin-dir
+expect "MUTANT: a build an older recipe made is not reused" 1 "$RC"
+fake_build "$T/o-f1"; sed -i -e 's/^format=2$/format=1/' -e '/^recipe_sha256=/d' "$T/o-f1/.mac-shell-harness-stamp"
+run "$P_REUSE" HARNESS_DIR="$T/o-f1" -- --bin-dir
+expect "a format 1 stamp is not reused" 1 "$RC"
 mkdir -p "$T/o-n/bin"; printf '#!/bin/sh\n' > "$T/o-n/bin/bash"; cp "$T/o-n/bin/bash" "$T/o-n/bin/awk"; chmod +x "$T/o-n/bin/"*
 run "$P_BUILD" HARNESS_DIR="$T/o-n" --
 expect "a directory with no stamp is refused" 1 "$RC"
