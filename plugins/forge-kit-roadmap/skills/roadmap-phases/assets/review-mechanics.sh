@@ -148,7 +148,9 @@ row range "$RANGE" "$KIND"
 # --- step 2: every ticket in the milestone, open and closed, with its comments --------------------
 # FORGE_DRY_RUN=0 is scoped to each read (#306): a dry run short-circuits GET too, and an exported
 # flag would fake an empty phase with rc 0. Nothing here writes, so a flagged run reads the same.
-FORGE_DRY_RUN=0 forge_issue_list all > "$W/issues.json" 2> "$W/issues.err" || die "could not list the repository's issues"
+# A failed read names its cause: the first line the transport wrote to stderr (a 401, a timeout).
+FORGE_DRY_RUN=0 forge_issue_list all > "$W/issues.json" 2> "$W/issues.err" \
+  || die "could not list the repository's issues: $(head -1 "$W/issues.err")"
 P="$PHASE" jq -c '[.[] | select((.milestone.title // null) == env.P)] | sort_by(.number) | .[]' \
   < "$W/issues.json" > "$W/tickets" 2>/dev/null || die "the issue listing is not a JSON array"
 
@@ -157,7 +159,8 @@ while IFS= read -r t; do
   case "$N" in ''|*[!0-9]*) die "an issue number is not numeric: '$N'" ;; esac
   printf '%s' "$t" | jq -r '[.state, .title // ""] | map(gsub("[\t\r\n]"; " ")) | join("\t")' > "$W/t"
   row ticket "$N" "$(cat "$W/t")"
-  FORGE_DRY_RUN=0 forge_issue_comments "$N" > "$W/c.json" 2>/dev/null || die "could not read the comments of #$N"
+  FORGE_DRY_RUN=0 forge_issue_comments "$N" > "$W/c.json" 2> "$W/c.err" \
+    || die "could not read the comments of #$N: $(head -1 "$W/c.err")"
   # One jq program over the raw JSON strings: the preserved comparison never passes through a shell
   # variable, which would strip trailing newlines and change the bytes compared.
   printf '%s' "$t" | jq -r --arg mark "$MARK" --arg n "$N" --slurpfile c "$W/c.json" '

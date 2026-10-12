@@ -9,9 +9,11 @@
 # issues only loses the closed ticket, and it logs every call so the suite can see nothing writes.
 #
 # MUTANTS (the last section; each must fail its named case and must not crash, #330/#360): the
-# `([^0-9]|$)` boundary dropped from both searches; the -S half dropped; forge_issue_list all
-# swapped back to forge_issue_milestone_list; the superseded marker matched on any line rather than
-# the first; the derived range written `P..HEAD`; an empty override treated as unset.
+# `([^0-9]|$)` boundary dropped from both searches; its end-of-line half `|$` dropped from both;
+# the -S half dropped; forge_issue_list all swapped back to forge_issue_milestone_list; the
+# superseded marker matched on any line rather than the first; the derived range written `P..HEAD`;
+# an empty override treated as unset; a failed listing's cause dropped from its message; a shell
+# trace injected into the missing-roadmap refusal (caught by the refusal log, see run()).
 set -uo pipefail
 HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -40,6 +42,7 @@ stub_lib() {
 # forge-lib-version: $1
 forge_issue_list() {
   echo "issue_list \$1" >> "\$CALLS"
+  [ -n "\${FAIL_LIST:-}" ] && { printf '%s\n' "\$FAIL_LIST" >&2; return 22; }
   [ "\${FORGE_DRY_RUN:-0}" = 1 ] && return 0
   case "\${1:-open}" in all) cat "\$FX/issues.json" ;; *) jq --arg s "\${1:-open}" 'map(select(.state == \$s))' "\$FX/issues.json" ;; esac
 }
@@ -49,6 +52,7 @@ forge_issue_milestone_list() {
 }
 forge_issue_comments() {
   echo "comments \$1" >> "\$CALLS"
+  [ -n "\${FAIL_COMMENTS:-}" ] && { printf '%s\n' "\$FAIL_COMMENTS" >&2; return 22; }
   [ "\${FORGE_DRY_RUN:-0}" = 1 ] && return 0
   if [ -f "\$FX/c\$1.json" ]; then cat "\$FX/c\$1.json"; else echo '[]'; fi
 }
@@ -114,12 +118,19 @@ newrepo() {
   printf 'd\n' > "$R/d"; commit "fix #80"
   printf 'see #80\n' > "$R/e"; commit "notes"
   printf 'f\n' > "$R/f"; commit "feat: z (#272)"
+  # The end-of-line half of the boundary: a SUBJECT ending in #7, and a diff line ending in #7 whose
+  # message names nothing. Without `|$` neither matches.
+  printf 'h\n' > "$R/h"; commit "refactor: tidy #7"; H=$(git -C "$R" rev-parse HEAD)
+  printf 'closes #7\n' > "$R/i"; commit "docs: notes"; I=$(git -C "$R" rev-parse HEAD)
   printf 'g\n' > "$R/g"; commit "chore: tidy (#7)"; G=$(git -C "$R" rev-parse HEAD)
 }
 # run [args]: the script from the fixture repo; sets out, err, rc. RUN_BIN picks a mutant's bin.
+# Every refusal's stderr (rc 2) is appended to $T/refusals, so one grep covers them all.
+: > "$T/refusals"
+TRACE_RE='line [0-9]+:|syntax error|command not found'
 run() { : > "$T/calls"
   out=$(cd "$R" && CALLS="$T/calls" FX="$FX" bash "${RUN_BIN:-$BIN}/review-mechanics.sh" "$@" 2>"$T/err"); rc=$?
-  err=$(cat "$T/err"); }
+  err=$(cat "$T/err"); [ "$rc" = 2 ] && cat "$T/err" >> "$T/refusals"; return 0; }
 rows() { printf '%s\n' "$out" | awk -F'\t' -v k="$1" '$1 == k'; }
 has() { printf '%s\n' "$out" | grep -qxF -- "$1"; }
 count() { printf '%s\n' "$out" | awk -F'\t' -v k="$1" -v n="$2" '$1 == k && $2 == n { c++ } END { print c + 0 }'; }
@@ -152,17 +163,19 @@ has "preserved${TAB}11${TAB}111" && ok "a body equal byte for byte to a marked c
 [ "$(count preserved 7)" = 0 ] && ok "a marked comment holding another body is not preserved" || bad "#7 preserved"
 
 echo "== step 3: commit rows =="
-expect "#7: A, B, C (named only in its diff) and G, oldest first, no duplicates" \
-  "$A $B $C $G" "$(rows commit | awk -F'\t' '$2 == 7 { print $3 }' | paste -sd' ' -)"
+expect "#7: A, B, C (named only in its diff), H and I (#7 at end of line) and G, oldest first, no duplicates" \
+  "$A $B $C $H $I $G" "$(rows commit | awk -F'\t' '$2 == 7 { print $3 }' | paste -sd' ' -)"
 has "commit${TAB}7${TAB}$A${TAB}feat: x (#7)" && ok "a commit row carries the subject" || bad "commit subject: $(rows commit | head -2)"
 [ "$(count commit 8)" = 1 ] && has "commit${TAB}8${TAB}none" && ok "#8: one row reading none; neither #80 commit is attributed to it" || bad "#8: $(rows commit | grep "${TAB}8${TAB}")"
+has "commit${TAB}7${TAB}$H${TAB}refactor: tidy #7" && has "commit${TAB}7${TAB}$I${TAB}docs: notes" \
+  && ok "#7 at the end of a subject and at the end of an added line both match (the |\$ half)" || bad "end of line: $(rows commit | grep "${TAB}7${TAB}")"
 has "commit${TAB}27${TAB}none" && ok "#27 does not match the #272 commit" || bad "#27: $(rows commit | grep "${TAB}27${TAB}")"
 expect "#5: the plan's add commit is in the range, the commit before it is not" "$P" "$(rows commit | awk -F'\t' '$2 == 5 { print $3 }' | paste -sd' ' -)"
 
 echo "== rows, never a verdict =="
 printf '%s\n' "$out" | grep -qwE 'PASS|aligned|done' && bad "a verdict word in stdout" || ok "no PASS, aligned or done in stdout"
 S=$(rows summary)
-expect "the summary counts rows by kind" "summary${TAB}forge_lib=1${TAB}check_phases=1${TAB}range=1${TAB}ticket=9${TAB}comment=3${TAB}superseded=3${TAB}preserved=1${TAB}commit=12" "$S"
+expect "the summary counts rows by kind" "summary${TAB}forge_lib=1${TAB}check_phases=1${TAB}range=1${TAB}ticket=9${TAB}comment=3${TAB}superseded=3${TAB}preserved=1${TAB}commit=14" "$S"
 [ "$(printf '%s\n' "$out" | tail -1)" = "$S" ] && ok "the summary is the last row" || bad "summary not last"
 printf '%s\n' "$out" | awk -F'\t' '$1 !~ /^(forge_lib|check_phases|range|ticket|comment|superseded|preserved|commit|summary)$/ { b = 1 } END { exit b }' \
   && ok "stdout carries rows only" || bad "a non-row line on stdout"
@@ -223,7 +236,12 @@ mv "$R/docs/roadmap.md" "$T/rm.bak"; run "$M"; mv "$T/rm.bak" "$R/docs/roadmap.m
 [ "$rc" = 2 ] && [ -z "$out" ] && grep -q 'no roadmap' <<< "$err" && ok "a missing roadmap exits 2" || bad "no roadmap: rc $rc '$err'"
 issues_bak="$FX/issues.json.bak"; cp "$FX/issues.json" "$issues_bak"; printf 'not json\n' > "$FX/issues.json"; run "$M"; mv "$issues_bak" "$FX/issues.json"
 [ "$rc" = 2 ] && [ -z "$out" ] && ok "an unreadable issue listing exits 2 with stdout empty, never an empty phase" || bad "bad listing: rc $rc out '$out'"
-for e in "$err"; do grep -qE 'line [0-9]+:|syntax error|command not found' <<< "$e" && bad "a shell error on stderr: $e" || ok "every refusal above is a named message, no shell trace"; done
+FAIL_LIST='forge-lib: HTTP 401 Unauthorized (GET /repos/o/r/issues)' run "$M"
+[ "$rc" = 2 ] && [ -z "$out" ] && grep -q 'could not list the repository.s issues: forge-lib: HTTP 401 Unauthorized' <<< "$err" \
+  && ok "a failed listing (rc 22, a 401 on stderr) exits 2, stdout empty, the 401 line in the message" || bad "401 listing: rc $rc out '$out' err '$err'"
+FAIL_COMMENTS='forge-lib: HTTP 401 Unauthorized (GET comments)' run "$M"
+[ "$rc" = 2 ] && [ -z "$out" ] && grep -q 'could not read the comments of #5: forge-lib: HTTP 401 Unauthorized' <<< "$err" \
+  && ok "a failed comment read exits 2, stdout empty, the 401 line in the message" || bad "401 comments: rc $rc out '$out' err '$err'"
 
 echo "== an empty milestone =="
 cp "$FX/issues.json" "$T/i.bak"; jq 'map(select(.milestone.title != "Alpha one"))' "$T/i.bak" > "$FX/issues.json"; run "$M"; mv "$T/i.bak" "$FX/issues.json"
@@ -245,6 +263,13 @@ stub_lib "$MIN" > "$LOW/forge-lib.sh"; FORGE_LIB="$LOW/forge-lib.sh" run "$M"
 SOLO="$T/solo"; mkdir -p "$SOLO"; cp "$REAL" "$SOLO/"
 ( cd "$R" && bash "$SOLO/review-mechanics.sh" "$M" ) > "$T/o" 2> "$T/e"; rc=$?
 [ "$rc" = 2 ] && [ ! -s "$T/o" ] && grep -q 'forge-lib.sh not found' "$T/e" && ok "alone, with nothing beside it, it exits 2 naming forge-lib.sh" || bad "solo: rc $rc '$(cat "$T/e")'"
+cat "$T/e" >> "$T/refusals"
+
+echo "== every refusal in this suite is a named message =="
+nref=$(grep -c '^review-mechanics: ' "$T/refusals")
+[ "$nref" -ge 20 ] && ok "the refusal log holds every refusal above ($nref messages)" || bad "refusal log holds $nref messages"
+tr=$(grep -m1 -E "$TRACE_RE" "$T/refusals")
+[ -z "$tr" ] && ok "no refusal above carries a shell trace" || bad "a shell trace on a refusal's stderr: $tr"
 
 echo "== mutants, each must fail its named case =="
 . "$ROOT/scripts/mutant-crash.sh"
@@ -252,12 +277,14 @@ echo "== mutants, each must fail its named case =="
 rm_live() { local o; o=$(cd "$R" && CALLS="$T/calls" FX="$FX" bash "$MB/review-mechanics.sh" "$M" 2>/dev/null) && [ -n "$o" ]; }
 # mutant <name> <old> <new> <check-fn>: <old> must occur exactly once; the check must FAIL.
 mutant() {
-  local name="$1" old="$2" new="$3" fn="$4" c held=0 why
+  local name="$1" old="$2" new="$3" fn="$4" c held=0 why  # [live] as $5
   c="$(cat "$REAL"; printf x)"; c="${c%x}"
   case "$c" in *"$old"*"$old"*) bad "mutant $name: anchor occurs twice"; return ;; *"$old"*) ;; *) bad "mutant $name: anchor not found"; return ;; esac
   MB="$T/mut"; rm -rf "$MB"; printf '%s' "${c//"$old"/"$new"}" > "$T/mut.sh"; bin "$MB" "$T/mut.sh"
   RUN_BIN="$MB" "$fn" && held=1
-  why=$(mutant_crash_reason "$T/mut.sh" "$T/err" rm_live)
+  # live: the kill IS a bash diagnostic on the case's stderr, so liveness gets its own log.
+  if [ "${5:-}" = live ]; then why=$(mutant_crash_reason_live "$T/mut.sh" rm_live)
+  else why=$(mutant_crash_reason "$T/mut.sh" "$T/err" rm_live); fi
   if [ -n "$why" ]; then bad "mutant $name crashed ($why)"
   elif [ "$held" = 1 ]; then bad "mutant $name survived"
   else ok "mutant $name dies"; fi
@@ -268,14 +295,24 @@ chk_closed()   { run "$M"; has "ticket${TAB}6${TAB}closed${TAB}six"; }
 chk_anchor()   { run "$M"; [ "$(count superseded 10)" = 0 ] && [ "$(count comment 10)" = 1 ]; }
 chk_range()    { run "$M"; [ "$(rows commit | awk -F'\t' '$2 == 5 { print $3 }')" = "$P" ]; }
 chk_empty()    { FORGE_LIB= run "$M"; [ "$rc" = 2 ] && ! grep -qE 'source:|No such file or directory' <<< "$err"; }
+chk_eol()      { run "$M"; has "commit${TAB}7${TAB}$H${TAB}refactor: tidy #7" && has "commit${TAB}7${TAB}$I${TAB}docs: notes"; }
+chk_cause()    { FAIL_LIST='forge-lib: HTTP 401 Unauthorized' run "$M"; [ "$rc" = 2 ] && grep -q 'HTTP 401' <<< "$err"; }
+# The refusal log's own check, on one refusal: a trace there must not pass as a named message.
+chk_trace()    { : > "$T/refusals"; mv "$R/docs/roadmap.md" "$T/rm.bak"; run "$M"; mv "$T/rm.bak" "$R/docs/roadmap.md"
+  [ "$rc" = 2 ] && ! grep -qE "$TRACE_RE" "$T/refusals"; }
 mutant "message boundary dropped" '#$N([^0-9]|\$)" --format=%H "$RANGE" -- &&' '#$N" --format=%H "$RANGE" -- &&' chk_boundary
 mutant "diff boundary dropped" '-S"#$N([^0-9]|\$)"' '-S"#$N"' chk_boundary
+mutant "boundary without \$" '#$N([^0-9]|\$)" --format=%H "$RANGE" -- &&
+    git log --pickaxe-regex -S"#$N([^0-9]|\$)"' '#$N([^0-9])" --format=%H "$RANGE" -- &&
+    git log --pickaxe-regex -S"#$N([^0-9])"' chk_eol
 mutant "-S half dropped" '    git log --pickaxe-regex -S"#$N([^0-9]|\$)" --format=%H "$RANGE" -- ) > "$W/hits"' '    true ) > "$W/hits"' chk_pickaxe
 mutant "open-only listing" 'forge_issue_list all >' 'forge_issue_milestone_list >' chk_closed
 mutant "marker on any line" 'if $ls[0] == $mark then' 'if any($ls[]; . == $mark) then' chk_anchor
 mutant "P..HEAD" 'RANGE="$P^..HEAD"' 'RANGE="$P..HEAD"' chk_range
 # An empty override treated as unset falls through to the search and silently uses another library.
 mutant "empty as unset" '\${$1+x}' '\${$1:+x}' chk_empty
+mutant "listing cause dropped" ': $(head -1 "$W/issues.err")"' '"' chk_cause
+mutant "trace in a refusal" '[ -n "$ROADMAP" ] || die "no roadmap' '[ -n "$ROADMAP" ] || . ./docs/roadmap.md || die "no roadmap' chk_trace live
 
 echo ""
 echo "review-mechanics tests: $pass passed, $fail failed"
