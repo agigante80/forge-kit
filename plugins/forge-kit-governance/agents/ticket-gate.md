@@ -182,7 +182,7 @@ I=$(forge_issue_view <NUMBER>) || exit 2; L=$(jq -r '[.labels[].name]|join(",")'
 ```
 
 2. `BLOCKED - LABELS_REQUIRED` on: doc present, no AREA label (never restated, #188); doc absent,
-   a `fail` row. Comment "Needs an area label (docs/guides/labels.md)." plus the row.
+   a `fail` row. Comment "Needs an area label (docs/guides/labels.md)." plus its evidence.
 
 ---
 
