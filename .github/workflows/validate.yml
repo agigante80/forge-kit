@@ -57,6 +57,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Issue #489: ubuntu-latest resolves `awk` to gawk (run 38331185657 printed /usr/bin/gawk,
+      # GNU Awk 5.2.1), so every suite above the gawk install step used to run under gawk only and
+      # a mawk-only defect (#485) shipped green. The job pins mawk, the default `awk` on Debian and
+      # Ubuntu and the stricter of the two, before the first suite, and fails loudly when mawk is
+      # missing or `awk` still resolves elsewhere. A mawk-only failure this surfaces gets its own
+      # ticket; the pin is never narrowed per step to hide one.
+      - name: Pin awk to mawk for every suite step
+        run: bash scripts/pin-awk.sh
+
+      - name: Pin-awk contract tests
+        run: bash scripts/test-pin-awk.sh
+
       - name: Structural validation (plugin.json + marketplace + version markers)
         run: bash scripts/validate-plugins.sh
 
@@ -319,22 +331,21 @@ jobs:
       # Issue #294: check-contributor-docs.sh decides whether a contributor doc names a script, a
       # target or a link that a clone does not have; a wrong fail rejects a correct doc.
       #
-      # Issue #386: the suite runs under BOTH awks, because its strip-loop mutant needs gawk and was
-      # silently skipped on the runner's default awk (mawk). gawk is installed for its own run only:
-      # installing it repoints Ubuntu's `awk` alternative, so the alternative is set back to mawk and
-      # every other step keeps the awk it had. The identity is printed before and after, so a runner
-      # image that changes its default awk shows in the log rather than in a skipped mutant.
-      - name: Which awk the runner resolves (before installing gawk)
-        run: readlink -f "$(command -v awk)"; awk -W version 2>/dev/null | head -1 || true
-
+      # Issue #386: the suite runs under BOTH awks, because its strip-loop mutant needs gawk. gawk is
+      # the runner's preinstalled default `awk` (run 38331185657), but the job pins mawk in its first
+      # step (#489), so the gawk run names gawk through AWK_UNDER_TEST. The install below may repoint
+      # Ubuntu's `awk` alternative, so it sets the alternative back to mawk, and the step after it
+      # re-asserts the pin, failing the job rather than letting later steps drift to gawk. The
+      # (mawk) run stays although the pin already makes mawk the job awk: AWK_UNDER_TEST names the
+      # awk explicitly, so the run is independent of the pin and of the runner image.
       - name: Install gawk for the contributor-docs gawk run, keeping mawk as awk
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq gawk >/dev/null
           sudo update-alternatives --set awk "$(command -v mawk)"
           gawk --version | head -1
 
-      - name: Which awk the runner resolves (after installing gawk)
-        run: readlink -f "$(command -v awk)"; awk -W version 2>/dev/null | head -1 || true
+      - name: The job awk is still mawk after installing gawk
+        run: bash scripts/pin-awk.sh --assert-only
 
       - name: Contributor-docs check tests (gawk)
         env:
@@ -348,7 +359,8 @@ jobs:
 
       # Issue #406: BWK awk, the awk macOS ships, read a byte-order mark as one character in a UTF-8
       # locale, so the octal BOM strip never matched there. The package registers no `awk`
-      # alternative, so every other step keeps mawk. The locale is set explicitly, since the
+      # alternative, so every other step keeps the mawk the job pinned in its first step (#489;
+      # gawk, not mawk, is the runner's preinstalled default). The locale is set explicitly, since the
       # locale-pin mutants run only under BWK in UTF-8 and a run that asked for it refuses otherwise.
       - name: Install BWK awk for the contributor-docs run under macOS's awk
         run: sudo apt-get install -y -qq original-awk >/dev/null && original-awk --version
