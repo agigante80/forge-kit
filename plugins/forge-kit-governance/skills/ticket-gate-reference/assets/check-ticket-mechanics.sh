@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 37
+# check-ticket-mechanics-version: 38
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -301,7 +301,7 @@ section_of() {
     fence_open(l) { fopen = 1; if (inside) print; next }   # section_of: a fence opens
     l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }
     /^##+ / {
-      lvl = index(l, " ") - 1; cur = substr(l, lvl + 2); sub(/[ \t]+$/, "", cur)   # from l: no CR (#491)
+      lvl = index($0, " ") - 1; cur = substr(l, lvl + 2); sub(/[ \t]+$/, "", cur)   # text from l (no CR, #491); the level from $0, so a bare `### ` heading still ends a section
       if (inside && ((lvl == want_lvl && !(cur in issub)) || (cur in islabel))) inside = 0
       if (!inside && !found && cur == want) { inside = 1; found = 1; want_lvl = lvl; next }
     }

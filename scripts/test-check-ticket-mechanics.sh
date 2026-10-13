@@ -1849,6 +1849,14 @@ grep -v 'tests/unit/auth\.test\.ts' "$L491" > "$WORK/i491-nounit-lf.md"
 o="$(r491 "$SCRIPT" "$(crlf491 "$WORK/i491-nounit-lf.md" "$WORK/i491-nounit.md")")"
 expect "#491: a CRLF Unit tests section of bare CR lines still fails unit_tests" "fail|no content in Unit tests" "$(ev491 "$o" unit_tests)"
 expect "#491: ...and sections names it empty" "fail|required heading present but empty (1): Unit tests" "$(ev491 "$o" sections)"
+# Round 1: a bare `### ` heading line still ends the section above it. With the level read from the
+# blank-stripped line it had no space, so the empty heading and the text under it became Unit tests
+# content and the emptied required section passed `sections` (LF and CRLF alike).
+awk '{ print } /^### Unit tests$/ { print "### "; print "stray text" }' "$WORK/i491-nounit-lf.md" > "$WORK/i491-bare-lf.md"
+grep -qx '### ' "$WORK/i491-bare-lf.md" && ok "#491: the bare-heading fixture carries a '### ' line (fixture sanity)" || bad "#491: the bare-heading fixture lacks its '### ' line"
+o="$(r491 "$SCRIPT" "$WORK/i491-bare-lf.md")"
+expect "#491: an LF bare '### ' heading after an emptied Unit tests leaves it empty" "fail|required heading present but empty (1): Unit tests" "$(ev491 "$o" sections)"
+expect "#491: ...and its CRLF copy gives the same rows" "$o" "$(r491 "$SCRIPT" "$(crlf491 "$WORK/i491-bare-lf.md" "$WORK/i491-bare.md")")"
 awk '/^### Test scenarios / { skip = 1; next } skip && /^### / { skip = 0 } !skip' "$L491" > "$WORK/i491-noscen-lf.md"
 o="$(r491 "$SCRIPT" "$(crlf491 "$WORK/i491-noscen-lf.md" "$WORK/i491-noscen.md")")"
 expect "#491: a CRLF body without Test scenarios fails gwt, naming the label" "fail|no content in Test scenarios (Given / When / Then)" "$(ev491 "$o" gwt)"
@@ -1871,6 +1879,13 @@ if cmp -s "$SCRIPT" "$MUT" || grep -qF "$X1_491" "$MUT"; then bad "#491: the sit
   expect "mutant site 1: unit_tests fails no content" "fail|no content in Unit tests" "$(ev491 "$o" unit_tests)"
   expect "mutant site 1: e2e_tests fails no content" "fail|no content in E2E tests" "$(ev491 "$o" e2e_tests)"
   expect "mutant site 1: docs_impact fails no content" "fail|no content in Documentation impact" "$(ev491 "$o" docs_impact)"
+fi
+# Round 1: the level read from the blank-stripped line loses a bare `### ` heading (the bare-heading row can fail).
+XL491='lvl = index($0, " ") - 1; cur = substr(l, lvl + 2)'
+grep -qF "$XL491" "$SCRIPT" && ok "mutant ledger: section_of() reads the heading level from \$0 (#491)" || bad "mutant ledger: #491 section_of level from \$0 not found"
+sed 's/lvl = index(\$0, " ") - 1; cur = substr(l, lvl + 2)/lvl = index(l, " ") - 1; cur = substr(l, lvl + 2)/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XL491" "$MUT"; then bad "#491: the level mutant did not apply"; else
+  expect "mutant: a level read from the cleaned line passes the emptied Unit tests under a bare heading" pass "$(outcome "$(r491 "$MUT" "$WORK/i491-bare-lf.md")" sections)"
 fi
 bh491() { sed -n '/^body_headings() {/,/^}/p' "$1"; }
 [ "$(grep -cF 'print h' <<< "$(bh491 "$SCRIPT")")" = 2 ] && ok "mutant ledger: body_headings() prints the CR-free line on both paths (#491)" || bad "mutant ledger: #491 body_headings print h not found twice"
