@@ -2432,6 +2432,7 @@ for mode in real dry; do
   inv256 "forge_body_region_set"         2 "" $mode forge_body_region_set 1 gate gate-verdict "x"
   inv256 "forge_body_region_clear"       2 "" $mode forge_body_region_clear 1 gate gate-verdict
   inv256 "forge_body_compose_preserving" 2 "" $mode forge_body_compose_preserving 1 "new body"
+  inv256 "forge_body_section_append"     2 "" $mode forge_body_section_append 1 "Label" "x (gate-written, round 1)"
 done
 # forge_ci_status is the one exception: its documented "could not ask" word, rc 0, never empty.
 inv256 "forge_ci_status answers not_configured, rc 0" 0 not_configured real forge_ci_status main
@@ -2523,6 +2524,7 @@ dr_site() {
           "GET "*milestones*page=1*) printf '[{"id":7,"title":"Phase A","state":"open"}]' ;;
           "GET "*page=2*) printf '[]' ;;
           "GET "*page=1*) printf '[{"number":1,"title":"a"}]' ;;
+          "GET /repos/o/r/issues/8") printf '{"number":8,"body":"## S\\n\\n_No response_"}' ;;   # #494: a section to append to
           "GET /repos/o/r/issues/"*) printf '{"number":7,"body":"intro"}' ;;
           *) printf '' ;;
         esac
@@ -2533,6 +2535,7 @@ dr_site() {
       forge_api_paginate)            out=$(forge_api_paginate /repos/o/r/labels 2>"$DRERR"); rc=$? ;;
       _forge_region_write)           out=$(forge_body_region_set 7 gate gate-verdict "some new content" 2>"$DRERR"); rc=$? ;;
       forge_body_compose_preserving) out=$(forge_body_compose_preserving 7 "new body" 2>"$DRERR"); rc=$? ;;
+      forge_body_section_append)     out=$(forge_body_section_append 8 S "new content (gate-written, round 1)" 2>"$DRERR"); rc=$? ;;
       forge_issue_edit)              out=$(forge_issue_edit 44 "new body" 2>"$DRERR"); rc=$? ;;
       forge_issue_list)              out=$(forge_issue_list 2>"$DRERR"); rc=$? ;;
       forge_issue_label)             out=$(forge_issue_label 7 bug 2>"$DRERR"); rc=$? ;;
@@ -2548,6 +2551,7 @@ dr_site() {
                                        [ "$log" = "$(printf '%s\n' 'GET /repos/o/r/labels?limit=50&page=1 ' 'GET /repos/o/r/labels?limit=50&page=2 ')" ] ;;
         _forge_region_write)           case "$log" in *"PATCH /repos/o/r/issues/7 "*) ;; *) exit 1 ;; esac ;;
         forge_body_compose_preserving) case "$log" in *"PATCH /repos/o/r/issues/7 "*) ;; *) exit 1 ;; esac ;;
+        forge_body_section_append)     case "$log" in *"PATCH /repos/o/r/issues/8 "*"new content (gate-written, round 1)"*) ;; *) exit 1 ;; esac ;;
         forge_issue_edit)              case "$log" in *"PATCH /repos/o/r/issues/44 "*"new body"*) ;; *) exit 1 ;; esac ;;
         forge_issue_list)              case "$out" in *'"number":1'*) ;; *) exit 1 ;; esac
                                        case "$log" in "GET /repos/o/r/issues?state=open&type=issues&limit=50&page=1 "*) ;; *) exit 1 ;; esac ;;
@@ -2560,6 +2564,7 @@ dr_site() {
         forge_api_paginate)            want='' ;;   # the [dry-run] line is the REAL forge_api's, shadowed here: the paginator itself prints nothing
         _forge_region_write)           want='[dry-run] set region gate-verdict of issue 7 on o/r (16 characters)' ;;
         forge_body_compose_preserving) want='[dry-run] compose body of issue 7 on o/r (8 characters)' ;;
+        forge_body_section_append)     want='[dry-run] append to section S of issue 8 on o/r (35 characters)' ;;
         forge_issue_edit)              want='[dry-run] replace body of issue 44 on o/r (8 characters)' ;;
         forge_issue_list)              want='[dry-run] GET https://forge.example/api/v1/repos/o/r/issues?state=open (issues only, all pages)' ;;
         forge_issue_label)             want='[dry-run] label issue 7 on o/r with: bug' ;;
@@ -2629,7 +2634,7 @@ for v in 0 true; do
     && ok "crash mutant (#350): not credited as a kill by FORGE_DRY_RUN=$v" \
     || bad "crash mutant (#350): credited as a kill by FORGE_DRY_RUN=$v"
 done
-DR_SITES="forge_api forge_api_paginate _forge_region_write forge_body_compose_preserving forge_issue_edit forge_issue_list forge_issue_label forge_issue_milestone"
+DR_SITES="forge_api forge_api_paginate _forge_region_write forge_body_compose_preserving forge_body_section_append forge_issue_edit forge_issue_list forge_issue_label forge_issue_milestone"
 for site in $DR_SITES; do
   # forge_api's value 0 is the pre-existing real-forge_api case above; `true` and 1 are both run here.
   if [ "$site" = forge_api ]; then vals="true 1"; else vals="0 true 1"; fi
@@ -3776,6 +3781,148 @@ for a in gawk mawk original-awk busybox; do
   else ln -sf "$(command -v "$a")" "$R486/bin-$a/awk"; fi   # chmod on a link would touch the real awk
   f486=""; for c in $C486; do PATH="$R486/bin-$a:$PATH" "$c" || f486="$f486 $c"; done
   expect "#486: every fence row passes under awk=$a" "" "$f486"
+done
+
+echo "== #494: a gate append finds its section by a whole heading line and refuses author text =="
+# forge_body_section_append writes into ONE author section. The target is a whole ATX heading line
+# outside fences and regions; the section ends at a heading of the same or a higher level or at a
+# region start marker. A block (a run of non-blank lines, a fence counting as non-blank) whose
+# first line carries `(gate-written, round N)` is the gate's; `_No response_` alone is a
+# placeholder; anything else refuses with 108. On #493 the gate split an author line at an inline
+# `## Unit tests`; that shape now refuses. Each case is a c494_* function so the mutants and the
+# per-awk reruns call it again; L494 points one at a mutant. b486 and r486 are reused.
+TS494='## Test scenarios (Given / When / Then)'; TL494='Test scenarios (Given / When / Then)'
+UT494='## Unit tests'
+G1_494='**Negative:** quoted heading (gate-written, round 1)'
+GIV494='- Given: a `## Unit tests` heading has been removed'
+N1_494='**Positive:** new (gate-written, round 2)'; N2_494='- Then: it lands'
+app494() { L486="${L494:-$LIB}" r486 "$1" forge_body_section_append 7 "${2:-$TL494}" "${3:-$(b486 "$N1_494" "$N2_494")}"; }
+is494() { [ "$R486RC" = 0 ] && [ "$(p486)" = "$1" ]; }
+# none494 <rc> <message>: refused with <rc>, stderr carries <message> and the label, nothing sent.
+none494() { [ "$R486RC" = "$1" ] && grep -qF -- "$2" "$R486/err" && grep -qF -- "${3:-$TL494}" "$R486/err" && [ ! -f "$T/patch.json" ]; }
+c494_inline() { app494 "$(b486 "$TS494" '' "$G1_494" "$GIV494" '' "$UT494" '' '- [ ] a')"
+  is494 "$(b486 "$TS494" '' "$G1_494" "$GIV494" '' "$N1_494" "$N2_494" '' "$UT494" '' '- [ ] a')"; }
+c494_fence_b() { app494 "$(b486 "$TS494" '' "$G1_494" "$FB" "$UT494" "$FB" '' "$UT494")"
+  is494 "$(b486 "$TS494" '' "$G1_494" "$FB" "$UT494" "$FB" '' "$N1_494" "$N2_494" '' "$UT494")"; }
+c494_fence_t() { app494 "$(b486 "$TS494" '' "$G1_494" "$FT" "$UT494" '' "$FT" '' "$UT494")"
+  is494 "$(b486 "$TS494" '' "$G1_494" "$FT" "$UT494" '' "$FT" '' "$N1_494" "$N2_494" '' "$UT494")"; }
+c494_region() { app494 "$(b486 intro '' "$TS494" '' "$G1_494" "$FT" "$UT494" "$FT" '' "$S486" ctx "$E486")" "" "$N1_494"
+  is494 "$(b486 intro '' "$TS494" '' "$G1_494" "$FT" "$UT494" "$FT" '' "$N1_494" '' "$S486" ctx "$E486")"; }
+SUB494='### Edge cases (gate-written, round 1)'
+c494_sub() { app494 "$(b486 "$TS494" '' "$SUB494" '' "$G1_494" "$GIV494" '' "$UT494")"
+  is494 "$(b486 "$TS494" '' "$SUB494" '' "$G1_494" "$GIV494" '' "$N1_494" "$N2_494" '' "$UT494")"; }
+c494_sub_author() { app494 "$(b486 "$TS494" '' '### Edge cases' '' "$G1_494" "$GIV494" '' "$UT494")"; none494 108 "already holds author text (WRITE ONCE)"; }
+c494_placeholder() { app494 "$(b486 "$TS494" '' '_No response_' '' "$UT494")"
+  is494 "$(b486 "$TS494" '' "$N1_494" "$N2_494" '' "$UT494")"; }
+c494_empty() { app494 "$(b486 "$TS494" "$UT494")"; is494 "$(b486 "$TS494" '' "$N1_494" "$N2_494" '' "$UT494")"; }
+M494=$(b486 "$TS494" '' "$G1_494" '- Given: g' '- When: w' '- Then: t' '' "$UT494")
+M494W=$(b486 "$TS494" '' "$G1_494" '- Given: g' '- When: w' '- Then: t' '' "$N1_494" "$N2_494" '' "$UT494")
+c494_multi() { app494 "$M494"; is494 "$M494W"; }
+# CRLF: the result equals the LF twin's once CRs are removed, and all 7 CRLF lines keep their CR.
+c494_crlf() { app494 "$(sed 's/$/\r/' <<< "$M494")"
+  [ "$R486RC" = 0 ] && [ "$(tr -d '\r' < "$R486/patch")" = "$M494W" ] && [ "$(grep -c $'\r$' "$R486/patch")" = 7 ]; }
+D494='Documentation impact'; DH494='## Documentation impact'
+c494_docs() { app494 "$(b486 "$DH494" '' 'The guide gains a row. (gate-written, round 1)' 'It says so.')" "$D494" 'Also the table. (gate-written, round 2)'
+  is494 "$(b486 "$DH494" '' 'The guide gains a row. (gate-written, round 1)' 'It says so.' '' 'Also the table. (gate-written, round 2)')"; }
+c494_docs_author() { app494 "$(b486 "$DH494" '' 'The guide gains a row.' 'It says so.')" "$D494" 'Also the table. (gate-written, round 2)'
+  none494 108 "already holds author text (WRITE ONCE)" "'$D494'"; }
+c494_493() { app494 "$(b486 "$TS494" '' '**Negative:** quoted heading' "$GIV494" '' "$UT494")"; none494 108 "already holds author text (WRITE ONCE)"; }
+c494_absent() { app494 "$(b486 'Quote: `'"$TS494"'` only.' '' "$UT494")"; none494 107 "heading line outside fences and regions"; }
+c494_absent_fence() { app494 "$(b486 intro "$FB" "$TS494" '' "$G1_494")"; none494 107 "heading line outside fences and regions"; }
+c494_twice() { app494 "$(b486 "$TS494" '' "$G1_494" '' "$TS494" '' "$UT494")"; none494 109 "heading more than once"; }
+c494_quoted() { app494 "$(b486 "$TS494" '' 'Quoting (gate-written, round 1) mid-line' "$GIV494" '' "$UT494")"; none494 108 "already holds author text (WRITE ONCE)"; }
+c494_cfence() { app494 "$(b486 "$TS494" '' '_No response_' '' "$UT494")" "" "$(b486 "$N1_494" "$FB" code)"
+  none494 103 "refusing content that ends inside an unclosed code fence"; }
+c494_chead() { app494 "$(b486 "$TS494" '' '_No response_' '' "$UT494")" "" "$(b486 "$N1_494" "$TS494")"
+  none494 103 "refusing content that carries a heading line"; }
+c494_cblank() { app494 "$(b486 "$TS494" '' '_No response_' '' "$UT494")" "" "$(b486 "$N1_494" '' '- Given: g')"
+  none494 103 "refusing content with a block whose first line does not end with"; }
+c494_cnolabel() { app494 "$(b486 "$TS494" '' '_No response_' '' "$UT494")" "" '- Given: g'
+  none494 103 "refusing content with a block whose first line does not end with"; }
+c494_cfenced_head() { app494 "$(b486 "$TS494" '' '_No response_' '' "$UT494")" "" "$(b486 "$N1_494" "$FB" "$UT494" "$FB")"
+  is494 "$(b486 "$TS494" '' "$N1_494" "$FB" "$UT494" "$FB" '' "$UT494")"; }
+C494="c494_inline c494_fence_b c494_fence_t c494_region c494_sub c494_sub_author c494_placeholder c494_empty c494_multi c494_crlf c494_docs c494_docs_author c494_493 c494_absent c494_absent_fence c494_twice c494_quoted c494_cfence c494_chead c494_cblank c494_cnolabel c494_cfenced_head"
+row494() { if "$1"; then ok "#494: $2"; else bad "#494: $2 (rc $R486RC, err $(cat "$R486/err"))"; fi; }
+row494 c494_inline "an inline ## Unit tests inside a gate-owned block is not a boundary: the insert sits between the block and the real heading, every other byte kept"
+row494 c494_fence_b "a backtick fence holding ## Unit tests inside a gate-owned block: the insert lands below the closer"
+row494 c494_fence_t "a tilde fence holding ## Unit tests and a blank line inside a gate-owned block: the insert lands below the closer"
+row494 c494_region "the last section before a gate-context region: the insert sits one blank line above the start marker and the region is unchanged"
+row494 c494_sub "a gate-labelled ### sub-heading stays inside the section: the insert follows the gate-owned content after it"
+row494 c494_sub_author "an unlabelled ### sub-heading is author text like any other line: 108, nothing sent"
+row494 c494_placeholder "a section holding only _No response_: the placeholder is replaced"
+row494 c494_empty "an empty section directly followed by the next heading: the insert goes after the heading and one blank line"
+row494 c494_multi "a gate-owned block of title, Given, When and Then: the round 2 block follows it after one blank line"
+row494 c494_crlf "a CRLF body gives its LF twin's result once CRs are removed, and its seven lines keep their CR"
+row494 c494_docs "a Documentation impact paragraph whose first line carries the gate label: the round 2 paragraph follows it"
+row494 c494_docs_author "the same paragraph without the label is author text: 108, the label on stderr, nothing sent"
+row494 c494_493 "the #493 shape, an unlabelled scenario quoting ## Unit tests mid-line: 108, the label on stderr, nothing sent"
+row494 c494_absent "a label only inside inline code is not a heading: 107, the label on stderr, nothing sent"
+row494 c494_absent_fence "a heading only after an unclosed fence is not a heading: 107 and nothing sent"
+row494 c494_twice "the label as a heading twice: 109, the label on stderr, nothing sent"
+row494 c494_quoted "a block whose first line quotes the gate label mid-line is author text: 108, nothing sent"
+row494 c494_cfence "content ending inside an unclosed fence would swallow the rest of the body: 103, nothing sent"
+row494 c494_chead "content carrying a heading line would duplicate the target heading: 103, nothing sent"
+row494 c494_cblank "content whose blank line starts an unlabelled block would read back as author text: 103, nothing sent"
+row494 c494_cnolabel "content whose first line lacks the gate label would read back as author text: 103, nothing sent"
+row494 c494_cfenced_head "a heading line inside a closed fence in the content is code, not a heading: appended"
+# Content carrying a marker line is refused before any fetch: the stub records every call.
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; : > "$R486/calls"
+  forge_api() { echo "$1" >> "$R486/calls"; }
+  forge_body_section_append 7 "$TL494" "$(b486 "$G1_494" "$S486")" 2> "$R486/err"; rc=$?
+  [ "$rc" = 103 ] && grep -qF "refusing content that carries a region marker line" "$R486/err" && [ ! -s "$R486/calls" ]
+) && ok "#494: content carrying a gate-context start marker line refuses with 103 before any fetch or PATCH" \
+  || bad "#494: content carrying a gate-context start marker line was not refused with 103 before any fetch"
+# A body that moved between the read and the write refuses with 102, as every _forge_body_write does.
+(
+  . "$LIB"; export FORGE_HOST=forgejo FORGE_REPO=o/r; rm -f "$T/getn" "$T/patch.json"
+  BODY_FIXTURE="$(b486 "$TS494" '' '_No response_')"
+  forge_api() {
+    case "$1" in
+      GET) c=$(cat "$T/getn" 2>/dev/null || echo 0); c=$((c + 1)); echo "$c" > "$T/getn"
+           if [ "$c" = 1 ]; then printf '%s' "$BODY_FIXTURE" | jq -Rs '{body:.}'
+           else printf '%s' "$BODY_FIXTURE moved" | jq -Rs '{body:.}'; fi ;;
+      PATCH) printf '%s' "$3" > "$T/patch.json"; echo "{}" ;;
+    esac
+  }
+  forge_body_section_append 7 "$TL494" "$N1_494" > /dev/null 2>&1; rc=$?
+  [ "$rc" = 102 ] && [ ! -f "$T/patch.json" ]
+) && ok "#494: a body that changed between the read and the write refuses with 102 and sends nothing" \
+  || bad "#494: the append did not refuse a moved body with 102"
+expect "#494: a call without content is a usage error, rc 2" 2 "$( ( . "$LIB"; forge_body_section_append 7 "$TL494" "" ) 2>/dev/null; echo $?)"
+
+# Mutants: each removes one rule and must fail the row named for it.
+m494() {  # m494 <name> <anchor> <replacement> <case-fn>
+  A486="$2" B486="$3" python3 - "$LIB" "$R486/mut494.sh" <<'PY' || { bad "#494 mutant $1: anchor not found once"; return; }
+import os, sys
+s = open(sys.argv[1]).read(); a = os.environ["A486"]
+if s.count(a) != 1: sys.exit(1)
+open(sys.argv[2], "w").write(s.replace(a, os.environ["B486"]))
+PY
+  bash -n "$R486/mut494.sh" || { bad "#494 mutant $1 does not parse"; return; }
+  if L494="$R486/mut494.sh" "$4"; then bad "#494 mutant $1 survived $4"; else ok "#494 mutant $1 dies on $4"; fi
+}
+m494 "S1 (substring heading match)" '      match(h, /^ */); if (RLENGTH > 3) return 0
+      r = substr(h, RLENGTH + 1)' '      if (!match(h, /#+ /)) return 0
+      r = substr(h, RSTART)' c494_inline
+m494 "S2 (no fence awareness)" '      if (f) { kind[NR] = "f"; next }' '      if (0) { kind[NR] = "f"; next }' c494_fence_t
+m494 "S3 (no CR strip on the heading match)" 'line[NR] = $0; nl = norm($0); h = nl' 'line[NR] = $0; nl = norm($0); h = $0' c494_crlf
+m494 "S4 (no region stop)" 'if (kind[i] == "s" || (kind[i] == "h"' 'if ((kind[i] == "h"' c494_region
+m494 "S5 (no WRITE ONCE check)" '            exit 108   # WRITE ONCE' '            first = 0   # WRITE ONCE' c494_493
+m494 "S6 (ownership by line, not by block)" '        if (first) {   # the first line' '        if (1) {   # the first line' c494_multi
+m494 "S7 (the section ends at any heading level)" '(kind[i] == "h" && lvl[i] <= L)' '(kind[i] == "h")' c494_sub
+m494 "S8 (the ownership label matched anywhere on the line)" 'norm(line[i]) !~ /\(gate-written, round [0-9]+\)$/' 'norm(line[i]) !~ /\(gate-written, round [0-9]+\)/' c494_quoted
+m494 "S9 (no unclosed-fence content check)" 'if (fopen) exit 4;' '' c494_cfence
+m494 "S10 (no heading content check)" 'hlevel(n)) hd = 1' 'hlevel(n)) hd = 0' c494_chead
+m494 "S11 (a fenced content line read as a heading)" 'if (!f && hlevel(n))' 'if (hlevel(n))' c494_cfenced_head
+m494 "S12 (no block-label content check)" 'if (un) exit 6' 'if (0) exit 6' c494_cblank
+m494 "S13 (content blocks not cut at blank lines)" 'if (!f && n == "") { first = 1; next }' 'if (!f && n == "") next' c494_cblank
+
+# The same rows under every awk on the machine, as the #486 rows run.
+for a in gawk mawk original-awk busybox; do
+  command -v "$a" > /dev/null || { echo "  SKIP awk=$a: not installed"; continue; }
+  f494=""; for c in $C494; do PATH="$R486/bin-$a:$PATH" "$c" || f494="$f494 $c"; done
+  expect "#494: every section-append row passes under awk=$a" "" "$f494"
 done
 
 UQ_TEXT="no two ok/FAIL rows share a text"
