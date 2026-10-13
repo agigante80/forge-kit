@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 45
+# forge-lib-version: 46
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -872,7 +872,8 @@ _forge_body_of() {   # <n>: the issue body, or non-zero if the response is not a
 # AN UNCLOSED FENCE HOLDING A MARKER LINE IS AMBIGUOUS (#486 round 1). A body that ends inside an
 # unclosed fence may be quoting markers or may have lost its closer above a real region, and
 # nothing in the body says which. Reading them as text dropped or duplicated a real region, so the
-# splice and compose REFUSE that body (exit 103, its own message). An unclosed fence with no
+# splice and compose REFUSE that body (exit 103, its own message), and compose refuses a NEW body
+# ending that way too (#486 round 2): writing it would lock the issue. An unclosed fence with no
 # marker line inside is unambiguous and keeps the closer-then-append path. get does NOT refuse:
 # no get refuses a malformed body (an unterminated start returns to the end of the body), and it
 # returns empty here, the markers read as fenced text, so the writes are where this fails closed.
@@ -1111,6 +1112,7 @@ forge_body_compose_preserving() {
       # Remember whether the new body ends inside an unclosed fence, then RESET the fence and
       # region state so the current-body pass below starts from a clean slate (#486).
       newopen = fopen; if (newopen) newcloser = fence_closer()
+      newamb = fopen && fmark   # the NEW body is the ambiguous kind: refused in END, never written
       fopen = 0; fmark = 0; rgn = ""
     }
     { line[NR] = $0
@@ -1122,6 +1124,7 @@ forge_body_compose_preserving() {
       } else if ($0 ~ /^<!-- [^ \t]+:(start|end) -->/) bad = 1
     }
     END {
+      if (newamb) exit 106           # a flag, not an exit in BEGIN, so the read pass still runs
       if (fopen && fmark) exit 105   # the ambiguous unclosed fence (see _FORGE_AWK_MARKER)
       for (k in st) if (!en[k]) bad = 1
       if (bad) exit 103
@@ -1143,6 +1146,9 @@ forge_body_compose_preserving() {
          return 103 ;;
     105) _forge_tmp_done "$out"
          echo "forge-lib: issue #$n ends inside an unclosed code fence holding a region marker line; refusing" >&2
+         return 103 ;;
+    106) _forge_tmp_done "$out"
+         echo "forge-lib: issue #$n: the new body ends inside an unclosed code fence holding a region marker line; refusing" >&2
          return 103 ;;
     *)   _forge_tmp_done "$out"
          echo "forge-lib: could not compose issue #$n (awk exited $rc); nothing was sent" >&2
