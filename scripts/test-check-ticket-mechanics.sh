@@ -492,6 +492,35 @@ case "$(outcome "$(run "$L16" feature)" gwt)|$(gwt479 "$L16")" in "fail|"*"found
 L17="$(one479 halfline "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\n- Negative: given d, when e, then 400 INVALID')")"
 expect "#479 guard: a Positive block beside a lowercase Negative one-liner still refers" referred "$(outcome "$(run "$L17" feature)" gwt)"
 
+# --- #487: a no-When one-line header keeps the one-line form, but no longer hides another block's
+# failure. The refer branch judges the When count, then the missing Then, on the field with every
+# no-When one-line header block removed, and refers only when both pass. Evidence is pinned by
+# whole-field equality, as the wc_ev rows pin it. L13 above is the valid-block guard.
+WC487P='each scenario block needs exactly one When (Positive: 2 When lines)'
+R1="$(one479 rep "$(printf -- '**Positive**: Given a. When b. Then c.\n\nNegative\n- Given: d\n- When: e\n- When: e2\n- Then: 400 INVALID')")"
+o="$(outcome "$(run "$R1" feature)" gwt)"; ev="$(gwt479 "$R1")"
+expect "#487: the reproduction (no-When Positive header, Negative block with two When lines) fails" fail "$o"
+[ "$ev" = 'each scenario block needs exactly one When (Negative: 2 When lines)' ] && ok "#487: and the evidence names only the Negative block (whole-field equality)" || bad "#487: reproduction evidence: $ev"
+case "$ev" in *"Positive: 0 When lines"*) bad "#487: the no-When header was counted as a block: $ev" ;; *) ok "#487: the no-When header is never reported as Positive: 0 When lines" ;; esac
+R2="$(one479 nothen "$(printf -- '**Positive**: Given a. When b. Then c.\n\nNegative\n- Given: d\n- When: e')")"
+case "$(outcome "$(run "$R2" feature)" gwt)|$(gwt479 "$R2")" in "fail|a Negative block has no Then line") ok "#487: the reproduction with ONE When line and no Negative Then fails the missing Then" ;; *) bad "#487: missing Then: $(outcome "$(run "$R2" feature)" gwt) $(gwt479 "$R2")" ;; esac
+R3="$(one479 vague "$(printf -- '**Positive**: Given a. When b. Then c.\n\nNegative\n- Given: d\n- When: e\n- Then: it fails')")"
+case "$(outcome "$(run "$R3" feature)" gwt)|$(gwt479 "$R3")" in "referred|one-line scenario form"*) ok "#487: the vague-Then variant stays referred with the one-line evidence (a vague Then is never failed)" ;; *) bad "#487: vague Then: $(outcome "$(run "$R3" feature)" gwt) $(gwt479 "$R3")" ;; esac
+R4="$(one479 mirror "$(printf -- '**Negative**: Given d. When e. Then 400 INVALID.\n\nPositive\n- Given: a\n- When: b\n- Then: c')")"
+o="$(outcome "$(run "$R4" feature)" gwt)"; ev="$(gwt479 "$R4")"
+case "$o|$ev" in *"When lines"*) bad "#487: the mirror counted the no-When Negative header: $o $ev" ;; "referred|one-line scenario form"*) ok "#487: a no-When Negative header beside a valid Positive block refers (mirror)" ;; *) bad "#487: mirror: $o $ev" ;; esac
+R5="$(one479 mirror2 "$(printf -- '**Negative**: Given d. When e. Then 400 INVALID.\n\nPositive\n- Given: a\n- When: b\n- When: b2\n- Then: c')")"
+case "$(outcome "$(run "$R5" feature)" gwt)|$(gwt479 "$R5")" in "fail|$WC487P") ok "#487: the mirror beside a two-When Positive block fails with exactly Positive: 2 When lines" ;; *) bad "#487: mirror two When: $(outcome "$(run "$R5" feature)" gwt) $(gwt479 "$R5")" ;; esac
+R6="$(one479 bullet "$(printf -- 'Positive\n- Given: a\n- When: b\n- When: b2\n- Then: c\n\n- Negative: Given d. When e. Then 400 INVALID.')")"
+case "$(outcome "$(run "$R6" feature)" gwt)|$(gwt479 "$R6")" in "fail|$WC487P") ok "#487: a bullet one-liner beside a two-When Positive block fails with exactly Positive: 2 When lines" ;; *) bad "#487: bullet sibling: $(outcome "$(run "$R6" feature)" gwt) $(gwt479 "$R6")" ;; esac
+# The WHOLE header block is removed, not just its line: a `- Then:` bullet under a no-When Negative
+# header must not stand in for the Then the Negative block above it lacks.
+R7="$(one479 thenhdr "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n\n**Negative**: Given d. When e. Then 400 INVALID.\n- Then: 400 INVALID')")"
+case "$(outcome "$(run "$R7" feature)" gwt)|$(gwt479 "$R7")" in "fail|a Negative block has no Then line") ok "#487: a Then bullet under a removed header does not cover the Negative block above it" ;; *) bad "#487: header Then bullet: $(outcome "$(run "$R7" feature)" gwt) $(gwt479 "$R7")" ;; esac
+case "$(outcome "$(run "$O5" feature)" gwt)|$(gwt479 "$O5")" in "referred|one-line scenario form"*) ok "#487 guard: O5's two bold one-line headers and no block still refer" ;; *) bad "#487 guard: O5: $(gwt479 "$O5")" ;; esac
+case "$(gwt479 "$O3")" in "one-line scenario form"*) ok "#487 guard: O3 still refers with the one-line evidence" ;; *) bad "#487 guard: O3: $(gwt479 "$O3")" ;; esac
+case "$(outcome "$(run "$O7" feature)" gwt)|$(gwt479 "$O7")" in "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)") ok "#487 guard: the O7 near miss keeps its exact 0/0 evidence" ;; *) bad "#487 guard: O7: $(gwt479 "$O7")" ;; esac
+
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
 # An optional fourth field is the field's description line, and an optional fifth, `gate-owned`,
 # adds that YAML comment to the field block (#304); every older call keeps its shape.
@@ -587,13 +616,17 @@ fi
 GATE479='if { [ "$pos_count" -gt 0 ] || [ "$neg_count" -gt 0 ]; } && [ -n "$one_line" ]; then'
 grep -qF "$GATE479" "$SCRIPT" && ok "mutant ledger: the script carries the block gate (#479 review)" || bad "mutant ledger: #479 block gate not found"
 sed 's/^\( *\)if { \[ "\$pos_count" -gt 0 \] || \[ "\$neg_count" -gt 0 \]; } && \[ -n "\$one_line" \]; then$/\1if false; then/' "$SCRIPT" > "$MUT"
+# Its L12 row was dropped by #487: the refer branch now runs the When count, so L12 fails under
+# this mutant exactly as under the real script (equivalent there). L10 still kills it.
 if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the valid-pair gate mutant did not apply"; else
-  expect "mutant: without the valid-pair gate the bold one-liner header hides its When count (the #479 review row can fail)" referred "$(outcome "$(mrun "$L12")" gwt)"
   expect "mutant: without the valid-pair gate a stray one-liner in a valid pair refers (the stray row can fail)" referred "$(outcome "$(mrun "$L10")" gwt)"
 fi
 sed 's/^\( *\)if { \[ "\$pos_count" -gt 0 \] || \[ "\$neg_count" -gt 0 \]; }/\1if { [ "$pos_count" -gt 0 ] \&\& [ "$neg_count" -gt 0 ]; }/' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the valid-pair-only mutant did not apply"; else
-  expect "mutant: a gate on a valid pair only refers the incomplete-pair header (the round 2 row can fail)" referred "$(outcome "$(mrun "$L14")" gwt)"
+  # Re-aimed at the evidence by #487: the refer branch now counts L14's two When lines, so the
+  # mutant fails too, but on the When count where the real script fails the missing polarity.
+  ev="$(gwt_ev "$(mrun "$L14")")"
+  case "$ev" in *"found 1 positive, 0 negative"*) bad "mutant: valid-pair-only survived on L14: $ev" ;; *"Positive: 2 When lines"*) ok "mutant: a gate on a valid pair only reports L14's When count instead of its missing polarity (the round 2 row can fail)" ;; *) bad "mutant: valid-pair-only L14 evidence: $ev" ;; esac
   expect "mutant: a gate on a valid pair only refers the capitalised incomplete-pair header" referred "$(outcome "$(mrun "$L16")" gwt)"
 fi
 sed 's/^ *!pair { print }$//' "$SCRIPT" > "$MUT"
@@ -604,6 +637,16 @@ sed 's/whens == 0) print hdr/whens < 0) print hdr/g' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the header exemption mutant did not apply"; else
   expect "mutant: without the header exemption O5's bold one-liners fail one site later (the O5 row can fail)" fail "$(outcome "$(mrun "$O5")" gwt)"
   expect "mutant: without the header exemption a bold one-liner beside a real block fails (the mixed row can fail)" fail "$(outcome "$(mrun "$L13")" gwt)"
+fi
+# #487 mutant: keep every no-When one-line header block in the refer branch's judged text; the
+# reproduction then names the header as `Positive: 0 When lines` and the valid mirror fails.
+X487='n_when == 0 && tolower(head) ~ one'
+grep -qF "$X487" "$SCRIPT" && ok "mutant ledger: the script carries the no-When header exclusion (#487)" || bad "mutant ledger: #487 exclusion not found"
+sed 's/n_when == 0 && tolower(head) ~ one/n_when < 0 \&\& tolower(head) ~ one/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#487: the header exclusion mutant did not apply"; else
+  ev="$(gwt_ev "$(mrun "$R1")")"
+  case "$ev" in *"Positive: 0 When lines"*) ok "mutant: without the exclusion the reproduction names the header block (the #487 evidence row can fail)" ;; *) bad "mutant: #487 exclusion survived on the reproduction: $ev" ;; esac
+  expect "mutant: without the exclusion the valid mirror fails on Negative: 0 When lines (the mirror row can fail)" fail "$(outcome "$(mrun "$R4")" gwt)"
 fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.

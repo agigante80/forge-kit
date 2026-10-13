@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 30
+# check-ticket-mechanics-version: 31
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -551,6 +551,61 @@ names_path() { grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py
 # refer hid its block's real failure (2 When lines). So a valid pair is judged by its blocks, and
 # only a header owning no When line keeps the one-line form; see the gate below. The block `marker_re`
 # stays case-sensitive; a lowercase BLOCK marker is a separate question (#479 out of scope).
+# Where the one-line form IS kept, the refer no longer hides the other blocks (#487, do not
+# restore the bare refer): a no-When one-line header beside a Negative block with two When lines
+# referred, so a mechanical fail the checker already knew became a judgement call. The refer
+# branch now runs the When count and the missing-Then scan first, on the field with every no-When
+# one-line header block removed, and refers only when both pass; see `without_oneliner_headers`.
+#
+# The two block scans are functions so the block branch and the refer branch run the same text.
+# `when_counts` prints the offending blocks joined by '; ' (empty when every block has one When);
+# `then_missing` prints how many Negative blocks have no Then line.
+# Polarity comes from the anchored MARK_NEG, the same regex the counts and sibling awks use
+# (#359). A substring test named a Negative block Positive when its label held the word. The
+# else branch is safe: every line reaching it already matched MARK_ANY, so it is Positive.
+# The join is awk, not `paste -sd'; '`: paste cycles its delimiter LIST per character, so a
+# two-character separator yields `a;b c` from three items (#365). Do not simplify it back.
+when_counts() {
+  printf '%s\n' "$1" | CTM_ANY="$MARK_ANY" CTM_NEG="$MARK_NEG" awk '
+    BEGIN { any = ENVIRON["CTM_ANY"]; neg = ENVIRON["CTM_NEG"] }
+    $0 ~ any {
+      if (block != "" && whens != 1) { print block ": " whens " When lines" }
+      block = ($0 ~ neg ? "Negative" : "Positive"); whens = 0; next
+    }
+    block != "" && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { whens++ }
+    END { if (block != "" && whens != 1) { print block ": " whens " When lines" } }
+  ' | head -3 | awk 'NR>1{printf "; "} {printf "%s", $0} END{print ""}'
+}
+then_missing() {
+  printf '%s\n' "$1" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
+    BEGIN { neg = ENVIRON["CTM_NEG"]; pos = ENVIRON["CTM_POS"] }
+    $0 ~ neg { if (inneg && !seen) n++; inneg = 1; seen = 0; next }
+    $0 ~ pos { if (inneg && !seen) n++; inneg = 0; next }
+    inneg && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1 }
+    END { if (inneg && !seen) n++; print n+0 }
+  '
+}
+# The field minus every block whose HEADER is a one-liner (matched case-insensitively, as the
+# `grep -iE` detector matches it) owning no When line, of either polarity (#487). Such a header is
+# a scenario the block scans cannot read, so it must never be reported as `Positive: 0 When lines`.
+# The WHOLE block goes, not just the header line: a `- Then:` bullet under a dropped Negative
+# header would otherwise count as the Then of the Negative block above it and hide its missing
+# Then. A bullet one-liner (`- Negative: Given ...`) is not a header and is kept, so a block it
+# sits in is still judged. Lines before the first header pass through. `tolower` on both sides
+# rather than IGNORECASE, which only gawk has; ONE_LINE holds no escape `tolower` could change.
+without_oneliner_headers() {
+  printf '%s\n' "$1" | CTM_ANY="$MARK_ANY" CTM_ONE="$ONE_LINE" awk '
+    BEGIN { any = ENVIRON["CTM_ANY"]; one = tolower(ENVIRON["CTM_ONE"]) }
+    function flush() {
+      if (!(inblk && n_when == 0 && tolower(head) ~ one)) printf "%s", buf
+      buf = ""
+    }
+    $0 ~ any { flush(); inblk = 1; head = $0; n_when = 0; buf = $0 "\n"; next }
+    inblk && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { n_when++ }
+    { buf = buf $0 "\n" }
+    END { flush() }
+  '
+}
 ONE_LINE='^[[:space:]]*([-*][[:space:]]+)?([*][*]|__|[*]|_)?(Positive|Negative)([*][*]|__|[*]|_)?[.:].*(^|[^A-Za-z])Given([^A-Za-z]|$).*(^|[^A-Za-z])When([^A-Za-z]|$).*(^|[^A-Za-z])Then([^A-Za-z]|$)'
 if [ -z "$SCENARIOS_LABEL" ]; then
   row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"
@@ -567,7 +622,8 @@ else
     # (O5's `**Positive**: Given a. When b. Then c.`, which v9 failed with 0 When lines); a header
     # that owns When lines is a block, so a missing polarity or a When count still fails. Any other
     # one-liner keeps the form only while the pair is incomplete; inside a valid pair a stray prose
-    # line is left to the block checks.
+    # line is left to the block checks. Keeping the form no longer hides the other blocks (#487):
+    # the refer branch below judges them first, with the no-When header blocks removed.
     if { [ "$pos_count" -gt 0 ] || [ "$neg_count" -gt 0 ]; } && [ -n "$one_line" ]; then
       pair=0; [ "$pos_count" -gt 0 ] && [ "$neg_count" -gt 0 ] && pair=1
       one_line="$(printf '%s\n' "$SCENARIOS" | CTM_ANY="$MARK_ANY" CTM_PAIR="$pair" awk '
@@ -580,7 +636,12 @@ else
     fi
     # Order: a reasoned N/A (#241) is tested first, as check 5 tests it before a path, and only
     # where NO block exists, so an N/A mentioned inside a real pair is still a pair; then the
-    # one-line form (#233); then the block count. A bare N/A with no reason is still a fail.
+    # one-line form (#233), which first runs the When count and then the missing-Then scan on the
+    # other blocks (#487) and refers only when both pass; then the block count. A bare N/A with no
+    # reason is still a fail. Where a one-line form is present the polarity fail below never fires:
+    # a one-liner is a scenario of its polarity the count cannot see (O3, L17). Where none is
+    # present the polarity fail runs before the When count (L14). The vague-Then heuristic stays
+    # behind the refer, since both outcomes are `referred`.
     if [ "$pos_count" -eq 0 ] && [ "$neg_count" -eq 0 ] && [ -z "$one_line" ] && looks_na "$SCENARIOS"; then
       if long_enough "$SCENARIOS"; then
         row gwt referred "scenarios claim N/A; legitimate only where rule 1 finds no behaviour delta: $(first_line "$SCENARIOS")"
@@ -588,24 +649,19 @@ else
         row gwt fail "scenarios claim a bare N/A with no reason: $(first_line "$SCENARIOS")"
       fi
     elif [ -n "$one_line" ]; then
-      row gwt referred "one-line scenario form; the critic must judge rule 1 unaided: $(first_line "$one_line")"
+      judged="$(without_oneliner_headers "$SCENARIOS")"
+      multi_when="$(when_counts "$judged")"
+      if [ -n "$multi_when" ]; then
+        row gwt fail "each scenario block needs exactly one When ($multi_when)"
+      elif [ "$(then_missing "$judged")" -gt 0 ]; then
+        row gwt fail "a Negative block has no Then line"
+      else
+        row gwt referred "one-line scenario form; the critic must judge rule 1 unaided: $(first_line "$one_line")"
+      fi
     elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
     else
-      # Polarity comes from the anchored MARK_NEG, the same regex the counts and sibling awks use
-      # (#359). A substring test named a Negative block Positive when its label held the word. The
-      # else branch is safe: every line reaching it already matched MARK_ANY, so it is Positive.
-      # The join is awk, not `paste -sd'; '`: paste cycles its delimiter LIST per character, so a
-      # two-character separator yields `a;b c` from three items (#365). Do not simplify it back.
-      multi_when="$(printf '%s\n' "$SCENARIOS" | CTM_ANY="$MARK_ANY" CTM_NEG="$MARK_NEG" awk '
-        BEGIN { any = ENVIRON["CTM_ANY"]; neg = ENVIRON["CTM_NEG"] }
-        $0 ~ any {
-          if (block != "" && whens != 1) { print block ": " whens " When lines" }
-          block = ($0 ~ neg ? "Negative" : "Positive"); whens = 0; next
-        }
-        block != "" && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { whens++ }
-        END { if (block != "" && whens != 1) { print block ": " whens " When lines" } }
-      ' | head -3 | awk 'NR>1{printf "; "} {printf "%s", $0} END{print ""}')"
+      multi_when="$(when_counts "$SCENARIOS")"
       if [ -n "$multi_when" ]; then
         row gwt fail "each scenario block needs exactly one When ($multi_when)"
       else
@@ -620,13 +676,7 @@ else
           $0 ~ pos { inneg = 0; next }
           inneg && !seen && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1; print }
         ' | grep -vE '[0-9]|"[^"]+"|'"'"'[^'"'"']+'"'"'|[A-Z][A-Z0-9_]{2,}' | head -1)"
-        missing_then=$(printf '%s\n' "$SCENARIOS" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
-          BEGIN { neg = ENVIRON["CTM_NEG"]; pos = ENVIRON["CTM_POS"] }
-          $0 ~ neg { if (inneg && !seen) n++; inneg = 1; seen = 0; next }
-          $0 ~ pos { if (inneg && !seen) n++; inneg = 0; next }
-          inneg && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1 }
-          END { if (inneg && !seen) n++; print n+0 }
-        ')
+        missing_then="$(then_missing "$SCENARIOS")"
         if [ "$missing_then" -gt 0 ]; then
           row gwt fail "a Negative block has no Then line"
         elif [ -n "$vague" ]; then
