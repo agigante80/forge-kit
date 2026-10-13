@@ -286,10 +286,10 @@ plan: docs/plans/decided-and-never-done.md
 Closed 2026-10-13, unattended, **done** (#476, #261, #454, #302, #220, #425, #448, #445, #443, #477, #226, #272). Every recorded decision landed as picked, its body rewritten and gated first: the template picker folds case, the bash 3.2 harness has a recipe, `/phase review` steps 1 to 4 call a contract-tested asset, and Step 0b blocks a ticket with no area label when `labels.md` is absent. #425 waited a day on a trip-wire question; the ticket-gate baseline only fell, to 5634. #443 measured and kept the step order; #282 was later closed as a dated deferral.
 
 ## Phase: What the last phase turned up
-state: open
+state: done
 plan: docs/plans/what-the-last-phase-turned-up.md
 
-Planned 2026-10-12, unattended, and opened 2026-10-13 when *Decided and never done* closed, at the maintainer's request to leave no open ticket. Four bugs the previous phase found while doing its own work: #478 (overnight-guard misses a project delete through an alias or after a `cd`), #479 (a lowercase one-line GWT scenario fails where it should be referred), #480 (a private leak suite row hangs under bash 3.2) and #484 (a depth-2 subagent's late result, probed interactively).
+Closed 2026-10-13, unattended, **re-shaped** (#478, #479, #480, #485, #489, #486, #487, #488, #490, #491, #493, #492). The three planned bugs it could finish landed, and fixing the gate's own scripts turned up ten more, most of one family: a checker reading a fenced example, a CRLF file or a quoted YAML label as something it is not. #492 was filed by another session and taken in. The remainder went to the backlog, each parked on the review loop's trip wire: #484 (needs an interactive probe) and #494 (the gate's author-section insert splices at an inline heading substring).
 
 ## Phase: Backlog
 state: backlog
