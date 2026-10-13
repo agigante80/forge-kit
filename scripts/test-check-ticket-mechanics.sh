@@ -468,11 +468,18 @@ L8="$(one479 bold '- **negative**: Given a, When b, Then c.')"
 case "$(outcome "$(run "$L8" feature)" gwt)|$(gwt479 "$L8")" in "referred|one-line scenario form"*) ok "#479: a bold lowercase marker one-liner refers" ;; *) bad "#479: bold lowercase: $(gwt479 "$L8")" ;; esac
 L9="$(one479 forgiven '- Positive. forgiven a user, when they click save, then the file is written.')"
 case "$(outcome "$(run "$L9" feature)" gwt)|$(gwt479 "$L9")" in "fail|"*"found 0 positive, 0 negative"*) ok "#479 guard: forgiven is not given, so the word boundary still holds under -i" ;; *) bad "#479 guard: forgiven: $(gwt479 "$L9")" ;; esac
-# The accepted side effect, pinned so it is not re-litigated: the one-line branch runs before the
-# block count, so a stray lowercase prose one-liner inside a valid pair refers (a capitalised one
-# already did). A false refer costs a critic read, never a blocking verdict.
+# A valid block pair is judged by its blocks (#479 review round 1): the one-line detector is
+# ignored where a Positive and a Negative block both exist, unless a block header is itself a
+# one-liner owning no When line (O5's shape). This REVERSES the side effect the ticket accepted,
+# so a stray one-liner inside a valid pair passes again, in either case.
 L10="$(one479 stray "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\npositive: given a prose note, when read, then ignored.')")"
-case "$(outcome "$(run "$L10" feature)" gwt)|$(gwt479 "$L10")" in "referred|one-line scenario form"*) ok "#479: stray lowercase one-liner in a valid pair refers" ;; *) bad "#479: stray lowercase one-liner in a valid pair: $(outcome "$(run "$L10" feature)" gwt) $(gwt479 "$L10")" ;; esac
+case "$(outcome "$(run "$L10" feature)" gwt)|$(gwt479 "$L10")" in "pass|1 positive and 1 negative blocks"*) ok "#479: stray lowercase one-liner in a valid pair passes (judged by its blocks)" ;; *) bad "#479: stray lowercase one-liner in a valid pair: $(outcome "$(run "$L10" feature)" gwt) $(gwt479 "$L10")" ;; esac
+L11="$(one479 straycap "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\nPositive: Given a prose note, When read, Then ignored.')")"
+expect "#479: a capitalised stray one-liner in a valid pair passes too" pass "$(outcome "$(run "$L11" feature)" gwt)"
+L12="$(one479 boldhdr "$(printf -- '**Positive**: given a, when b, then c\n- Given: a\n- When: b\n- When: b2\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID')")"
+case "$(outcome "$(run "$L12" feature)" gwt)|$(gwt479 "$L12")" in "fail|"*"Positive: 2 When lines"*) ok "#479: a bold header that is also a lowercase one-liner keeps its block's When count fail" ;; *) bad "#479: bold one-liner header hid the When count: $(outcome "$(run "$L12" feature)" gwt) $(gwt479 "$L12")" ;; esac
+L13="$(one479 mixed2 "$(printf -- '**Positive**: Given a. When b. Then c.\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID')")"
+expect "#479 guard: a bold one-liner header with no When line beside a real Negative block still refers" referred "$(outcome "$(run "$L13" feature)" gwt)"
 
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
 # An optional fourth field is the field's description line, and an optional fifth, `gate-owned`,
@@ -563,6 +570,19 @@ sed 's/grep -m1 -iE "\$ONE_LINE"/grep -m1 -E "$ONE_LINE"/' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the case-sensitivity mutant did not apply"; else
   expect "mutant: a case-sensitive detector fails the lowercase keyword row (the #479 row can fail)" fail "$(outcome "$(mrun "$L1")" gwt)"
   expect "mutant: a case-sensitive detector fails the lowercase marker row (the #479 row can fail)" fail "$(outcome "$(mrun "$L2")" gwt)"
+fi
+# #479 review mutants: drop the valid-pair gate, then drop the header-owns-no-When exemption.
+GATE479='if [ "$pos_count" -gt 0 ] && [ "$neg_count" -gt 0 ] && [ -n "$one_line" ]; then'
+grep -qF "$GATE479" "$SCRIPT" && ok "mutant ledger: the script carries the valid-pair gate (#479 review)" || bad "mutant ledger: #479 valid-pair gate not found"
+sed 's/^\( *\)if \[ "\$pos_count" -gt 0 \] && \[ "\$neg_count" -gt 0 \] && \[ -n "\$one_line" \]; then$/\1if false; then/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the valid-pair gate mutant did not apply"; else
+  expect "mutant: without the valid-pair gate the bold one-liner header hides its When count (the #479 review row can fail)" referred "$(outcome "$(mrun "$L12")" gwt)"
+  expect "mutant: without the valid-pair gate a stray one-liner in a valid pair refers (the stray row can fail)" referred "$(outcome "$(mrun "$L10")" gwt)"
+fi
+sed 's/whens == 0) print hdr/whens < 0) print hdr/g' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the header exemption mutant did not apply"; else
+  expect "mutant: without the header exemption O5's bold one-liners fail one site later (the O5 row can fail)" fail "$(outcome "$(mrun "$O5")" gwt)"
+  expect "mutant: without the header exemption a bold one-liner beside a real block fails (the mixed row can fail)" fail "$(outcome "$(mrun "$L13")" gwt)"
 fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.
