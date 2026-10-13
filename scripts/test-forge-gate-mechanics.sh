@@ -328,6 +328,28 @@ else
 fi
 cp "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh"
 
+# #492: a QUOTED template label. SHAPED compares the labels --dump-fields prints with the body's
+# headings, so before the checker unquoted a label an unmarked body under that form heading was
+# called never template-shaped. This pins the changed verdict and the mutant that restores it.
+quoted492() { proj .github/ISSUE_TEMPLATE; sed 's/^      label: Bug description$/      label: "Bug description"/' "$ROOT/.github/ISSUE_TEMPLATE/bug.yml" > "$T/proj/.github/ISSUE_TEMPLATE/bug.yml"; }
+quoted492
+grep -qx '      label: "Bug description"' "$T/proj/.github/ISSUE_TEMPLATE/bug.yml" && ok "#492: the bug.yml copy quotes its Bug description label (fixture sanity)" || bad "#492: the bug.yml copy carries no quoted label"
+issue "$SHAPED493" bug P2 api
+run 42
+lacks "never template-shaped" "$out" "a quoted template label: an unmarked body under its form heading is NOT called never-template-shaped (#492)"
+issue "$FREE493" bug P2 api
+run 42
+expect "a quoted template label: a free-form unmarked body gets the notice exactly once (#492)" 1 "$(grep -c 'never template-shaped' <<< "$out")"
+sed '/^template_fields() {/,/^}/ s/label = unq(l)/label = l/' "$T/ctm.bak" > "$BIN/check-ticket-mechanics.sh"
+if cmp -s "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh" || grep -qF 'label = unq(l)' <<< "$(sed -n '/^template_fields() {/,/^}/p' "$BIN/check-ticket-mechanics.sh")"; then
+  bad "#492: the template_fields unq mutant did not apply"
+else
+  issue "$SHAPED493" bug P2 api
+  run 42
+  contains "never template-shaped" "$out" "mutant: template_fields keeping the quotes calls the shaped body never-template-shaped (the #492 row can fail)"
+fi
+cp "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh"
+
 echo "== a template-shaped body missing ONE section still fails that section =="
 # The near-miss that keeps the notice honest: it must key on the SHAPE, not on any failure count,
 # or a gated ticket with a genuine gap would be excused by the same message.

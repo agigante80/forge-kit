@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 39
+# check-ticket-mechanics-version: 40
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -126,6 +126,13 @@
 # label and template_subheadings() from its label and heading text, each before the blank strip,
 # so a template checked out with core.autocrlf=true gives the LF rows and --dump-fields and
 # --roles print no CR. Only a TRAILING CR is stripped: a CR inside a label is kept, byte for byte.
+# A QUOTED TEMPLATE LABEL IS COMPARED BY ITS VALUE (#492). YAML requires quotes on a label holding
+# `: `, and the parsed label used to keep them, so its section read as `heading absent` on every
+# body. Both label readers now unquote through one awk function, unq() (see UNQ_AWK), and so
+# --dump-fields, --roles and check 3 all see the value. Only `\"`, `\\` and `''` are decoded, a
+# deliberate subset of YAML's escapes; any other escape stays verbatim, an unterminated or
+# mismatched quote is left as read, and only `label:` is unquoted (`id:`, `type:` and `required:`
+# are not).
 
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so every value reaches awk through ENVIRON (`CTM_*`). Classified
@@ -313,12 +320,34 @@ section_of() {
     inside { print }
   ' < "$BODY"
 }
+# A QUOTED LABEL IS ITS YAML VALUE (#492). unq() is the one rule both label readers apply, after
+# the CR and blank strips: strip only when the value opens with a double or single quote AND the
+# matching closing quote is found by scanning, with nothing after it but an optional ` # comment`.
+# Inside double quotes `\"` and `\\` decode in one left-to-right pass, so in `"C:\\"` the escaped
+# backslash cannot escape the closing quote, and every other escape stays verbatim. Inside single
+# quotes `''` decodes to one quote. An unterminated or mismatched value comes back untouched, so
+# its section still fails closed. Trailing blanks inside the quotes are trimmed after unquoting,
+# on the unquoted value only, so an unquoted label goes through exactly the strips it had before.
+# The single quote is written \047 because this program sits inside a single-quoted shell string.
+UNQ_AWK='
+function unq(s,   q, n, i, c, d, out) {
+  q = substr(s, 1, 1); if (q != "\"" && q != "\047") return s   # opens with a quote
+  n = length(s); out = ""
+  for (i = 2; i <= n; i++) {
+    c = substr(s, i, 1); d = substr(s, i + 1, 1)
+    if (q == "\"" && c == "\\" && (d == "\"" || d == "\\")) { out = out d; i++; continue }   # one decode pass
+    if (q == "\047" && c == "\047" && d == "\047") { out = out c; i++; continue }   # a doubled single quote
+    if (c == q) { if (substr(s, i + 1) !~ /^([ \t]+#.*)?$/) return s; sub(/[ \t]+$/, "", out); return out }   # the closing quote
+    out = out c
+  }
+  return s
+}'
 # The `#`-headed lines inside ONE field's `value:` or `placeholder:` block, heading marks stripped.
 template_subheadings() {
-  CTM_WANT="$1" awk '
+  CTM_WANT="$1" awk "$UNQ_AWK"'
     BEGIN { want = ENVIRON["CTM_WANT"] }
     /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ { label = ""; inblk = 0; next }
-    /^      label: / { if (label == "") { l = substr($0, 14); sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); label = l } }   # trailing CR first (#493)
+    /^      label: / { if (label == "") { l = substr($0, 14); sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); label = unq(l) } }   # trailing CR first (#493), then unq (#492)
     /^      (value|placeholder): \|/ { inblk = 1; next }
     /^      [a-z]/ { inblk = 0 }
     inblk && label == want && /^        #+ / { h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/\r$/, "", h); sub(/[ \t]+$/, "", h); print h }
@@ -344,7 +373,7 @@ first_line() { printf '%s' "$1" | grep -m1 -v '^[[:space:]]*$' | cut -c1-120; }
 # bash `read`: tab is IFS whitespace, so an empty id would collapse two tabs and shift it.
 # --dump-fields keeps its two-column contract.
 template_fields() {
-  awk '
+  awk "$UNQ_AWK"'
     /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ {
       if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id "\t" (gate ? "yes" : "no") }
       t = $0; sub(/^.*type:[[:space:]]*/, "", t); gsub(/[[:space:]]/, "", t)
@@ -353,7 +382,7 @@ template_fields() {
     /^      description: / && index($0, "Auto-populated by ticket-gate") { gate = 1 }
     /^    # gate-owned[[:space:]]*$/ { gate = 1 }
     /^    id: / { i = substr($0, 9); gsub(/[[:space:]]/, "", i); id = i }
-    /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); label = l } }   # trailing CR only (#493)
+    /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); label = unq(l) } }   # trailing CR only (#493), then unq (#492)
     /^      required: / { r = $0; sub(/^.*required:[[:space:]]*/, "", r); gsub(/[[:space:]]/, "", r); req = r }
     /^          required: true/ { req = "true" }   # a checkboxes group with a required option
     END { if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id "\t" (gate ? "yes" : "no") } }

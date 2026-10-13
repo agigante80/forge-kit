@@ -2063,6 +2063,177 @@ if mut493 template_subheadings 's/sub(\/\\r\$\/, "", h); sub(\/\[ \\t\]+\$\/, ""
   expect "mutant: subheadings stripping its heading's blanks before the CR empties E2E on the blank-then-CR template" "fail|required heading present but empty (1): E2E test scenarios" "$(ev493 "$o" sections)"
 fi
 
+echo "check-ticket-mechanics: a quoted template label is compared by its YAML value (#492)"
+# YAML requires quotes on a label holding `: `, and the parser kept them, so the section read as
+# `heading absent` on every body. Every template and every expected label below is written by
+# hand: gen.py and ph.py keep the quotes, so as oracles they would agree with the bug.
+r492() { bash "$1" --body "$2" --template "$3" --tpl-version 9 --current-tpl-version 9 --labels bug 2>/dev/null; }
+d492() { bash "$1" --dump-fields --body "$2" --template "$3" 2>/dev/null; }
+sec492() { printf '%s\n' "$1" | awk -F'\t' '$1 == "sections" { print $2 "|" $3 }'; }
+cat > "$WORK/dq492.yml" <<'YML'
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+  - type: textarea
+    id: dod
+    attributes:
+      label: "Definition of Done: MANDATORY (dod-version 9)"
+    validations:
+      required: true
+YML
+printf '<!-- template-version: 9 -->\n\n## Summary\n\nsomething\n\n## Definition of Done: MANDATORY (dod-version 9)\n\n- [ ] the change is reviewed\n' > "$WORK/dq492-ok.md"
+printf '<!-- template-version: 9 -->\n\n## Summary\n\nsomething\n' > "$WORK/dq492-absent.md"
+printf '<!-- template-version: 9 -->\n\n## Summary\n\nsomething\n\n## "Definition of Done: MANDATORY (dod-version 9)"\n\n- [ ] the change is reviewed\n' > "$WORK/dq492-lit.md"
+cat > "$WORK/sq492.yml" <<'YML'
+body:
+  - type: textarea
+    id: news
+    attributes:
+      label: 'What''s new'
+YML
+printf "<!-- template-version: 9 -->\n\n## What's new\n\nthe release notes\n" > "$WORK/sq492.md"
+cat > "$WORK/esc492.yml" <<'YML'
+body:
+  - type: textarea
+    id: greet
+    attributes:
+      label: "Say \"hi\" to C:\\dir"
+    validations:
+      required: true
+YML
+printf '<!-- template-version: 9 -->\n\n## Say "hi" to C:\\dir\n\nthe greeting\n' > "$WORK/esc492.md"
+cat > "$WORK/cm492.yml" <<'YML'
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to reproduce" # keep
+    validations:
+      required: true
+YML
+printf '<!-- template-version: 9 -->\n\n## Steps to reproduce\n\n1. run it\n' > "$WORK/cm492.md"
+cat > "$WORK/sub492.yml" <<'YML'
+body:
+  - type: textarea
+    id: rollout
+    attributes:
+      label: "Rollout: plan"
+      value: |
+        ### Sub
+        - [ ] fill me
+    validations:
+      required: true
+YML
+printf '<!-- template-version: 9 -->\n\n### Rollout: plan\n\n### Sub\n\n- filled under the sub-heading\n' > "$WORK/sub492.md"
+cat > "$WORK/br492.yml" <<'YML'
+body:
+  - type: textarea
+    id: broken
+    attributes:
+      label: "Broken
+YML
+printf '<!-- template-version: 9 -->\n\n## Broken\n\nsomething\n' > "$WORK/br492.md"
+cat > "$WORK/pc492.yml" <<'YML'
+body:
+  - type: textarea
+    id: path
+    attributes:
+      label: "Path C:\\"
+YML
+printf '<!-- template-version: 9 -->\n\n## Path C:\\\n\nthe path\n' > "$WORK/pc492.md"
+cat > "$WORK/rl492.yml" <<'YML'
+body:
+  - type: textarea
+    id: unit_tests
+    attributes:
+      label: "Unit tests: per module"
+    validations:
+      required: true
+YML
+sed 's/$/\r/' "$WORK/dq492.yml" > "$WORK/dq492-crlf.yml"
+# Fixture sanity: each template carries its quotes as written, so no row below passes vacuously.
+grep -qxF '      label: "Definition of Done: MANDATORY (dod-version 9)"' "$WORK/dq492.yml" && grep -qxF "      label: 'What''s new'" "$WORK/sq492.yml" \
+  && grep -qxF '      label: "Say \"hi\" to C:\\dir"' "$WORK/esc492.yml" && grep -qxF '      label: "Path C:\\"' "$WORK/pc492.yml" \
+  && grep -qxF '## Path C:\' "$WORK/pc492.md" && grep -qxF '## Say "hi" to C:\dir' "$WORK/esc492.md" \
+  && ok "#492: the hand-written templates and bodies carry their quotes and backslashes as written (fixture sanity)" || bad "#492: a hand-written fixture is not what it claims"
+# The quoted cases, run once under the default awk and again through each portability shim.
+cases492() {  # cases492 <awk name>
+  local o
+  o="$(r492 "$SCRIPT" "$WORK/dq492-ok.md" "$WORK/dq492.yml")"
+  expect "#492 ($1): a double-quoted label compares by value: sections passes" pass "$(outcome "$o" sections)"
+  case "$(sec492 "$o")" in *"heading absent"*) bad "#492 ($1): ...the evidence still names an absent heading" ;; *) ok "#492 ($1): ...and its evidence names no absent heading" ;; esac
+  expect "#492 ($1): a single-quoted label decodes its doubled quote in --dump-fields" "$(printf "What's new\tno")" "$(d492 "$SCRIPT" "$WORK/sq492.md" "$WORK/sq492.yml")"
+  expect "#492 ($1): an escaped quote and an escaped backslash decode in one pass" 'Say "hi" to C:\dir' "$(d492 "$SCRIPT" "$WORK/esc492.md" "$WORK/esc492.yml" | cut -f1)"
+  expect "#492 ($1): ...and that body passes sections" pass "$(outcome "$(r492 "$SCRIPT" "$WORK/esc492.md" "$WORK/esc492.yml")" sections)"
+  expect "#492 ($1): a trailing comment after the closing quote is ignored: sections passes" pass "$(outcome "$(r492 "$SCRIPT" "$WORK/cm492.md" "$WORK/cm492.yml")" sections)"
+  expect "#492 ($1): a quoted field's sub-heading still sits inside its section: sections passes" pass "$(outcome "$(r492 "$SCRIPT" "$WORK/sub492.md" "$WORK/sub492.yml")" sections)"
+  expect "#492 ($1): the section absent fails, naming the label without quotes" "fail|heading absent (1): Definition of Done: MANDATORY (dod-version 9)" "$(sec492 "$(r492 "$SCRIPT" "$WORK/dq492-absent.md" "$WORK/dq492.yml")")"
+  expect "#492 ($1): a literal-quoted heading is not the label" "fail|heading absent (1): Definition of Done: MANDATORY (dod-version 9)" "$(sec492 "$(r492 "$SCRIPT" "$WORK/dq492-lit.md" "$WORK/dq492.yml")")"
+  expect "#492 ($1): an unterminated quote is dumped as read, quote kept" "$(printf '"Broken\tno')" "$(d492 "$SCRIPT" "$WORK/br492.md" "$WORK/br492.yml")"
+  expect "#492 ($1): ...and a full run fails it, quote kept" 'fail|heading absent (1): "Broken' "$(sec492 "$(r492 "$SCRIPT" "$WORK/br492.md" "$WORK/br492.yml")")"
+  expect "#492 ($1): an escaped backslash does not escape the closing quote" 'Path C:\' "$(d492 "$SCRIPT" "$WORK/pc492.md" "$WORK/pc492.yml" | cut -f1)"
+  expect "#492 ($1): the CRLF copy of the double-quoted template gives the LF rows (passing body)" "$o" "$(r492 "$SCRIPT" "$WORK/dq492-ok.md" "$WORK/dq492-crlf.yml")"
+  expect "#492 ($1): ...and the LF rows on the absent body" "$(r492 "$SCRIPT" "$WORK/dq492-absent.md" "$WORK/dq492.yml")" "$(r492 "$SCRIPT" "$WORK/dq492-absent.md" "$WORK/dq492-crlf.yml")"
+  expect "#492 ($1): ...and the LF --dump-fields output" "$(printf 'Summary\tyes\nDefinition of Done: MANDATORY (dod-version 9)\tyes')" "$(d492 "$SCRIPT" "$WORK/dq492-ok.md" "$WORK/dq492-crlf.yml")"
+  expect "#492 ($1): --roles prints a quoted unit-test label unquoted" "$(printf 'unit_tests\tUnit tests: per module')" "$(bash "$SCRIPT" --roles --template "$WORK/rl492.yml" 2>/dev/null)"
+}
+cases492 "default awk"
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$WORK/mawk492"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$WORK/mawk492/awk"; chmod +x "$WORK/mawk492/awk"
+  PATH="$WORK/mawk492:$PATH" cases492 mawk
+else
+  ok "#492: portability: mawk not on PATH, quoted-label rows under mawk skipped"
+fi
+if command -v busybox >/dev/null 2>&1 && busybox awk 'BEGIN{}' 2>/dev/null; then
+  mkdir -p "$WORK/bb492"; printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$WORK/bb492/awk"; chmod +x "$WORK/bb492/awk"
+  PATH="$WORK/bb492:$PATH" cases492 "busybox awk"
+else
+  ok "#492: portability: busybox awk not on PATH, quoted-label rows under busybox awk skipped"
+fi
+# Mutants: a ledger row says the code is there, an applied-check says the mutant changed it, and the
+# row it names must fail on the mutant.
+M492="$WORK/mut492.sh"
+XU492='label = unq(l)'
+XP492='awk "$UNQ_AWK"'
+for f492 in template_fields template_subheadings; do
+  grep -qF "$XU492" <<< "$(fn493 "$f492" "$SCRIPT")" && ok "mutant ledger: $f492() unquotes its label (#492)" || bad "mutant ledger: $f492() lacks $XU492"
+  grep -qF "$XP492" <<< "$(fn493 "$f492" "$SCRIPT")" && ok "mutant ledger: $f492() prepends UNQ_AWK (#492)" || bad "mutant ledger: $f492() does not prepend UNQ_AWK"
+done
+XS492='return s   # opens with a quote'
+XD492='{ out = out d; i++; continue }   # one decode pass'
+grep -qF "$XS492" "$SCRIPT" && ok "mutant ledger: unq() opens with the quote test and scans for the close (#492)" || bad "mutant ledger: #492 opening line not found"
+grep -qF "$XD492" "$SCRIPT" && ok "mutant ledger: unq() decodes both escapes in one pass (#492)" || bad "mutant ledger: #492 decode line not found"
+mut492() {  # mut492 <sed range or empty> <sed expr> <string the mutant must remove>
+  if [ -n "$1" ]; then sed "/^$1() {/,/^}/ $2" "$SCRIPT" > "$M492"; else sed "$2" "$SCRIPT" > "$M492"; fi
+  if cmp -s "$SCRIPT" "$M492"; then bad "#492: the mutant '$2' did not apply"; return 1; fi
+  if [ -n "$1" ] && grep -qF "$3" <<< "$(fn493 "$1" "$M492")"; then bad "#492: the mutant '$2' left '$3' in $1()"; return 1; fi
+  if [ -z "$1" ] && grep -qF "$3" "$M492"; then bad "#492: the mutant '$2' left '$3'"; return 1; fi
+  return 0; }
+if mut492 template_fields 's/label = unq(l)/label = l/' "$XU492"; then
+  expect "mutant: template_fields() without unq() fails the double-quoted positive (the dq row can fail)" \
+    'fail|heading absent (1): "Definition of Done: MANDATORY (dod-version 9)"' "$(sec492 "$(r492 "$M492" "$WORK/dq492-ok.md" "$WORK/dq492.yml")")"
+fi
+if mut492 template_subheadings 's/label = unq(l)/label = l/' "$XU492"; then
+  expect "mutant: template_subheadings() without unq() ends the quoted field at its own ### Sub (the sub-heading row can fail)" \
+    "fail|required heading present but empty (1): Rollout: plan" "$(sec492 "$(r492 "$M492" "$WORK/sub492.md" "$WORK/sub492.yml")")"
+fi
+if mut492 "" 's/return s   # opens with a quote$/return s; if (substr(s, n = length(s), 1) == q) return substr(s, 2, n - 2); return s   # last character/' "$XS492"; then
+  expect "mutant: testing the last character instead of scanning fails the trailing-comment positive (the comment row can fail)" \
+    fail "$(outcome "$(r492 "$M492" "$WORK/cm492.md" "$WORK/cm492.yml")" sections)"
+fi
+if mut492 "" '/# one decode pass$/d' "$XD492"; then
+  expect "mutant: dropping the escape decode fails the one-pass positive (the escape row can fail)" \
+    '"Say \"hi\" to C:\\dir"' "$(d492 "$M492" "$WORK/esc492.md" "$WORK/esc492.yml" | cut -f1)"
+fi
+if mut492 "" 's/{ out = out d; i++; continue }   # one decode pass$/{ out = out d; if (d == "\\"") i++; continue }   # misread pairs/' "$XD492"; then
+  expect "mutant: a scan that lets an escaped backslash escape the closing quote keeps the Path label quoted (the Path row can fail)" \
+    '"Path C:\\"' "$(d492 "$M492" "$WORK/pc492.md" "$WORK/pc492.yml" | cut -f1)"
+fi
+
 echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
 # Step 0c reads this instead of matching field ids itself, so the resolution rule lives here alone.
 roles() { bash "$SCRIPT" --roles --template "$1" 2>/dev/null; }

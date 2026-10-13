@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 77 -->
+<!-- ticket-gate-version: 78 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -130,8 +130,8 @@ target section under another heading (bar `personal_data`'s GDPR match), is Miss
 
 **0c-iii. Synthesise real content**
 
-Write each section, inline or dispatched, as `## <label>` copied verbatim from the
-template's `label:`, scenarios following its `placeholder:` shape, never placeholder text; where
+Write each section, inline or dispatched, as `## <label>` holding the template's unquoted
+`label:` value, scenarios following its `placeholder:` shape, never placeholder text; where
 the body cannot support a specific case, write the most concrete one and note the assumption.
 
 Fast path: when the ONLY gap is `docs_impact`, synthesise it inline, then 0c-iv.
