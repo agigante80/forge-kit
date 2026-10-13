@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 31
+# check-ticket-mechanics-version: 32
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -585,23 +585,27 @@ then_missing() {
     END { if (inneg && !seen) n++; print n+0 }
   '
 }
-# The field minus every block whose HEADER is a one-liner (matched case-insensitively, as the
-# `grep -iE` detector matches it) owning no When line, of either polarity (#487). Such a header is
-# a scenario the block scans cannot read, so it must never be reported as `Positive: 0 When lines`.
-# The WHOLE block goes, not just the header line: a `- Then:` bullet under a dropped Negative
-# header would otherwise count as the Then of the Negative block above it and hide its missing
-# Then. A bullet one-liner (`- Negative: Given ...`) is not a header and is kept, so a block it
-# sits in is still judged. Lines before the first header pass through. `tolower` on both sides
-# rather than IGNORECASE, which only gawk has; ONE_LINE holds no escape `tolower` could change.
+# The field minus every block that owns no When line and whose HEADER or any line under it is a
+# one-liner (matched case-insensitively, as the `grep -iE` detector matches it), of either
+# polarity (#487). Such a block is one-line scenarios the block scans cannot read, so it must never
+# be reported as `Positive: 0 When lines`. That covers a bold grouping header such as `**Positive**`
+# above bullet one-liners (review round 1): keyed on the header alone, it failed with 0 When lines
+# where it had referred. The WHOLE block goes, not just the header line: a `- Then:` bullet under a
+# dropped Negative header would otherwise count as the Then of the Negative block above it and hide
+# its missing Then. A block that owns a When line is kept whatever one-liner it holds, so the
+# bullet sibling (`- Negative: Given ...` inside a two-When Positive block) is still judged. Lines
+# before the first header pass through. `tolower` on both sides rather than IGNORECASE, which only
+# gawk has; ONE_LINE holds no escape `tolower` could change.
 without_oneliner_headers() {
   printf '%s\n' "$1" | CTM_ANY="$MARK_ANY" CTM_ONE="$ONE_LINE" awk '
     BEGIN { any = ENVIRON["CTM_ANY"]; one = tolower(ENVIRON["CTM_ONE"]) }
     function flush() {
-      if (!(inblk && n_when == 0 && tolower(head) ~ one)) printf "%s", buf
+      if (!(inblk && n_when == 0 && (tolower(head) ~ one || one_in))) printf "%s", buf
       buf = ""
     }
-    $0 ~ any { flush(); inblk = 1; head = $0; n_when = 0; buf = $0 "\n"; next }
+    $0 ~ any { flush(); inblk = 1; head = $0; n_when = 0; one_in = 0; buf = $0 "\n"; next }
     inblk && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { n_when++ }
+    inblk && tolower($0) ~ one { one_in = 1 }
     { buf = buf $0 "\n" }
     END { flush() }
   '
@@ -624,14 +628,20 @@ else
     # one-liner keeps the form only while the pair is incomplete; inside a valid pair a stray prose
     # line is left to the block checks. Keeping the form no longer hides the other blocks (#487):
     # the refer branch below judges them first, with the no-When header blocks removed.
+    # Inside a pair, the LINES of a block owning no When line keep the form too (#487 review
+    # round 1): `**Positive**` and `**Negative**` grouping headers each holding only bullet
+    # one-liners are scenarios the block scans cannot read. Since #479 that shape failed with
+    # `Positive: 0 When lines; Negative: 0 When lines`; it refers again, as it did under #233.
+    # Do not restore the fail. A block that owns a When line still contributes nothing here.
     if { [ "$pos_count" -gt 0 ] || [ "$neg_count" -gt 0 ]; } && [ -n "$one_line" ]; then
       pair=0; [ "$pos_count" -gt 0 ] && [ "$neg_count" -gt 0 ] && pair=1
       one_line="$(printf '%s\n' "$SCENARIOS" | CTM_ANY="$MARK_ANY" CTM_PAIR="$pair" awk '
         BEGIN { any = ENVIRON["CTM_ANY"]; pair = ENVIRON["CTM_PAIR"] + 0 }
-        $0 ~ any { if (hdr != "" && whens == 0) print hdr; hdr = $0; whens = 0; next }
+        $0 ~ any { if (hdr != "" && whens == 0) print hdr; if (whens == 0) printf "%s", grp; hdr = $0; whens = 0; grp = ""; next }
         !pair { print }
         hdr != "" && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { whens++ }
-        END { if (hdr != "" && whens == 0) print hdr }
+        pair && hdr != "" { grp = grp $0 "\n" }
+        END { if (hdr != "" && whens == 0) print hdr; if (whens == 0) printf "%s", grp }
       ' | grep -m1 -iE "$ONE_LINE")"
     fi
     # Order: a reasoned N/A (#241) is tested first, as check 5 tests it before a path, and only

@@ -519,6 +519,22 @@ R7="$(one479 thenhdr "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\
 case "$(outcome "$(run "$R7" feature)" gwt)|$(gwt479 "$R7")" in "fail|a Negative block has no Then line") ok "#487: a Then bullet under a removed header does not cover the Negative block above it" ;; *) bad "#487: header Then bullet: $(outcome "$(run "$R7" feature)" gwt) $(gwt479 "$R7")" ;; esac
 case "$(outcome "$(run "$O5" feature)" gwt)|$(gwt479 "$O5")" in "referred|one-line scenario form"*) ok "#487 guard: O5's two bold one-line headers and no block still refer" ;; *) bad "#487 guard: O5: $(gwt479 "$O5")" ;; esac
 case "$(gwt479 "$O3")" in "one-line scenario form"*) ok "#487 guard: O3 still refers with the one-line evidence" ;; *) bad "#487 guard: O3: $(gwt479 "$O3")" ;; esac
+# Review round 1: the header removal is case-insensitive, as the detector is. A lowercase no-When
+# header must be removed like the capitalised one.
+R8="$(one479 lowhdr "$(printf -- '**Positive**: given a, when b, then c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID')")"
+case "$(outcome "$(run "$R8" feature)" gwt)|$(gwt479 "$R8")" in "referred|one-line scenario form"*) ok "#487: a lowercase no-When one-line header beside a valid Negative block refers" ;; *) bad "#487: lowercase header, valid block: $(outcome "$(run "$R8" feature)" gwt) $(gwt479 "$R8")" ;; esac
+R9="$(one479 lowrep "$(printf -- '**Positive**: given a, when b, then c\n\nNegative\n- Given: d\n- When: e\n- When: e2\n- Then: 400 INVALID')")"
+case "$(outcome "$(run "$R9" feature)" gwt)|$(gwt479 "$R9")" in "fail|each scenario block needs exactly one When (Negative: 2 When lines)") ok "#487: the lowercase reproduction fails naming only the Negative block" ;; *) bad "#487: lowercase reproduction: $(outcome "$(run "$R9" feature)" gwt) $(gwt479 "$R9")" ;; esac
+# Review round 1: a bold grouping header above bullet one-liners owns no When line and is no
+# block the scans can read. With no pair it referred before #487 and must still refer.
+R10="$(one479 grp1 "$(printf -- '**Positive**\n- Positive: Given a valid token. When the endpoint is called. Then 200.\n- Negative: Given a bad token. When the endpoint is called. Then 401 AUTH_FAILED.')")"
+case "$(outcome "$(run "$R10" feature)" gwt)|$(gwt479 "$R10")" in "referred|one-line scenario form"*) ok "#487: a grouping header above bullet one-liners refers, never 0 When lines" ;; *) bad "#487: grouping header: $(outcome "$(run "$R10" feature)" gwt) $(gwt479 "$R10")" ;; esac
+# Both grouping headers make a pair. #479 failed this with 0 When lines on both; it refers now.
+R11="$(one479 grp2 "$(printf -- '**Positive**\n- Positive: Given a valid token. When the endpoint is called. Then 200.\n\n**Negative**\n- Negative: Given a bad token. When the endpoint is called. Then 401 AUTH_FAILED.')")"
+case "$(outcome "$(run "$R11" feature)" gwt)|$(gwt479 "$R11")" in "referred|one-line scenario form"*) ok "#487: Positive and Negative grouping headers holding only bullet one-liners refer (reverses the #479-era fail)" ;; *) bad "#487: both grouping headers: $(outcome "$(run "$R11" feature)" gwt) $(gwt479 "$R11")" ;; esac
+# And a grouping header beside a real block that fails is still no shield.
+R12="$(one479 grp3 "$(printf -- '**Positive**\n- Positive: Given a. When b. Then c.\n\nNegative\n- Given: d\n- When: e\n- When: e2\n- Then: 400 INVALID')")"
+case "$(outcome "$(run "$R12" feature)" gwt)|$(gwt479 "$R12")" in "fail|each scenario block needs exactly one When (Negative: 2 When lines)") ok "#487: a grouping header beside a two-When Negative block still fails on that block" ;; *) bad "#487: grouping header beside a failing block: $(outcome "$(run "$R12" feature)" gwt) $(gwt479 "$R12")" ;; esac
 case "$(outcome "$(run "$O7" feature)" gwt)|$(gwt479 "$O7")" in "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)") ok "#487 guard: the O7 near miss keeps its exact 0/0 evidence" ;; *) bad "#487 guard: O7: $(gwt479 "$O7")" ;; esac
 
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
@@ -640,13 +656,37 @@ if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the header exemption mutant did not 
 fi
 # #487 mutant: keep every no-When one-line header block in the refer branch's judged text; the
 # reproduction then names the header as `Positive: 0 When lines` and the valid mirror fails.
-X487='n_when == 0 && tolower(head) ~ one'
+X487='n_when == 0 && (tolower(head) ~ one'
 grep -qF "$X487" "$SCRIPT" && ok "mutant ledger: the script carries the no-When header exclusion (#487)" || bad "mutant ledger: #487 exclusion not found"
-sed 's/n_when == 0 && tolower(head) ~ one/n_when < 0 \&\& tolower(head) ~ one/' "$SCRIPT" > "$MUT"
+sed 's/n_when == 0 && (tolower(head) ~ one/n_when < 0 \&\& (tolower(head) ~ one/' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#487: the header exclusion mutant did not apply"; else
   ev="$(gwt_ev "$(mrun "$R1")")"
   case "$ev" in *"Positive: 0 When lines"*) ok "mutant: without the exclusion the reproduction names the header block (the #487 evidence row can fail)" ;; *) bad "mutant: #487 exclusion survived on the reproduction: $ev" ;; esac
   expect "mutant: without the exclusion the valid mirror fails on Negative: 0 When lines (the mirror row can fail)" fail "$(outcome "$(mrun "$R4")" gwt)"
+fi
+# #487 review round 1 mutants. Each literal below belongs to its mutant alone.
+# (1) A case-sensitive removal: drop the three tolower calls of without_oneliner_headers.
+XLOW='one = tolower(ENVIRON["CTM_ONE"])'
+grep -qF "$XLOW" "$SCRIPT" && ok "mutant ledger: the header removal folds case (#487 round 1)" || bad "mutant ledger: #487 tolower not found"
+sed -e 's/one = tolower(ENVIRON\["CTM_ONE"\])/one = ENVIRON["CTM_ONE"]/' -e 's/(tolower(head) ~ one/(head ~ one/' -e 's/inblk && tolower(\$0) ~ one/inblk \&\& $0 ~ one/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF 'tolower(head)' "$MUT"; then bad "#487: the case-sensitive removal mutant did not apply"; else
+  expect "mutant: a case-sensitive removal fails the lowercase header beside a valid block (the R8 row can fail)" fail "$(outcome "$(mrun "$R8")" gwt)"
+  ev="$(gwt_ev "$(mrun "$R9")")"
+  case "$ev" in *"Positive: 0 When lines"*) ok "mutant: a case-sensitive removal names the lowercase header block (the R9 row can fail)" ;; *) bad "mutant: case-sensitive removal survived on R9: $ev" ;; esac
+fi
+# (2) Key the removal on the header alone: the grouping header row fails on 0 When lines.
+XGRP='inblk && tolower($0) ~ one { one_in = 1 }'
+grep -qF "$XGRP" "$SCRIPT" && ok "mutant ledger: the removal also reads the block's lines (#487 round 1)" || bad "mutant ledger: #487 one_in rule not found"
+sed '/inblk && tolower(\$0) ~ one { one_in = 1 }/d' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#487: the header-only removal mutant did not apply"; else
+  case "$(gwt_ev "$(mrun "$R10")")" in *"Positive: 0 When lines"*) ok "mutant: a header-only removal fails the grouping header on 0 When lines (the R10 row can fail)" ;; *) bad "mutant: header-only removal survived on R10: $(gwt_ev "$(mrun "$R10")")" ;; esac
+fi
+# (3) In a pair, stop reading the lines of a no-When block: both grouping headers fail again.
+XPAIR='if (whens == 0) printf "%s", grp'
+grep -qF "$XPAIR" "$SCRIPT" && ok "mutant ledger: the pair filter reads a no-When block's lines (#487 round 1)" || bad "mutant ledger: #487 grp print not found"
+sed 's/if (whens == 0) printf "%s", grp/if (whens < 0) printf "%s", grp/g' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#487: the pair-lines mutant did not apply"; else
+  case "$(outcome "$(mrun "$R11")" gwt)|$(gwt_ev "$(mrun "$R11")")" in "fail|"*"0 When lines"*) ok "mutant: without the block lines both grouping headers fail on 0 When lines (the R11 row can fail)" ;; *) bad "mutant: pair-lines mutant survived on R11: $(gwt_ev "$(mrun "$R11")")" ;; esac
 fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.
