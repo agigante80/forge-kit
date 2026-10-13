@@ -599,6 +599,17 @@ expect "#490: a backtick line followed by text closes nothing, so what follows s
 # was the block's first Then, so the field referred.
 F490V="$(one479 f490vague "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n%s\n- Then: it fails\n%s\n- Then: 400 INVALID' "$P490" "$FB" "$FB")")"
 expect "#490: a fenced vague Then does not stand in for the block's real specific Then" "pass|$GWT490" "$(g490 "$F490V")"
+# Round 1, L1: headers outside the fences with every bullet inside them. It passed before #490 and
+# now fails 0/0 When lines (an accepted change, named in the script); the evidence says why.
+F490L="$(one479 f490hdr "$(printf -- '**Positive**\n%s\n- Given: a\n- When: b\n- Then: c\n%s\n\n**Negative**\n%s\n- Given: x\n- When: y\n- Then: 401 with AUTH_FAILED\n%s' "$FB" "$FB" "$FB" "$FB")")"
+expect "#490: headers outside fences with their bullets inside fail 0 When lines, naming the fences (accepted pass-to-fail)" \
+  "fail|each scenario block needs exactly one When (Positive: 0 When lines; Negative: 0 When lines) (lines inside a fenced code block are not read)" "$(g490 "$F490L")"
+# Round 1, L2: fence_free() strips a CR and trailing blanks before it tests a fence line.
+F490C="$(one479 f490crlf "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n\n  The one-line form we accept:\n  %stext\n  **Negative**: Given d. When e. Then 400 INVALID.\n  %s\n- Then: 400 INVALID' "$P490" "$FB" "$FB" | sed 's/$/\r/')")"
+grep -q $'^  ```\r$' "$F490C" && ok "#490: the CRLF fixture's closing fence carries a CR (fixture sanity)" || bad "#490: the CRLF fixture has no CR on its fence"
+expect "#490: a CRLF scenarios field closes its fence (the reproduction passes)" "pass|$GWT490" "$(g490 "$F490C")"
+F490E="$(one479 f490trail "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n%s   \n**Negative**: Given d. When e. Then 400 INVALID.\n%s   \n- Then: 400 INVALID' "$P490" "$FB" "$FB")")"
+expect "#490: a fence whose opener and closer carry trailing blanks still opens and closes" "pass|$GWT490" "$(g490 "$F490E")"
 if command -v mawk >/dev/null 2>&1; then
   mkdir -p "$WORK/mawk490"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$WORK/mawk490/awk"; chmod +x "$WORK/mawk490/awk"
   expect "#490: portability: the 2-space reproduction passes under mawk" "pass|$GWT490" "$(PATH="$WORK/mawk490:$PATH" g490 "$F490R")"
@@ -782,6 +793,28 @@ sed 's/SCEN_BLOCKS="\$(fence_free "\$SCENARIOS")"/SCENARIOS="$(fence_free "$SCEN
 if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XF490" "$MUT"; then bad "#490: the in-place filter mutant did not apply"; else
   expect "mutant: a filter applied in place fails the fenced-only N/A (the raw-field row can fail)" fail "$(outcome "$(mrun "$F490A")" gwt)"
   expect "mutant: ...and the reproduction still passes, so only the raw-field rows see it" pass "$(outcome "$(mrun "$F490R")" gwt)"
+fi
+# (3) and (4) Round 1, L2: drop one of fence_free()'s line strips. body_headings() and section_of()
+# carry the same literals, so the sed and the applied-check are confined to fence_free() alone.
+ff490() { sed -n '/^fence_free() {/,/^}/p' "$1"; }
+for strip in 'sub(/\r$/, "", l); ' 'sub(/[ \t]+$/, "", l)'; do
+  grep -qF "$strip" <<< "$(ff490 "$SCRIPT")" && ok "mutant ledger: fence_free() carries $strip (#490)" || bad "mutant ledger: fence_free() lacks $strip"
+done
+sed '/^fence_free() {/,/^}/ s/sub(\/\\r\$\/, "", l); //' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF 'sub(/\r$/, "", l)' <<< "$(ff490 "$MUT")"; then bad "#490: the CR-strip mutant did not apply"; else
+  expect "mutant: without fence_free's CR strip the CRLF reproduction fails (the CRLF row can fail)" fail "$(outcome "$(mrun "$F490C")" gwt)"
+fi
+sed '/^fence_free() {/,/^}/ s/; sub(\/\[ \\t\]+\$\/, "", l)//' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF 'sub(/[ \t]+$/, "", l)' <<< "$(ff490 "$MUT")"; then bad "#490: the trailing-blank mutant did not apply"; else
+  expect "mutant: without fence_free's trailing-blank strip the padded fence breaks (the trailing-blank row can fail)" fail "$(outcome "$(mrun "$F490E")" gwt)"
+fi
+# (5) No fence note: the L1 row's evidence loses its reason.
+XN490='fence_note=" (lines inside a fenced code block are not read)"'
+grep -qF "$XN490" "$SCRIPT" && ok "mutant ledger: check 4 sets the fence note (#490)" || bad "mutant ledger: #490 fence note not found"
+sed 's/fence_note=" (lines inside a fenced code block are not read)"/fence_note=""/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XN490" "$MUT"; then bad "#490: the fence-note mutant did not apply"; else
+  expect "mutant: without the fence note the L1 evidence stops naming the fences (the L1 row can fail)" \
+    "each scenario block needs exactly one When (Positive: 0 When lines; Negative: 0 When lines)" "$(mrun "$F490L" | awk -F'\t' '$1 == "gwt" { print $3 }')"
 fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.

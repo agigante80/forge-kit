@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 34
+# check-ticket-mechanics-version: 35
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -643,9 +643,16 @@ else
     # with every fence line and fenced line removed, and EVERY block scan below reads it (the counts,
     # the one-line selector and its pair awk, without_oneliner_headers, when_counts, then_missing and
     # the vague-Then awk). Do not filter SCENARIOS in place. Accepted changes: a pair, or a one-liner,
-    # that sits only inside a fence fails 0/0 where it passed or referred, and a fenced-only pair whose
-    # quote mentions N/A is `referred` by the raw looks_na, by design.
+    # that sits only inside a fence fails 0/0 where it passed or referred, a fenced-only pair whose
+    # quote mentions N/A is `referred` by the raw looks_na, by design, and headers written outside
+    # the fences with their Given/When/Then bullets inside them fail `Positive: 0 When lines;
+    # Negative: 0 When lines` where they passed (round 1). Where the fences hide a When or Then
+    # bullet, fence_note names that on the When-count and missing-Then fails; the verdict stays fail.
     SCEN_BLOCKS="$(fence_free "$SCENARIOS")"
+    WT_BULLET='^[[:space:]]*[-*][[:space:]]*[*]*(When|Then)[*]*[[:space:]]*:'
+    fence_note=""
+    [ "$(printf '%s\n' "$SCENARIOS" | grep -cE "$WT_BULLET")" -eq "$(printf '%s\n' "$SCEN_BLOCKS" | grep -cE "$WT_BULLET")" ] ||
+      fence_note=" (lines inside a fenced code block are not read)"
     pos_count=$(printf '%s\n' "$SCEN_BLOCKS" | grep -cE "$MARK_POS")
     neg_count=$(printf '%s\n' "$SCEN_BLOCKS" | grep -cE "$MARK_NEG")
     one_line="$(printf '%s\n' "$SCEN_BLOCKS" | grep -m1 -iE "$ONE_LINE")"
@@ -690,9 +697,9 @@ else
       judged="$(without_oneliner_headers "$SCEN_BLOCKS")"
       multi_when="$(when_counts "$judged")"
       if [ -n "$multi_when" ]; then
-        row gwt fail "each scenario block needs exactly one When ($multi_when)"
+        row gwt fail "each scenario block needs exactly one When ($multi_when)$fence_note"
       elif [ "$(then_missing "$judged")" -gt 0 ]; then
-        row gwt fail "a Negative block has no Then line"
+        row gwt fail "a Negative block has no Then line$fence_note"
       else
         row gwt referred "one-line scenario form; the critic must judge rule 1 unaided: $(first_line "$one_line")"
       fi
@@ -701,7 +708,7 @@ else
     else
       multi_when="$(when_counts "$SCEN_BLOCKS")"
       if [ -n "$multi_when" ]; then
-        row gwt fail "each scenario block needs exactly one When ($multi_when)"
+        row gwt fail "each scenario block needs exactly one When ($multi_when)$fence_note"
       else
         # EVERY negative block is judged, not just the first: a ticket with three conditions
         # would otherwise have two of its negatives unchecked. A digit-bearing status, a
@@ -716,7 +723,7 @@ else
         ' | grep -vE '[0-9]|"[^"]+"|'"'"'[^'"'"']+'"'"'|[A-Z][A-Z0-9_]{2,}' | head -1)"
         missing_then="$(then_missing "$SCEN_BLOCKS")"
         if [ "$missing_then" -gt 0 ]; then
-          row gwt fail "a Negative block has no Then line"
+          row gwt fail "a Negative block has no Then line$fence_note"
         elif [ -n "$vague" ]; then
           row gwt referred "a negative Then is not mechanically specific: $(first_line "$vague")"
         else
