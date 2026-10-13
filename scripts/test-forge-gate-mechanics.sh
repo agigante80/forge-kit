@@ -294,6 +294,39 @@ else
   contains "never template-shaped" "$out" "mutant: --headings printing the CR calls the CRLF body never-template-shaped (the #491 row can fail)"
 fi
 cp "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh"
+# #493: a CRLF TEMPLATE. SHAPED reads the labels --dump-fields prints and compares them with
+# grep -qxF, so it depends on the checker stripping each label's trailing CR at the source. Each
+# verdict is pinned against the CRLF copy of bug.yml and against the LF original alike.
+SHAPED493='## Bug description
+Written by hand with no marker, under the form heading.'
+FREE493='Written by hand with gh issue create: no marker and no headings at all.'
+crlf493() { proj .github/ISSUE_TEMPLATE; sed 's/$/\r/' "$ROOT/.github/ISSUE_TEMPLATE/bug.yml" > "$T/proj/.github/ISSUE_TEMPLATE/bug.yml"; }
+crlf493
+grep -q $'^      label: Bug description\r$' "$T/proj/.github/ISSUE_TEMPLATE/bug.yml" && ok "#493: the CRLF bug.yml copy carries a CR on its labels (fixture sanity)" || bad "#493: the CRLF bug.yml copy has no CR"
+issue "$SHAPED493" bug P2 api
+run 42
+lacks "never template-shaped" "$out" "a CRLF template: an unmarked body with its form heading is NOT called never-template-shaped (#493)"
+issue "$FREE493" bug P2 api
+run 42
+expect "a CRLF template: a free-form unmarked body gets the notice exactly once (#493)" 1 "$(grep -c 'never template-shaped' <<< "$out")"
+proj .github/ISSUE_TEMPLATE
+issue "$SHAPED493" bug P2 api
+run 42
+lacks "never template-shaped" "$out" "the LF template gives the same verdict on the template-shaped body (#493)"
+issue "$FREE493" bug P2 api
+run 42
+expect "the LF template gives the same verdict on the free-form body (#493)" 1 "$(grep -c 'never template-shaped' <<< "$out")"
+# The checker's template_fields() label strip removed must bring the notice back on the shaped body.
+crlf493
+sed '/^template_fields() {/,/^}/ s/sub(\/\\r\$\/, "", l); //' "$T/ctm.bak" > "$BIN/check-ticket-mechanics.sh"
+if cmp -s "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh" || grep -qF 'sub(/\r$/, "", l); ' <<< "$(sed -n '/^template_fields() {/,/^}/p' "$BIN/check-ticket-mechanics.sh")"; then
+  bad "#493: the template_fields CR mutant did not apply"
+else
+  issue "$SHAPED493" bug P2 api
+  run 42
+  contains "never template-shaped" "$out" "mutant: template_fields keeping the CR calls the shaped body never-template-shaped on a CRLF template (the #493 row can fail)"
+fi
+cp "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh"
 
 echo "== a template-shaped body missing ONE section still fails that section =="
 # The near-miss that keeps the notice honest: it must key on the SHAPE, not on any failure count,

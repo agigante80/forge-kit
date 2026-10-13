@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 38
+# check-ticket-mechanics-version: 39
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -113,14 +113,19 @@
 # --roles prints `<role>\t<label>` per resolved role and exits (#213), in the fixed order
 # scenarios, unit_tests, e2e_tests, docs_impact: the ids ticket-gate's Step 0c targets and the
 # synthesis table are keyed on (`scenarios` feeds check 3's row `gwt`). Same resolution as
-# check 3, so the rule lives here alone. An unresolved role prints no line. Trailing CR is
-# stripped at print time only. Needs --template, not --body; refused with --dump-fields.
+# check 3, so the rule lives here alone. An unresolved role prints no line. A label carries no
+# trailing CR because template_fields() strips it at the source (#493), so --roles prints it as
+# read. Needs --template, not --body; refused with --dump-fields.
 # Stdout is empty on any error, and a caller treats non-zero as a failed run, never as a
 # reason to fall back to matching ids itself.
 #
 # A CRLF BODY READS AS ITS LF COPY (#491): every line is matched with its trailing CR stripped,
 # --headings prints heading lines with no CR, and row() deletes CR from the evidence, so a body
 # saved with CRLF endings gets byte-identical rows. A bare-CR body (no LF at all) is out of scope.
+# A CRLF TEMPLATE READS AS ITS LF COPY TOO (#493): template_fields() strips a trailing CR from each
+# label and template_subheadings() from its label and heading text, each before the blank strip,
+# so a template checked out with core.autocrlf=true gives the LF rows and --dump-fields and
+# --roles print no CR. Only a TRAILING CR is stripped: a CR inside a label is kept, byte for byte.
 
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so every value reaches awk through ENVIRON (`CTM_*`). Classified
@@ -313,10 +318,10 @@ template_subheadings() {
   CTM_WANT="$1" awk '
     BEGIN { want = ENVIRON["CTM_WANT"] }
     /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ { label = ""; inblk = 0; next }
-    /^      label: / { if (label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = l } }
+    /^      label: / { if (label == "") { l = substr($0, 14); sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); label = l } }   # trailing CR first (#493)
     /^      (value|placeholder): \|/ { inblk = 1; next }
     /^      [a-z]/ { inblk = 0 }
-    inblk && label == want && /^        #+ / { h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/[ \t]+$/, "", h); print h }
+    inblk && label == want && /^        #+ / { h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/\r$/, "", h); sub(/[ \t]+$/, "", h); print h }
   ' < "$TEMPLATE"
 }
 
@@ -348,7 +353,7 @@ template_fields() {
     /^      description: / && index($0, "Auto-populated by ticket-gate") { gate = 1 }
     /^    # gate-owned[[:space:]]*$/ { gate = 1 }
     /^    id: / { i = substr($0, 9); gsub(/[[:space:]]/, "", i); id = i }
-    /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = l } }
+    /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); label = l } }   # trailing CR only (#493)
     /^      required: / { r = $0; sub(/^.*required:[[:space:]]*/, "", r); gsub(/[[:space:]]/, "", r); req = r }
     /^          required: true/ { req = "true" }   # a checkboxes group with a required option
     END { if (label != "") { print label "\t" (req == "true" ? "yes" : "no") "\t" id "\t" (gate ? "yes" : "no") } }
@@ -401,7 +406,7 @@ E2E_LABEL="$(role_label 'e2e|end.to.end' 'integration.*(test|scenario)')"
 DOCS_LABEL="$(role_label 'documentation impact')"
 if [ "$ROLES" -eq 1 ]; then
   for r in "scenarios:$SCENARIOS_LABEL" "unit_tests:$UNIT_LABEL" "e2e_tests:$E2E_LABEL" "docs_impact:$DOCS_LABEL"; do
-    [ -n "${r#*:}" ] && printf '%s\t%s\n' "${r%%:*}" "$(printf '%s' "${r#*:}" | tr -d '\r')"
+    [ -n "${r#*:}" ] && printf '%s\t%s\n' "${r%%:*}" "${r#*:}"
   done
   exit 0
 fi

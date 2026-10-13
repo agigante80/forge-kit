@@ -1914,6 +1914,125 @@ if cmp -s "$SCRIPT" "$MUT" || grep -qF "$X3_491" "$MUT"; then bad "#491: the sit
   done
 fi
 
+echo "check-ticket-mechanics: a CRLF template reads as its LF copy (#493)"
+# A template checked out with core.autocrlf=true has a CR on every line. template_fields() kept it on
+# each label and template_subheadings() on its label and heading text, so every section read as
+# absent. Every row below compares the CRLF template copy with the LF template on the same body.
+r493() { bash "$1" --body "$2" --template "$3" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null; }
+crlft493() { sed 's/$/\r/' "$TPLDIR/$1.yml" > "$WORK/crlf493-$1.yml"; printf '%s' "$WORK/crlf493-$1.yml"; }
+ev493() { printf '%s\n' "$1" | awk -F'\t' -v c="$2" '$1 == c { print $2 "|" $3 }'; }
+for tpl in feature bug security infrastructure design; do
+  CT493="$(crlft493 "$tpl")"
+  [ "$(grep -c $'\r$' "$CT493")" = "$(wc -l < "$CT493" | tr -d ' ')" ] \
+    && ok "#493: $tpl: the CRLF template copy carries a CR on every line (fixture sanity)" || bad "#493: $tpl: the CRLF template copy is not CRLF throughout"
+  B493="$(mkbody "$tpl" "i493-$tpl.md")"
+  LO="$(r493 "$SCRIPT" "$B493" "$TPLDIR/$tpl.yml")"; CO="$(r493 "$SCRIPT" "$B493" "$CT493")"
+  [ -n "$LO" ] && ok "#493: $tpl: the LF run produced rows (an empty comparison passes vacuously)" || bad "#493: $tpl: the LF run produced no rows"
+  expect "#493: $tpl: the CRLF template's rows equal the LF template's, evidence included" "$LO" "$CO"
+  expect "#493: $tpl: sections passes against the CRLF template" pass "$(outcome "$CO" sections)"
+  DL="$(bash "$SCRIPT" --dump-fields --body "$B493" --template "$TPLDIR/$tpl.yml" 2>/dev/null)"
+  DC="$(bash "$SCRIPT" --dump-fields --body "$B493" --template "$CT493" 2>/dev/null)"
+  [ -n "$DL" ] && expect "#493: $tpl: --dump-fields on the CRLF template equals the LF output" "$DL" "$DC" || bad "#493: $tpl: --dump-fields printed nothing"
+  grep -q $'\r' <<< "$DC" && bad "#493: $tpl: a CR byte reached --dump-fields" || ok "#493: $tpl: no CR byte in --dump-fields output"
+done
+# LF unchanged: the compliant bug body against the LF template is seven passes, as before the fix.
+B493="$(mkbody bug "i493-bug.md")"; LB493="$(r493 "$SCRIPT" "$B493" "$TPLDIR/bug.yml")"
+expect "#493: the LF bug template still gives seven rows" 7 "$(printf '%s\n' "$LB493" | grep -c .)"
+expect "#493: ...and every one passes" 7 "$(printf '%s\n' "$LB493" | awk -F'\t' '$2 == "pass" { n++ } END { print n+0 }')"
+# Negative: a heading genuinely missing from the body is still absent, and is the only one named.
+grep -vx '### Unit tests' "$B493" > "$WORK/i493-nounit.md"
+grep -qx '### Unit tests' "$WORK/i493-nounit.md" && bad "#493: the Unit tests heading deletion did not apply" || ok "#493: the Unit tests heading deletion applied (fixture sanity)"
+o="$(r493 "$SCRIPT" "$WORK/i493-nounit.md" "$WORK/crlf493-bug.yml")"
+expect "#493: a CRLF bug template with ### Unit tests missing fails sections, naming it alone" "fail|heading absent (1): Unit tests" "$(ev493 "$o" sections)"
+expect "#493: ...and every row equals the LF template run" "$(r493 "$SCRIPT" "$WORK/i493-nounit.md" "$TPLDIR/bug.yml")" "$o"
+# template_subheadings(): feature.yml's E2E placeholder lists `### Happy path` and `### Unhappy path`,
+# which a ###-rendered body puts at the section's own level, so they must stay inside it.
+GWT493="$(printf 'Positive\n- Given: a\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')"
+UNIT493='- [ ] `tests/unit/auth.test.ts` valid input'
+S493="$(mkbody feature "i493-sub.md" "$GWT493" "$UNIT493" "$(printf '### Happy path\n- [ ] `tests/e2e/login.spec.ts` user sees the screen\n\n### Unhappy path\n- [ ] API returns 500 -> retry button')")"
+grep -qx '### Happy path' "$S493" && ok "#493: the sub-heading fixture carries ### Happy path (fixture sanity)" || bad "#493: the sub-heading fixture lacks ### Happy path"
+CF493="$(crlft493 feature)"
+SL493="$(r493 "$SCRIPT" "$S493" "$TPLDIR/feature.yml")"; SC493="$(r493 "$SCRIPT" "$S493" "$CF493")"
+expect "#493: a CRLF feature template keeps its listed sub-headings inside E2E: sections passes" pass "$(outcome "$SC493" sections)"
+expect "#493: ...and e2e_tests passes on the Happy path content" "pass|### Happy path" "$(ev493 "$SC493" e2e_tests)"
+expect "#493: ...and every row equals the LF template run" "$SL493" "$SC493"
+# Negative: a sub-heading the template does not list still ends the section.
+U493="$(mkbody feature "i493-unl.md" "$GWT493" "$UNIT493" "$(printf '### Unlisted heading\n- [ ] `tests/e2e/login.spec.ts` user sees the screen')")"
+grep -qx '### Unlisted heading' "$U493" && ok "#493: the unlisted-heading fixture applied (fixture sanity)" || bad "#493: the unlisted-heading fixture did not apply"
+o="$(r493 "$SCRIPT" "$U493" "$CF493")"
+expect "#493: an unlisted sub-heading still empties E2E against the CRLF template" "fail|required heading present but empty (1): E2E test scenarios" "$(ev493 "$o" sections)"
+expect "#493: ...and e2e_tests fails no content" "fail|no content in E2E test scenarios" "$(ev493 "$o" e2e_tests)"
+expect "#493: ...and every row equals the LF template run" "$(r493 "$SCRIPT" "$U493" "$TPLDIR/feature.yml")" "$o"
+# Only a TRAILING CR is stripped: a CR inside a label or a template sub-heading is kept, so a
+# strip-every-CR rewrite (gsub) at any of the three sites changes a row below.
+printf 'body:\n  - type: textarea\n    id: mid\n    attributes:\n      label: Mid\rCR label\n      placeholder: |\n        ### Happy\rpath\n    validations:\n      required: true\n' > "$WORK/mid493.yml"
+sed 's/$/\r/' "$WORK/mid493.yml" > "$WORK/mid493-crlf.yml"
+printf '<!-- template-version: 6 -->\n\n### Mid\rCR label\n\n### Happy\rpath\n\n- filled under the sub-heading\n' > "$WORK/mid493.md"
+MO493="$(r493 "$SCRIPT" "$WORK/mid493.md" "$WORK/mid493.yml")"
+expect "#493: a label with an interior CR is printed with it by --dump-fields" "$(printf 'Mid\rCR label\tyes')" "$(bash "$SCRIPT" --dump-fields --body "$WORK/mid493.md" --template "$WORK/mid493.yml" 2>/dev/null)"
+expect "#493: ...and by --dump-fields on its CRLF copy" "$(printf 'Mid\rCR label\tyes')" "$(bash "$SCRIPT" --dump-fields --body "$WORK/mid493.md" --template "$WORK/mid493-crlf.yml" 2>/dev/null)"
+expect "#493: an interior-CR label and sub-heading keep the section filled: sections passes" pass "$(outcome "$MO493" sections)"
+expect "#493: ...and the CRLF copy gives the same rows" "$MO493" "$(r493 "$SCRIPT" "$WORK/mid493.md" "$WORK/mid493-crlf.yml")"
+# Portability: the CRLF template parity under mawk and busybox awk, each through a PATH shim.
+port493() {  # port493 <shim dir> <awk name>
+  local tpl
+  for tpl in feature bug security infrastructure design; do
+    expect "#493: portability: $tpl: the CRLF template's rows equal the LF rows under $2" \
+      "$(r493 "$SCRIPT" "$WORK/i493-$tpl.md" "$TPLDIR/$tpl.yml")" "$(PATH="$1:$PATH" r493 "$SCRIPT" "$WORK/i493-$tpl.md" "$WORK/crlf493-$tpl.yml")"
+  done
+  expect "#493: portability: the CRLF sub-heading case equals the LF rows under $2" "$SL493" "$(PATH="$1:$PATH" r493 "$SCRIPT" "$S493" "$CF493")"
+  expect "#493: portability: the CRLF unlisted-heading case equals the LF rows under $2" "$(r493 "$SCRIPT" "$U493" "$TPLDIR/feature.yml")" "$(PATH="$1:$PATH" r493 "$SCRIPT" "$U493" "$CF493")"
+  expect "#493: portability: the interior-CR case equals the default awk's rows under $2" "$MO493" "$(PATH="$1:$PATH" r493 "$SCRIPT" "$WORK/mid493.md" "$WORK/mid493-crlf.yml")"
+}
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$WORK/mawk493"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$WORK/mawk493/awk"; chmod +x "$WORK/mawk493/awk"
+  port493 "$WORK/mawk493" mawk
+else
+  ok "#493: portability: mawk not on PATH, CRLF template parity under mawk skipped"
+fi
+if command -v busybox >/dev/null 2>&1 && busybox awk 'BEGIN{}' 2>/dev/null; then
+  mkdir -p "$WORK/bb493"; printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$WORK/bb493/awk"; chmod +x "$WORK/bb493/awk"
+  port493 "$WORK/bb493" "busybox awk"
+else
+  ok "#493: portability: busybox awk not on PATH, CRLF template parity under busybox awk skipped"
+fi
+# Mutants, one per strip, each with its ledger row and an applied-check (cmp -s plus grep -qF on the
+# function's own lines), and one strip-every-CR mutant per site for the interior-CR rows.
+M493="$WORK/mut493.sh"
+fn493() { sed -n "/^$1() {/,/^}/p" "$2"; }
+X493='sub(/\r$/, "", l); '
+XH493='sub(/\r$/, "", h); '
+grep -qF "$X493" <<< "$(fn493 template_fields "$SCRIPT")" && ok "mutant ledger: template_fields() strips a label's trailing CR (#493)" || bad "mutant ledger: #493 template_fields label strip not found"
+grep -qF "$X493" <<< "$(fn493 template_subheadings "$SCRIPT")" && ok "mutant ledger: template_subheadings() strips its label's trailing CR (#493)" || bad "mutant ledger: #493 template_subheadings label strip not found"
+grep -qF "$XH493" <<< "$(fn493 template_subheadings "$SCRIPT")" && ok "mutant ledger: template_subheadings() strips its heading text's trailing CR (#493)" || bad "mutant ledger: #493 template_subheadings heading strip not found"
+mut493() {  # mut493 <function> <sed substitution> <the string the mutant must remove>
+  sed "/^$1() {/,/^}/ $2" "$SCRIPT" > "$M493"
+  if cmp -s "$SCRIPT" "$M493" || grep -qF "$3" <<< "$(fn493 "$1" "$M493")"; then bad "#493: the mutant '$1 $2' did not apply"; return 1; fi; return 0; }
+if mut493 template_fields 's/sub(\/\\r\$\/, "", l); //' "$X493"; then
+  case "$(ev493 "$(r493 "$M493" "$B493" "$WORK/crlf493-bug.yml")" sections)" in "fail|heading absent (15): "*) ok "mutant: the template_fields label strip removed fails the CRLF bug sections row heading absent (15)" ;;
+    *) bad "mutant: the template_fields label strip removed gave sections '$(ev493 "$(r493 "$M493" "$B493" "$WORK/crlf493-bug.yml")" sections)'" ;; esac
+  grep -q $'\r' <<< "$(bash "$M493" --dump-fields --body "$B493" --template "$WORK/crlf493-bug.yml" 2>/dev/null)" && ok "mutant: ...and --dump-fields carries a CR again" || bad "mutant: ...--dump-fields carries no CR"
+fi
+if mut493 template_subheadings 's/sub(\/\\r\$\/, "", l); //' "$X493"; then
+  o="$(r493 "$M493" "$S493" "$CF493")"
+  expect "mutant: the template_subheadings label strip removed empties E2E on the CRLF sub-heading case" "fail|required heading present but empty (1): E2E test scenarios" "$(ev493 "$o" sections)"
+  expect "mutant: ...and e2e_tests fails no content" "fail|no content in E2E test scenarios" "$(ev493 "$o" e2e_tests)"
+fi
+if mut493 template_subheadings 's/sub(\/\\r\$\/, "", h); //' "$XH493"; then
+  o="$(r493 "$M493" "$S493" "$CF493")"
+  expect "mutant: the template_subheadings heading strip removed empties E2E on the CRLF sub-heading case" "fail|required heading present but empty (1): E2E test scenarios" "$(ev493 "$o" sections)"
+  expect "mutant: ...and e2e_tests fails no content" "fail|no content in E2E test scenarios" "$(ev493 "$o" e2e_tests)"
+fi
+if mut493 template_fields 's/sub(\/\\r\$\/, "", l); /gsub(\/\\r\/, "", l); /' "$X493"; then
+  expect "mutant: a strip-every-CR template_fields loses the interior CR from --dump-fields" "$(printf 'MidCR label\tyes')" "$(bash "$M493" --dump-fields --body "$WORK/mid493.md" --template "$WORK/mid493.yml" 2>/dev/null)"
+fi
+if mut493 template_subheadings 's/sub(\/\\r\$\/, "", l); /gsub(\/\\r\/, "", l); /' "$X493"; then
+  expect "mutant: a strip-every-CR subheadings label empties the interior-CR section" fail "$(outcome "$(r493 "$M493" "$WORK/mid493.md" "$WORK/mid493.yml")" sections)"
+fi
+if mut493 template_subheadings 's/sub(\/\\r\$\/, "", h); /gsub(\/\\r\/, "", h); /' "$XH493"; then
+  expect "mutant: a strip-every-CR subheadings heading empties the interior-CR section" fail "$(outcome "$(r493 "$M493" "$WORK/mid493.md" "$WORK/mid493.yml")" sections)"
+fi
+
 echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
 # Step 0c reads this instead of matching field ids itself, so the resolution rule lives here alone.
 roles() { bash "$SCRIPT" --roles --template "$1" 2>/dev/null; }
@@ -1946,7 +2065,8 @@ expect "#213: a label of shell and regex metacharacters prints verbatim" "$(prin
 # Two E2E-shaped fields: the first one wins, as check 3 reads it.
 mktpl "$WORK/dup.yml" "e2e_tests|First E2E|true" "more_e2e|Second E2E|true"
 expect "#213: a duplicate E2E field resolves to the first" "First E2E" "$(role_line "$(roles "$WORK/dup.yml")" e2e_tests)"
-# A CRLF template: the CR is stripped at print time, and --dump-fields (untouched) still carries it.
+# A CRLF template: template_fields() strips each label's trailing CR at the source (#493), so
+# --roles prints the label as read, with no print-time strip of its own.
 sed 's/$/\r/' "$FEAT" > "$WORK/crlf.yml"
 o="$(roles "$WORK/crlf.yml")"
 expect "#213: a CRLF template prints labels without a trailing CR" "$(roles "$FEAT")" "$o"
@@ -1981,8 +2101,10 @@ mrun() { bash "$WORK/mut-roles.sh" --roles --template "$1" 2>/dev/null; }
 want_feat="$(roles "$FEAT")"
 if mutroles "order" 's/for r in "scenarios:$SCENARIOS_LABEL" "unit_tests:$UNIT_LABEL" "e2e_tests:$E2E_LABEL" "docs_impact:$DOCS_LABEL"/for r in "docs_impact:$DOCS_LABEL" "e2e_tests:$E2E_LABEL" "unit_tests:$UNIT_LABEL" "scenarios:$SCENARIOS_LABEL"/'; then
   [ "$(mrun "$FEAT")" = "$want_feat" ] && bad "#213: MUTANT survived: reversed role order" || ok "#213: MUTANT: reversed role order fails the order case"; fi
-if mutroles "cr" "s/| tr -d '\\\\r')/)/"; then
-  [ "$(mrun "$WORK/crlf.yml")" = "$want_feat" ] && bad "#213: MUTANT survived: CR not stripped" || ok "#213: MUTANT: CR not stripped fails the CRLF case"; fi
+# Re-aimed by #493: the print-time `tr` is retired, so the mutant removes the source strip instead.
+if mutroles "cr" '/^template_fields() {/,/^}/ s/sub(\/\\r\$\/, "", l); //'; then
+  if grep -qF 'sub(/\r$/, "", l); ' <<< "$(sed -n '/^template_fields() {/,/^}/p' "$WORK/mut-roles.sh")"; then bad "#213: mutant 'cr' left the label strip in place"
+  else [ "$(mrun "$WORK/crlf.yml")" = "$want_feat" ] && bad "#213: MUTANT survived: CR not stripped" || ok "#213: MUTANT: CR not stripped fails the CRLF case"; fi; fi
 if mutroles "skip" 's/\[ -n "${r#\*:}" \] && printf/printf/'; then
   [ "$(mrun "$TPLDIR/security.yml")" = "$(roles "$TPLDIR/security.yml")" ] && bad "#213: MUTANT survived: unresolved role printed" || ok "#213: MUTANT: an unresolved role is printed as an empty label"; fi
 if mutroles "body" 's/^if \[ "$ROLES" -eq 0 \]; then$/if true; then/'; then
