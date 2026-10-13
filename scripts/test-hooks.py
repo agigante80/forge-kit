@@ -36,7 +36,7 @@ HOOK = ROOT / "plugins/forge-kit-governance/hooks/block-dashes.py"
 DENY, ALLOW = "deny", "allow"
 
 
-def run(payload, *, raw=None, cwd="/", hook=HOOK, project_dir=ROOT):
+def run(payload, *, raw=None, cwd="/", hook=HOOK, project_dir=ROOT, home=None):
     """Invoke the hook exec-style (no shell) from a foreign cwd, as Claude Code does.
 
     project_dir=None simulates Claude Code not exporting CLAUDE_PROJECT_DIR.
@@ -46,6 +46,8 @@ def run(payload, *, raw=None, cwd="/", hook=HOOK, project_dir=ROOT):
     env.pop("CLAUDE_PROJECT_DIR", None)
     if project_dir is not None:
         env["CLAUDE_PROJECT_DIR"] = str(project_dir)
+    if home is not None:
+        env["HOME"] = str(home)
     return subprocess.run(
         [sys.executable, str(hook)],
         input=stdin, capture_output=True, text=True, cwd=cwd, env=env,
@@ -990,8 +992,14 @@ with tempfile.TemporaryDirectory() as td:
         for cmd in ["sudo -u git rm -rf ~", 'runuser -u git rm -rf "$HOME"', "${RM:-rm} -rf /",
                     '"${RM-rm}" -rf ~']:
             expect(f"478 r1 {arm} rm command word denies: {cmd[:34]!r}", bash(cmd), proj, DENY, reason)
-        for cmd in ["git rm -rf /", "sudo git rm -rf /", "docker run --rm alpine ls -lrf /"]:
+        for cmd in ["git rm -rf /", "GIT_DIR=. git rm -rf /", "docker run --rm alpine ls -lrf /"]:
             expect(f"478 r1 {arm} git rm / --rm allows: {cmd[:34]!r}", bash(cmd), proj, ALLOW, None)
+        # Round 2 of #478: `git rm` is git's only when `git` is the command word. A wrapper that takes
+        # the user as a plain word runs rm (all were allowed by d19cc81), and so, by the same rule,
+        # does `sudo git rm` (a false deny accepted rather than a list of wrappers).
+        for cmd in ["gosu git rm -rf ~", "su-exec git rm -rf /", 'setuidgid git rm -rf "$HOME"',
+                    "ssh git rm -rf ~", "sh -c 'gosu git rm -rf ~'", "sudo git rm -rf /"]:
+            expect(f"478 r2 {arm} wrapper before git denies: {cmd[:34]!r}", bash(cmd), proj, DENY, reason)
         r1 = {"p": proj.name, "top": proj.parts[1], "p2": proj.name[:2]}
         R1_DENY = [
             "cd / && rm -rf {top}",                 # hits_root is an ancestor test, not equality
@@ -1008,6 +1016,10 @@ with tempfile.TemporaryDirectory() as td:
         # A cd to ~, $HOME or the project resolves (an UNKNOWN cwd would deny `rm -rf <proj>`).
         for tmpl in ["cd ~ && rm -rf {p}", "cd $HOME && rm -rf {p}", 'cd "$CLAUDE_PROJECT_DIR" && rm -rf {p}']:
             expect(f"478 r1 {arm} resolved cd allows: {tmpl[:34]!r}", bash(tmpl.format(**r1)), proj, ALLOW, None)
+        # Round 2 of #478: `cd ~` resolves to HOME itself, not to a `~` under the cwd. With HOME at the
+        # project's parent, `cd ~ && rm -rf <proj>` deletes the project.
+        p = run(bash(f"cd ~ && rm -rf {proj.name}"), hook=GUARD, project_dir=proj, cwd=str(proj), home=proj.parent)
+        check(f"478 r2 {arm} cd ~ with HOME at the parent denies", outcome(p), DENY)
         # A glob from a parent that does NOT match ROOT is no dangerous target: allowed overnight,
         # and by day denied only by the wildcard class, with the wildcard label.
         if arm == "night":

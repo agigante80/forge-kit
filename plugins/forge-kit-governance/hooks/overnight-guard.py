@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# overnight-guard-version: 19
+# overnight-guard-version: 20
 """PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm.
 
 Two arming paths, one matcher. OVERNIGHT: while .claude/overnight/active.md is present, deny
@@ -453,22 +453,23 @@ _ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
 
 
 def _git_sub(seg, i):
-    # The `rm` at seg[i] is git's subcommand: the word before it is exactly `git` and the word before
-    # that is not an option (`sudo -u git rm` runs rm as the user git; `--user=git rm` and `-ugit rm`
-    # fail the "exactly" test). Index walks only, each over words no other candidate walks: linear.
+    # The `rm` at seg[i] is git's subcommand only when `git` is the segment's COMMAND word: every word
+    # before it is an assignment or a keyword (round 2 of #478). Any other word before `git` may be a
+    # wrapper that takes a user as a plain word (`gosu git rm`, `su-exec git rm`, `setuidgid git rm`,
+    # `ssh git rm`) or as an option value (`sudo -u git rm`), and runs rm; so `sudo git rm -rf /` is
+    # denied too, a false deny accepted as the price of not listing wrappers. Linear: the caller stops
+    # at the first False, and a candidate after a `git rm` has that `rm` before it, so at most two
+    # walks run per segment.
     j = i
     while j > 0 and seg[j - 1] in " \t":
         j -= 1
     k = j - 3
     if j == i or k < 0 or seg[k:j] != "git" or (k > 0 and seg[k - 1] not in " \t"):
         return False
-    m = k
-    while m > 0 and seg[m - 1] in " \t":
-        m -= 1
-    s = m
-    while s > 0 and seg[s - 1] not in " \t":
-        s -= 1
-    return m == 0 or seg[s] != "-"
+    for w in seg[:k].split():
+        if w not in _KEYWORDS and not _ASSIGN.match(w):
+            return False
+    return True
 
 
 class _Walk:
