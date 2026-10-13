@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 40
+# check-ticket-mechanics-version: 41
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -131,8 +131,8 @@
 # body. Both label readers now unquote through one awk function, unq() (see UNQ_AWK), and so
 # --dump-fields, --roles and check 3 all see the value. Only `\"`, `\\` and `''` are decoded, a
 # deliberate subset of YAML's escapes; any other escape stays verbatim, an unterminated or
-# mismatched quote is left as read, and only `label:` is unquoted (`id:`, `type:` and `required:`
-# are not).
+# mismatched quote and a value that unquotes to empty (`""`, `''`, `" "`) are left as read, so
+# each still fails closed, and only `label:` is unquoted (`id:`, `type:` and `required:` are not).
 
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so every value reaches awk through ENVIRON (`CTM_*`). Classified
@@ -326,8 +326,12 @@ section_of() {
 # Inside double quotes `\"` and `\\` decode in one left-to-right pass, so in `"C:\\"` the escaped
 # backslash cannot escape the closing quote, and every other escape stays verbatim. Inside single
 # quotes `''` decodes to one quote. An unterminated or mismatched value comes back untouched, so
-# its section still fails closed. Trailing blanks inside the quotes are trimmed after unquoting,
-# on the unquoted value only, so an unquoted label goes through exactly the strips it had before.
+# its section still fails closed, and so does a value that unquotes to nothing (`""`, `''`,
+# `" "`): template_fields() skips an empty label, so its required section was never checked.
+# Trailing blanks inside the quotes are trimmed after unquoting, on the unquoted value only, so an
+# unquoted label goes through exactly the strips it had before. That trim sits INSIDE unq(), not
+# after it as #492's step list says, on purpose: a trim after unq() would re-trim the blanks a
+# #493 blank-then-CR order mutant leaves behind, and that mutant would survive.
 # The single quote is written \047 because this program sits inside a single-quoted shell string.
 UNQ_AWK='
 function unq(s,   q, n, i, c, d, out) {
@@ -337,7 +341,7 @@ function unq(s,   q, n, i, c, d, out) {
     c = substr(s, i, 1); d = substr(s, i + 1, 1)
     if (q == "\"" && c == "\\" && (d == "\"" || d == "\\")) { out = out d; i++; continue }   # one decode pass
     if (q == "\047" && c == "\047" && d == "\047") { out = out c; i++; continue }   # a doubled single quote
-    if (c == q) { if (substr(s, i + 1) !~ /^([ \t]+#.*)?$/) return s; sub(/[ \t]+$/, "", out); return out }   # the closing quote
+    if (c == q) { if (substr(s, i + 1) !~ /^([ \t]+#.*)?$/) return s; sub(/[ \t]+$/, "", out); if (out == "") return s; return out }   # the closing quote
     out = out c
   }
   return s

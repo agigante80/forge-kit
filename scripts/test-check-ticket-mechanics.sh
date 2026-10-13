@@ -2154,11 +2154,44 @@ body:
     validations:
       required: true
 YML
+# Blanks inside the quotes: the dump is exactly `Foo`, so a `## Foo` body finds its section.
+cat > "$WORK/tb492.yml" <<'YML'
+body:
+  - type: textarea
+    id: foo
+    attributes:
+      label: "Foo  "
+    validations:
+      required: true
+YML
+printf '<!-- template-version: 9 -->\n\n## Foo\n\nthe foo text\n' > "$WORK/tb492.md"
+# A required field whose quoted label is empty. Unquoted to nothing, template_fields() would skip
+# the field and its section would never be checked, so the value is kept as read and fails closed.
+cat > "$WORK/em492.yml" <<'YML'
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+  - type: textarea
+    id: empty
+    attributes:
+      label: ""
+    validations:
+      required: true
+YML
+sed "s/label: \"\"/label: ''/" "$WORK/em492.yml" > "$WORK/em492-sq.yml"
+sed 's/label: ""/label: " "/' "$WORK/em492.yml" > "$WORK/em492-sp.yml"
+printf '<!-- template-version: 9 -->\n\n## Summary\n\nsomething\n' > "$WORK/em492.md"
 sed 's/$/\r/' "$WORK/dq492.yml" > "$WORK/dq492-crlf.yml"
 # Fixture sanity: each template carries its quotes as written, so no row below passes vacuously.
 grep -qxF '      label: "Definition of Done: MANDATORY (dod-version 9)"' "$WORK/dq492.yml" && grep -qxF "      label: 'What''s new'" "$WORK/sq492.yml" \
   && grep -qxF '      label: "Say \"hi\" to C:\\dir"' "$WORK/esc492.yml" && grep -qxF '      label: "Path C:\\"' "$WORK/pc492.yml" \
   && grep -qxF '## Path C:\' "$WORK/pc492.md" && grep -qxF '## Say "hi" to C:\dir' "$WORK/esc492.md" \
+  && grep -qxF '      label: "Foo  "' "$WORK/tb492.yml" && grep -qxF '      label: ""' "$WORK/em492.yml" \
+  && grep -qxF "      label: ''" "$WORK/em492-sq.yml" && grep -qxF '      label: " "' "$WORK/em492-sp.yml" \
   && ok "#492: the hand-written templates and bodies carry their quotes and backslashes as written (fixture sanity)" || bad "#492: a hand-written fixture is not what it claims"
 # The quoted cases, run once under the default awk and again through each portability shim.
 cases492() {  # cases492 <awk name>
@@ -2180,6 +2213,12 @@ cases492() {  # cases492 <awk name>
   expect "#492 ($1): ...and the LF rows on the absent body" "$(r492 "$SCRIPT" "$WORK/dq492-absent.md" "$WORK/dq492.yml")" "$(r492 "$SCRIPT" "$WORK/dq492-absent.md" "$WORK/dq492-crlf.yml")"
   expect "#492 ($1): ...and the LF --dump-fields output" "$(printf 'Summary\tyes\nDefinition of Done: MANDATORY (dod-version 9)\tyes')" "$(d492 "$SCRIPT" "$WORK/dq492-ok.md" "$WORK/dq492-crlf.yml")"
   expect "#492 ($1): --roles prints a quoted unit-test label unquoted" "$(printf 'unit_tests\tUnit tests: per module')" "$(bash "$SCRIPT" --roles --template "$WORK/rl492.yml" 2>/dev/null)"
+  expect "#492 ($1): blanks inside the quotes are trimmed: --dump-fields prints exactly Foo" "$(printf 'Foo\tyes')" "$(d492 "$SCRIPT" "$WORK/tb492.md" "$WORK/tb492.yml")"
+  expect "#492 ($1): ...and a ## Foo body passes sections" pass "$(outcome "$(r492 "$SCRIPT" "$WORK/tb492.md" "$WORK/tb492.yml")" sections)"
+  expect "#492 ($1): an empty quoted required label fails closed, the heading absent" 'fail|heading absent (1): ""' "$(sec492 "$(r492 "$SCRIPT" "$WORK/em492.md" "$WORK/em492.yml")")"
+  expect "#492 ($1): ...and --dump-fields prints it as read" "$(printf 'Summary\tyes\n""\tyes')" "$(d492 "$SCRIPT" "$WORK/em492.md" "$WORK/em492.yml")"
+  expect "#492 ($1): an empty single-quoted label is kept as read" "$(printf "Summary\tyes\n''\tyes")" "$(d492 "$SCRIPT" "$WORK/em492.md" "$WORK/em492-sq.yml")"
+  expect "#492 ($1): a blank-only quoted label is kept as read" "$(printf 'Summary\tyes\n" "\tyes')" "$(d492 "$SCRIPT" "$WORK/em492.md" "$WORK/em492-sp.yml")"
 }
 cases492 "default awk"
 if command -v mawk >/dev/null 2>&1; then
@@ -2207,6 +2246,10 @@ XS492='return s   # opens with a quote'
 XD492='{ out = out d; i++; continue }   # one decode pass'
 grep -qF "$XS492" "$SCRIPT" && ok "mutant ledger: unq() opens with the quote test and scans for the close (#492)" || bad "mutant ledger: #492 opening line not found"
 grep -qF "$XD492" "$SCRIPT" && ok "mutant ledger: unq() decodes both escapes in one pass (#492)" || bad "mutant ledger: #492 decode line not found"
+XT492='sub(/[ \t]+$/, "", out); '
+XE492='if (out == "") return s; '
+grep -qF "$XT492" "$SCRIPT" && ok "mutant ledger: unq() trims the blanks inside the quotes (#492)" || bad "mutant ledger: #492 inner trim not found"
+grep -qF "$XE492" "$SCRIPT" && ok "mutant ledger: unq() keeps a value that unquotes to empty as read (#492)" || bad "mutant ledger: #492 empty-value guard not found"
 mut492() {  # mut492 <sed range or empty> <sed expr> <string the mutant must remove>
   if [ -n "$1" ]; then sed "/^$1() {/,/^}/ $2" "$SCRIPT" > "$M492"; else sed "$2" "$SCRIPT" > "$M492"; fi
   if cmp -s "$SCRIPT" "$M492"; then bad "#492: the mutant '$2' did not apply"; return 1; fi
@@ -2232,6 +2275,14 @@ fi
 if mut492 "" 's/{ out = out d; i++; continue }   # one decode pass$/{ out = out d; if (d == "\\"") i++; continue }   # misread pairs/' "$XD492"; then
   expect "mutant: a scan that lets an escaped backslash escape the closing quote keeps the Path label quoted (the Path row can fail)" \
     '"Path C:\\"' "$(d492 "$M492" "$WORK/pc492.md" "$WORK/pc492.yml" | cut -f1)"
+fi
+if mut492 "" 's/sub(\/\[ \\t\]+\$\/, "", out); //' "$XT492"; then
+  expect "mutant: dropping the inner trim dumps the blanks (the Foo row can fail)" "$(printf 'Foo  \tyes')" "$(d492 "$M492" "$WORK/tb492.md" "$WORK/tb492.yml")"
+  expect "mutant: ...and the ## Foo body reads heading absent" 'fail|heading absent (1): Foo  ' "$(sec492 "$(r492 "$M492" "$WORK/tb492.md" "$WORK/tb492.yml")")"
+fi
+if mut492 "" 's/if (out == "") return s; //' "$XE492"; then
+  expect "mutant: dropping the empty-value guard skips the field and passes sections (the empty row can fail)" \
+    pass "$(outcome "$(r492 "$M492" "$WORK/em492.md" "$WORK/em492.yml")" sections)"
 fi
 
 echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
