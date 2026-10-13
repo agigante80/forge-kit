@@ -3583,7 +3583,9 @@ c486_open4b() { local B; B=$(b486 intro '````' code)
   set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '````' '' "$S486" x "$E486")" ]; }
 c486_open2sp() { local B; B=$(b486 intro '  ```' code)
   set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '  ```' '' "$S486" x "$E486")" ]; }
-c486_otheropen() { set486 "$(b486 intro "$VS486" prose "$FB" "$S486" 'quoted author text' "$E486" "$FB" more)"; ref486; }
+c486_otheropen() { set486 "$(b486 intro "$VS486" prose "$FB" "$S486" 'quoted author text' "$E486" "$FB" more)"
+  [ "$R486RC" = 103 ] && grep -qF "leaves a 'gate-verdict' region open at the end of the body; refusing" "$R486/err" \
+    && ! grep -qF "'gate-context'" "$R486/err" && [ ! -f "$T/patch.json" ]; }
 c486_shorter() { local B; B=$(b486 intro '````' "$FB" "$S486" '````')
   set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '' "$S486" x "$E486")" ]; }
 c486_otherchar() { local B; B=$(b486 intro "$FB" "$FT" "$S486" "$FB")
@@ -3626,7 +3628,17 @@ c486_g_compose() { cmp486 "$(b486 "$FB" code "$FB" "$S486" old)" 'New.'
 c486_g_content() { set486 "$(b486 intro)" "$(b486 "$FB" "$S486" "$FB")"
   [ "$R486RC" = 103 ] && grep -qF "refusing content that carries a region marker line" "$R486/err" && [ ! -f "$T/patch.json" ]; }
 
-C486="c486_repro c486_tilde c486_lookalike c486_pair_set c486_pair_clear c486_open4t c486_open4b c486_open2sp c486_otheropen c486_shorter c486_otherchar c486_closertext c486_crlf c486_trailblank c486_prefixfenced c486_get_empty c486_get_y c486_compose_lone c486_compose_quote c486_compose_open c486_g_inregion c486_g_otherregion c486_g_before_open c486_g_twostart c486_g_tilde_unterm c486_g_indent4 c486_g_tab c486_g_info c486_g_prefix c486_g_compose c486_g_content"
+# #486 round 1 (M1): a body ENDING inside an unclosed fence that holds a whole marker line is
+# ambiguous (a lost closer above a real region, or a quote), so every write refuses it with 103.
+# Each of the three write rows fails on f74af51, which returned 0 for all three. get is lenient on
+# every malformed body, so it is pinned as a guard: empty, rc 0 (see _FORGE_AWK_MARKER).
+U486=$(b486 '## Summary' 'run:' '```sh' make '' '## Scope' text '' "$S486" ctx "$E486")
+amb486() { [ "$R486RC" = 103 ] && grep -qF "ends inside an unclosed code fence holding a region marker line; refusing" "$R486/err" && [ ! -f "$T/patch.json" ]; }
+c486_unclosed_clear() { clr486 "$U486"; amb486; }
+c486_unclosed_set() { set486 "$U486"; amb486; }
+c486_unclosed_compose() { cmp486 "$U486" 'New text.'; amb486; }
+c486_g_unclosed_get() { r486 "$U486" forge_body_region_get 7 gate-context; is0_486 && [ ! -s "$R486/out" ]; }
+C486="c486_unclosed_clear c486_unclosed_set c486_unclosed_compose c486_g_unclosed_get c486_repro c486_tilde c486_lookalike c486_pair_set c486_pair_clear c486_open4t c486_open4b c486_open2sp c486_otheropen c486_shorter c486_otherchar c486_closertext c486_crlf c486_trailblank c486_prefixfenced c486_get_empty c486_get_y c486_compose_lone c486_compose_quote c486_compose_open c486_g_inregion c486_g_otherregion c486_g_before_open c486_g_twostart c486_g_tilde_unterm c486_g_indent4 c486_g_tab c486_g_info c486_g_prefix c486_g_compose c486_g_content"
 row486() { if "$1"; then ok "#486: $2"; else bad "#486: $2 (rc $R486RC, err $(cat "$R486/err"))"; fi; }
 row486 c486_repro "a lone start marker between backtick fences: set appends the real region below it and clear leaves the body byte-identical"
 row486 c486_tilde "the same lone marker between tilde fences: set and clear both exit 0"
@@ -3636,7 +3648,7 @@ row486 c486_pair_clear "a complete pair quoted inside a fence: clear sends the b
 row486 c486_open4t "a body ending in an unclosed four-tilde fence: set adds a closer of exactly four tildes, and a second set finds the region instead of appending another"
 row486 c486_open4b "a body ending in an unclosed four-backtick fence: the added closer is exactly four backticks"
 row486 c486_open2sp "a body ending in an unclosed fence indented two spaces: the added closer keeps the two spaces"
-row486 c486_otheropen "an unterminated gate-verdict start before a fenced gate-context pair: set refuses with 103 and sends nothing"
+row486 c486_otheropen "an unterminated gate-verdict start before a fenced gate-context pair: set refuses with 103, names gate-verdict as the open region and sends nothing"
 row486 c486_shorter "a three-backtick line inside a four-backtick fence does not close it, so the quoted marker stays text"
 row486 c486_otherchar "a tilde line inside a backtick fence does not close it"
 row486 c486_closertext "a backtick line followed by bash inside a backtick fence does not close it"
@@ -3658,6 +3670,10 @@ row486 c486_g_tab "guard: fence lines starting with a tab are not a fence, so th
 row486 c486_g_info "guard: a backtick opener whose info string holds a backtick is not a fence, so the unterminated start refuses"
 row486 c486_g_prefix "guard: a marker-prefixed prose line outside any fence still refuses with 103"
 row486 c486_g_compose "guard: compose over a real unterminated start after a closed fence refuses with 103"
+row486 c486_unclosed_clear "a real region below an unclosed fence holding a marker line: clear refuses with 103 and sends nothing"
+row486 c486_unclosed_set "a real region below an unclosed fence holding a marker line: set refuses with 103 and sends nothing"
+row486 c486_unclosed_compose "a real region below an unclosed fence holding a marker line: compose refuses with 103 and sends nothing"
+row486 c486_g_unclosed_get "guard: get on that body returns empty output and rc 0, as get never refuses a malformed body"
 row486 c486_g_content "guard: region content holding a fenced marker line is still refused by the content guard"
 
 # Parity (#486 with #485): one list of fence contexts, classified by all three readers alike.
@@ -3715,7 +3731,7 @@ m486 "M5 (get ignores fence state)" '    { n = norm($0); if (fenced(n)) next }' 
 m486 "M6 (compose main loop ignores fence state)" '      if (fenced(norm($0))) next
 ' '' c486_compose_lone
 m486 "M7 (compose BEGIN loop ignores fence state)" '        if (fenced(norm(l))) continue' '        if (0) continue' c486_compose_quote
-m486 "M8 (fence state not reset between compose passes)" '      fopen = 0; rgn = ""
+m486 "M8 (fence state not reset between compose passes)" '      fopen = 0; fmark = 0; rgn = ""
 ' '' c486_compose_open
 m486 "M8 (no closer before the re-threaded regions)" '        if (newopen) { print newcloser; newopen = 0 }' '' c486_compose_open
 m486 "M9 (no freeze inside regions)" "$FRZ486" '    if (1) {
@@ -3728,7 +3744,14 @@ m486 "M13 (closer with trailing text closes)" "$CLS486" '    if (fch == "`") pat
 m486 "M14 (a 4-space indent opens)" 'if (RLENGTH > 3) return 0; ind' 'if (RLENGTH > 4) return 0; ind' c486_g_indent4
 m486 "M15 (info-string backtick rule removed)" '    if (substr(o, 1, 1) == "`" && index(info, "`")) return 0
 ' '' c486_g_info
-m486 "M18 (end-of-body check limited to the target region)" '      if (rgn != "") exit 103' '      if (rgn == ENVIRON["FL_REGION"]) exit 103' c486_otheropen
+m486 "M18 (end-of-body check limited to the target region)" '      if (rgn != "" && rgn != r) { print rgn; exit 104 }
+      if (rgn != "") exit 103' '      if (rgn == ENVIRON["FL_REGION"]) exit 103' c486_otheropen
+m486 "M18b (the open region is not named)" '      if (rgn != "" && rgn != r) { print rgn; exit 104 }
+' '' c486_otheropen
+m486 "M20 (fmark never set)" ' else if (mname(l) != "") fmark = 1; return 1 }' ' return 1 }' c486_unclosed_set
+m486 "M20 (fmark never set)" ' else if (mname(l) != "") fmark = 1; return 1 }' ' return 1 }' c486_unclosed_clear
+m486 "M20 (fmark never set)" ' else if (mname(l) != "") fmark = 1; return 1 }' ' return 1 }' c486_unclosed_compose
+m486 "M21 (compose has no unclosed-fence check)" '      if (fopen && fmark) exit 105   #' '      if (0) exit 105   #' c486_unclosed_compose
 m486 "M19 (the closer drops the opener indent)" 'c = fin; for' 'c = ""; for' c486_open2sp
 
 # Every awk on the machine runs the same rows (#486, as test-check-cdpath-cd.sh does): a directory

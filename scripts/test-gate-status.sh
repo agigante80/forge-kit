@@ -194,6 +194,18 @@ never closed
 contains "has an unpaired region marker; refusing" "$err" "  with the unpaired-marker refusal"
 expect "  and writes no stamp" 0 "$(patches)"
 out=$(GS 7 --fingerprint 2>/dev/null); expect "  and --fingerprint on it exits 2" 2 "$?"; expect "  with empty stdout" "" "$out"
+# #486 round 1 (L1): a region ends only at the end marker of its OWN name, as forge-lib's fenced()
+# tracks it. f74af51 closed `a` on `b:end`, so the fence after it hid the real `a:end` and exit 0.
+MISMATCH_END="author
+<!-- a:start -->
+x
+<!-- b:end -->
+\`\`\`
+<!-- a:end -->
+\`\`\`
+more"
+setbody "$MISMATCH_END"; out=$(GS 7 --fingerprint 2>/dev/null); expect "#486 round 1: an end marker of another name inside a region refuses (--fingerprint exits 2)" 2 "$?"
+expect "  with empty stdout" "" "$out"
 # Indent is measured with match(): mawk read the old sub(/^ ? ? ?/) as ONE space, so a 2-space
 # fence was no fence there. This row is the one that fails under mawk if that form comes back.
 setbody "$AUTHOR
@@ -532,6 +544,8 @@ probe_freeze() { setbody "$FENCE_IN_REGION"; GS 7 --fingerprint >/dev/null 2>&1;
 m "M16: fingerprint() ignores fence state" '/^    !inside && fopen {/d;/^    !inside && fence_open(n) {/d' probe_fenced
 m "M16: fingerprint() ignores fence state (golden pin)" '/^    !inside && fopen {/d;/^    !inside && fence_open(n) {/d' probe_golden
 m "M17: FP_TAG not bumped (left at fp3)" 's/^FP_TAG="fp11"/FP_TAG="fp3"/' probe_golden
+probe_mismatch() { setbody "$MISMATCH_END"; ! GS 7 --fingerprint >/dev/null 2>&1; }
+m "an end marker of any name closes the region in fingerprint()" 's/if (!inside || e != iname)/if (!inside)/' probe_mismatch
 m "no freeze inside a region in fingerprint()" 's/^    !inside && fopen {/    fopen {/;s/^    !inside && fence_open(n) {/    fence_open(n) {/' probe_freeze
 m "no other shape is rejected (the catch-all arm deleted)" '/^      \*) judged="" ;;/d' probe_shape
 # A misread shape must reach --mark-stale as `stale` and PATCH (#356): the stale-hash shape loop above.

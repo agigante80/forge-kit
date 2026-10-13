@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 11
+# gate-status-version: 12
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -42,6 +42,10 @@
 # match() and RLENGTH, never `sub(/^ ? ? ?/, ...)`, which mawk reads as stripping one space. The
 # fingerprint changed, so FP_TAG moved from fp3 to fp11 and every stamped ticket reads stale once
 # and needs one re-gate, exactly as the v3 upgrade below describes.
+# A region ends only at the end marker of ITS OWN name (v12, #486 round 1), as forge-lib's fenced()
+# tracks it: `a:start` then `b:end` refuses (exit 3) rather than closing `a` and letting a fenced
+# line after it be read as text. That adds refusals and changes no hash of a body it accepts, so
+# FP_TAG stays fp11: the tag names the hash, and a refused body is never stamped.
 #
 # THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp11). Full review: <url>.` The
 # `(fp11)` after the hash names the algorithm that produced it: it is the gate-status version that
@@ -160,8 +164,8 @@ fingerprint() {  # body on stdin
     { n = norm($0) }
     !inside && fopen { if (fence_close(n)) fopen = 0; if (n != "") print n; next }
     !inside && fence_open(n) { fopen = 1; print n; next }
-    n ~ /^<!-- [^ \t]+:start -->$/ { if (inside) { bad = 1; exit 3 } inside = 1; next }
-    n ~ /^<!-- [^ \t]+:end -->$/   { if (!inside) { bad = 1; exit 3 } inside = 0; next }
+    n ~ /^<!-- [^ \t]+:start -->$/ { if (inside) { bad = 1; exit 3 } inside = 1; iname = n; sub(/:start -->$/, "", iname); next }
+    n ~ /^<!-- [^ \t]+:end -->$/   { e = n; sub(/:end -->$/, "", e); if (!inside || e != iname) { bad = 1; exit 3 } inside = 0; next }
     inside { next }
     n == "" { next }
     { print n }
