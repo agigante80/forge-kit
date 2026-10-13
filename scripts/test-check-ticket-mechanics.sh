@@ -480,6 +480,17 @@ L12="$(one479 boldhdr "$(printf -- '**Positive**: given a, when b, then c\n- Giv
 case "$(outcome "$(run "$L12" feature)" gwt)|$(gwt479 "$L12")" in "fail|"*"Positive: 2 When lines"*) ok "#479: a bold header that is also a lowercase one-liner keeps its block's When count fail" ;; *) bad "#479: bold one-liner header hid the When count: $(outcome "$(run "$L12" feature)" gwt) $(gwt479 "$L12")" ;; esac
 L13="$(one479 mixed2 "$(printf -- '**Positive**: Given a. When b. Then c.\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID')")"
 expect "#479 guard: a bold one-liner header with no When line beside a real Negative block still refers" referred "$(outcome "$(run "$L13" feature)" gwt)"
+# Review round 2: a header that owns When lines is a block even when the pair is INCOMPLETE, so a
+# missing polarity still fails; only a header owning no When line, or a non-header one-liner,
+# keeps the one-line form there. This also flips the capitalised form, which referred since #233.
+L14="$(one479 halfhdr "$(printf -- '**Positive**: given a, when b, then c\n- Given: a\n- When: b\n- When: b2\n- Then: c')")"
+case "$(outcome "$(run "$L14" feature)" gwt)|$(gwt479 "$L14")" in "fail|"*"found 1 positive, 0 negative"*) ok "#479: a lowercase one-liner header owning When lines with no Negative block fails the missing polarity" ;; *) bad "#479: incomplete pair header: $(outcome "$(run "$L14" feature)" gwt) $(gwt479 "$L14")" ;; esac
+L15="$(one479 halfneg "$(printf -- '**Negative**: given d, when e, then 400 INVALID\n- Given: d\n- When: e\n- When: e2\n- Then: 400 INVALID')")"
+case "$(outcome "$(run "$L15" feature)" gwt)|$(gwt479 "$L15")" in "fail|"*"found 0 positive, 1 negative"*) ok "#479: the Negative mirror with no Positive block fails too" ;; *) bad "#479: incomplete pair mirror: $(outcome "$(run "$L15" feature)" gwt) $(gwt479 "$L15")" ;; esac
+L16="$(one479 halfcap "$(printf -- '**Positive**: Given a, When b, Then c\n- Given: a\n- When: b\n- Then: c')")"
+case "$(outcome "$(run "$L16" feature)" gwt)|$(gwt479 "$L16")" in "fail|"*"found 1 positive, 0 negative"*) ok "#479: the capitalised header owning a When line with no Negative block fails (referred before)" ;; *) bad "#479: incomplete pair capitalised: $(outcome "$(run "$L16" feature)" gwt) $(gwt479 "$L16")" ;; esac
+L17="$(one479 halfline "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c\n\n- Negative: given d, when e, then 400 INVALID')")"
+expect "#479 guard: a Positive block beside a lowercase Negative one-liner still refers" referred "$(outcome "$(run "$L17" feature)" gwt)"
 
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
 # An optional fourth field is the field's description line, and an optional fifth, `gate-owned`,
@@ -571,13 +582,23 @@ if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the case-sensitivity mutant did not 
   expect "mutant: a case-sensitive detector fails the lowercase keyword row (the #479 row can fail)" fail "$(outcome "$(mrun "$L1")" gwt)"
   expect "mutant: a case-sensitive detector fails the lowercase marker row (the #479 row can fail)" fail "$(outcome "$(mrun "$L2")" gwt)"
 fi
-# #479 review mutants: drop the valid-pair gate, then drop the header-owns-no-When exemption.
-GATE479='if [ "$pos_count" -gt 0 ] && [ "$neg_count" -gt 0 ] && [ -n "$one_line" ]; then'
-grep -qF "$GATE479" "$SCRIPT" && ok "mutant ledger: the script carries the valid-pair gate (#479 review)" || bad "mutant ledger: #479 valid-pair gate not found"
-sed 's/^\( *\)if \[ "\$pos_count" -gt 0 \] && \[ "\$neg_count" -gt 0 \] && \[ -n "\$one_line" \]; then$/\1if false; then/' "$SCRIPT" > "$MUT"
+# #479 review mutants: drop the block gate, narrow it back to a valid pair, drop the incomplete-pair
+# pass-through, then drop the header-owns-no-When exemption.
+GATE479='if { [ "$pos_count" -gt 0 ] || [ "$neg_count" -gt 0 ]; } && [ -n "$one_line" ]; then'
+grep -qF "$GATE479" "$SCRIPT" && ok "mutant ledger: the script carries the block gate (#479 review)" || bad "mutant ledger: #479 block gate not found"
+sed 's/^\( *\)if { \[ "\$pos_count" -gt 0 \] || \[ "\$neg_count" -gt 0 \]; } && \[ -n "\$one_line" \]; then$/\1if false; then/' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the valid-pair gate mutant did not apply"; else
   expect "mutant: without the valid-pair gate the bold one-liner header hides its When count (the #479 review row can fail)" referred "$(outcome "$(mrun "$L12")" gwt)"
   expect "mutant: without the valid-pair gate a stray one-liner in a valid pair refers (the stray row can fail)" referred "$(outcome "$(mrun "$L10")" gwt)"
+fi
+sed 's/^\( *\)if { \[ "\$pos_count" -gt 0 \] || \[ "\$neg_count" -gt 0 \]; }/\1if { [ "$pos_count" -gt 0 ] \&\& [ "$neg_count" -gt 0 ]; }/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the valid-pair-only mutant did not apply"; else
+  expect "mutant: a gate on a valid pair only refers the incomplete-pair header (the round 2 row can fail)" referred "$(outcome "$(mrun "$L14")" gwt)"
+  expect "mutant: a gate on a valid pair only refers the capitalised incomplete-pair header" referred "$(outcome "$(mrun "$L16")" gwt)"
+fi
+sed 's/^ *!pair { print }$//' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the incomplete-pair pass-through mutant did not apply"; else
+  expect "mutant: without the pass-through a Negative one-liner beside a lone Positive block fails (the L17 row can fail)" fail "$(outcome "$(mrun "$L17")" gwt)"
 fi
 sed 's/whens == 0) print hdr/whens < 0) print hdr/g' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#479: the header exemption mutant did not apply"; else

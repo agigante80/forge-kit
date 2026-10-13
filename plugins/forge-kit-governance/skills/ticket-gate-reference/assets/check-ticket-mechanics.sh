@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 27
+# check-ticket-mechanics-version: 28
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -501,15 +501,18 @@ else
     pos_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_POS")
     neg_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_NEG")
     one_line="$(printf '%s\n' "$SCENARIOS" | grep -m1 -iE "$ONE_LINE")"
-    # A valid block pair is judged by its blocks (#479 review): where a Positive and a Negative
-    # block both exist, only a block HEADER that is a one-liner owning no When line keeps the
-    # one-line form (O5's `**Positive**: Given a. When b. Then c.`, which v9 failed with 0 When
-    # lines). Any other one-liner, a stray prose line or a header that owns When lines, is left to
-    # the block checks.
-    if [ "$pos_count" -gt 0 ] && [ "$neg_count" -gt 0 ] && [ -n "$one_line" ]; then
-      one_line="$(printf '%s\n' "$SCENARIOS" | CTM_ANY="$MARK_ANY" awk '
-        BEGIN { any = ENVIRON["CTM_ANY"] }
+    # Blocks are judged by their blocks (#479 review rounds 1 and 2): where any block exists, a
+    # block HEADER that is a one-liner keeps the one-line form only while it owns no When line
+    # (O5's `**Positive**: Given a. When b. Then c.`, which v9 failed with 0 When lines); a header
+    # that owns When lines is a block, so a missing polarity or a When count still fails. Any other
+    # one-liner keeps the form only while the pair is incomplete; inside a valid pair a stray prose
+    # line is left to the block checks.
+    if { [ "$pos_count" -gt 0 ] || [ "$neg_count" -gt 0 ]; } && [ -n "$one_line" ]; then
+      pair=0; [ "$pos_count" -gt 0 ] && [ "$neg_count" -gt 0 ] && pair=1
+      one_line="$(printf '%s\n' "$SCENARIOS" | CTM_ANY="$MARK_ANY" CTM_PAIR="$pair" awk '
+        BEGIN { any = ENVIRON["CTM_ANY"]; pair = ENVIRON["CTM_PAIR"] + 0 }
         $0 ~ any { if (hdr != "" && whens == 0) print hdr; hdr = $0; whens = 0; next }
+        !pair { print }
         hdr != "" && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { whens++ }
         END { if (hdr != "" && whens == 0) print hdr }
       ' | grep -m1 -iE "$ONE_LINE")"
