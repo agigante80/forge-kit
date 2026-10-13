@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 29
+# check-ticket-mechanics-version: 30
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -158,9 +158,12 @@ need_value() { [ "$1" -ge 2 ] || die "$2 needs a value"; }
 # literal text and opens no region; inside a gate region fence state is frozen, so a stray fence
 # line there never leaks an open fence into the author text after the region. Functions only:
 # each reader applies them in that order itself. Portable to Apple awk (no intervals, no gawk).
+# INDENT is measured with match() and RLENGTH, never with `sub(/^ ? ? ?/, ...)`: mawk 1.3.4 reads
+# that regex as stripping ONE space, so a fence indented 2 or 3 spaces was no fence there (#485
+# round 1). The match form was checked on gawk, mawk, busybox and Apple awk.
 FENCE_AWK='
 function fence_open(s,   o, n, info) {
-  o = s; sub(/^ ? ? ?/, "", o)
+  match(s, /^ */); if (RLENGTH > 3) return 0; o = substr(s, RLENGTH + 1)
   if (substr(o, 1, 3) == "```") match(o, /^`+/)
   else if (substr(o, 1, 3) == "~~~") match(o, /^~+/)
   else return 0
@@ -169,7 +172,7 @@ function fence_open(s,   o, n, info) {
   fch = substr(o, 1, 1); flen = n; return 1
 }
 function fence_close(s,   c, pat) {
-  c = s; sub(/^ ? ? ?/, "", c)
+  match(s, /^ */); if (RLENGTH > 3) return 0; c = substr(s, RLENGTH + 1)
   if (fch == "`") pat = "^`+$"; else pat = "^~+$"
   return c ~ pat && length(c) >= flen
 }'

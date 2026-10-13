@@ -1425,7 +1425,29 @@ expect "#485: a region start marker inside a fence is literal (gwt)" "$GWT_OK" "
 expect "#485: ...and opens no region that swallows later sections" pass "$(outcome "$o" sections)"
 expect "#485: Guard: a line starting with inline triple-backtick code opens no fence" "$GWT_OK" "$(gwt_ev "$(run "$G1" bug)")"
 expect "#485: Guard: a fence line inside a gate region opens no fence" "$GWT_OK" "$(gwt_ev "$(run "$G2" bug)")"
+# The same freeze in body_headings(): a fence opened there would hide every later heading from
+# the presence scan, which gwt never reads, so only the sections row can see it (round 1, M1).
+expect "#485: Guard: ...and the presence scan still sees every later heading (sections)" pass "$(outcome "$(run "$G2" bug)" sections)"
 expect "#485: Guard: a backtick line indented four spaces opens no fence" "$GWT_OK" "$(gwt_ev "$(run "$G3" bug)")"
+# Round 1: a closer's indent is measured on its own, so a closer indented 2 spaces closes a fence
+# opened at 0, and a line indented 4 spaces closes nothing, so the quoted heading after it stays
+# inside the fence and the true closer below it ends the fence.
+F11="$(f485 f11 "$(printf '%s\n%s\n  %s' "$BT" "$Q" "$BT")")"
+F12="$(f485 f12 "$(printf '%s\n    %s\n%s\n%s' "$BT" "$BT" "$Q" "$BT")")"
+expect "#485: a closer indented 2 spaces closes a fence opened at 0" "$GWT_OK" "$(gwt_ev "$(run "$F11" bug)")"
+expect "#485: a line indented 4 spaces closes no fence (sections)" pass "$(outcome "$(run "$F12" bug)" sections)"
+expect "#485: ...and the quoted heading after it is no section (gwt)" "$GWT_OK" "$(gwt_ev "$(run "$F12" bug)")"
+# mawk 1.3.4 reads `sub(/^ ? ? ?/, ...)` as stripping one space, so the indent is measured with
+# match() instead (round 1, H1). Running the indent rows under mawk is the CI-visible tripwire for
+# that, as busybox is above for the rest; the skip line says when mawk is absent.
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$WORK/mawk"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$WORK/mawk/awk"; chmod +x "$WORK/mawk/awk"
+  expect "#485: portability: a fence indented three spaces is a fence under mawk" "$GWT_OK" "$(gwt_ev "$(PATH="$WORK/mawk:$PATH" run "$F5" bug)")"
+  expect "#485: portability: a closer indented 2 spaces closes the fence under mawk" "$GWT_OK" "$(gwt_ev "$(PATH="$WORK/mawk:$PATH" run "$F11" bug)")"
+  expect "#485: portability: ...and every section stays present under mawk" pass "$(outcome "$(PATH="$WORK/mawk:$PATH" run "$F11" bug)" sections)"
+else
+  ok "#485: portability: mawk not on PATH, fence-indent case skipped"
+fi
 # A code block inside a real section stays that section's content, and its heading-shaped lines
 # end nothing: the Unit tests row comes AFTER the fenced Documentation impact line, and the docs
 # row quotes the real Documentation impact section rather than the fence.
@@ -1433,6 +1455,9 @@ U6="$(mkbody bug "f485-u6.md" "" "$(printf '~~~\n## Documentation impact\n~~~\n-
 o="$(run "$U6" bug)"
 expect "#485: a fenced template-label heading does not cut the Unit tests section" "$(printf 'pass\t~~~')" "$(printf '%s\n' "$o" | awk -F'\t' '$1=="unit_tests"{print $2 "\t" $3}')"
 expect "#485: ...and the docs row reads the real Documentation impact section" "$(printf 'pass\tUpdates `docs/guides/auth.md`')" "$(docs_row "$o")"
+# A fence's content inside a section is still that section's content (round 1, L1).
+U7="$(mkbody bug "f485-u7.md" "" "$(printf '~~~\n- [ ] `tests/unit/auth.test.ts` valid input -> session\n~~~')")"
+expect "#485: a Unit tests row that sits only inside a fence still counts" pass "$(outcome "$(run "$U7" bug)" unit_tests)"
 # The heading-level evidence counts real headings only: a ## body quoting a ### label in a fence.
 sed 's/^### /## /' "$B485" > "$WORK/f485-l2base.md"
 python3 - "$WORK/f485-l2base.md" "$WORK/f485-l2.md" <<'PY'
@@ -1452,6 +1477,9 @@ grep -qv '^##' <<< "$o" && bad "#485: --headings printed a non-heading line" || 
 o="$(bash "$SCRIPT" --headings --roles --body "$F7" --template "$TPLDIR/bug.yml" 2>"$WORK/err")"; rc=$?
 expect "#485: --headings with --roles exits 2" 2 "$rc"
 expect "#485: ...with empty stdout" "" "$o"
+o="$(bash "$SCRIPT" --headings --dump-fields --body "$F7" --template "$TPLDIR/bug.yml" 2>/dev/null)"; rc=$?
+expect "#485: --headings with --dump-fields exits 2" 2 "$rc"
+expect "#485: ...with empty stdout (dump-fields)" "" "$o"
 o="$(bash "$SCRIPT" --headings 2>/dev/null)"; rc=$?
 expect "#485: --headings without --body exits 2" 2 "$rc"
 # Mutants: each guard the fix adds, applied to a scratch copy; each must flip a row above.
@@ -1485,8 +1513,23 @@ fi
 if fmut M6 's/rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; next }/rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; else if (fence_open(l)) fopen = 1; next }/'; then
   expect "mutant M6: fence state moved inside a region fails the region Guard" fail "$(outcome "$(frun "$G2")" gwt)"
 fi
-if fmut M7 's/sub(\/^ ? ? ?\/, "", o)/sub(\/^ *\/, "", o)/'; then
+if fmut M7 's/match(s, \/^ \*\/); if (RLENGTH > 3) return 0; o = /match(s, \/^ *\/); o = /'; then
   expect "mutant M7: without the opener's indent limit the four-space Guard fails" fail "$(outcome "$(frun "$G3")" gwt)"
+fi
+# Round 1 of #485: four more guards, each with the row that kills it.
+grep -qF 'else if (/^##+ /) print; next }' "$SCRIPT" && ok "mutant ledger: body_headings() freezes fence state inside a region (#485)" || bad "mutant ledger: #485 body_headings region rule not found"
+if fmut M9 's/else if (\/^##+ \/) print; next }/else { if (\/^##+ \/) print; if (fence_open(l)) fopen = 1 }; next }/'; then
+  expect "mutant M9: a fence opened inside a region in body_headings fails the region Guard (sections)" fail "$(outcome "$(frun "$G2")" sections)"
+fi
+if fmut M10 's/match(s, \/^ \*\/); if (RLENGTH > 3) return 0; c = /match(s, \/^ *\/); c = /'; then
+  expect "mutant M10: without the closer's indent limit the four-space closer row fails (sections)" fail "$(outcome "$(frun "$F12")" sections)"
+fi
+if fmut M11 's/^    fopen { if (fence_close(l)) fopen = 0; if (inside) print; next }/    fopen { if (fence_close(l)) fopen = 0; next }/'; then
+  expect "mutant M11: a fence's content dropped from its section fails the fenced Unit tests row" fail "$(outcome "$(frun "$U7")" unit_tests)"
+fi
+if fmut M12 's/ \&\& \[ "\$DUMP_FIELDS" -eq 0 \]//'; then
+  bash "$MUT" --headings --dump-fields --body "$F7" --template "$TPLDIR/bug.yml" >/dev/null 2>&1; rc=$?
+  expect "mutant M12: without the --dump-fields exclusion --headings with --dump-fields exits 0" 0 "$rc"
 fi
 
 echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
