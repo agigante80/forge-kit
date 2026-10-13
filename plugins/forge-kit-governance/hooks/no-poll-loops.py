@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# no-poll-loops-version: 10
+# no-poll-loops-version: 11
 """PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263).
 
 A subagent dispatched with the Agent tool returns through the harness: its completion
@@ -86,8 +86,9 @@ TOOLS = ("Bash", "Monitor")  # Monitor also takes a shell `command`
 #     2.1.296: a depth-2 Agent dispatch's late result reaches the depth-1 parent, whether that
 #     parent is live or idle with the child still running (4 of 4 runs).
 # SUBAGENT_REASON names both modes, and its instruction (end the turn naming what still runs)
-# is right in both: interactive it costs one line, and headless it is how the parent learns a
-# result arrives separately.
+# is right in both: interactive it costs one line, except when the parent has already taken the
+# subagent's result (#477 point 4), and headless it is how the parent learns a result arrives
+# separately.
 # A subagent's hook payload carries agent_id and agent_type, the top level's neither (#475 Q3).
 # Only agent_id, as a non-empty string, selects the subagent text; anything else gets REASON.
 # This deliberately reverses #475's "either field counts": the 2.1.296 hook schema documents
