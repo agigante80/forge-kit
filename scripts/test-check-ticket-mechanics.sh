@@ -1403,7 +1403,7 @@ F10="$(f485 f10 "$(printf '%s\n<!-- gate-context:start -->\n%s\n%s' "$BT" "$Q" "
 G1="$(f485 g1 "$(printf '%sx%s inline code, not a fence' "$BT" "$BT")")"
 G2="$(f485 g2 "$(printf '<!-- gate-context:start -->\n%s\n<!-- gate-context:end -->' "$BT")")"
 G3="$(f485 g3 "$(printf '    %s' "$BT")")"
-grep -qxF "$Q" "$F7" && grep -c "^$BT\$" "$F7" | grep -qx 2 && [ "$(grep -cxF "$Q" "$F7")" = 1 ] \
+grep -qxF "$Q" "$F7" && [ "$(grep -c "^$BT\$" "$F7")" = 2 ] && [ "$(grep -cxF "$Q" "$F7")" = 1 ] \
   && ok "#485: the fence-only body quotes the heading once and has no real one (fixture sanity)" || bad "#485: the fence-only fixture is malformed"
 expect "#485: a backtick fence quoting the scenarios heading does not hide the real section" "$GWT_OK" "$(gwt_ev "$(run "$F1" bug)")"
 expect "#485: a tilde fence quoting the scenarios heading does not hide the real section" "$GWT_OK" "$(gwt_ev "$(run "$F2" bug)")"
