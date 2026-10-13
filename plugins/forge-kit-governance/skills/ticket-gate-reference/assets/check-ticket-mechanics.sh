@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 32
+# check-ticket-mechanics-version: 33
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -592,7 +592,10 @@ then_missing() {
 # above bullet one-liners (review round 1): keyed on the header alone, it failed with 0 When lines
 # where it had referred. The WHOLE block goes, not just the header line: a `- Then:` bullet under a
 # dropped Negative header would otherwise count as the Then of the Negative block above it and hide
-# its missing Then. A block that owns a When line is kept whatever one-liner it holds, so the
+# its missing Then. The LINE path removes a block only when it also holds no `- Given:` or `- Then:`
+# bullet (round 2): a block written in block grammar that lacks its When is a real block with
+# 0 When lines and must fail, even with a one-liner under it. The HEADER path stays unconditional
+# (narrowing it too broke R7). A block that owns a When line is kept whatever one-liner it holds, so the
 # bullet sibling (`- Negative: Given ...` inside a two-When Positive block) is still judged. Lines
 # before the first header pass through. `tolower` on both sides rather than IGNORECASE, which only
 # gawk has; ONE_LINE holds no escape `tolower` could change.
@@ -600,11 +603,12 @@ without_oneliner_headers() {
   printf '%s\n' "$1" | CTM_ANY="$MARK_ANY" CTM_ONE="$ONE_LINE" awk '
     BEGIN { any = ENVIRON["CTM_ANY"]; one = tolower(ENVIRON["CTM_ONE"]) }
     function flush() {
-      if (!(inblk && n_when == 0 && (tolower(head) ~ one || one_in))) printf "%s", buf
+      if (!(inblk && n_when == 0 && (tolower(head) ~ one || (one_in && !n_gt)))) printf "%s", buf
       buf = ""
     }
-    $0 ~ any { flush(); inblk = 1; head = $0; n_when = 0; one_in = 0; buf = $0 "\n"; next }
+    $0 ~ any { flush(); inblk = 1; head = $0; n_when = 0; one_in = 0; n_gt = 0; buf = $0 "\n"; next }
     inblk && /^[[:space:]]*[-*][[:space:]]*\**When\**[[:space:]]*:/ { n_when++ }
+    inblk && /^[[:space:]]*[-*][[:space:]]*\**(Given|Then)\**[[:space:]]*:/ { n_gt++ }
     inblk && tolower($0) ~ one { one_in = 1 }
     { buf = buf $0 "\n" }
     END { flush() }

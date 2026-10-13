@@ -535,6 +535,12 @@ case "$(outcome "$(run "$R11" feature)" gwt)|$(gwt479 "$R11")" in "referred|one-
 # And a grouping header beside a real block that fails is still no shield.
 R12="$(one479 grp3 "$(printf -- '**Positive**\n- Positive: Given a. When b. Then c.\n\nNegative\n- Given: d\n- When: e\n- When: e2\n- Then: 400 INVALID')")"
 case "$(outcome "$(run "$R12" feature)" gwt)|$(gwt479 "$R12")" in "fail|each scenario block needs exactly one When (Negative: 2 When lines)") ok "#487: a grouping header beside a two-When Negative block still fails on that block" ;; *) bad "#487: grouping header beside a failing block: $(outcome "$(run "$R12" feature)" gwt) $(gwt479 "$R12")" ;; esac
+# Review round 2: a block written in block grammar (`- Given:`/`- Then:`) that lacks its When is a
+# real block with 0 When lines, even when a one-liner sits under it; it must fail, never refer.
+R13="$(one479 gtwhen "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: 200\n\nNegative\n- Given: d\n- Then: 400 INVALID\n- Negative: Given an expired token. When called. Then 401 AUTH_FAILED.')")"
+case "$(outcome "$(run "$R13" feature)" gwt)|$(gwt479 "$R13")" in "fail|each scenario block needs exactly one When (Negative: 0 When lines)") ok "#487: a Given/Then Negative block missing its When fails even with a one-liner under it" ;; *) bad "#487: Given/Then block with a one-liner: $(outcome "$(run "$R13" feature)" gwt) $(gwt479 "$R13")" ;; esac
+R14="$(one479 gonly "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: 200\n\nNegative\n- Given: d\n- Negative: Given x. When y. Then 401.')")"
+case "$(outcome "$(run "$R14" feature)" gwt)" in fail) ok "#487: a Negative block with a Given, no When and no Then fails even with a one-liner under it" ;; *) bad "#487: Given-only block with a one-liner: $(outcome "$(run "$R14" feature)" gwt) $(gwt479 "$R14")" ;; esac
 case "$(outcome "$(run "$O7" feature)" gwt)|$(gwt479 "$O7")" in "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)") ok "#487 guard: the O7 near miss keeps its exact 0/0 evidence" ;; *) bad "#487 guard: O7: $(gwt479 "$O7")" ;; esac
 
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
@@ -687,6 +693,14 @@ grep -qF "$XPAIR" "$SCRIPT" && ok "mutant ledger: the pair filter reads a no-Whe
 sed 's/if (whens == 0) printf "%s", grp/if (whens < 0) printf "%s", grp/g' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#487: the pair-lines mutant did not apply"; else
   case "$(outcome "$(mrun "$R11")" gwt)|$(gwt_ev "$(mrun "$R11")")" in "fail|"*"0 When lines"*) ok "mutant: without the block lines both grouping headers fail on 0 When lines (the R11 row can fail)" ;; *) bad "mutant: pair-lines mutant survived on R11: $(gwt_ev "$(mrun "$R11")")" ;; esac
+fi
+# (4) Drop the Given/Then guard on the line path (round 2): a block-grammar block missing its When
+# refers again.
+XGT='(one_in && !n_gt)'
+grep -qF "$XGT" "$SCRIPT" && ok "mutant ledger: the line removal spares a block with a Given or Then bullet (#487 round 2)" || bad "mutant ledger: #487 n_gt guard not found"
+sed 's/(one_in \&\& !n_gt)/one_in/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#487: the n_gt mutant did not apply"; else
+  expect "mutant: without the Given/Then guard the block missing its When refers (the R13 row can fail)" referred "$(outcome "$(mrun "$R13")" gwt)"
 fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.
