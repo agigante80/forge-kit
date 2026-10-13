@@ -2032,6 +2032,36 @@ fi
 if mut493 template_subheadings 's/sub(\/\\r\$\/, "", h); /gsub(\/\\r\/, "", h); /' "$XH493"; then
   expect "mutant: a strip-every-CR subheadings heading empties the interior-CR section" fail "$(outcome "$(r493 "$M493" "$WORK/mid493.md" "$WORK/mid493.yml")" sections)"
 fi
+# Order: each site strips the CR BEFORE the blanks. A line `      label: Unit tests  \r` stripped the
+# other way round keeps `Unit tests  `, because the blank strip sees the CR at the end and does
+# nothing. This copy puts two blanks before the CR on every label line and every placeholder
+# heading line, so each order swap below changes a row.
+sed -E 's/^(      label: .*|        #+ .*)$/\1  /; s/$/\r/' "$TPLDIR/feature.yml" > "$WORK/blank493-feature.yml"
+expect "#493: the blank-then-CR copy carries two blanks before the CR on every label and heading line (fixture sanity)" \
+  "$(grep -cE '^      label: |^        #+ ' "$TPLDIR/feature.yml")" "$(grep -cE '^(      label: |        #+ ).*[^ ]  '$'\r''$' "$WORK/blank493-feature.yml")"
+BF493="$(mkbody feature "i493-blank.md")"
+expect "#493: a blank-then-CR template gives the LF template's rows on the compliant feature body" \
+  "$(r493 "$SCRIPT" "$BF493" "$TPLDIR/feature.yml")" "$(r493 "$SCRIPT" "$BF493" "$WORK/blank493-feature.yml")"
+expect "#493: ...and the LF rows on the sub-heading case" "$SL493" "$(r493 "$SCRIPT" "$S493" "$WORK/blank493-feature.yml")"
+expect "#493: ...and the LF --dump-fields output" "$(bash "$SCRIPT" --dump-fields --body "$BF493" --template "$TPLDIR/feature.yml" 2>/dev/null)" \
+  "$(bash "$SCRIPT" --dump-fields --body "$BF493" --template "$WORK/blank493-feature.yml" 2>/dev/null)"
+XO493='sub(/[ \t]+$/, "", l); '
+XOH493='sub(/[ \t]+$/, "", h); '
+grep -qF "$X493$XO493" <<< "$(fn493 template_fields "$SCRIPT")" && ok "mutant ledger: template_fields() strips the label's CR before its blanks (#493)" || bad "mutant ledger: #493 template_fields CR-then-blank order not found"
+grep -qF "$X493$XO493" <<< "$(fn493 template_subheadings "$SCRIPT")" && ok "mutant ledger: template_subheadings() strips its label's CR before its blanks (#493)" || bad "mutant ledger: #493 template_subheadings label CR-then-blank order not found"
+grep -qF "$XH493$XOH493" <<< "$(fn493 template_subheadings "$SCRIPT")" && ok "mutant ledger: template_subheadings() strips its heading text's CR before its blanks (#493)" || bad "mutant ledger: #493 template_subheadings heading CR-then-blank order not found"
+if mut493 template_fields 's/sub(\/\\r\$\/, "", l); sub(\/\[ \\t\]+\$\/, "", l); /sub(\/[ \\t]+$\/, "", l); sub(\/\\r$\/, "", l); /' "$X493$XO493"; then
+  case "$(ev493 "$(r493 "$M493" "$BF493" "$WORK/blank493-feature.yml")" sections)" in "fail|heading absent ("*) ok "mutant: template_fields stripping blanks before the CR fails the blank-then-CR feature sections row heading absent" ;;
+    *) bad "mutant: template_fields stripping blanks before the CR gave sections '$(ev493 "$(r493 "$M493" "$BF493" "$WORK/blank493-feature.yml")" sections)'" ;; esac
+fi
+if mut493 template_subheadings 's/sub(\/\\r\$\/, "", l); sub(\/\[ \\t\]+\$\/, "", l); /sub(\/[ \\t]+$\/, "", l); sub(\/\\r$\/, "", l); /' "$X493$XO493"; then
+  o="$(r493 "$M493" "$S493" "$WORK/blank493-feature.yml")"
+  expect "mutant: subheadings stripping its label's blanks before the CR empties E2E on the blank-then-CR template" "fail|required heading present but empty (1): E2E test scenarios" "$(ev493 "$o" sections)"
+fi
+if mut493 template_subheadings 's/sub(\/\\r\$\/, "", h); sub(\/\[ \\t\]+\$\/, "", h); /sub(\/[ \\t]+$\/, "", h); sub(\/\\r$\/, "", h); /' "$XH493$XOH493"; then
+  o="$(r493 "$M493" "$S493" "$WORK/blank493-feature.yml")"
+  expect "mutant: subheadings stripping its heading's blanks before the CR empties E2E on the blank-then-CR template" "fail|required heading present but empty (1): E2E test scenarios" "$(ev493 "$o" sections)"
+fi
 
 echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
 # Step 0c reads this instead of matching field ids itself, so the resolution rule lives here alone.
