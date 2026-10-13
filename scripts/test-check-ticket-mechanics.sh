@@ -610,6 +610,24 @@ grep -q $'^  ```\r$' "$F490C" && ok "#490: the CRLF fixture's closing fence carr
 expect "#490: a CRLF scenarios field closes its fence (the reproduction passes)" "pass|$GWT490" "$(g490 "$F490C")"
 F490E="$(one479 f490trail "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n%s   \n**Negative**: Given d. When e. Then 400 INVALID.\n%s   \n- Then: 400 INVALID' "$P490" "$FB" "$FB")")"
 expect "#490: a fence whose opener and closer carry trailing blanks still opens and closes" "pass|$GWT490" "$(g490 "$F490E")"
+# Round 2: the note appears only where the fences can be the cause. A real second When, or a real
+# missing Then, beside an unrelated fenced example gets no note; a fenced Then or When that the
+# failing block needed gets it, on every call site.
+OL490='**Positive**: Given a. When b. Then c.'
+F490NB="$(one479 f490nb "$(printf -- 'Positive\n- Given: a\n- When: b\n- When: b2\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n%s\n- When: the client posts /login\n%s' "$FB" "$FB")")"
+expect "#490: a real second When beside a fenced example When gets no fence note" "fail|each scenario block needs exactly one When (Positive: 2 When lines)" "$(g490 "$F490NB")"
+F490NC="$(one479 f490nc "$(printf -- '%s\n%s\n- Then: 200 OK\n%s\n\nNegative\n- Given: d\n- When: e' "$P490" "$FB" "$FB")")"
+expect "#490: a real missing Then beside a fenced example Then gets no fence note" "fail|a Negative block has no Then line" "$(g490 "$F490NC")"
+F490NE="$(one479 f490ne "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n%s\n- Then: 400 INVALID\n%s' "$P490" "$FB" "$FB")")"
+expect "#490: a Negative block whose only Then is fenced names the fences (block branch)" "fail|a Negative block has no Then line (lines inside a fenced code block are not read)" "$(g490 "$F490NE")"
+F490NF="$(one479 f490nf "$(printf -- '%s\n\nNegative\n%s\n- Given: x\n- When: y\n- Then: 401 AUTH_FAILED\n%s' "$OL490" "$FB" "$FB")")"
+expect "#490: a one-liner beside a Negative block whose bullets are fenced names the fences (one-line branch, When)" "fail|each scenario block needs exactly one When (Negative: 0 When lines) (lines inside a fenced code block are not read)" "$(g490 "$F490NF")"
+F490NT="$(one479 f490nt "$(printf -- '%s\n\nNegative\n- Given: x\n- When: y\n%s\n- Then: 401 AUTH_FAILED\n%s' "$OL490" "$FB" "$FB")")"
+expect "#490: a one-liner beside a Negative block whose only Then is fenced names the fences (one-line branch, Then)" "fail|a Negative block has no Then line (lines inside a fenced code block are not read)" "$(g490 "$F490NT")"
+F490NH="$(one479 f490nh "$(printf -- '%s\n\nNegative\n- Given: x\n- When: y\n- When: y2\n- Then: 401 AUTH_FAILED\n%s\n- Then: example\n%s' "$OL490" "$FB" "$FB")")"
+expect "#490: a one-liner beside a real two-When block and a fenced Then gets no fence note" "fail|each scenario block needs exactly one When (Negative: 2 When lines)" "$(g490 "$F490NH")"
+F490NG="$(one479 f490ng "$(printf -- 'Positive\n- Given: a\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n%s\n- Then: example\n%s' "$FB" "$FB")")"
+expect "#490: a real 0-When block beside a fenced Then (no fenced When) gets no fence note" "fail|each scenario block needs exactly one When (Positive: 0 When lines)" "$(g490 "$F490NG")"
 if command -v mawk >/dev/null 2>&1; then
   mkdir -p "$WORK/mawk490"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$WORK/mawk490/awk"; chmod +x "$WORK/mawk490/awk"
   expect "#490: portability: the 2-space reproduction passes under mawk" "pass|$GWT490" "$(PATH="$WORK/mawk490:$PATH" g490 "$F490R")"
@@ -809,12 +827,35 @@ if cmp -s "$SCRIPT" "$MUT" || grep -qF 'sub(/[ \t]+$/, "", l)' <<< "$(ff490 "$MU
   expect "mutant: without fence_free's trailing-blank strip the padded fence breaks (the trailing-blank row can fail)" fail "$(outcome "$(mrun "$F490E")" gwt)"
 fi
 # (5) No fence note: the L1 row's evidence loses its reason.
-XN490='fence_note=" (lines inside a fenced code block are not read)"'
+XN490='FENCE_NOTE=" (lines inside a fenced code block are not read)"'
 grep -qF "$XN490" "$SCRIPT" && ok "mutant ledger: check 4 sets the fence note (#490)" || bad "mutant ledger: #490 fence note not found"
-sed 's/fence_note=" (lines inside a fenced code block are not read)"/fence_note=""/' "$SCRIPT" > "$MUT"
+sed 's/FENCE_NOTE=" (lines inside a fenced code block are not read)"/FENCE_NOTE=""/' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XN490" "$MUT"; then bad "#490: the fence-note mutant did not apply"; else
   expect "mutant: without the fence note the L1 evidence stops naming the fences (the L1 row can fail)" \
     "each scenario block needs exactly one When (Positive: 0 When lines; Negative: 0 When lines)" "$(mrun "$F490L" | awk -F'\t' '$1 == "gwt" { print $3 }')"
+fi
+# (6) to (8) Round 2: each guard that keeps the note off an unrelated fail, dropped on a copy.
+ev490() { mrun "$1" | awk -F'\t' '$1 == "gwt" { print $3 }'; }
+XW490='*": 0 When lines"*) [ "$fence_hid" -eq 0 ]'
+grep -qF "$XW490" "$SCRIPT" && ok "mutant ledger: when_note keys on a 0 When lines block (#490)" || bad "mutant ledger: #490 when_note guard not found"
+sed 's/\*": 0 When lines"\*) \[ "\$fence_hid" -eq 0 \]/*) [ "$fence_hid" -eq 0 ]/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XW490" "$MUT"; then bad "#490: the when_note guard mutant did not apply"; else
+  expect "mutant: without the 0 When lines guard a real second When names the fences (the no-note When row can fail)" \
+    "each scenario block needs exactly one When (Positive: 2 When lines) (lines inside a fenced code block are not read)" "$(ev490 "$F490NB")"
+fi
+XT490='[ "$(then_missing "$SCENARIOS")" -ge "$1" ] ||'
+grep -qF "$XT490" "$SCRIPT" && ok "mutant ledger: then_note compares the raw missing-Then count (#490)" || bad "mutant ledger: #490 then_note guard not found"
+sed 's/\[ "\$(then_missing "\$SCENARIOS")" -ge "\$1" \] ||/false ||/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XT490" "$MUT"; then bad "#490: the then_note guard mutant did not apply"; else
+  expect "mutant: without the raw count a real missing Then names the fences (the no-note Then row can fail)" \
+    "a Negative block has no Then line (lines inside a fenced code block are not read)" "$(ev490 "$F490NC")"
+fi
+XB490="[*]*When[*]*[[:space:]]*:'"
+grep -qF "WHEN_BULLET='^[[:space:]]*[-*][[:space:]]*$XB490" "$SCRIPT" && ok "mutant ledger: the note's trigger counts When bullets only (#490)" || bad "mutant ledger: #490 WHEN_BULLET not found"
+sed "s/^\(    WHEN_BULLET=.*\)\[\*\]\*When\[\*\]\*/\1[*]*(When|Then)[*]*/" "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT"; then bad "#490: the WHEN_BULLET mutant did not apply"; else
+  expect "mutant: a trigger that counts Then bullets blames a fenced Then for a real 0-When block (the 0-When row can fail)" \
+    "each scenario block needs exactly one When (Positive: 0 When lines) (lines inside a fenced code block are not read)" "$(ev490 "$F490NG")"
 fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.
