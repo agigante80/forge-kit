@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 79 -->
+<!-- ticket-gate-version: 80 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -550,8 +550,8 @@ alike), per Step 3B. A **fundamental** item's architecture alternatives were gen
 Under the lifecycle above, one region per call:
 1. Replace `gate-required-changes` with the blocking items as a checklist
 2. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, append them with
-   `forge_body_section_append` (WRITE ONCE above), each scenario or paragraph one block whose
-   first line ends `(gate-written, round N)`
+   `forge_body_section_append` (WRITE ONCE above), each item one block, its first line like
+   `**Negative:** <title> (gate-written, round N)`
 3. If architecture alternatives were generated, replace `gate-alternatives` with the
    2 to 3 options
 
