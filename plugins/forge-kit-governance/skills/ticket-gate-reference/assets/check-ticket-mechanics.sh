@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 28
+# check-ticket-mechanics-version: 29
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -106,6 +106,10 @@
 # --dump-fields prints the parsed <label>\t<required> table and exits, so a test can drive the
 # real parser rather than a copy of it.
 #
+# --headings prints the body's real heading lines, fenced ones left out (#485), and exits. Needs
+# --body only; refused with --roles or --dump-fields. forge-gate-mechanics.sh's template-shape test
+# reads it, so that test and check 3 share one fence-aware reader instead of two copies of the awk.
+#
 # --roles prints `<role>\t<label>` per resolved role and exits (#213), in the fixed order
 # scenarios, unit_tests, e2e_tests, docs_impact: the ids ticket-gate's Step 0c targets and the
 # synthesis table are keyed on (`scenarios` feeds check 3's row `gwt`). Same resolution as
@@ -127,7 +131,7 @@
 #
 set -uo pipefail
 
-BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; LABELS_DOC=""; AREA_EXPLICIT=0
+BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -141,6 +145,49 @@ die() { printf 'check-ticket-mechanics: %s\n' "$1" >&2; exit 2; }
 # silently and the loop spins forever. A hang is worse than a crash, so this refuses instead.
 need_value() { [ "$1" -ge 2 ] || die "$2 needs a value"; }
 
+# FENCED CODE BLOCKS (#485). A ticket that quotes a template heading inside a code block, to show
+# a reproduction input, had the quote read as the real section by section_of() and by check 3's
+# presence scan, so a valid scenarios section after it read as 0 positive, 0 negative. Every reader
+# of the body's headings now shares this fence state, CommonMark 0.31.2 section 4.5, on a line
+# already stripped of its CR and trailing blanks: an opener is at most 3 spaces of indent, then 3
+# or more backticks or 3 or more tildes; a backtick opener whose info string holds a backtick is
+# inline code, not a fence; a closer is at most 3 spaces of indent, the opener's character, at
+# least as long, and nothing after it; an unclosed fence runs to the end of the body, as the forge
+# renders it. Indented code blocks, and fences inside list items or block quotes, are not modelled.
+# REGIONS AND FENCES: fence state is evaluated first, so a region marker inside an open fence is
+# literal text and opens no region; inside a gate region fence state is frozen, so a stray fence
+# line there never leaks an open fence into the author text after the region. Functions only:
+# each reader applies them in that order itself. Portable to Apple awk (no intervals, no gawk).
+FENCE_AWK='
+function fence_open(s,   o, n, info) {
+  o = s; sub(/^ ? ? ?/, "", o)
+  if (substr(o, 1, 3) == "```") match(o, /^`+/)
+  else if (substr(o, 1, 3) == "~~~") match(o, /^~+/)
+  else return 0
+  n = RLENGTH; info = substr(o, n + 1)
+  if (substr(o, 1, 1) == "`" && index(info, "`")) return 0   # backtick info string holds no backtick
+  fch = substr(o, 1, 1); flen = n; return 1
+}
+function fence_close(s,   c, pat) {
+  c = s; sub(/^ ? ? ?/, "", c)
+  if (fch == "`") pat = "^`+$"; else pat = "^~+$"
+  return c ~ pat && length(c) >= flen
+}'
+# The body's real heading lines (`^##+ `), raw, once each in body order: check 3's presence scan
+# and --headings read this, so presence and content cannot disagree about a fenced line again.
+# Unlike section_of() it still READS a gate region's headings, as the raw grep it replaced did;
+# a region only freezes fence state here.
+body_headings() {
+  awk "$FENCE_AWK"'
+    { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
+    fopen { if (fence_close(l)) fopen = 0; next }
+    rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; else if (/^##+ /) print; next }
+    fence_open(l) { fopen = 1; next }
+    l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }
+    /^##+ / { print }
+  ' < "$BODY"
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --body)                need_value $# "$1"; BODY="$2"; shift 2 ;;
@@ -153,16 +200,19 @@ while [ $# -gt 0 ]; do
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
     --roles)               ROLES=1; shift ;;
+    --headings)            HEADINGS=1; shift ;;
     -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' < "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
 [ "$ROLES" -eq 0 ] || [ "$DUMP_FIELDS" -eq 0 ] || die "--roles and --dump-fields are mutually exclusive"
+[ "$HEADINGS" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ]; } || die "--headings is exclusive of --roles and --dump-fields"
 if [ "$ROLES" -eq 0 ]; then
   [ -n "$BODY" ]   || die "--body is required"
   [ -f "$BODY" ]   || die "body file not found: $BODY"
 fi
+[ "$HEADINGS" -eq 0 ] || { body_headings; exit 0; }
 [ -n "$TEMPLATE" ] || die "--template is required"
 [ -f "$TEMPLATE" ] || die "template file not found: $TEMPLATE"
 
@@ -216,14 +266,18 @@ row() {
 # The two newline-joined lists travel through the ENVIRONMENT, never `-v`: Apple's awk (the one
 # macOS ships) refuses a -v value containing a newline ("newline in string"), so on a Mac every
 # section read as empty and every check failed. Found by running the suite with that awk (#205).
+# A heading-shaped line inside a fenced code block is never a heading (#485): it neither opens nor
+# ends a section, though inside a real section it is still that section's content. See FENCE_AWK.
 TEMPLATE_LABELS=""
 section_of() {
-  CTM_LABELS="$TEMPLATE_LABELS" CTM_SUBS="$(template_subheadings "$1")" CTM_WANT="$1" awk '
+  CTM_LABELS="$TEMPLATE_LABELS" CTM_SUBS="$(template_subheadings "$1")" CTM_WANT="$1" awk "$FENCE_AWK"'
     BEGIN { want = ENVIRON["CTM_WANT"]
             n = split(ENVIRON["CTM_LABELS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") islabel[a[i]] = 1
             n = split(ENVIRON["CTM_SUBS"], b, "\n");   for (i = 1; i <= n; i++) if (b[i] != "") issub[b[i]] = 1 }
     { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
+    fopen { if (fence_close(l)) fopen = 0; if (inside) print; next }
     rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; next }
+    fence_open(l) { fopen = 1; if (inside) print; next }   # section_of: a fence opens
     l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }
     /^##+ / {
       lvl = index($0, " ") - 1; cur = substr($0, lvl + 2); sub(/[ \t]+$/, "", cur)
@@ -415,14 +469,18 @@ fi
 # split by position, never by `read` with a TAB IFS, which collapses the empty id column of a field
 # with no `id:` and shifts the flag. role_required() and section_of() still look fields up by
 # label (out of scope; two same-label sections are one heading to a reader anyway).
+# Presence, and the at2/at3 level evidence, read body_headings(), never the raw body (#485): a
+# heading-shaped line inside a fenced code block is a quote, not a heading, so a label present only
+# inside a fence is ABSENT here, exactly as section_of() cannot find it. A raw grep counted the quote.
 TAB="$(printf '\t')"
+BODY_HEADINGS="$(body_headings)"
 missing=""; empty=""; skipped=""; at2=""; at3=""
 while IFS= read -r frow; do
   label=${frow%%"$TAB"*}; frest=${frow#*"$TAB"}; required=${frest%%"$TAB"*}; gate=${frow##*"$TAB"}
-  grep -qxF "## $label" "$BODY" && at2="##"
-  grep -qxF "### $label" "$BODY" && at3="###"
+  grep -qxF "## $label" <<< "$BODY_HEADINGS" && at2="##"
+  grep -qxF "### $label" <<< "$BODY_HEADINGS" && at3="###"
   [ -n "$label" ] || continue
-  if ! grep -qxF -e "## $label" -e "### $label" "$BODY"; then
+  if ! grep -qxF -e "## $label" -e "### $label" <<< "$BODY_HEADINGS"; then
     if [ "$gate" = yes ] && [ "$required" = no ]; then   # check 3: per-row gate flag
       skipped="$skipped${skipped:+; }$label"
     else

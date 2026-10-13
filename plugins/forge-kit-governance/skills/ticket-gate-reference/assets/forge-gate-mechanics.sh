@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 7
+# forge-gate-mechanics-version: 8
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -134,11 +134,16 @@ fi
 # SYNTHESISES the missing sections and writes the enriched body back to the forge BEFORE Step 3A
 # runs, so inside a gate run the checks always see template-shaped input. This script does not
 # synthesise, deliberately: that step generates prose and needs a model.
+#
+# A heading counts only OUTSIDE a fenced code block (#485): the headings come from the checker's own
+# `--headings` mode, the one fence-aware reader check 3 uses, never from a raw grep of the body, so
+# a hand-written body that merely QUOTES template headings in a code block still gets the notice.
 SHAPED=1
 if [ -z "$TPL_VER" ]; then
   SHAPED=0
+  HEADS=$("$MECH" --body "$BODY_FILE" --headings 2>/dev/null)
   while IFS="$(printf '\t')" read -r label _; do
-    [ -n "$label" ] && grep -qxF -e "## $label" -e "### $label" "$BODY_FILE" && { SHAPED=1; break; }
+    [ -n "$label" ] && grep -qxF -e "## $label" -e "### $label" <<< "$HEADS" && { SHAPED=1; break; }
   done <<FIELDS
 $("$MECH" --body "$BODY_FILE" --template "$TEMPLATE" --dump-fields 2>/dev/null)
 FIELDS

@@ -252,6 +252,32 @@ Written by hand with two-hash headings of my own.
 run 42
 contains "never template-shaped" "$out" "a ## body with no template label is still never-template-shaped (#184 kept under #190)"
 
+# #485: template headings QUOTED inside a fenced code block are not headings, so a hand-written body
+# whose only template labels sit in a fence is still never template-shaped. The detector reads the
+# checker's fence-aware --headings, never a raw grep of the body.
+FENCED485='Written by hand. The form looks like this:
+```
+### Summary
+### Acceptance criteria
+```
+and nothing else.'
+issue "$FENCED485" feature P2 api
+run 42
+contains "never template-shaped" "$out" "a body whose template headings are only inside a fence is never template-shaped (#485)"
+issue "$(printf '%s\n### Summary\nreal heading after the fence' "$FENCED485")" feature P2 api
+run 42
+lacks "never template-shaped" "$out" "a real template heading after the fence is still template-shaped (#485)"
+# M8: the detector reverted to a raw grep of the body must lose the notice on the fenced body.
+grep -qF '<<< "$HEADS"' "$REAL" && ok "mutant ledger: SHAPED reads the fence-aware heading list (#485)" || bad "mutant ledger: #485 SHAPED line not found"
+cp "$BIN/forge-gate-mechanics.sh" "$T/fgm.bak"
+sed 's/<<< "\$HEADS"/"$BODY_FILE"/' "$T/fgm.bak" > "$BIN/forge-gate-mechanics.sh"
+if cmp -s "$T/fgm.bak" "$BIN/forge-gate-mechanics.sh"; then bad "#485: mutant M8 did not apply"; else
+  issue "$FENCED485" feature P2 api
+  run 42
+  lacks "never template-shaped" "$out" "mutant M8: a raw-grep detector loses the notice on the fenced body (the #485 row can fail)"
+fi
+cp "$T/fgm.bak" "$BIN/forge-gate-mechanics.sh"
+
 echo "== a template-shaped body missing ONE section still fails that section =="
 # The near-miss that keeps the notice honest: it must key on the SHAPE, not on any failure count,
 # or a gated ticket with a genuine gap would be excused by the same message.

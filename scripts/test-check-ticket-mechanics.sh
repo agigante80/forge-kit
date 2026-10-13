@@ -1364,6 +1364,131 @@ expect "#405: --template 'tp=x.yml' gives the same rows as bs.yml" "$(ctm --body
 o="$(ctm --body bs-full.md --template bs.yml --labels protocol,feature --labels-doc 'l=x.md' | awk -F'\t' '$1=="labels"{print $2}')"
 expect "#405: --labels-doc 'l=x.md' reads the project's areas (protocol passes)" pass "$o"
 
+echo "check-ticket-mechanics: a heading inside a fenced code block is never a heading (#485)"
+# A ticket that quotes a template heading inside a code block had the quote read as the real
+# section, by section_of() AND by check 3's presence scan. Every body below is the generated bug
+# body with text inserted into Steps to reproduce (and, where named, the real scenarios section
+# removed), so one inserted fence is the only difference from a passing body. Fence grammar is
+# CommonMark 0.31.2 section 4.5.
+cat > "$WORK/f485.py" <<'PY'
+import sys
+src, out, ins, drop = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == "drop"
+s = open(src).read()
+anchor = "### Steps to reproduce\n\nfilled in\n"
+assert anchor in s, "steps anchor did not match"
+s = s.replace(anchor, anchor + "\n" + ins + "\n", 1)
+if drop:
+    h = "### Test scenarios (Given / When / Then)\n"
+    i = s.rindex(h); j = s.index("\n### ", i + len(h))
+    s = s[:i] + s[j + 1:]
+open(out, "w").write(s)
+PY
+B485="$(mkbody bug "f485-base.md")"
+f485() {  # f485 <name> <inserted text> [drop]; prints the body path
+  python3 "$WORK/f485.py" "$B485" "$WORK/$1.md" "$2" "${3:-keep}"; printf '%s' "$WORK/$1.md"; }
+gwt_ev() { printf '%s\n' "$1" | awk -F'\t' '$1=="gwt"{print $2 "\t" $3}'; }
+Q='### Test scenarios (Given / When / Then)'
+BT='```'
+GWT_OK="$(printf 'pass\t1 positive and 1 negative blocks, each Then specific')"
+expect "#485: the unchanged base body passes gwt (fixture sanity)" "$GWT_OK" "$(gwt_ev "$(run "$B485" bug)")"
+F1="$(f485 f1 "$(printf '%s\n%s\n\n- quoted example\n%s' "$BT" "$Q" "$BT")")"
+F2="$(f485 f2 "$(printf '~~~\n%s\n\n- quoted example\n~~~' "$Q")")"
+F3="$(f485 f3 "$(printf '````\n%s\n%s\n````' "$BT" "$Q")")"
+F4="$(f485 f4 "$(printf '%s\n~~~\n%s\n%s' "$BT" "$Q" "$BT")")"
+F5="$(f485 f5 "$(printf '   %s\n%s\n   %s' "$BT" "$Q" "$BT")")"
+F7="$(f485 f7 "$(printf '%s\n%s\n\n- quoted example\n%s' "$BT" "$Q" "$BT")" drop)"
+F8="$(f485 f8 "$(printf '%s\nan unclosed fence' "$BT")")"
+F9="$(f485 f9 "$(printf '%s\n%sbash\n%s\n%s' "$BT" "$BT" "$Q" "$BT")")"
+F10="$(f485 f10 "$(printf '%s\n<!-- gate-context:start -->\n%s\n%s' "$BT" "$Q" "$BT")")"
+G1="$(f485 g1 "$(printf '%sx%s inline code, not a fence' "$BT" "$BT")")"
+G2="$(f485 g2 "$(printf '<!-- gate-context:start -->\n%s\n<!-- gate-context:end -->' "$BT")")"
+G3="$(f485 g3 "$(printf '    %s' "$BT")")"
+grep -qxF "$Q" "$F7" && grep -c "^$BT\$" "$F7" | grep -qx 2 && [ "$(grep -cxF "$Q" "$F7")" = 1 ] \
+  && ok "#485: the fence-only body quotes the heading once and has no real one (fixture sanity)" || bad "#485: the fence-only fixture is malformed"
+expect "#485: a backtick fence quoting the scenarios heading does not hide the real section" "$GWT_OK" "$(gwt_ev "$(run "$F1" bug)")"
+expect "#485: a tilde fence quoting the scenarios heading does not hide the real section" "$GWT_OK" "$(gwt_ev "$(run "$F2" bug)")"
+expect "#485: three backticks inside a four-backtick fence do not close it" "$GWT_OK" "$(gwt_ev "$(run "$F3" bug)")"
+expect "#485: a tilde line does not close a backtick fence" "$GWT_OK" "$(gwt_ev "$(run "$F4" bug)")"
+expect "#485: a fence indented three spaces is a fence" "$GWT_OK" "$(gwt_ev "$(run "$F5" bug)")"
+o="$(run "$F7" bug)"
+expect "#485: a scenarios heading that exists only inside a fence fails sections" fail "$(outcome "$o" sections)"
+case "$(sec_ev "$o")" in "heading absent ("*"Test scenarios (Given / When / Then)"*) ok "#485: ...as heading absent, naming the scenarios label" ;;
+  *) bad "#485: the fence-only heading was counted present: $(sec_ev "$o")" ;; esac
+o="$(run "$F8" bug)"
+expect "#485: an unclosed fence hides every heading after it (sections fail)" fail "$(outcome "$o" sections)"
+case "$(sec_ev "$o")" in "heading absent ("*"Test scenarios (Given / When / Then)"*) ok "#485: ...and names the scenarios label as absent" ;;
+  *) bad "#485: an unclosed fence left the scenarios heading present: $(sec_ev "$o")" ;; esac
+expect "#485: a backtick line followed by text does not close the fence" "$GWT_OK" "$(gwt_ev "$(run "$F9" bug)")"
+expect "#485: ...and every later heading stays present (sections)" pass "$(outcome "$(run "$F9" bug)" sections)"
+o="$(run "$F10" bug)"
+expect "#485: a region start marker inside a fence is literal (gwt)" "$GWT_OK" "$(gwt_ev "$o")"
+expect "#485: ...and opens no region that swallows later sections" pass "$(outcome "$o" sections)"
+expect "#485: Guard: a line starting with inline triple-backtick code opens no fence" "$GWT_OK" "$(gwt_ev "$(run "$G1" bug)")"
+expect "#485: Guard: a fence line inside a gate region opens no fence" "$GWT_OK" "$(gwt_ev "$(run "$G2" bug)")"
+expect "#485: Guard: a backtick line indented four spaces opens no fence" "$GWT_OK" "$(gwt_ev "$(run "$G3" bug)")"
+# A code block inside a real section stays that section's content, and its heading-shaped lines
+# end nothing: the Unit tests row comes AFTER the fenced Documentation impact line, and the docs
+# row quotes the real Documentation impact section rather than the fence.
+U6="$(mkbody bug "f485-u6.md" "" "$(printf '~~~\n## Documentation impact\n~~~\n- [ ] `tests/unit/auth.test.ts` valid input -> session')")"
+o="$(run "$U6" bug)"
+expect "#485: a fenced template-label heading does not cut the Unit tests section" "$(printf 'pass\t~~~')" "$(printf '%s\n' "$o" | awk -F'\t' '$1=="unit_tests"{print $2 "\t" $3}')"
+expect "#485: ...and the docs row reads the real Documentation impact section" "$(printf 'pass\tUpdates `docs/guides/auth.md`')" "$(docs_row "$o")"
+# The heading-level evidence counts real headings only: a ## body quoting a ### label in a fence.
+sed 's/^### /## /' "$B485" > "$WORK/f485-l2base.md"
+python3 - "$WORK/f485-l2base.md" "$WORK/f485-l2.md" <<'PY'
+import sys
+s = open(sys.argv[1]).read(); a = "## Steps to reproduce\n\nfilled in\n"
+assert a in s, "level-2 steps anchor did not match"
+open(sys.argv[2], "w").write(s.replace(a, a + "\n```\n### Documentation impact\n```\n", 1))
+PY
+expect "#485: a fenced ### label on a ## body reports headings at ## only" \
+  "every template section present, every required one filled (headings at ##)" "$(sec_ev "$(run "$WORK/f485-l2.md" bug)")"
+# --headings: the one fence-aware heading reader, exposed for forge-gate-mechanics.sh's SHAPED test.
+o="$(bash "$SCRIPT" --headings --body "$F7" 2>/dev/null)"; rc=$?
+expect "#485: --headings needs no --template and exits 0" 0 "$rc"
+grep -qxF "### Steps to reproduce" <<< "$o" && ok "#485: --headings prints a real heading" || bad "#485: --headings lost a real heading: $o"
+grep -qxF "$Q" <<< "$o" && bad "#485: --headings printed a fenced heading" || ok "#485: --headings omits a fenced heading"
+grep -qv '^##' <<< "$o" && bad "#485: --headings printed a non-heading line" || ok "#485: --headings prints heading lines only"
+o="$(bash "$SCRIPT" --headings --roles --body "$F7" --template "$TPLDIR/bug.yml" 2>"$WORK/err")"; rc=$?
+expect "#485: --headings with --roles exits 2" 2 "$rc"
+expect "#485: ...with empty stdout" "" "$o"
+o="$(bash "$SCRIPT" --headings 2>/dev/null)"; rc=$?
+expect "#485: --headings without --body exits 2" 2 "$rc"
+# Mutants: each guard the fix adds, applied to a scratch copy; each must flip a row above.
+fmut() {  # fmut <name> <sed expr>: leaves the mutant at $MUT, or reports that it did not apply
+  sed "$2" "$SCRIPT" > "$MUT"; if cmp -s "$SCRIPT" "$MUT"; then bad "#485: mutant $1 did not apply"; return 1; fi; return 0; }
+frun() { bash "$MUT" --body "$1" --template "$TPLDIR/bug.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null; }
+grep -qF '# section_of: a fence opens' "$SCRIPT" && ok "mutant ledger: section_of() opens fences (#485)" || bad "mutant ledger: #485 section_of fence rule not found"
+if fmut M1 '/# section_of: a fence opens/d'; then
+  expect "mutant M1: without fence tracking in section_of the backtick row fails gwt" fail "$(outcome "$(frun "$F1")" gwt)"
+  expect "mutant M1: ...and the tilde row" fail "$(outcome "$(frun "$F2")" gwt)"
+  expect "mutant M1: ...and the fenced-label Unit tests row" fail "$(outcome "$(frun "$U6")" unit_tests)"
+fi
+grep -qF '<<< "$BODY_HEADINGS"' "$SCRIPT" && ok "mutant ledger: check 3 reads the fence-aware heading list (#485)" || bad "mutant ledger: #485 presence scan not found"
+if fmut M2 's/<<< "\$BODY_HEADINGS"/"$BODY"/'; then
+  case "$(sec_ev "$(frun "$F7")")" in "heading absent"*) bad "mutant M2 survived: a raw presence scan still reports the fenced heading absent" ;;
+    *) ok "mutant M2: a raw presence scan counts the fenced heading present" ;; esac
+  expect "mutant M2: ...and the heading-level evidence counts the fenced ###" \
+    "every template section present, every required one filled (headings at ## and ###)" "$(sec_ev "$(frun "$WORK/f485-l2.md")")"
+fi
+if fmut M3 's/^    fopen { if (fence_close(l)) fopen = 0; if (inside) print; next }/    fopen \&\& l !~ \/:start -->$\/ { if (fence_close(l)) fopen = 0; if (inside) print; next }/'; then
+  expect "mutant M3: a region marker read inside a fence fails the fenced-marker row" fail "$(outcome "$(frun "$F10")" gwt)"
+fi
+if fmut M4 's/pat = "^`+\$"/pat = "^`+"/'; then
+  # gwt cannot see M4: the true closer then REOPENS an unclosed fence, which swallows the real
+  # section into the quote's content. The sections row sees every later heading hidden.
+  expect "mutant M4: a closer that accepts trailing text fails the closer-with-bash row (sections)" fail "$(outcome "$(frun "$F9")" sections)"
+fi
+if fmut M5 '/backtick info string holds no backtick/d'; then
+  expect "mutant M5: without the info-string rule the inline triple-backtick Guard fails" fail "$(outcome "$(frun "$G1")" gwt)"
+fi
+if fmut M6 's/rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; next }/rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; else if (fence_open(l)) fopen = 1; next }/'; then
+  expect "mutant M6: fence state moved inside a region fails the region Guard" fail "$(outcome "$(frun "$G2")" gwt)"
+fi
+if fmut M7 's/sub(\/^ ? ? ?\/, "", o)/sub(\/^ *\/, "", o)/'; then
+  expect "mutant M7: without the opener's indent limit the four-space Guard fails" fail "$(outcome "$(frun "$G3")" gwt)"
+fi
+
 echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
 # Step 0c reads this instead of matching field ids itself, so the resolution rule lives here alone.
 roles() { bash "$SCRIPT" --roles --template "$1" 2>/dev/null; }
