@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# context-budget-version: 4
+# context-budget-version: 5
 # context-budget.sh: how many characters a project's next session loads before the first prompt (#297).
 #
 # Every @-import in CLAUDE.md is paid at the start of every session, every inheriting subagent and
@@ -134,7 +134,9 @@ function strip_spans(s,   out, p, run, rest, q, k, cl, off) {
   return out s
 }
 function fence_of(s,   t) {
-  t = s; sub(/^ ? ? ?/, "", t)
+  # The indent is measured with match(), never stripped with sub(/^ ? ? ?/): mawk 1.3.4 reads that
+  # as stripping ONE space, so a fence indented 2 or 3 spaces was text there (#488).
+  match(s, /^ */); if (RLENGTH > 3) return ""; t = substr(s, RLENGTH + 1)
   if (t ~ /^```/) { match(t, /^`+/); return substr(t, 1, RLENGTH) }
   if (t ~ /^~~~/) { match(t, /^~+/); return substr(t, 1, RLENGTH) }
   return ""
@@ -143,6 +145,8 @@ function fence_of(s,   t) {
   line = $0; sub(/\r$/, "", line)
   if (fence != "") {
     f = fence_of(line)
+    # The closer strip keeps sub(): fence_of() already accepted this line, and the trailing [`~]+
+    # forces the optional spaces to match under mawk too (checked for 0 to 3 spaces, #488).
     if (f != "" && substr(f, 1, 1) == substr(fence, 1, 1) && length(f) >= length(fence)) {
       t = line; sub(/^ ? ? ?[`~]+/, "", t); if (t ~ /^[ \t]*$/) fence = ""
     }
@@ -206,7 +210,9 @@ function tokens(s,   p, prev, tok, d, i, n) {
 # the flag; never anything from the file.
 SECTION_AWK='
 function fence_of(s,   t) {
-  t = s; sub(/^ ? ? ?/, "", t)
+  # The indent is measured with match(), never stripped with sub(/^ ? ? ?/): mawk 1.3.4 reads that
+  # as stripping ONE space, so a fence indented 2 or 3 spaces was text there (#488).
+  match(s, /^ */); if (RLENGTH > 3) return ""; t = substr(s, RLENGTH + 1)
   if (t ~ /^```/) { match(t, /^`+/); return substr(t, 1, RLENGTH) }
   if (t ~ /^~~~/) { match(t, /^~+/); return substr(t, 1, RLENGTH) }
   return ""
@@ -214,6 +220,7 @@ function fence_of(s,   t) {
 function close_section() { if (start && size > FLAG) printf "%d\t%d\n", start, size; start = 0; size = 0 }
 {
   raw = $0; line = raw; sub(/\r$/, "", line); f = fence_of(line)
+  # The closer strip keeps sub(), as in SCAN_AWK: safe under mawk once fence_of() accepted the line.
   if (fence != "") {
     if (f != "" && substr(f, 1, 1) == substr(fence, 1, 1) && length(f) >= length(fence)) { t = line; sub(/^ ? ? ?[`~]+/, "", t); if (t ~ /^[ \t]*$/) fence = "" }
   } else if (f != "") {

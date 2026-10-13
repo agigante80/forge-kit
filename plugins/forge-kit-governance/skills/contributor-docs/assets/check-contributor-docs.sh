@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-contributor-docs-version: 26
+# check-contributor-docs-version: 27
 # check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who
 # clones it (#294, amended by #295).
 #
@@ -551,7 +551,9 @@ BEGIN { HEX = "0123456789abcdef"; infence = 0; pcd = 0; penv = 0; fenv = 0; inco
   if (!infence) $0 = uncomment($0)
 }
 {
-  line = $0; lead = line; sub(/^ ? ? ?/, "", lead)
+  # The indent is measured with match(), never stripped with sub(/^ ? ? ?/): mawk 1.3.4 reads that as
+  # stripping ONE space (#488). A 4-space line keeps its indent: no fence, no closer, no reference.
+  line = $0; lead = line; match(lead, /^ */); if (RLENGTH <= 3) lead = substr(lead, RLENGTH + 1)
   c3 = substr(lead, 1, 3)
   if (infence) {
     if (substr(lead, 1, 1) == fch) {

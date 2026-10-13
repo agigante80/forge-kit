@@ -868,6 +868,28 @@ c_fence_unclosed() { new; pkg '"x":"x"'; agents '```\nnpm run nope\n\n[x](missin
   rc_is 1 && row fail command "npm run nope" && none missing.md; }
 c_fence_backtick() { new; pkg '"x":"x"'; agents '```\n`npm run nope`\n```\n'; run
   rc_is 0 && row referred command "not a literal script name" && nostatus fail; }
+# #488: a fence or a reference definition indented 0 to 3 spaces counts as one in every awk; mawk
+# 1.3.4 read the old `sub(/^ ? ? ?/, "", lead)` as stripping ONE space. 4 spaces is never one.
+fence_ind() {  # fence_ind <opener> <closer>: a fenced npm run nope, then a dead link
+  new; pkg '"x":"x"'; agents "$1\nnpm run nope\n$2\n\n[x](missing.md)\n"; run; }
+fenced_both() { rc_is 1 && row fail command "npm run nope" && row fail link "missing.md"; }
+c_fence_indent1() { fence_ind ' ```' ' ```'; fenced_both; }
+c_fence_indent2() { fence_ind '  ```' '  ```'; fenced_both; }
+c_fence_indent3() { fence_ind '   ```' '   ```'; fenced_both; }
+c_fence_tilde2() { fence_ind '  ~~~' '  ~~~'; fenced_both; }
+c_fence_tilde3() { fence_ind '   ~~~' '   ~~~'; fenced_both; }
+c_closer_indent2() { fence_ind '```' '  ```'; fenced_both; }
+c_closer_indent4() { fence_ind '```' '    ```'; rc_is 1 && row fail command "npm run nope" && none missing.md; }
+c_fence_indent4() { fence_ind '    ```' '    ```'; rc_is 1 && row fail link "missing.md" && [ "$(count fail command)" = 0 ]; }
+c_cmd_indent4() { new; pkg '"x":"x"'; agents '    npm run nope\n\n[x](missing.md)\n'; run
+  rc_is 1 && row fail link "missing.md" && [ "$(count fail command)" = 0 ]; }
+c_linkdef_indent3() { new; agents '   [a]: missing.md\n'; run; rc_is 1 && row fail link "missing.md"; }
+c_linkdef_indent4() { new; agents '    [a]: missing.md\n'; run; rc_is 0 && nostatus fail; }
+# c_fence_indent_mawk: the three rows the old strip broke, pinned to mawk whatever AWK_UNDER_TEST
+# is, so mutant CD1 dies in every CI step. Needs $W/nongnu, so it runs only after that is built.
+c_fence_indent_mawk() { local a="$AWKDIR" r=0; AWKDIR="$W/nongnu"
+  c_fence_indent3 && c_closer_indent2 && c_linkdef_indent3 || r=1
+  AWKDIR="$a"; return "$r"; }
 c_env_prefix() { new; pkg '"x":"x"'; agents '```\nnpm_config_workspace=client npm run dev\n```\n\n`FOO=1 pnpm run y`\n'; run
   rc_is 0 && row referred command "npm run dev: an environment assignment" && row referred command "pnpm run y: an environment" && nostatus fail; }
 c_env_bare() { new; pkg '"x":"x"'; agents '```\n$ npm run dev\n```\n'; run; rc_is 1 && row fail command "npm run dev: no such"; }
@@ -889,6 +911,17 @@ case_ c_fence_unclosed "an unclosed fence runs to EOF, so its tail is never a li
 case_ c_fence_backtick "a backticked command inside a fence refers"
 case_ c_env_prefix "an assignment before npm run refers the row"
 case_ c_env_bare "a bare npm run after a prompt still fails"
+case_ c_fence_indent1 "#488: a fence indented 1 space is a fence"
+case_ c_fence_indent2 "#488: a fence indented 2 spaces is a fence"
+case_ c_fence_indent3 "#488: a fence indented 3 spaces is a fence"
+case_ c_fence_tilde2 "#488: a tilde fence indented 2 spaces is a fence"
+case_ c_fence_tilde3 "#488: a tilde fence indented 3 spaces is a fence"
+case_ c_closer_indent2 "#488: a 2-space closer closes a 0-space fence"
+case_ c_closer_indent4 "#488: a 4-space closer does not close the fence"
+case_ c_fence_indent4 "#488: a 4-space fence line opens no fence"
+case_ c_cmd_indent4 "#488: a 4-space indented npm run is prose, not a command"
+case_ c_linkdef_indent3 "#488: a reference definition indented 3 spaces is checked"
+case_ c_linkdef_indent4 "#488: a reference definition indented 4 spaces is not one"
 
 
 # ---------------------------------------------------------------- #296: exports and substitutions
@@ -1959,6 +1992,11 @@ else
   ok "a requested original-awk that is not BWK awk refuses the locale-pin mutants: no mawk here, skipped"
   ok "an unrequested non-BWK awk skips the locale-pin mutants: no mawk here, skipped"
 fi
+if [ -n "$NONGNU" ]; then
+  case_ c_fence_indent_mawk "#488: under mawk, 2 and 3 space fences, closers and reference definitions hold"
+else
+  ok "#488: under mawk, 2 and 3 space fences hold: no mawk here, skipped"
+fi
 
 # #346 harness cases. They sit here, after the helpers above, because a function must be defined
 # before the line that calls it runs. Neither can be killed by a mutant (mutant() mutates only the
@@ -2074,6 +2112,8 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "harness: a symlink target resolved from the root" h_sym_owndir 'np=$(normpath "$hdir" "$tgt") ||' 'np=$(normpath "" "$tgt") ||'
   mutant "harness: names matched in any case" h_case '{ p = $0 }' '{ p = $0; if (toupper(p) == "GEMINI.MD") p = "GEMINI.md" }'
   # #408: block HTML comments.
+  # #488 CD1: the old indent strip restored. It is wrong only under mawk, so the case pins mawk.
+  mutant_needs mawk "fence indent: sub strip restored (CD1)" c_fence_indent_mawk 'lead = line; match(lead, /^ */); if (RLENGTH <= 3) lead = substr(lead, RLENGTH + 1)' 'lead = line; sub(/^ ? ? ?/, "", lead)'
   mutant "html comment: the skip removed" c_imp_html_comment '  if (!infence) $0 = uncomment($0)' ''
   mutant "html comment: the whole --> line skipped" c_imp_html_comment_after 'if (!k) next; $0 = substr($0, k + 3); incomment = 0 }' 'next }'
   mutant "html comment: a fence wins inside a comment" c_imp_html_comment_fence 'if (incomment) { k = index($0, "-->");' 'if (incomment) { if ($0 ~ /^ ? ? ?(```|~~~)/) { incomment = 0; infence = 1; next } k = index($0, "-->");'

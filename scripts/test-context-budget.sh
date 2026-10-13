@@ -413,6 +413,88 @@ if mutate "$REALSRC" "$T/mut-ere.sh" "grep -cE '^(ok|bad) '" "grep -c '^ok \\|^b
   r=green; grep -qF "grep -cE '^(ok|bad) '" "$T/mut-ere.sh" || r=red; dies "BRE alternation restored" "$r"
 else bad "mutant ERE did not apply"; fi
 
+echo "== #488: a fence indented 0 to 3 spaces is a fence in every awk =="
+# mawk 1.3.4 reads `sub(/^ ? ? ?/, "", t)` as stripping ONE space, so before #488 a fence indented
+# 2 or 3 spaces was read as text there. Every row runs under the default awk and, when mawk is
+# installed, again through a wrapper that execs mawk (this suite has no AWK_UNDER_TEST hook).
+# AWKD is the directory put first on PATH for a run; empty means the default awk.
+AWKD=""
+runa() { if [ -n "$AWKD" ]; then PATH="$AWKD:$PATH" run "$@"; else run "$@"; fi; }
+fscan() {  # fscan <indent> <fence>: CLAUDE.md is a fence around @fence.md, fence.md is 500 chars
+  fresh fscan; printf '%s%s\n@fence.md\n%s%s\n' "$1" "$2" "$1" "$2" > "$P/CLAUDE.md"; file "$P/fence.md" 500 a; runa "$P"
+}
+fsec() {  # fsec <indent> <fence>: "## s", a fence holding "## y", then 9000 a
+  fresh fsec; { printf '## s\n%s%s\n## y\n%s%s\n' "$1" "$2" "$1" "$2"; rep a 9000; printf '\n'; } > "$P/CLAUDE.md"; runa "$P"
+}
+imports() { grep '^imports:' <<< "$out"; }
+fence_rows() {  # fence_rows <label>: every #488 row under the awk AWKD selects
+  local w sp n
+  for w in 1:20:' ' 2:22:'  ' 3:24:'   '; do
+    n=${w#*:}; n=${n%%:*}; sp=${w##*:}
+    fscan "$sp" '```'
+    expect "$1: a ${w%%:*}-space fence hides its import, total $n" "$n" "$(total)"
+    expect "$1: a ${w%%:*}-space fence imports nothing" "imports: 0" "$(imports)"
+    hasnt "$1: a ${w%%:*}-space fence lists no fence.md" "fence.md (hop 1)" "$out"; expect "$1: a ${w%%:*}-space fence exits 0" 0 "$rc"
+  done
+  for w in 2:22:'  ' 3:24:'   '; do
+    n=${w#*:}; n=${n%%:*}; sp=${w##*:}
+    fscan "$sp" '~~~'
+    expect "$1: a ${w%%:*}-space tilde fence hides its import, total $n" "$n" "$(total)"
+    expect "$1: a ${w%%:*}-space tilde fence imports nothing" "imports: 0" "$(imports)"
+  done
+  fresh fscan4; printf '    ```\n@x.md\n    ```\n' > "$P/CLAUDE.md"; file "$P/x.md" 500 a; runa "$P"
+  expect "$1: a 4-space line opens no fence, so its import counts, total 522" 522 "$(total)"
+  expect "$1: a 4-space line opens no fence, imports 1" "imports: 1" "$(imports)"
+  has "$1: a 4-space line opens no fence, x.md listed" "x.md (hop 1)" "$out"
+  for w in 1:9021:' ' 2:9023:'  ' 3:9025:'   '; do
+    n=${w#*:}; n=${n%%:*}; sp=${w##*:}
+    fsec "$sp" '```'
+    has "$1: a ${w%%:*}-space fence keeps a quoted heading from ending the section" "move candidate: line 1, $n chars, s" "$out"
+    hasnt "$1: a ${w%%:*}-space fence starts no section at line 3" "line 3" "$out"
+  done
+  for w in 2:9023:'  ' 3:9025:'   '; do
+    n=${w#*:}; n=${n%%:*}; sp=${w##*:}
+    fsec "$sp" '~~~'
+    has "$1: a ${w%%:*}-space tilde fence keeps a quoted heading from ending the section" "move candidate: line 1, $n chars, s" "$out"
+  done
+  fsec '    ' '```'
+  has "$1: a 4-space line opens no fence, so the quoted heading starts a section" "move candidate: line 3, 9014 chars, y" "$out"
+  hasnt "$1: and no row for s" "chars, s" "$out"
+}
+fence_rows "#488 default awk"
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$T/mawk"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$T/mawk/awk"; chmod +x "$T/mawk/awk"
+  AWKD="$T/mawk"; fence_rows "#488 mawk"
+  # CB1 and CB2 die only under mawk, where the old strip is wrong, so they live in this branch.
+  NEWIND='match(s, /^ */); if (RLENGTH > 3) return ""; t = substr(s, RLENGTH + 1)'
+  OLDIND='t = s; sub(/^ ? ? ?/, "", t)'
+  # CB1: mutate replaces the FIRST literal, and SCAN_AWK's fence_of comes first in the file.
+  if mutate "$REALSRC" "$T/mut-cb1.sh" "$NEWIND" "$OLDIND"; then
+    SRC="$T/mut-cb1.sh"; fscan '   ' '```'; SRC="$REALSRC"
+    r=green; [ "$(total)" = 24 ] || r=red; dies "CB1 SCAN_AWK fence indent stripped with sub (mawk)" "$r"
+  else bad "mutant CB1 did not apply"; fi
+  # CB2: the anchor starts at SECTION_AWK= so it hits the second copy; it spans the why-comment.
+  CB2HEAD="SECTION_AWK='
+function fence_of(s,   t) {
+  # The indent is measured with match(), never stripped with sub(/^ ? ? ?/): mawk 1.3.4 reads that
+  # as stripping ONE space, so a fence indented 2 or 3 spaces was text there (#488).
+  "
+  if mutate "$REALSRC" "$T/mut-cb2.sh" "$CB2HEAD$NEWIND" "$CB2HEAD$OLDIND"; then
+    SRC="$T/mut-cb2.sh"; fsec '  ' '```'; SRC="$REALSRC"
+    r=green; grep -qF "line 1, 9023 chars, s" <<< "$out" || r=red; dies "CB2 SECTION_AWK fence indent stripped with sub (mawk)" "$r"
+  else bad "mutant CB2 did not apply"; fi
+  AWKD=""
+else
+  # No mawk: the same rows run under the default awk again, so the printed total is the same.
+  fence_rows "#488 (skipped, no mawk) default awk again"
+  ok "(skipped, no mawk) mutant CB1"; ok "(skipped, no mawk) mutant CB2"
+fi
+# CB3: the indent limit dropped, so a 4-space line opens a fence; dies under any awk.
+if mutate "$REALSRC" "$T/mut-cb3.sh" 'match(s, /^ */); if (RLENGTH > 3) return ""; t = substr(s, RLENGTH + 1)' 'match(s, /^ */); t = substr(s, RLENGTH + 1)'; then
+  SRC="$T/mut-cb3.sh"; fresh fscan4; printf '    ```\n@x.md\n    ```\n' > "$P/CLAUDE.md"; file "$P/x.md" 500 a; run "$P"; SRC="$REALSRC"
+  r=green; [ "$(total)" = 522 ] || r=red; dies "CB3 SCAN_AWK indent limit dropped" "$r"
+else bad "mutant CB3 did not apply"; fi
+
 echo "== usage =="
 fresh empty; run "$P"; expect "a <repo-dir> without CLAUDE.md exits 2" 2 "$rc"; has "naming the problem" "no CLAUDE.md" "$err"
 expect "with nothing on stdout" "" "$out"

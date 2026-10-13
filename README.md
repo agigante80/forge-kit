@@ -56,8 +56,8 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
 | `forge-kit-adapt` | 0.12.9 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.22.9 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.35.10 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
+| `forge-kit-devops` | 0.22.10 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
+| `forge-kit-governance` | 0.35.11 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
 | `forge-kit-review` | 0.7.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.15.20 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.17.7 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
@@ -248,7 +248,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | skill | `release` | v6 | 1283 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v9 | 1555 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
-| `forge-kit-devops` | shell asset | `context-budget` | v4 |  | context-budget.sh: how many characters a project's next session loads before the first prompt (#297). |
+| `forge-kit-devops` | shell asset | `context-budget` | v5 |  | context-budget.sh: how many characters a project's next session loads before the first prompt (#297). |
 | `forge-kit-devops` | shell asset | `forge-lib` | v43 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
 | `forge-kit-devops` | shell asset | `release-run` | v3 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v14 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
@@ -265,7 +265,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | hook | `no-poll-loops` | v9 |  | PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263). |
 | `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |
 | `forge-kit-governance` | hook | `overnight-guard` | v20 |  | PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm. |
-| `forge-kit-governance` | shell asset | `check-contributor-docs` | v26 |  | check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who |
+| `forge-kit-governance` | shell asset | `check-contributor-docs` | v27 |  | check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who |
 | `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v30 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
 | `forge-kit-governance` | shell asset | `count-gate-rounds` | v3 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
 | `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v8 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
