@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 33
+# check-ticket-mechanics-version: 34
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -148,7 +148,8 @@ need_value() { [ "$1" -ge 2 ] || die "$2 needs a value"; }
 # FENCED CODE BLOCKS (#485). A ticket that quotes a template heading inside a code block, to show
 # a reproduction input, had the quote read as the real section by section_of() and by check 3's
 # presence scan, so a valid scenarios section after it read as 0 positive, 0 negative. Every reader
-# of the body's headings now shares this fence state, CommonMark 0.31.2 section 4.5, on a line
+# of the body's headings now shares this fence state, and so does every GWT block scan of check 4,
+# through fence_free() (#490), CommonMark 0.31.2 section 4.5, on a line
 # already stripped of its CR and trailing blanks: an opener is at most 3 spaces of indent, then 3
 # or more backticks or 3 or more tildes; a backtick opener whose info string holds a backtick is
 # inline code, not a fence; a closer is at most 3 spaces of indent, the opener's character, at
@@ -189,6 +190,17 @@ body_headings() {
     l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }
     /^##+ / { print }
   ' < "$BODY"
+}
+# A field's text minus every fence line and every line inside a fence, other lines printed as
+# they came (#490). Check 4's block scans read this, so a scenario header, When or Then quoted in
+# a code block is plain text to them. No region rule: section_of() has already dropped regions.
+fence_free() {
+  printf '%s\n' "$1" | awk "$FENCE_AWK"'
+    { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
+    fopen { if (fence_close(l)) fopen = 0; next }
+    fence_open(l) { fopen = 1; next }
+    { print }
+  '
 }
 
 while [ $# -gt 0 ]; do
@@ -556,6 +568,8 @@ names_path() { grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py
 # referred, so a mechanical fail the checker already knew became a judgement call. The refer
 # branch now runs the When count and the missing-Then scan first, on the field with every no-When
 # one-line header block removed, and refers only when both pass; see `without_oneliner_headers`.
+# A line inside a fenced code block is never a header, a one-liner, a When or a Then to any of
+# these scans (#490): they all read the fence_free() copy of the field, never the raw one.
 #
 # The two block scans are functions so the block branch and the refer branch run the same text.
 # `when_counts` prints the offending blocks joined by '; ' (empty when every block has one When);
@@ -599,6 +613,7 @@ then_missing() {
 # bullet sibling (`- Negative: Given ...` inside a two-When Positive block) is still judged. Lines
 # before the first header pass through. `tolower` on both sides rather than IGNORECASE, which only
 # gawk has; ONE_LINE holds no escape `tolower` could change.
+# It reads the fence-free copy, so a fenced line is never a header here (#490).
 without_oneliner_headers() {
   printf '%s\n' "$1" | CTM_ANY="$MARK_ANY" CTM_ONE="$ONE_LINE" awk '
     BEGIN { any = ENVIRON["CTM_ANY"]; one = tolower(ENVIRON["CTM_ONE"]) }
@@ -622,9 +637,18 @@ else
   if ! has_content "$SCENARIOS"; then
     row gwt "$(empty_outcome "$SCENARIOS_LABEL")" "no content in $SCENARIOS_LABEL"
   else
-    pos_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_POS")
-    neg_count=$(printf '%s\n' "$SCENARIOS" | grep -cE "$MARK_NEG")
-    one_line="$(printf '%s\n' "$SCENARIOS" | grep -m1 -iE "$ONE_LINE")"
+    # TWO COPIES OF THE FIELD (#490). SCENARIOS stays raw: has_content above, and looks_na,
+    # long_enough and first_line on the N/A branch, read it, so a fence holding only a reasoned N/A
+    # stays `referred` and fence stripping never turns a refer into a fail. SCEN_BLOCKS is the field
+    # with every fence line and fenced line removed, and EVERY block scan below reads it (the counts,
+    # the one-line selector and its pair awk, without_oneliner_headers, when_counts, then_missing and
+    # the vague-Then awk). Do not filter SCENARIOS in place. Accepted changes: a pair, or a one-liner,
+    # that sits only inside a fence fails 0/0 where it passed or referred, and a fenced-only pair whose
+    # quote mentions N/A is `referred` by the raw looks_na, by design.
+    SCEN_BLOCKS="$(fence_free "$SCENARIOS")"
+    pos_count=$(printf '%s\n' "$SCEN_BLOCKS" | grep -cE "$MARK_POS")
+    neg_count=$(printf '%s\n' "$SCEN_BLOCKS" | grep -cE "$MARK_NEG")
+    one_line="$(printf '%s\n' "$SCEN_BLOCKS" | grep -m1 -iE "$ONE_LINE")"
     # Blocks are judged by their blocks (#479 review rounds 1 and 2): where any block exists, a
     # block HEADER that is a one-liner keeps the one-line form only while it owns no When line
     # (O5's `**Positive**: Given a. When b. Then c.`, which v9 failed with 0 When lines); a header
@@ -639,7 +663,7 @@ else
     # Do not restore the fail. A block that owns a When line still contributes nothing here.
     if { [ "$pos_count" -gt 0 ] || [ "$neg_count" -gt 0 ]; } && [ -n "$one_line" ]; then
       pair=0; [ "$pos_count" -gt 0 ] && [ "$neg_count" -gt 0 ] && pair=1
-      one_line="$(printf '%s\n' "$SCENARIOS" | CTM_ANY="$MARK_ANY" CTM_PAIR="$pair" awk '
+      one_line="$(printf '%s\n' "$SCEN_BLOCKS" | CTM_ANY="$MARK_ANY" CTM_PAIR="$pair" awk '
         BEGIN { any = ENVIRON["CTM_ANY"]; pair = ENVIRON["CTM_PAIR"] + 0 }
         $0 ~ any { if (hdr != "" && whens == 0) print hdr; if (whens == 0) printf "%s", grp; hdr = $0; whens = 0; grp = ""; next }
         !pair { print }
@@ -663,7 +687,7 @@ else
         row gwt fail "scenarios claim a bare N/A with no reason: $(first_line "$SCENARIOS")"
       fi
     elif [ -n "$one_line" ]; then
-      judged="$(without_oneliner_headers "$SCENARIOS")"
+      judged="$(without_oneliner_headers "$SCEN_BLOCKS")"
       multi_when="$(when_counts "$judged")"
       if [ -n "$multi_when" ]; then
         row gwt fail "each scenario block needs exactly one When ($multi_when)"
@@ -675,7 +699,7 @@ else
     elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
     else
-      multi_when="$(when_counts "$SCENARIOS")"
+      multi_when="$(when_counts "$SCEN_BLOCKS")"
       if [ -n "$multi_when" ]; then
         row gwt fail "each scenario block needs exactly one When ($multi_when)"
       else
@@ -684,13 +708,13 @@ else
         # quoted message, or an UPPER_SNAKE identifier is specific enough; anything else is
         # REFERRED, never failed, because this heuristic is narrower than rule 1's quality
         # bar on purpose and must not reject a message the canonical doc allows.
-        vague="$(printf '%s\n' "$SCENARIOS" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
+        vague="$(printf '%s\n' "$SCEN_BLOCKS" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
           BEGIN { neg = ENVIRON["CTM_NEG"]; pos = ENVIRON["CTM_POS"] }
           $0 ~ neg { inneg = 1; seen = 0; next }
           $0 ~ pos { inneg = 0; next }
           inneg && !seen && /^[[:space:]]*[-*][[:space:]]*\**Then\**[[:space:]]*:/ { seen = 1; print }
         ' | grep -vE '[0-9]|"[^"]+"|'"'"'[^'"'"']+'"'"'|[A-Z][A-Z0-9_]{2,}' | head -1)"
-        missing_then="$(then_missing "$SCENARIOS")"
+        missing_then="$(then_missing "$SCEN_BLOCKS")"
         if [ "$missing_then" -gt 0 ]; then
           row gwt fail "a Negative block has no Then line"
         elif [ -n "$vague" ]; then

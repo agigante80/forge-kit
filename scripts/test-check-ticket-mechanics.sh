@@ -543,6 +543,70 @@ R14="$(one479 gonly "$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: 200\n
 case "$(outcome "$(run "$R14" feature)" gwt)" in fail) ok "#487: a Negative block with a Given, no When and no Then fails even with a one-liner under it" ;; *) bad "#487: Given-only block with a one-liner: $(outcome "$(run "$R14" feature)" gwt) $(gwt479 "$R14")" ;; esac
 case "$(outcome "$(run "$O7" feature)" gwt)|$(gwt479 "$O7")" in "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)") ok "#487 guard: the O7 near miss keeps its exact 0/0 evidence" ;; *) bad "#487 guard: O7: $(gwt479 "$O7")" ;; esac
 
+# --- #490: a line inside a fenced code block is plain text to every GWT block scan. Check 4 reads
+# two copies of the field: the raw one for has_content, looks_na, long_enough and first_line, and a
+# fence-free one (fence_free(), #485's grammar) for every block scan. Rows marked guard give the
+# same outcome before the fix; the rest fail on the 54562d0 checker.
+FB='```'
+P490="$(printf -- 'Positive\n- Given: a\n- When: b\n- Then: c')"
+GWT490='1 positive and 1 negative blocks, each Then specific'
+g490() { printf '%s|%s' "$(outcome "$(run "$1" feature)" gwt)" "$(gwt479 "$1")"; }
+# The ticket's reproduction: a fence indented 2 spaces between the Negative When and its real Then.
+F490R="$(one479 f490rep "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n\n  The one-line form we accept:\n  %stext\n  **Negative**: Given d. When e. Then 400 INVALID.\n  %s\n- Then: 400 INVALID' "$P490" "$FB" "$FB")")"
+expect "#490: the reproduction (fenced one-liner between a Negative When and its real Then) passes" "pass|$GWT490" "$(g490 "$F490R")"
+F490W="$(one479 f490pair "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n%s\n**Positive**: Given a. When b. Then c.\n%s' "$P490" "$FB" "$FB")")"
+expect "#490: a fenced bold one-liner inside a valid pair passes, not referred (the #479 shape)" "pass|$GWT490" "$(g490 "$F490W")"
+F490N="$(one479 f490noth "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n\n  %stext\n  **Negative**: Given d. When e. Then 400 INVALID.\n  %s' "$P490" "$FB" "$FB")")"
+expect "#490 guard: the reproduction with its real Then removed still fails the missing Then" "fail|a Negative block has no Then line" "$(g490 "$F490N")"
+F490H="$(one479 f490neg "$(printf -- '%s\n\n%s\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n%s' "$P490" "$FB" "$FB")")"
+expect "#490: a Negative header that exists only inside a fence is not counted" "fail|needs at least one Positive and one Negative block (found 1 positive, 0 negative)" "$(g490 "$F490H")"
+# Fence-only fields (decided in the ticket, round 2). A pair only inside a fence has no real
+# blocks: accepted pass-to-fail. Keep N/A out of this fixture, since looks_na reads the raw field.
+F490P="$(one479 f490fpair "$(printf -- 'The shape we expect:\n\n%s\n%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n%s' "$FB" "$P490" "$FB")")"
+expect "#490: a complete pair quoted only inside a fence fails 0/0 (accepted pass-to-fail)" "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)" "$(g490 "$F490P")"
+# A fenced-only reasoned N/A stays referred: looks_na and first_line read the RAW field, so the
+# evidence quotes the fence opener, the field's first non-blank line.
+F490A="$(one479 f490na "$(printf -- '%s\nN/A: a docs-only change with no behaviour delta\n%s' "$FB" "$FB")")"
+expect "#490 guard: a fence holding only a reasoned N/A stays referred, evidence read from the raw field" \
+  "referred|scenarios claim N/A; legitimate only where rule 1 finds no behaviour delta: $FB" "$(g490 "$F490A")"
+# A field whose only scenario is a fenced one-liner fails 0/0 where it referred: intended.
+F490O="$(one479 f490one "$(printf -- '%s\n- Positive: Given a. When b. Then c.\n- Negative: Given d. When e. Then 400 INVALID.\n%s' "$FB" "$FB")")"
+expect "#490: a field whose only scenarios are fenced one-liners fails 0/0 (referred before, intended)" "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)" "$(g490 "$F490O")"
+F490T="$(one479 f490two "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n%s\nPositive\n- Given: a\n- When: b\n- When: b2\n- Then: c\n%s' "$P490" "$FB" "$FB")")"
+expect "#490: a fenced Positive example with two When lines beside a valid pair passes" "pass|$GWT490" "$(g490 "$F490T")"
+F490X="$(one479 f490two2 "$(printf -- 'Positive\n- Given: a\n- When: b\n- When: b2\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n%s\n**Positive**: Given a. When b. Then c.\n%s' "$FB" "$FB")")"
+expect "#490 guard: a real second When outside the fence still fails" "fail|each scenario block needs exactly one When (Positive: 2 When lines)" "$(g490 "$F490X")"
+# Unfenced behaviour is unchanged: the #487 R1 shape is the guard, and R1 to R14 above still hold.
+expect "#490 guard: an unfenced no-When one-line header beside a two-When Negative block still fails" "fail|each scenario block needs exactly one When (Negative: 2 When lines)" "$(g490 "$R1")"
+expect "#490 guard: unfenced Positive and Negative headers are both counted" "pass|$GWT490" "$(g490 "$(one479 f490plain "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID' "$P490")")")"
+# The fence grammar is #485's: indent 0 to 3 is a fence, 4 is not. A 4-space backtick line is no
+# fence under that grammar, so the bold one-liner after it stays visible and the field is decided
+# as the unfenced shape is: a no-When one-line header beside a valid pair refers (L13's outcome).
+F490I3="$(one479 f490ind3 "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n   %s\n**Positive**: Given a. When b. Then c.\n   %s' "$P490" "$FB" "$FB")")"
+expect "#490: a fence indented 3 spaces hides its one-liner" "pass|$GWT490" "$(g490 "$F490I3")"
+F490I4="$(one479 f490ind4 "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n    %s\n**Positive**: Given a. When b. Then c.\n    %s' "$P490" "$FB" "$FB")")"
+case "$(g490 "$F490I4")" in "referred|one-line scenario form"*) ok "#490 guard: a backtick line indented 4 spaces is no fence, so its one-liner refers as unfenced" ;; *) bad "#490: 4-space fence: $(g490 "$F490I4")" ;; esac
+F490TL="$(one479 f490tilde "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n~~~\n**Negative**: Given d. When e. Then 400 INVALID.\n~~~' "$P490")")"
+expect "#490: a tilde fence quoting the one-line form passes" "pass|$GWT490" "$(g490 "$F490TL")"
+# An unclosed fence runs to the end of the body, so a Negative block with no Then after it is hidden.
+F490U="$(one479 f490open "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n%s\nNegative\n- Given: x\n- When: y' "$P490" "$FB")")"
+expect "#490: an unclosed fence hides every scenario line after its opener" "pass|$GWT490" "$(g490 "$F490U")"
+F490S="$(one479 f490short "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n````\n%s\nNegative\n- Given: x\n- When: y\n````' "$P490" "$FB")")"
+expect "#490: three backticks do not close a four-backtick fence, so what follows stays hidden" "pass|$GWT490" "$(g490 "$F490S")"
+F490B="$(one479 f490bash "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n- Then: 400 INVALID\n\n%s\n%sbash\nNegative\n- Given: x\n- When: y\n%s' "$P490" "$FB" "$FB" "$FB")")"
+expect "#490: a backtick line followed by text closes nothing, so what follows stays hidden" "pass|$GWT490" "$(g490 "$F490B")"
+# The vague-Then scan reads the fence-free copy: a fenced vague Then above the real specific one
+# was the block's first Then, so the field referred.
+F490V="$(one479 f490vague "$(printf -- '%s\n\nNegative\n- Given: d\n- When: e\n%s\n- Then: it fails\n%s\n- Then: 400 INVALID' "$P490" "$FB" "$FB")")"
+expect "#490: a fenced vague Then does not stand in for the block's real specific Then" "pass|$GWT490" "$(g490 "$F490V")"
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$WORK/mawk490"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$WORK/mawk490/awk"; chmod +x "$WORK/mawk490/awk"
+  expect "#490: portability: the 2-space reproduction passes under mawk" "pass|$GWT490" "$(PATH="$WORK/mawk490:$PATH" g490 "$F490R")"
+  expect "#490: portability: the 3-space fence hides its one-liner under mawk" "pass|$GWT490" "$(PATH="$WORK/mawk490:$PATH" g490 "$F490I3")"
+else
+  ok "#490: portability: mawk not on PATH, fence rows under mawk skipped"
+fi
+
 # --- gap 3: role detection by id then label, E2E before integration, no --e2e-label. ---
 # An optional fourth field is the field's description line, and an optional fifth, `gate-owned`,
 # adds that YAML comment to the field block (#304); every older call keeps its shape.
@@ -701,6 +765,23 @@ grep -qF "$XGT" "$SCRIPT" && ok "mutant ledger: the line removal spares a block 
 sed 's/(one_in \&\& !n_gt)/one_in/' "$SCRIPT" > "$MUT"
 if cmp -s "$SCRIPT" "$MUT"; then bad "#487: the n_gt mutant did not apply"; else
   expect "mutant: without the Given/Then guard the block missing its When refers (the R13 row can fail)" referred "$(outcome "$(mrun "$R13")" gwt)"
+fi
+
+# #490 mutants. (1) No filter: the block scans read the raw field, so the reproduction fails again.
+XF490='SCEN_BLOCKS="$(fence_free "$SCENARIOS")"'
+grep -qF "$XF490" "$SCRIPT" && ok "mutant ledger: check 4 builds the fence-free copy (#490)" || bad "mutant ledger: #490 fence_free assignment not found"
+sed 's/SCEN_BLOCKS="\$(fence_free "\$SCENARIOS")"/SCEN_BLOCKS="$SCENARIOS"/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XF490" "$MUT"; then bad "#490: the no-filter mutant did not apply"; else
+  expect "mutant: without the fence filter the reproduction fails on its hidden Then (the #490 row can fail)" fail "$(outcome "$(mrun "$F490R")" gwt)"
+  expect "mutant: without the fence filter a fenced-only pair passes again (the fence-only row can fail)" pass "$(outcome "$(mrun "$F490P")" gwt)"
+  expect "mutant: without the fence filter a fenced vague Then refers (the vague-Then row can fail)" referred "$(outcome "$(mrun "$F490V")" gwt)"
+fi
+# (2) Filter in place: the raw field is gone, so looks_na and first_line read the filtered text
+# and the fenced-only N/A turns from referred into a 0/0 fail.
+sed 's/SCEN_BLOCKS="\$(fence_free "\$SCENARIOS")"/SCENARIOS="$(fence_free "$SCENARIOS")"; SCEN_BLOCKS="$SCENARIOS"/' "$SCRIPT" > "$MUT"
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$XF490" "$MUT"; then bad "#490: the in-place filter mutant did not apply"; else
+  expect "mutant: a filter applied in place fails the fenced-only N/A (the raw-field row can fail)" fail "$(outcome "$(mrun "$F490A")" gwt)"
+  expect "mutant: ...and the reproduction still passes, so only the raw-field rows see it" pass "$(outcome "$(mrun "$F490R")" gwt)"
 fi
 
 # #365 mutant: restore `paste -sd'; ' -` on a copy; the three-block whole-field pin must flip.
