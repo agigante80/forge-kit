@@ -919,7 +919,7 @@ case_ c_fence_tilde3 "#488: a tilde fence indented 3 spaces is a fence"
 case_ c_closer_indent2 "#488: a 2-space closer closes a 0-space fence"
 case_ c_closer_indent4 "#488: a 4-space closer does not close the fence"
 case_ c_fence_indent4 "#488: a 4-space fence line opens no fence"
-case_ c_cmd_indent4 "#488: a 4-space indented npm run is prose, not a command"
+case_ c_cmd_indent4 "indented prose is not a command (pre-existing guard kept beside #488: commands come only from fences and backticks, so lead does not decide it)"
 case_ c_linkdef_indent3 "#488: a reference definition indented 3 spaces is checked"
 case_ c_linkdef_indent4 "#488: a reference definition indented 4 spaces is not one"
 
