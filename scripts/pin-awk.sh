@@ -13,6 +13,10 @@
 # update-alternatives; it re-checks the pin after a step that could undo it (installing gawk).
 # The assertion compares the BASENAME of the resolved path with `mawk` exactly, so a file named
 # `mawk-wrapper` or `gawk` does not pass.
+#
+# Pin mode changes the machine-wide `awk` alternative in manual mode, so it refuses to run outside
+# CI (GITHUB_ACTIONS=true): a maintainer replaying validate.yml locally must not lose gawk silently.
+# `--assert-only` changes nothing and runs anywhere.
 set -uo pipefail
 
 mode=pin
@@ -21,6 +25,11 @@ case "${1:-}" in
   --assert-only) mode=assert ;;
   *) echo "::error::pin-awk.sh: unknown argument: $1" >&2; exit 2 ;;
 esac
+
+if [ "$mode" = pin ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
+  echo "::error::pin-awk.sh changes the system awk alternative; it runs only on CI (use --assert-only locally)"
+  exit 2
+fi
 
 if [ "$mode" = pin ]; then
   mawk_path="$(command -v mawk 2>/dev/null || true)"

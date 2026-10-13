@@ -44,10 +44,15 @@ make_env() {
   return 0
 }
 
-# run <dir> [args...]: runs the subject with <dir>/bin as the whole PATH; sets OUT and RC.
+# run <dir> [args...]: runs the subject with <dir>/bin as the whole PATH, as CI does
+# (GITHUB_ACTIONS=true); sets OUT and RC. run_local is the same run outside CI.
 run() {
   local d="$1"; shift
-  OUT="$(PATH="$d/bin" "$BASH_BIN" "$SRC" "$@" 2>&1)"; RC=$?
+  OUT="$(GITHUB_ACTIONS=true PATH="$d/bin" "$BASH_BIN" "$SRC" "$@" 2>&1)"; RC=$?
+}
+run_local() {
+  local d="$1"; shift
+  OUT="$(env -u GITHUB_ACTIONS PATH="$d/bin" "$BASH_BIN" "$SRC" "$@" 2>&1)"; RC=$?
 }
 
 echo "pin-awk.sh contract"
@@ -94,7 +99,16 @@ E="$T/e7"; make_env "$E" mawk yes; run "$E" --bogus
 expect "unknown argument: exit 2" 2 "$RC"
 expect "unknown argument: update-alternatives is never called" "" "$(cat "$E/log")"
 
-# 8. Mutant: a copy whose assertion always exits 0 must fail the two gawk rows, so this suite
+# 8. Negative: pin mode outside CI refuses and never touches the system alternative;
+# --assert-only still runs there.
+E="$T/e8"; make_env "$E" mawk yes; run_local "$E"
+expect "pin outside CI: exit 2" 2 "$RC"
+contains "::error::pin-awk.sh changes the system awk alternative" "$OUT" "pin outside CI: names the refusal"
+expect "pin outside CI: update-alternatives is never called" "" "$(cat "$E/log")"
+run_local "$E" --assert-only
+expect "--assert-only outside CI: exit 0" 0 "$RC"
+
+# 9. Mutant: a copy whose assertion always exits 0 must fail the two gawk rows, so this suite
 # can fail. Skipped when the suite is itself running against a substituted subject.
 if [ -z "${PIN_AWK_UNDER_TEST:-}" ]; then
   M="$T/mutant.sh"
