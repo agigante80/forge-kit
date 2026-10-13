@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 43
+# forge-lib-version: 44
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -792,7 +792,10 @@ forge_issue_view() { forge_api GET "/repos/$(forge_repo)/issues/$1"; }
 # A MARKER IS A WHOLE LINE, after a trailing CR and trailing blanks are stripped, exactly
 # `<!-- <name>:start -->` or `<!-- <name>:end -->`. A line that BEGINS with one and carries other
 # text is REFUSED rather than read as a marker or as prose, because it is a body a human edited and
-# guessing which they meant is how the edit gets eaten.
+# guessing which they meant is how the edit gets eaten. A marker-shaped line INSIDE A FENCED CODE
+# BLOCK is neither (#486): it is plain text, and the grammar and its precedence sit above
+# _FORGE_AWK_MARKER. A body ending inside an unclosed fence gets one matching closer before a
+# bottom-appended region, the only author-text change a writer here ever makes.
 #
 # WHAT IT ENFORCES IS DISJOINTNESS, NOT OWNERSHIP. Nothing stops a caller declaring a prefix it does
 # not own. That is acceptable because the failure prevented is a full-body overwrite by a buggy
@@ -835,6 +838,34 @@ _forge_body_of() {   # <n>: the issue body, or non-zero if the response is not a
 }
 
 # The shared normaliser and marker grammar, textually identical in every awk below.
+#
+# FENCED CODE BLOCKS (#486). A region marker inside a fenced code block is plain text, as the forge
+# renders it: it is never counted, replaced, removed or returned. Before this, a ticket quoting a
+# marker inside a fence made the splice refuse with 103, made compose refuse or silently DROP a
+# real region (its new-body scan read the quote as present), made get return the closing fence and
+# everything after it, and a quoted COMPLETE pair was overwritten by set and deleted by clear.
+# The grammar is #485's (check-ticket-mechanics.sh FENCE_AWK), CommonMark 0.31.2 section 4.5, on a
+# line already through norm(): an opener is at most 3 spaces of indent, then 3 or more backticks
+# or 3 or more tildes; a backtick opener whose info string holds a backtick is not a fence; a
+# closer is at most 3 spaces of indent, the opener's character, at least as long, nothing after
+# it; a tab-indented or 4-space-indented line neither opens nor closes; an unclosed fence runs to
+# the end of the body. This is a SEPARATE COPY of that rule, because forge-kit-devops may not
+# source a governance asset; gate-status.sh fingerprint() is a third, and scripts/test-forge-lib.sh
+# pins all three against one fixture list (the parity row). INDENT IS MEASURED WITH match() AND
+# RLENGTH, never `sub(/^ ? ? ?/, ...)`, which mawk 1.3.4 reads as stripping ONE space (#485).
+#
+# PRECEDENCE. Fence state is evaluated first: a marker inside an open fence opens or closes no
+# region. Inside a real region fence state is FROZEN: a fence line there neither opens nor closes.
+# The freeze covers ANY real region (a whole-line start outside a fence until the end marker of
+# the SAME name), not only the one being written, to match #485's any-region skip. The freeze only
+# ever makes MORE lines count as markers (HEAD's counting), so a stray fence line inside a region
+# can never hide the marker that ends it. It FAILS CLOSED ONLY BECAUSE OF THE END-OF-BODY CHECK in
+# _forge_splice (and the existing one in compose): an unterminated start of any region freezes
+# fence state to the end of the body, so on its own the freeze would let a fenced complete pair
+# after it count as real and be spliced. Neither the freeze nor that check may be removed without
+# the other. fenced() is the one entry point: it returns 1 for a fence line or a line inside an
+# open fence (plain text), and otherwise tracks the open real region. Globals: fopen, fch, flen,
+# fin (the opener's indent, copied into any closer this library writes), rgn (the open region).
 _FORGE_AWK_MARKER='
   function norm(l) { sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); return l }
   function mname(l,   n) {
@@ -842,6 +873,31 @@ _FORGE_AWK_MARKER='
     n = l; sub(/^<!-- /, "", n); sub(/:(start|end) -->$/, "", n); return n
   }
   function mkind(l) { return (l ~ /:start -->$/) ? "start" : "end" }
+  function fence_open(s,   o, n, ind, info) {
+    match(s, /^ */); if (RLENGTH > 3) return 0; ind = substr(s, 1, RLENGTH); o = substr(s, RLENGTH + 1)
+    if (substr(o, 1, 3) == "```") match(o, /^`+/)
+    else if (substr(o, 1, 3) == "~~~") match(o, /^~+/)
+    else return 0
+    n = RLENGTH; info = substr(o, n + 1)
+    if (substr(o, 1, 1) == "`" && index(info, "`")) return 0
+    fch = substr(o, 1, 1); flen = n; fin = ind; return 1
+  }
+  function fence_close(s,   c, pat) {
+    match(s, /^ */); if (RLENGTH > 3) return 0; c = substr(s, RLENGTH + 1)
+    if (fch == "`") pat = "^`+$"; else pat = "^~+$"
+    return c ~ pat && length(c) >= flen
+  }
+  function fence_closer(   c, i) { c = fin; for (i = 0; i < flen; i++) c = c fch; return c }
+  function fenced(l,   nm) {
+    if (rgn == "") {
+      if (fopen) { if (fence_close(l)) fopen = 0; return 1 }
+      if (fence_open(l)) { fopen = 1; return 1 }
+    }
+    nm = mname(l)
+    if (rgn == "") { if (nm != "" && mkind(l) == "start") rgn = nm }
+    else if (nm == rgn && mkind(l) == "end") rgn = ""
+    return 0
+  }
 '
 
 # _forge_splice: body on stdin, new body on stdout. FL_REGION, FL_MODE (set|clear), FL_POS (empty or
@@ -860,12 +916,16 @@ _forge_splice() {
     {
       line[NR] = $0
       n = norm($0)
+      if (fenced(n)) next
       if (n == s) { nstart++; si = NR }
       else if (index(n, s) == 1) bad = 1
       if (n == e) { nend++; ei = NR }
       else if (index(n, e) == 1) bad = 1
     }
     END {
+      # The end-of-body check (#486): a region of ANY name still open here refuses, because the
+      # freeze inside it would otherwise let a fenced pair after it count as real. See fenced().
+      if (rgn != "") exit 103
       if (bad || nstart != nend || nstart > 1) exit 103
       if (nstart == 1 && si > ei) exit 103
       if (mode == "set" && ENVIRON["FL_POS"] == "top") {
@@ -888,7 +948,12 @@ _forge_splice() {
       if (nstart == 0) {
         for (i = 1; i <= NR; i++) print line[i]
         if (mode == "set") {
-          if (NR > 0 && norm(line[NR]) != "") print ""
+          # A body ending inside an unclosed fence gets the matching closer first (#486): the
+          # indent, character and length of the opener. Render-identical (the fence already ended at
+          # the end of the body), and the next set finds the region outside any fence instead of
+          # appending another. The only author-text change this library makes, at most once.
+          if (fopen) { print fence_closer(); print "" }
+          else if (NR > 0 && norm(line[NR]) != "") print ""
           print s
           while ((getline c < ENVIRON["FL_CONTENT_FILE"]) > 0) print c
           print e
@@ -930,7 +995,7 @@ forge_body_region_get() {
   [ "$rc" = 0 ] || return "$rc"
   printf '%s\n' "$body" | FL_REGION="$region" awk "$_FORGE_AWK_MARKER"'
     BEGIN { r = ENVIRON["FL_REGION"]; s = "<!-- " r ":start -->"; e = "<!-- " r ":end -->" }
-    { n = norm($0) }
+    { n = norm($0); if (fenced(n)) next }
     n == s { inside = 1; next }
     n == e { inside = 0; next }
     inside { print }
@@ -952,6 +1017,9 @@ _forge_region_write() {
   # second end marker into its own region, and every later set, clear and get on that region
   # refuses or truncates: the region is unrecoverable except by the whole-body write rule 1
   # forbids. This repository gates its own tickets, so the quoting case is ordinary.
+  # FENCED OR NOT (#486): this guard deliberately does not call fenced(). Content lands INSIDE a
+  # region, where fence state is frozen, so a marker line in it is a real marker even when the
+  # content wraps it in a fence; ignoring the fence here is what keeps the region recoverable.
   if [ "$mode" = set ] && printf '%s\n' "$content" | awk "$_FORGE_AWK_MARKER"'
        { if (mname(norm($0)) != "") { found = 1 } } END { exit !found }'; then
     echo "forge-lib: refusing content that carries a region marker line; it would lock '$region'" >&2
@@ -1017,10 +1085,16 @@ forge_body_compose_preserving() {
     BEGIN {
       while ((getline l < ENVIRON["FL_NEW_FILE"]) > 0) {
         nl[++nn] = l
+        if (fenced(norm(l))) continue   # a quoted marker is not a region the new body restates (#486)
         nm = mname(norm(l)); if (nm != "") present[nm] = 1
       }
+      # Remember whether the new body ends inside an unclosed fence, then RESET the fence and
+      # region state so the current-body pass below starts from a clean slate (#486).
+      newopen = fopen; if (newopen) newcloser = fence_closer()
+      fopen = 0; rgn = ""
     }
     { line[NR] = $0
+      if (fenced(norm($0))) next
       nm = mname(norm($0))
       if (nm != "") {
         if (mkind(norm($0)) == "start") { if (st[nm]) bad = 1; st[nm] = NR; order[++no] = nm }
@@ -1034,6 +1108,7 @@ forge_body_compose_preserving() {
       for (i = 1; i <= no; i++) {
         k = order[i]
         if (present[k]) continue
+        if (newopen) { print newcloser; newopen = 0 }   # close the new body fence first, once
         print ""
         for (j = st[k]; j <= en[k]; j++) print line[j]
       }

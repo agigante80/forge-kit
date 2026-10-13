@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 10
+# gate-status-version: 11
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -33,8 +33,18 @@
 # under the same algorithm: one written by a checkout ahead of or behind the default branch, which
 # the workflow runs from, is marked STALE at once.
 #
-# THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp3). Full review: <url>.` The
-# `(fp3)` after the hash names the algorithm that produced it: it is the gate-status version that
+# FENCED CODE BLOCKS (v11, #486). A marker-shaped line inside a fenced code block is author text:
+# it is hashed like any other line, never stripped as a region and never refused as unpaired, so a
+# ticket that quotes a marker in a fence can be stamped. The fence grammar and its precedence (fence
+# state first; frozen inside a real region) are forge-lib.sh's, which is #485's rule; this awk is a
+# separate copy because a governance script reads the library only through its functions, and
+# scripts/test-forge-lib.sh pins the copies against one fixture list. Indent is measured with
+# match() and RLENGTH, never `sub(/^ ? ? ?/, ...)`, which mawk reads as stripping one space. The
+# fingerprint changed, so FP_TAG moved from fp3 to fp11 and every stamped ticket reads stale once
+# and needs one re-gate, exactly as the v3 upgrade below describes.
+#
+# THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp11). Full review: <url>.` The
+# `(fp11)` after the hash names the algorithm that produced it: it is the gate-status version that
 # introduced the current fingerprint(), held in FP_TAG below. WHOEVER CHANGES fingerprint() MUST
 # BUMP FP_TAG in the same commit. The contract test pins one golden hash together with the FP_TAG
 # literal, so changing fingerprint() fails the suite until the pin is updated, and the pin sits
@@ -126,14 +136,30 @@ body_of() {
   printf '%s' "$raw" | jq -r '.body // ""'
 }
 
-# The gate-status version that introduced the current fingerprint() (v3, #312). Bump with it.
-FP_TAG="fp3"
+# The gate-status version that introduced the current fingerprint() (v11, #486). Bump with it.
+FP_TAG="fp11"
 
 fingerprint() {  # body on stdin
   local h
   h="$(awk '
     function norm(l) { sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); return l }
+    function fence_open(s,   o, n, info) {
+      match(s, /^ */); if (RLENGTH > 3) return 0; o = substr(s, RLENGTH + 1)
+      if (substr(o, 1, 3) == "```") match(o, /^`+/)
+      else if (substr(o, 1, 3) == "~~~") match(o, /^~+/)
+      else return 0
+      n = RLENGTH; info = substr(o, n + 1)
+      if (substr(o, 1, 1) == "`" && index(info, "`")) return 0
+      fch = substr(o, 1, 1); flen = n; return 1
+    }
+    function fence_close(s,   c, pat) {
+      match(s, /^ */); if (RLENGTH > 3) return 0; c = substr(s, RLENGTH + 1)
+      if (fch == "`") pat = "^`+$"; else pat = "^~+$"
+      return c ~ pat && length(c) >= flen
+    }
     { n = norm($0) }
+    !inside && fopen { if (fence_close(n)) fopen = 0; if (n != "") print n; next }
+    !inside && fence_open(n) { fopen = 1; print n; next }
     n ~ /^<!-- [^ \t]+:start -->$/ { if (inside) { bad = 1; exit 3 } inside = 1; next }
     n ~ /^<!-- [^ \t]+:end -->$/   { if (!inside) { bad = 1; exit 3 } inside = 0; next }
     inside { next }

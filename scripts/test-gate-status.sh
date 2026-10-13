@@ -147,6 +147,64 @@ never closed"; out=$(GS 7 --fingerprint 2>/dev/null); expect "an unpaired start 
 setbody "$AUTHOR
 <!-- gate-context:end -->"; out=$(GS 7 2>/dev/null); expect "an end with no start: the state exits 2" 2 "$?"
 
+echo "== #486: a marker inside a fenced code block is author text =="
+FENCED_LONE="$AUTHOR
+\`\`\`
+<!-- gate-context:start -->
+\`\`\`
+$VERDICT
+"
+setbody "$FENCED_LONE"; fl=$(GS 7 --fingerprint 2>/dev/null); expect "a fenced lone start marker hashes with exit 0" 0 "$?"
+case "$fl" in sha256:[0-9a-f]*) ok "  and prints a fingerprint" ;; *) bad "  no fingerprint: '$fl'" ;; esac
+setbody "${FENCED_LONE/<!-- gate-context:start -->
+/}"
+[ "$(GS 7 --fingerprint)" != "$fl" ] && ok "  and the fenced marker line is hashed, so deleting it changes the hash" || bad "  the fenced marker line was not hashed"
+setbody "$FENCED_LONE"; GS 7 --stamp 2>/dev/null; expect "--stamp on a body with a fenced lone marker exits 0" 0 "$?"
+expect "  and the Judged line carries the fp11 tag" 1 "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (fp11)\. ' "$S/body")"
+FENCED_PAIR="$AUTHOR
+~~~
+<!-- brief-x:start -->
+quoted author text
+<!-- brief-x:end -->
+~~~
+"
+setbody "$FENCED_PAIR"; fp=$(GS 7 --fingerprint)
+setbody "$AUTHOR
+~~~
+~~~
+"
+[ "$(GS 7 --fingerprint)" != "$fp" ] && ok "a fenced COMPLETE pair is hashed, not stripped as a region" || bad "a fenced complete pair was stripped"
+setbody "${FENCED_PAIR/quoted author text/edited author text}"
+[ "$(GS 7 --fingerprint)" != "$fp" ] && ok "  so an edit to the text inside it changes the hash" || bad "  an edit inside a fenced pair was invisible"
+FENCE_IN_REGION="$AUTHOR
+<!-- gate-context:start -->
+\`\`\`
+<!-- gate-context:end -->
+after the region
+"
+setbody "$FENCE_IN_REGION"; fr=$(GS 7 --fingerprint 2>/dev/null); expect "a stray fence line inside a real region does not open a fence (frozen)" 0 "$?"
+setbody "${FENCE_IN_REGION/after the region/after the region, edited}"
+[ "$(GS 7 --fingerprint)" != "$fr" ] && ok "  and the author text after that region is still hashed" || bad "  the stray fence hid the text after the region"
+setbody "$AUTHOR
+\`\`\`
+\`\`\`
+<!-- gate-verdict:start -->
+never closed
+"; err=$(GS 7 --stamp 2>&1 >/dev/null); expect "a real unterminated start after a closed fence: --stamp exits 2" 2 "$?"
+contains "has an unpaired region marker; refusing" "$err" "  with the unpaired-marker refusal"
+expect "  and writes no stamp" 0 "$(patches)"
+out=$(GS 7 --fingerprint 2>/dev/null); expect "  and --fingerprint on it exits 2" 2 "$?"; expect "  with empty stdout" "" "$out"
+# Indent is measured with match(): mawk read the old sub(/^ ? ? ?/) as ONE space, so a 2-space
+# fence was no fence there. This row is the one that fails under mawk if that form comes back.
+setbody "$AUTHOR
+  \`\`\`
+<!-- gate-context:start -->
+"; GS 7 --fingerprint >/dev/null 2>&1; expect "a fence indented 2 spaces still hides a lone marker (exit 0)" 0 "$?"
+setbody "$AUTHOR
+    \`\`\`
+<!-- gate-context:start -->
+"; GS 7 --fingerprint >/dev/null 2>&1; expect "a fence indented 4 spaces is no fence, so the lone marker refuses (exit 2)" 2 "$?"
+
 echo "== states =="
 setbody "$AUTHOR"; expect "no verdict reads ungated" "ungated" "$(GS 7)"
 setbody "$BASE"; expect "a verdict with no Judged line reads unrecorded" "unrecorded round 2" "$(GS 7)"
@@ -162,9 +220,9 @@ first_sum=$(printf '%s\n' "$body" | grep -n '^## Summary' | cut -d: -f1)
 [ "$first_req" -lt "$first_sum" ] && ok "required changes sit above the author sections" || bad "required changes not moved"
 expect "each region appears once" 1 "$(printf '%s\n' "$body" | grep -c 'gate-verdict:start')"
 fp=$(GS 7 --fingerprint)
-contains "Judged body: $fp (fp3). Full review: https://x/c/3." "$body" "the Judged line carries the fingerprint and the LATEST review's url"
+contains "Judged body: $fp (fp11). Full review: https://x/c/3." "$body" "the Judged line carries the fingerprint and the LATEST review's url"
 expect "the written Judged line matches the v1 to v3 read pattern" 1 "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\}' "$S/body")"
-expect "the tag follows the hash" 1 "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (fp3)\. ' "$S/body")"
+expect "the tag follows the hash" 1 "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (fp11)\. ' "$S/body")"
 lacks "https://x/c/4" "$body" "a sibling ticket's review is never the pointer"
 expect "the stamped ticket reads current" "current round 2 NEEDS-WORK" "$(GS 7)"
 expect "the author sections are byte-identical after the moves" "$f0" "$fp"
@@ -197,38 +255,38 @@ withjudged() { setbody "${BASE/- significant: fix the scenarios/- significant: f
 Judged body: $1}"; }
 FPNOW=$(setbody "$BASE"; GS 7 --fingerprint)
 withjudged "sha256:0000000000000000 (fp1). Full review: https://x/c/3."
-expect "another algorithm's tag reads stale and names it" "stale round 2 NEEDS-WORK (fingerprint fp1, now fp3)" "$(GS 7)"
+expect "another algorithm's tag reads stale and names it" "stale round 2 NEEDS-WORK (fingerprint fp1, now fp11)" "$(GS 7)"
 withjudged "$FPNOW (fp1). Full review: https://x/c/3."
-expect "  the tag is decisive even with the current hash" "stale round 2 NEEDS-WORK (fingerprint fp1, now fp3)" "$(GS 7)"
+expect "  the tag is decisive even with the current hash" "stale round 2 NEEDS-WORK (fingerprint fp1, now fp11)" "$(GS 7)"
 out=$(GS 7); expect "  and the state exits 0" 0 "$?"
 withjudged "$FPNOW. Full review: https://x/c/3."
 expect "an untagged stamp with the right hash is current" "current round 2 NEEDS-WORK" "$(GS 7)"
 withjudged "sha256:0000000000000000. Full review: https://x/c/3."
 expect "an untagged stamp with a wrong hash is plain stale" "stale round 2 NEEDS-WORK" "$(GS 7)"
-withjudged "sha256:0000000000000000 (fp3). Full review: https://x/c/3."
+withjudged "sha256:0000000000000000 (fp11). Full review: https://x/c/3."
 expect "a matching tag with a wrong hash is plain stale" "stale round 2 NEEDS-WORK" "$(GS 7)"
-withjudged "$FPNOW (fp3). Full review: https://x/c/3."
+withjudged "$FPNOW (fp11). Full review: https://x/c/3."
 expect "a matching tag with the right hash is current" "current round 2 NEEDS-WORK" "$(GS 7)"
 withjudged "$FPNOW (12345). Full review: https://x/c/3."
-expect "a digits-only tag is a tag: another algorithm" "stale round 2 NEEDS-WORK (fingerprint 12345, now fp3)" "$(GS 7)"
+expect "a digits-only tag is a tag: another algorithm" "stale round 2 NEEDS-WORK (fingerprint 12345, now fp11)" "$(GS 7)"
 # The two CR cases are a pair. A real \r after text is also absorbed by the tag pattern's trailing
 # ` .*`, so this one documents the shape but does NOT kill a deleted `tr -d '\r'`; only the next
 # case (nothing after the full stop) does. Do not merge them.
-withjudged "$(printf '%s (fp3). Full review: https://x/c/3.\r' "$FPNOW")"
+withjudged "$(printf '%s (fp11). Full review: https://x/c/3.\r' "$FPNOW")"
 expect "a tagged line with a real CR after its text reads like the LF form" "current round 2 NEEDS-WORK" "$(GS 7)"
-withjudged "$(printf '%s (fp3).\r' "$FPNOW")"
+withjudged "$(printf '%s (fp11).\r' "$FPNOW")"
 expect "a CRLF tagged line with nothing after the full stop is current" "current round 2 NEEDS-WORK" "$(GS 7)"
 withjudged "$FPNOW (fp1). Full review: https://x/c/3.
 Judged body: $FPNOW. Full review: https://x/c/3."
-expect "two Judged lines: the first wins (tagged first)" "stale round 2 NEEDS-WORK (fingerprint fp1, now fp3)" "$(GS 7)"
+expect "two Judged lines: the first wins (tagged first)" "stale round 2 NEEDS-WORK (fingerprint fp1, now fp11)" "$(GS 7)"
 withjudged "$FPNOW. Full review: https://x/c/3.
 Judged body: $FPNOW (fp1). Full review: https://x/c/3."
 expect "two Judged lines: the first wins (untagged first)" "current round 2 NEEDS-WORK" "$(GS 7)"
-for bad_tag in "(FP3)" "(FP3!)" "()" "(fp3" "(fp 3)" "(fp3;touch /tmp/x)" '($(id))' "(abcdefghijklmnopq)" "(fp3)x"; do
+for bad_tag in "(FP11)" "(FP11!)" "()" "(fp11" "(fp 11)" "(fp11;touch /tmp/x)" '($(id))' "(abcdefghijklmnopq)" "(fp11)x"; do
   withjudged "$FPNOW $bad_tag. Full review: https://x/c/3."
   out=$(GS 7); expect "a malformed tag '$bad_tag' is no stamp" "unrecorded round 2" "$out"
 done
-withjudged "$FPNOW (fp3).x"
+withjudged "$FPNOW (fp11).x"
 expect "text glued to the full stop after a valid tag is no stamp" "unrecorded round 2" "$(GS 7)"
 withjudged "$FPNOW."
 expect "a hash and a bare full stop is an untagged stamp, read by hash" "current round 2 NEEDS-WORK" "$(GS 7)"
@@ -241,7 +299,7 @@ expect "text glued to the full stop of an untagged stamp is no stamp" "unrecorde
 tab=$(printf '\t')
 ZERO="sha256:0000000000000000"
 for shape in "${ZERO}(fp1). Full review: x." "$ZERO  (fp1). Full review: x." "$ZERO${tab}(fp1). Full review: x." \
-             "$ZERO [fp1]. Full review: x." "${ZERO}zz (fp3). Full review: x." "${ZERO}.x" "$ZERO"; do
+             "$ZERO [fp1]. Full review: x." "${ZERO}zz (fp11). Full review: x." "${ZERO}.x" "$ZERO"; do
   withjudged "$shape"
   out=$(GS 7); expect "a non-writer shape '$shape' is no stamp" "unrecorded round 2" "$out"
   rm -f "$S/patches"; GS 7 --mark-stale; expect "  and --mark-stale sends nothing for it" 0 "$(patches)"
@@ -252,23 +310,23 @@ done
 # All three cases (the third, a SANITY case, is further down) run inside the fresh scratch dir $T,
 # never the caller's directory: a relative `x` there would be deleted or misread in whatever folder
 # the suite was started from.
-withjudged "$FPNOW ;touch x (fp3). Full review: x."
+withjudged "$FPNOW ;touch x (fp11). Full review: x."
 out=$(cd "$T" && GS 7); expect "metacharacters after the hash, outside the parentheses, are no stamp" "unrecorded round 2" "$out"
 expect "  sanity: no file named x was created" "no" "$([ -e "$T/x" ] && echo yes || echo no)"
 withjudged "$FPNOW ;touch x
-(fp3). Full review: x."
+(fp11). Full review: x."
 out=$(cd "$T" && GS 7); expect "a newline splitting the text after the hash is no stamp" "unrecorded round 2" "$out"
 # SANITY check, not a kill: the Judged line is read with sed -n '/^Judged body: sha256:/{p;q;}', so the
 # second line never reaches the parser and no plausible mutant fails this. "Only the first Judged
 # line is read" is pinned by the two `two Judged lines: the first wins` cases above.
-withjudged "$FPNOW (fp3).
-;touch x (fp3). Full review: x."
+withjudged "$FPNOW (fp11).
+;touch x (fp11). Full review: x."
 out=$(cd "$T" && GS 7); expect "a newline after a complete stamp: the stamp is its first line (sanity)" "current round 2 NEEDS-WORK" "$out"
-withjudged "$FPNOW (fp3)x Full review: https://x/c/3."
+withjudged "$FPNOW (fp11)x Full review: https://x/c/3."
 expect "text glued to the closing parenthesis is no stamp" "unrecorded round 2" "$(GS 7)"
-withjudged "sha256: (fp3). Full review: https://x/c/3."
+withjudged "sha256: (fp11). Full review: https://x/c/3."
 expect "a tag with no hash is no stamp" "unrecorded round 2" "$(GS 7)"
-withjudged "sha256:abc (fp3). Full review: https://x/c/3."
+withjudged "sha256:abc (fp11). Full review: https://x/c/3."
 expect "a tag after a short hash is no stamp" "unrecorded round 2" "$(GS 7)"
 withjudged "sha256:0000000000000000 (fp1). Full review: https://x/c/3.
 - ticket text (fp9)"
@@ -276,7 +334,7 @@ expect "a state is exactly one line" 1 "$(GS 7 | wc -l | tr -d ' ')"
 
 # The older readers. These are the v3 patterns, spelled out: a tagged line must still match them.
 setbody "$BASE"; GS 7 --stamp
-contains "Judged body: $FPNOW (fp3)." "$(cat "$S/body")" "a stamp is tagged"
+contains "Judged body: $FPNOW (fp11)." "$(cat "$S/body")" "a stamp is tagged"
 expect "a v3 reader's sed extracts the hash from a tagged line" "$FPNOW" "$(sed -n 's/^Judged body: \(sha256:[0-9a-f]*\).*/\1/p' "$S/body" | head -1)"
 GS 7 --unstamp; expect "--unstamp on a tagged stamp exits 0" 0 "$?"
 expect "  and no Judged line is left" 0 "$(grep -c '^Judged body' "$S/body")"
@@ -288,7 +346,7 @@ withjudged "$FPNOW. Full review: https://x/c/3.
 Judged body: $FPNOW (fp1). Full review: https://x/c/3."
 GS 7 --stamp; expect "a re-stamp over an untagged and a tagged line exits 0" 0 "$?"
 expect "  leaves exactly one Judged line" 1 "$(grep -c '^Judged body' "$S/body")"
-expect "  and it is tagged" 1 "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (fp3)\. ' "$S/body")"
+expect "  and it is tagged" 1 "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (fp11)\. ' "$S/body")"
 withjudged "$FPNOW (fp1). Full review: https://x/c/3."
 rm -f "$S/patches"; GS 7 --mark-stale; expect "--mark-stale on another algorithm's tag exits 0" 0 "$?"
 contains '### Gate verdict (round 2): STALE' "$(cat "$S/body")" "  and marks the verdict"
@@ -302,13 +360,16 @@ lacks 'algorithm evil' "$(cat "$S/body")" "  and never text from the heading"
 expect "  with one PATCH per marked region" 2 "$(patches)"
 setbody "$BASE"; GS 7 --stamp; rm -f "$S/patches"; GS 7 --mark-stale
 expect "--mark-stale on a current tagged stamp sends nothing" 0 "$(patches)"
-withjudged "$FPNOW (FP3!). Full review: https://x/c/3."; rm -f "$S/patches"; GS 7 --mark-stale
+withjudged "$FPNOW (FP11!). Full review: https://x/c/3."; rm -f "$S/patches"; GS 7 --mark-stale
 expect "--mark-stale on a malformed tag sends nothing" 0 "$(patches)"
 # The golden pin: changing fingerprint() fails here until the pin is updated. The tag and the hash are
 # ONE literal so the pin names the tag it must be updated with. This guards the pin's composition,
 # not intent: an editor can still change the hex and the tag together, or the hex alone.
-setbody "$(printf 'alpha\n\nbeta  \r\n<!-- x:start -->\nhidden\n<!-- x:end -->\ngamma\n')"
-expect "the golden pin: FP_TAG and the fingerprint of a fixed body, one literal" 'FP_TAG="fp3" sha256:4fdbc441ea7b5461' "$(grep '^FP_TAG=' "$REAL") $(GS 7 --fingerprint)"
+# #486: the fixture ends with a fenced COMPLETE pair, which v11 hashes as author text and v10 stripped
+# as a region, so the hex below moved with the fence rule and not only the tag.
+GOLDEN="$(printf 'alpha\n\nbeta  \r\n<!-- x:start -->\nhidden\n<!-- x:end -->\ngamma\n```\n<!-- y:start -->\nquoted\n<!-- y:end -->\n```\n')"
+setbody "$GOLDEN"
+expect "the golden pin: FP_TAG and the fingerprint of a fixed body, one literal" 'FP_TAG="fp11" sha256:915f674c862d2392' "$(grep '^FP_TAG=' "$REAL") $(GS 7 --fingerprint)"
 
 ALT='<!-- gate-alternatives:start -->
 ### Architecture alternatives
@@ -417,21 +478,21 @@ probe_final() { setbody "$BASE"; STUB_RACE_AT=10 GS 7 --stamp >/dev/null 2>&1; [
 probe_word() { setbody "$(printf 'a\nb\n')"; a=$(GS 7 --fingerprint); setbody "$(printf 'a\nc\n')"; [ "$a" != "$(GS 7 --fingerprint)" ]; }
 probe_nobl() { setbody "$NOBLANK"; caught "author section changed" GS 7 --stamp; }
 probe_prefix() { setbody "$BASE"; GS 7 --stamp >/dev/null 2>&1; [ "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\}' "$S/body")" = 1 ]; }
-probe_tagged() { setbody "$BASE"; GS 7 --stamp >/dev/null 2>&1; [ "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (fp3)\. ' "$S/body")" = 1 ]; }
+probe_tagged() { setbody "$BASE"; GS 7 --stamp >/dev/null 2>&1; [ "$(grep -c '^Judged body: sha256:[0-9a-f]\{16\} (fp11)\. ' "$S/body")" = 1 ]; }
 probe_restamp() { withjudged "$FPNOW (fp1). Full review: x."; GS 7 --stamp >/dev/null 2>&1; [ "$(grep -c '^Judged body' "$S/body")" = 1 ]; }
 probe_unstamp() { setbody "$BASE"; GS 7 --stamp >/dev/null 2>&1; GS 7 --unstamp >/dev/null 2>&1; [ "$(grep -c '^Judged body' "$S/body")" = 0 ]; }
-probe_algo() { withjudged "$FPNOW (fp1). Full review: x."; [ "$(GS 7)" = "stale round 2 NEEDS-WORK (fingerprint fp1, now fp3)" ]; }
+probe_algo() { withjudged "$FPNOW (fp1). Full review: x."; [ "$(GS 7)" = "stale round 2 NEEDS-WORK (fingerprint fp1, now fp11)" ]; }
 probe_algomark() { withjudged "$FPNOW (fp1). Full review: x."; rm -f "$S/patches"; GS 7 --mark-stale >/dev/null 2>&1; [ "$(patches)" != 0 ]; }
-probe_malformed() { withjudged "$FPNOW (FP3!). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_malformed() { withjudged "$FPNOW (FP11!). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
 probe_untagged() { withjudged "sha256:0000000000000000. Full review: x."; [ "$(GS 7)" = "stale round 2 NEEDS-WORK" ]; }
 # The pin is read from the MUTANT ($T/gate-status.sh), never $REAL, or a tag-only mutant survives.
-probe_golden() { setbody "$(printf 'alpha\n\nbeta  \r\n<!-- x:start -->\nhidden\n<!-- x:end -->\ngamma\n')"; [ "$(grep '^FP_TAG=' "$T/gate-status.sh") $(GS 7 --fingerprint)" = 'FP_TAG="fp3" sha256:4fdbc441ea7b5461' ]; }
+probe_golden() { setbody "$GOLDEN"; [ "$(grep '^FP_TAG=' "$T/gate-status.sh") $(GS 7 --fingerprint)" = 'FP_TAG="fp11" sha256:915f674c862d2392' ]; }
 probe_shape() { withjudged "${FPNOW}(fp1). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
 probe_glued() { withjudged "${FPNOW}.x"; [ "$(GS 7)" = "unrecorded round 2" ]; }
 probe_bare() { withjudged "$FPNOW."; [ "$(GS 7)" = "current round 2 NEEDS-WORK" ]; }
-probe_upper() { withjudged "$FPNOW (FP3). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
-probe_anchor() { withjudged "$FPNOW (fp3).x"; [ "$(GS 7)" = "unrecorded round 2" ]; }
-probe_cr() { withjudged "$(printf '%s (fp3).\r' "$FPNOW")"; [ "$(GS 7)" = "current round 2 NEEDS-WORK" ]; }
+probe_upper() { withjudged "$FPNOW (FP11). Full review: x."; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_anchor() { withjudged "$FPNOW (fp11).x"; [ "$(GS 7)" = "unrecorded round 2" ]; }
+probe_cr() { withjudged "$(printf '%s (fp11).\r' "$FPNOW")"; [ "$(GS 7)" = "current round 2 NEEDS-WORK" ]; }
 probe_staleline() {  # the algorithm reason for an fp1 stamp
   withjudged "sha256:0000000000000000 (fp1). Full review: x."; GS 7 --mark-stale >/dev/null 2>&1
   grep -qxF '**Stale:** this verdict was recorded by fingerprint algorithm fp1, which this script no longer computes; re-run /gate-ticket 7 before acting on it.' "$S/body"; }
@@ -464,7 +525,14 @@ m "the algorithm change no longer starts with stale" 's/echo "stale round $round
 m "a malformed tag is read as an untagged stamp" 's/\[ -n "$tag" \] || judged=""/:/' probe_malformed
 m "an untagged stamp is reported as an algorithm change" 's/\[ -n "$tag" \] && \[ "$tag" != "$FP_TAG" \]/[ "$tag" != "$FP_TAG" ]/' probe_untagged
 m "fingerprint() changes without updating the pin" 's/^    { print n }/    { print n "x" }/' probe_golden
-m "the tag changes alone" 's/^FP_TAG="fp3"/FP_TAG="fp4"/' probe_golden
+m "the tag changes alone" 's/^FP_TAG="fp11"/FP_TAG="fp12"/' probe_golden
+# #486: the fence rule. M16 (fingerprint ignores fence state) and the freeze, each on its own probe.
+probe_fenced() { setbody "$FENCED_LONE"; GS 7 --fingerprint >/dev/null 2>&1; }
+probe_freeze() { setbody "$FENCE_IN_REGION"; GS 7 --fingerprint >/dev/null 2>&1; }
+m "M16: fingerprint() ignores fence state" '/^    !inside && fopen {/d;/^    !inside && fence_open(n) {/d' probe_fenced
+m "M16: fingerprint() ignores fence state (golden pin)" '/^    !inside && fopen {/d;/^    !inside && fence_open(n) {/d' probe_golden
+m "M17: FP_TAG not bumped (left at fp3)" 's/^FP_TAG="fp11"/FP_TAG="fp3"/' probe_golden
+m "no freeze inside a region in fingerprint()" 's/^    !inside && fopen {/    fopen {/;s/^    !inside && fence_open(n) {/    fence_open(n) {/' probe_freeze
 m "no other shape is rejected (the catch-all arm deleted)" '/^      \*) judged="" ;;/d' probe_shape
 # A misread shape must reach --mark-stale as `stale` and PATCH (#356): the stale-hash shape loop above.
 probe_shape_patch() { withjudged "sha256:0000000000000000(fp1). Full review: x."; rm -f "$S/patches"; GS 7 --mark-stale >/dev/null 2>&1; [ "$(patches)" = 0 ]; }

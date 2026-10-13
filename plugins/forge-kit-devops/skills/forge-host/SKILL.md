@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 39 -->
+<!-- forge-host-version: 40 -->
 
 # forge-host: host-aware forge operations
 
@@ -53,8 +53,8 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_create <title> <body>` | open an issue (labels omitted, added with the next op) |
 | `forge_issue_label <n> <name…>` | add labels by name (Forgejo: resolves names→IDs against repo AND org labels, all pages; REFUSE-ALL contract: any unresolvable name fails the whole call non-zero and applies nothing, so check the exit and create missing labels first) |
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination, and a stop on a page whose ids repeat the last page's, since Gitea's per-issue comments endpoint ignores `page`, #228). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
-| `forge_body_region_get <n> <region>` | the current content of one marker-delimited region of an issue body, empty and rc 0 when absent. NO prefix check: reading another component's region is not a write |
-| `forge_body_region_set <n> <prefix> <region> <content> [top]` / `forge_body_region_clear <n> <prefix> <region>` | splice exactly one region, preserving every other byte; `top` places or MOVES it to the top of the body, below a first-line template marker (v27). Refuses a region not owned by `<prefix>` (101), a body that moved since it was read (102), and a malformed, unterminated or DUPLICATED marker pair (103) |
+| `forge_body_region_get <n> <region>` | the current content of one marker-delimited region of an issue body, empty and rc 0 when absent; a marker inside a fenced code block is text (#486). NO prefix check: reading another component's region is not a write |
+| `forge_body_region_set <n> <prefix> <region> <content> [top]` / `forge_body_region_clear <n> <prefix> <region>` | splice exactly one region, preserving every other byte; `top` places or MOVES it to the top of the body, below a first-line template marker (v27). Refuses a region not owned by `<prefix>` (101), a body that moved since it was read (102), and a malformed, unterminated or DUPLICATED marker pair (103). A bottom append to a body ending inside an unclosed fence first writes the matching closer (v40, #486) |
 | `forge_body_compose_preserving <n> <new-body>` | a WHOLE-body write that re-threads EVERY region, the caller's own included, so an author-section rewrite cannot drop a region anyone wrote. A region restated in the new body is kept once, not duplicated |
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
 | `forge_issue_milestone_list` | EVERY open issue as `{number, milestone}`, the milestone being its title or `null`; it takes no argument, so filter by title yourself. PRs excluded on both hosts (Forgejo sends `"pull_request": null` on a plain issue, #446) |
@@ -83,7 +83,9 @@ Three components edit a ticket body, and `forge_issue_edit` replaces the whole t
 kept two of them apart was a sentence of prose, and a rule in a governance doc could not have
 reached the third at all, because it ships in an OPTIONAL group the governance guard neither scans
 nor can be made to scan. Every group that needs this already depends on this one, so the contract
-lives here and fires at the write.
+lives here and fires at the write. Every reader follows #485's fence rule: a marker line inside a
+fenced code block is author text, fence state is frozen inside a real region, and any region left
+open at the end of the body refuses (103), because the freeze is safe only with that check (v40, #486).
 
 Two limits are stated rather than implied. It enforces DISJOINTNESS, not ownership: nothing stops a
 caller declaring a prefix it does not own, which is acceptable because the failure prevented is a

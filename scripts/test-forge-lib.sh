@@ -3533,6 +3533,215 @@ c449_inherit() {
 c449_inherit && ok "#449: an exported caller value survives sourcing, and a set -a parent hands a child neither tracking name" || bad "#449: tracking variables (rc $K442RC: $(grep -E '^_FORGE_' "$K/out" | tr '\n' ' '))"
 m442 "tracking list left exportable" '                              export -n _FORGE_FROM_FILE; } ;;  # env wins; else file' '                              :; } ;;  # env wins; else file' c449_inherit
 
+echo "== #486: a region marker inside a fenced code block is author text =="
+# Every reader of a region marker (the splice, its bottom append, get and both compose scans) uses
+# _FORGE_AWK_MARKER's fenced(), the #485 grammar: an opener is 0 to 3 spaces then 3 or more
+# backticks or tildes (a backtick info string may not hold a backtick), the closer is the same
+# character, at least as long, nothing after it but blanks. Inside a real region fence state is
+# frozen, and any region still open at the end of the body refuses. Each case is a c486_* function
+# so the mutants below and the per-awk reruns can call it again; L486 points one at a mutant.
+R486="$T/r486"; mkdir -p "$R486"
+FB='```'; FT='~~~'
+S486='<!-- gate-context:start -->'; E486='<!-- gate-context:end -->'
+VS486='<!-- gate-verdict:start -->'; VE486='<!-- gate-verdict:end -->'
+b486() { local IFS=$'\n'; printf '%s' "$*"; }   # b486 <line>...: the lines joined, no final newline
+# r486 <body> <fn> <args...>: one library call against <body> through bodystub, in a subshell.
+# Leaves the rc in R486RC, stdout and stderr in $R486/out and err, the PATCHed body in $R486/patch.
+r486() {
+  local body="$1"; shift
+  rm -f "$T/patch.json" "$R486/patch"
+  ( . "${L486:-$LIB}"; export FORGE_HOST=forgejo FORGE_REPO=o/r; BODY_FIXTURE="$body"; bodystub; "$@" ) > "$R486/out" 2> "$R486/err"
+  R486RC=$?
+  if [ -f "$T/patch.json" ]; then patched > "$R486/patch"; fi
+  return 0
+}
+set486() { r486 "$1" forge_body_region_set 7 gate gate-context "${2-x}"; }
+clr486() { r486 "$1" forge_body_region_clear 7 gate gate-context; }
+cmp486() { r486 "$1" forge_body_compose_preserving 7 "$2"; }
+p486() { cat "$R486/patch" 2>/dev/null; }
+n486() { grep -cxF -- "$1" "$R486/patch" 2>/dev/null; }   # how many patch lines are exactly $1
+is0_486() { [ "$R486RC" = 0 ]; }
+ref486() { [ "$R486RC" = 103 ] && grep -qF "malformed, unterminated or duplicated 'gate-context' marker pair" "$R486/err" && [ ! -f "$T/patch.json" ]; }
+
+# Fix rows: each fails at HEAD 709cfa4.
+c486_repro() { local B; B=$(b486 intro "$FB" "$S486" "$FB" more)
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '' "$S486" x "$E486")" ] || return 1
+  clr486 "$B"; is0_486 && [ "$(p486)" = "$B" ]; }
+c486_tilde() { local B; B=$(b486 intro "$FT" "$S486" "$FT" more)
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '' "$S486" x "$E486")" ] || return 1
+  clr486 "$B"; is0_486 && [ "$(p486)" = "$B" ]; }
+c486_lookalike() { set486 "$(b486 intro "$FB" "$S486" "$FB" mid "$S486" old "$E486" end)"
+  is0_486 && [ "$(p486)" = "$(b486 intro "$FB" "$S486" "$FB" mid "$S486" x "$E486" end)" ]; }
+P486=$(b486 intro "$FB" "$S486" 'quoted author text' "$E486" "$FB" more)
+c486_pair_set() { set486 "$P486"; is0_486 && [ "$(p486)" = "$(b486 "$P486" '' "$S486" x "$E486")" ]; }
+c486_pair_clear() { clr486 "$P486"; is0_486 && [ "$(p486)" = "$P486" ]; }
+c486_open4t() { local B P1; B=$(b486 intro '~~~~' code)
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '~~~~' '' "$S486" x "$E486")" ] || return 1
+  P1=$(p486); set486 "$P1" y
+  is0_486 && [ "$(n486 "$S486")" = 1 ] && [ "$(n486 "$E486")" = 1 ] && [ "$(n486 y)" = 1 ] && [ "$(n486 '~~~~')" = 2 ]; }
+c486_open4b() { local B; B=$(b486 intro '````' code)
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '````' '' "$S486" x "$E486")" ]; }
+c486_open2sp() { local B; B=$(b486 intro '  ```' code)
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '  ```' '' "$S486" x "$E486")" ]; }
+c486_otheropen() { set486 "$(b486 intro "$VS486" prose "$FB" "$S486" 'quoted author text' "$E486" "$FB" more)"; ref486; }
+c486_shorter() { local B; B=$(b486 intro '````' "$FB" "$S486" '````')
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '' "$S486" x "$E486")" ]; }
+c486_otherchar() { local B; B=$(b486 intro "$FB" "$FT" "$S486" "$FB")
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '' "$S486" x "$E486")" ]; }
+c486_closertext() { local B; B=$(b486 intro "$FB" '```bash' "$S486" "$FB")
+  set486 "$B"; is0_486 && [ "$(p486)" = "$(b486 "$B" '' "$S486" x "$E486")" ]; }
+c486_crlf() { set486 "$(b486 $'intro\r' "$FB"$'\r' "$S486"$'\r' "$FB"$'\r' $'more\r')"
+  is0_486 && [ "$(n486 "$S486"$'\r')" = 1 ] && [ "$(n486 "$S486")" = 1 ]; }
+c486_trailblank() { set486 "$(b486 intro "$FB" "$S486" "$FB  " "$S486" old "$E486")"
+  is0_486 && [ "$(p486)" = "$(b486 intro "$FB" "$S486" "$FB  " "$S486" x "$E486")" ]; }
+c486_prefixfenced() { set486 "$(b486 intro "$FB" "$S486 and prose" "$FB")"; is0_486; }
+c486_get_empty() { r486 "$(b486 intro "$FB" "$S486" "$FB" more)" forge_body_region_get 7 gate-context; is0_486 && [ ! -s "$R486/out" ]; }
+c486_get_y() { r486 "$(b486 intro "$FB" "$S486" "$FB" "$S486" y "$E486")" forge_body_region_get 7 gate-context
+  is0_486 && [ "$(cat "$R486/out")" = y ]; }
+c486_compose_lone() { cmp486 "$(b486 old "$FB" "$VS486" "$FB" "$S486" kept "$E486")" 'New text.'
+  is0_486 && [ "$(p486)" = "$(b486 'New text.' '' "$S486" kept "$E486")" ]; }
+c486_compose_quote() { local N; N=$(b486 New. "$FB" "$S486" "$FB")
+  cmp486 "$(b486 old "$S486" kept "$E486")" "$N"
+  is0_486 && [ "$(p486)" = "$(b486 "$N" '' "$S486" kept "$E486")" ]; }
+c486_compose_open() { local N P1; N=$(b486 New. "$FT" code)
+  cmp486 "$(b486 old "$S486" kept "$E486")" "$N"
+  is0_486 && [ "$(p486)" = "$(b486 "$N" "$FT" '' "$S486" kept "$E486")" ] || return 1
+  P1=$(p486); set486 "$P1"
+  is0_486 && [ "$(n486 "$S486")" = 1 ] && [ "$(p486)" = "$(b486 "$N" "$FT" '' "$S486" x "$E486")" ]; }
+# Guard rows: each passes at HEAD and pins what must not change.
+c486_g_inregion() { set486 "$(b486 intro "$S486" "$FB" old "$E486" end)"
+  is0_486 && [ "$(p486)" = "$(b486 intro "$S486" x "$E486" end)" ]; }
+c486_g_otherregion() { set486 "$(b486 "$VS486" "$FB" "$VE486" "$S486" old "$E486")"
+  is0_486 && [ "$(n486 "$S486")" = 1 ] && [ "$(p486)" = "$(b486 "$VS486" "$FB" "$VE486" "$S486" x "$E486")" ]; }
+c486_g_before_open() { set486 "$(b486 "$S486" old "$E486" "$FB" code)"
+  is0_486 && [ "$(p486)" = "$(b486 "$S486" x "$E486" "$FB" code)" ]; }
+c486_g_twostart() { set486 "$(b486 "$FB" code "$FB" "$S486" "$S486")"; ref486; }
+c486_g_tilde_unterm() { set486 "$(b486 "$FT" code "$FT" "$S486")"; ref486; }
+c486_g_indent4() { set486 "$(b486 intro '    ```' "$S486" '    ```')"; ref486; }
+c486_g_tab() { set486 "$(b486 intro $'\t```' "$S486" $'\t```')"; ref486; }
+c486_g_info() { set486 "$(b486 intro '``` a`b' "$S486" "$FB")"; ref486; }
+c486_g_prefix() { set486 "$(b486 intro "$S486 and prose")"; ref486; }
+c486_g_compose() { cmp486 "$(b486 "$FB" code "$FB" "$S486" old)" 'New.'
+  [ "$R486RC" = 103 ] && grep -qF "has a malformed, unterminated or duplicated marker pair; refusing" "$R486/err" && [ ! -f "$T/patch.json" ]; }
+c486_g_content() { set486 "$(b486 intro)" "$(b486 "$FB" "$S486" "$FB")"
+  [ "$R486RC" = 103 ] && grep -qF "refusing content that carries a region marker line" "$R486/err" && [ ! -f "$T/patch.json" ]; }
+
+C486="c486_repro c486_tilde c486_lookalike c486_pair_set c486_pair_clear c486_open4t c486_open4b c486_open2sp c486_otheropen c486_shorter c486_otherchar c486_closertext c486_crlf c486_trailblank c486_prefixfenced c486_get_empty c486_get_y c486_compose_lone c486_compose_quote c486_compose_open c486_g_inregion c486_g_otherregion c486_g_before_open c486_g_twostart c486_g_tilde_unterm c486_g_indent4 c486_g_tab c486_g_info c486_g_prefix c486_g_compose c486_g_content"
+row486() { if "$1"; then ok "#486: $2"; else bad "#486: $2 (rc $R486RC, err $(cat "$R486/err"))"; fi; }
+row486 c486_repro "a lone start marker between backtick fences: set appends the real region below it and clear leaves the body byte-identical"
+row486 c486_tilde "the same lone marker between tilde fences: set and clear both exit 0"
+row486 c486_lookalike "a fenced lone lookalike before a real pair: set replaces only the real region and the fenced line is unchanged"
+row486 c486_pair_set "a complete pair quoted inside a fence: set keeps the quoted text byte-identical and appends one real pair holding x"
+row486 c486_pair_clear "a complete pair quoted inside a fence: clear sends the body back unchanged"
+row486 c486_open4t "a body ending in an unclosed four-tilde fence: set adds a closer of exactly four tildes, and a second set finds the region instead of appending another"
+row486 c486_open4b "a body ending in an unclosed four-backtick fence: the added closer is exactly four backticks"
+row486 c486_open2sp "a body ending in an unclosed fence indented two spaces: the added closer keeps the two spaces"
+row486 c486_otheropen "an unterminated gate-verdict start before a fenced gate-context pair: set refuses with 103 and sends nothing"
+row486 c486_shorter "a three-backtick line inside a four-backtick fence does not close it, so the quoted marker stays text"
+row486 c486_otherchar "a tilde line inside a backtick fence does not close it"
+row486 c486_closertext "a backtick line followed by bash inside a backtick fence does not close it"
+row486 c486_crlf "CRLF fence lines around a start marker: set exits 0 and the CRLF marker line survives"
+row486 c486_trailblank "a closer with trailing blanks closes, so the real pair after it holds x"
+row486 c486_prefixfenced "a fenced line that starts with the marker and goes on with prose is not a malformed marker"
+row486 c486_get_empty "get on a fenced lone start marker returns empty output and rc 0"
+row486 c486_get_y "get on a fenced lone start marker followed by a real pair returns exactly y"
+row486 c486_compose_lone "compose over a fenced lone start marker of another name keeps the new text and re-threads the real pair once"
+row486 c486_compose_quote "compose whose new body quotes the start marker in a fence still re-threads the real pair once"
+row486 c486_compose_open "compose whose new body ends in an unclosed tilde fence closes it before the re-threaded pair, and a later set replaces that pair"
+row486 c486_g_inregion "guard: a stray fence line inside the real region is region content, and set replaces the region"
+row486 c486_g_otherregion "guard: a stray fence opener inside another real region does not hide the gate-context pair after it"
+row486 c486_g_before_open "guard: a real pair before an unclosed fence is replaced and no closer is added"
+row486 c486_g_twostart "guard: two start lines after a closed fence still refuse with 103"
+row486 c486_g_tilde_unterm "guard: a real unterminated start after a closed tilde fence still refuses with 103"
+row486 c486_g_indent4 "guard: fence lines indented four spaces are not a fence, so the unterminated start refuses"
+row486 c486_g_tab "guard: fence lines starting with a tab are not a fence, so the unterminated start refuses"
+row486 c486_g_info "guard: a backtick opener whose info string holds a backtick is not a fence, so the unterminated start refuses"
+row486 c486_g_prefix "guard: a marker-prefixed prose line outside any fence still refuses with 103"
+row486 c486_g_compose "guard: compose over a real unterminated start after a closed fence refuses with 103"
+row486 c486_g_content "guard: region content holding a fenced marker line is still refused by the content guard"
+
+# Parity (#486 with #485): one list of fence contexts, classified by all three readers alike.
+# get: a probe pair after the prefix (empty output means the start was fenced); gate-status
+# --fingerprint: a lone start after it (exit 0 means fenced); check-ticket-mechanics --headings: a
+# heading after it (absent means fenced).
+GS486="$HERE/../plugins/forge-kit-governance/skills/ticket-gate-reference/assets/gate-status.sh"
+CTM486="$HERE/../plugins/forge-kit-governance/skills/ticket-gate-reference/assets/check-ticket-mechanics.sh"
+{ printf '. "%s"\n' "$LIB"; cat <<'W'
+export FORGE_HOST=forgejo FORGE_REPO=o/r
+forge_api() { [ "$1" = GET ] && jq -Rs '{body:.}' < "$R486/pbody"; }
+W
+} > "$R486/wrap.sh"
+par486() {
+  local want="$1" pre g f h; shift; pre=$(b486 "$@")
+  r486 "$(b486 intro "$pre" "$S486" probe "$E486")" forge_body_region_get 7 gate-context
+  if [ -s "$R486/out" ]; then g=n; else g=y; fi
+  b486 intro "$pre" "$S486" > "$R486/pbody"
+  if R486="$R486" FORGE_LIB="$R486/wrap.sh" bash "$GS486" 7 --fingerprint > /dev/null 2>&1; then f=y; else f=n; fi
+  b486 intro "$pre" '## Probe' > "$R486/hbody"
+  if grep -qxF '## Probe' <<< "$(bash "$CTM486" --headings --body "$R486/hbody" 2>/dev/null)"; then h=n; else h=y; fi
+  [ "$g$f$h" = "$want$want$want" ] || PAR486="$PAR486 [$(printf '%s/' "$@") want $want: get $g fingerprint $f headings $h]"
+}
+PAR486=""
+par486 y "$FB";              par486 n "$FB" "$FB";        par486 y "$FT"
+par486 y '   ```';           par486 n '    ```';          par486 n $'\t```'
+par486 n '``` a`b';          par486 y '~~~ a`b';          par486 y '````' "$FB"
+par486 y "$FB" "$FT";        par486 y "$FB" '```bash';    par486 n "$FB" "$FB  "
+par486 n '  ````' '   ````'; par486 y "$FB"$'\r';         par486 n "$FB"$'\r' "$FB"$'\r'
+expect "#486 parity: get, gate-status --fingerprint and #485's --headings classify all 15 fence contexts alike" "" "$PAR486"
+
+# Mutants M1 to M19 (M16 and M17 live in test-gate-status.sh): each guard removed fails its row.
+m486() {  # m486 <name> <anchor> <replacement> <case-fn>
+  A486="$2" B486="$3" python3 - "$LIB" "$R486/mut.sh" <<'PY' || { bad "#486 mutant $1: anchor not found once"; return; }
+import os, sys
+s = open(sys.argv[1]).read(); a = os.environ["A486"]
+if s.count(a) != 1: sys.exit(1)
+open(sys.argv[2], "w").write(s.replace(a, os.environ["B486"]))
+PY
+  bash -n "$R486/mut.sh" || { bad "#486 mutant $1 does not parse"; return; }
+  if L486="$R486/mut.sh" "$4"; then bad "#486 mutant $1 survived $4"; else ok "#486 mutant $1 dies on $4"; fi
+}
+SPL486='      if (fenced(n)) next
+      if (n == s)'
+FRZ486='    if (rgn == "") {
+      if (fopen)'
+CLS486='    if (fch == "`") pat = "^`+$"; else pat = "^~+$"'
+m486 "M1 (splice ignores fence state)" "$SPL486" '      if (n == s)' c486_repro
+m486 "M2 (splice counts a fenced marker)" "$SPL486" '      if (fenced(n) && mname(n) == "") next
+      if (n == s)' c486_pair_set
+m486 "M3 (bottom append writes no closer)" '          if (fopen) { print fence_closer(); print "" }' '          if (0) { }' c486_open4t
+m486 "M4 (closer is a fixed three backticks, tilde row)" '{ c = fin; for (i = 0; i < flen; i++) c = c fch; return c }' '{ return "```" }' c486_open4t
+m486 "M4 (closer is a fixed three backticks, backtick row)" '{ c = fin; for (i = 0; i < flen; i++) c = c fch; return c }' '{ return "```" }' c486_open4b
+m486 "M5 (get ignores fence state)" '    { n = norm($0); if (fenced(n)) next }' '    { n = norm($0) }' c486_get_empty
+m486 "M6 (compose main loop ignores fence state)" '      if (fenced(norm($0))) next
+' '' c486_compose_lone
+m486 "M7 (compose BEGIN loop ignores fence state)" '        if (fenced(norm(l))) continue' '        if (0) continue' c486_compose_quote
+m486 "M8 (fence state not reset between compose passes)" '      fopen = 0; rgn = ""
+' '' c486_compose_open
+m486 "M8 (no closer before the re-threaded regions)" '        if (newopen) { print newcloser; newopen = 0 }' '' c486_compose_open
+m486 "M9 (no freeze inside regions)" "$FRZ486" '    if (1) {
+      if (fopen)' c486_g_inregion
+m486 "M10 (freeze only inside the named region)" "$FRZ486" '    if (rgn != ENVIRON["FL_REGION"]) {
+      if (fopen)' c486_g_otherregion
+m486 "M11 (a shorter run closes)" 'return c ~ pat && length(c) >= flen' 'return c ~ pat && length(c) >= 3' c486_shorter
+m486 "M12 (closer character not checked)" "$CLS486" '    pat = "^(`+|~+)$"' c486_otherchar
+m486 "M13 (closer with trailing text closes)" "$CLS486" '    if (fch == "`") pat = "^`+"; else pat = "^~+"' c486_closertext
+m486 "M14 (a 4-space indent opens)" 'if (RLENGTH > 3) return 0; ind' 'if (RLENGTH > 4) return 0; ind' c486_g_indent4
+m486 "M15 (info-string backtick rule removed)" '    if (substr(o, 1, 1) == "`" && index(info, "`")) return 0
+' '' c486_g_info
+m486 "M18 (end-of-body check limited to the target region)" '      if (rgn != "") exit 103' '      if (rgn == ENVIRON["FL_REGION"]) exit 103' c486_otheropen
+m486 "M19 (the closer drops the opener indent)" 'c = fin; for' 'c = ""; for' c486_open2sp
+
+# Every awk on the machine runs the same rows (#486, as test-check-cdpath-cd.sh does): a directory
+# holding an awk link is put first on PATH. An absent awk is a named SKIP line, never a pass.
+for a in gawk mawk original-awk busybox; do
+  command -v "$a" > /dev/null || { echo "  SKIP awk=$a: not installed"; continue; }
+  mkdir -p "$R486/bin-$a"
+  if [ "$a" = busybox ]; then printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$R486/bin-$a/awk"; chmod +x "$R486/bin-$a/awk"
+  else ln -sf "$(command -v "$a")" "$R486/bin-$a/awk"; fi   # chmod on a link would touch the real awk
+  f486=""; for c in $C486; do PATH="$R486/bin-$a:$PATH" "$c" || f486="$f486 $c"; done
+  expect "#486: every fence row passes under awk=$a" "" "$f486"
+done
+
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"
 
