@@ -277,6 +277,23 @@ if cmp -s "$T/fgm.bak" "$BIN/forge-gate-mechanics.sh"; then bad "#485: mutant M8
   lacks "never template-shaped" "$out" "mutant M8: a raw-grep detector loses the notice on the fenced body (the #485 row can fail)"
 fi
 cp "$T/fgm.bak" "$BIN/forge-gate-mechanics.sh"
+# #491: a markerless body with CRLF endings carries form headings, so it is template-shaped. SHAPED
+# compares --headings with grep -qxF, so it depends on the checker printing headings without a CR.
+CRLF491="$(printf '### Summary\r\nForm headings with CRLF endings and no marker.\r\n### Acceptance criteria\r\n- it works\r\n')"
+grep -q $'^### Summary\r$' <<< "$CRLF491" && ok "#491: the markerless CRLF fixture carries a CR on its headings (fixture sanity)" || bad "#491: the markerless CRLF fixture has no CR"
+issue "$CRLF491" feature P2 api
+run 42
+lacks "never template-shaped" "$out" "a markerless CRLF body with form headings is NOT called never-template-shaped (#491)"
+# The checker's --headings mutated to print the raw line again must bring the notice back.
+cp "$BIN/check-ticket-mechanics.sh" "$T/ctm.bak"
+sed '/^body_headings() {/,/^}/ s/print h/print/g' "$T/ctm.bak" > "$BIN/check-ticket-mechanics.sh"
+if cmp -s "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh" || grep -qF 'print h' <<< "$(sed -n '/^body_headings() {/,/^}/p' "$BIN/check-ticket-mechanics.sh")"; then
+  bad "#491: the --headings CR mutant did not apply"
+else
+  run 42
+  contains "never template-shaped" "$out" "mutant: --headings printing the CR calls the CRLF body never-template-shaped (the #491 row can fail)"
+fi
+cp "$T/ctm.bak" "$BIN/check-ticket-mechanics.sh"
 
 echo "== a template-shaped body missing ONE section still fails that section =="
 # The near-miss that keeps the notice honest: it must key on the SHAPE, not on any failure count,

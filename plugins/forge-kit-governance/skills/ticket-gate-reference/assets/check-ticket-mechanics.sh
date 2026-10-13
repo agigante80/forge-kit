@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 36
+# check-ticket-mechanics-version: 37
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -117,6 +117,10 @@
 # stripped at print time only. Needs --template, not --body; refused with --dump-fields.
 # Stdout is empty on any error, and a caller treats non-zero as a failed run, never as a
 # reason to fall back to matching ids itself.
+#
+# A CRLF BODY READS AS ITS LF COPY (#491): every line is matched with its trailing CR stripped,
+# --headings prints heading lines with no CR, and row() deletes CR from the evidence, so a body
+# saved with CRLF endings gets byte-identical rows. A bare-CR body (no LF at all) is out of scope.
 
 # NO `awk -v` IN THIS FILE (#259). `-v` runs a backslash-escape pass over its value and Apple's awk
 # refuses one holding a newline, so every value reaches awk through ENVIRON (`CTM_*`). Classified
@@ -177,18 +181,20 @@ function fence_close(s,   c, pat) {
   if (fch == "`") pat = "^`+$"; else pat = "^~+$"
   return c ~ pat && length(c) >= flen
 }'
-# The body's real heading lines (`^##+ `), raw, once each in body order: check 3's presence scan
+# The body's real heading lines (`^##+ `), once each in body order: check 3's presence scan
 # and --headings read this, so presence and content cannot disagree about a fenced line again.
 # Unlike section_of() it still READS a gate region's headings, as the raw grep it replaced did;
-# a region only freezes fence state here.
+# a region only freezes fence state here. A line is printed with its trailing CR stripped and
+# nothing else (#491): `h`, not the fully cleaned `l`, so an LF heading with trailing blanks is
+# still `heading absent` exactly as before, and LF --headings output is unchanged.
 body_headings() {
   awk "$FENCE_AWK"'
-    { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
+    { l = $0; sub(/\r$/, "", l); h = l; sub(/[ \t]+$/, "", l) }
     fopen { if (fence_close(l)) fopen = 0; next }
-    rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; else if (/^##+ /) print; next }
+    rgn != "" { if (l == "<!-- " rgn ":end -->") rgn = ""; else if (/^##+ /) print h; next }
     fence_open(l) { fopen = 1; next }
     l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }
-    /^##+ / { print }
+    /^##+ / { print h }
   ' < "$BODY"
 }
 # A field's text minus every fence line and every line inside a fence, other lines printed as
@@ -265,7 +271,7 @@ is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 # that lists items carries a count prefix so a cut can never again pass as a complete list.
 row() {
   local ev
-  ev="$(printf '%s' "$3" | tr '\n\t' '  ' | cut -c1-1000)"
+  ev="$(printf '%s' "$3" | tr -d '\r' | tr '\n\t' '  ' | cut -c1-1000)"
   printf '%s\t%s\t%s\n' "$1" "$2" "$ev"
 }
 
@@ -295,7 +301,7 @@ section_of() {
     fence_open(l) { fopen = 1; if (inside) print; next }   # section_of: a fence opens
     l ~ /^<!-- [^ \t]+:start -->$/ { rgn = substr(l, 6, length(l) - 15); next }
     /^##+ / {
-      lvl = index($0, " ") - 1; cur = substr($0, lvl + 2); sub(/[ \t]+$/, "", cur)
+      lvl = index(l, " ") - 1; cur = substr(l, lvl + 2); sub(/[ \t]+$/, "", cur)   # from l: no CR (#491)
       if (inside && ((lvl == want_lvl && !(cur in issub)) || (cur in islabel))) inside = 0
       if (!inside && !found && cur == want) { inside = 1; found = 1; want_lvl = lvl; next }
     }

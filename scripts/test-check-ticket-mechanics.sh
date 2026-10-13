@@ -1769,8 +1769,8 @@ if fmut M7 's/match(s, \/^ \*\/); if (RLENGTH > 3) return 0; o = /match(s, \/^ *
   expect "mutant M7: without the opener's indent limit the four-space Guard fails" fail "$(outcome "$(frun "$G3")" gwt)"
 fi
 # Round 1 of #485: four more guards, each with the row that kills it.
-grep -qF 'else if (/^##+ /) print; next }' "$SCRIPT" && ok "mutant ledger: body_headings() freezes fence state inside a region (#485)" || bad "mutant ledger: #485 body_headings region rule not found"
-if fmut M9 's/else if (\/^##+ \/) print; next }/else { if (\/^##+ \/) print; if (fence_open(l)) fopen = 1 }; next }/'; then
+grep -qF 'else if (/^##+ /) print h; next }' "$SCRIPT" && ok "mutant ledger: body_headings() freezes fence state inside a region (#485)" || bad "mutant ledger: #485 body_headings region rule not found"
+if fmut M9 's/else if (\/^##+ \/) print h; next }/else { if (\/^##+ \/) print h; if (fence_open(l)) fopen = 1 }; next }/'; then
   expect "mutant M9: a fence opened inside a region in body_headings fails the region Guard (sections)" fail "$(outcome "$(frun "$G2")" sections)"
 fi
 if fmut M10 's/match(s, \/^ \*\/); if (RLENGTH > 3) return 0; c = /match(s, \/^ *\/); c = /'; then
@@ -1782,6 +1782,121 @@ fi
 if fmut M12 's/ \&\& \[ "\$DUMP_FIELDS" -eq 0 \]//'; then
   bash "$MUT" --headings --dump-fields --body "$F7" --template "$TPLDIR/bug.yml" >/dev/null 2>&1; rc=$?
   expect "mutant M12: without the --dump-fields exclusion --headings with --dump-fields exits 0" 0 "$rc"
+fi
+
+echo "check-ticket-mechanics: a CRLF body reads as its LF copy (#491)"
+# Three sites carried the CR: section_of() built `cur` from the raw line, body_headings() printed
+# it, and row() kept it in the evidence. Every row below compares a CRLF body with its LF copy run
+# through the same script, so a difference anywhere in the seven rows is caught, evidence included.
+r491() { bash "$1" --body "$2" --template "$TPLDIR/bug.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null; }
+crlf491() { sed 's/$/\r/' "$1" > "$2"; printf '%s' "$2"; }
+ev491() { printf '%s\n' "$1" | awk -F'\t' -v c="$2" '$1 == c { print $2 "|" $3 }'; }
+L491="$(mkbody bug "i491-lf.md")"; C491="$(crlf491 "$L491" "$WORK/i491-crlf.md")"
+[ "$(grep -c $'\r$' "$C491")" = "$(wc -l < "$C491" | tr -d ' ')" ] && [ "$(wc -l < "$C491" | tr -d ' ')" -gt 0 ] \
+  && ok "#491: the CRLF fixture carries a CR on every line (fixture sanity)" || bad "#491: the CRLF fixture is not CRLF throughout"
+LO491="$(r491 "$SCRIPT" "$L491")"; CO491="$(r491 "$SCRIPT" "$C491")"
+for c in gwt unit_tests e2e_tests docs_impact; do
+  expect "#491: site 1: $c passes on the CRLF body" pass "$(outcome "$CO491" "$c")"
+done
+SEC491='every template section present, every required one filled (headings at ###)'
+expect "#491: site 2: sections passes on the CRLF body" "pass|$SEC491" "$(ev491 "$CO491" sections)"
+expect "#491: parity: the CRLF body's seven rows equal its LF copy's, evidence included" "$LO491" "$CO491"
+expect "#491: parity: ...and there are seven of them" 7 "$(printf '%s\n' "$CO491" | grep -c .)"
+grep -q $'\r' <<< "$CO491" && bad "#491: site 3: a CR byte reached the rows" || ok "#491: site 3: no CR byte in any output row"
+for c in unit_tests e2e_tests docs_impact; do
+  expect "#491: site 3: $c evidence equals the LF run's" "$(ev491 "$LO491" "$c")" "$(ev491 "$CO491" "$c")"
+done
+H491="$(bash "$SCRIPT" --headings --body "$C491" 2>/dev/null)"
+expect "#491: --headings on the CRLF body equals the LF body's" "$(bash "$SCRIPT" --headings --body "$L491" 2>/dev/null)" "$H491"
+grep -q $'\r' <<< "$H491" && bad "#491: CR leaked into --headings output" || ok "#491: no CR byte in --headings output"
+# Portability: the same parity under mawk and busybox awk, each through a PATH shim.
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$WORK/mawk491"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$WORK/mawk491/awk"; chmod +x "$WORK/mawk491/awk"
+  expect "#491: portability: the CRLF body's rows equal the LF rows under mawk" "$LO491" "$(PATH="$WORK/mawk491:$PATH" r491 "$SCRIPT" "$C491")"
+else
+  ok "#491: portability: mawk not on PATH, CRLF parity under mawk skipped"
+fi
+if command -v busybox >/dev/null 2>&1 && busybox awk 'BEGIN{}' 2>/dev/null; then
+  mkdir -p "$WORK/bb491"; printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$WORK/bb491/awk"; chmod +x "$WORK/bb491/awk"
+  expect "#491: portability: the CRLF body's rows equal the LF rows under busybox awk" "$LO491" "$(PATH="$WORK/bb491:$PATH" r491 "$SCRIPT" "$C491")"
+else
+  ok "#491: portability: busybox awk not on PATH, CRLF parity under busybox awk skipped"
+fi
+# A CR inside a fenced block: the closer still closes, and a quoted label stays a quote.
+FG491="$(printf 'Positive\n- Given: a\n- When: b\n- Then: c\n\n```\n### Unit tests\n- Then: example\n```\n\nNegative\n- Given: d\n- When: e\n- Then: 401 with AUTH_FAILED')"
+CF491="$(crlf491 "$(mkbody bug "i491-fence-lf.md" "$FG491")" "$WORK/i491-fence.md")"
+grep -q $'^```\r$' "$CF491" && ok "#491: the fenced CRLF fixture's fence carries a CR (fixture sanity)" || bad "#491: the fenced CRLF fixture has no CR on its fence"
+o="$(r491 "$SCRIPT" "$CF491")"
+expect "#491: a CRLF fenced block in the scenarios field leaves gwt passing" pass "$(outcome "$o" gwt)"
+expect "#491: ...and sections passing" "pass|$SEC491" "$(ev491 "$o" sections)"
+# Mixed endings: only the Unit tests heading and its content line carry a CR.
+sed -e '/^### Unit tests$/ s/$/\r/' -e '/tests\/unit\/auth\.test\.ts/ s/$/\r/' "$L491" > "$WORK/i491-mixed.md"
+expect "#491: the mixed fixture carries exactly two CR lines (fixture sanity)" 2 "$(grep -c $'\r$' "$WORK/i491-mixed.md")"
+expect "#491: a mixed LF and CRLF body gives the LF rows" "$LO491" "$(r491 "$SCRIPT" "$WORK/i491-mixed.md")"
+# No final newline: the body ends in `Updates ...\r` (the gate-owned Codebase Context dropped).
+sed -n '1,/^Updates /p' "$L491" > "$WORK/i491-nonl-lf.md"
+printf '%s' "$(sed 's/$/\r/' "$WORK/i491-nonl-lf.md")" > "$WORK/i491-nonl.md"
+[ "$(tail -c 2 "$WORK/i491-nonl.md" | od -An -c | tr -d ' ')" = '`\r' ] && ok "#491: the no-final-newline fixture ends in a CR with no LF (fixture sanity)" || bad "#491: the no-final-newline fixture ends otherwise"
+o="$(r491 "$SCRIPT" "$WORK/i491-nonl.md")"
+expect "#491: a CRLF body with no final newline passes docs_impact" pass "$(outcome "$o" docs_impact)"
+expect "#491: ...and gives the rows of its LF copy" "$(r491 "$SCRIPT" "$WORK/i491-nonl-lf.md")" "$o"
+# Negatives: the strip must not turn an absent heading or an empty section into a pass.
+awk '/^### Security impact$/ { skip = 1; next } skip && /^### / { skip = 0 } !skip' "$L491" > "$WORK/i491-nosec-lf.md"
+grep -q '^### Security impact' "$WORK/i491-nosec-lf.md" && bad "#491: the Security impact deletion did not apply" || ok "#491: the Security impact deletion applied (fixture sanity)"
+o="$(r491 "$SCRIPT" "$(crlf491 "$WORK/i491-nosec-lf.md" "$WORK/i491-nosec.md")")"
+expect "#491: a CRLF body without Security impact still fails sections, naming it" "fail|heading absent (1): Security impact" "$(ev491 "$o" sections)"
+grep -v 'tests/unit/auth\.test\.ts' "$L491" > "$WORK/i491-nounit-lf.md"
+o="$(r491 "$SCRIPT" "$(crlf491 "$WORK/i491-nounit-lf.md" "$WORK/i491-nounit.md")")"
+expect "#491: a CRLF Unit tests section of bare CR lines still fails unit_tests" "fail|no content in Unit tests" "$(ev491 "$o" unit_tests)"
+expect "#491: ...and sections names it empty" "fail|required heading present but empty (1): Unit tests" "$(ev491 "$o" sections)"
+awk '/^### Test scenarios / { skip = 1; next } skip && /^### / { skip = 0 } !skip' "$L491" > "$WORK/i491-noscen-lf.md"
+o="$(r491 "$SCRIPT" "$(crlf491 "$WORK/i491-noscen-lf.md" "$WORK/i491-noscen.md")")"
+expect "#491: a CRLF body without Test scenarios fails gwt, naming the label" "fail|no content in Test scenarios (Given / When / Then)" "$(ev491 "$o" gwt)"
+expect "#491: ...and every row equals the LF run of the same body" "$(r491 "$SCRIPT" "$WORK/i491-noscen-lf.md")" "$o"
+# LF unchanged: site 2 strips only the CR, so a heading with trailing blanks is still absent.
+sed 's/^### Unit tests$/### Unit tests  /' "$L491" > "$WORK/i491-blank.md"
+grep -qx '### Unit tests  ' "$WORK/i491-blank.md" && ok "#491: the trailing-blank fixture applied (fixture sanity)" || bad "#491: the trailing-blank fixture did not apply"
+expect "#491: an LF heading with trailing blanks still fails sections as before" "fail|heading absent (1): Unit tests" "$(ev491 "$(r491 "$SCRIPT" "$WORK/i491-blank.md")" sections)"
+grep -qxF '### Unit tests  ' <<< "$(bash "$SCRIPT" --headings --body "$WORK/i491-blank.md" 2>/dev/null)" \
+  && ok "#491: LF --headings keeps a heading's trailing blanks byte for byte" || bad "#491: LF --headings lost a heading's trailing blanks"
+# Mutants, one per site, each with its ledger row and an applied-check (cmp -s plus grep -qF).
+X1_491='cur = substr(l, lvl + 2)'
+grep -qF "$X1_491" "$SCRIPT" && ok "mutant ledger: section_of() takes cur from the CR-free line (#491)" || bad "mutant ledger: #491 section_of cur not found"
+sed 's/cur = substr(l, lvl + 2)/cur = substr($0, lvl + 2)/' "$SCRIPT" > "$MUT"   # site 1: cur alone reverted
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$X1_491" "$MUT"; then bad "#491: the site 1 mutant did not apply"; else
+  o="$(r491 "$MUT" "$C491")"
+  case "$(ev491 "$o" sections)" in "fail|required heading present but empty (13): "*) ok "mutant site 1: sections fails required heading present but empty (13)" ;;
+    *) bad "mutant site 1: sections gave '$(ev491 "$o" sections)'" ;; esac
+  expect "mutant site 1: gwt fails no content" "fail|no content in Test scenarios (Given / When / Then)" "$(ev491 "$o" gwt)"
+  expect "mutant site 1: unit_tests fails no content" "fail|no content in Unit tests" "$(ev491 "$o" unit_tests)"
+  expect "mutant site 1: e2e_tests fails no content" "fail|no content in E2E tests" "$(ev491 "$o" e2e_tests)"
+  expect "mutant site 1: docs_impact fails no content" "fail|no content in Documentation impact" "$(ev491 "$o" docs_impact)"
+fi
+bh491() { sed -n '/^body_headings() {/,/^}/p' "$1"; }
+[ "$(grep -cF 'print h' <<< "$(bh491 "$SCRIPT")")" = 2 ] && ok "mutant ledger: body_headings() prints the CR-free line on both paths (#491)" || bad "mutant ledger: #491 body_headings print h not found twice"
+sed '/^body_headings() {/,/^}/ s/print h/print/g' "$SCRIPT" > "$MUT"   # site 2: both prints raw again
+if cmp -s "$SCRIPT" "$MUT" || grep -qF 'print h' <<< "$(bh491 "$MUT")"; then bad "#491: the site 2 mutant did not apply"; else
+  o="$(r491 "$MUT" "$C491")"
+  case "$(ev491 "$o" sections)" in "fail|heading absent (15): "*) ok "mutant site 2: sections fails heading absent (15)" ;;
+    *) bad "mutant site 2: sections gave '$(ev491 "$o" sections)'" ;; esac
+  for c in gwt unit_tests e2e_tests docs_impact; do
+    expect "mutant site 2: $c stays pass" pass "$(outcome "$o" "$c")"
+  done
+  grep -q $'\r' <<< "$(bash "$MUT" --headings --body "$C491" 2>/dev/null)" && ok "mutant site 2: --headings on the CRLF body carries a CR" || bad "mutant site 2: --headings carries no CR"
+fi
+X3_491="tr -d '\\r' | tr '\\n\\t' '  '"
+grep -qF "$X3_491" "$SCRIPT" && ok "mutant ledger: row() deletes CR from the evidence (#491)" || bad "mutant ledger: #491 row() CR strip not found"
+sed "s/ | tr -d '\\\\r' | tr '\\\\n\\\\t' '  '/ | tr '\\\\n\\\\t' '  '/" "$SCRIPT" > "$MUT"   # site 3
+if cmp -s "$SCRIPT" "$MUT" || grep -qF "$X3_491" "$MUT"; then bad "#491: the site 3 mutant did not apply"; else
+  o="$(r491 "$MUT" "$C491")"
+  expect "mutant site 3: all seven outcomes equal the LF run" "$(printf '%s\n' "$LO491" | cut -f1,2)" "$(printf '%s\n' "$o" | cut -f1,2)"
+  for c in unit_tests e2e_tests docs_impact; do
+    grep -q $'\r$' <<< "$(printf '%s\n' "$o" | awk -F'\t' -v c="$c" '$1 == c')" && ok "mutant site 3: $c evidence ends in a CR" || bad "mutant site 3: $c evidence has no CR"
+  done
+  expect "mutant site 3: the site 2 row still passes" "pass|$SEC491" "$(ev491 "$o" sections)"
+  for c in gwt unit_tests e2e_tests docs_impact; do
+    expect "mutant site 3: the site 1 row for $c still passes" pass "$(outcome "$o" "$c")"
+  done
 fi
 
 echo "check-ticket-mechanics: --roles prints the label each role resolves to (#213)"
