@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# close-shipped-version: 4
+# close-shipped-version: 5
 # close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496).
 # Closing shipped tickets was a step someone had to remember (the `release` skill's step 5), and on
 # a two branch model the host's own auto close never fires, because the feature PRs target the
@@ -206,12 +206,12 @@ _merge_drops() {
       fi
     else
       q="${subj#Revert \"}"; q="${q%\"*}"
-      n="$(awk -v q="$q" 'substr($0, index($0, " ") + 1) == q' <<< "$merges" | grep -c .)"
+      n="$(Q="$q" awk 'substr($0, index($0, " ") + 1) == ENVIRON["Q"]' <<< "$merges" | grep -c .)"
       if [ "$n" -ne 1 ]; then
         [ "$n" -eq 0 ] || echo "reverted merge not identified: $n merges match \"$q\"; nothing dropped" >&2
         continue
       fi
-      m="$(awk -v q="$q" 'substr($0, index($0, " ") + 1) == q { print $1 }' <<< "$merges")"
+      m="$(Q="$q" awk 'substr($0, index($0, " ") + 1) == ENVIRON["Q"] { print $1 }' <<< "$merges")"
     fi
     echo "reverted in range: merge ${m:0:7} $(grep "^$m " <<< "$merges" | cut -d' ' -f2-)" >&2
     git rev-list --no-merges "$m^1..$m" --

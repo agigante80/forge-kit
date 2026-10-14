@@ -243,8 +243,11 @@ newstate; issue 10 open; issue 12 open; issue 13 open; run_cs v1.2.0
 check "a reverted octopus merge ships the tickets of none of its parents" '[ $rc -eq 0 ] && [ "$(git -C "$R" rev-list --parents -n 1 HEAD~1 | wc -w)" = 5 ] && ! touched 10 && ! touched 12 && ! touched 13'
 
 # The merge lies BEFORE the previous tag, so it is not this release's to undo; the same subject
-# landing again inside the range ships. An unrelated merge in range makes the lookup actually run.
-mkrepo; mkpr feat "feat: a (#10)"; tg v1.1.0; revm; fc "feat: a (#10)"; mkpr other "feat: c (#14)"; tg v1.2.0
+# landing again inside the range ships. An unrelated in-range merge with the SAME subject makes the
+# lookup run and would match a subject fallback, so a body sha outside the range must not fall
+# through to it.
+mkrepo; mkpr feat "feat: a (#10)"; tg v1.1.0; revm; fc "feat: a (#10)"; br other "feat: c (#14)"
+git -C "$R" merge --quiet --no-ff -m "Merge pull request #24 from o/feat" other; tg v1.2.0
 newstate; issue 10 open; issue 14 open; run_cs v1.2.0
 check "a revert of a merge outside the range drops nothing" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(state 14)" = closed ] && ! grep -q "^reverted in range:" <<< "$out"'
 
@@ -265,6 +268,10 @@ check "two merges share a subject: the revert of the first drops only the first"
 mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)"; revm_nobody; tg v1.2.0
 newstate; issue 10 open; run_cs v1.2.0
 check "no sha line: a quoted subject matching exactly one merge drops it" '[ $rc -eq 0 ] && ! touched 10 && grep -q "^reverted in range: merge " <<< "$out"'
+# The fallback compares the subject verbatim: awk -v would turn `\n` in it into a newline.
+mkrepo; tg v1.1.0; br fx "feat: a (#10)"; git -C "$R" merge --quiet --no-ff -m 'Merge branch fix\new' fx
+revm_nobody; tg v1.2.0; newstate; issue 10 open; run_cs v1.2.0
+check "no sha line: a subject with a backslash still identifies its merge" '[ $rc -eq 0 ] && ! touched 10 && grep -q "^reverted in range: merge " <<< "$out"'
 dup; revm_nobody; tg v1.2.0; newstate; issue 10 open; issue 12 open; run_cs v1.2.0
 check "no sha line: a quoted subject matching two merges drops nothing and says so" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(state 12)" = closed ] && grep -q "^reverted merge not identified: 2 merges match \"Merge branch dev\"; nothing dropped$" <<< "$out"'
 
