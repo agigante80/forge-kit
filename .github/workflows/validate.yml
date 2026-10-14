@@ -445,6 +445,21 @@ jobs:
       - name: Stale-rules scanner tests
         run: bash scripts/test-forge-adapt-stale-rules.sh
 
+      # Issue #495, the kit's own half: the same scanner over every tracked file, so a retired
+      # rule put back into a component fails here before any project installs it, and the
+      # review-lows rule keeps one canonical home that every pointer names at the same version.
+      - name: Retired-rules guard tests
+        run: bash scripts/test-check-retired-rules.sh
+
+      - name: No retired rule in the tracked tree
+        run: bash scripts/check-retired-rules.sh
+
+      - name: Review-rule guard tests
+        run: bash scripts/test-check-review-rule.sh
+
+      - name: The review-lows rule has one home
+        run: bash scripts/check-review-rule.sh
+
       # Issue #172: a registered component's freshness belongs to the marketplace checkout, which
       # nothing here could see. The guard itself is not run against CI's own machine (there is no
       # marketplace there); only its contract is held down.
