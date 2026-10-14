@@ -105,8 +105,8 @@ Three things to read from that, because they are the whole shape of this tool:
   genuinely absent. A body none of whose headings is a template label gets a `never
   template-shaped` notice once, above the rows, and exits 0, because that shape is not a defect
   in the ticket. The full
-  gate handles both cases at its Step 0c by synthesising the missing sections and writing the
-  enriched body back to the forge before the checks run; this script does not synthesise, because
+  gate handles both cases at its Step 0c by synthesising the sections it can write and writing the
+  enriched body back to the forge before the checks run (author-supplied sections stay absent); this script does not synthesise, because
   that step generates prose and needs a model. If your team files tickets by hand, take the
   `referred` rows and the named absences as the useful signal.
 

@@ -157,7 +157,7 @@ When you add new fields or rules:
    current marker read from the template dir, so they need no per-bump edit
 5. All existing tickets auto-upgrade on next gate run (Step 0c triggers)
 
-No manual ticket updates needed - the auto-synthesis handles it.
+No manual ticket updates needed for the sections Step 0c writes (test scenarios, unit tests, E2E tests, documentation impact, personal data). The author-supplied sections stay absent and check 3 reports them; `check-ticket-mechanics.sh --classes --template <file>` lists which labels are which (#513).
 
 ## Why this matters
 

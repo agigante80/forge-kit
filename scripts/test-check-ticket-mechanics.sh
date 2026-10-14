@@ -2396,6 +2396,94 @@ sed 's/| API-design brief | label `api` OR/| API-design brief | label `API` OR/'
 cmp -s "$GATE" "$WORK/gate-row-mut.md" && bad "#472: the row mutant did not apply"
 gate_pin '| API-design brief | label `api` OR body matches' "$WORK/gate-row-mut.md" && bad "#472: MUTANT survived: the row pin passes with the row reworded" || ok "#472: MUTANT: rewording the API row fails the pin"
 
+# #513: --classes partitions a template's labels into what the gate owns, what Step 0c writes and what
+# only the author supplies, so check 3's absent set on a post-0c body is a computed fact, not a claim.
+echo "check-ticket-mechanics: --classes partitions the template labels (#513)"
+classes() { bash "$SCRIPT" --classes --template "$1" 2>/dev/null; }
+class_labels() { printf '%s\n' "$1" | awk -F'\t' -v c="$2" '$1==c{print $2}'; }
+# partition_guard <body> <template>: runs check 3 and fails if it reports a SYNTHESISED label absent.
+# A test helper, not a shipped mode: the rule is "Step 0c writes it, so check 3 must never miss it".
+partition_guard() {
+  local ev absent lab
+  ev="$(bash "$SCRIPT" --body "$1" --template "$2" --tpl-version 6 --current-tpl-version 6 --labels "bug,api" 2>/dev/null | awk -F'\t' '$1=="sections"{print $3}')"
+  case "$ev" in "heading absent"*) absent="${ev#*): }" ;; *) return 0 ;; esac
+  while IFS= read -r lab; do
+    [ -n "$lab" ] || continue
+    if class_labels "$(classes "$2")" synthesised | grep -qxF -- "$lab"; then
+      echo "synthesised heading reported absent: $lab"; return 1
+    fi
+  done <<< "$(printf '%s\n' "$absent" | sed 's/; /\n/g')"
+  return 0
+}
+absent_of() {
+  bash "$SCRIPT" --body "$1" --template "$2" --tpl-version 6 --current-tpl-version 6 --labels "bug,api" 2>/dev/null \
+    | awk -F'\t' '$1=="sections"{print $3}' | sed -n 's/^heading absent ([0-9]*): //p' | sed 's/; /\n/g'
+}
+# A pointer-free post-0c body: only the synthesised headings, filled, plus the author's Problem.
+post0c_body() {
+  { printf '## Problem\nsomething\n\n'
+    class_labels "$(classes "$1")" synthesised | while IFS= read -r l; do printf '## %s\ncontent\n\n' "$l"; done
+  } > "$2"
+}
+BUG10="$(printf 'Bug description\nSteps to reproduce\nExpected vs actual behavior\nAffected areas\nSeverity\nSecurity impact\nAcceptance criteria\nDependencies\nRequired reviews (mandatory)\nQA & Regression tests')"
+expect "#513: bug.yml author-supplied is the ten-label literal" "$BUG10" "$(class_labels "$(classes "$TPLDIR/bug.yml")" author-supplied)"
+expect "#513: bug.yml gate-owned is Codebase Context" "Codebase Context" "$(class_labels "$(classes "$TPLDIR/bug.yml")" gate-owned)"
+for t in bug feature security infrastructure design; do
+  T="$TPLDIR/$t.yml"; c="$(classes "$T")"
+  all="$(bash "$SCRIPT" --dump-fields --body "$T" --template "$T" 2>/dev/null | cut -f1)"
+  expect "#513 ($t): every template label has exactly one class row" "$all" "$(printf '%s\n' "$c" | cut -f2)"
+  expect "#513 ($t): no label has two classes" "" "$(printf '%s\n' "$c" | cut -f2 | sort | uniq -d)"
+  # Independent oracle: --roles output plus the personal-data field, never --classes itself.
+  want="$(bash "$SCRIPT" --roles --template "$T" | cut -f2)"
+  grep -q 'id: personal_data' "$T" && want="$(printf '%s\nPersonal data handling' "$want")"
+  expect "#513 ($t): synthesised is the --roles labels plus personal data where the template has it" \
+    "$(printf '%s\n' "$want" | sort)" "$(class_labels "$c" synthesised | sort)"
+  b="$WORK/p0c-$t.md"; post0c_body "$T" "$b"
+  expect "#513 ($t): pointer-free post-0c body is absent exactly the author-supplied class" \
+    "$(class_labels "$c" author-supplied | sort)" "$(absent_of "$b" "$T" | sort)"
+  partition_guard "$b" "$T" >/dev/null && ok "#513 ($t): the partition guard accepts it" || bad "#513 ($t): the partition guard rejected a post-0c body"
+done
+# Pointer-aware: Step 0c-iv places a pointer under Bug description and Affected areas, leaving eight.
+b="$WORK/p0c-bug-ptr.md"; post0c_body "$TPLDIR/bug.yml" "$b"
+printf '## Bug description\nSee "Problem" below.\n\n## Affected areas\nSee "Scope" below.\n' >> "$b"
+expect "#513: pointer-aware bug.yml fixture is absent eight labels" "8" "$(absent_of "$b" "$TPLDIR/bug.yml" | wc -l | tr -d ' ')"
+expect "#513: pointer-aware absent set is the ten minus the two pointer-placed" \
+  "$(printf '%s\n' "$BUG10" | grep -vxF -e 'Bug description' -e 'Affected areas' | sort)" "$(absent_of "$b" "$TPLDIR/bug.yml" | sort)"
+# Negative: a synthesised heading missing from the body is named by the guard.
+b="$WORK/p0c-bug-neg.md"; post0c_body "$TPLDIR/bug.yml" "$b"
+grep -v '^## Documentation impact$' "$b" > "$b.x"; mv "$b.x" "$b"
+o="$(partition_guard "$b" "$TPLDIR/bug.yml")"; rc=$?
+expect "#513: guard exits 1 when a synthesised heading is absent" 1 "$rc"
+expect "#513: guard message names the heading" "synthesised heading reported absent: Documentation impact" "$o"
+# CLI contract.
+o="$(bash "$SCRIPT" --classes --template "$TPLDIR/nope.yml" 2>&1)"; rc=$?
+expect "#513: --classes on a missing template exits 2" 2 "$rc"
+expect "#513: the missing-template message names the path" "check-ticket-mechanics: template file not found: $TPLDIR/nope.yml" "$o"
+o="$(bash "$SCRIPT" --classes 2>&1)"; rc=$?
+expect "#513: --classes without --template exits 2" 2 "$rc"
+for x in --roles --dump-fields --headings; do
+  o="$(bash "$SCRIPT" --classes $x --body "$TPLDIR/bug.yml" --template "$TPLDIR/bug.yml" 2>&1)"; rc=$?
+  expect "#513: --classes with $x exits 2" 2 "$rc"
+done
+expect "#513: --classes ignores a --body it is given" "$(classes "$TPLDIR/bug.yml")" "$(bash "$SCRIPT" --classes --body "$WORK/nowhere.md" --template "$TPLDIR/bug.yml" 2>/dev/null)"
+bash "$SCRIPT" --help | grep -q -- '--classes' && ok "#513: --help documents --classes" || bad "#513: --help omits --classes"
+# Mutants, on a cp copy: dropping the personal-data rule must break the bug.yml oracle.
+cp "$SCRIPT" "$WORK/mut-cls.sh"
+sed 's/tolower(\$3) == "personal_data"/tolower($3) == "zzz"/' "$SCRIPT" > "$WORK/mut-cls.sh"
+cmp -s "$SCRIPT" "$WORK/mut-cls.sh" && bad "#513: the personal-data mutant did not apply"
+[ "$(bash "$WORK/mut-cls.sh" --classes --template "$TPLDIR/bug.yml" | awk -F'\t' '$1=="author-supplied"{print $2}')" = "$BUG10" ] \
+  && bad "#513: MUTANT survived: dropping personal_data from synthesised keeps the oracle" || ok "#513: MUTANT: dropping personal_data fails the bug.yml oracle"
+sed 's/(\$4 == "yes") ? "gate-owned"/($4 == "zzz") ? "gate-owned"/' "$SCRIPT" > "$WORK/mut-cls2.sh"
+cmp -s "$SCRIPT" "$WORK/mut-cls2.sh" && bad "#513: the gate-owned mutant did not apply"
+[ -z "$(bash "$WORK/mut-cls2.sh" --classes --template "$TPLDIR/bug.yml" | awk -F'\t' '$1=="gate-owned"')" ] \
+  && ok "#513: MUTANT: ignoring the gate flag empties gate-owned (the bug.yml row above fails)" || bad "#513: MUTANT survived: gate-owned still printed"
+# Step 0c's target list (ticket-gate.md 0c-ii) is prose; pin it so it cannot drift from the synthesised class.
+T0C='the roles `--roles` printed, and `personal_data`'
+gate_pin "$T0C" "$GATE" && ok "#513: Step 0c-ii targets are the --roles labels plus personal_data, as --classes' synthesised class" || bad "#513: Step 0c-ii target wording changed; --classes' synthesised class no longer matches"
+sed 's/the roles `--roles` printed, and `personal_data`/the roles printed/' "$GATE" > "$WORK/gate-0cii-mut.md"
+cmp -s "$GATE" "$WORK/gate-0cii-mut.md" && bad "#513: the 0c-ii mutant did not apply"
+gate_pin "$T0C" "$WORK/gate-0cii-mut.md" && bad "#513: MUTANT survived: the 0c-ii pin passes with the wording changed" || ok "#513: MUTANT: rewording the 0c-ii targets fails the pin"
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

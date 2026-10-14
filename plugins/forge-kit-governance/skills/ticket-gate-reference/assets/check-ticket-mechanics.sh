@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 41
+# check-ticket-mechanics-version: 42
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -110,6 +110,8 @@
 # --body only; refused with --roles or --dump-fields. forge-gate-mechanics.sh's template-shape test
 # reads it, so that test and check 3 share one fence-aware reader instead of two copies of the awk.
 #
+# --classes prints `<class>\t<label>` per template field (#513), see the block that implements it.
+#
 # --roles prints `<role>\t<label>` per resolved role and exits (#213), in the fixed order
 # scenarios, unit_tests, e2e_tests, docs_impact: the ids ticket-gate's Step 0c targets and the
 # synthesis table are keyed on (`scenarios` feeds check 3's row `gwt`). Same resolution as
@@ -147,7 +149,7 @@
 #
 set -uo pipefail
 
-BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
+BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -234,6 +236,7 @@ while [ $# -gt 0 ]; do
     --dump-fields)         DUMP_FIELDS=1; shift ;;
     --roles)               ROLES=1; shift ;;
     --headings)            HEADINGS=1; shift ;;
+    --classes)             CLASSES=1; shift ;;
     -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' < "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -241,6 +244,9 @@ done
 
 [ "$ROLES" -eq 0 ] || [ "$DUMP_FIELDS" -eq 0 ] || die "--roles and --dump-fields are mutually exclusive"
 [ "$HEADINGS" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ]; } || die "--headings is exclusive of --roles and --dump-fields"
+[ "$CLASSES" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ] && [ "$HEADINGS" -eq 0 ]; } || die "--classes is exclusive of --roles, --dump-fields and --headings"
+# --classes needs no body, exactly like --roles, so it takes the same no-body path below (#513).
+[ "$CLASSES" -eq 0 ] || ROLES=1
 if [ "$ROLES" -eq 0 ]; then
   [ -n "$BODY" ]   || die "--body is required"
   [ -f "$BODY" ]   || die "body file not found: $BODY"
@@ -437,6 +443,22 @@ UNIT_LABEL="$(role_label 'unit test')"
 # direction this script forbids (found in review).
 E2E_LABEL="$(role_label 'e2e|end.to.end' 'integration.*(test|scenario)')"
 DOCS_LABEL="$(role_label 'documentation impact')"
+# --classes (#513) prints `<class>\t<label>` per template field, one row per label, in template
+# order, class in gate-owned | synthesised | author-supplied, resolved in that precedence:
+#   gate-owned      the template marks the field gate-filled (#304), check 3 never charges it;
+#   synthesised     Step 0c writes it: a role label --roles prints, or the `personal_data` field;
+#   author-supplied everything else, which Step 0c never writes, so it is the set check 3 reports
+#                   absent on a post-0c body (less the labels Step 0c-iv pointer-places).
+# It reads the same TEMPLATE_FIELDS and role resolution as check 3, so the partition has no second
+# copy. Needs --template, not --body (a --body is ignored). Check 3's evidence is unchanged.
+if [ "$CLASSES" -eq 1 ]; then
+  synth="$(printf '%s\n%s\n%s\n%s\n' "$SCENARIOS_LABEL" "$UNIT_LABEL" "$E2E_LABEL" "$DOCS_LABEL"; printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' 'tolower($3) == "personal_data" { print $1 }')"
+  printf '%s\n' "$TEMPLATE_FIELDS" | CTM_SYNTH="$synth" awk -F'\t' '
+    BEGIN { n = split(ENVIRON["CTM_SYNTH"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") syn[a[i]] = 1 }
+    $1 == "" || ($1 in seen) { next }
+    { seen[$1] = 1; c = ($4 == "yes") ? "gate-owned" : (($1 in syn) ? "synthesised" : "author-supplied"); print c "\t" $1 }'
+  exit 0
+fi
 if [ "$ROLES" -eq 1 ]; then
   for r in "scenarios:$SCENARIOS_LABEL" "unit_tests:$UNIT_LABEL" "e2e_tests:$E2E_LABEL" "docs_impact:$DOCS_LABEL"; do
     [ -n "${r#*:}" ] && printf '%s\t%s\n' "${r%%:*}" "${r#*:}"

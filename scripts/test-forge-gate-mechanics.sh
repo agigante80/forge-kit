@@ -200,7 +200,7 @@ contains "template" "$out" "and says what is missing"
 
 echo "== a body that was never template-shaped is reported ONCE, not as seven failures (#184) =="
 # The finding behind this: the gate's Step 0c SYNTHESISES a body and writes it back to the forge
-# before Step 3A ever sees it, so inside a gate run the checks get template-shaped input. Run
+# before Step 3A ever sees it, so inside a gate run the checks get every section Step 0c writes. Run
 # against a raw hand-filed ticket they all fail, and all of those failures are one fact. Saying it
 # seven times buries it.
 proj .github/ISSUE_TEMPLATE
