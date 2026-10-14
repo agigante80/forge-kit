@@ -56,10 +56,10 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
 | `forge-kit-adapt` | 0.12.12 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.22.23 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.35.33 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
+| `forge-kit-devops` | 0.22.24 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
+| `forge-kit-governance` | 0.35.34 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
 | `forge-kit-review` | 0.7.4 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
-| `forge-kit-roadmap` | 0.15.20 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
+| `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.17.7 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
@@ -245,14 +245,14 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | command | `ci-health` | v7 | 750 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
 | `forge-kit-devops` | skill | `context-budget` | v1 | 585 | Measure, in characters, how much a project's next Claude Code session loads before the first prompt (CLAUDE.md, its tra… |
 | `forge-kit-devops` | skill | `find-dead-code` | v3 | 1123 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
-| `forge-kit-devops` | skill | `forge-host` | v45 | 2655 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
+| `forge-kit-devops` | skill | `forge-host` | v46 | 2670 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
 | `forge-kit-devops` | skill | `github-to-forgejo` | v11 | 1808 | Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the forge-host adapter, CI ported to .for… |
 | `forge-kit-devops` | skill | `release` | v7 | 1411 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v15 | 2066 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
 | `forge-kit-devops` | shell asset | `close-shipped` | v5 |  | close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496). |
 | `forge-kit-devops` | shell asset | `context-budget` | v5 |  | context-budget.sh: how many characters a project's next session loads before the first prompt (#297). |
-| `forge-kit-devops` | shell asset | `forge-lib` | v47 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
+| `forge-kit-devops` | shell asset | `forge-lib` | v48 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
 | `forge-kit-devops` | shell asset | `release-run` | v5 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v14 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
@@ -273,7 +273,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | shell asset | `count-gate-rounds` | v3 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
 | `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v8 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
 | `forge-kit-governance` | shell asset | `gate-env` | v2 |  | gate-env.sh: what each ticket-gate Bash call must rebuild, because every call is a fresh shell |
-| `forge-kit-governance` | shell asset | `gate-status` | v12 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
+| `forge-kit-governance` | shell asset | `gate-status` | v13 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |
 | `forge-kit-review` | agent | `architect-review` | v3 | 1059 | Master software architect specializing in modern architecture patterns, clean architecture, microservices, event-driven… |
 | `forge-kit-review` | agent | `code-reviewer` | v15 | 1739 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v3 | 450 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
@@ -284,7 +284,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |
 | `forge-kit-roadmap` | command | `phase` | v17 | 2132 | Work the roadmap. |
 | `forge-kit-roadmap` | skill | `roadmap-phases` | v20 | 3692 | Rolling wave planning made mechanical. |
-| `forge-kit-roadmap` | shell asset | `check-phases` | v11 |  | The roadmap-phases guard: four rules that make rolling wave planning mechanical. |
+| `forge-kit-roadmap` | shell asset | `check-phases` | v12 |  | The roadmap-phases guard: four rules that make rolling wave planning mechanical. |
 | `forge-kit-roadmap` | shell asset | `phase-env` | v2 |  | phase-env.sh: what each /phase Bash call must rebuild, because every call is a fresh shell (#407). |
 | `forge-kit-roadmap` | shell asset | `reassess-phases` | v12 |  | Reshapes the roadmap file and the milestones behind it, one level above /phase review (#244). |
 | `forge-kit-roadmap` | shell asset | `review-mechanics` | v1 |  | The mechanical half of /phase review steps 1 to 4, runnable without the agent harness (#272). |

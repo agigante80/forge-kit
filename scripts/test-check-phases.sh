@@ -488,6 +488,38 @@ run446
 expect "#446: a Forgejo PR in a done phase's milestone is not a ticket, so rule 4 passes" 0 "$rc"
 absent_line "rule 4" "$out" "#446: and no rule 4 line is printed for it"
 
+echo "== #452: a forge-lib refusal reaches stderr, once =="
+# check-phases used to discard both reads' stderr, so an http FORGE_API_URL showed only "could not be
+# reached ... check the token". The REAL library is sourced here (only the milestone/issue shape is
+# not needed: forge_api refuses before any request exists), with an http URL and FORGE_ALLOW_HTTP
+# unset. Each read sets FORGE_DRY_RUN=0 itself, so the dry-run flag cannot hide the refusal. The
+# milestone read fails first, and the issue read is skipped, which is why the line appears once.
+goodplan A > "$T/docs/plans/a.md"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: open
+plan: docs/plans/a.md
+MD
+cat > "$T/lib452.sh" <<STUB
+. "$LIB446"
+export FORGE_HOST=forgejo FORGE_REPO=o/r FORGEJO_TOKEN=canary
+unset FORGE_ALLOW_HTTP
+STUB
+run452() {  # $1 = the FORGE_API_URL; $serr = stderr alone, $sout = stdout alone
+  (cd "$T" && FORGE_API_URL="$1" FORGE_LIB="$T/lib452.sh" bash ./check-phases.sh >"$T/run.out" 2>"$T/run.err"); rc=$?
+  sout=$(cat "$T/run.out"); serr=$(cat "$T/run.err")
+}
+run452 http://forge.example.com
+expect "#452: an http FORGE_API_URL exits 2" 2 "$rc"
+contains "refusing to send the token over http" "$serr" "#452: and the refusal reaches stderr"
+expect "#452: exactly once" 1 "$(grep -cF 'refusing to send the token over http' <<< "$serr")"
+contains "the host could not be reached, so rules 1, 3 and 4 were SKIPPED." "$serr" "#452: and the SKIPPED line still follows it"
+absent_line "canary" "$serr" "#452: and the token never appears"
+expect "#452: stdout stays empty" "" "$sout"
+run452 ftp://forge.example.com
+contains "must be an https URL" "$serr" "#452: a non-https URL shows its own refusal"
+expect "#452: and exits 2" 2 "$rc"
+
 echo "== forge-lib.sh resolves by SEARCH, not only by adjacency =="
 # The two assets belong to DIFFERENT skills, so in the source tree they can never sit beside each
 # other, and in a forge-adapt install they both land in scripts/ and can. Resolving only by

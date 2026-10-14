@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 12
+# gate-status-version: 13
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -78,6 +78,9 @@
 # `stale round <R> <VERDICT>` (an algorithm change adds ` (fingerprint <old>, now <current>)`).
 # Exit 2 with NOTHING on stdout when the body cannot be read, since a
 # state that cannot be computed must never read as `current`.
+# `--stamp` exits 2 the same way when the issue's COMMENTS cannot be read (#452), before it moves
+# anything, so no stamp is written; a successful read with no review comment still stamps
+# "Full review: no review comment found." and exits 0.
 #
 # THE ORDER OF WRITES IS THE CONTRACT. Every gate write is an `issues: edited` event, so the gate
 # must never leave a stamped verdict in place while it changes author text: `--unstamp` at Step 1
@@ -254,6 +257,10 @@ case "$MODE" in
   --stamp)
     [ -n "$verdict" ] || { echo "gate-status: issue #$ISSUE has no gate-verdict to stamp" >&2; exit 1; }
     FP0="$(printf '%s\n' "$body" | fingerprint)" || exit 2
+    # #452: the comments are read BEFORE any region moves, and a failed read exits 2 with its reason
+    # (forge_issue_comments' own stderr, an http refusal included, passes through). It used to be
+    # swallowed into "no review comment found", stamping a verdict whose review link was a lie.
+    comments="$(forge_issue_comments "$ISSUE")" || { echo "gate-status: could not read the comments of issue #$ISSUE" >&2; exit 2; }
     clean="$(printf '%s\n' "$verdict" | strip_stamp)"
     # Each moved to the top in turn, so they end up verdict, required changes, alternatives.
     for r in gate-alternatives gate-required-changes; do
@@ -265,7 +272,7 @@ case "$MODE" in
     write_retry gate-verdict "$clean" top || { echo "gate-status: could not move gate-verdict of issue #$ISSUE" >&2; exit 1; }
     fp="$(body_of | fingerprint)" || { echo "gate-status: could not re-read issue #$ISSUE" >&2; exit 1; }
     [ "$fp" = "$FP0" ] || { echo "gate-status: issue #$ISSUE: an author section changed during the stamp; leaving the verdict unrecorded" >&2; exit 1; }
-    url="$(forge_issue_comments "$ISSUE" 2>/dev/null | jq -r --arg h "## Ticket Readiness Review - #$ISSUE" \
+    url="$(printf '%s' "$comments" | jq -r --arg h "## Ticket Readiness Review - #$ISSUE" \
       '[.[]? | select(((.body // "") | split("\n")[0] | rtrimstr("\r")) == $h)] | last | .html_url // empty' 2>/dev/null)"
     write_retry gate-verdict "$clean
 Judged body: $fp ($FP_TAG). Full review: ${url:-no review comment found}." || {

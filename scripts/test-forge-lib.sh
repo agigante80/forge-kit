@@ -2437,8 +2437,8 @@ done
 # forge_ci_status is the one exception: its documented "could not ask" word, rc 0, never empty.
 inv256 "forge_ci_status answers not_configured, rc 0" 0 not_configured real forge_ci_status main
 inv256 "forge_ci_status answers not_configured, rc 0" 0 not_configured dry  forge_ci_status main
-# forge_tag_exists hides stderr, so only rc and "nothing sent" are observable. rc 2 means "could not
-# ask", NOT "tag absent" (a missing tag is rc 44 on forgejo).
+# Only rc and "nothing sent" are asserted here (the stderr text is the #452 rows' job). rc 2 means
+# "could not ask", NOT "tag absent" (a missing tag is rc 44 on forgejo).
 : > "$N256LOG"
 ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=gitea FORGE_REPO=o/r; forge_tag_exists v1 ) >/dev/null 2>&1; RC=$?
 expect "invalid host: forge_tag_exists returns 2 (could not ask)" 2 "$RC"
@@ -2961,6 +2961,18 @@ if [ "$1" = credential ]; then cat > /dev/null; [ -z "${K442CREDSLEEP-}" ] || sl
 exec "$K442GIT" "$@"
 STUB
 chmod +x "$K/bin/curl" "$K/bin/git"
+# #452: a gh stub for the GitHub arm of forge_tag_exists. It logs its argv; the git/ref/tags route
+# answers 0 when K442GHREF is set, and every other route (the Forgejo-only tags/<tag> included) is
+# gh's own 404 line with rc 1, which is what the real gh does for a route that does not exist.
+cat > "$K/bin/gh" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$K442/ghlog"
+case "$*" in
+  *git/ref/tags/*) if [ -n "${K442GHREF-}" ]; then echo '{"ref":"refs/tags/x"}'; exit 0; fi ;;
+esac
+echo "gh: Not Found (HTTP 404)" >&2; exit 1
+STUB
+chmod +x "$K/bin/gh"
 # #454 round 2: a logging `timeout` in its own dir, put first on PATH only by c454_default, so no
 # other row's gitlog sees it. It hands on to the real one.
 mkdir -p "$K/tbin"
@@ -3060,6 +3072,44 @@ k442 "FORGE_API_URL=https://forge.example.com" NONE FORGEJO_TOKEN=tok FORGE_DRY_
 c450_word && k_nocurl && [ "$(cat "$K/err")" = "[dry-run] GET https://forge.example.com/api/v1/repos/o/r/commits/main/status" ] \
   && ! grep -qE 'refusing|must be an https' "$K/err" && ok "#450: a dry run shows its single request line on stderr and is not mistaken for a refusal" \
   || bad "#450: dry run (rc $K442RC err $(cat "$K/err"))"
+
+# -- #452: forge_tag_exists passes forge_api's stderr through, and asks GitHub's own route --------
+# rc is unchanged (0 present, 44 Forgejo absent, 2 refusal, 22 other HTTP error); only the reason now
+# reaches stderr. The GitHub arm used to ask /tags/<tag>, a Forgejo-only route, so a tag that exists
+# answered rc 1; it now asks git/ref/tags/<tag>. Absent and failed are both rc 1 there (a stated limit).
+T452="forge_tag_exists v1.0.0"
+c452_refuse() {  # an http file URL: rc 2, the refusal once, nothing sent, no secret, stdout empty
+  k442 "FORGE_API_URL=http://forge.example.com" NONE FORGEJO_TOKEN=canary -- $T452
+  [ "$K442RC" = 2 ] && [ ! -s "$K/out" ] && k_nocurl && k_err "refusing to send the token over http" \
+    && [ "$(grep -cF 'refusing to send the token over http' "$K/err")" = 1 ] && ! grep -qF canary "$K/err"; }
+c452_refuse && ok "#452: forge_tag_exists shows the http refusal once, rc 2, nothing sent" \
+  || bad "#452: http refusal (rc $K442RC err $(cat "$K/err"))"
+k442 "" NONE FORGE_API_URL=ftp://forge.lan/api/v1 FORGEJO_TOKEN=tok -- $T452
+[ "$K442RC" = 2 ] && [ ! -s "$K/out" ] && k_err "must be an https URL" && k_nocurl && ok "#452: forge_tag_exists shows the non-https refusal, rc 2" \
+  || bad "#452: non-https refusal (rc $K442RC err $(cat "$K/err"))"
+c452_absent() {
+  k442 "FORGE_API_URL=https://forge.example.com" NONE FORGEJO_TOKEN=tok K442STATUS=404 -- forge_tag_exists v9.9.9
+  [ "$K442RC" = 44 ] && [ ! -s "$K/out" ] && [ ! -s "$K/err" ]; }
+c452_absent && ok "#452: an absent Forgejo tag is rc 44 with empty stdout and stderr" || bad "#452: absent tag (rc $K442RC err $(cat "$K/err"))"
+c452_500() {
+  k442 "FORGE_API_URL=https://forge.example.com" NONE FORGEJO_TOKEN=tok K442STATUS=500 -- $T452
+  [ "$K442RC" = 22 ] && [ ! -s "$K/out" ] && [ "$(cat "$K/err")" = "forge-lib: HTTP 500 from GET /repos/o/r/tags/v1.0.0" ]; }
+c452_500 && ok "#452: an HTTP 500 is rc 22 with forge_api's own line on stderr" || bad "#452: HTTP 500 (rc $K442RC err $(cat "$K/err"))"
+k442 "FORGE_API_URL=https://forge.example.com" NONE FORGEJO_TOKEN=tok -- $T452
+[ "$K442RC" = 0 ] && [ ! -s "$K/out" ] && [ ! -s "$K/err" ] && ok "#452: a present Forgejo tag is rc 0, silent" || bad "#452: present tag (rc $K442RC err $(cat "$K/err"))"
+c452_dry() {
+  k442 "FORGE_API_URL=https://forge.example.com" NONE FORGEJO_TOKEN=tok FORGE_DRY_RUN=1 -- $T452
+  [ "$K442RC" = 0 ] && k_nocurl && [ "$(cat "$K/err")" = "[dry-run] GET https://forge.example.com/api/v1/repos/o/r/tags/v1.0.0" ]; }
+c452_dry && ok "#452: a dry run prints its one request line on stderr and returns 0" || bad "#452: dry run (rc $K442RC err $(cat "$K/err"))"
+c452_gh_present() {
+  : > "$K/ghlog"; k442 "" NONE FORGE_HOST=github K442GHREF=1 -- forge_tag_exists v0.9.1
+  [ "$K442RC" = 0 ] && [ ! -s "$K/err" ] && grep -qxF 'api -X GET repos/o/r/git/ref/tags/v0.9.1' "$K/ghlog" \
+    && ! grep -qF 'repos/o/r/tags/' "$K/ghlog"; }
+c452_gh_present && ok "#452: on GitHub an existing tag is rc 0 via git/ref/tags" || bad "#452: github present (rc $K442RC err $(cat "$K/err") log $(cat "$K/ghlog"))"
+c452_gh_absent() {
+  : > "$K/ghlog"; k442 "" NONE FORGE_HOST=github -- forge_tag_exists v9.9.9
+  [ "$K442RC" = 1 ] && [ ! -s "$K/out" ] && [ "$(cat "$K/err")" = "gh: Not Found (HTTP 404)" ]; }
+c452_gh_absent && ok "#452: on GitHub a missing tag is rc 1 with only gh's own 404 line" || bad "#452: github absent (rc $K442RC err $(cat "$K/err"))"
 k442 "FORGE_API_URL=-K./x/https://allowed.example" allowed.example FORGEJO_TOKEN=tok -- $GET1
 [ "$K442RC" = 2 ] && k_err "must be an https URL" && k_nocurl && ok "#442: a leading-dash file URL is refused before curl" || bad "#442: leading-dash file URL (rc $K442RC)"
 
@@ -3391,6 +3441,9 @@ m442 "#450 -q dropped from the POST curl call (kills the argv row)" 'printf '"'%
 m442 "#450 -q dropped from the GET curl call (kills the argv row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_q
 m442 "#450 -q dropped from the GET curl call (kills the .curlrc row)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -g' c450_curlrc_leak
 m442 "#450 -q not first on the GET curl call (curl ignores it, the .curlrc row dies)" 'out="$(curl -q -sS -g' 'out="$(curl -sS -q -g' c450_curlrc_leak
+m442 "#452 tag stderr discarded (kills the http refusal row)" 'forge_api GET "/repos/$repo/tags/$1" >/dev/null ;;' 'forge_api GET "/repos/$repo/tags/$1" >/dev/null 2>&1 ;;' c452_refuse
+m442 "#452 tag stderr discarded (kills the HTTP 500 row)" 'forge_api GET "/repos/$repo/tags/$1" >/dev/null ;;' 'forge_api GET "/repos/$repo/tags/$1" >/dev/null 2>&1 ;;' c452_500
+m442 "#452 GitHub arm back on the Forgejo route" 'forge_api GET "/repos/$repo/git/ref/tags/$1" >/dev/null ;;' 'forge_api GET "/repos/$repo/tags/$1" >/dev/null ;;' c452_gh_present
 
 # -- #449: round-1 lows from #442, and the dry run that refuses what the real run refuses -----------
 echo "== #449: #442 round-1 lows, dry-run URL validation, forge_url_check =="

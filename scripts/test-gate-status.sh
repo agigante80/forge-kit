@@ -52,14 +52,38 @@ forge_api() {
       printf '%s' "$3" | jq -j '.body' > "$S/body"; echo '{}' ;;
   esac
 }
-forge_issue_comments() { cat "$S/comments.json"; }
+forge_issue_comments() {
+  [ -f "$S/fail-comments" ] && { echo "forge-lib: HTTP 500 from GET /repos/o/r/issues/7/comments" >&2; return 22; }
+  cat "$S/comments.json"
+}
+LIB
+
+# #452: the same body stub, but the comments read goes through the REAL forge_api, so a refusal is the
+# real one (an http FORGE_API_URL without FORGE_ALLOW_HTTP). real_forge_api is the library's own function
+# under another name; only the body GET/PATCH of the stub path are kept.
+cat > "$T/wrap452.sh" <<LIB
+. "$FLIB"
+LIB
+cat >> "$T/wrap452.sh" <<'LIB'
+export FORGE_HOST=forgejo FORGE_REPO=o/r FORGEJO_TOKEN=canary
+unset FORGE_ALLOW_HTTP
+eval "real_$(declare -f forge_api)"
+forge_api() {
+  case "$2" in
+    *comments*) real_forge_api "$@" ;;
+    *) case "$1" in
+         GET) jq -Rs '{body:.}' < "$S/body" ;;
+         PATCH) echo x >> "$S/patches"; printf '%s' "$3" | jq -j '.body' > "$S/body"; echo '{}' ;;
+       esac ;;
+  esac
+}
 LIB
 export S FORGE_LIB="$T/wrap.sh"
 
 # GS also appends the script's stderr to $T/gs-err.log, the log m() classifies a crash on (#360); the
 # exit code and the stderr a caller sees are unchanged (pipefail keeps bash's code).
 GS() { rm -f "$S/gets"; { bash "$T/gate-status.sh" "$@" 2>&1 1>&3 3>&- | tee -a "$T/gs-err.log" >&2; } 3>&1; }
-setbody() { printf '%s' "$1" > "$S/body"; rm -f "$S/patches" "$S/fail-get"; }
+setbody() { printf '%s' "$1" > "$S/body"; rm -f "$S/patches" "$S/fail-get" "$S/fail-comments"; }
 patches() { if [ -f "$S/patches" ]; then wc -l < "$S/patches" | tr -d ' '; else echo 0; fi; }
 
 printf '%s' '[{"body":"## Ticket Readiness Review - #7\nold","html_url":"https://x/c/1"},
@@ -241,6 +265,29 @@ expect "the author sections are byte-identical after the moves" "$f0" "$fp"
 before=$(cat "$S/body"); GS 7 --stamp
 expect "re-stamping keeps a single Judged line" 1 "$(grep -c '^Judged body:' "$S/body")"
 expect "re-stamping an unchanged ticket is a fixed point" "$before" "$(cat "$S/body")"
+
+echo "== --stamp does not stamp a verdict whose comments it could not read (#452) =="
+# It used to swallow the read into "no review comment found" and stamp a link that was a lie. The
+# read now happens before any region moves, so a failure leaves the body exactly as it was.
+setbody "$BASE"; touch "$S/fail-comments"; err=$(GS 7 --stamp 2>&1 >/dev/null); rc=$?
+expect "#452: a failed comments read exits 2" 2 "$rc"
+contains "forge-lib: HTTP 500 from GET /repos/o/r/issues/7/comments" "$err" "  and shows the library's own reason"
+contains "gate-status: could not read the comments of issue #7" "$err" "  and names the issue"
+expect "  and sends nothing" 0 "$(patches)"
+expect "  and the body is untouched" "$(printf '%s' "$BASE")" "$(cat "$S/body")"
+lacks "Judged body:" "$(cat "$S/body")" "  and no Judged line exists"
+setbody "$BASE"; printf '[]' > "$S/comments.json"; GS 7 --stamp >/dev/null 2>&1; expect "#452: an empty comments list still stamps, exit 0" 0 "$?"
+contains "Full review: no review comment found." "$(cat "$S/body")" "  with the no-comment fallback"
+printf '%s' '[{"body":"## Ticket Readiness Review - #7\nold","html_url":"https://x/c/1"},
+{"body":"> ## Ticket Readiness Review - #7\nquoted","html_url":"https://x/c/2"},
+{"body":"## Ticket Readiness Review - #7\r\nnew","html_url":"https://x/c/3"},
+{"body":"## Ticket Readiness Review - #8\nsibling","html_url":"https://x/c/4"}]' > "$S/comments.json"
+setbody "$BASE"; err=$(FORGE_LIB="$T/wrap452.sh" FORGE_API_URL=http://forge.example.com GS 7 --stamp 2>&1 >/dev/null); rc=$?
+expect "#452: the real http refusal exits 2" 2 "$rc"
+expect "  with the refusal shown once" 1 "$(grep -cF 'refusing to send the token over http' <<< "$err")"
+contains "gate-status: could not read the comments of issue #7" "$err" "  and the gate-status line"
+lacks "canary" "$err" "  and the token never appears"
+expect "  and the body is untouched" "$(printf '%s' "$BASE")" "$(cat "$S/body")"
 
 echo "== --stamp drops a pre-v60 bare pointer line (#285) =="
 OLDV="${VERDICT/- significant: fix the scenarios/- significant: fix the scenarios
@@ -517,6 +564,9 @@ probe_editline() {  # the body-edit reason for an author edit
   GS 7 --mark-stale >/dev/null 2>&1
   grep -qxF '**Stale:** the sections outside this block changed after this verdict; re-run /gate-ticket 7 before acting on it.' "$S/body"; }
 probe_para() { setbody "$(printf 'a\n\nb\n')"; a=$(GS 7 --fingerprint); setbody "$(printf 'a\nb\n')"; [ "$a" = "$(GS 7 --fingerprint)" ]; }
+probe_comments() { setbody "$BASE"; touch "$S/fail-comments"; GS 7 --stamp >/dev/null 2>&1; [ "$?" = 2 ]; }
+probe_comments_order() { setbody "$BASE"; touch "$S/fail-comments"; GS 7 --stamp >/dev/null 2>&1; [ "$(patches)" = 0 ]; }
+probe_comments_err() { local e; setbody "$BASE"; touch "$S/fail-comments"; e=$(GS 7 --stamp 2>&1 >/dev/null); grep -qF "HTTP 500" <<< "$e"; }
 m "hashing the whole body, regions included" '/inside { next }/d' probe_regions
 m "marking an unrecorded verdict" 's/case "$st" in stale\*) ;; \*) exit 0 ;; esac/:/' probe_unrecorded
 m "stamping without top" 's/write_retry gate-verdict "$clean" top/write_retry gate-verdict "$clean"/' probe_top
@@ -537,6 +587,9 @@ m "the algorithm change no longer starts with stale" 's/echo "stale round $round
 m "a malformed tag is read as an untagged stamp" 's/\[ -n "$tag" \] || judged=""/:/' probe_malformed
 m "an untagged stamp is reported as an algorithm change" 's/\[ -n "$tag" \] && \[ "$tag" != "$FP_TAG" \]/[ "$tag" != "$FP_TAG" ]/' probe_untagged
 m "fingerprint() changes without updating the pin" 's/^    { print n }/    { print n "x" }/' probe_golden
+m "#452 the comments read ignores its failure" 's/comments="$(forge_issue_comments "$ISSUE")" || {/comments="$(forge_issue_comments "$ISSUE")" || [ -n "x" ] || {/' probe_comments
+m "#452 the comments are read after the first region move" 's/^    comments="$(forge_issue_comments.*$/    :/;s/^    url="$(printf .%s. "$comments"/    comments="$(forge_issue_comments "$ISSUE")" || exit 2\n&/' probe_comments_order
+m "#452 the comments read discards stderr" 's/comments="$(forge_issue_comments "$ISSUE")"/comments="$(forge_issue_comments "$ISSUE" 2>\/dev\/null)"/' probe_comments_err
 m "the tag changes alone" 's/^FP_TAG="fp11"/FP_TAG="fp12"/' probe_golden
 # #486: the fence rule. M16 (fingerprint ignores fence state) and the freeze, each on its own probe.
 probe_fenced() { setbody "$FENCED_LONE"; GS 7 --fingerprint >/dev/null 2>&1; }
