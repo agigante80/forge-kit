@@ -74,6 +74,7 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
      its first output passes the heading and Given / When / Then checks without a second copy of
      either (#361)
 4. **Writes the enriched body back** through the forge-host adapter: it clears the gate's own regions with `forge_body_region_clear` (synthesis voids the prior verdict) and writes the body with `forge_body_compose_preserving`, which re-threads every other marked region the new body does not restate, so it works on GitHub and Forgejo alike
+   Each synthesised `scenarios` and `docs_impact` block (the `**Condition:**` line included) ends its first line with `(gate-written, round 0)`, so Step 6 item 2's `forge_body_section_append` later in the same run reads it as the gate's own and appends instead of refusing 108 (#512); author text is still refused.
 5. **Posts a comment** explaining what was synthesised and voiding the prior verdict
 6. **Re-runs the full review** against the enriched body (nothing carries forward)
 

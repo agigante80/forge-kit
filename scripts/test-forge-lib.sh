@@ -3978,6 +3978,45 @@ for a in gawk mawk original-awk busybox; do
   expect "#494: every section-append row passes under awk=$a" "" "$f494"
 done
 
+echo "== #512: a section Step 0c wrote with the documented tag is appendable by the same run =="
+# The ticket-gate prose (Step 0c-iii) tells the gate to end the first line of each scenarios and
+# docs_impact block with a backticked tag. This extracts that tag FROM THE PROSE, builds the
+# sections Step 0c writes with it, and drives forge_body_section_append, so the documented form and
+# the primitive cannot drift apart (before #512 Step 0c wrote no tag and the append refused 108).
+# Only this suite sources forge-lib.sh, so the composition lives here. c512_* read G512 (default
+# the shipped prose) so a mutant can point at a copy.
+GATE512="$HERE/../plugins/forge-kit-governance/agents/ticket-gate.md"
+tag512() { awk '/^\*\*0c-iii\./{f=1;next} /^\*\*0c-iv\./{f=0} f' "${G512:-$GATE512}" | grep -o '`(gate-written, round [0-9][0-9]*)`' | head -1 | tr -d '`'; }
+DH512='## Documentation impact'
+# Step 0c's scenarios shape: a Condition line, then a labelled Positive and Negative block.
+sec512() {  # sec512 <tag-or-empty>: the Test scenarios section as Step 0c writes it
+  local t="${1:+ $1}"
+  b486 "$TS494" '' "**Condition: c**$t" '' "**Positive:** p$t" '- Given: g' '- When: w' '- Then: t' '' "**Negative:** n$t" '- Given: g' '- When: w' '- Then: rc 108' '' "$UT494"
+}
+c512_synth() { local t; t="$(tag512)"; [ -n "$t" ] || { echo "tag not found in Step 0c-iii" >&2; return 1; }
+  app494 "$(sec512 "$t")"; [ "$R486RC" = 0 ] && grep -qF -- "$N1_494" "$R486/patch"; }
+c512_stripped() { local t; t="$(tag512)"; [ -n "$t" ] || { echo "tag not found in Step 0c-iii" >&2; return 1; }
+  app494 "$(sec512 "")"; none494 108 "already holds author text (WRITE ONCE)"; }
+c512_docs() { local t; t="$(tag512)"; [ -n "$t" ] || { echo "tag not found in Step 0c-iii" >&2; return 1; }
+  app494 "$(b486 "$DH512" '' "The guide gains a row. $t" 'It says so.' '' "$UT494")" "Documentation impact" "Also the table. (gate-written, round 1)"; [ "$R486RC" = 0 ]; }
+c512_cond_only() { local t; t="$(tag512)"; [ -n "$t" ] || { echo "tag not found in Step 0c-iii" >&2; return 1; }
+  # An untagged Condition line is its own block and refuses even when Positive and Negative are tagged.
+  app494 "$(b486 "$TS494" '' '**Condition: c**' '' "**Positive:** p $t" '- Given: g' '' "$UT494")"; none494 108 "already holds author text (WRITE ONCE)"; }
+c512_synth && ok "#512: the tag the Step 0c-iii prose documents makes a synthesised scenarios section appendable (rc 0, the block follows)" \
+  || bad "#512: a synthesised scenarios section built from the documented tag was not appendable (rc $R486RC, err $(cat "$R486/err" 2>/dev/null))"
+c512_stripped && ok "#512: the same section with the tag stripped is author text: 108, the label on stderr, nothing sent" \
+  || bad "#512: the stripped section was not refused with 108 (rc $R486RC)"
+c512_docs && ok "#512: a synthesised Documentation impact paragraph carrying the documented tag is appendable" \
+  || bad "#512: a Documentation impact paragraph with the documented tag was not appendable (rc $R486RC)"
+c512_cond_only && ok "#512: an untagged Condition line refuses the append even with Positive and Negative tagged (why the prose names it)" \
+  || bad "#512: the untagged Condition line shape did not refuse with 108 (rc $R486RC)"
+# Mutant: a copy of the prose with the tag span removed makes every composing row fail loudly.
+sed 's/`(gate-written, round 0)`/the tag/' "$GATE512" > "$R486/gate512.md"
+cmp -s "$GATE512" "$R486/gate512.md" && bad "#512: the prose mutant did not apply"
+if G512="$R486/gate512.md" c512_synth 2> "$R486/err512"; then bad "#512: MUTANT survived: the prose without the tag still composes"
+elif grep -qF "tag not found in Step 0c-iii" "$R486/err512"; then ok "#512: MUTANT: deleting the tag from the prose fails the row with 'tag not found in Step 0c-iii'"
+else bad "#512: the tag-less prose failed without naming the missing tag"; fi
+
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"
 

@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 81 -->
+<!-- ticket-gate-version: 82 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -125,7 +125,7 @@ Target sections (always check):
   containing GDPR, matched case-insensitively)
 
 A non-target section under a variant heading counts as present when, by meaning (the
-orchestrator's call, not the sub-agent's), exactly one template label fits; an empty one, or a
+orchestrator's call), exactly one template label fits; an empty one, or a
 target section under another heading (bar `personal_data`'s GDPR match), is Missing.
 
 **0c-iii. Synthesise real content**
@@ -133,6 +133,8 @@ target section under another heading (bar `personal_data`'s GDPR match), is Miss
 Write each section, inline or dispatched, as `## <label>` holding the template's unquoted
 `label:` value, scenarios following its `placeholder:` shape, never placeholder text; where
 the body cannot support a specific case, write the most concrete one and note the assumption.
+Tag the first line of each `scenarios` or `docs_impact` block, `**Condition:**` lines too,
+`(gate-written, round 0)`.
 
 Fast path: when the ONLY gap is `docs_impact`, synthesise it inline, then 0c-iv.
 
@@ -159,7 +161,7 @@ Merge synthesised content into the issue body, preserving all prior AUTHOR text
 verbatim, and clear the gate's regions (Step 6's lifecycle).
 Except for `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact` (checks 4 to 7 read just the
 text under a label), add `## <label>` above a mapped author section with the one line
-`See "<variant>" below.` (new, so WRITE ONCE allows it). Replace or add
+`See "<variant>" below.` Replace or add
 `template-version: $CURRENT_TPL_VER` (0a's value; never a hardcoded literal).
 
 Write it with Step 6's primitives, minus the verdict block.
@@ -526,11 +528,10 @@ plus `gate-context` written by Step 2.9, carrying the headings `Gate verdict` / 
    result, not the verdict: a NEEDS-WORK round that cleared its fundamental would otherwise
    leave the alternatives standing.
 
-**WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only a section that is empty,
-placeholder, or synthesised by THIS run's 0c; never text the author may have written, since a
-later round cannot tell an edit of gate prose from its own. 0c-iii's thin append is the deliberate
-exception, and is how a pre-v6 section reaches v6. 0c uses `forge_body_compose_preserving`;
-Step 6 item 2 uses `forge_body_section_append`, refusing author text (108).
+**WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only an empty, placeholder or
+gate-tagged section, never author text, since a later round cannot tell an edit of gate prose
+from its own. 0c-iii's thin append is the deliberate exception (how a pre-v6 section reaches v6).
+0c uses `forge_body_compose_preserving`; Step 6 item 2 uses `forge_body_section_append` (108 on author text).
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.

@@ -2623,6 +2623,15 @@ printf '### Required reviews (mandatory)\nx\n' > "$WORK/sk-h3.md"
 n="$(bash "$WORK/mut-sk-hash.sh" --skeleton --template "$FEAT" --body "$WORK/sk-h3.md" | grep -cxF '## Required reviews (mandatory)')"
 [ "$n" = 1 ] && ok "#505: MUTANT: ignoring the ### level appends a duplicate (the ### row fails)" || bad "#505: MUTANT survived: ### level ignored without effect ($n)"
 
+# #512: the WRITE ONCE paragraph names ownership by tag, not by "this run's 0c" (a later round cannot
+# know which run synthesised a block). Step 0c-iii documents the tag; scripts/test-forge-lib.sh drives it.
+OLD512="synthesised by THIS run's 0c"
+grep -qF -- "gate-tagged section, never author text" "$GATE" && ok "#512: the WRITE ONCE paragraph says gate-tagged" || bad "#512: the WRITE ONCE paragraph lost 'gate-tagged'"
+grep -qF -- "$OLD512" "$GATE" && bad "#512: the WRITE ONCE paragraph is back to 'synthesised by THIS run's 0c'" || ok "#512: the WRITE ONCE paragraph no longer says 'synthesised by THIS run's 0c'"
+sed 's/gate-tagged section, never author text/section synthesised by THIS run'"'"'s 0c, never author text/' "$GATE" > "$WORK/gate-wo-mut.md"
+cmp -s "$GATE" "$WORK/gate-wo-mut.md" && bad "#512: the WRITE ONCE mutant did not apply"
+grep -qF -- "gate-tagged section, never author text" "$WORK/gate-wo-mut.md" && bad "#512: MUTANT survived: the gate-tagged pin passes on a reverted paragraph" || ok "#512: MUTANT: reverting the paragraph fails the gate-tagged pin"
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
