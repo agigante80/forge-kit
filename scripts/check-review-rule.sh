@@ -71,7 +71,7 @@ while IFS= read -r p; do
   [ -n "$p" ] || continue
   [ "$p" = "$CANON" ] && continue
   [ -f "$ROOT/$p" ] && [ ! -L "$ROOT/$p" ] || continue
-  if ! printf '%s\n' "$POINTERS" | grep -qxF -- "$p"; then
+  if ! grep -qxF -- "$p" <<< "$POINTERS"; then
     for m in $(ids "$ROOT/$p"); do [ "$m" = "$V" ] || flag "$p: rule id $ID v$m, canonical is v$V"; done
   fi
   case "$p" in

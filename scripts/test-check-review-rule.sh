@@ -64,16 +64,16 @@ names "$PL: declared pointer carries no rule id" "the bare pointer is named"
 fresh; git -C "$R" rm -q -f "$CR"; run
 expect "a missing pointer fails" 1 "$rc"
 names "$CR: declared pointer is missing" "the missing pointer is named"
-fresh; printf '\nAgain <!-- rule: review-lows v1 -->\n' >> "$R/$CR"; run
+fresh; printf '\nAgain <!-- rule: review-lows v1 -->\n' >> "$R/$CR"; run  # retired-rule-quote
 expect "a second, older id in a pointer fails" 1 "$rc"
 
 echo "other carriers"
-fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/docs/x/old.md"; track; run
+fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/docs/x/old.md"; track; run  # retired-rule-quote
 expect "another docs carrier at an older version fails" 1 "$rc"
 names "docs/x/old.md" "the carrier is named"
 fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: review-lows v2 -->\n' > "$R/docs/x/ok.md"; track; run
 expect "another carrier at the canonical version passes" 0 "$rc"
-fresh; mkdir -p "$R/other"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/other/old.md"; track; run
+fresh; mkdir -p "$R/other"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/other/old.md"; track; run  # retired-rule-quote
 expect "a file outside plugins/ and docs/ is not a carrier" 0 "$rc"
 
 echo "anchor phrases"

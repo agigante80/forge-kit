@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-retired-rules.sh: fail if forge-kit's own tracked tree still states a retired rule (#495).
 #
-# THE DEFECT THIS STOPS. review-lows v1 ("every Low is ticketed") was replaced in the maintainer's
+# THE DEFECT THIS STOPS. review-lows v1 (a ticket for each Low) was replaced in the maintainer's
 # own instructions, yet code-reviewer, /full-review and the overnight pipeline kept stating it, and
 # every project that installed them inherited it. Nothing looked. This runs forge-adapt's own
 # stale-rules.sh matcher (--files-from) over every tracked text file, so the kit fails on exactly
@@ -51,7 +51,7 @@ trap 'rm -rf "$WORK"' EXIT
 git -C "$ROOT" ls-files > "$WORK/all" 2>"$WORK/err" || die "cannot list tracked files: $(head -1 "$WORK/err")"
 : > "$WORK/list"
 while IFS= read -r p; do
-  if printf '%s\n' "$EXEMPT" | grep -qxF -- "$p"; then continue; fi
+  if grep -qxF -- "$p" <<< "$EXEMPT"; then continue; fi
   [ -L "$ROOT/$p" ] && continue
   [ -e "$ROOT/$p" ] || continue
   grep -Iq . -- "$ROOT/$p" 2>/dev/null; [ "$?" -eq 1 ] && continue
