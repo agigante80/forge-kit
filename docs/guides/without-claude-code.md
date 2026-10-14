@@ -61,7 +61,7 @@ bash scripts/sync-labels.sh            # create missing, update drifted, delete 
 the document your agent is reading:
 
 ```bash
-cp /tmp/forge-kit/scripts/check-template-lockstep.sh scripts/
+cp /tmp/forge-kit/plugins/forge-kit-adapt/skills/adapt/assets/check-template-lockstep.sh scripts/
 bash scripts/check-template-lockstep.sh
 ```
 

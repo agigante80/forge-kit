@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Contract test for check-template-lockstep.sh.
+# Contract test for check-template-lockstep.sh (shipped from forge-kit-adapt's assets, #506; this suite is
+# kit-only and is no longer copied into a project).
 # Builds fixture template dirs and asserts the guard's exit code:
 #   all markers equal            -> 0 (locked)
 #   any marker diverges          -> 1 (drift, listed)
@@ -7,7 +8,7 @@
 #   fewer than 2 versioned files -> 0 (nothing to lock)
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SCRIPT="$HERE/check-template-lockstep.sh"
+SCRIPT="$HERE/../plugins/forge-kit-adapt/skills/adapt/assets/check-template-lockstep.sh"
 
 pass=0
 fail=0
@@ -174,6 +175,33 @@ else
   echo "  FAIL: no-arg run against the real repo (expected exit 0)"
   fail=$((fail + 1))
 fi
+
+# #506: the guard is a shipped asset, so it carries the version marker drift compares.
+if grep -qE '^# check-template-lockstep-version: [0-9]+$' "$SCRIPT"; then
+  echo "  ok: the guard carries its version marker"; pass=$((pass + 1))
+else
+  echo "  FAIL: the guard has no '# check-template-lockstep-version: N' line"; fail=$((fail + 1))
+fi
+
+# #506: a repository root that cannot be entered fails closed (exit 2) instead of running from the
+# wrong directory and reporting "no ISSUE_TEMPLATE directory found; nothing to check" as a pass.
+st=$(mktemp -d); mkdir -p "$st/bin" "$st/cwd"
+printf '#!/bin/sh\necho "%s/does-not-exist"\n' "$st" > "$st/bin/git"; chmod +x "$st/bin/git"
+out=$(cd "$st/cwd" && PATH="$st/bin:$PATH" bash "$SCRIPT" 2>&1); rc=$?
+if [ "$rc" -eq 2 ]; then
+  echo "  ok: an unenterable repository root exits 2"; pass=$((pass + 1))
+else
+  echo "  FAIL: an unenterable repository root (expected exit 2, got $rc)"; fail=$((fail + 1))
+fi
+case "$out" in
+  *"check-template-lockstep: cannot enter the repository root"*) echo "  ok: ...and says why"; pass=$((pass + 1)) ;;
+  *) echo "  FAIL: no 'cannot enter the repository root' line: $out"; fail=$((fail + 1)) ;;
+esac
+case "$out" in
+  *"nothing to check"*) echo "  FAIL: it still reported a vacuous pass: $out"; fail=$((fail + 1)) ;;
+  *) echo "  ok: ...and never reports a vacuous pass"; pass=$((pass + 1)) ;;
+esac
+rm -rf "$st"
 
 echo ""
 echo "template-lockstep tests: $pass passed, $fail failed"

@@ -327,9 +327,21 @@ run_block "$TB" FORGE_KIT_DIR="$L"
 [ "$brc" != 0 ] && case "$berr" in *"$L/.github/ISSUE_TEMPLATE/feature.yml"*) true ;; *) false ;; esac && ok "#321: templates, library without feature.yml: stops naming that path" || bad "#321: templates incomplete library: rc $brc, stderr '$berr'"
 # Lockstep install block.
 KB=$(fence 'check-template-lockstep.sh" scripts/')
-KL=$(lib); : > "$KL/scripts/check-template-lockstep.sh"; : > "$KL/scripts/test-template-lockstep.sh"
+# #506: the guard is an adapt asset (marked, so drift can see it); the kit-only test is not copied downstream.
+KL=$(lib); KA="$KL/plugins/forge-kit-adapt/skills/adapt/assets"; mkdir -p "$KA"; : > "$KA/check-template-lockstep.sh"
 run_block "$KB" FORGE_KIT_DIR="$KL"
 [ "$brc" = 0 ] && [ -f "$PROJ/scripts/check-template-lockstep.sh" ] && ok "#321: lockstep copies the guard from the library" || bad "#321: lockstep did not copy (rc $brc)"
+[ -x "$PROJ/scripts/check-template-lockstep.sh" ] && [ ! -e "$PROJ/scripts/test-template-lockstep.sh" ] && ok "#506: the guard is executable and its kit-only test is not copied" || bad "#506: lockstep copy set wrong: $(ls "$PROJ/scripts")"
+grep -q 'test-template-lockstep' "$SKILL" && bad "#506: SKILL.md still wires or names the lockstep test" || ok "#506: SKILL.md no longer names the lockstep test"
+# #506: drift enumeration lists the unmarked pre-marker guard as 'vnone' so it reads unversioned, but still skips other unmarked scripts.
+DB=$(fence 'shell asset (verbatim copy)'); DP=$(mktemp -d "$T/drift.XXXXXX"); mkdir -p "$DP/scripts"
+printf '#!/bin/sh\n' > "$DP/scripts/check-template-lockstep.sh"; printf '#!/bin/sh\n' > "$DP/scripts/other.sh"
+dout=$(cd "$DP" && env -i PATH="$PATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" bash -c "$DB" 2>/dev/null)
+case "$dout" in *"  check-template-lockstep | vnone | shell asset (verbatim copy)"*) ok "#506: an unmarked installed guard is listed as vnone" ;; *) bad "#506: unmarked guard row missing: $dout" ;; esac
+case "$dout" in *"other | "*) bad "#506: an unrelated unmarked script was listed" ;; *) ok "#506: other unmarked scripts stay skipped" ;; esac
+printf '#!/bin/sh\n# check-template-lockstep-version: 1\n' > "$DP/scripts/check-template-lockstep.sh"
+dout=$(cd "$DP" && env -i PATH="$PATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" bash -c "$DB" 2>/dev/null)
+case "$dout" in *"  check-template-lockstep | v1 | shell asset (verbatim copy)"*) ok "#506: a marked installed guard reads its version" ;; *) bad "#506: marked guard row: $dout" ;; esac
 run_block "$KB"
 [ "$brc" != 0 ] && case "$berr" in *FORGE_KIT_DIR*) true ;; *) false ;; esac && ok "#321: lockstep unset: exits non-zero naming FORGE_KIT_DIR" || bad "#321: lockstep unset: rc $brc, stderr '$berr'"
 [ ! -e "$PROJ/scripts" ] && ok "#321: lockstep unset: no scripts/ directory created" || bad "#321: lockstep unset: created scripts/"

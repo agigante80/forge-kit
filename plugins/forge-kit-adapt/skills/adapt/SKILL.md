@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 87 -->
+<!-- forge-adapt-version: 88 -->
 
 # forge-adapt
 
@@ -183,7 +183,7 @@ SP_STATUS=$(grep -q '"superpowers@' ~/.claude/plugins/installed_plugins.json 2>/
 echo "superpowers: $SP_STATUS"   # printed so Step 2 (a fresh shell) reads it from the transcript
 # Shell assets in scripts/, same rules:
 for f in scripts/*.sh; do          # every asset, not a list
-  grep -qE '^# [a-z0-9-]+-version: [0-9]+' "$f" 2>/dev/null || continue
+  grep -qE '^# [a-z0-9-]+-version: [0-9]+' "$f" 2>/dev/null || [ "$f" = scripts/check-template-lockstep.sh ] || continue   # #506: the unmarked pre-marker guard reads "unversioned"
   n=$(basename "$f" .sh)
   v=$(grep -oP -- "#\s*${n}-version:\s*\K\d+" "$f" | head -1)
   echo "  $n | v${v:-none} | shell asset (verbatim copy)"
@@ -705,23 +705,22 @@ If `PRJ_TPL_VER` is empty, skip. Otherwise show a small table and ask which to i
 
 | Governance | State | What installing does |
 |---|---|---|
-| template lockstep guard | `$HAS_GUARD` | copy `check-template-lockstep.sh` + its test to `scripts/`, wire into CI |
+| template lockstep guard | `$HAS_GUARD` | copy `check-template-lockstep.sh` to `scripts/`, wire into CI |
 | canonical ticket-standards doc | `$HAS_DOC` | write `docs/guides/ticket-standards.md` (adapted), repoint gate + CLAUDE.md |
 
 
 **Install: lockstep guard (copied verbatim - host-agnostic, like a hook).**
 
 ```bash
-src="${FORGE_KIT_DIR:?}/scripts"
+src="${FORGE_KIT_DIR:?}/plugins/forge-kit-adapt/skills/adapt/assets"
 # Defence in depth: if S2's refresh failed (offline) the library can still be stale and these
-# files absent. Never cp a missing source (a raw cp error reads as a bug); stop with the fix.
-if [ ! -f "$src/check-template-lockstep.sh" ] || [ ! -f "$src/test-template-lockstep.sh" ]; then
-  echo "forge-adapt: guard scripts missing from $src; run /plugin marketplace update forge-kit (or git pull in a clone) and retry." >&2; exit 1
+# file absent. Never cp a missing source (a raw cp error reads as a bug); stop with the fix.
+if [ ! -f "$src/check-template-lockstep.sh" ]; then
+  echo "forge-adapt: guard script missing from $src; run /plugin marketplace update forge-kit (or git pull in a clone) and retry." >&2; exit 1
 else
   mkdir -p scripts
   cp "$src/check-template-lockstep.sh" scripts/
-  cp "$src/test-template-lockstep.sh"  scripts/
-  chmod +x scripts/check-template-lockstep.sh scripts/test-template-lockstep.sh
+  chmod +x scripts/check-template-lockstep.sh
 fi
 ```
 
@@ -729,12 +728,12 @@ fi
 test) on drift that pre-dates the install:
 
 ```bash
-bash scripts/check-template-lockstep.sh || echo "forge-adapt: templates are NOT in lockstep (above) - CI will fail, and the guard's own test will too, until you align their template-version markers."
+bash scripts/check-template-lockstep.sh || echo "forge-adapt: templates are NOT in lockstep (above) - CI will fail until you align their template-version markers."
 ```
 
 If it reports drift, surface it and confirm the user wants to proceed;
 they may prefer to reconcile the template versions first. Then wire it into CI, host-aware. Prefer a dedicated workflow so you never surgically edit an
-unknown existing job (the user can instead fold the two `run:` lines into an existing job). Write to
+unknown existing job (the user can instead fold the `run:` line into an existing job). Write to
 `.github/workflows/` on GitHub or `.forgejo/workflows/` on Forgejo. Skip writing it if a workflow in
 that dir already runs `check-template-lockstep.sh` (grep first):
 
@@ -748,7 +747,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/check-template-lockstep.sh
-      - run: bash scripts/test-template-lockstep.sh
 ```
 
 Confirm: `✓ template-lockstep guard installed + wired (<host-workflows-dir>)`.

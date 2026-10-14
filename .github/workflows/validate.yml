@@ -126,7 +126,7 @@ jobs:
       # Anti-drift lock: the work issue-templates must all share one template-version, so
       # the ticket-gate version check stays correct across ticket types.
       - name: Template version lockstep
-        run: bash scripts/check-template-lockstep.sh
+        run: bash plugins/forge-kit-adapt/skills/adapt/assets/check-template-lockstep.sh
 
       # Behavioural gate for the one component that HAS a testable contract. Hooks are the
       # only forge-kit component that can be exercised in isolation: JSON in, decision out.
