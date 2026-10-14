@@ -283,6 +283,22 @@ for pat in 'forge-adapt-drift-status.sh' 'forge-adapt-tier-diff.sh'; do
   [ "$brc" != 0 ] && case "$berr" in *FORGE_KIT_DIR*) true ;; *) false ;; esac \
     && ok "#321: span '$pat' unset: exits non-zero naming FORGE_KIT_DIR" || bad "#321: span '$pat' unset: rc $brc, stderr '$berr'"
 done
+# #504: the drift call site names its two required inputs and the reference that explains them, so
+# it cannot go back to a bare script name that every guess then fails against.
+dspan=$(span 'forge-adapt-drift-status.sh')
+case "$dspan" in *"--local <installed>"*"--catalogue <catalogue>"*) ok "#504: the drift span passes --local and --catalogue" ;; *) bad "#504: the drift span is '$dspan'" ;; esac
+grep -q 'forge-adapt-drift-status.sh --local <installed> --catalogue <catalogue>` (inputs: `references/drift.md`)' "$SKILL" \
+  && ok "#504: the drift call site points at references/drift.md" || bad "#504: the drift call site names no reference"
+[ -f "$(dirname "$SKILL")/references/drift.md" ] && ok "#504: references/drift.md exists" || bad "#504: references/drift.md is missing"
+grep -q 'forge-adapt-plugin-active.sh <group>@forge-kit' "$(dirname "$SKILL")/references/drift.md" \
+  && ok "#504: the reference derives --group-enabled from the plugin-active script" || bad "#504: the reference does not name the group source"
+# The catalogue header is already the full plugin name (forge-kit-<x>), so a reference that prefixes it
+# again asks for forge-kit-forge-kit-<x>, which the script answers no for: every registered component
+# would read missing.
+RF="$(dirname "$SKILL")/references/drift.md"
+grep -q 'forge-kit-<group>' "$RF" && bad "#504: the reference prefixes the group with forge-kit- again" || ok "#504: the reference does not double-prefix the group"
+HL=$(lib); mkdir -p "$HL/plugins/forge-kit-x"
+case "$(bash "$ROOT/scripts/forge-adapt-catalogue.sh" "$HL" 2>/dev/null)" in *"=== forge-kit-x ==="*) ok "#504: the catalogue header is the full plugin name" ;; *) bad "#504: the catalogue header is not the directory name" ;; esac
 # Contributions: a library shipping ticket-gate, a project holding it and my-local.
 CB=$(fence 'comm -23'); CL=$(lib); mkdir -p "$CL/plugins/g/agents"; : > "$CL/plugins/g/agents/ticket-gate.md"
 contrib() { PROJ=$(mktemp -d "$T/proj.XXXXXX"); mkdir -p "$PROJ/.claude/agents"; : > "$PROJ/.claude/agents/ticket-gate.md"; : > "$PROJ/.claude/agents/my-local.md"

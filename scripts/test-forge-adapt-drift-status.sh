@@ -26,6 +26,28 @@ say current "a local ahead of the catalogue is current, not behind" --local 4 --
 say behind  "strictly lower is behind"          --local 2 --catalogue 3
 say behind  "and version 9 vs 10 compares numerically, not as text" --local 9 --catalogue 10
 
+echo "== the v<N> form the catalogue and the drift table print (#504) =="
+say behind      "v1 against v2 compares as numbers" --local v1 --catalogue v2
+say current     "v3 against v3 is current" --local v3 --catalogue v3
+say current     "a bare local against a v catalogue" --local 4 --catalogue v3
+say behind      "v9 against v10 is numeric, not text" --local v9 --catalogue v10
+say unversioned "v1 against none is unversioned" --local v1 --catalogue none
+say registered  "absent with the group enabled against v3" --local absent --catalogue v3 --group-enabled
+
+echo "== edge markers (#504) =="
+say current "zero against zero is current" --local 0 --catalogue 0
+say behind  "zero against one is behind" --local 0 --catalogue 1
+say behind  "a leading zero is decimal, not octal" --local 08 --catalogue 9
+say behind  "the longest accepted marker, nine digits" --local 1 --catalogue 999999999
+# A marker over nine digits is a typo, and the numeric comparison overflows on it and falls through to
+# `current` with exit 0: a wrong word with a success exit. It is refused, naming the original token.
+say "drift-status: '99999999999999999999' is too large to compare" "an oversized catalogue is refused, not called current" \
+  --local 3 --catalogue 99999999999999999999
+say "drift-status: 'v99999999999999999999' is too large to compare" "an oversized local is refused naming the original token" \
+  --local v99999999999999999999 --catalogue 3
+[ "$(rcof --local 3 --catalogue 99999999999999999999)" = 2 ] && ok "an oversized marker exits 2" || bad "an oversized marker exits 2"
+[ -z "$(bash "$S" --local 3 --catalogue 99999999999999999999 2>/dev/null)" ] && ok "and prints nothing on stdout" || bad "and prints nothing on stdout"
+
 echo "== absent is not the same as none =="
 # The distinction the whole script exists for. `none` is a copy with no marker, which is the entire
 # install base predating markers (#64); `absent` is no copy at all.
@@ -41,7 +63,15 @@ say unversioned "and an unmarked local copy is still unversioned" --local none -
 echo "== it refuses rather than guessing =="
 [ "$(rcof --local 1)" = 2 ] && ok "a missing --catalogue refuses" || bad "a missing --catalogue refuses"
 [ "$(rcof --catalogue 1)" = 2 ] && ok "a missing --local refuses" || bad "a missing --local refuses"
-[ "$(rcof --local v1 --catalogue 2)" = 2 ] && ok "a non-numeric version refuses" || bad "a non-numeric version refuses"
+[ "$(rcof --local x1 --catalogue 2)" = 2 ] && ok "a non-numeric version refuses" || bad "a non-numeric version refuses"
+# #504: the catalogue prints `v<N>`, so one leading v is read as the number. Nothing looser is.
+for tok in v vv1 V1 1v v-1 v1.5 .claude/agents/x.md ""; do
+  [ "$(rcof --local "$tok" --catalogue 2)" = 2 ] && ok "refuses --local '$tok'" || bad "refuses --local '$tok'"
+  [ "$(rcof --local 1 --catalogue "$tok")" = 2 ] && ok "refuses --catalogue '$tok'" || bad "refuses --catalogue '$tok'"
+done
+say "drift-status: '.claude/agents/x.md' is not a version, 'none' or 'absent'" "a path is refused naming the token" \
+  --local .claude/agents/x.md --catalogue 2
+say "drift-status: 'vv1' is not a version, 'none' or 'absent'" "a doubled v is refused naming the ORIGINAL token" --local vv1 --catalogue 2
 [ "$(rcof --local 1 --catalogue absent)" = 2 ] \
   && ok "an absent CATALOGUE refuses, since that means the library is broken" \
   || bad "an absent catalogue refuses"

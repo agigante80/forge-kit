@@ -3,6 +3,9 @@
 #
 #   forge-adapt-drift-status.sh --local <N|none|absent> --catalogue <N|none> [--group-enabled]
 #
+# N may carry one leading `v` (`v3` reads as 3), the form the catalogue prints. Anything else that is
+# not a number, and a number over nine digits, exits 2 naming the original token (#504).
+#
 # Prints exactly one of:
 #   current      the local copy is at or above the catalogue
 #   behind       the local marker is strictly below the catalogue
@@ -38,12 +41,20 @@ done
 
 is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
-for v in "$LOCAL" "$CATALOGUE"; do
-  case "$v" in
-    none|absent) ;;
-    *) is_num "$v" || { echo "drift-status: '$v' is not a version, 'none' or 'absent'" >&2; exit 2; } ;;
-  esac
-done
+# A marker is digits, with ONE optional leading v (#504): the catalogue and the drift table print
+# `v3`, and a caller should not have to strip it. Nothing looser is read (`vv1`, `V1`, `v` refuse).
+# Over nine digits is refused rather than compared: the integer test overflows and the fall-through
+# printed `current` with exit 0, a wrong word with a success exit, and a marker that long is a typo.
+# The refusal names the ORIGINAL token. LOCAL and CATALOGUE are rewritten to the bare number.
+norm() { # norm <token>: prints the bare number, or exits 2 naming the token
+  local t="$1" n="$1"
+  case "$t" in v?*) n="${t#v}" ;; esac
+  is_num "$n" || { echo "drift-status: '$t' is not a version, 'none' or 'absent'" >&2; exit 2; }
+  [ "${#n}" -le 9 ] || { echo "drift-status: '$t' is too large to compare" >&2; exit 2; }
+  printf '%s' "$n"
+}
+case "$LOCAL" in none|absent) ;; *) LOCAL=$(norm "$LOCAL") || exit 2 ;; esac
+case "$CATALOGUE" in none|absent) ;; *) CATALOGUE=$(norm "$CATALOGUE") || exit 2 ;; esac
 # The catalogue is the library's own copy; it is never "absent" from a library that lists it, and
 # treating it as such would hide a broken catalogue behind a per-component verdict.
 [ "$CATALOGUE" = absent ] && { echo "drift-status: --catalogue cannot be 'absent'" >&2; exit 2; }
