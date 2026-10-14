@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 41
+# check-ticket-mechanics-version: 44
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -110,6 +110,24 @@
 # --body only; refused with --roles or --dump-fields. forge-gate-mechanics.sh's template-shape test
 # reads it, so that test and check 3 share one fence-aware reader instead of two copies of the awk.
 #
+# --skeleton prints the STATIC checklist parts of a template that a form submission would have carried
+# and an API-filed body (forge_issue_create, `gh issue create --body-file`) lacks (#505): per field,
+# in template order, `## <label>` and then the `- [ ]` option lines of a checkboxes field, or the
+# `value: |` block of a textarea that holds a `- [ ]` line. Everything else prints nothing (inputs,
+# dropdowns, a textarea with only a placeholder, bare-stub value blocks, markdown). Without --body
+# it prints the template-version marker line (when the template has one) and then the sections.
+# With --body F it prints F byte for byte, then ONLY the sections whose heading is missing under
+# check 3's own presence rule (`## <label>` or `### <label>` as a whole line of the body_headings
+# output: case-sensitive, fence-aware, so a `####` heading is absent) and never a marker, because a
+# marker added to a body that has none would make Step 0a skip Step 0c. It writes nothing and adds
+# no size policy: the host rejects an oversized body with its own message. Refusals (exit 2, nothing
+# on stdout): no `body:` list in the template, a textarea `value:` that is not a `|` or `|-` block,
+# a flag combination. Recipe for an API caller, fail-closed (a bare command substitution would
+# discard the refusal and file an EMPTY issue):
+#   body="$(check-ticket-mechanics.sh --skeleton --template T --body F)" || exit 1
+#   forge_issue_create "$title" "$body"
+# --classes prints `<class>\t<label>` per template field (#513), see the block that implements it.
+#
 # --roles prints `<role>\t<label>` per resolved role and exits (#213), in the fixed order
 # scenarios, unit_tests, e2e_tests, docs_impact: the ids ticket-gate's Step 0c targets and the
 # synthesis table are keyed on (`scenarios` feeds check 3's row `gwt`). Same resolution as
@@ -147,7 +165,7 @@
 #
 set -uo pipefail
 
-BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
+BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -234,6 +252,8 @@ while [ $# -gt 0 ]; do
     --dump-fields)         DUMP_FIELDS=1; shift ;;
     --roles)               ROLES=1; shift ;;
     --headings)            HEADINGS=1; shift ;;
+    --classes)             CLASSES=1; shift ;;
+    --skeleton)            SKELETON=1; shift ;;
     -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' < "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -241,6 +261,11 @@ done
 
 [ "$ROLES" -eq 0 ] || [ "$DUMP_FIELDS" -eq 0 ] || die "--roles and --dump-fields are mutually exclusive"
 [ "$HEADINGS" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ]; } || die "--headings is exclusive of --roles and --dump-fields"
+[ "$CLASSES" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ] && [ "$HEADINGS" -eq 0 ]; } || die "--classes is exclusive of --roles, --dump-fields and --headings"
+[ "$SKELETON" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ] && [ "$HEADINGS" -eq 0 ] && [ "$CLASSES" -eq 0 ]; } || die "--skeleton is exclusive of --roles, --dump-fields, --headings and --classes"
+# --classes (#513) and --skeleton (#505) need no body, exactly like --roles, so they take the same
+# no-body path below. --skeleton's optional --body is checked in its own block.
+{ [ "$CLASSES" -eq 0 ] && [ "$SKELETON" -eq 0 ]; } || ROLES=1
 if [ "$ROLES" -eq 0 ]; then
   [ -n "$BODY" ]   || die "--body is required"
   [ -f "$BODY" ]   || die "body file not found: $BODY"
@@ -248,6 +273,8 @@ fi
 [ "$HEADINGS" -eq 0 ] || { body_headings; exit 0; }
 [ -n "$TEMPLATE" ] || die "--template is required"
 [ -f "$TEMPLATE" ] || die "template file not found: $TEMPLATE"
+[ "$SKELETON" -eq 0 ] || grep -q '^body:' "$TEMPLATE" || die "$TEMPLATE has no body: list"
+[ "$SKELETON" -eq 0 ] || [ -z "$BODY" ] || [ -f "$BODY" ] || die "body file not found: $BODY"
 
 # The project's area table, read the way scripts/check-label-taxonomy.sh reads the canonical one
 # (the two awk bodies are byte-identical, and its suite asserts that): rows of the `### Area
@@ -437,6 +464,70 @@ UNIT_LABEL="$(role_label 'unit test')"
 # direction this script forbids (found in review).
 E2E_LABEL="$(role_label 'e2e|end.to.end' 'integration.*(test|scenario)')"
 DOCS_LABEL="$(role_label 'documentation impact')"
+# --classes (#513) prints `<class>\t<label>` per template field, one row per label, in template
+# order, class in gate-owned | synthesised | author-supplied, resolved in that precedence:
+#   gate-owned      the template marks the field gate-filled (#304), check 3 never charges it;
+#   synthesised     Step 0c writes it: a role label --roles prints, or the `personal_data` field;
+#   author-supplied everything else, which Step 0c never writes, so it is the set check 3 reports
+#                   absent on a post-0c body (less the labels Step 0c-iv pointer-places).
+# It reads the same TEMPLATE_FIELDS and role resolution as check 3, so the partition has no second
+# copy. Needs --template, not --body (a --body is ignored). Check 3's evidence is unchanged.
+if [ "$SKELETON" -eq 1 ]; then
+  heads=""
+  [ -z "$BODY" ] || heads="$(body_headings)"
+  skel="$(CTM_HEADS="$heads" CTM_APPEND="$([ -n "$BODY" ] && echo 1 || echo 0)" awk "$UNQ_AWK"'
+    BEGIN { n = split(ENVIRON["CTM_HEADS"], a, "\n"); for (i = 1; i <= n; i++) have[a[i]] = 1
+            append = ENVIRON["CTM_APPEND"]; marker = ""; out = "" }
+    { sub(/\r$/, "") }
+    function flush(   i, v, last, miss) {
+      if (label == "") return
+      miss = !(("## " label) in have) && !(("### " label) in have)
+      if (type == "checkboxes" && nopt > 0) {
+        if (miss) { out = out "\n## " label "\n"; for (i = 1; i <= nopt; i++) out = out "- [ ] " opt[i] "\n" }
+      } else if (type == "textarea" && inval == 1 && vhas) {
+        if (miss) { last = nv; while (last > 0 && vl[last] ~ /^[ \t]*$/) last--
+                    out = out "\n## " label "\n"; for (i = 1; i <= last; i++) out = out vl[i] "\n" }
+      }
+    }
+    /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ {
+      flush(); t = $0; sub(/^.*type:[[:space:]]*/, "", t); gsub(/[[:space:]]/, "", t)
+      type = t; label = ""; nopt = 0; nv = 0; vhas = 0; inval = 0; inblk = 0; inopt = 0; next
+    }
+    /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = unq(l) } }
+    /^      options:/ { inopt = 1; inblk = 0; next }
+    /^      value:/ {
+      inopt = 0; inblk = 0; r = substr($0, 13); sub(/^[ \t]+/, "", r); sub(/[ \t]+$/, "", r)
+      if (type == "textarea") {
+        if (r == "|" || r == "|-") { inval = 1; inblk = 1 }
+        else { printf "ERR\tfield \047%s\047 has an unsupported value: style (use a | or |- block)\n", label; err = 1; exit 3 }
+      } else if (type == "markdown") { inblk = 1; inval = 0 }
+      next
+    }
+    /^      [a-z]/ { inopt = 0; inblk = 0 }
+    inopt && /^        - label: / { nopt++; o = substr($0, 18); sub(/[ \t]+$/, "", o); opt[nopt] = unq(o); next }
+    inblk && type == "markdown" && marker == "" && match($0, /<!-- template-version: [0-9]+ -->/) { marker = substr($0, RSTART, RLENGTH) }
+    inblk && type == "textarea" && (/^        / || /^[ \t]*$/) {
+      line = $0; sub(/^        /, "", line); nv++; vl[nv] = line; if (line ~ /^- \[ \]/) vhas = 1
+    }
+    END { if (err) exit 3; flush(); if (append != "1" && marker != "") print marker; printf "%s", out }
+  ' < "$TEMPLATE")"; skrc=$?
+  [ "$skrc" -eq 0 ] || die "$(printf '%s' "$skel" | sed -n 's/^ERR[[:space:]]//p' | head -1)"
+  if [ -n "$BODY" ]; then
+    cat "$BODY"
+    [ -z "$skel" ] || { [ -z "$(tail -c1 "$BODY")" ] || printf '\n'; printf '%s\n' "$skel"; }
+  else
+    [ -z "$skel" ] || printf '%s\n' "$skel"
+  fi
+  exit 0
+fi
+if [ "$CLASSES" -eq 1 ]; then
+  synth="$(printf '%s\n%s\n%s\n%s\n' "$SCENARIOS_LABEL" "$UNIT_LABEL" "$E2E_LABEL" "$DOCS_LABEL"; printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' 'tolower($3) == "personal_data" { print $1 }')"
+  printf '%s\n' "$TEMPLATE_FIELDS" | CTM_SYNTH="$synth" awk -F'\t' '
+    BEGIN { n = split(ENVIRON["CTM_SYNTH"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") syn[a[i]] = 1 }
+    $1 == "" || ($1 in seen) { next }
+    { seen[$1] = 1; c = ($4 == "yes") ? "gate-owned" : (($1 in syn) ? "synthesised" : "author-supplied"); print c "\t" $1 }'
+  exit 0
+fi
 if [ "$ROLES" -eq 1 ]; then
   for r in "scenarios:$SCENARIOS_LABEL" "unit_tests:$UNIT_LABEL" "e2e_tests:$E2E_LABEL" "docs_impact:$DOCS_LABEL"; do
     [ -n "${r#*:}" ] && printf '%s\t%s\n' "${r%%:*}" "${r#*:}"
@@ -565,7 +656,7 @@ else
   fi
 fi
 
-# --- check 4: GWT structure (rule 1, the checkable half) --------------------------------
+# --- check 4: GWT structure (section "GWT scenarios", the checkable half) --------------------------------
 # WHICH conditions are independent is the critic's judgment, never this check's.
 #
 # ONE marker regex for every site (#205): the bare word with an optional parenthetical and/or
@@ -675,7 +766,7 @@ without_oneliner_headers() {
 }
 ONE_LINE='^[[:space:]]*([-*][[:space:]]+)?([*][*]|__|[*]|_)?(Positive|Negative)([*][*]|__|[*]|_)?[.:].*(^|[^A-Za-z])Given([^A-Za-z]|$).*(^|[^A-Za-z])When([^A-Za-z]|$).*(^|[^A-Za-z])Then([^A-Za-z]|$)'
 if [ -z "$SCENARIOS_LABEL" ]; then
-  row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"
+  row gwt referred "no section matched Given/When/Then; the critic must judge section \"GWT scenarios\" unaided"
 else
   SCENARIOS="$(section_of "$SCENARIOS_LABEL")"
   if ! has_content "$SCENARIOS"; then
@@ -740,7 +831,7 @@ else
     # behind the refer, since both outcomes are `referred`.
     if [ "$pos_count" -eq 0 ] && [ "$neg_count" -eq 0 ] && [ -z "$one_line" ] && looks_na "$SCENARIOS"; then
       if long_enough "$SCENARIOS"; then
-        row gwt referred "scenarios claim N/A; legitimate only where rule 1 finds no behaviour delta: $(first_line "$SCENARIOS")"
+        row gwt referred "scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $(first_line "$SCENARIOS")"
       else
         row gwt fail "scenarios claim a bare N/A with no reason: $(first_line "$SCENARIOS")"
       fi
@@ -752,7 +843,7 @@ else
       elif missing_then="$(then_missing "$judged")"; [ "$missing_then" -gt 0 ]; then
         row gwt fail "a Negative block has no Then line$(then_note "$missing_then")"
       else
-        row gwt referred "one-line scenario form; the critic must judge rule 1 unaided: $(first_line "$one_line")"
+        row gwt referred "one-line scenario form; the critic must judge section \"GWT scenarios\" unaided: $(first_line "$one_line")"
       fi
     elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
@@ -764,8 +855,8 @@ else
         # EVERY negative block is judged, not just the first: a ticket with three conditions
         # would otherwise have two of its negatives unchecked. A digit-bearing status, a
         # quoted message, or an UPPER_SNAKE identifier is specific enough; anything else is
-        # REFERRED, never failed, because this heuristic is narrower than rule 1's quality
-        # bar on purpose and must not reject a message the canonical doc allows.
+        # REFERRED, never failed, because this heuristic is narrower than the section "GWT scenarios"
+        # quality bar on purpose and must not reject a message the canonical doc allows.
         vague="$(printf '%s\n' "$SCEN_BLOCKS" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
           BEGIN { neg = ENVIRON["CTM_NEG"]; pos = ENVIRON["CTM_POS"] }
           $0 ~ neg { inneg = 1; seen = 0; next }
@@ -794,7 +885,7 @@ fi
 # claim read as a named path and PASSED a check that must refer it. So did prose like "and/or".
 
 if [ -z "$UNIT_LABEL" ]; then
-  row unit_tests referred "no section matched unit tests; the critic must judge rule 2 unaided"
+  row unit_tests referred "no section matched unit tests; the critic must judge section \"Unit test specs\" unaided"
 else
   UNIT="$(section_of "$UNIT_LABEL")"
   # N/A is tested BEFORE a path, here and in the E2E branch below, so the two cannot disagree:
@@ -802,7 +893,7 @@ else
   if ! has_content "$UNIT"; then
     row unit_tests "$(empty_outcome "$UNIT_LABEL")" "no content in $UNIT_LABEL"
   elif looks_na "$UNIT"; then
-    row unit_tests referred "unit tests claim N/A; legitimate only where rule 2 is out of scope: $(first_line "$UNIT")"
+    row unit_tests referred "unit tests claim N/A; legitimate only where section \"Unit test specs\" is out of scope: $(first_line "$UNIT")"
   elif names_path "$UNIT"; then
     row unit_tests pass "$(first_line "$UNIT")"
   else
@@ -811,16 +902,16 @@ else
 fi
 
 if [ -z "$E2E_LABEL" ]; then
-  row e2e_tests referred "no section matched E2E; the critic must judge rule 3 unaided"
+  row e2e_tests referred "no section matched E2E; the critic must judge section \"E2E test specs\" unaided"
 else
   E2E="$(section_of "$E2E_LABEL")"
   if ! has_content "$E2E"; then
     row e2e_tests "$(empty_outcome "$E2E_LABEL")" "no content in $E2E_LABEL"
   elif looks_na "$E2E"; then
-    # Whether the ticket touches UI at all (rule 3), is Step 3B's call, so a reasoned N/A is
+    # Whether the ticket touches UI at all (section "E2E test specs"), is Step 3B's call, so a reasoned N/A is
     # referred rather than passed, and an unreasoned one fails.
     if long_enough "$E2E"; then
-      row e2e_tests referred "E2E N/A with a reason; rule 3 says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
+      row e2e_tests referred "E2E N/A with a reason; section \"E2E test specs\" says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
     else
       row e2e_tests fail "E2E N/A with no reason given"
     fi
@@ -832,9 +923,9 @@ else
 fi
 
 # --- check 6: documentation impact present ----------------------------------------------
-# Presence only. Whether a "none" reason HOLDS is rule 7, judged by the critic.
+# Presence only. Whether a "none" reason HOLDS is section "Documentation currency", judged by the critic.
 if [ -z "$DOCS_LABEL" ]; then
-  row docs_impact referred "no section matched documentation impact; rule 7 is the critic's"
+  row docs_impact referred "no section matched documentation impact; section \"Documentation currency\" is the critic's"
 else
   DOCS="$(section_of "$DOCS_LABEL")"
   if ! has_content "$DOCS"; then
@@ -843,7 +934,7 @@ else
     row docs_impact pass "$(first_line "$DOCS")"
   elif grep -qiE 'none|no doc' <<< "$DOCS"; then
     if long_enough "$DOCS"; then
-      row docs_impact referred "claims no docs needed; rule 7 applies to every work ticket: $(first_line "$DOCS")"
+      row docs_impact referred "claims no docs needed; section \"Documentation currency\" applies to every work ticket: $(first_line "$DOCS")"
     else
       row docs_impact fail "claims no docs needed with no reason given"
     fi

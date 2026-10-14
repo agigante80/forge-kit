@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 8
+# forge-gate-mechanics-version: 9
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -131,8 +131,9 @@ fi
 # and saying it seven times buries the one fact worth knowing.
 #
 # It is not a defect in the ticket and not a defect in the checks. The gate's own Step 0c
-# SYNTHESISES the missing sections and writes the enriched body back to the forge BEFORE Step 3A
-# runs, so inside a gate run the checks always see template-shaped input. This script does not
+# SYNTHESISES the sections it can write and writes the enriched body back to the forge BEFORE Step
+# 3A runs, so inside a gate run the checks see those sections; the author-supplied ones stay absent
+# (`check-ticket-mechanics.sh --classes` lists them, #513). This script does not
 # synthesise, deliberately: that step generates prose and needs a model.
 #
 # A heading counts only OUTSIDE a fenced code block (#485): the headings come from the checker's own

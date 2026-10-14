@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 81 -->
+<!-- ticket-gate-version: 83 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -125,7 +125,7 @@ Target sections (always check):
   containing GDPR, matched case-insensitively)
 
 A non-target section under a variant heading counts as present when, by meaning (the
-orchestrator's call, not the sub-agent's), exactly one template label fits; an empty one, or a
+orchestrator's call), exactly one template label fits; an empty one, or a
 target section under another heading (bar `personal_data`'s GDPR match), is Missing.
 
 **0c-iii. Synthesise real content**
@@ -133,6 +133,8 @@ target section under another heading (bar `personal_data`'s GDPR match), is Miss
 Write each section, inline or dispatched, as `## <label>` holding the template's unquoted
 `label:` value, scenarios following its `placeholder:` shape, never placeholder text; where
 the body cannot support a specific case, write the most concrete one and note the assumption.
+Tag the first line of each `scenarios` or `docs_impact` block, `**Condition:**` lines too,
+`(gate-written, round 0)`.
 
 Fast path: when the ONLY gap is `docs_impact`, synthesise it inline, then 0c-iv.
 
@@ -146,7 +148,7 @@ Synthesis rules per section:
 
 | Section | Derived from |
 |---|---|
-| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Apply the rule-1 quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. Label lines `**Positive:** <title>` or `**Negative:** <title>`. |
+| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Apply the section "GWT scenarios" quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. Label lines `**Positive:** <title>` or `**Negative:** <title>`. |
 | `unit_tests` | Acceptance criteria + referenced files -> specific test file path, concrete input value, expected output or error code. |
 | `e2e_tests` | UI-visible behaviour -> specific test suite file, setup steps, action, assertion. N/A with reason for API-only tickets. |
 | `docs_impact` | The ticket's own file list -> the docs and README sections it plausibly touches, or "none" with the reason. |
@@ -159,7 +161,7 @@ Merge synthesised content into the issue body, preserving all prior AUTHOR text
 verbatim, and clear the gate's regions (Step 6's lifecycle).
 Except for `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact` (checks 4 to 7 read just the
 text under a label), add `## <label>` above a mapped author section with the one line
-`See "<variant>" below.` (new, so WRITE ONCE allows it). Replace or add
+`See "<variant>" below.` Replace or add
 `template-version: $CURRENT_TPL_VER` (0a's value; never a hardcoded literal).
 
 Write it with Step 6's primitives, minus the verdict block.
@@ -245,7 +247,7 @@ justified, which label routing decides:
 |---|---|---|
 | Security specialist | label `security` OR `critical` | runs the Security lens (defined in the reference skill) in addition to the critic; findings merge into the same review comment |
 | API-design brief | label `api` OR body matches `GET /\|POST /\|PUT /\|DELETE /\|routes/` | no extra agent: the critic's brief gains the API-design checklist (REST conventions, error-code consistency, contract clarity, could a client dev implement from the spec alone) |
-| Privacy regime | label `privacy` | no extra agent: Read `.claude/skills/privacy-regime/SKILL.md` and append its filled-in obligations to the critic's brief. Absent or unfilled, skip the row: rule 4 still binds |
+| Privacy regime | label `privacy` | no extra agent: Read `.claude/skills/privacy-regime/SKILL.md` and append its filled-in obligations to the critic's brief. Absent or unfilled, skip the row: section "Personal data handling" still binds |
 | `critical` | label `critical` | maximum scrutiny: the critic treats every brief section as blocking-capable and the security lens always runs |
 
 Label names match without regard to case (`API` is `api`, `Privacy` is `privacy`).
@@ -377,13 +379,13 @@ issue title + body, the project context from Step 2, the research from Step 2.7,
    against that doc: on conflict it wins; a rule ONLY here still applies (absence never
    relaxes a bar); where this list is merely STRICTER, that strictness is ADVISORY and
    reported as a doc gap, never blocking:
-   - **UI E2E (rule 3):** a ticket touching any UI needs E2E specs for happy AND unhappy
-     paths; an author's N/A on a UI-touching ticket is rejected as blocking, never accepted.
-   - **API endpoint coverage (rule 2):** a ticket creating or modifying ANY endpoint needs
+   - **UI E2E (section "E2E test specs"):** a ticket touching any UI needs E2E specs for happy AND unhappy
+     paths; an author's N/A on a UI-touching ticket is rejected as blocking.
+   - **API endpoint coverage (section "Unit test specs"):** a ticket creating or modifying ANY endpoint needs
      100% coverage enumerated: happy path; missing-field 400 with a specific code; no-token
      401; invalid-token 401; wrong-user 403; rate-limit enforcement; IDOR (user A cannot
      reach user B's resources). Any missing case is blocking.
-   - **Personal-data judgment (rule 4):** the critic OWNS this. Where personal data is touched (names, emails, phones, GPS, IPs,
+   - **Personal-data judgment (section "Personal data handling"):** the critic OWNS this. Where personal data is touched (names, emails, phones, GPS, IPs,
      identifiers in logs count), seven facts are required: (1) the fields themselves, (2)
      storage location and encryption at rest, (3) erasure with cascading deletion, (4)
      portability, (5) minimisation and retention, (6) legal basis, (7) cross-border transfer. **Name no jurisdiction.** An "N/A - no personal
@@ -397,12 +399,12 @@ issue title + body, the project context from Step 2, the research from Step 2.7,
      the change touches shared code
    - a 3+-affected-areas ticket earns a split recommendation (ADVISORY, never blocking,
      even under `critical`)
-   - documentation currency (rule 7) judged against the ticket's own file list (or
+   - section "Documentation currency" judged against the ticket's own file list (or
      areas/screens fields absent a file-list field)
-   - rule 3's emulator clause where the project runs an emulator or simulator suite: a
+   - section "E2E test specs" emulator clause where the project runs an emulator or simulator suite: a
      user-journey ticket names the scenario it adds or extends, or why the standing suite
-     already covers it (N/A on projects with no such suite)
-3. **GWT review or additions** - judge the scenarios against the rule-1 quality bar
+     already covers it
+3. **GWT review or additions** - judge the scenarios against the section "GWT scenarios" quality bar
    (derived scope: an N/A claim is legitimate only where no behaviour delta exists, and
    the claim itself is judged); where scenarios are weak, WRITE the improved ones, labelled
    `**Positive:** <title>` or `**Negative:** <title>`.
@@ -526,11 +528,10 @@ plus `gate-context` written by Step 2.9, carrying the headings `Gate verdict` / 
    result, not the verdict: a NEEDS-WORK round that cleared its fundamental would otherwise
    leave the alternatives standing.
 
-**WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only a section that is empty,
-placeholder, or synthesised by THIS run's 0c; never text the author may have written, since a
-later round cannot tell an edit of gate prose from its own. 0c-iii's thin append is the deliberate
-exception, and is how a pre-v6 section reaches v6. 0c uses `forge_body_compose_preserving`;
-Step 6 item 2 uses `forge_body_section_append`, refusing author text (108).
+**WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only an empty, placeholder or
+gate-tagged section, never author text, since a later round cannot tell an edit of gate prose
+from its own. 0c-iii's thin append is the deliberate exception (how a pre-v6 section reaches v6).
+0c uses `forge_body_compose_preserving`; Step 6 item 2 uses `forge_body_section_append` (108 on author text).
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.
@@ -603,7 +604,7 @@ where it is read; this section is for rules that span steps or the whole run (#1
 - **Domain-not-touched -> N/A, with two exceptions.** A brief section or lens whose domain
   the ticket does not touch records a one-line N/A (e.g., "N/A - no API endpoint", "N/A - no
   PII handled") rather than penalising the ticket. Two concerns are never N/A-by-domain:
-  documentation currency (rule 7) applies to every work ticket, and the GWT quality bar with
+  section "Documentation currency" applies to every work ticket, and the GWT quality bar with
   its derived scope; both live in the critic's brief, and their "none"/N/A CLAIMS are judged,
   never waved through.
 - **PASS requires zero blocking items**, from the critic, any lens that ran, and Step 3A's

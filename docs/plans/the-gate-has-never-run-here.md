@@ -10,7 +10,9 @@ ticket's central question had two possible answers and only one of them describe
 - Step 0c auto-synthesis triggers on exactly the condition every ticket here meets (no
   `template-version` marker), merges the missing sections, **writes the enriched body back to the
   forge with `gh issue edit`**, and only then proceeds to 0b and Step 3A. So when the gate runs, the
-  mechanics are fed a template-shaped body, and the "every FAIL is a blocking item" rule holds.
+  mechanics are fed a body carrying every section Step 0c writes (the author-supplied sections
+  stay absent; `check-ticket-mechanics.sh --classes` lists them, #513), and the "every FAIL is a
+  blocking item" rule holds for the sections the gate can write.
 - The gate has never run here. Scanning the last 30 issues, **not one carries a gate review
   comment**, and the only two bodies containing the string `template-version` contain it in prose.
 
@@ -74,8 +76,9 @@ Moved verbatim from `docs/roadmap.md` on 2026-10-07, when the roadmap was conden
 Closed 2026-09-10, outcome **done**. One ticket, plus the decision the finding forced.
 
 The answer was the reassuring branch: Step 0c synthesises a body and writes it back to the forge
-before Step 3A sees it, so the blocking rule holds inside a gate run and #184 was a reporting
-problem rather than a defect. The premortem's second clause then fired on the fix: a mutant swapping
+before Step 3A sees it, so the blocking rule holds inside a gate run for the sections Step 0c writes
+(#513 later found the author-supplied ones stay absent) and #184 was a reporting problem rather
+than a defect. The premortem's second clause then fired on the fix: a mutant swapping
 `&&` for `||` in the shape test survived until cases existed for a body with headings and no marker,
 and a marker with no headings. Claiming more than two signals support is exactly what that clause
 warned about.
@@ -90,7 +93,8 @@ Opened 2026-09-10 to work #184, whose central question was answered before the p
 because only one of its two answers described work.
 
 The gate is sound: Step 0c synthesises a body and writes it back to the forge before Step 3A sees
-it, so inside a gate run the mechanics get template-shaped input and the blocking rule holds. What
+it, so inside a gate run the mechanics get every section Step 0c writes and the blocking rule holds
+for them (the author-supplied sections stay absent, #513). What
 the evidence shows instead is that **the gate has never run on this repository's tickets**: not one
 of the last thirty issues carries a gate review comment, and the only bodies containing
 `template-version` contain it in prose.

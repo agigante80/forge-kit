@@ -82,8 +82,8 @@ template_version           fail      no template-version marker in body (current
 labels                     fail      no area label (one of: api, privacy, web, mobile, backend, database, components, tooling, governance)
 sections                   fail      heading absent: Summary; Priority; Area(s) affected; Files to create/modify; Rollback plan; ...
 gwt                        fail      needs at least one Positive and one Negative block (found 0 positive, 0 negative)
-unit_tests                 referred  no section matched unit tests; the critic must judge rule 2 unaided
-e2e_tests                  referred  no section matched E2E; the critic must judge rule 3 unaided
+unit_tests                 referred  no section matched unit tests; the critic must judge section "Unit test specs" unaided
+e2e_tests                  referred  no section matched E2E; the critic must judge section "E2E test specs" unaided
 docs_impact                pass      CLAUDE.md's validation list and the shipped-executables section. ...
 
 forge-gate-mechanics: issue #182 against .github/ISSUE_TEMPLATE/infrastructure.yml (ticket vnone, current v6)
@@ -105,8 +105,8 @@ Three things to read from that, because they are the whole shape of this tool:
   genuinely absent. A body none of whose headings is a template label gets a `never
   template-shaped` notice once, above the rows, and exits 0, because that shape is not a defect
   in the ticket. The full
-  gate handles both cases at its Step 0c by synthesising the missing sections and writing the
-  enriched body back to the forge before the checks run; this script does not synthesise, because
+  gate handles both cases at its Step 0c by synthesising the sections it can write and writing the
+  enriched body back to the forge before the checks run (author-supplied sections stay absent); this script does not synthesise, because
   that step generates prose and needs a model. If your team files tickets by hand, take the
   `referred` rows and the named absences as the useful signal.
 

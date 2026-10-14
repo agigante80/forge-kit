@@ -180,7 +180,7 @@ body:
 OPT
 printf '<!-- template-version: 6 -->\n\n### Summary\n\nsomething\n\n### E2E test scenarios\n\n_No response_\n' > "$WORK/opt.md"
 optout="$(bash "$SCRIPT" --body "$WORK/opt.md" --template "$WORK/opt.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,feature)"
-# `na` would be a fail-open of its own: rules 3 and 7 still bind on an optional section, and
+# `na` would be a fail-open of its own: the E2E and documentation sections still bind when optional, and
 # nothing looks at an `na` row again.
 expect "an OPTIONAL section left empty is REFERRED, neither fail nor na" referred "$(outcome "$optout" e2e_tests)"
 expect "and check 3 still passes it" pass "$(outcome "$optout" sections)"
@@ -283,7 +283,7 @@ U="$(mkbody feature "shortcircuit.md" "" "N/A docs-only change" "")"
 expect "REGRESSION: a referred unit result does not hide an unusable E2E section" fail \
   "$(outcome "$(run "$U" feature)" e2e_tests)"
 E="$(mkbody feature "e2ena.md" "" "" "N/A, this ticket changes no UI-visible behaviour at all")"
-expect "an E2E N/A with a reason is REFERRED, since rule 3 is the critic's call" referred "$(outcome "$(run "$E" feature)" e2e_tests)"
+expect "an E2E N/A with a reason is REFERRED, since the E2E test specs section is the critic's call" referred "$(outcome "$(run "$E" feature)" e2e_tests)"
 E="$(mkbody feature "e2enapath.md" "" "" "N/A, covered by \`tests/unit/auth.test.ts\` instead")"
 expect "REGRESSION: an N/A citing a path is still an N/A claim, not a pass" referred "$(outcome "$(run "$E" feature)" e2e_tests)"
 E="$(mkbody feature "e2ebare.md" "" "" "N/A")"
@@ -319,7 +319,7 @@ expect "#459: na as the start of a longer word is not a claim" fail "$(outcome "
 echo "check-ticket-mechanics: documentation impact"
 expect "naming a doc passes" pass "$(outcome "$(run "$B" feature)" docs_impact)"
 D="$(mkbody feature "docsnone.md" "" "" "" "None, this changes no documented behaviour whatsoever")"
-expect "a reasoned none is REFERRED, since rule 7 applies to every work ticket" referred "$(outcome "$(run "$D" feature)" docs_impact)"
+expect "a reasoned none is REFERRED, since the documentation currency section applies to every work ticket" referred "$(outcome "$(run "$D" feature)" docs_impact)"
 D="$(mkbody feature "docsbare.md" "" "" "" "none")"
 expect "a bare none fails" fail "$(outcome "$(run "$D" feature)" docs_impact)"
 D="$(mkbody feature "docsvague.md" "" "" "" "we should think about it")"
@@ -427,7 +427,7 @@ case "$(gwt_ev "$(run "$O6" feature)")" in *"found 0 positive, 0 negative"*) ok 
 N1="$(mkbody feature "na1.md" "$(printf -- 'N/A: documentation only, no behaviour delta, nothing for a scenario to review.')")"
 o="$(run "$N1" feature)"
 expect "#241: a reasoned N/A in the scenarios section refers" referred "$(outcome "$o" gwt)"
-case "$(gwt_ev "$o")" in *"claim N/A"*"rule 1"*) ok "#241: and the evidence is in check 5's shape" ;; *) bad "#241: evidence shape: $(gwt_ev "$o")" ;; esac
+case "$(gwt_ev "$o")" in *"claim N/A"*'section "GWT scenarios"'*) ok "#241: and the evidence is in check 5's shape" ;; *) bad "#241: evidence shape: $(gwt_ev "$o")" ;; esac
 N2="$(mkbody feature "na2.md" "$(printf -- 'N/A.')")"
 expect "#241: a bare N/A with no reason fails" fail "$(outcome "$(run "$N2" feature)" gwt)"
 N3="$(mkbody feature "na3.md" "$(printf -- 'Positive\n- Given: a config whose field is N/A\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
@@ -568,7 +568,7 @@ expect "#490: a complete pair quoted only inside a fence fails 0/0 (accepted pas
 # evidence quotes the fence opener, the field's first non-blank line.
 F490A="$(one479 f490na "$(printf -- '%s\nN/A: a docs-only change with no behaviour delta\n%s' "$FB" "$FB")")"
 expect "#490 guard: a fence holding only a reasoned N/A stays referred, evidence read from the raw field" \
-  "referred|scenarios claim N/A; legitimate only where rule 1 finds no behaviour delta: $FB" "$(g490 "$F490A")"
+  "referred|scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $FB" "$(g490 "$F490A")"
 # A field whose only scenario is a fenced one-liner fails 0/0 where it referred: intended.
 F490O="$(one479 f490one "$(printf -- '%s\n- Positive: Given a. When b. Then c.\n- Negative: Given d. When e. Then 400 INVALID.\n%s' "$FB" "$FB")")"
 expect "#490: a field whose only scenarios are fenced one-liners fails 0/0 (referred before, intended)" "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)" "$(g490 "$F490O")"
@@ -1559,8 +1559,8 @@ cmp -s "$GATE_MD" "$WORK/gate-noex.md" && bad "#273: the no-example copy did not
 msg="$(gw_example "$WORK/gate-noex.md" 2>&1 >/dev/null)"; rc=$?
 expect "#273: a missing example fails loudly" "documented gate-written scenario example not found" "$msg"
 [ "$rc" -ne 0 ] && ok "#273: and returns non-zero" || bad "#273: a missing example returned 0"
-grep -q 'Apply the rule-1 quality bar.*`\*\*Positive:\*\* <title>`' "$GATE_MD" \
-  && ok "#273: the Step 0c-iii scenarios row states the label form beside its rule-1 anchor" || bad "#273: the scenarios row lacks the label form"
+grep -q 'Apply the section "GWT scenarios" quality bar.*`\*\*Positive:\*\* <title>`' "$GATE_MD" \
+  && ok "#273: the Step 0c-iii scenarios row states the label form beside its section anchor" || bad "#273: the scenarios row lacks the label form"
 # #349: the critic's own advice names a label check 4 reads. Step 3B element 3 gives the shape the
 # critic writes; #341's critic invented `Control (...)`, which check 4 does not read, and #292's
 # writer used `_(...)_`. The checker is unchanged: the guidance moved to it.
@@ -2395,6 +2395,271 @@ cmp -s "$GATE" "$WORK/gate-case-mut.md" && bad "#472: the case-rule mutant did n
 sed 's/| API-design brief | label `api` OR/| API-design brief | label `API` OR/' "$GATE" > "$WORK/gate-row-mut.md"
 cmp -s "$GATE" "$WORK/gate-row-mut.md" && bad "#472: the row mutant did not apply"
 gate_pin '| API-design brief | label `api` OR body matches' "$WORK/gate-row-mut.md" && bad "#472: MUTANT survived: the row pin passes with the row reworded" || ok "#472: MUTANT: rewording the API row fails the pin"
+
+# #513: --classes partitions a template's labels into what the gate owns, what Step 0c writes and what
+# only the author supplies, so check 3's absent set on a post-0c body is a computed fact, not a claim.
+echo "check-ticket-mechanics: --classes partitions the template labels (#513)"
+classes() { bash "$SCRIPT" --classes --template "$1" 2>/dev/null; }
+class_labels() { printf '%s\n' "$1" | awk -F'\t' -v c="$2" '$1==c{print $2}'; }
+# partition_guard <body> <template>: runs check 3 and fails if it reports a SYNTHESISED label absent.
+# A test helper, not a shipped mode: the rule is "Step 0c writes it, so check 3 must never miss it".
+partition_guard() {
+  local ev absent lab
+  ev="$(bash "$SCRIPT" --body "$1" --template "$2" --tpl-version 6 --current-tpl-version 6 --labels "bug,api" 2>/dev/null | awk -F'\t' '$1=="sections"{print $3}')"
+  case "$ev" in "heading absent"*) absent="${ev#*): }" ;; *) return 0 ;; esac
+  while IFS= read -r lab; do
+    [ -n "$lab" ] || continue
+    synth="$(class_labels "$(classes "$2")" synthesised)"
+    if grep -qxF -- "$lab" <<< "$synth"; then
+      echo "synthesised heading reported absent: $lab"; return 1
+    fi
+  done <<< "$(printf '%s\n' "$absent" | sed 's/; /\n/g')"
+  return 0
+}
+absent_of() {
+  bash "$SCRIPT" --body "$1" --template "$2" --tpl-version 6 --current-tpl-version 6 --labels "bug,api" 2>/dev/null \
+    | awk -F'\t' '$1=="sections"{print $3}' | sed -n 's/^heading absent ([0-9]*): //p' | sed 's/; /\n/g'
+}
+# A pointer-free post-0c body: only the synthesised headings, filled, plus the author's Problem.
+post0c_body() {
+  { printf '## Problem\nsomething\n\n'
+    class_labels "$(classes "$1")" synthesised | while IFS= read -r l; do printf '## %s\ncontent\n\n' "$l"; done
+  } > "$2"
+}
+BUG10="$(printf 'Bug description\nSteps to reproduce\nExpected vs actual behavior\nAffected areas\nSeverity\nSecurity impact\nAcceptance criteria\nDependencies\nRequired reviews (mandatory)\nQA & Regression tests')"
+expect "#513: bug.yml author-supplied is the ten-label literal" "$BUG10" "$(class_labels "$(classes "$TPLDIR/bug.yml")" author-supplied)"
+expect "#513: bug.yml gate-owned is Codebase Context" "Codebase Context" "$(class_labels "$(classes "$TPLDIR/bug.yml")" gate-owned)"
+for t in bug feature security infrastructure design; do
+  T="$TPLDIR/$t.yml"; c="$(classes "$T")"
+  all="$(bash "$SCRIPT" --dump-fields --body "$T" --template "$T" 2>/dev/null | cut -f1)"
+  expect "#513 ($t): every template label has exactly one class row" "$all" "$(printf '%s\n' "$c" | cut -f2)"
+  expect "#513 ($t): no label has two classes" "" "$(printf '%s\n' "$c" | cut -f2 | sort | uniq -d)"
+  # Independent oracle: --roles output plus the personal-data field, never --classes itself.
+  want="$(bash "$SCRIPT" --roles --template "$T" | cut -f2)"
+  grep -q 'id: personal_data' "$T" && want="$(printf '%s\nPersonal data handling' "$want")"
+  expect "#513 ($t): synthesised is the --roles labels plus personal data where the template has it" \
+    "$(printf '%s\n' "$want" | sort)" "$(class_labels "$c" synthesised | sort)"
+  b="$WORK/p0c-$t.md"; post0c_body "$T" "$b"
+  expect "#513 ($t): pointer-free post-0c body is absent exactly the author-supplied class" \
+    "$(class_labels "$c" author-supplied | sort)" "$(absent_of "$b" "$T" | sort)"
+  partition_guard "$b" "$T" >/dev/null && ok "#513 ($t): the partition guard accepts it" || bad "#513 ($t): the partition guard rejected a post-0c body"
+done
+# Pointer-aware: Step 0c-iv places a pointer under Bug description and Affected areas, leaving eight.
+b="$WORK/p0c-bug-ptr.md"; post0c_body "$TPLDIR/bug.yml" "$b"
+printf '## Bug description\nSee "Problem" below.\n\n## Affected areas\nSee "Scope" below.\n' >> "$b"
+expect "#513: pointer-aware bug.yml fixture is absent eight labels" "8" "$(absent_of "$b" "$TPLDIR/bug.yml" | wc -l | tr -d ' ')"
+expect "#513: pointer-aware absent set is the ten minus the two pointer-placed" \
+  "$(printf '%s\n' "$BUG10" | grep -vxF -e 'Bug description' -e 'Affected areas' | sort)" "$(absent_of "$b" "$TPLDIR/bug.yml" | sort)"
+# Negative: a synthesised heading missing from the body is named by the guard.
+b="$WORK/p0c-bug-neg.md"; post0c_body "$TPLDIR/bug.yml" "$b"
+grep -v '^## Documentation impact$' "$b" > "$b.x"; mv "$b.x" "$b"
+o="$(partition_guard "$b" "$TPLDIR/bug.yml")"; rc=$?
+expect "#513: guard exits 1 when a synthesised heading is absent" 1 "$rc"
+expect "#513: guard message names the heading" "synthesised heading reported absent: Documentation impact" "$o"
+# CLI contract.
+o="$(bash "$SCRIPT" --classes --template "$TPLDIR/nope.yml" 2>&1)"; rc=$?
+expect "#513: --classes on a missing template exits 2" 2 "$rc"
+expect "#513: the missing-template message names the path" "check-ticket-mechanics: template file not found: $TPLDIR/nope.yml" "$o"
+o="$(bash "$SCRIPT" --classes 2>&1)"; rc=$?
+expect "#513: --classes without --template exits 2" 2 "$rc"
+for x in --roles --dump-fields --headings; do
+  o="$(bash "$SCRIPT" --classes $x --body "$TPLDIR/bug.yml" --template "$TPLDIR/bug.yml" 2>&1)"; rc=$?
+  expect "#513: --classes with $x exits 2" 2 "$rc"
+done
+expect "#513: --classes ignores a --body it is given" "$(classes "$TPLDIR/bug.yml")" "$(bash "$SCRIPT" --classes --body "$WORK/nowhere.md" --template "$TPLDIR/bug.yml" 2>/dev/null)"
+HELP="$(bash "$SCRIPT" --help)"
+grep -q -- '--classes' <<< "$HELP" && ok "#513: --help documents --classes" || bad "#513: --help omits --classes"
+# Mutants, on a cp copy: dropping the personal-data rule must break the bug.yml oracle.
+cp "$SCRIPT" "$WORK/mut-cls.sh"
+sed 's/tolower(\$3) == "personal_data"/tolower($3) == "zzz"/' "$SCRIPT" > "$WORK/mut-cls.sh"
+cmp -s "$SCRIPT" "$WORK/mut-cls.sh" && bad "#513: the personal-data mutant did not apply"
+[ "$(bash "$WORK/mut-cls.sh" --classes --template "$TPLDIR/bug.yml" | awk -F'\t' '$1=="author-supplied"{print $2}')" = "$BUG10" ] \
+  && bad "#513: MUTANT survived: dropping personal_data from synthesised keeps the oracle" || ok "#513: MUTANT: dropping personal_data fails the bug.yml oracle"
+sed 's/(\$4 == "yes") ? "gate-owned"/($4 == "zzz") ? "gate-owned"/' "$SCRIPT" > "$WORK/mut-cls2.sh"
+cmp -s "$SCRIPT" "$WORK/mut-cls2.sh" && bad "#513: the gate-owned mutant did not apply"
+[ -z "$(bash "$WORK/mut-cls2.sh" --classes --template "$TPLDIR/bug.yml" | awk -F'\t' '$1=="gate-owned"')" ] \
+  && ok "#513: MUTANT: ignoring the gate flag empties gate-owned (the bug.yml row above fails)" || bad "#513: MUTANT survived: gate-owned still printed"
+# Step 0c's target list (ticket-gate.md 0c-ii) is prose; pin it so it cannot drift from the synthesised class.
+T0C='the roles `--roles` printed, and `personal_data`'
+gate_pin "$T0C" "$GATE" && ok "#513: Step 0c-ii targets are the --roles labels plus personal_data, as --classes' synthesised class" || bad "#513: Step 0c-ii target wording changed; --classes' synthesised class no longer matches"
+sed 's/the roles `--roles` printed, and `personal_data`/the roles printed/' "$GATE" > "$WORK/gate-0cii-mut.md"
+cmp -s "$GATE" "$WORK/gate-0cii-mut.md" && bad "#513: the 0c-ii mutant did not apply"
+gate_pin "$T0C" "$WORK/gate-0cii-mut.md" && bad "#513: MUTANT survived: the 0c-ii pin passes with the wording changed" || ok "#513: MUTANT: rewording the 0c-ii targets fails the pin"
+
+# #505: --skeleton restores a template's static checklist sections on an API-filed body.
+echo "check-ticket-mechanics: --skeleton prints and appends the template checklist sections (#505)"
+sk() { bash "$SCRIPT" --skeleton --template "$@"; }
+sk_heads() { grep '^## ' ; }
+want_heads() { # <template> <literal headings, one per line>
+  local o; o="$(sk "$TPLDIR/$1.yml" 2>/dev/null | sk_heads)"
+  expect "#505 ($1): print mode lists exactly the checklist sections, in template order" "$2" "$o"
+  expect "#505 ($1): print mode leads with the template-version marker" "<!-- template-version: 6 -->" "$(sk "$TPLDIR/$1.yml" 2>/dev/null | head -1)"
+}
+want_heads feature "$(printf '## Required reviews (mandatory)\n## QA & Security testing')"
+want_heads bug "$(printf '## Required reviews (mandatory)\n## QA & Regression tests')"
+want_heads design "$(printf '## Accessibility requirements\n## Brand consistency\n## Required reviews (mandatory)')"
+want_heads security "## Required reviews (mandatory)"
+want_heads infrastructure "## Required reviews (mandatory)"
+o="$(sk "$TPLDIR/feature.yml" 2>/dev/null)"
+grep -qxF '### Security tests' <<< "$o" && grep -qxF '### QA tests' <<< "$o" && ok "#505: the qa_security field is one section holding both embedded sub-headings" || bad "#505: the embedded sub-headings of qa_security are missing"
+grep -q 'Personal data handling\|Security considerations' <<< "$o" && bad "#505: a bare-stub value block was printed" || ok "#505: bare-stub value blocks (personal data, security) are not printed"
+grep -qxF -- '- [ ] **ticket-gate** - mandatory before implementation. Mechanical checks + one critic (plus the security lens by label). Must return PASS.' <<< "$o" \
+  && ok "#505: a checkbox option prints as an unchecked item" || bad "#505: the Required reviews option did not print"
+# A project-added checkbox section is printed; a quoted label and option print unquoted; a CRLF copy prints no CR.
+cat > "$WORK/sk-proj.yml" <<'YML'
+name: Proj
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <!-- template-version: 3 -->
+  - type: input
+    id: who
+    attributes:
+      label: Who
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: "Definition of done: all"
+      options:
+        - label: "Docs updated"
+        - label: 'It''s released'
+          required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      placeholder: |
+        - [ ] a placeholder checklist is not static content
+YML
+o="$(sk "$WORK/sk-proj.yml")"; rc=$?
+expect "#505: a project-added checkbox section prints, a placeholder checklist does not" "$(printf '<!-- template-version: 3 -->\n\n## Definition of done: all\n- [ ] Docs updated\n- [ ] It'"'"'s released')" "$o"
+expect "#505: the project template exits 0" 0 "$rc"
+sed 's/$/\r/' "$WORK/sk-proj.yml" > "$WORK/sk-proj-crlf.yml"
+expect "#505: a CRLF template prints the LF output" "$o" "$(sk "$WORK/sk-proj-crlf.yml")"
+grep -q $'\r' <<< "$(sk "$TPLDIR/feature.yml")" && bad "#505: CR leaked into skeleton output" || ok "#505: no CR in skeleton output"
+# A template with no marker prints the sections and no marker line.
+grep -v 'template-version' "$WORK/sk-proj.yml" > "$WORK/sk-nomark.yml"
+o="$(sk "$WORK/sk-nomark.yml")"; rc=$?
+expect "#505: a template with no marker prints no marker line" "$(printf '\n## Definition of done: all\n- [ ] Docs updated\n- [ ] It'"'"'s released')" "$o"
+expect "#505: a template with no marker exits 0" 0 "$rc"
+# Refusals: exit 2, message, nothing on stdout.
+refuse() { # <label> <expected stderr substring> <args...>
+  local lab="$1" sub="$2"; shift 2
+  o="$(bash "$SCRIPT" "$@" 2>"$WORK/err")"; rc=$?
+  expect "#505: $lab exits 2" 2 "$rc"; expect "#505: $lab prints nothing on stdout" "" "$o"
+  grep -qF -- "$sub" "$WORK/err" && ok "#505: $lab names its cause" || bad "#505: $lab stderr lacks '$sub': $(cat "$WORK/err")"
+}
+printf 'name: x\n' > "$WORK/sk-nobody.yml"
+refuse "a template with no body: list" "$WORK/sk-nobody.yml has no body: list" --skeleton --template "$WORK/sk-nobody.yml"
+sed 's/^      label: Notes$/      label: Notes\n      value: "x"/' "$WORK/sk-proj.yml" > "$WORK/sk-style.yml"
+refuse "an inline value: style" "has an unsupported value: style" --skeleton --template "$WORK/sk-style.yml"
+refuse "a missing template" "template file not found" --skeleton --template "$WORK/nope.yml"
+refuse "--skeleton without --template" "--template is required" --skeleton
+refuse "a missing --body file" "body file not found" --skeleton --template "$FEAT" --body "$WORK/nope.md"
+for x in --roles --dump-fields --headings --classes; do
+  refuse "--skeleton with $x" "--skeleton is exclusive" --skeleton $x --template "$FEAT" --body "$FEAT"
+done
+HELP="$(bash "$SCRIPT" --help)"
+grep -q -- '--skeleton' <<< "$HELP" && ok "#505: --help documents --skeleton" || bad "#505: --help omits --skeleton"
+# Append mode.
+SKB="$WORK/sk-body.md"
+printf '# Title\n\n## QA & Security testing\ncustom text\n' > "$SKB"
+o="$(sk "$FEAT" --body "$SKB")"
+expect "#505: append keeps the custom section and adds only Required reviews, once, with no marker" \
+  "$(printf '# Title\n\n## QA & Security testing\ncustom text\n\n## Required reviews (mandatory)\n- [ ] **ticket-gate** - mandatory before implementation. Mechanical checks + one critic (plus the security lens by label). Must return PASS.')" "$o"
+# A complete body is returned byte for byte: LF, CRLF and no trailing newline.
+{ sk "$FEAT" | tail -n +2; } > "$WORK/sk-full.md"
+cmp -s "$WORK/sk-full.md" <(sk "$FEAT" --body "$WORK/sk-full.md") && ok "#505: a complete LF body is untouched (cmp)" || bad "#505: a complete LF body changed"
+sed 's/$/\r/' "$WORK/sk-full.md" > "$WORK/sk-full-crlf.md"
+cmp -s "$WORK/sk-full-crlf.md" <(sk "$FEAT" --body "$WORK/sk-full-crlf.md") && ok "#505: a complete CRLF body is untouched (cmp)" || bad "#505: a complete CRLF body changed"
+printf '%s' "$(cat "$WORK/sk-full.md")" > "$WORK/sk-full-nonl.md"
+cmp -s "$WORK/sk-full-nonl.md" <(sk "$FEAT" --body "$WORK/sk-full-nonl.md") && ok "#505: a complete body with no trailing newline is untouched (cmp)" || bad "#505: the no-newline body changed"
+# A body with no trailing newline gets exactly one newline before the blank line.
+printf '## QA & Security testing\ncustom' > "$WORK/sk-nonl.md"
+expect "#505: a body with no trailing newline is joined with one newline and a blank line" \
+  "$(printf '## QA & Security testing\ncustom\n\n## Required reviews (mandatory)')" "$(sk "$FEAT" --body "$WORK/sk-nonl.md" | head -4)"
+# The marker is never added or changed.
+printf '<!-- template-version: 5 -->\n# T\n' > "$WORK/sk-old.md"
+o="$(sk "$FEAT" --body "$WORK/sk-old.md")"
+expect "#505: an older marker never gains a second one" "1" "$(grep -c 'template-version' <<< "$o")"
+grep -qxF '<!-- template-version: 5 -->' <<< "$o" && ok "#505: the older marker is still 5" || bad "#505: the older marker changed"
+printf '# T\n' > "$WORK/sk-nomarker.md"
+grep -q 'template-version' <<< "$(sk "$FEAT" --body "$WORK/sk-nomarker.md")" && bad "#505: a marker was added to a body that had none" || ok "#505: a body with no marker gains none"
+# Presence is check 3's rule.
+for pair in '#### Required reviews (mandatory)|absent|a #### heading' '### Required reviews (mandatory)|present|a ### heading' '## required reviews (mandatory)|absent|a heading differing only in case'; do
+  h="${pair%%|*}"; rest="${pair#*|}"; want="${rest%%|*}"; lab="${rest#*|}"
+  printf '%s\nx\n\n## QA & Security testing\ny\n' "$h" > "$WORK/sk-p.md"
+  n="$(sk "$FEAT" --body "$WORK/sk-p.md" | grep -cxF '## Required reviews (mandatory)')"
+  if [ "$want" = present ]; then expect "#505: $lab counts as present (nothing appended)" 0 "$n"; else expect "#505: $lab counts as absent (appended)" 1 "$n"; fi
+done
+printf '```\n## Required reviews (mandatory)\n```\n\n## QA & Security testing\ny\n' > "$WORK/sk-fence.md"
+expect "#505: a fenced heading is not counted present" 2 "$(sk "$FEAT" --body "$WORK/sk-fence.md" | grep -cxF '## Required reviews (mandatory)')"
+printf '## Required reviews (mandatory)\nx\n\n### Security tests\nsee\n' > "$WORK/sk-sub.md"
+o="$(sk "$FEAT" --body "$WORK/sk-sub.md")"
+expect "#505: an embedded sub-heading elsewhere does not stand in for the missing section" 1 "$(grep -cxF '## QA & Security testing' <<< "$o")"
+# check 3 agrees with append mode on the result.
+printf '#### Required reviews (mandatory)\nx\n' > "$WORK/sk-agree.md"
+sk "$FEAT" --body "$WORK/sk-agree.md" > "$WORK/sk-agree-out.md"
+n="$(bash "$SCRIPT" --body "$WORK/sk-agree-out.md" --template "$FEAT" --tpl-version 6 --current-tpl-version 6 --labels "enhancement,api" | awk -F'\t' '$1=="sections"{print $3}' | grep -c 'Required reviews')"
+expect "#505: check 3 on the appended result no longer reports Required reviews absent" 0 "$n"
+# Fail-closed recipe: a refusal inside the command substitution must stop the caller.
+fc="$(body="$(bash "$SCRIPT" --skeleton --template "$WORK/nope.yml" 2>/dev/null)" || echo stopped; echo "[$body]")"
+expect "#505: the documented '|| exit 1' form stops on a refusal with an empty body" "$(printf 'stopped\n[]')" "$fc"
+SK_RECIPE='body="$(check-ticket-mechanics.sh --skeleton --template T --body F)" || exit 1'
+grep -qF -- "$SK_RECIPE" "$SCRIPT" && ok "#505: the script header carries the fail-closed recipe" || bad "#505: the script header lost the fail-closed recipe"
+grep -qF -- "$SK_RECIPE" "$ROOT/docs/guides/template-versioning.md" && ok "#505: template-versioning.md carries the fail-closed recipe" || bad "#505: template-versioning.md lacks the fail-closed recipe"
+# Mutants, each on a cp copy of the script.
+skmut() { # <name> <sed expr> <probe command producing a value> <value the real script gives>
+  sed "$2" "$SCRIPT" > "$WORK/mut-sk-$1.sh"
+  cmp -s "$SCRIPT" "$WORK/mut-sk-$1.sh" && { bad "#505: the $1 mutant did not apply"; return; }
+}
+skmut vhas 's/inval == 1 \&\& vhas/inval == 1/'
+MSK="$(bash "$WORK/mut-sk-vhas.sh" --skeleton --template "$FEAT")"
+grep -q 'Personal data handling' <<< "$MSK" && ok "#505: MUTANT: printing bare-stub value blocks adds Personal data handling (the stub row above fails)" || bad "#505: MUTANT survived: bare stubs not printed without the checklist test"
+skmut opts 's/i <= nopt; i++) out = out "- \[ \] "/i <= 0; i++) out = out "- [ ] "/'
+MSK="$(bash "$WORK/mut-sk-opts.sh" --skeleton --template "$FEAT")"
+grep -qF -- '- [ ] **ticket-gate**' <<< "$MSK" && bad "#505: MUTANT survived: checkbox options dropped but still printed" || ok "#505: MUTANT: dropping the checkbox options fails the option row"
+skmut miss 's/miss = !(("## " label) in have) \&\& !(("### " label) in have)/miss = 1/'
+n="$(bash "$WORK/mut-sk-miss.sh" --skeleton --template "$FEAT" --body "$WORK/sk-full.md" | grep -cxF '## Required reviews (mandatory)')"
+[ "$n" = 2 ] && ok "#505: MUTANT: appending without the presence check duplicates a heading (the cmp row fails)" || bad "#505: MUTANT survived: no presence check but no duplicate ($n)"
+skmut hash 's/!(("### " label) in have)/1/'
+printf '### Required reviews (mandatory)\nx\n' > "$WORK/sk-h3.md"
+n="$(bash "$WORK/mut-sk-hash.sh" --skeleton --template "$FEAT" --body "$WORK/sk-h3.md" | grep -cxF '## Required reviews (mandatory)')"
+[ "$n" = 1 ] && ok "#505: MUTANT: ignoring the ### level appends a duplicate (the ### row fails)" || bad "#505: MUTANT survived: ### level ignored without effect ($n)"
+
+# #512: the WRITE ONCE paragraph names ownership by tag, not by "this run's 0c" (a later round cannot
+# know which run synthesised a block). Step 0c-iii documents the tag; scripts/test-forge-lib.sh drives it.
+OLD512="synthesised by THIS run's 0c"
+grep -qF -- "gate-tagged section, never author text" "$GATE" && ok "#512: the WRITE ONCE paragraph says gate-tagged" || bad "#512: the WRITE ONCE paragraph lost 'gate-tagged'"
+grep -qF -- "$OLD512" "$GATE" && bad "#512: the WRITE ONCE paragraph is back to 'synthesised by THIS run's 0c'" || ok "#512: the WRITE ONCE paragraph no longer says 'synthesised by THIS run's 0c'"
+sed 's/gate-tagged section, never author text/section synthesised by THIS run'"'"'s 0c, never author text/' "$GATE" > "$WORK/gate-wo-mut.md"
+cmp -s "$GATE" "$WORK/gate-wo-mut.md" && bad "#512: the WRITE ONCE mutant did not apply"
+grep -qF -- "gate-tagged section, never author text" "$WORK/gate-wo-mut.md" && bad "#512: MUTANT survived: the gate-tagged pin passes on a reverted paragraph" || ok "#512: MUTANT: reverting the paragraph fails the gate-tagged pin"
+
+# #510: the script's evidence cites a ticket-standards section by TITLE, never by number, because an
+# adapted doc renumbers its sections and "rule 3" then pointed at the wrong one. Evidence is column 3.
+evid() { printf '%s\n' "$1" | awk -F'\t' -v c="$2" '$1 == c { print $3 }'; }
+E510="$(mkbody feature "e510e2e.md" "" "" "N/A, this ticket changes no UI-visible behaviour at all")"
+R510="$(run "$E510" feature)"
+case "$(evid "$R510" e2e_tests)" in *'section "E2E test specs"'*) ok "#510: the E2E N/A evidence names section \"E2E test specs\"" ;; *) bad "#510: E2E evidence lost the section title ($(evid "$R510" e2e_tests))" ;; esac
+U510="$(mkbody feature "e510un.md" "" "N/A, a docs-only change with no code")"
+R510="$(run "$U510" feature)"
+case "$(evid "$R510" unit_tests)" in *'section "Unit test specs"'*) ok "#510: the unit N/A evidence names section \"Unit test specs\"" ;; *) bad "#510: unit evidence lost the section title ($(evid "$R510" unit_tests))" ;; esac
+G510="$(mkbody feature "e510gw.md" "N/A, a docs-only change with no behaviour delta")"
+R510="$(run "$G510" feature)"
+case "$(evid "$R510" gwt)" in *'section "GWT scenarios"'*) ok "#510: the GWT N/A evidence names section \"GWT scenarios\"" ;; *) bad "#510: GWT evidence lost the section title ($(evid "$R510" gwt))" ;; esac
+D510="$(mkbody feature "e510dc.md" "" "" "" "None, nothing user-visible changes")"
+R510="$(run "$D510" feature)"
+case "$(evid "$R510" docs_impact)" in *'section "Documentation currency"'*) ok "#510: the docs none-claim evidence names section \"Documentation currency\"" ;; *) bad "#510: docs evidence lost the section title ($(evid "$R510" docs_impact))" ;; esac
+n510="$(printf '%s\n%s\n%s\n%s\n' "$(run "$E510" feature)" "$(run "$U510" feature)" "$(run "$G510" feature)" "$(run "$D510" feature)" | grep -ciE 'rules? ?-?[0-9]')"
+[ "$n510" = 0 ] && ok "#510: no evidence line cites a numbered rule" || bad "#510: $n510 evidence lines still cite a numbered rule"
+n510="$(grep -ciE 'rules? ?-?[0-9]' "$SCRIPT")"
+[ "$n510" = 0 ] && ok "#510: the script source cites no numbered rule" || bad "#510: the script source has $n510 numbered rule citations"
+sed 's/section \\"E2E test specs\\" says a UI-touching/rule 3 says a UI-touching/' "$SCRIPT" > "$WORK/mut-510.sh"
+cmp -s "$SCRIPT" "$WORK/mut-510.sh" && bad "#510: the numbered-citation mutant did not apply"
+n510="$(grep -ciE 'rules? ?-?[0-9]' "$WORK/mut-510.sh")"
+[ "$n510" != 0 ] && ok "#510: MUTANT: a reverted citation is caught by the no-numbered-rule row" || bad "#510: MUTANT survived: the no-numbered-rule row passes a reverted citation"
 
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"

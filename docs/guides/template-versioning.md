@@ -31,8 +31,8 @@ matching /GDPR/ first, since the v5 wording differed per template. `dep-auditor`
 v5 added the ticket-standard improvements approved 2026-07-16 (see
 `docs/superpowers/specs/2026-07-16-ticket-standard-improvements-design.md`): a required
 `docs_impact` field on all five work templates (docs affected, README impact, why-not-if-none),
-a GWT quality bar with gate-derived scope (rule 1), and the droppable emulator clause on E2E
-specs (rule 3).
+a GWT quality bar with gate-derived scope (section "GWT scenarios"), and the droppable emulator clause on E2E
+specs (section "E2E test specs").
 
 v4 added three key fields to all templates:
 - `scenarios` - Given/When/Then test scenarios (one positive + one negative per condition)
@@ -74,6 +74,7 @@ When `ticket-gate` finds a version mismatch (issue filed on an older version tha
      its first output passes the heading and Given / When / Then checks without a second copy of
      either (#361)
 4. **Writes the enriched body back** through the forge-host adapter: it clears the gate's own regions with `forge_body_region_clear` (synthesis voids the prior verdict) and writes the body with `forge_body_compose_preserving`, which re-threads every other marked region the new body does not restate, so it works on GitHub and Forgejo alike
+   Each synthesised `scenarios` and `docs_impact` block (the `**Condition:**` line included) ends its first line with `(gate-written, round 0)`, so Step 6 item 2's `forge_body_section_append` later in the same run reads it as the gate's own and appends instead of refusing 108 (#512); author text is still refused.
 5. **Posts a comment** explaining what was synthesised and voiding the prior verdict
 6. **Re-runs the full review** against the enriched body (nothing carries forward)
 
@@ -157,7 +158,16 @@ When you add new fields or rules:
    current marker read from the template dir, so they need no per-bump edit
 5. All existing tickets auto-upgrade on next gate run (Step 0c triggers)
 
-No manual ticket updates needed - the auto-synthesis handles it.
+No manual ticket updates needed for the sections Step 0c writes (test scenarios, unit tests, E2E tests, documentation impact, personal data). The author-supplied sections stay absent and check 3 reports them; `check-ticket-mechanics.sh --classes --template <file>` lists which labels are which (#513).
+
+### Filing a ticket through the API (#505)
+
+A form submission carries the template's static checklist sections (Required reviews, QA & Security testing and the like); an API-filed body (`forge_issue_create`, `gh issue create --body-file`) does not, and check 3 then reports them absent. `check-ticket-mechanics.sh --skeleton --template <file>` prints those sections: the `## <label>` heading and the `- [ ]` options of each checkboxes field, and the `value:` block of a textarea that holds a `- [ ]` line, in template order, after the `template-version` marker line. With `--body <file>` it prints that body unchanged followed only by the sections whose heading is missing under check 3's own presence rule, and never a marker. Use it fail-closed, because a bare command substitution discards a refusal (exit 2, nothing on stdout) and would file an empty issue:
+
+```bash
+body="$(check-ticket-mechanics.sh --skeleton --template T --body F)" || exit 1
+forge_issue_create "$title" "$body"
+```
 
 ## Why this matters
 
