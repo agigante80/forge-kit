@@ -2409,7 +2409,8 @@ partition_guard() {
   case "$ev" in "heading absent"*) absent="${ev#*): }" ;; *) return 0 ;; esac
   while IFS= read -r lab; do
     [ -n "$lab" ] || continue
-    if class_labels "$(classes "$2")" synthesised | grep -qxF -- "$lab"; then
+    synth="$(class_labels "$(classes "$2")" synthesised)"
+    if grep -qxF -- "$lab" <<< "$synth"; then
       echo "synthesised heading reported absent: $lab"; return 1
     fi
   done <<< "$(printf '%s\n' "$absent" | sed 's/; /\n/g')"
@@ -2466,7 +2467,8 @@ for x in --roles --dump-fields --headings; do
   expect "#513: --classes with $x exits 2" 2 "$rc"
 done
 expect "#513: --classes ignores a --body it is given" "$(classes "$TPLDIR/bug.yml")" "$(bash "$SCRIPT" --classes --body "$WORK/nowhere.md" --template "$TPLDIR/bug.yml" 2>/dev/null)"
-bash "$SCRIPT" --help | grep -q -- '--classes' && ok "#513: --help documents --classes" || bad "#513: --help omits --classes"
+HELP="$(bash "$SCRIPT" --help)"
+grep -q -- '--classes' <<< "$HELP" && ok "#513: --help documents --classes" || bad "#513: --help omits --classes"
 # Mutants, on a cp copy: dropping the personal-data rule must break the bug.yml oracle.
 cp "$SCRIPT" "$WORK/mut-cls.sh"
 sed 's/tolower(\$3) == "personal_data"/tolower($3) == "zzz"/' "$SCRIPT" > "$WORK/mut-cls.sh"
@@ -2558,7 +2560,8 @@ refuse "a missing --body file" "body file not found" --skeleton --template "$FEA
 for x in --roles --dump-fields --headings --classes; do
   refuse "--skeleton with $x" "--skeleton is exclusive" --skeleton $x --template "$FEAT" --body "$FEAT"
 done
-bash "$SCRIPT" --help | grep -q -- '--skeleton' && ok "#505: --help documents --skeleton" || bad "#505: --help omits --skeleton"
+HELP="$(bash "$SCRIPT" --help)"
+grep -q -- '--skeleton' <<< "$HELP" && ok "#505: --help documents --skeleton" || bad "#505: --help omits --skeleton"
 # Append mode.
 SKB="$WORK/sk-body.md"
 printf '# Title\n\n## QA & Security testing\ncustom text\n' > "$SKB"
@@ -2612,9 +2615,11 @@ skmut() { # <name> <sed expr> <probe command producing a value> <value the real 
   cmp -s "$SCRIPT" "$WORK/mut-sk-$1.sh" && { bad "#505: the $1 mutant did not apply"; return; }
 }
 skmut vhas 's/inval == 1 \&\& vhas/inval == 1/'
-bash "$WORK/mut-sk-vhas.sh" --skeleton --template "$FEAT" | grep -q 'Personal data handling' && ok "#505: MUTANT: printing bare-stub value blocks adds Personal data handling (the stub row above fails)" || bad "#505: MUTANT survived: bare stubs not printed without the checklist test"
+MSK="$(bash "$WORK/mut-sk-vhas.sh" --skeleton --template "$FEAT")"
+grep -q 'Personal data handling' <<< "$MSK" && ok "#505: MUTANT: printing bare-stub value blocks adds Personal data handling (the stub row above fails)" || bad "#505: MUTANT survived: bare stubs not printed without the checklist test"
 skmut opts 's/i <= nopt; i++) out = out "- \[ \] "/i <= 0; i++) out = out "- [ ] "/'
-bash "$WORK/mut-sk-opts.sh" --skeleton --template "$FEAT" | grep -qF -- '- [ ] **ticket-gate**' && bad "#505: MUTANT survived: checkbox options dropped but still printed" || ok "#505: MUTANT: dropping the checkbox options fails the option row"
+MSK="$(bash "$WORK/mut-sk-opts.sh" --skeleton --template "$FEAT")"
+grep -qF -- '- [ ] **ticket-gate**' <<< "$MSK" && bad "#505: MUTANT survived: checkbox options dropped but still printed" || ok "#505: MUTANT: dropping the checkbox options fails the option row"
 skmut miss 's/miss = !(("## " label) in have) \&\& !(("### " label) in have)/miss = 1/'
 n="$(bash "$WORK/mut-sk-miss.sh" --skeleton --template "$FEAT" --body "$WORK/sk-full.md" | grep -cxF '## Required reviews (mandatory)')"
 [ "$n" = 2 ] && ok "#505: MUTANT: appending without the presence check duplicates a heading (the cmp row fails)" || bad "#505: MUTANT survived: no presence check but no duplicate ($n)"
