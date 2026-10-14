@@ -22,7 +22,7 @@ Rows on stdout, tab separated:
 - `stale-rule <place> <path> <line> <id>`: `place` is `component`, `prose` or `memory`. Matches
   of one id in one paragraph merge into one row at the earliest start line; distinct ids and
   separate paragraphs never merge.
-- `not-scanned <path> <reason>`: a symlink, an unreadable file, or an auto memory slug too long
+- `not-scanned <path> <reason>`: a symlink, an unreadable file, a directory it cannot read or enter, or an auto memory slug too long
   to derive. Print each one; the user must know where nothing was read.
 - `summary <files> <stale> <not-scanned>`, always last.
 

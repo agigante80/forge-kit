@@ -45,10 +45,11 @@ For an investigation, run the relevant review: full-review in its unattended mod
 (every prompt auto-resolves), or a security-auditor pass for security investigations (no
 checkpoint machinery). An investigation implements nothing, so nothing is fixed: every
 Critical, High and Medium finding is ticketed, and each Low gets a ticket or a drop by the
-`forge-kit-review:review-lows` skill <!-- rule: review-lows v2 --> (its fix branch does not
-apply here). When that skill is not installed, file no Low and list every Low untriaged in the
-report. Every filing, from either review, honours the manifest's investigation-depth cap, and
-over-cap tickets are listed unfiled in the report. Write the findings down, then let a later
+`forge-kit-review:review-lows` skill <!-- rule: review-lows v2 -->; a Low that skill would fix is
+ticketed instead. When that skill is not installed, file no Low and list every Low untriaged in the
+report. Every filing, from either review, honours the manifest's investigation-depth cap,
+filing in severity order (Critical first, so the cap is never spent on a Low ahead of a High),
+and over-cap tickets are listed unfiled in the report. Write the findings down, then let a later
 cycle gate and implement the tickets.
 
 ## Repeated reviews: chain the rounds, and stop where the contract says stop
