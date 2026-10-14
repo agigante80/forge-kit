@@ -142,8 +142,8 @@ if grep -qF '"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-marketplace-status.sh' "$S
 else
   bad "the drift step does not call \"\${FORGE_KIT_DIR:?}\"/scripts/forge-adapt-marketplace-status.sh"
 fi
-if grep -qE '(^|[^/])forge-adapt-marketplace-status\.sh' "$SKILL" \
-   && grep -E '(^|[^/])forge-adapt-marketplace-status\.sh' "$SKILL" | grep -qv 'FORGE_KIT_DIR'; then
+bare=$(awk '/(^|[^\/])forge-adapt-marketplace-status\.sh/ && !/FORGE_KIT_DIR/ {n++} END {print n+0}' "$SKILL")
+if [ "$bare" -gt 0 ]; then
   bad "SKILL.md still names the script as a bare file name somewhere"
 else
   ok "and no bare file name remains"
