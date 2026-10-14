@@ -6,6 +6,10 @@
 # the listed phrasings only, never a paraphrase: add a row when a new wording turns up.
 # The kit current version of each id is not here: it is the rule id comment beside the canonical
 # text in the kit, which scripts/check-review-rule.sh keeps above every version listed here.
+# An id with rows here but no canonical rule comment in the kit (gate-committee) is retired for
+# good: nothing carries a current version, so only its phrasings are scanned for.
+# A row can match unrelated prose that happens to say "must score 10/10": add the quote opt-out
+# marker to a deliberate quote, and tighten the regex if a real false positive turns up.
 review-lows	1	2026-10-10	ticketed immediately	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
 review-lows	1	2026-10-10	becomes? a ticket immediately	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
 review-lows	1	2026-10-10	ticketed at completion	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
@@ -16,3 +20,8 @@ review-lows	1	2026-10-10	every low( finding)?s?( is| are| gets| get)? ticketed	L
 review-lows	1	2026-10-10	low findings are (filed as tickets|ticketed)	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
 review-lows	1	2026-10-10	no finding is (ever )?left with neither	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
 review-lows	1	2026-10-10	enter the bounded( review)? loop or become tickets	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+gate-committee	11	2026-08-28	must score 10( to pass|/10)	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.
+gate-committee	11	2026-08-28	10/10 from (all|every|each)	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.
+gate-committee	11	2026-08-28	minimum passing score	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.
+gate-committee	11	2026-08-28	5 core agents	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.
+gate-committee	11	2026-08-28	all agents must score	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.

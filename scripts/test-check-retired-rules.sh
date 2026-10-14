@@ -56,6 +56,16 @@ echo "a deliberate quote"
 fresh 3; inject "$FR" 20 "The old text said a Low becomes a ticket immediately. retired-rule-quote"; run
 expect "a line marked retired-rule-quote passes" 0 "$rc"
 
+echo "a retired gate wording put back into ticket-gate (#509)"
+TG="plugins/forge-kit-governance/agents/ticket-gate.md"
+fresh 15; mkdir -p "$R/$(dirname "$TG")"; seq 1 25 | sed 's/^/Line /' > "$R/$TG"; git -C "$R" add -A
+inject "$TG" 20 "Minimum passing score: 10/10 from every agent."; run
+expect "the gate regression exits 1" 1 "$rc"
+has "$TG:20: retired rule gate-committee" "the hit names the file, its line and gate-committee"
+fresh 16; mkdir -p "$R/$(dirname "$TG")"; seq 1 25 | sed 's/^/Line /' > "$R/$TG"; git -C "$R" add -A; run
+expect "the same file without the phrase exits 0" 0 "$rc"
+if grep -q "no retired rule" <<< "$out"; then ok "and says so"; else bad "no clean message: $out"; fi
+
 echo "an older rule id"
 fresh 4; printf '# Old\n\n<!-- rule: review-lows v1 -->\n' > "$R/docs/old.md"; git -C "$R" add -A; run
 expect "an older rule id exits 1" 1 "$rc"

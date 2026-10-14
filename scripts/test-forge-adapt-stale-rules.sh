@@ -62,6 +62,9 @@ echo "== the data file carries the first retired rule =="
 expect "review-lows v1 has rows" yes "$(awk -F'\t' '$1=="review-lows" && $2=="1" {f=1} END {print f ? "yes" : "no"}' "$RULES")"
 expect "every data row has five tab-separated columns" 0 "$(grep -v '^#' "$RULES" | grep -v '^$' | awk -F'\t' 'NF != 5' | wc -l | tr -d ' ')"
 
+expect "gate-committee has rows" yes "$(awk -F'\t' '$1=="gate-committee" {f=1} END {print f ? "yes" : "no"}' "$RULES")"
+expect "every gate-committee row has a non-empty replacement summary" 0 "$(awk -F'\t' '$1=="gate-committee" && $5==""' "$RULES" | wc -l | tr -d ' ')"
+
 echo "== a listed phrasing in an adapted component whose marker is current =="
 fresh
 put "$P/.claude/agents/code-reviewer.md" '---\nname: code-reviewer\n---\n<!-- code-reviewer-version: 14 -->\n\nRules:\nA finding below High becomes a ticket immediately, not a negotiation.\n'
@@ -185,6 +188,31 @@ for phrase in 'Each Low gets exactly one outcome: fix, ticket or drop.' 'ticket 
   fresh; put "$P/CLAUDE.md" "$phrase\n"; run
   expect "not listed: $phrase" 0 "$(nrows stale-rule)"
 done
+
+echo "== gate-committee: the pre-#70 scorecard wording (#509) =="
+for phrase in '- **Minimum passing score: 10/10 from every agent that runs.** No exceptions.' 'ALL must score 10 to pass' \
+  'ALL must score 10/10 to pass' '5 core agents always run' \
+  'All agents must score 10/10 for the ticket to be considered implementation-ready.'; do
+  fresh; put "$P/CLAUDE.md" "$phrase\n"; run
+  has "stale-rule${TAB}prose${TAB}CLAUDE.md${TAB}1${TAB}gate-committee" "listed: $phrase"
+  expect "exit 1 for: $phrase" 1 "$rc"
+done
+fresh
+put "$P/.claude/agents/ticket-gate.md" '---\nname: ticket-gate\n---\n<!-- ticket-gate-version: 3 -->\n\na\nb\nc\nd\ne\n- **Minimum passing score: 10/10 from every agent that runs.** No exceptions.\n'
+run
+has "stale-rule${TAB}component${TAB}.claude/agents/ticket-gate.md${TAB}11${TAB}gate-committee" "the line in a component is a component row"
+has "summary${TAB}1${TAB}1${TAB}0" "and the summary counts it"
+fresh; put "$P/CLAUDE.md" 'Intro line.\n\nMinimum passing\nscore is 10/10 here.\n'; run
+has "stale-rule${TAB}prose${TAB}CLAUDE.md${TAB}3${TAB}gate-committee" "a wrapped phrase is one row at its starting line"
+expect "and only one row" 1 "$(nrows stale-rule)"
+fresh; put "$P/CLAUDE.md" 'The onboarding flow scored 10/10, and reviewers must score 10 on the rubric.\n'; run
+expect "an unrelated 10/10 is not reported" 0 "$(nrows stale-rule)"
+expect "and exits 0" 0 "$rc"
+fresh; put "$P/docs/history.md" 'All agents must score 10/10 for the ticket. retired-rule-quote\n'; run
+expect "the quote opt-out skips a retired gate phrase" 0 "$(nrows stale-rule)"
+fresh; put "$P/CLAUDE.md" 'Never a committee. The review set is one critic plus label-triggered lenses.\n'; run
+expect "today's gate wording is not reported" 0 "$(nrows stale-rule)"
+expect "and exits 0 on it" 0 "$rc"
 
 echo "== the opt-out marker =="
 fresh
