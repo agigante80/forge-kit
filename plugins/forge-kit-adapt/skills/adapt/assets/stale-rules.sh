@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# stale-rules-version: 2
+# stale-rules-version: 3
 # stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495).
 #
 # A rule outlives its source. Version markers find a component that is behind the kit; they cannot
@@ -32,7 +32,7 @@
 #
 # OUTPUT, stdout, tab separated. The matched text is never printed: memory can hold names.
 #   stale-rule  <component|prose|memory>  <path>  <line>  <rule id>
-#   not-scanned <path>  <symlink|unreadable|project slug over 200 characters>
+#   not-scanned <path>  <symlink|symlink loop|dangling symlink|unreadable|project slug over 200 characters>
 #   summary     <files scanned>  <stale rows>  <not-scanned rows>          (always last)
 # A project path is relative to the project; any other path under $HOME starts with `~`.
 #
@@ -44,8 +44,27 @@
 # one space, and case is folded; a match is reported at the line where it starts. A match is
 # skipped when any line it spans carries the word `retired-rule-quote` (a deliberate quote).
 #
-# READ ONLY, and no symlink is followed: a symlinked named file or directory, or a symlink inside
-# one, is a not-scanned row, and so is a file or directory it cannot read. Portable to bash 3.2 (stock macOS): no mapfile, no associative arrays.
+# READ ONLY. Symlinks are followed ONLY under the config dir (#499) and never in the project:
+#   - The config dir is the user's own, and a user skill installed as a link to a checkout is an
+#     ordinary shape. Refusing every link there made exit 3 permanent on such a machine, so exit 3
+#     stopped meaning anything. A link met at a named place or inside one is scanned through its
+#     target and printed under the link's own path, never the target's.
+#   - The project is a cloned tree that may be untrusted. A link there (docs/x.md pointing at the
+#     config dir's CLAUDE.md, docs/home pointing at $HOME) would print a row under an in-project
+#     name, send the refresh fix writing outside the project and walk a huge tree. So a project
+#     symlink stays `not-scanned <path> symlink`, as #495 decided, and so does a link listed through
+#     --files-from.
+# Cycles and repeats (config dir only): the walker keeps a stack of the physical paths of the
+# directories it is inside. Re-entering one of them is `symlink loop` (also a link that points at
+# itself or round a chain); reaching any other directory a second time, by two links or by a link to
+# a real sibling, is skipped silently because it is not a defect. When one file or directory is
+# reached two ways the first in sorted order (named places in script order, entries within a
+# directory in LC_ALL=C order) wins and the printed path is that entry's own. A link whose target is
+# missing is `dangling symlink`; an unreadable file or directory, linked or not, is `unreadable`; a
+# target that is neither a regular file nor a directory is skipped. No `find -L` (it hides loops on
+# stderr) and no `readlink -f` (absent on stock macOS). A link into a very large tree costs a walk of
+# that tree: accepted, since the config dir is the user's own and the walk is bounded by the stack.
+# Portable to bash 3.2 (stock macOS): no mapfile, no associative arrays.
 set -uo pipefail
 export LC_ALL=C   # byte semantics: the copied slug code needs it, and gawk rejects its octal range otherwise
 
@@ -166,12 +185,13 @@ show() {
 }
 not_scanned() { printf 'not-scanned\t%s\t%s\n' "$1" "$2" >> "$WORK/rows"; unscanned=$((unscanned + 1)); }
 
-# scan_file <place> <path on disk> <printed path>
+# scan_file <place> <path on disk> <printed path> [followed]: a fourth argument says the path is a
+# physical one reached by following a config dir link, so the symlink refusal does not apply.
 scan_file() {
-  local place="$1" f="$2" disp="$3"
+  local place="$1" f="$2" disp="$3" followed="${4:-}"
   if grep -qxF -- "$f" "$WORK/seen"; then return 0; fi
   printf '%s\n' "$f" >> "$WORK/seen"
-  if [ -L "$f" ]; then not_scanned "$disp" symlink; return 0; fi
+  if [ -z "$followed" ] && [ -L "$f" ]; then not_scanned "$disp" symlink; return 0; fi
   [ -f "$f" ] || return 0
   if [ ! -r "$f" ]; then not_scanned "$disp" unreadable; return 0; fi
   scanned=$((scanned + 1))
@@ -183,7 +203,8 @@ scan_file() {
   done < <(sort -t "$(printf '\t')" -k1,1n -k2,2 "$WORK/hits")
 }
 
-# scan_tree <place> <abs path> <glob>: a named file or directory; every symlink met is reported.
+# scan_tree <place> <abs path> <glob>: a named file or directory in the PROJECT; every symlink met
+# is reported, never followed (the config dir goes through scan_followed).
 scan_tree() {
   local place="$1" root="$2" glob="$3" p
   if [ -L "$root" ]; then
@@ -210,6 +231,74 @@ scan_tree() {
   while IFS= read -r p; do scan_file "$place" "$p" "$(show "$p")"; done < "$WORK/files"
 }
 
+# resolve_link <link>: print the physical path of what a link chain ends at. Returns 1 for a loop
+# (over 40 hops), 2 for a missing target. A relative target is taken from the link's own directory.
+resolve_link() {
+  local p="$1" n=0 t d
+  while [ -L "$p" ]; do
+    n=$((n + 1)); [ "$n" -gt 40 ] && return 1
+    t=$(readlink -- "$p") || return 2
+    case "$t" in /*) p="$t" ;; *) p="$(dirname -- "$p")/$t" ;; esac
+  done
+  [ -e "$p" ] || return 2
+  # A directory cd cannot enter (mode 000) has no physical path by cd; take its parent's instead.
+  if [ -d "$p" ] && d=$(physdir "$p") && [ -n "$d" ]; then printf '%s' "$d"; return 0; fi
+  d=$(physdir "$(dirname -- "$p")") || return 2
+  printf '%s/%s' "$d" "$(basename -- "$p")"
+}
+
+ANC=""     # newline separated physical paths of the directories being walked (the ancestors)
+DSEEN=""   # newline separated physical paths of every directory entered or refused so far
+in_list() { case "$1" in *"$NL$2$NL"*) return 0 ;; esac; return 1; }
+NL=$'\n'
+
+# enter_dir <place> <printed path> <physical dir> <glob>: walk a directory reached by following
+# links. A directory already on the stack is a loop; one seen before is skipped without a row.
+enter_dir() {
+  local place="$1" shown="$2" phys="$3" glob="$4"
+  if in_list "$NL$ANC" "$phys"; then not_scanned "$shown" "symlink loop"; return 0; fi
+  if in_list "$NL$DSEEN" "$phys"; then return 0; fi
+  DSEEN="$DSEEN$phys$NL"
+  if [ ! -r "$phys" ] || [ ! -x "$phys" ]; then not_scanned "$shown" unreadable; return 0; fi
+  local saved="$ANC" entries e name ep fp tp rc
+  ANC="$ANC$phys$NL"
+  entries=$(find "$phys" -mindepth 1 -maxdepth 1 2>/dev/null | LC_ALL=C sort)
+  while IFS= read -r e; do
+    [ -n "$e" ] || continue
+    name="${e#"$phys"/}"; ep="$e"; fp="$shown/$name"
+    if [ -L "$ep" ]; then
+      tp=$(resolve_link "$ep"); rc=$?
+      if [ "$rc" -eq 1 ]; then not_scanned "$fp" "symlink loop"; continue; fi
+      if [ "$rc" -ne 0 ] || [ -z "$tp" ]; then not_scanned "$fp" "dangling symlink"; continue; fi
+    else
+      tp="$ep"
+    fi
+    if [ -d "$tp" ]; then
+      enter_dir "$place" "$fp" "$tp" "$glob"
+    elif [ -f "$tp" ]; then
+      # shellcheck disable=SC2254
+      case "$name" in $glob) scan_file "$place" "$tp" "$fp" followed ;; esac
+    fi
+  done <<< "$entries"
+  ANC="$saved"
+}
+
+# scan_followed <place> <abs path> <glob>: scan_tree for the config dir, where links are followed.
+scan_followed() {
+  local place="$1" root="$2" glob="$3" tp rc
+  ANC=""
+  if [ -L "$root" ]; then
+    tp=$(resolve_link "$root"); rc=$?
+    if [ "$rc" -eq 1 ]; then not_scanned "$(show "$root")" "symlink loop"; return 0; fi
+    if [ "$rc" -ne 0 ] || [ -z "$tp" ]; then not_scanned "$(show "$root")" "dangling symlink"; return 0; fi
+  else
+    [ -e "$root" ] || return 0
+    tp=$(physdir "$root"); [ -n "$tp" ] || tp="$root"   # a mode 000 directory: enter_dir reports it
+  fi
+  if [ -d "$tp" ]; then enter_dir "$place" "$(show "$root")" "$tp" "$glob"
+  elif [ -f "$tp" ]; then scan_file "$place" "$tp" "$(show "$root")" followed; fi
+}
+
 # Auto memory slug, COPIED from forge-kit-devops' context-budget.sh (`slug`, `memory_file`): no
 # dependency is declared between forge-kit-adapt and forge-kit-devops, and declaring one to reuse
 # two functions would make every adapt install pull devops. Keep the two in step by hand.
@@ -233,10 +322,10 @@ else
   CFG="${CFG%/}"
 
   for d in agents commands skills; do scan_tree component "$PROOT/.claude/$d" '*.md'; done
-  for d in agents commands skills; do scan_tree component "$CFG/$d" '*.md'; done
+  for d in agents commands skills; do scan_followed component "$CFG/$d" '*.md'; done
   for f in CLAUDE.md CLAUDE.local.md .claude/CLAUDE.md AGENTS.md CONTRIBUTING.md; do scan_tree prose "$PROOT/$f" '*.md'; done
   scan_tree prose "$PROOT/docs" '*.md'
-  scan_tree prose "$CFG/CLAUDE.md" '*.md'
+  scan_followed prose "$CFG/CLAUDE.md" '*.md'
   scan_tree memory "$PROOT/.claude/memory" '*.md'
   scan_tree memory "$PROOT/.claude/handoffs" '*.md'
 
@@ -244,7 +333,7 @@ else
   [ -n "$mroot" ] || mroot="$PROOT"
   s=$(slug "$mroot"); [ -n "$s" ] || usage "cannot derive the project slug for '$mroot'"
   if [ "${#s}" -le "$SLUG_MAX" ]; then
-    scan_tree memory "$CFG/projects/$s" '*.md'
+    scan_followed memory "$CFG/projects/$s" '*.md'
   else
     not_scanned "$(show "$CFG/projects")/<slug>" "project slug over 200 characters"
   fi

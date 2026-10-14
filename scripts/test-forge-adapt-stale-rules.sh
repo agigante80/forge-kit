@@ -294,22 +294,136 @@ run
 expect "a config dir with no agents, commands or skills reports nothing" 0 "$(nrows stale-rule)"
 expect "and exits 0" 0 "$rc"
 
-echo "== places the scan cannot look into are reported, never skipped silently =="
+echo "== a symlink under the config dir is followed (#499) =="
 fresh
 mkdir -p "$T/outside/shared" "$T/home/.claude/skills"
 put "$T/outside/shared/SKILL.md" 'Low findings are ticketed immediately\n'
 ln -s "$T/outside/shared" "$T/home/.claude/skills/shared"
 run
-expect "the symlink target is not read" 0 "$(nrows stale-rule)"
-has "not-scanned${TAB}~/.claude/skills/shared${TAB}symlink" "the symlink is reported as not scanned"
-expect "an incomplete clean scan exits 3, never 0" 3 "$rc"
-has "summary${TAB}0${TAB}0${TAB}1" "and the summary counts it"
+has "stale-rule${TAB}component${TAB}~/.claude/skills/shared/SKILL.md${TAB}1${TAB}review-lows" "a symlinked user skill is scanned, printed under the link path"
+expect "nothing is reported as not scanned" 0 "$(nrows not-scanned)"
+expect "a hit exits 1" 1 "$rc"
+fresh
+mkdir -p "$T/outside/shared" "$T/home/.claude/skills"
+put "$T/outside/shared/SKILL.md" 'Fix, ticket or drop.\n'
+ln -s "$T/outside/shared" "$T/home/.claude/skills/shared"
+run
+has "summary${TAB}1${TAB}0${TAB}0" "a clean symlinked skill counts as one file scanned"
+expect "and the scan exits 0, not 3" 0 "$rc"
 fresh
 mkdir -p "$T/outside"; put "$T/outside/agents/a.md" 'Low findings are ticketed immediately\n'
 mkdir -p "$T/home/.claude"; ln -s "$T/outside/agents" "$T/home/.claude/agents"
 run
-has "not-scanned${TAB}~/.claude/agents${TAB}symlink" "a symlinked named directory is reported, not followed"
+has "stale-rule${TAB}component${TAB}~/.claude/agents/a.md${TAB}1${TAB}review-lows" "a symlinked named directory is scanned through"
+expect "and nothing is not-scanned" 0 "$(nrows not-scanned)"
+fresh
+mkdir -p "$T/outside" "$T/home/.claude"; put "$T/outside/CLAUDE.md" 'anything below becomes a ticket\n'
+ln -s "$T/outside/CLAUDE.md" "$T/home/.claude/CLAUDE.md"
+run
+has "stale-rule${TAB}prose${TAB}~/.claude/CLAUDE.md${TAB}1${TAB}review-lows" "a config CLAUDE.md that is a link is scanned under its own name"
+fresh
+mkdir -p "$T/outside/mem" "$T/home/.claude/skills/s/references"
+put "$T/outside/f.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside/f.md" "$T/home/.claude/skills/s/references/f.md"
+run
+has "stale-rule${TAB}component${TAB}~/.claude/skills/s/references/f.md${TAB}1${TAB}review-lows" "a symlinked file inside a config directory is scanned"
+fresh
+mkdir -p "$T/home/.claude/skills"
+put "$T/home/.claude/skills/s/SKILL.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/home/.claude/skills/s" "$T/home/.claude/skills/b"
+ln -s "$T/home/.claude/skills/s" "$T/home/.claude/skills/a"
+run
+expect "two links to one real directory scan the target once" 1 "$(nrows stale-rule)"
+has "stale-rule${TAB}component${TAB}~/.claude/skills/a/SKILL.md${TAB}1${TAB}review-lows" "and the printed path is the first in sorted order"
+expect "with no not-scanned row for the repeat" 0 "$(nrows not-scanned)"
+fresh
+mkdir -p "$T/outside/x" "$T/outside/y" "$T/home/.claude/skills"
+put "$T/outside/x/SKILL.md" 'Fix, ticket or drop.\n'
+put "$T/home/.claude/skills/z/SKILL.md" 'Fix, ticket or drop.\n'
+ln -s "$T/outside/x" "$T/home/.claude/skills/a"; ln -s "$T/outside/x" "$T/home/.claude/skills/b"
+ln -s "$T/home/.claude/skills/z" "$T/home/.claude/skills/c"
+run
+expect "links to one directory and to a real sibling add no rows" 0 "$(nrows not-scanned)"
+has "summary${TAB}2${TAB}0${TAB}0" "and each distinct file is counted once"
+expect "a clean scan exits 0" 0 "$rc"
+fresh
+mkdir -p "$T/home/.claude/skills"
+put "$T/home/.claude/skills/s/SKILL.md" 'Fix, ticket or drop.\n'
+ln -s "$T/home/.claude/skills" "$T/home/.claude/skills/loop"
+run
+has "not-scanned${TAB}~/.claude/skills/loop${TAB}symlink loop" "a link to an ancestor is a loop, and terminates"
+expect "a loop exits 3" 3 "$rc"
+fresh
+mkdir -p "$T/home/.claude/skills/d"
+ln -s "$T/home/.claude/skills/d/self" "$T/home/.claude/skills/d/self"
+ln -s "$T/home/.claude/skills/d/q" "$T/home/.claude/skills/d/p"; ln -s "$T/home/.claude/skills/d/p" "$T/home/.claude/skills/d/q"
+run
+has "not-scanned${TAB}~/.claude/skills/d/self${TAB}symlink loop" "a self link is a loop"
+has "not-scanned${TAB}~/.claude/skills/d/p${TAB}symlink loop" "a two link cycle is a loop (first)"
+has "not-scanned${TAB}~/.claude/skills/d/q${TAB}symlink loop" "a two link cycle is a loop (second)"
+expect "and exits 3" 3 "$rc"
+fresh
+mkdir -p "$T/home/.claude/skills"
+ln -s "$T/outside/nothing" "$T/home/.claude/skills/gone"
+run
+has "not-scanned${TAB}~/.claude/skills/gone${TAB}dangling symlink" "a link whose target is missing is dangling"
+expect "and exits 3, never 0" 3 "$rc"
+fresh
+mkdir -p "$T/home/.claude"
+ln -s "$T/outside/nothing" "$T/home/.claude/agents"
+run
+has "not-scanned${TAB}~/.claude/agents${TAB}dangling symlink" "a dangling named directory is dangling"
+fresh
+mkdir -p "$T/outside/locked" "$T/home/.claude/skills"
+put "$T/outside/locked/SKILL.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside/locked" "$T/home/.claude/skills/locked"
+chmod 000 "$T/outside/locked"
+if [ ! -r "$T/outside/locked" ]; then
+  run
+  has "not-scanned${TAB}~/.claude/skills/locked${TAB}unreadable" "a link to an unreadable directory is unreadable"
+  expect "and exits 3" 3 "$rc"
+  ln -s "$T/outside/locked" "$T/home/.claude/skills/locked2"
+  run
+  expect "two links to one unreadable directory give one row, not two" 1 "$(nrows not-scanned)"
+else
+  ok "unreadable link target skipped: running as a user who can read mode 000"
+fi
+chmod 755 "$T/outside/locked"
+fresh
+mkdir -p "$T/home/.claude/skills/w"
+ln -s /dev/null "$T/home/.claude/skills/w/null.md"
+run
+expect "a link to a non-regular file is skipped without a row" 0 "$(nrows not-scanned)"
+fresh
+mkdir -p "$T/outside/real" "$T/home/.claude/skills" "$T/cfglink"
+put "$T/outside/real/skills/s/SKILL.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside/real" "$T/cfglink/c"
+runcfg "$T/cfglink/c"
+has "stale-rule${TAB}component${TAB}$T/cfglink/c/skills/s/SKILL.md${TAB}1${TAB}review-lows" "a config dir that is itself a link is scanned"
+
+echo "== places the scan cannot look into are reported, never skipped silently =="
+fresh
+mkdir -p "$T/outside/shared" "$P/.claude/skills"
+put "$T/outside/shared/SKILL.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside/shared" "$P/.claude/skills/shared"
+run
+expect "a project symlinked skill target is not read" 0 "$(nrows stale-rule)"
+has "not-scanned${TAB}.claude/skills/shared${TAB}symlink" "and the project symlink is reported, never followed"
+expect "an incomplete clean scan exits 3, never 0" 3 "$rc"
+has "summary${TAB}0${TAB}0${TAB}1" "and the summary counts it"
+fresh
+mkdir -p "$T/outside"; put "$T/outside/agents/a.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/.claude"; ln -s "$T/outside/agents" "$P/.claude/agents"
+run
+has "not-scanned${TAB}.claude/agents${TAB}symlink" "a project symlinked named directory is reported, not followed"
 expect "and nothing behind it is read" 0 "$(nrows stale-rule)"
+fresh
+mkdir -p "$T/outside/d" "$P/docs"
+put "$T/outside/d/x.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside/d" "$P/docs/inner"
+run
+has "not-scanned${TAB}docs/inner${TAB}symlink" "a symlink inside a project directory is reported, not followed"
+expect "and its target is not read" 0 "$(nrows stale-rule)"
 fresh
 put "$P/AGENTS.md" 'Low findings are ticketed immediately\n'
 ln -s AGENTS.md "$P/CLAUDE.md"

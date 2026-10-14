@@ -22,8 +22,11 @@ Rows on stdout, tab separated:
 - `stale-rule <place> <path> <line> <id>`: `place` is `component`, `prose` or `memory`. Matches
   of one id in one paragraph merge into one row at the earliest start line; distinct ids and
   separate paragraphs never merge.
-- `not-scanned <path> <reason>`: a symlink, an unreadable file, a directory it cannot read or enter, or an auto memory slug too long
-  to derive. Print each one; the user must know where nothing was read.
+- `not-scanned <path> <reason>`: a symlink in the project (never followed: the project may be
+  untrusted), a `symlink loop` or `dangling symlink` under the config dir, an unreadable file, a
+  directory it cannot read or enter, or an auto memory slug too long to derive. Print each one; the
+  user must know where nothing was read. A symlink under the config dir whose target exists is
+  scanned through and its rows carry the link's own path, so a fix there edits the target.
 - `summary <files> <stale> <not-scanned>`, always last.
 
 The matched text is never printed: memory can hold names. Read the line yourself when you need it,
