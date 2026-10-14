@@ -232,6 +232,10 @@ expect "FK_TPL_VER reads \$FK, not the unset \$FORGE_KIT_DIR" 1 "$(grep -c '^FK_
 # installLocation), so moving it forward lands exactly what an update would. A stale checkout both mis-catalogues versions and lacks the
 # scripts/ and docs/ files a governance install copies.
 #
+# #501: the refresh itself lives in scripts/forge-adapt-refresh.sh (retry once, then ask the remote), tested
+# by test-forge-adapt-refresh.sh. S2 only calls it, and prints the one warning when it exits non-zero or is
+# absent (an older library predates it; there is deliberately no inline fallback, so the warning is honest).
+#
 # S2 FIXTURE RULE: S2's first statement discards an exported FORGE_KIT_DIR, and it runs fetch and
 # checkout -B on any git checkout it picks, so every S2 fixture is a NON-git mktemp library placed
 # where S2 looks, in a throwaway HOME, never the MH/CH symlinks to this repository; each S2 case
@@ -374,7 +378,8 @@ gx() { GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 mk502() { H=$(s2home); UP=$(mktemp -d "$T/up.XXXXXX"); LB="$H/.claude/plugins/marketplaces/forge-kit"; rm -rf "$LB"
   gx init -q -b "$1" "$UP"; mkdir -p "$UP/plugins"; echo 1 > "$UP/plugins/f.txt"; echo a > "$UP/g.txt"
   gx -C "$UP" add .; gx -C "$UP" commit -qm c1; echo 2 > "$UP/plugins/f.txt"; gx -C "$UP" commit -qam c2
-  gx clone -q --depth 1 "file://$UP" "$LB"; }
+  gx clone -q --depth 1 "file://$UP" "$LB"
+  mkdir -p "$LB/scripts"; cp "$ROOT/scripts/forge-adapt-refresh.sh" "$LB/scripts/"; }
 # up502 <file> <content>: one more upstream commit.
 up502() { printf '%s\n' "$2" > "$UP/$1"; gx -C "$UP" add -A; gx -C "$UP" commit -qm "more $1"; }
 nowarn() { case "$bout" in *"could not refresh"*) bad "$1: warned: $bout" ;; *) ok "$1: no could-not-refresh line" ;; esac; }
@@ -401,6 +406,21 @@ expect "#502: a non-conflicting edit still moves HEAD" "$(git -C "$UP" rev-parse
 mk502 main; echo mine > "$LB/added.txt"; up502 added.txt theirs; s2 "$H"
 case "$bout" in *"could not refresh"*) ok "#502: an untracked file the commit adds warns" ;; *) bad "#502: untracked collision: $bout" ;; esac
 expect "#502: the colliding untracked file survives" mine "$(cat "$LB/added.txt")"
+# #501: a git library that predates the helper (no scripts/forge-adapt-refresh.sh) warns, still prints the
+# library line, and exits 0.
+mk502 main; rm -rf "$LB/scripts"; s2 "$H"
+case "$bout" in *"could not refresh the marketplace library at $LB"*) ok "#501: a library without the helper warns" ;; *) bad "#501: no-helper library: $bout" ;; esac
+case "$bout" in *"forge-adapt: library at "*"(marketplace): $LB"*) ok "#501: the library line still prints" ;; *) bad "#501: library line missing: $bout" ;; esac
+expect "#501: a library without the helper exits 0" 0 "$brc"
+# #501: a helper that exits 1 (the library is really behind) gives the one warning with the fix text of
+# its source, then the library line, nothing on stderr (S2 merges it, so the whole output is checked), rc 0.
+mk502 main; printf '#!/bin/sh\nexit 1\n' > "$LB/scripts/forge-adapt-refresh.sh"; s2 "$H"
+expect "#501: a behind marketplace library prints exactly one warning" 1 "$(printf '%s\n' "$bout" | grep -c 'could not refresh')"
+case "$bout" in *"could not refresh the marketplace library at $LB; it may be behind (fix: /plugin marketplace update forge-kit)."*) ok "#501: the marketplace warning carries its fix" ;; *) bad "#501: marketplace warning: $bout" ;; esac
+expect "#501: a behind marketplace library exits 0" 0 "$brc"
+mk502 main; printf '#!/bin/sh\nexit 1\n' > "$LB/scripts/forge-adapt-refresh.sh"; mv "$LB" "$H/forge-kit"; s2 "$H"
+case "$bout" in *"could not refresh the clone library at $H/forge-kit; it may be behind (fix: git -C $H/forge-kit pull)."*) ok "#501: the clone warning carries its fix" ;; *) bad "#501: clone warning: $bout" ;; esac
+case "$bout" in *"No such file"*|*"Permission denied"*) bad "#501: stray shell error: $bout" ;; *) ok "#501: no stray shell error" ;; esac
 # The guard: the refresh, as the Bash call S2 makes, passes overnight-guard in a no-destructive project,
 # and a reset --hard is still denied by the same unchanged hook.
 GP=$(mktemp -d "$T/guard.XXXXXX"); mkdir -p "$GP/.claude"; : > "$GP/.claude/no-destructive"

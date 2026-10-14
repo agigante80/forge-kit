@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 86 -->
+<!-- forge-adapt-version: 87 -->
 
 # forge-adapt
 
@@ -102,11 +102,10 @@ else
   git clone https://github.com/agigante80/forge-kit ~/forge-kit --depth 1 --quiet && { FORGE_KIT_DIR=~/forge-kit; FORGE_KIT_SRC="clone"; }
 fi
 
-# Refresh: fetch + checkout -B, never reset --hard (overnight-guard denies it; see
-# scripts/test-forge-adapt-host.sh).
+# Refresh via scripts/forge-adapt-refresh.sh (fetch + checkout -B, retried once, never reset --hard;
+# rationale in scripts/test-forge-adapt-host.sh).
 if git -C "$FORGE_KIT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  git -C "$FORGE_KIT_DIR" fetch --depth 1 origin --quiet 2>/dev/null \
-    && git -C "$FORGE_KIT_DIR" checkout -B "$(git -C "$FORGE_KIT_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')" origin/HEAD 2>/dev/null \
+  "$FORGE_KIT_DIR/scripts/forge-adapt-refresh.sh" "$FORGE_KIT_DIR" 2>/dev/null \
     || { if [ "$FORGE_KIT_SRC" = "marketplace" ]; then fix="/plugin marketplace update forge-kit"; else fix="git -C $FORGE_KIT_DIR pull"; fi; \
          echo "forge-adapt: could not refresh the $FORGE_KIT_SRC library at $FORGE_KIT_DIR; it may be behind (fix: $fix)."; }
 else

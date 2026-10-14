@@ -497,6 +497,11 @@ jobs:
       - name: forge-adapt plugin-active tests
         run: bash scripts/test-forge-adapt-plugin-active.sh
 
+      # Issue #501: two concurrent forge-adapt runs share one library checkout and the loser's
+      # fetch failed on a git lock, warning that a just-refreshed library was behind.
+      - name: forge-adapt refresh tests
+        run: bash scripts/test-forge-adapt-refresh.sh
+
       # Issue #158: these two were `pull_request`-only, and since work stopped arriving as pull
       # requests they ran on NO path at all. They now run on both, and the base is resolved by a
       # TESTED script rather than a YAML expression, because `github.event.before` is the
