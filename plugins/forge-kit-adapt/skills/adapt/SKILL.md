@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 81 -->
+<!-- forge-adapt-version: 82 -->
 
 # forge-adapt
 
@@ -590,7 +590,7 @@ forge-adapt drift report - <project>
 Stop after the report; change nothing. For each row run
 `"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-drift-status.sh` and print the word it returns.
 
-**Then one line ABOVE the table, from `forge-adapt-marketplace-status.sh`** (#172). It is not a
+**Then one line ABOVE the table, from `"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-marketplace-status.sh`** (#172). It is not a
 component row and must never be rendered as one.
 
 Shell assets appear in the same table, compared against the catalogue's `asset:` rows. Every

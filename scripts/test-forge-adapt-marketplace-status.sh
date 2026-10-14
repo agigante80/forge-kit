@@ -15,6 +15,8 @@
 # word is therefore honest about what was measured. The ticket's own GWT said "behind"; the probe
 # said that word could not be earned.
 #
+# THE NAME DEFAULTS TO forge-kit (#503): the one call in SKILL.md passes none.
+#
 # ALWAYS EXIT 0. This is a report, and `drift` writes nothing and must not fail a user's session
 # over an unreachable network or a directory that was never there.
 set -uo pipefail
@@ -105,9 +107,47 @@ echo "== the output is one tab-separated line a caller can act on =="
 expect "exactly one line" 1 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
 expect "two tab-separated fields" 2 "$(printf '%s' "$out" | awk -F'\t' '{print NF}')"
 
-echo "== it refuses rather than guessing =="
-run
-expect "no marketplace name refuses" 2 "$rc"
+echo "== the marketplace name defaults to forge-kit (#503) =="
+# SKILL.md calls the script with no argument, so a required name made the documented call exit 2.
+# Every row passes --dir: without it the run would read the real marketplace folder of whichever
+# machine runs the suite.
+git -C "$CO" remote set-url origin "$REMOTE"
+run --dir "$T/marketplaces"
+expect "no name exits 0" 0 "$rc"
+expect "and reads the forge-kit checkout (stale: the remote moved past it)" "stale" "$(word)"
+contains "'forge-kit' differs" "$out" "and the line names the defaulted marketplace"
+run --dir "$T/nowhere"
+expect "no name over an absent dir is not-applicable" "not-applicable" "$(word)"
+run plainfile --dir "$T/marketplaces"
+expect "an explicit name wins over the default" "unknown" "$(word)"
+contains "'plainfile'" "$out" "and the line quotes the explicit name"
+run other --dir "$T/marketplaces"
+expect "a name with no checkout is not-applicable even when forge-kit exists" "not-applicable" "$(word)"
+contains "'other'" "$out" "and names the name asked for"
+run --bogus
+expect "an unknown flag still exits 2" 2 "$rc"
+contains "marketplace-status: unknown flag: --bogus" "$out" "and names the flag"
+run --dir
+expect "--dir with no value still exits 2" 2 "$rc"
+run a/b --dir "$T/marketplaces"
+expect "a name containing a slash is a relative path, not validated: absent is not-applicable" "not-applicable" "$(word)"
+out=$(env -u HOME bash "$SCRIPT" 2>&1); rc=$?
+expect "HOME unset with no --dir exits 0" 0 "$rc"
+expect "and is not-applicable, never an error" "not-applicable" "$(word)"
+
+echo "== SKILL.md calls the script the way it can run (#503) =="
+SKILL="$ROOT/plugins/forge-kit-adapt/skills/adapt/SKILL.md"
+if grep -qF '"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-marketplace-status.sh' "$SKILL"; then
+  ok "the drift step names the script by its full path under FORGE_KIT_DIR"
+else
+  bad "the drift step does not call \"\${FORGE_KIT_DIR:?}\"/scripts/forge-adapt-marketplace-status.sh"
+fi
+if grep -qE '(^|[^/])forge-adapt-marketplace-status\.sh' "$SKILL" \
+   && grep -E '(^|[^/])forge-adapt-marketplace-status\.sh' "$SKILL" | grep -qv 'FORGE_KIT_DIR'; then
+  bad "SKILL.md still names the script as a bare file name somewhere"
+else
+  ok "and no bare file name remains"
+fi
 
 echo ""
 echo "marketplace-status tests: $pass passed, $fail failed"

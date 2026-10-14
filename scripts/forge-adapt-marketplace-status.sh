@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # forge-adapt-marketplace-status.sh: is the marketplace checkout behind its remote? (#172)
 #
-#   forge-adapt-marketplace-status.sh <marketplace-name> [--dir <marketplaces-root>]
+#   forge-adapt-marketplace-status.sh [<marketplace-name>] [--dir <marketplaces-root>]
+#
+# The name defaults to forge-kit (#503): the one call in adapt/SKILL.md passes none, and a required
+# name made that documented call exit 2. An explicit name wins. The name is used as a relative path
+# under the root and is not validated, so one that matches no directory is `not-applicable`.
 #
 # Prints ONE tab-separated line and ALWAYS exits 0 when it could look:
 #   current<TAB><detail>         local HEAD matches the remote's default branch
@@ -37,7 +41,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$NAME" ] || { echo "marketplace-status: give a marketplace name" >&2; exit 2; }
+[ -n "$NAME" ] || NAME=forge-kit
 [ -n "$DIR" ]  || DIR="${HOME:-}/.claude/plugins/marketplaces"
 
 emit() { printf '%s\t%s\n' "$1" "$2"; exit 0; }
