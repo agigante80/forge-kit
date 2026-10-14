@@ -1,0 +1,17 @@
+# retired-rules.tsv: rules forge-kit retired, one row per retired phrasing (#495).
+# Read by stale-rules.sh beside it. Tab separated, five columns:
+#   id, version retired, date retired, extended regex of the retired phrasing, replacement summary.
+# The regex is matched case-insensitively against a paragraph whose whitespace is collapsed, so a
+# phrase wrapped across lines still matches. Write it in lowercase, ERE as awk reads it. It finds
+# the listed phrasings only, never a paraphrase: add a row when a new wording turns up.
+# The kit current version of each id is not here: it is the rule id comment beside the canonical
+# text in the kit, which scripts/check-review-rule.sh keeps above every version listed here.
+review-lows	1	2026-10-10	ticketed immediately	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	becomes? a ticket immediately	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	ticketed at completion	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	ticketed like any other low	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	ticket-fodder by default	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	anything below( [a-z]+)? becomes a ticket	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	every low( finding)?s?( is| are| gets| get)? ticketed	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	low findings are (filed as tickets|ticketed)	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.
+review-lows	1	2026-10-10	no finding is (ever )?left with neither	Lows: fix (small, inside the touched files), ticket (only when a user or operator could hit it and it is too big now) or drop with one line; out-of-target: ticket or drop; one problem per ticket. Canonical text: forge-kit-review:review-lows.

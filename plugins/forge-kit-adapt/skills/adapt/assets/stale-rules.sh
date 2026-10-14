@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# stale-rules-version: 1
+# stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495).
+#
+# A rule outlives its source. Version markers find a component that is behind the kit; they cannot
+# find a rule restated in a project's own words, prose or memory derived from a component, or
+# anything outside the project's .claude/. This scanner reads those places and reports two kinds of
+# hit, each with file and line:
+#   - a phrasing listed in retired-rules.tsv (beside this script), matched per paragraph;
+#   - a rule id comment `<!-- rule: <id> v<M> -->` whose M is below the kit's current N for that id.
+# It finds the LISTED phrasings only. A paraphrase that matches no row and carries no id is not
+# found, and nothing here claims otherwise.
+#
+# Usage: stale-rules.sh [--kit <forge-kit dir>] [--project <dir>] [--rules <tsv>]
+#        stale-rules.sh [--kit <dir>] [--rules <tsv>] --files-from <file|->
+#
+#   --kit         the forge-kit checkout whose `rule:` comments under plugins/ give each id's
+#                 current version (forge-adapt passes $FORGE_KIT_DIR). Default: the checkout this
+#                 script sits in, when it has a plugins/ directory.
+#   --project     the project to scan. Default: the current directory.
+#   --files-from  scan exactly the listed files (one path per line, `-` for stdin) as prose, and
+#                 nothing else. The CI self-check's entry point.
+#
+# PLACES (an absent path is normal and produces no row). The config dir is $CLAUDE_CONFIG_DIR,
+# default ~/.claude.
+#   component  the project's .claude/agents, .claude/commands, .claude/skills and the config dir's
+#              agents, commands, skills: every *.md beneath.
+#   prose      the project's CLAUDE.md, CLAUDE.local.md, .claude/CLAUDE.md, AGENTS.md,
+#              CONTRIBUTING.md, docs/**/*.md, and the config dir's CLAUDE.md.
+#   memory     the project's .claude/memory and .claude/handoffs (*.md), and the auto memory dir
+#              <config dir>/projects/<slug>/memory.
+#
+# OUTPUT, stdout, tab separated. The matched text is never printed: memory can hold names.
+#   stale-rule  <component|prose|memory>  <path>  <line>  <rule id>
+#   not-scanned <path>  <symlink|unreadable|project slug over 200 characters>
+#   summary     <files scanned>  <stale rows>  <not-scanned rows>          (always last)
+# A project path is relative to the project; any other path under $HOME starts with `~`.
+#
+# EXIT 0 no hits and everything scanned; 1 at least one stale-rule row; 3 no hits but something was
+# not scanned (incomplete is never reported as clean); 2 usage or read error, nothing on stdout.
+#
+# MATCHING. A paragraph is a run of lines ended by a blank line, a heading or a new list item. Its
+# lines are joined after removing leading whitespace and `>` quote prefixes, whitespace runs become
+# one space, and case is folded; a match is reported at the line where it starts. A match is
+# skipped when any line it spans carries the word `retired-rule-quote` (a deliberate quote).
+#
+# READ ONLY, and no symlink is followed: a symlinked named file or directory, or a symlink inside
+# one, is a not-scanned row. Portable to bash 3.2 (stock macOS): no mapfile, no associative arrays.
+set -uo pipefail
+export LC_ALL=C   # byte semantics: the copied slug code needs it, and gawk rejects its octal range otherwise
+
+usage() {
+  echo "stale-rules: $1" >&2
+  echo "usage: stale-rules.sh [--kit <dir>] [--project <dir>] [--rules <tsv>] [--files-from <file|->]" >&2
+  exit 2
+}
+
+HERE=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd -P) || usage "cannot locate the script directory"
+KIT=""; PROJECT=""; RULES="$HERE/retired-rules.tsv"; LIST=""; HAVE_LIST=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --kit)        [ "$#" -ge 2 ] || usage "--kit needs a value";        KIT="$2"; shift 2 ;;
+    --project)    [ "$#" -ge 2 ] || usage "--project needs a value";    PROJECT="$2"; shift 2 ;;
+    --rules)      [ "$#" -ge 2 ] || usage "--rules needs a value";      RULES="$2"; shift 2 ;;
+    --files-from) [ "$#" -ge 2 ] || usage "--files-from needs a value"; LIST="$2"; HAVE_LIST=1; shift 2 ;;
+    *) usage "unknown argument '$1'" ;;
+  esac
+done
+
+[ -f "$RULES" ] && [ -r "$RULES" ] || usage "cannot read the data file '$RULES'"
+if [ -z "$KIT" ]; then KIT="$HERE/../../../../.."; fi
+[ -d "$KIT/plugins" ] || usage "'$KIT' is not a forge-kit checkout (no plugins/); pass --kit"
+if [ "$HAVE_LIST" -eq 1 ] && [ "$LIST" != "-" ]; then
+  [ -f "$LIST" ] && [ -r "$LIST" ] || usage "cannot read the file list '$LIST'"
+fi
+
+# physdir <dir>: the physical absolute path of a directory, or nothing.
+physdir() { (CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/stale-rules.XXXXXX") || usage "cannot create a temporary directory"
+trap 'rm -rf "$WORK"' EXIT
+
+# The kit's current version of every rule id: the highest `rule: <id> v<N>` under plugins/.
+grep -rhoE 'rule: [a-z0-9-]+ v[0-9]+' "$KIT/plugins" 2>/dev/null \
+  | awk '{ id = $2; v = substr($3, 2) + 0; if (!(id in m) || v > m[id]) m[id] = v }
+         END { for (id in m) printf "%s=%d\n", id, m[id] }' > "$WORK/current"
+
+# The matcher. Reads the data file and the current versions in BEGIN, buffers one file, and prints
+# "<line>\t<id>" per hit. Both inputs are read with getline, so no regex passes through -v escape
+# processing.
+MATCH_AWK='
+BEGIN {
+  FS = "\t"; n = 0
+  while ((getline row < RULES) > 0) {
+    if (row ~ /^#/ || row ~ /^[ \t]*$/) continue
+    k = split(row, c, "\t")
+    if (k < 5) continue
+    n++; rid[n] = c[1]; rre[n] = tolower(c[4])
+  }
+  close(RULES)
+  while ((getline row < CURRENT) > 0) { p = index(row, "="); cur[substr(row, 1, p - 1)] = substr(row, p + 1) + 0 }
+  close(CURRENT)
+}
+{ raw[NR] = $0 }
+function emit(ln, id) { if (!((ln, id) in seen)) { seen[ln, id] = 1; printf "%d\t%s\n", ln, id } }
+function quoted(a, b,   i) { for (i = a; i <= b; i++) if (index(tolower(raw[i]), "retired-rule-quote")) return 1; return 0 }
+function norm(s) {
+  gsub(/\t/, " ", s); gsub(/\r/, "", s)
+  sub(/^ +/, "", s)
+  while (s ~ /^>/) { sub(/^> */, "", s) }
+  gsub(/  +/, " ", s); sub(/ +$/, "", s)
+  return tolower(s)
+}
+function flush(   t, i, j, s, base, st, en, ls, le, piece, best, id) {
+  if (pn == 0) return
+  t = ""
+  for (i = 1; i <= pn; i++) {
+    piece = norm(raw[pl[i]])
+    if (t != "" && piece != "") t = t " "
+    off[i] = length(t) + 1
+    t = t piece
+  }
+  for (j = 1; j <= n; j++) {
+    s = t; base = 0
+    while (s != "" && match(s, rre[j])) {
+      st = base + RSTART; en = st + (RLENGTH > 0 ? RLENGTH : 1) - 1
+      ls = 1; le = 1
+      for (i = 1; i <= pn; i++) { if (off[i] <= st) ls = i; if (off[i] <= en) le = i }
+      if (!quoted(pl[ls], pl[le]) && (!(rid[j] in best) || pl[ls] < best[rid[j]])) best[rid[j]] = pl[ls]
+      base = base + RSTART + (RLENGTH > 0 ? RLENGTH : 1) - 1
+      s = substr(t, base + 1)
+    }
+  }
+  for (id in best) emit(best[id], id)   # one row per rule id per paragraph, at its earliest start
+  pn = 0
+}
+END {
+  pn = 0
+  for (ln = 1; ln <= NR; ln++) {
+    line = raw[ln]
+    # Rule ids, one line at a time.
+    l = tolower(line)
+    while (match(l, /rule: [a-z0-9-]+ v[0-9]+/)) {
+      tok = substr(l, RSTART + 6, RLENGTH - 6); l = substr(l, RSTART + RLENGTH)
+      sp = index(tok, " v"); id = substr(tok, 1, sp - 1); v = substr(tok, sp + 2) + 0
+      if ((id in cur) && v < cur[id] && !quoted(ln, ln)) emit(ln, id)
+    }
+    # Paragraph boundaries.
+    if (line ~ /^[ \t]*$/) { flush(); continue }
+    if (line ~ /^[ \t]*#+[ \t]/) { flush(); pl[++pn] = ln; flush(); continue }
+    if (line ~ /^[ \t]*([-*+]|[0-9]+[.)])[ \t]/) flush()
+    pl[++pn] = ln
+  }
+  flush()
+}'
+
+scanned=0; stale=0; unscanned=0
+: > "$WORK/rows"; : > "$WORK/seen"
+
+# show <abs path>: the printed form. Project paths are relative; HOME becomes ~.
+show() {
+  local p="$1"
+  if [ -n "$PROOT" ] && [ "${p#"$PROOT"/}" != "$p" ]; then printf '%s' "${p#"$PROOT"/}"; return; fi
+  if [ -n "${HOME:-}" ] && [ "${p#"$HOME"/}" != "$p" ]; then printf '~%s' "/${p#"$HOME"/}"; return; fi
+  printf '%s' "$p"
+}
+not_scanned() { printf 'not-scanned\t%s\t%s\n' "$1" "$2" >> "$WORK/rows"; unscanned=$((unscanned + 1)); }
+
+# scan_file <place> <path on disk> <printed path>
+scan_file() {
+  local place="$1" f="$2" disp="$3"
+  if grep -qxF -- "$f" "$WORK/seen"; then return 0; fi
+  printf '%s\n' "$f" >> "$WORK/seen"
+  if [ -L "$f" ]; then not_scanned "$disp" symlink; return 0; fi
+  [ -f "$f" ] || return 0
+  if [ ! -r "$f" ]; then not_scanned "$disp" unreadable; return 0; fi
+  scanned=$((scanned + 1))
+  awk -v RULES="$RULES" -v CURRENT="$WORK/current" "$MATCH_AWK" < "$f" > "$WORK/hits" \
+    || { echo "stale-rules: the matcher failed on '$disp'" >&2; exit 2; }
+  while IFS="$(printf '\t')" read -r ln id; do
+    printf 'stale-rule\t%s\t%s\t%s\t%s\n' "$place" "$disp" "$ln" "$id" >> "$WORK/rows"
+    stale=$((stale + 1))
+  done < <(sort -t "$(printf '\t')" -k1,1n -k2,2 "$WORK/hits")
+}
+
+# scan_tree <place> <abs path> <glob>: a named file or directory; every symlink met is reported.
+scan_tree() {
+  local place="$1" root="$2" glob="$3" p
+  if [ -L "$root" ]; then
+    if ! grep -qxF -- "$root" "$WORK/seen"; then printf '%s\n' "$root" >> "$WORK/seen"; not_scanned "$(show "$root")" symlink; fi
+    return 0
+  fi
+  [ -e "$root" ] || return 0
+  if [ -f "$root" ]; then scan_file "$place" "$root" "$(show "$root")"; return 0; fi
+  [ -d "$root" ] || return 0
+  find "$root" -type l 2>/dev/null | LC_ALL=C sort > "$WORK/links"
+  while IFS= read -r p; do
+    grep -qxF -- "$p" "$WORK/seen" && continue
+    printf '%s\n' "$p" >> "$WORK/seen"; not_scanned "$(show "$p")" symlink
+  done < "$WORK/links"
+  find "$root" -type f -name "$glob" 2>/dev/null | LC_ALL=C sort > "$WORK/files"
+  while IFS= read -r p; do scan_file "$place" "$p" "$(show "$p")"; done < "$WORK/files"
+}
+
+# Auto memory slug, COPIED from forge-kit-devops' context-budget.sh (`slug`, `memory_file`): no
+# dependency is declared between forge-kit-adapt and forge-kit-devops, and declaring one to reuse
+# two functions would make every adapt install pull devops. Keep the two in step by hand.
+SLUG_MAX=200
+slug() {
+  printf '%s' "$1" | tr -d '\200-\277' | awk '{ gsub(/[\360-\364]/, "--"); printf "%s", $0 }' | tr -c 'A-Za-z0-9' '-'
+}
+
+PROOT=""
+if [ "$HAVE_LIST" -eq 1 ]; then
+  if [ "$LIST" = "-" ]; then cat > "$WORK/list"; else cat -- "$LIST" > "$WORK/list"; fi
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    scan_file prose "$p" "$p"
+  done < "$WORK/list"
+else
+  [ -n "$PROJECT" ] || PROJECT=.
+  [ -d "$PROJECT" ] || usage "no such project directory '$PROJECT'"
+  PROOT=$(physdir "$PROJECT"); [ -n "$PROOT" ] || usage "cannot resolve '$PROJECT'"
+  CFG="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+  CFG="${CFG%/}"
+
+  for d in agents commands skills; do scan_tree component "$PROOT/.claude/$d" '*.md'; done
+  for d in agents commands skills; do scan_tree component "$CFG/$d" '*.md'; done
+  for f in CLAUDE.md CLAUDE.local.md .claude/CLAUDE.md AGENTS.md CONTRIBUTING.md; do scan_tree prose "$PROOT/$f" '*.md'; done
+  scan_tree prose "$PROOT/docs" '*.md'
+  scan_tree prose "$CFG/CLAUDE.md" '*.md'
+  scan_tree memory "$PROOT/.claude/memory" '*.md'
+  scan_tree memory "$PROOT/.claude/handoffs" '*.md'
+
+  mroot=$(unset GIT_DIR GIT_WORK_TREE; git -C "$PROOT" rev-parse --show-toplevel 2>/dev/null) && mroot=$(physdir "$mroot") || mroot=""
+  [ -n "$mroot" ] || mroot="$PROOT"
+  s=$(slug "$mroot"); [ -n "$s" ] || usage "cannot derive the project slug for '$mroot'"
+  if [ "${#s}" -le "$SLUG_MAX" ]; then
+    scan_tree memory "$CFG/projects/$s" '*.md'
+  else
+    not_scanned "$(show "$CFG/projects")/<slug>" "project slug over 200 characters"
+  fi
+fi
+
+cat "$WORK/rows"
+printf 'summary\t%s\t%s\t%s\n' "$scanned" "$stale" "$unscanned"
+if [ "$stale" -gt 0 ]; then exit 1; fi
+if [ "$unscanned" -gt 0 ]; then exit 3; fi
+exit 0

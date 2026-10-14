@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 78 -->
+<!-- forge-adapt-version: 79 -->
 
 # forge-adapt
 
@@ -438,7 +438,8 @@ Rules for this step:
      `scripts/` VERBATIM, and for a Forgejo or dual-remote repo (`$FORGE_HOST=forgejo`) copy
      `forge.conf.example` -> `.forge.conf`. Its base URL cannot be auto-detected, so ASK
      (or read an existing `.forge.conf`), then remind the user to export the token.
-   - **Companion skills (agents only):** an agent carries reference material in a SKILL named in its
+   - **`/full-review`** loads the `review-lows` skill at Completion: install it alongside.
+   - **Companion skills (agents):** an agent carries reference material in a SKILL named in its
      `skills:` frontmatter, never its own `references/` (#124). Install each skill named, then
      rewrite the installed agent LAST, while the plugin-scoped names are still readable. **A missed
      skill fails SILENTLY**, so never parse the frontmatter yourself; on exit 2 STOP and
@@ -569,7 +570,8 @@ Run only when explicitly invoked, or offer them after the user replies "none".
 
 ### Refresh / drift mode  ("refresh", "refresh <name>", "drift")
 
-The deep, expensive counterpart to the cheap "Updates available" block. Two shapes:
+Every shape, and the main flow's Version status block, also runs the retired-rule scan in
+`references/stale-rules.md` (#495).
 
 **`refresh` / `drift` (no name) - report only, writes nothing.** For every installed component,
 compare its `<name>-version` marker against the catalogue and print a drift report:
@@ -632,8 +634,8 @@ The only full content diff here, and it must NEVER blind-overwrite adaptation. S
    step**: a refresh can splice IN a `skills:` line, and skipping it fails silently. Confirm `✓ <name> refreshed v<old> → v<new> (adaptation preserved)`.
    On `no`: write nothing.
 
-If the marker already matches the catalogue, say so and offer a content diff anyway (the project
-may have edited a same-version copy) - but default to "already current, nothing to do".
+If the marker already matches the catalogue, say so and offer a content diff anyway (a
+same-version copy may be edited), defaulting to "already current".
 
 ### Contributions mode  ("forge-adapt contributions" / "contribute")
 
@@ -786,12 +788,10 @@ Confirm: `✓ ticket-standards doc written at v$PRJ_TPL_VER; gate + CLAUDE.md re
 - **Render every listing as a Markdown table.** The Recommended picks, Version status, Unversioned,
   the `drift` report, the `refresh` classification, and "more <category>" output are all tables - never
   bullet lists or key-value blocks. The Profile is the only block that stays prose. Keep "Why" cells <= 60 chars.
-- **Adapted copies keep the version marker.** Step 3 preserves the `<name>-version` marker so the next
-  run can detect drift; an install that strips it resets the component to "unversioned".
 - **Recommended table = top picks, not the whole catalogue.** Lead with the most valuable per category;
   "more <category>" expands one category into its full-catalogue table on request.
 - **Every "why" is specific and <= 60 chars.** One strongest signal, never generic best-practice text.
-- **Never write outside Step 3 or a confirmed `refresh <name>`.** Recommendations, the "Updates
+- **Never write outside Step 3, a confirmed `refresh <name>` or a confirmed stale-rule fix.** Recommendations, the "Updates
   available" block, and the `refresh`/`drift` report all write nothing. Self-update (Setup S1) is the
   only other exception and only ever writes its own SKILL.md.
 - **Drift is detected by version markers, not by diffing.** The cheap up-front signal and the

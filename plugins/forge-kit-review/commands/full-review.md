@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails] [--full]"
 ---
 
-<!-- full-review-version: 13 -->
+<!-- full-review-version: 14 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -684,11 +684,11 @@ skipped phase's file as produced)
 3. Low (P3): one outcome line per Low; fixed [n], ticketed [n] (URLs), dropped [n]
 ```
 
-**Low triage (part of Completion, not advice):** load the `review-lows` skill and give
-each Low its outcome; file only the ticket outcomes. FIRST search open issues for each
-(the source marker makes prior filings greppable: `forge_issue_list open` or
-`gh issue list --search`); an already-open ticket counts, note its URL instead of
-re-filing. Otherwise create one issue via the host-aware adapter where installed (`forge_issue_create "<title>" "<body>"`,
+**Low triage (part of Completion, not advice):** load the `review-lows` skill (Skill tool)
+and give each Low its outcome; file only ticket outcomes. If the skill is absent, file
+nothing and report every Low untriaged, naming the missing skill. FIRST search open issues
+(`forge_issue_list open` or `gh issue list --search`); an already-open ticket counts, note its
+URL. Otherwise create one via the host-aware adapter (`forge_issue_create "<title>" "<body>"`,
 then `forge_issue_label`), falling back to `gh issue create`; body = the finding verbatim
 plus `(source: full-review round <N>, <date>)`; label `enhancement` unless the finding
 names a better fit. **Check `forge_issue_label`'s exit**: on Forgejo its contract is

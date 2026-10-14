@@ -440,6 +440,11 @@ jobs:
       - name: Tier-diff tests
         run: bash scripts/test-forge-adapt-tier-diff.sh
 
+      # Issue #495: drift reads these rows, and a false clean is the scanner's worst failure, so
+      # every way it could look nowhere and still report nothing is pinned.
+      - name: Stale-rules scanner tests
+        run: bash scripts/test-forge-adapt-stale-rules.sh
+
       # Issue #172: a registered component's freshness belongs to the marketplace checkout, which
       # nothing here could see. The guard itself is not run against CI's own machine (there is no
       # marketplace there); only its contract is held down.
