@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# close-shipped-version: 2
+# close-shipped-version: 3
 # close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496).
 # Closing shipped tickets was a step someone had to remember (the `release` skill's step 5), and on
 # a two branch model the host's own auto close never fires, because the feature PRs target the
@@ -22,7 +22,10 @@
 # commit reverted inside the same range ships nothing: a subject quoted by a `Revert "<subject>"`
 # subject in the range is dropped, once per revert, before the matcher runs. A reapply (git's
 # `Reapply "<subject>"`, or a revert of the revert) is dropped with it, so a reapplied ticket needs
-# its own trailing `(#N)` on the reapply commit to be closed. Close mode and report mode share this
+# its own trailing `(#N)` on the reapply commit to be closed. NOT detected: reverting a whole
+# merged PR (`git revert -m 1`, or the host's Revert button on a --no-ff merge), because that
+# revert quotes the MERGE subject, which --no-merges excludes; mark such a ticket with the
+# `(refs #N)` opt-out or reopen it by hand (follow-up #498). Close mode and report mode share this
 # one matcher, so they cannot disagree. A squash-promoted range
 # whose subject carries only a PR number yields that number, which is skipped as a pull request:
 # resolving a PR to its linked issues is out of scope.

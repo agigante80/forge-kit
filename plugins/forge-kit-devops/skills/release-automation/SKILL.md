@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. The enforced/automated sibling of the invoked `release` skill. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 11 -->
+<!-- release-automation-version: 12 -->
 
 # Release automation
 
@@ -126,7 +126,10 @@ is skipped, never written to. A first release closes nothing.
 - **Opt-out:** end a subject with `(refs #N)` instead of `(#N)` for a ticket the commit ships only
   part of; the last commit of a split ticket writes `(#N)`.
 - **Reverts:** a commit reverted inside the same range (`Revert "<subject>"`) ships nothing and
-  closes nothing. A reapply needs its own trailing `(#N)`.
+  closes nothing. A reapply needs its own trailing `(#N)`. Reverting a whole merged PR
+  (`git revert -m 1`, or the Revert button on a `--no-ff` merge) is not detected, because that
+  revert quotes the merge subject, which the manifest never reads: use the `(refs #N)` opt-out or
+  reopen the ticket (follow-up #498).
 - **Squash promotions:** a release commit whose subject carries only the PR number closes nothing;
   keep the ticket numbers in the subjects.
 - **Token:** the App behind `GH_TOKEN` needs **Issues: Read and write** (see

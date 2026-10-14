@@ -200,6 +200,10 @@ mkrepo; tg v1.1.0; c "fix: x (#10)"; c "fix: x (#10)"; c 'Revert "fix: x (#10)"'
 newstate; issue 10 open; run_cs v1.2.0
 check "one revert cancels one copy of a subject, not every copy (a cherry-pick survives)" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ]'
 
+mkrepo; tg v1.1.0; c 'fix: handle "foo" input (#10)'; c 'Revert "fix: handle "foo" input (#10)" (#25)'; tg v1.2.0
+newstate; issue 10 open; issue 25 open pr; run_cs v1.2.0
+check "a reverted subject with its own double quotes, behind a squash suffix, ships nothing" '[ $rc -eq 0 ] && ! touched 10 && [ "$(state 10)" = open ]'
+
 mkrepo; c "feat: start (#1)"; tg v1.0.0
 newstate; issue 1 open; run_cs v1.0.0
 check "a first release closes nothing and makes no call" '[ $rc -eq 0 ] && grep -q "no previous tag; nothing closed" <<< "$out" && [ "$(calls)" = 0 ]'
