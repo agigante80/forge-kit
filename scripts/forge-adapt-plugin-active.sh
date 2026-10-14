@@ -55,7 +55,7 @@ case "$ID" in
   *) echo "forge-adapt-plugin-active: give <name@marketplace>" >&2; exit 2 ;;
 esac
 [ -n "$PROJ" ] || PROJ="$PWD"
-PROJ=$(cd -P -- "$PROJ" 2>/dev/null && pwd -P) \
+PROJ=$(CDPATH= cd -P -- "$PROJ" 2>/dev/null && pwd -P) \
   || { echo "forge-adapt-plugin-active: --project is not a directory" >&2; exit 2; }
 
 TAB=$(printf '\t')
@@ -85,7 +85,7 @@ if [ -e "$REG" ]; then
   jq -e '.plugins | type == "object"' "$REG" >/dev/null 2>&1 || unknown "cannot parse installed_plugins.json"
 fi
 
-canon() { local d; d=$(cd -P -- "$1" 2>/dev/null && pwd -P) && printf '%s\n' "$d" || printf '%s\n' "$1"; }
+canon() { local d; d=$(CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P) && printf '%s\n' "$d" || printf '%s\n' "$1"; }
 
 # entries_for <id>: one `P:<installPath>` line for every registry entry that counts for this
 # project (the prefix keeps an entry with no installPath from vanishing as an empty line).

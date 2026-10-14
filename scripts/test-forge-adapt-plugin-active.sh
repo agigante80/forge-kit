@@ -132,7 +132,7 @@ run "$G" --project "$P"; want "an unparseable manifest reads unknown" "unknown${
 # --- condition 5: which registry entries count ---------------------------------------------------
 baseline c5
 mkdir -p "$W/real" "$W/other"
-RP=$(cd -P "$W/real" && pwd -P); ln -s "$RP" "$W/link"
+RP=$(CDPATH= cd -P "$W/real" && pwd -P); ln -s "$RP" "$W/link"
 registry "$G=$(entry local "$GP" "$RP")" "$D=$(entry user "$DP")"
 settings "$CFG/settings.json" "{}"
 run "$G" --project "$W/link"; want "a local install for this project reads yes, through a symlinked --project" "yes"
