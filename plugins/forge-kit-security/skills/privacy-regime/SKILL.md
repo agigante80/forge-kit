@@ -3,7 +3,7 @@ name: privacy-regime
 description: Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions instead of a default jurisdiction's. Use when setting up governance for a project that stores personal data, when the gate's personal-data questions do not match your jurisdiction, or when asked about GDPR, UK GDPR, CCPA, CPRA, LGPD, PIPEDA, APPI or any other privacy regime.
 ---
 
-<!-- privacy-regime-version: 2 -->
+<!-- privacy-regime-version: 3 -->
 
 # Privacy regime (opt-in, per project)
 
@@ -14,7 +14,7 @@ citing none. It looks authoritative and is not.
 
 ## What the default already does without this skill
 
-`docs/guides/ticket-standards.md` rule 4 requires **seven regime-agnostic facts** about any ticket
+`docs/guides/ticket-standards.md` section "Personal data handling" requires **seven regime-agnostic facts** about any ticket
 touching personal data, and `ticket-gate` blocks on their absence:
 
 1. Every personal-data field the ticket touches
@@ -33,10 +33,10 @@ needs nothing beyond them.** Install this skill only when you have a regime and 
 
 Label a ticket `privacy` and `ticket-gate` adds the section below to the critic's brief. It is a
 brief modulation, not a new agent, following the same pattern as the `api` row in the gate's lens
-table: a privacy regime is not an independent domain perspective, it is the same rule 4 judgment
+table: a privacy regime is not an independent domain perspective, it is the same section "Personal data handling" judgment
 with your jurisdiction's names and thresholds attached.
 
-Without the label, rule 4's seven facts remain the bar. Without this skill installed, the label
+Without the label, section "Personal data handling"'s seven facts remain the bar. Without this skill installed, the label
 does nothing.
 
 ## Fill this in
@@ -54,7 +54,7 @@ Map each of the seven facts above onto what YOUR regime actually requires, with 
 The mapping matters more than the citation: a reviewer needs to know the threshold, not the article
 number.
 
-| Rule 4 fact | This regime's requirement | Citation | Threshold or deadline |
+| Personal data handling fact | This regime's requirement | Citation | Threshold or deadline |
 |---|---|---|---|
 | Fields touched | `[...]` | `[...]` | `[...]` |
 | Storage and encryption at rest | `[...]` | `[...]` | `[...]` |
@@ -64,7 +64,7 @@ number.
 | Legal basis | `[...]` | `[...]` | `[consent? contract? legitimate interest?]` |
 | Cross-border transfer | `[...]` | `[...]` | `[adequacy? SCCs? not permitted?]` |
 
-### Regime-specific obligations with no rule 4 equivalent
+### Regime-specific obligations with no Personal data handling equivalent
 
 Some regimes require things the seven neutral facts do not cover. List them here, or delete this
 section.
@@ -92,4 +92,4 @@ it per ticket.
 This skill is **not legal advice and must not read as if it is**. It records what your team has
 already determined, so the gate can check tickets against it. If nobody on the project can fill in
 the table, that is the finding: the answer is not to guess, it is to leave this skill uninstalled
-and let rule 4's seven neutral facts stand until someone can.
+and let the seven neutral facts of section "Personal data handling" stand until someone can.

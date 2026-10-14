@@ -28,7 +28,7 @@ Lead with at most the top 1-2; "more skills" expands the rest.
 project's own jurisdiction, and forge-kit names none anywhere in its defaults (issue #101).
 Installing it silently would put an unfilled template in the project and a `privacy` label
 route pointing at nothing. Recommend it, say it needs their regime filled in, and let them
-choose. Rule 4's seven regime-agnostic facts already bind without it.
+choose. The seven regime-agnostic facts of ticket-standards section "Personal data handling" already bind without it.
 
 **Retired in #178**: the whole `forge-kit-backend` group (`api-design-principles`,
 `architecture-patterns`, `cqrs-implementation`, `microservices-patterns`,

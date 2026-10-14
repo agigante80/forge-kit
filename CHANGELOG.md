@@ -25,6 +25,8 @@ tracks the repository, so users are already served from the default branch.
 
 ### Fixed
 
+- **The privacy-regime skill, the adapt skills reference and `labels.md` cite ticket-standards by section title too (#514, #515, #516).** The #510 follow-ups: each said "rule 4", which a project that renumbers its adapted doc turns into a stale pointer; they now cite `section "Personal data handling"` (`privacy-regime-version` 2 to 3, `forge-adapt-version` 88 to 89, `forge-kit-security` 0.17.8, `forge-kit-adapt` 0.12.23).
+
 - **`forge-adapt-drift-status.sh` reads the drift table cell `vnone` as `none` (#506, found in review).** The table prints an unmarked component as `vnone`, which #506 now makes reachable for the pre-marker lockstep guard; passed verbatim it exited 2. It now answers `unversioned`.
 
 - **The template lockstep guard forge-adapt installs is now a versioned asset, and its cd fails closed (#506).** `check-template-lockstep.sh` moved from `scripts/` to `plugins/forge-kit-adapt/skills/adapt/assets/` and carries `# check-template-lockstep-version: 1`, so the catalogue lists it and drift can tell an installed copy is behind; an installed copy from before this change has no marker and reads `unversioned`. Its `cd` into the repository root now exits 2 with `cannot enter the repository root` instead of running from the wrong directory and reporting "nothing to check" as a pass. Templates mode copies only the guard and wires only the guard into the generated workflow. `scripts/test-template-lockstep.sh` stays in the kit and is no longer copied downstream: an old installed copy of that test stays valid but is orphaned and never refreshed. `forge-adapt-version` 88, `forge-kit-adapt` 0.12.22.
