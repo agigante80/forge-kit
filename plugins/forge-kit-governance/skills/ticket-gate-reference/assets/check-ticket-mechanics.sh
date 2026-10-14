@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 42
+# check-ticket-mechanics-version: 43
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -110,6 +110,22 @@
 # --body only; refused with --roles or --dump-fields. forge-gate-mechanics.sh's template-shape test
 # reads it, so that test and check 3 share one fence-aware reader instead of two copies of the awk.
 #
+# --skeleton prints the STATIC checklist parts of a template that a form submission would have carried
+# and an API-filed body (forge_issue_create, `gh issue create --body-file`) lacks (#505): per field,
+# in template order, `## <label>` and then the `- [ ]` option lines of a checkboxes field, or the
+# `value: |` block of a textarea that holds a `- [ ]` line. Everything else prints nothing (inputs,
+# dropdowns, a textarea with only a placeholder, bare-stub value blocks, markdown). Without --body
+# it prints the template-version marker line (when the template has one) and then the sections.
+# With --body F it prints F byte for byte, then ONLY the sections whose heading is missing under
+# check 3's own presence rule (`## <label>` or `### <label>` as a whole line of the body_headings
+# output: case-sensitive, fence-aware, so a `####` heading is absent) and never a marker, because a
+# marker added to a body that has none would make Step 0a skip Step 0c. It writes nothing and adds
+# no size policy: the host rejects an oversized body with its own message. Refusals (exit 2, nothing
+# on stdout): no `body:` list in the template, a textarea `value:` that is not a `|` or `|-` block,
+# a flag combination. Recipe for an API caller, fail-closed (a bare command substitution would
+# discard the refusal and file an EMPTY issue):
+#   body="$(check-ticket-mechanics.sh --skeleton --template T --body F)" || exit 1
+#   forge_issue_create "$title" "$body"
 # --classes prints `<class>\t<label>` per template field (#513), see the block that implements it.
 #
 # --roles prints `<role>\t<label>` per resolved role and exits (#213), in the fixed order
@@ -149,7 +165,7 @@
 #
 set -uo pipefail
 
-BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
+BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -237,6 +253,7 @@ while [ $# -gt 0 ]; do
     --roles)               ROLES=1; shift ;;
     --headings)            HEADINGS=1; shift ;;
     --classes)             CLASSES=1; shift ;;
+    --skeleton)            SKELETON=1; shift ;;
     -h|--help)             awk 'NR==1{next} /^#/{print; next} {exit}' < "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -245,8 +262,10 @@ done
 [ "$ROLES" -eq 0 ] || [ "$DUMP_FIELDS" -eq 0 ] || die "--roles and --dump-fields are mutually exclusive"
 [ "$HEADINGS" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ]; } || die "--headings is exclusive of --roles and --dump-fields"
 [ "$CLASSES" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ] && [ "$HEADINGS" -eq 0 ]; } || die "--classes is exclusive of --roles, --dump-fields and --headings"
-# --classes needs no body, exactly like --roles, so it takes the same no-body path below (#513).
-[ "$CLASSES" -eq 0 ] || ROLES=1
+[ "$SKELETON" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ] && [ "$HEADINGS" -eq 0 ] && [ "$CLASSES" -eq 0 ]; } || die "--skeleton is exclusive of --roles, --dump-fields, --headings and --classes"
+# --classes (#513) and --skeleton (#505) need no body, exactly like --roles, so they take the same
+# no-body path below. --skeleton's optional --body is checked in its own block.
+{ [ "$CLASSES" -eq 0 ] && [ "$SKELETON" -eq 0 ]; } || ROLES=1
 if [ "$ROLES" -eq 0 ]; then
   [ -n "$BODY" ]   || die "--body is required"
   [ -f "$BODY" ]   || die "body file not found: $BODY"
@@ -254,6 +273,8 @@ fi
 [ "$HEADINGS" -eq 0 ] || { body_headings; exit 0; }
 [ -n "$TEMPLATE" ] || die "--template is required"
 [ -f "$TEMPLATE" ] || die "template file not found: $TEMPLATE"
+[ "$SKELETON" -eq 0 ] || grep -q '^body:' "$TEMPLATE" || die "$TEMPLATE has no body: list"
+[ "$SKELETON" -eq 0 ] || [ -z "$BODY" ] || [ -f "$BODY" ] || die "body file not found: $BODY"
 
 # The project's area table, read the way scripts/check-label-taxonomy.sh reads the canonical one
 # (the two awk bodies are byte-identical, and its suite asserts that): rows of the `### Area
@@ -451,6 +472,54 @@ DOCS_LABEL="$(role_label 'documentation impact')"
 #                   absent on a post-0c body (less the labels Step 0c-iv pointer-places).
 # It reads the same TEMPLATE_FIELDS and role resolution as check 3, so the partition has no second
 # copy. Needs --template, not --body (a --body is ignored). Check 3's evidence is unchanged.
+if [ "$SKELETON" -eq 1 ]; then
+  heads=""
+  [ -z "$BODY" ] || heads="$(body_headings)"
+  skel="$(CTM_HEADS="$heads" CTM_APPEND="$([ -n "$BODY" ] && echo 1 || echo 0)" awk "$UNQ_AWK"'
+    BEGIN { n = split(ENVIRON["CTM_HEADS"], a, "\n"); for (i = 1; i <= n; i++) have[a[i]] = 1
+            append = ENVIRON["CTM_APPEND"]; marker = ""; out = "" }
+    { sub(/\r$/, "") }
+    function flush(   i, v, last, miss) {
+      if (label == "") return
+      miss = !(("## " label) in have) && !(("### " label) in have)
+      if (type == "checkboxes" && nopt > 0) {
+        if (miss) { out = out "\n## " label "\n"; for (i = 1; i <= nopt; i++) out = out "- [ ] " opt[i] "\n" }
+      } else if (type == "textarea" && inval == 1 && vhas) {
+        if (miss) { last = nv; while (last > 0 && vl[last] ~ /^[ \t]*$/) last--
+                    out = out "\n## " label "\n"; for (i = 1; i <= last; i++) out = out vl[i] "\n" }
+      }
+    }
+    /^[[:space:]]*-[[:space:]]*type:[[:space:]]*/ {
+      flush(); t = $0; sub(/^.*type:[[:space:]]*/, "", t); gsub(/[[:space:]]/, "", t)
+      type = t; label = ""; nopt = 0; nv = 0; vhas = 0; inval = 0; inblk = 0; inopt = 0; next
+    }
+    /^      label: / { if (type != "markdown" && label == "") { l = substr($0, 14); sub(/[ \t]+$/, "", l); label = unq(l) } }
+    /^      options:/ { inopt = 1; inblk = 0; next }
+    /^      value:/ {
+      inopt = 0; inblk = 0; r = substr($0, 13); sub(/^[ \t]+/, "", r); sub(/[ \t]+$/, "", r)
+      if (type == "textarea") {
+        if (r == "|" || r == "|-") { inval = 1; inblk = 1 }
+        else { printf "ERR\tfield \047%s\047 has an unsupported value: style (use a | or |- block)\n", label; err = 1; exit 3 }
+      } else if (type == "markdown") { inblk = 1; inval = 0 }
+      next
+    }
+    /^      [a-z]/ { inopt = 0; inblk = 0 }
+    inopt && /^        - label: / { nopt++; o = substr($0, 18); sub(/[ \t]+$/, "", o); opt[nopt] = unq(o); next }
+    inblk && type == "markdown" && marker == "" && match($0, /<!-- template-version: [0-9]+ -->/) { marker = substr($0, RSTART, RLENGTH) }
+    inblk && type == "textarea" && (/^        / || /^[ \t]*$/) {
+      line = $0; sub(/^        /, "", line); nv++; vl[nv] = line; if (line ~ /^- \[ \]/) vhas = 1
+    }
+    END { if (err) exit 3; flush(); if (append != "1" && marker != "") print marker; printf "%s", out }
+  ' < "$TEMPLATE")"; skrc=$?
+  [ "$skrc" -eq 0 ] || die "$(printf '%s' "$skel" | sed -n 's/^ERR[[:space:]]//p' | head -1)"
+  if [ -n "$BODY" ]; then
+    cat "$BODY"
+    [ -z "$skel" ] || { [ -z "$(tail -c1 "$BODY")" ] || printf '\n'; printf '%s\n' "$skel"; }
+  else
+    [ -z "$skel" ] || printf '%s\n' "$skel"
+  fi
+  exit 0
+fi
 if [ "$CLASSES" -eq 1 ]; then
   synth="$(printf '%s\n%s\n%s\n%s\n' "$SCENARIOS_LABEL" "$UNIT_LABEL" "$E2E_LABEL" "$DOCS_LABEL"; printf '%s\n' "$TEMPLATE_FIELDS" | awk -F'\t' 'tolower($3) == "personal_data" { print $1 }')"
   printf '%s\n' "$TEMPLATE_FIELDS" | CTM_SYNTH="$synth" awk -F'\t' '

@@ -159,6 +159,15 @@ When you add new fields or rules:
 
 No manual ticket updates needed for the sections Step 0c writes (test scenarios, unit tests, E2E tests, documentation impact, personal data). The author-supplied sections stay absent and check 3 reports them; `check-ticket-mechanics.sh --classes --template <file>` lists which labels are which (#513).
 
+### Filing a ticket through the API (#505)
+
+A form submission carries the template's static checklist sections (Required reviews, QA & Security testing and the like); an API-filed body (`forge_issue_create`, `gh issue create --body-file`) does not, and check 3 then reports them absent. `check-ticket-mechanics.sh --skeleton --template <file>` prints those sections: the `## <label>` heading and the `- [ ]` options of each checkboxes field, and the `value:` block of a textarea that holds a `- [ ]` line, in template order, after the `template-version` marker line. With `--body <file>` it prints that body unchanged followed only by the sections whose heading is missing under check 3's own presence rule, and never a marker. Use it fail-closed, because a bare command substitution discards a refusal (exit 2, nothing on stdout) and would file an empty issue:
+
+```bash
+body="$(check-ticket-mechanics.sh --skeleton --template T --body F)" || exit 1
+forge_issue_create "$title" "$body"
+```
+
 ## Why this matters
 
 Without versioning, a ticket filed on an old template can pass the gate on structural

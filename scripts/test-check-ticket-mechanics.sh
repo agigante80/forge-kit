@@ -2484,6 +2484,145 @@ sed 's/the roles `--roles` printed, and `personal_data`/the roles printed/' "$GA
 cmp -s "$GATE" "$WORK/gate-0cii-mut.md" && bad "#513: the 0c-ii mutant did not apply"
 gate_pin "$T0C" "$WORK/gate-0cii-mut.md" && bad "#513: MUTANT survived: the 0c-ii pin passes with the wording changed" || ok "#513: MUTANT: rewording the 0c-ii targets fails the pin"
 
+# #505: --skeleton restores a template's static checklist sections on an API-filed body.
+echo "check-ticket-mechanics: --skeleton prints and appends the template checklist sections (#505)"
+sk() { bash "$SCRIPT" --skeleton --template "$@"; }
+sk_heads() { grep '^## ' ; }
+want_heads() { # <template> <literal headings, one per line>
+  local o; o="$(sk "$TPLDIR/$1.yml" 2>/dev/null | sk_heads)"
+  expect "#505 ($1): print mode lists exactly the checklist sections, in template order" "$2" "$o"
+  expect "#505 ($1): print mode leads with the template-version marker" "<!-- template-version: 6 -->" "$(sk "$TPLDIR/$1.yml" 2>/dev/null | head -1)"
+}
+want_heads feature "$(printf '## Required reviews (mandatory)\n## QA & Security testing')"
+want_heads bug "$(printf '## Required reviews (mandatory)\n## QA & Regression tests')"
+want_heads design "$(printf '## Accessibility requirements\n## Brand consistency\n## Required reviews (mandatory)')"
+want_heads security "## Required reviews (mandatory)"
+want_heads infrastructure "## Required reviews (mandatory)"
+o="$(sk "$TPLDIR/feature.yml" 2>/dev/null)"
+grep -qxF '### Security tests' <<< "$o" && grep -qxF '### QA tests' <<< "$o" && ok "#505: the qa_security field is one section holding both embedded sub-headings" || bad "#505: the embedded sub-headings of qa_security are missing"
+grep -q 'Personal data handling\|Security considerations' <<< "$o" && bad "#505: a bare-stub value block was printed" || ok "#505: bare-stub value blocks (personal data, security) are not printed"
+grep -qxF -- '- [ ] **ticket-gate** - mandatory before implementation. Mechanical checks + one critic (plus the security lens by label). Must return PASS.' <<< "$o" \
+  && ok "#505: a checkbox option prints as an unchecked item" || bad "#505: the Required reviews option did not print"
+# A project-added checkbox section is printed; a quoted label and option print unquoted; a CRLF copy prints no CR.
+cat > "$WORK/sk-proj.yml" <<'YML'
+name: Proj
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <!-- template-version: 3 -->
+  - type: input
+    id: who
+    attributes:
+      label: Who
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: "Definition of done: all"
+      options:
+        - label: "Docs updated"
+        - label: 'It''s released'
+          required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      placeholder: |
+        - [ ] a placeholder checklist is not static content
+YML
+o="$(sk "$WORK/sk-proj.yml")"; rc=$?
+expect "#505: a project-added checkbox section prints, a placeholder checklist does not" "$(printf '<!-- template-version: 3 -->\n\n## Definition of done: all\n- [ ] Docs updated\n- [ ] It'"'"'s released')" "$o"
+expect "#505: the project template exits 0" 0 "$rc"
+sed 's/$/\r/' "$WORK/sk-proj.yml" > "$WORK/sk-proj-crlf.yml"
+expect "#505: a CRLF template prints the LF output" "$o" "$(sk "$WORK/sk-proj-crlf.yml")"
+grep -q $'\r' <<< "$(sk "$TPLDIR/feature.yml")" && bad "#505: CR leaked into skeleton output" || ok "#505: no CR in skeleton output"
+# A template with no marker prints the sections and no marker line.
+grep -v 'template-version' "$WORK/sk-proj.yml" > "$WORK/sk-nomark.yml"
+o="$(sk "$WORK/sk-nomark.yml")"; rc=$?
+expect "#505: a template with no marker prints no marker line" "$(printf '\n## Definition of done: all\n- [ ] Docs updated\n- [ ] It'"'"'s released')" "$o"
+expect "#505: a template with no marker exits 0" 0 "$rc"
+# Refusals: exit 2, message, nothing on stdout.
+refuse() { # <label> <expected stderr substring> <args...>
+  local lab="$1" sub="$2"; shift 2
+  o="$(bash "$SCRIPT" "$@" 2>"$WORK/err")"; rc=$?
+  expect "#505: $lab exits 2" 2 "$rc"; expect "#505: $lab prints nothing on stdout" "" "$o"
+  grep -qF -- "$sub" "$WORK/err" && ok "#505: $lab names its cause" || bad "#505: $lab stderr lacks '$sub': $(cat "$WORK/err")"
+}
+printf 'name: x\n' > "$WORK/sk-nobody.yml"
+refuse "a template with no body: list" "$WORK/sk-nobody.yml has no body: list" --skeleton --template "$WORK/sk-nobody.yml"
+sed 's/^      label: Notes$/      label: Notes\n      value: "x"/' "$WORK/sk-proj.yml" > "$WORK/sk-style.yml"
+refuse "an inline value: style" "has an unsupported value: style" --skeleton --template "$WORK/sk-style.yml"
+refuse "a missing template" "template file not found" --skeleton --template "$WORK/nope.yml"
+refuse "--skeleton without --template" "--template is required" --skeleton
+refuse "a missing --body file" "body file not found" --skeleton --template "$FEAT" --body "$WORK/nope.md"
+for x in --roles --dump-fields --headings --classes; do
+  refuse "--skeleton with $x" "--skeleton is exclusive" --skeleton $x --template "$FEAT" --body "$FEAT"
+done
+bash "$SCRIPT" --help | grep -q -- '--skeleton' && ok "#505: --help documents --skeleton" || bad "#505: --help omits --skeleton"
+# Append mode.
+SKB="$WORK/sk-body.md"
+printf '# Title\n\n## QA & Security testing\ncustom text\n' > "$SKB"
+o="$(sk "$FEAT" --body "$SKB")"
+expect "#505: append keeps the custom section and adds only Required reviews, once, with no marker" \
+  "$(printf '# Title\n\n## QA & Security testing\ncustom text\n\n## Required reviews (mandatory)\n- [ ] **ticket-gate** - mandatory before implementation. Mechanical checks + one critic (plus the security lens by label). Must return PASS.')" "$o"
+# A complete body is returned byte for byte: LF, CRLF and no trailing newline.
+{ sk "$FEAT" | tail -n +2; } > "$WORK/sk-full.md"
+cmp -s "$WORK/sk-full.md" <(sk "$FEAT" --body "$WORK/sk-full.md") && ok "#505: a complete LF body is untouched (cmp)" || bad "#505: a complete LF body changed"
+sed 's/$/\r/' "$WORK/sk-full.md" > "$WORK/sk-full-crlf.md"
+cmp -s "$WORK/sk-full-crlf.md" <(sk "$FEAT" --body "$WORK/sk-full-crlf.md") && ok "#505: a complete CRLF body is untouched (cmp)" || bad "#505: a complete CRLF body changed"
+printf '%s' "$(cat "$WORK/sk-full.md")" > "$WORK/sk-full-nonl.md"
+cmp -s "$WORK/sk-full-nonl.md" <(sk "$FEAT" --body "$WORK/sk-full-nonl.md") && ok "#505: a complete body with no trailing newline is untouched (cmp)" || bad "#505: the no-newline body changed"
+# A body with no trailing newline gets exactly one newline before the blank line.
+printf '## QA & Security testing\ncustom' > "$WORK/sk-nonl.md"
+expect "#505: a body with no trailing newline is joined with one newline and a blank line" \
+  "$(printf '## QA & Security testing\ncustom\n\n## Required reviews (mandatory)')" "$(sk "$FEAT" --body "$WORK/sk-nonl.md" | head -4)"
+# The marker is never added or changed.
+printf '<!-- template-version: 5 -->\n# T\n' > "$WORK/sk-old.md"
+o="$(sk "$FEAT" --body "$WORK/sk-old.md")"
+expect "#505: an older marker never gains a second one" "1" "$(grep -c 'template-version' <<< "$o")"
+grep -qxF '<!-- template-version: 5 -->' <<< "$o" && ok "#505: the older marker is still 5" || bad "#505: the older marker changed"
+printf '# T\n' > "$WORK/sk-nomarker.md"
+grep -q 'template-version' <<< "$(sk "$FEAT" --body "$WORK/sk-nomarker.md")" && bad "#505: a marker was added to a body that had none" || ok "#505: a body with no marker gains none"
+# Presence is check 3's rule.
+for pair in '#### Required reviews (mandatory)|absent|a #### heading' '### Required reviews (mandatory)|present|a ### heading' '## required reviews (mandatory)|absent|a heading differing only in case'; do
+  h="${pair%%|*}"; rest="${pair#*|}"; want="${rest%%|*}"; lab="${rest#*|}"
+  printf '%s\nx\n\n## QA & Security testing\ny\n' "$h" > "$WORK/sk-p.md"
+  n="$(sk "$FEAT" --body "$WORK/sk-p.md" | grep -cxF '## Required reviews (mandatory)')"
+  if [ "$want" = present ]; then expect "#505: $lab counts as present (nothing appended)" 0 "$n"; else expect "#505: $lab counts as absent (appended)" 1 "$n"; fi
+done
+printf '```\n## Required reviews (mandatory)\n```\n\n## QA & Security testing\ny\n' > "$WORK/sk-fence.md"
+expect "#505: a fenced heading is not counted present" 2 "$(sk "$FEAT" --body "$WORK/sk-fence.md" | grep -cxF '## Required reviews (mandatory)')"
+printf '## Required reviews (mandatory)\nx\n\n### Security tests\nsee\n' > "$WORK/sk-sub.md"
+o="$(sk "$FEAT" --body "$WORK/sk-sub.md")"
+expect "#505: an embedded sub-heading elsewhere does not stand in for the missing section" 1 "$(grep -cxF '## QA & Security testing' <<< "$o")"
+# check 3 agrees with append mode on the result.
+printf '#### Required reviews (mandatory)\nx\n' > "$WORK/sk-agree.md"
+sk "$FEAT" --body "$WORK/sk-agree.md" > "$WORK/sk-agree-out.md"
+n="$(bash "$SCRIPT" --body "$WORK/sk-agree-out.md" --template "$FEAT" --tpl-version 6 --current-tpl-version 6 --labels "enhancement,api" | awk -F'\t' '$1=="sections"{print $3}' | grep -c 'Required reviews')"
+expect "#505: check 3 on the appended result no longer reports Required reviews absent" 0 "$n"
+# Fail-closed recipe: a refusal inside the command substitution must stop the caller.
+fc="$(body="$(bash "$SCRIPT" --skeleton --template "$WORK/nope.yml" 2>/dev/null)" || echo stopped; echo "[$body]")"
+expect "#505: the documented '|| exit 1' form stops on a refusal with an empty body" "$(printf 'stopped\n[]')" "$fc"
+SK_RECIPE='body="$(check-ticket-mechanics.sh --skeleton --template T --body F)" || exit 1'
+grep -qF -- "$SK_RECIPE" "$SCRIPT" && ok "#505: the script header carries the fail-closed recipe" || bad "#505: the script header lost the fail-closed recipe"
+grep -qF -- "$SK_RECIPE" "$ROOT/docs/guides/template-versioning.md" && ok "#505: template-versioning.md carries the fail-closed recipe" || bad "#505: template-versioning.md lacks the fail-closed recipe"
+# Mutants, each on a cp copy of the script.
+skmut() { # <name> <sed expr> <probe command producing a value> <value the real script gives>
+  sed "$2" "$SCRIPT" > "$WORK/mut-sk-$1.sh"
+  cmp -s "$SCRIPT" "$WORK/mut-sk-$1.sh" && { bad "#505: the $1 mutant did not apply"; return; }
+}
+skmut vhas 's/inval == 1 \&\& vhas/inval == 1/'
+bash "$WORK/mut-sk-vhas.sh" --skeleton --template "$FEAT" | grep -q 'Personal data handling' && ok "#505: MUTANT: printing bare-stub value blocks adds Personal data handling (the stub row above fails)" || bad "#505: MUTANT survived: bare stubs not printed without the checklist test"
+skmut opts 's/i <= nopt; i++) out = out "- \[ \] "/i <= 0; i++) out = out "- [ ] "/'
+bash "$WORK/mut-sk-opts.sh" --skeleton --template "$FEAT" | grep -qF -- '- [ ] **ticket-gate**' && bad "#505: MUTANT survived: checkbox options dropped but still printed" || ok "#505: MUTANT: dropping the checkbox options fails the option row"
+skmut miss 's/miss = !(("## " label) in have) \&\& !(("### " label) in have)/miss = 1/'
+n="$(bash "$WORK/mut-sk-miss.sh" --skeleton --template "$FEAT" --body "$WORK/sk-full.md" | grep -cxF '## Required reviews (mandatory)')"
+[ "$n" = 2 ] && ok "#505: MUTANT: appending without the presence check duplicates a heading (the cmp row fails)" || bad "#505: MUTANT survived: no presence check but no duplicate ($n)"
+skmut hash 's/!(("### " label) in have)/1/'
+printf '### Required reviews (mandatory)\nx\n' > "$WORK/sk-h3.md"
+n="$(bash "$WORK/mut-sk-hash.sh" --skeleton --template "$FEAT" --body "$WORK/sk-h3.md" | grep -cxF '## Required reviews (mandatory)')"
+[ "$n" = 1 ] && ok "#505: MUTANT: ignoring the ### level appends a duplicate (the ### row fails)" || bad "#505: MUTANT survived: ### level ignored without effect ($n)"
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
