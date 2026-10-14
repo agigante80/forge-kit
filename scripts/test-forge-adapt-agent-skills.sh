@@ -22,6 +22,13 @@ eq()  { [ "$2" = "$3" ] && ok "$1" || bad "$1 (want '$3', got '$2')"; }
 
 agent() { mkdir -p "$(dirname "$1")"; cat > "$1"; }
 
+# The project skills directory every --rewrite below points at (#508): a qualified entry becomes
+# bare only when <root>/<bare>/SKILL.md exists, so each bare name the fixtures use is installed here.
+R="$T/proj-skills"
+for n in gate-lenses privacy-regime ticket-gate-reference deep-skill; do
+  mkdir -p "$R/$n"; : > "$R/$n/SKILL.md"
+done
+
 # --- block-list form, the shape the docs use ---------------------------------------------------
 agent "$T/block.md" <<'M'
 ---
@@ -115,7 +122,7 @@ eq "a second --- block in the body does not reopen frontmatter" "$(bash "$SCRIPT
 
 # --- --rewrite converts the installed copy to project scope, in place ----------------------------
 cp "$T/block.md" "$T/rewrite.md"
-bash "$SCRIPT" --rewrite "$T/rewrite.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/rewrite.md"
 eq "--rewrite drops the plugin scope in the file" \
    "$(bash "$SCRIPT" "$T/rewrite.md" | tr '\n' ',')" "gate-lenses,privacy-regime,"
 grep -q '^name: ticket-gate' "$T/rewrite.md" \
@@ -127,7 +134,7 @@ grep -q 'Body mentioning skills: not-a-declaration' "$T/rewrite.md" \
 
 # --rewrite must handle the inline flow form too, which the block-form case above cannot reach.
 cp "$T/flow.md" "$T/rewrite-flow.md"
-bash "$SCRIPT" --rewrite "$T/rewrite-flow.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/rewrite-flow.md"
 eq "--rewrite handles the inline flow form" \
    "$(grep '^skills:' "$T/rewrite-flow.md")" "skills: [gate-lenses, privacy-regime]"
 
@@ -145,7 +152,7 @@ skills: [
 body
 M
 before=$(cat "$T/multiline.md")
-err=$(bash "$SCRIPT" --rewrite "$T/multiline.md" 2>&1 >/dev/null); rc=$?
+err=$(bash "$SCRIPT" --rewrite --skills-root "$R" "$T/multiline.md" 2>&1 >/dev/null); rc=$?
 eq "a multi-line flow list refuses with exit 2" "$rc" "2"
 eq "a refused rewrite leaves the file byte-identical" "$(cat "$T/multiline.md")" "$before"
 case "$err" in *"unsupported"*) ok "the refusal says the shape is unsupported" ;;
@@ -175,7 +182,7 @@ body
 M
 eq "--names strips quotes in block form" \
    "$(bash "$SCRIPT" --names "$T/quoted.md" | tr '\n' ',')" "gate-lenses,privacy-regime,"
-bash "$SCRIPT" --rewrite "$T/quoted.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/quoted.md"
 eq "--rewrite strips quotes instead of leaving a stray one" \
    "$(grep -c '"' "$T/quoted.md")" "0"
 eq "--rewrite of quoted block form round-trips" \
@@ -188,13 +195,13 @@ skills: ["forge-kit-governance:gate-lenses", privacy-regime]   # trailing commen
 ---
 body
 M
-bash "$SCRIPT" --rewrite "$T/quotedflow.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/quotedflow.md"
 eq "--rewrite strips quotes in flow form and keeps trailing content" \
    "$(grep '^skills:' "$T/quotedflow.md")" "skills: [gate-lenses, privacy-regime]   # trailing comment"
 
 # --- round 1: a rewrite must not silently change the file mode ----------------------------------
 cp "$T/block.md" "$T/mode.md"; chmod 644 "$T/mode.md"
-bash "$SCRIPT" --rewrite "$T/mode.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/mode.md"
 eq "--rewrite preserves the file mode" "$(stat -c '%a' "$T/mode.md")" "644"
 
 # --- round 2: ONE normalisation, shared by parse and rewrite ------------------------------------
@@ -213,7 +220,7 @@ body
 M
 eq "--names strips a trailing comment from a list item" \
    "$(bash "$SCRIPT" --names "$T/messy.md" | tr '\n' ',')" "gate-lenses,privacy-regime,"
-bash "$SCRIPT" --rewrite "$T/messy.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/messy.md"
 eq "--rewrite unquotes AFTER trimming, leaving no stray quote" \
    "$(grep -c '"' "$T/messy.md")" "0"
 eq "--rewrite and --names agree on the rewritten file" \
@@ -245,7 +252,7 @@ eq "a bare skills: (YAML null) exits 0, it is not an unsupported shape" "$rc" "0
 
 # --- round 2: the rewrite must stay ATOMIC as well as mode-preserving ---------------------------
 cp "$T/block.md" "$T/atomic.md"; chmod 600 "$T/atomic.md"
-bash "$SCRIPT" --rewrite "$T/atomic.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/atomic.md"
 eq "--rewrite preserves a non-default mode too" "$(stat -c '%a' "$T/atomic.md")" "600"
 
 # --- round 3: a comment on the `skills:` KEY line is valid YAML and must not abort the install --
@@ -264,7 +271,7 @@ eq "a comment on the skills: key line still parses" \
 
 # --- round 3: a read-only agent must fail closed with OUR message, not a raw shell error ---------
 cp "$T/block.md" "$T/ro.md"; chmod 444 "$T/ro.md"
-err=$(bash "$SCRIPT" --rewrite "$T/ro.md" 2>&1 >/dev/null); rc=$?
+err=$(bash "$SCRIPT" --rewrite --skills-root "$R" "$T/ro.md" 2>&1 >/dev/null); rc=$?
 eq "a read-only agent rewrites rather than dying on the temp write" "$rc" "0"
 eq "and its mode is restored, not widened to writable" "$(stat -c '%a' "$T/ro.md")" "444"
 eq "the read-only rewrite still took effect" \
@@ -275,7 +282,7 @@ eq "the read-only rewrite still took effect" \
 # tmpfs-plus-disk layout, which is the half-written-on-interrupt case the atomicity fix claimed to
 # close. Pointing TMPDIR at a nonexistent path proves the temp file is created beside the target.
 cp "$T/block.md" "$T/tmpdir.md"
-TMPDIR=/nonexistent-on-purpose bash "$SCRIPT" --rewrite "$T/tmpdir.md"
+TMPDIR=/nonexistent-on-purpose bash "$SCRIPT" --rewrite --skills-root "$R" "$T/tmpdir.md"
 eq "--rewrite ignores TMPDIR and works beside the target" \
    "$(bash "$SCRIPT" "$T/tmpdir.md" | tr '\n' ',')" "gate-lenses,privacy-regime,"
 eq "and leaves no temp file behind" "$(find "$T" -name '.forge-adapt-skills.*' | wc -l)" "0"
@@ -305,7 +312,7 @@ skills:
 body
 M
 ln -sf "$T/real/a.md" "$T/link/a.md"
-bash "$SCRIPT" --rewrite "$T/link/a.md" >/dev/null 2>&1
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/link/a.md" >/dev/null 2>&1
 [ -L "$T/link/a.md" ] && ok "the symlink is still a symlink after a rewrite" \
                       || bad "the rewrite replaced the symlink with a regular file"
 # `grep -qv` is true whenever ANY line lacks the string, which is always. The assertion has to be
@@ -326,7 +333,7 @@ skills:
 ---
 body
 M
-bash "$SCRIPT" --rewrite "$T/c-block.md" >/dev/null 2>&1
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/c-block.md" >/dev/null 2>&1
 grep -q '# the lens pack' "$T/c-block.md" \
   && ok "a block-list item keeps its trailing comment" || bad "the block rewrite dropped the comment"
 grep -q '^  - ticket-gate-reference' "$T/c-block.md" \
@@ -339,7 +346,7 @@ skills: [forge-kit-governance:ticket-gate-reference]  # the pack
 ---
 body
 M
-bash "$SCRIPT" --rewrite "$T/c-flow.md" >/dev/null 2>&1
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/c-flow.md" >/dev/null 2>&1
 grep -q '# the pack' "$T/c-flow.md" \
   && ok "a flow list keeps its trailing comment, as it already did" || bad "the flow rewrite dropped the comment"
 
@@ -356,7 +363,7 @@ skills:
 body
 M
 before=$(cat "$T/m.md")
-bash "$SCRIPT" --rewrite "$T/m.md" >/dev/null 2>&1
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/m.md" >/dev/null 2>&1
 [ "$?" -eq 2 ] && ok "a mapping list item is refused with exit 2" || bad "a mapping list item was not refused"
 [ "$before" = "$(cat "$T/m.md")" ] && ok "and the file is left untouched" || bad "the file was corrupted"
 
@@ -377,7 +384,7 @@ context: fork
 body
 M
 want=$(tiers "$T/tier.md")
-bash "$SCRIPT" --rewrite "$T/tier.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/tier.md"
 eq "--rewrite rewrites the skills item beside tier keys" \
    "$(bash "$SCRIPT" "$T/tier.md")" "ticket-gate-reference"
 for k in model effort context; do
@@ -385,7 +392,7 @@ for k in model effort context; do
 done
 eq "a tier key after the skills list is not taken as a list item" "$(tiers "$T/tier.md" | wc -l | tr -d ' ')" "3"
 printf -- '---\r\nname: demo\r\nmodel: opus\r\nskills:\r\n  - forge-kit-governance:x\r\neffort: high\r\ncontext: fork\r\n---\r\nbody\r\n' > "$T/tier-crlf.md"
-bash "$SCRIPT" --rewrite "$T/tier-crlf.md"
+bash "$SCRIPT" --rewrite --skills-root "$R" "$T/tier-crlf.md"
 eq "--rewrite keeps CRLF tier lines byte-identical" \
    "$(grep -E '^(model|effort|context):' "$T/tier-crlf.md" | od -c | tr -s ' ')" \
    "$(printf 'model: opus\r\neffort: high\r\ncontext: fork\r\n' | od -c | tr -s ' ')"
@@ -401,11 +408,102 @@ skills: [
 body
 M
 cp "$T/tier-refuse.md" "$T/tier-refuse.orig"
-err=$(bash "$SCRIPT" --rewrite "$T/tier-refuse.md" 2>&1 >/dev/null); rc=$?
+err=$(bash "$SCRIPT" --rewrite --skills-root "$R" "$T/tier-refuse.md" 2>&1 >/dev/null); rc=$?
 eq "a refused rewrite with tier keys exits 2" "$rc" "2"
 case "$err" in *"unsupported 'skills:' shape"*) ok "and says the shape is unsupported" ;; *) bad "refusal message was: $err" ;; esac
 cmp -s "$T/tier-refuse.md" "$T/tier-refuse.orig" && ok "and leaves the file, tier keys included, byte-identical" \
   || bad "the refused file changed"
+
+# --- #508: a qualified entry becomes bare ONLY when the project has the skill ----------------------
+# Stripping unconditionally broke the minimum install (plugin enabled, skill not copied): the bare
+# name resolves to nothing, so ticket-gate stopped with REFERENCE_MISSING.
+R2="$T/partial skills"          # a space in the root path on purpose
+mkdir -p "$R2/gate-lenses" "$R2/no-skillmd"
+: > "$R2/gate-lenses/SKILL.md"
+: > "$R2/a-plain-file"
+agent "$T/p-block.md" <<'M'
+---
+name: x
+skills:
+  - forge-kit-governance:gate-lenses   # keep me
+  - forge-kit-governance:not-installed
+  - other:no-skillmd
+  - other:a-plain-file
+  - already-bare
+tools: ["Bash"]
+---
+body
+M
+bash "$SCRIPT" --rewrite --skills-root "$R2" "$T/p-block.md"
+eq "block: only the installed skill goes bare, others keep their qualifier, comment kept" \
+   "$(sed -n '4,8p' "$T/p-block.md" | tr '\n' '|')" \
+   "  - gate-lenses   # keep me|  - forge-kit-governance:not-installed|  - other:no-skillmd|  - other:a-plain-file|  - already-bare|"
+agent "$T/p-flow.md" <<'M'
+---
+name: x
+skills: [forge-kit-governance:gate-lenses, forge-kit-governance:not-installed , plain] # c
+---
+M
+bash "$SCRIPT" --rewrite --skills-root "$R2" "$T/p-flow.md"
+eq "flow: partial rewrite keeps the other parts and the trailing comment verbatim" \
+   "$(sed -n '3p' "$T/p-flow.md")" "skills: [gate-lenses, forge-kit-governance:not-installed , plain] # c"
+agent "$T/p-none.md" <<'M'
+---
+name: x
+skills: [a:b, c:d]
+---
+M
+printf 'tail-no-newline' >> "$T/p-none.md"
+cp "$T/p-none.md" "$T/p-none.orig"; touch -d '2020-01-01' "$T/p-none.md"
+bash "$SCRIPT" --rewrite --skills-root "$R2" "$T/p-none.md"; rc=$?
+eq "nothing installed: exits 0" "$rc" "0"
+cmp -s "$T/p-none.md" "$T/p-none.orig" && ok "and the file is byte-identical" || bad "file changed with nothing to rewrite"
+eq "and the mtime is untouched (no write at all)" "$(stat -c %Y "$T/p-none.md")" "$(date -d 2020-01-01 +%s)"
+
+# --- #508: usage errors, each leaving the file alone ---------------------------------------------
+agent "$T/u.md" <<'M'
+---
+name: x
+skills: [a:gate-lenses]
+---
+M
+cp "$T/u.md" "$T/u.orig"
+err=$(bash "$SCRIPT" --rewrite "$T/u.md" 2>&1 >/dev/null); rc=$?
+eq "plain --rewrite exits 2" "$rc" "2"
+case "$err" in "forge-adapt-agent-skills:"*"--skills-root"*) ok "and names --skills-root" ;; *) bad "message: $err" ;; esac
+cmp -s "$T/u.md" "$T/u.orig" && ok "and leaves the file byte-identical" || bad "plain --rewrite changed the file"
+for args in "--rewrite --skills-root" "--rewrite --skills-root $T/no-such-dir" "--rewrite --skills-root $T/u.md" \
+            "--names --skills-root $R" "--skills-root $R"; do
+  # shellcheck disable=SC2086
+  err=$(bash "$SCRIPT" $args "$T/u.md" 2>&1 >/dev/null); rc=$?
+  eq "usage error exits 2: $args" "$rc" "2"
+  case "$err" in "forge-adapt-agent-skills:"*) ok "and stderr starts with the script name: $args" ;; *) bad "stderr: $err ($args)" ;; esac
+done
+cmp -s "$T/u.md" "$T/u.orig" && ok "no usage error changed the file" || bad "a usage error changed the file"
+eq "--skills-root before --rewrite is accepted" \
+   "$(bash "$SCRIPT" --skills-root "$R" --rewrite "$T/u.md"; sed -n 3p "$T/u.md")" "skills: [gate-lenses]"
+
+# --- #508: a kept entry is emitted as its ORIGINAL text, quotes and spacing included ---------------
+agent "$T/k-flow.md" <<'M'
+---
+name: x
+skills: [ "forge-kit-governance:a" ,'q:b', c ,  gate-lenses ]
+---
+M
+bash "$SCRIPT" --rewrite --skills-root "$R2" "$T/k-flow.md"
+eq "flow: kept entries keep their quotes and spacing" \
+   "$(sed -n 3p "$T/k-flow.md")" "skills: [ \"forge-kit-governance:a\" ,'q:b', c ,  gate-lenses ]"
+agent "$T/k-block.md" <<'M'
+---
+name: x
+skills:
+  -   "forge-kit-governance:a"   # why
+  - 'q:gate-lenses'
+---
+M
+bash "$SCRIPT" --rewrite --skills-root "$R2" "$T/k-block.md"
+eq "block: a kept quoted entry is untouched, an installed one goes bare, comment kept" \
+   "$(sed -n '4,5p' "$T/k-block.md" | tr '\n' '|')" "  -   \"forge-kit-governance:a\"   # why|  - gate-lenses|"
 
 echo ""
 echo "forge-adapt-agent-skills tests: $pass passed, $fail failed"

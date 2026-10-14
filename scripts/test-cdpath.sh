@@ -105,10 +105,10 @@ c_private_neg() {
 # decoy's copy alone.
 c_agent_skills() {
   local r="$W/as" s="$M/scripts/forge-adapt-agent-skills.sh"
-  rm -rf "$r"; mkdir -p "$r/agents" "$r/src" "$DECOY/src" "$DECOY/agents"
+  rm -rf "$r"; mkdir -p "$r/agents" "$r/src" "$r/sk/real-skill" "$DECOY/src" "$DECOY/agents"; : > "$r/sk/real-skill/SKILL.md"
   printf -- '---\nname: a\nskills:\n  - forge-kit-x:real-skill\n---\nbody\n' > "$r/src/a.md"
   cp "$r/src/a.md" "$DECOY/src/a.md"; ln -s ../src/a.md "$r/agents/a.md"
-  ( cd "$r" && CDPATH="${CDP_SET:-$DECOY}" bash "$s" --rewrite agents/a.md ) >/dev/null 2>&1
+  ( cd "$r" && CDPATH="${CDP_SET:-$DECOY}" bash "$s" --rewrite --skills-root sk agents/a.md ) >/dev/null 2>&1
   grep -q '^  - real-skill$' "$r/src/a.md" && grep -q 'forge-kit-x:real-skill' "$DECOY/src/a.md" && [ -L "$r/agents/a.md" ]
 }
 # neighbour-manifest enters its --root before writing docs/neighbours.tsv: a relative root the decoy

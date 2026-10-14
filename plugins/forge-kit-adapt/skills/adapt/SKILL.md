@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 82 -->
+<!-- forge-adapt-version: 83 -->
 
 # forge-adapt
 
@@ -447,7 +447,7 @@ Rules for this step:
 
      ```bash
      "${FORGE_KIT_DIR:?}"/scripts/forge-adapt-agent-skills.sh --names "${FORGE_KIT_DIR:?}/plugins/<group>/agents/<name>.md"
-     "${FORGE_KIT_DIR:?}"/scripts/forge-adapt-agent-skills.sh --rewrite .claude/agents/<name>.md
+     "${FORGE_KIT_DIR:?}"/scripts/forge-adapt-agent-skills.sh --rewrite --skills-root .claude/skills .claude/agents/<name>.md
      ```
 6. Confirm: `✓ <name> (<type>) v<N> - adapted for <stack>`.
 
