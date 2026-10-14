@@ -57,11 +57,12 @@ The lane workflows are GitHub-Actions-specific in three places; the Forgejo mirr
 |---|---|
 | `actions/create-github-app-token` (so the pushed tag triggers the publish workflow) | **No App** on Forgejo. The auto job token (`FORGEJO_TOKEN`/`GITHUB_TOKEN` alias) is repo-scoped and, like GitHub's, **suppresses downstream triggers** ("no workflow is triggered as a side effect of a change authored with this token"). To chain a publish off a pushed tag, push with a **PAT stored as a repo/org secret**, not the auto token. |
 | `gh release create --generate-notes` | `forge_release_create <tag> <title> "<notes from git log>"` (no auto-notes on Forgejo, so build notes from `git log $PREV..HEAD`). `release-run.sh` should call `forge_*` when the host is Forgejo. |
+| `close-shipped.sh` closing the shipped tickets (`permissions: issues: write`, App needs Issues: Read and write) | Host-aware already: `close-shipped.sh` makes every call through `forge_issue_view`, `forge_issue_comments`, `forge_issue_comment` and `forge_issue_close`, so it runs unchanged on Forgejo (a 404 arrives as `forge_api`'s rc 44 and is a skip). The job token or the PAT the lane uses needs **issue write** on the repository (#496). |
 | `on: workflow_run` (chain off the CI workflow) | **Forgejo does NOT support `workflow_run`** (verified: unimplemented). Don't chain a separate release workflow off CI completion. Instead make the release a **final job in the CI workflow itself** (gated on the prior jobs), or use **`workflow_call`** (which Forgejo does support) / `workflow_dispatch`. |
 
 The **recursion guard** (`chore(release): automated version bump` subject), **concurrency**, the
 **idempotent tag/release**, and the **version-vs-tag logic** (`version-lib.sh`) are all host-agnostic
-and carry over unchanged: only the token, the release-create call, and the trigger model differ.
+and carry over unchanged, as does closing the shipped tickets: only the token, the release-create call, and the trigger model differ.
 
 ## de-`gh` the inline snippets (carry-over from phase 2)
 

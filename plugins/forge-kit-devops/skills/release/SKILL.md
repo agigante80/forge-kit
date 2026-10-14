@@ -3,7 +3,7 @@ name: release
 description: Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verify CI is green, tag, and close the tickets the release shipped. Includes a version-check guard (fail if version sources disagree) for CI/pre-commit. Generic skill - forge-adapt tailors the version files, branching model, tag format, and publish pipeline to the project. Use when the user asks to "release", "cut a release", "bump the version", "ship vX.Y.Z", or "tag a release".
 ---
 
-<!-- release-version: 6 -->
+<!-- release-version: 7 -->
 
 # Release
 
@@ -77,7 +77,7 @@ source scripts/forge-lib.sh
 | is CI green? (precondition + step 4) | `forge_ci_status <branch>` → `success` releasable; `pending`/`failure` not; `cancelled` (superseded) → re-dispatch CI and re-check; `none` (no run found) → wait and re-check, or confirm the repo has no CI and use the local gate; **`not_configured`** (the API could not be asked) → see below |
 | does the tag already exist? | `forge_tag_exists <tag>` |
 | create the release | `forge_release_create <tag> [title] [notes]` |
-| close a shipped ticket | `forge_issue_comment <N> "Released in v<ver>"` then `forge_issue_close <N>` |
+| close the shipped tickets | `bash scripts/close-shipped.sh <tag>` (release-automation's asset, built on these functions); absent it, `forge_issue_comment <N> "Released in v<ver>"` then `forge_issue_close <N>` per ticket |
 
 **`not_configured` (the forge could not be asked):** there is no answer to read, so the
 "CI green" gate cannot be checked remotely. Fall back to the project's **local** gate
@@ -101,8 +101,10 @@ Neither falls back to the local gate on its own. The
    Report exactly which precondition failed and the single next action; do not `--force` past it.
 2. **Compute the release manifest:** the tickets this release ships. Read them from commit
    **subjects** in the release range (`git log <range> --pretty=%s`), matching the
-   Conventional-Commit suffix `(#N)`. Do NOT scan commit **bodies** - they reference CVE/alert
-   numbers and cross-links that are not tickets to close.
+   Conventional-Commit suffix `(#N)`: only the trailing run of groups at the END of a subject
+   counts. Do NOT scan commit **bodies** - they reference CVE/alert numbers and cross-links that
+   are not tickets to close. A subject ending `(refs #N)` is the opt-out: the commit ships part of
+   #N, which stays open (the last commit of a split ticket writes `(#N)`).
 3. **Integrate + tag:** advance the release branch per the project's branching model
    (`git merge --ff-only` for develop-to-main; tag directly on trunk otherwise). If integration is
    not a clean fast-forward, STOP - the branches diverged and need manual reconciliation.
@@ -112,13 +114,18 @@ Neither falls back to the local gate on its own. The
    have produced a status row yet. On `not_configured` (the API could not be asked) there is no
    remote run to wait for: rely on the local gate and report the status honestly as
    `not_configured`, not green.
-5. **Close shipped tickets:** for each ticket from step 2, `forge_issue_comment <N>
-   "Released in v<ver>"` then `forge_issue_close <N>` (GitHub or Forgejo). This is the step most
-   easily forgotten by hand.
+5. **Close shipped tickets:** run `bash scripts/close-shipped.sh <tag>` (the
+   `release-automation` asset, #496). It computes the step 2 manifest itself, comments
+   `Released in <tag>` once, closes each open issue, skips pull requests and missing numbers, and
+   exits 1 if any close failed (rerun the same command: it never posts a second comment). Absent the
+   asset, for each ticket from step 2 run `forge_issue_comment <N> "Released in v<ver>"` then
+   `forge_issue_close <N>`. This is the step most easily forgotten by hand, so
+   `close-shipped.sh --report --last 1` afterwards must list no released but open ticket.
 
 ## Output / reporting
 
-Report: version bumped (old → new), tickets shipped + closed, tag created, pipeline status.
+Report: version bumped (old → new), tag created, pipeline status, and the tickets closed, kept
+open (`refs`), skipped (pull request or not found) and failed, as `close-shipped.sh` printed them.
 If a precondition blocked the release, report the blocker and the one next action instead.
 
 ## Scope boundary

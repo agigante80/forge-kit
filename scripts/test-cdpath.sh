@@ -46,7 +46,7 @@ same() {
 # taking guards by a relative root the decoy shadows, check-restatements outside any git repo.
 probe() {
   case "$1" in
-    plugins/*/assets/sync-labels.sh|plugins/*/assets/release-run.sh|plugins/*/assets/count-gate-rounds.sh|\
+    plugins/*/assets/sync-labels.sh|plugins/*/assets/release-run.sh|plugins/*/assets/close-shipped.sh|plugins/*/assets/count-gate-rounds.sh|\
     plugins/*/assets/forge-gate-mechanics.sh|plugins/*/assets/gate-status.sh|plugins/*/assets/check-phases.sh|\
     plugins/*/assets/reassess-phases.sh|plugins/*/assets/sync-phases.sh|scripts/validate-plugins.sh)
       same "$M" bash "$1" --help ;;
@@ -126,6 +126,7 @@ c_manifest() {
 
 echo "== every fixed entry point agrees with and without CDPATH =="
 FILES="plugins/forge-kit-devops/skills/forge-host/assets/sync-labels.sh
+plugins/forge-kit-devops/skills/release-automation/assets/close-shipped.sh
 plugins/forge-kit-devops/skills/release-automation/assets/release-run.sh
 plugins/forge-kit-governance/skills/ticket-gate-reference/assets/count-gate-rounds.sh
 plugins/forge-kit-governance/skills/ticket-gate-reference/assets/forge-gate-mechanics.sh

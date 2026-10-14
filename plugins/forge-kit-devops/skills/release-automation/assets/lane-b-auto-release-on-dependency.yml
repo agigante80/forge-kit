@@ -21,6 +21,8 @@ on:
 
 permissions:
   contents: write
+  issues: write      # release-run.sh closes the shipped tickets (close-shipped.sh, #496). This scopes
+                     # GITHUB_TOKEN only: the App behind GH_TOKEN needs Issues: Read and write too.
 
 concurrency:
   group: auto-release-${{ github.ref }}
@@ -47,6 +49,8 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        # The App needs Contents: Read and write AND Issues: Read and write (the release closes the
+        # tickets it shipped; without Issues the lane goes red after the tag exists).
         # forge-adapt: no App available? Swap for a PAT secret. The default GITHUB_TOKEN will NOT
         # trigger the publish workflow on the pushed tag.
 

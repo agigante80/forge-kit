@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. The enforced/automated sibling of the invoked `release` skill. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 9 -->
+<!-- release-automation-version: 12 -->
 
 # Release automation
 
@@ -39,6 +39,8 @@ the gate); **`release-run.sh`** is the shared side-effecting driver for the writ
 recursion guard, optional dependency scope gate, decide+bump, idempotent tag+release. Lanes B and C
 are thin YAML wrappers that set env and call `release-run.sh`, so a mechanics fix lands once, not
 copy-pasted. `release-run.sh` also honours `DRY_RUN=1` (print would-be actions, write nothing).
+After the tag and release it runs **`close-shipped.sh`**, the third script, which closes the tickets
+the release shipped (see "Closing shipped tickets" below).
 Every source reader yields *empty* (never a sentinel) when the version is absent, and the verdict
 validates the value is semver-shaped, so a misconfigured source fails closed with a clear error
 rather than tagging garbage (e.g. `vundefined`).
@@ -111,13 +113,43 @@ until you push an initial tag to bootstrap. See `references/python-tag-derived.m
 > and the second bump conflicts with the first. Choose: the Lane A gate (deliberate releases) **or**
 > Lane C (CD); and Lane B only when you have the gate, not Lane C.
 
+## Closing shipped tickets
+
+A release that ships tickets must close them, and on a two branch model the host never does: GitHub
+auto closes only for a PR merged into the DEFAULT branch, and feature PRs target the development
+branch. `assets/close-shipped.sh <tag>` makes it mechanical (#496). It reads the trailing `(#N)`
+groups of the commit SUBJECTS since the previous release tag reachable from the tag (bodies are
+never read), and for each open issue posts `Released in <tag>` (once: it never reposts an existing
+one) and closes it. It decides issue versus pull request from the host, so a PR number in a subject
+is skipped, never written to. A first release closes nothing.
+
+- **Opt-out:** end a subject with `(refs #N)` instead of `(#N)` for a ticket the commit ships only
+  part of; the last commit of a split ticket writes `(#N)`.
+- **Reverts:** a commit reverted inside the same range (`Revert "<subject>"`) ships nothing and
+  closes nothing. A reapply needs its own trailing `(#N)`. Reverting a whole merged PR
+  (`git revert -m 1`, or the Revert button on a `--no-ff` merge) is not detected, because that
+  revert quotes the merge subject, which the manifest never reads: use the `(refs #N)` opt-out or
+  reopen the ticket (follow-up #498).
+- **Squash promotions:** a release commit whose subject carries only the PR number closes nothing;
+  keep the ticket numbers in the subjects.
+- **Token:** the App behind `GH_TOKEN` needs **Issues: Read and write** (see
+  `references/github-token-gotcha.md`); the lanes also declare `issues: write`.
+- **Failure and recovery:** a failed comment or close is a warning, every ticket is still tried, and
+  the run exits 1 with the tag and release already present. **Never rerun the lane** to recover: it
+  re-enters `release-run.sh` from the top, which in file mode cuts a phantom patch release. Run the
+  command it prints, `bash scripts/close-shipped.sh <tag>`, which converges.
+- **Report:** `close-shipped.sh --report --last <N>` lists released but still open tickets and never
+  writes (exit 1 when it finds one), so a skipped close is visible. It reads the N newest release
+  tags in the repository from any branch, so run `git fetch --tags` first.
+
 ## Install (what forge-adapt does)
 
 1. Pick the canonical **version source** (`references/source-of-truth.md`) and set the workflow's
    `env:` block (`VERSION_SOURCE`/`VERSION_FILE`/…) + the `version-lib.sh` path.
 2. Copy `assets/version-lib.sh` into the project (e.g. `scripts/version-lib.sh`), stack-agnostic,
-   `chmod +x`. Also copy `assets/release-run.sh` alongside it if installing Lane B or C (the gate
-   needs only `version-lib.sh`). For a non-file writable source (node/python/cargo), replace
+   `chmod +x`. Also copy `assets/release-run.sh` and `assets/close-shipped.sh` alongside it if
+   installing Lane B or C, with `forge-lib.sh` beside them (the `forge-host` install already puts it
+   in `scripts/`); the gate needs only `version-lib.sh`. For a non-file writable source (node/python/cargo), replace
    `release-run.sh`'s file-write bump with the project's bump command (the comment marks the spot).
 3. Copy `assets/lane-a-gate.yml` to `.github/workflows/release-gate.yml`, setting the production
    branch. Recommend making the `version-bumped` job a **required status check** on the branch:

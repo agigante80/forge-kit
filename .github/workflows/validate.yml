@@ -223,7 +223,8 @@ jobs:
       # implementation (a glob is not a regex). This is what keeps them agreeing.
       # Issue #76: the last two shipped shell assets with no tests. version-lib.sh is the
       # version<->tag primitive every release lane acts on, so a silent bug there ships a wrong
-      # release; release-run.sh is driven with DRY_RUN=1, so no forge and no push is touched.
+      # release; release-run.sh is driven with DRY_RUN=1 for its policy rows, and its #496 close
+      # rows run for real against a bare local origin and a PATH-shim gh, so no forge is touched.
       # Issue #104: the label taxonomy was declarative with no applier and no checker, so this
       # repo declared 18 labels and held 4. Stubbed transport; touches no forge.
       - name: sync-labels contract tests
@@ -234,6 +235,9 @@ jobs:
 
       - name: release-run lane-policy tests
         run: bash scripts/test-release-run.sh
+
+      - name: close-shipped contract tests
+        run: bash scripts/test-close-shipped.sh
 
       # The closing-sessions memory helper: a shipped executable whose test existed but was never
       # wired in, so nothing enforced it on a PR.
