@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 82 -->
+<!-- ticket-gate-version: 83 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -148,7 +148,7 @@ Synthesis rules per section:
 
 | Section | Derived from |
 |---|---|
-| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Apply the rule-1 quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. Label lines `**Positive:** <title>` or `**Negative:** <title>`. |
+| `scenarios` | Problem description + acceptance criteria -> 1 positive + 1 negative GWT scenario per independent condition. Apply the section "GWT scenarios" quality bar: exactly ONE `When` per scenario, declarative, the negative scenario asserting a SPECIFIC error code or message, never a restatement of the summary. Label lines `**Positive:** <title>` or `**Negative:** <title>`. |
 | `unit_tests` | Acceptance criteria + referenced files -> specific test file path, concrete input value, expected output or error code. |
 | `e2e_tests` | UI-visible behaviour -> specific test suite file, setup steps, action, assertion. N/A with reason for API-only tickets. |
 | `docs_impact` | The ticket's own file list -> the docs and README sections it plausibly touches, or "none" with the reason. |
@@ -247,7 +247,7 @@ justified, which label routing decides:
 |---|---|---|
 | Security specialist | label `security` OR `critical` | runs the Security lens (defined in the reference skill) in addition to the critic; findings merge into the same review comment |
 | API-design brief | label `api` OR body matches `GET /\|POST /\|PUT /\|DELETE /\|routes/` | no extra agent: the critic's brief gains the API-design checklist (REST conventions, error-code consistency, contract clarity, could a client dev implement from the spec alone) |
-| Privacy regime | label `privacy` | no extra agent: Read `.claude/skills/privacy-regime/SKILL.md` and append its filled-in obligations to the critic's brief. Absent or unfilled, skip the row: rule 4 still binds |
+| Privacy regime | label `privacy` | no extra agent: Read `.claude/skills/privacy-regime/SKILL.md` and append its filled-in obligations to the critic's brief. Absent or unfilled, skip the row: section "Personal data handling" still binds |
 | `critical` | label `critical` | maximum scrutiny: the critic treats every brief section as blocking-capable and the security lens always runs |
 
 Label names match without regard to case (`API` is `api`, `Privacy` is `privacy`).
@@ -379,13 +379,13 @@ issue title + body, the project context from Step 2, the research from Step 2.7,
    against that doc: on conflict it wins; a rule ONLY here still applies (absence never
    relaxes a bar); where this list is merely STRICTER, that strictness is ADVISORY and
    reported as a doc gap, never blocking:
-   - **UI E2E (rule 3):** a ticket touching any UI needs E2E specs for happy AND unhappy
-     paths; an author's N/A on a UI-touching ticket is rejected as blocking, never accepted.
-   - **API endpoint coverage (rule 2):** a ticket creating or modifying ANY endpoint needs
+   - **UI E2E (section "E2E test specs"):** a ticket touching any UI needs E2E specs for happy AND unhappy
+     paths; an author's N/A on a UI-touching ticket is rejected as blocking.
+   - **API endpoint coverage (section "Unit test specs"):** a ticket creating or modifying ANY endpoint needs
      100% coverage enumerated: happy path; missing-field 400 with a specific code; no-token
      401; invalid-token 401; wrong-user 403; rate-limit enforcement; IDOR (user A cannot
      reach user B's resources). Any missing case is blocking.
-   - **Personal-data judgment (rule 4):** the critic OWNS this. Where personal data is touched (names, emails, phones, GPS, IPs,
+   - **Personal-data judgment (section "Personal data handling"):** the critic OWNS this. Where personal data is touched (names, emails, phones, GPS, IPs,
      identifiers in logs count), seven facts are required: (1) the fields themselves, (2)
      storage location and encryption at rest, (3) erasure with cascading deletion, (4)
      portability, (5) minimisation and retention, (6) legal basis, (7) cross-border transfer. **Name no jurisdiction.** An "N/A - no personal
@@ -399,12 +399,12 @@ issue title + body, the project context from Step 2, the research from Step 2.7,
      the change touches shared code
    - a 3+-affected-areas ticket earns a split recommendation (ADVISORY, never blocking,
      even under `critical`)
-   - documentation currency (rule 7) judged against the ticket's own file list (or
+   - section "Documentation currency" judged against the ticket's own file list (or
      areas/screens fields absent a file-list field)
-   - rule 3's emulator clause where the project runs an emulator or simulator suite: a
+   - section "E2E test specs" emulator clause where the project runs an emulator or simulator suite: a
      user-journey ticket names the scenario it adds or extends, or why the standing suite
-     already covers it (N/A on projects with no such suite)
-3. **GWT review or additions** - judge the scenarios against the rule-1 quality bar
+     already covers it
+3. **GWT review or additions** - judge the scenarios against the section "GWT scenarios" quality bar
    (derived scope: an N/A claim is legitimate only where no behaviour delta exists, and
    the claim itself is judged); where scenarios are weak, WRITE the improved ones, labelled
    `**Positive:** <title>` or `**Negative:** <title>`.
@@ -604,7 +604,7 @@ where it is read; this section is for rules that span steps or the whole run (#1
 - **Domain-not-touched -> N/A, with two exceptions.** A brief section or lens whose domain
   the ticket does not touch records a one-line N/A (e.g., "N/A - no API endpoint", "N/A - no
   PII handled") rather than penalising the ticket. Two concerns are never N/A-by-domain:
-  documentation currency (rule 7) applies to every work ticket, and the GWT quality bar with
+  section "Documentation currency" applies to every work ticket, and the GWT quality bar with
   its derived scope; both live in the critic's brief, and their "none"/N/A CLAIMS are judged,
   never waved through.
 - **PASS requires zero blocking items**, from the critic, any lens that ran, and Step 3A's

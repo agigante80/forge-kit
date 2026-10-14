@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 43
+# check-ticket-mechanics-version: 44
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -656,7 +656,7 @@ else
   fi
 fi
 
-# --- check 4: GWT structure (rule 1, the checkable half) --------------------------------
+# --- check 4: GWT structure (section "GWT scenarios", the checkable half) --------------------------------
 # WHICH conditions are independent is the critic's judgment, never this check's.
 #
 # ONE marker regex for every site (#205): the bare word with an optional parenthetical and/or
@@ -766,7 +766,7 @@ without_oneliner_headers() {
 }
 ONE_LINE='^[[:space:]]*([-*][[:space:]]+)?([*][*]|__|[*]|_)?(Positive|Negative)([*][*]|__|[*]|_)?[.:].*(^|[^A-Za-z])Given([^A-Za-z]|$).*(^|[^A-Za-z])When([^A-Za-z]|$).*(^|[^A-Za-z])Then([^A-Za-z]|$)'
 if [ -z "$SCENARIOS_LABEL" ]; then
-  row gwt referred "no section matched Given/When/Then; the critic must judge rule 1 unaided"
+  row gwt referred "no section matched Given/When/Then; the critic must judge section \"GWT scenarios\" unaided"
 else
   SCENARIOS="$(section_of "$SCENARIOS_LABEL")"
   if ! has_content "$SCENARIOS"; then
@@ -831,7 +831,7 @@ else
     # behind the refer, since both outcomes are `referred`.
     if [ "$pos_count" -eq 0 ] && [ "$neg_count" -eq 0 ] && [ -z "$one_line" ] && looks_na "$SCENARIOS"; then
       if long_enough "$SCENARIOS"; then
-        row gwt referred "scenarios claim N/A; legitimate only where rule 1 finds no behaviour delta: $(first_line "$SCENARIOS")"
+        row gwt referred "scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $(first_line "$SCENARIOS")"
       else
         row gwt fail "scenarios claim a bare N/A with no reason: $(first_line "$SCENARIOS")"
       fi
@@ -843,7 +843,7 @@ else
       elif missing_then="$(then_missing "$judged")"; [ "$missing_then" -gt 0 ]; then
         row gwt fail "a Negative block has no Then line$(then_note "$missing_then")"
       else
-        row gwt referred "one-line scenario form; the critic must judge rule 1 unaided: $(first_line "$one_line")"
+        row gwt referred "one-line scenario form; the critic must judge section \"GWT scenarios\" unaided: $(first_line "$one_line")"
       fi
     elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
@@ -855,8 +855,8 @@ else
         # EVERY negative block is judged, not just the first: a ticket with three conditions
         # would otherwise have two of its negatives unchecked. A digit-bearing status, a
         # quoted message, or an UPPER_SNAKE identifier is specific enough; anything else is
-        # REFERRED, never failed, because this heuristic is narrower than rule 1's quality
-        # bar on purpose and must not reject a message the canonical doc allows.
+        # REFERRED, never failed, because this heuristic is narrower than the section "GWT scenarios"
+        # quality bar on purpose and must not reject a message the canonical doc allows.
         vague="$(printf '%s\n' "$SCEN_BLOCKS" | CTM_NEG="$MARK_NEG" CTM_POS="$MARK_POS" awk '
           BEGIN { neg = ENVIRON["CTM_NEG"]; pos = ENVIRON["CTM_POS"] }
           $0 ~ neg { inneg = 1; seen = 0; next }
@@ -885,7 +885,7 @@ fi
 # claim read as a named path and PASSED a check that must refer it. So did prose like "and/or".
 
 if [ -z "$UNIT_LABEL" ]; then
-  row unit_tests referred "no section matched unit tests; the critic must judge rule 2 unaided"
+  row unit_tests referred "no section matched unit tests; the critic must judge section \"Unit test specs\" unaided"
 else
   UNIT="$(section_of "$UNIT_LABEL")"
   # N/A is tested BEFORE a path, here and in the E2E branch below, so the two cannot disagree:
@@ -893,7 +893,7 @@ else
   if ! has_content "$UNIT"; then
     row unit_tests "$(empty_outcome "$UNIT_LABEL")" "no content in $UNIT_LABEL"
   elif looks_na "$UNIT"; then
-    row unit_tests referred "unit tests claim N/A; legitimate only where rule 2 is out of scope: $(first_line "$UNIT")"
+    row unit_tests referred "unit tests claim N/A; legitimate only where section \"Unit test specs\" is out of scope: $(first_line "$UNIT")"
   elif names_path "$UNIT"; then
     row unit_tests pass "$(first_line "$UNIT")"
   else
@@ -902,16 +902,16 @@ else
 fi
 
 if [ -z "$E2E_LABEL" ]; then
-  row e2e_tests referred "no section matched E2E; the critic must judge rule 3 unaided"
+  row e2e_tests referred "no section matched E2E; the critic must judge section \"E2E test specs\" unaided"
 else
   E2E="$(section_of "$E2E_LABEL")"
   if ! has_content "$E2E"; then
     row e2e_tests "$(empty_outcome "$E2E_LABEL")" "no content in $E2E_LABEL"
   elif looks_na "$E2E"; then
-    # Whether the ticket touches UI at all (rule 3), is Step 3B's call, so a reasoned N/A is
+    # Whether the ticket touches UI at all (section "E2E test specs"), is Step 3B's call, so a reasoned N/A is
     # referred rather than passed, and an unreasoned one fails.
     if long_enough "$E2E"; then
-      row e2e_tests referred "E2E N/A with a reason; rule 3 says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
+      row e2e_tests referred "E2E N/A with a reason; section \"E2E test specs\" says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
     else
       row e2e_tests fail "E2E N/A with no reason given"
     fi
@@ -923,9 +923,9 @@ else
 fi
 
 # --- check 6: documentation impact present ----------------------------------------------
-# Presence only. Whether a "none" reason HOLDS is rule 7, judged by the critic.
+# Presence only. Whether a "none" reason HOLDS is section "Documentation currency", judged by the critic.
 if [ -z "$DOCS_LABEL" ]; then
-  row docs_impact referred "no section matched documentation impact; rule 7 is the critic's"
+  row docs_impact referred "no section matched documentation impact; section \"Documentation currency\" is the critic's"
 else
   DOCS="$(section_of "$DOCS_LABEL")"
   if ! has_content "$DOCS"; then
@@ -934,7 +934,7 @@ else
     row docs_impact pass "$(first_line "$DOCS")"
   elif grep -qiE 'none|no doc' <<< "$DOCS"; then
     if long_enough "$DOCS"; then
-      row docs_impact referred "claims no docs needed; rule 7 applies to every work ticket: $(first_line "$DOCS")"
+      row docs_impact referred "claims no docs needed; section \"Documentation currency\" applies to every work ticket: $(first_line "$DOCS")"
     else
       row docs_impact fail "claims no docs needed with no reason given"
     fi

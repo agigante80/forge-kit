@@ -12,9 +12,23 @@
 # paraphrased prose, accepting false positives. Declared ANCHORS get both directions with no fuzzy
 # matching at all:
 #   listed-but-absent  an item's anchor no longer appears in the gate  -> the entry is stale.
-#   found-but-unlisted a `rule N` reference sits in a section that no item's anchor covers.
+#   found-but-unlisted a `section "Title"` citation sits where no item's anchor covers it.
 # The cost is that an author must name the location precisely, which is the thing they were getting
 # wrong. An item with NO anchor fails too: it can never be checked, so it would rot silently.
+#
+# CITATIONS ARE BY TITLE, NEVER BY NUMBER (#510). A project that adapts ticket-standards.md renumbers
+# or inserts sections, so a gate review saying "rule 3" pointed at the wrong section there. The fixed
+# introducer `section "Title"` (the title as the doc's `### N. Title` heading spells it, trailing
+# parenthetical dropped; inside a shell double-quoted string it is written `section \"Title\"`) is
+# the one token the guard keys on, resolved to the doc's own number through a title map, so
+# renumbering the doc cannot break detection. Three things follow:
+#   - a bare numbered citation (`rule N`, `rule-N`, `rules N and M`, wrapped or not) in a scanned
+#     file is a HARD error naming file, line and match;
+#   - a `section "X"` whose X the doc does not define is an error; a quoted string WITHOUT the
+#     introducer is never examined, so the ordinary quoted words in the gate are not flagged;
+#   - the numbers survive only INSIDE the doc: anchor scopes (`:: rules N`) and allowlist entries
+#     (`:: rule N ::`) stay numeric, because they are never scanned and are edited with the headings
+#     they refer to, in the one file where the number is correct by construction.
 #
 # A mention that genuinely does not restate anything (a routing pointer that states no bar of its
 # own) goes in the allowlist, which REQUIRES a reason, so waving one through is a visible edit.
@@ -55,7 +69,7 @@ for f in "${GATE_FILES[@]}"; do
 done
 
 python3 - "$DOC" "${GATE_FILES[@]}" <<'PY'
-import re, sys
+import os, re, sys
 
 doc_path, gate_paths = sys.argv[1], sys.argv[2:]
 doc = open(doc_path, encoding="utf-8").read()
@@ -100,33 +114,49 @@ if not VALID_RULES:
     print("check-restatements: the doc defines no numbered rules ('### N. Title')", file=sys.stderr)
     sys.exit(2)
 
-RULEREF = re.compile(r'\brule[-\s](\d+)', re.I)
-# "rules 2, 3, 4 and 7" is one mention of four rules; matching only the first granted rule 1 alone.
+# The citation form (#510): the introducer `section` and a double-quoted title. Inside a shell
+# double-quoted evidence string the quotes are escaped, so both `"` and `\"` are accepted. The title
+# may wrap across lines (the gate files wrap at about 95 columns), so `\s` is used between every
+# word and a leading `# ` of a wrapped comment line is tolerated.
+SECTIONREF = re.compile(r'\b[Ss]ection\s+\\?"([^"\\]+?)\\?"')
+
+def norm_title(t):
+    return re.sub(r'\s+', ' ', re.sub(r'\s*\n\s*(?:#\s*)?', ' ', t)).strip()
+
+# The title each rule carries, from the doc's own "### N. Title" headings, trailing parenthetical
+# dropped ("GWT scenarios (Given / When / Then)" is cited as "GWT scenarios").
+TITLES = {}
+for num, title in re.findall(r'^### (\d+)\. (.+?)\s*$', doc, re.M):
+    TITLES[re.sub(r'\s*\([^)]*\)\s*$', '', title).strip()] = num
+
+# The retired numbered forms. A hit in a scanned file is an error, never a citation.
+RULEREF = re.compile(r'\brule[-\s]+(\d+)', re.I)
+# "rules 2, 3, 4 and 7" is one mention of four rules. Only a plural naming a number the doc defines
+# counts, or "the re-run rules 400 lines from the steps they govern" would read as a citation.
 RULES_PLURAL = re.compile(r'\brules\s+((?:\d+(?:\s*(?:,|and)\s*)?)+)', re.I)
 
-# A plural reference wrapped across a line break (#138.2). Direction 2 evaluates per LINE while
-# direction 1 evaluates per item, so "restating rules" ending one line and "5 and 6" starting the
-# next matched neither pattern. Both gate files wrap at about 95 columns, so ordinary editing
-# reaches it. Only a line whose TAIL is an unfinished plural is joined with its successor, which
-# keeps the join narrow: an ordinary line followed by one that happens to start with a digit is
-# untouched.
-TRAILING_PLURAL = re.compile(r'\brules\b[\d,\s]*(?:\band\b)?\s*$', re.I)
+def bare_numbered(text):
+    """(offset, matched text) of every bare numbered citation in text, wrapped plurals included."""
+    hits = [(m.start(), m.group(0)) for m in RULEREF.finditer(text)]
+    for m in RULES_PLURAL.finditer(text):
+        # "...lists the rules" ending a line, then "3. A list item": an ordered-list marker is not a
+        # wrapped citation (the phantom reference the old guard's F5 fix closed).
+        if '\n' in text[m.start():m.start(1)] and re.match(r'\.\s', text[m.end(1):m.end(1) + 2]):
+            continue
+        if any(n in VALID_RULES for n in re.findall(r'\d+', m.group(1))):
+            hits.append((m.start(), m.group(0)))
+    return sorted(set(hits))
 
-def undefined_rules_in(text):
-    """Singular `rule N` citations naming a rule the doc does not define.
-
-    Dropping these silently conflated "not a rule reference" with "a reference to a rule that no
-    longer exists": a new (rule 9) bar passed, and renumbering a rule would have made every stale
-    gate citation invisible while the guard reported the list complete."""
-    return {r for r in RULEREF.findall(text) if r not in VALID_RULES}
+def cites_in(text):
+    """(offset, end offset, title, rule number or None) of every `section "Title"` citation."""
+    out = []
+    for m in SECTIONREF.finditer(text):
+        t = norm_title(m.group(1))
+        out.append((m.start(), m.end(), t, TITLES.get(t)))
+    return out
 
 def rules_in(text):
-    found = set(RULEREF.findall(text))
-    for mm in RULES_PLURAL.finditer(text):
-        found.update(re.findall(r'\d+', mm.group(1)))
-    # Only numbers the doc actually defines as rules. Without this the plural pattern read
-    # "the re-run rules 400 lines from the steps they govern" as a reference to rule 400.
-    return {r for r in found if r in VALID_RULES}
+    return {n for _, _, _, n in cites_in(text) if n}
 
 # Allowlist: "<section> :: rule <N> :: <reason>". The reason is mandatory.
 allow, allow_bad = set(), []
@@ -141,10 +171,15 @@ for a in re.finditer(r'<!--\s*restatement-allow:\s*(.*?)\s*-->', doc, re.S):
 
 # Gate text, attributed to its nearest preceding heading.
 sections = []
+locs = []                # parallel to sections: (file path, 1-based line number)
+file_base = {}           # file path -> index of its first line in sections
+file_text = {}
 for path in gate_paths:
     name = path.split('/')[-1]
     sec, fenced = f"{name} (top)", False
-    for line in open(path, encoding="utf-8"):
+    file_base[path] = len(sections)
+    file_text[path] = open(path, encoding="utf-8").read()
+    for lineno, line in enumerate(file_text[path].splitlines(keepends=True), 1):
         if line.lstrip().startswith('```'):
             fenced = not fenced
         elif not fenced:
@@ -153,6 +188,7 @@ for path in gate_paths:
             # without this an anchor in one silently granted coverage in the other.
             if h: sec = f"{name} :: {h.group(1).strip()}"
         sections.append((sec, line))
+        locs.append((path, lineno))
 
 def anchor_sites(needle):
     """Every (file, line index) where this literal anchor appears.
@@ -181,10 +217,35 @@ for ss, rr in sorted(allow):
         allow_broad.append((ss, rr, sorted(hits)))
 
 errors = []
-for idx, (sec, line) in enumerate(sections):
-    for r in sorted(undefined_rules_in(line)):
-        errors.append(f"[{sec}] cites rule {r}, which this doc does not define "
-                      f"(defined: {', '.join(sorted(VALID_RULES, key=int))})")
+# Every `section "Title"` citation in the scanned files, keyed by the line it STARTS on, with the
+# line it ends on (a wrapped citation is covered by an anchor near either end).
+def rel(p):
+    r = os.path.relpath(p)
+    return p if r.startswith('..') else r
+
+cites = {}               # line index -> list of (rule number, end line index)
+for path in gate_paths:
+    text, base = file_text[path], file_base[path]
+    starts = [0] + [mm.end() for mm in re.finditer(r'\n', text)]
+    def line_of(off):
+        lo, hi = 0, len(starts) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if starts[mid] <= off: lo = mid
+            else: hi = mid - 1
+        return lo
+    for off, end, title, num in cites_in(text):
+        i0, i1 = base + line_of(off), base + line_of(end - 1)
+        if num is None:
+            errors.append(f"[{sections[i0][0]}] {rel(path)}:{line_of(off) + 1} cites section \"{title}\", "
+                          f"which this doc does not define "
+                          f"(defined: {', '.join(sorted(TITLES))})")
+        else:
+            cites.setdefault(i0, []).append((num, i1))
+    for off, matched in bare_numbered(text):
+        errors.append(f"{rel(path)}:{line_of(off) + 1} numbered citation '{' '.join(matched.split())}': "
+                      f"cite the section by its title (section \"Title\"), because a project that "
+                      f"renumbers its standards doc makes a number point at the wrong section")
 for ss, rr, hits in allow_broad:
     errors.append(f"allowlist entry '{ss} :: rule {rr}' is too broad: it matches "
                   f"{len(hits)} sections ({', '.join(hits[:3])}...). Name one.")
@@ -206,9 +267,12 @@ for n, item in enumerate(items, 1):
     # Keyed on naming NO number at all, not on naming no VALID one: an item citing a retired rule
     # is a different fault, and it must still reach the staleness check below rather than being
     # replaced by this message. For the same reason this does not `continue`.
-    if not re.search(r'\brules?[-\s]\d+', item, re.I):
-        errors.append(f"Precedence item {n} names no rule number, so it covers nothing. "
-                      f"Cite the rule it restates, or scope its anchors with ':: rules N'.")
+    if not SECTIONREF.search(item):
+        errors.append(f"Precedence item {n} names no section title, so it covers nothing. "
+                      f"Cite the section it restates as section \"Title\", or scope its anchors with ':: rules N'.")
+    for _, _, t, num in cites_in(item):
+        if num is None:
+            errors.append(f"Precedence item {n} cites section \"{t}\", which this doc does not define")
 
     # AN ITEM NAMING MORE THAN ONE RULE MUST SCOPE ITS ANCHORS (#138.1). Making the scope merely
     # AVAILABLE would not close the hole the ticket describes, because the items that leak are
@@ -251,27 +315,13 @@ for n, item in enumerate(items, 1):
             for r in (scoped or rules):
                 covered.setdefault(r, []).extend(sites)
 
-# Direction 2, found-but-unlisted: every rule reference must sit in a covered section.
-seen = set()
-tail_rules = {}          # line index -> rules whose text wrapped onto it from the line above
+# Direction 2, found-but-unlisted: every section citation must sit in a covered location.
 for idx, (sec, line) in enumerate(sections):
     fname = sec.split(' :: ')[0]
-    # A wrapped plural: the rules found only in the JOINED text belong to the NEXT line, which is
-    # where they are written. Attributing them here measured the coverage window from the wrong
-    # line, so a reference whose anchor sat two lines below it read as unlisted (review round 1).
-    #
-    # And an ordered-list item is not a continuation. "...lists the rules" followed by "3. A list
-    # item" joined into a phantom `rules 3`, which would fail a build over prose.
-    here = rules_in(line)
-    if TRAILING_PLURAL.search(line.rstrip('\n')) and idx + 1 < len(sections) \
-       and sections[idx + 1][0] == sec \
-       and not re.match(r'^\s*\d+\.\s', sections[idx + 1][1]):
-        joined = rules_in(line.rstrip('\n') + ' ' + sections[idx + 1][1])
-        for r in joined - here:
-            tail_rules.setdefault(idx + 1, set()).add(r)
-    for r in here | tail_rules.get(idx, set()):
-        if (idx, r) in seen: continue
-        seen.add((idx, r))
+    seen = set()
+    for r, end_idx in cites.get(idx, []):
+        if r in seen: continue
+        seen.add(r)
         head = sec.split(' :: ', 1)[1] if ' :: ' in sec else sec
         # An entry may name the heading ("Step 2.5") or the file-qualified form
         # ("ticket-gate.md :: Step 2.5"). Either way the too-broad check above counts how many
@@ -280,17 +330,14 @@ for idx, (sec, line) in enumerate(sections):
         if any(rr == r and (head.startswith(ss) or sec.startswith(ss))
                and not any(b[0] == ss and b[1] == rr for b in allow_broad) for ss, rr in allow):
             continue
-        # A wrapped reference is written across TWO lines, so an anchor near either satisfies it.
-        # Measuring only from the tail was the mirror of the bug it fixed: an anchor above the head
-        # line, previously covered, started failing (review round 2).
-        anchor_lines = [idx]
-        if r in tail_rules.get(idx, set()):
-            anchor_lines.append(idx - 1)
+        # A wrapped citation is written across TWO lines, so an anchor near either satisfies it.
+        anchor_lines = [idx, end_idx]
         near = [1 for f, li in covered.get(r, [])
                 if f == fname and any(abs(li - a) <= WINDOW for a in anchor_lines)]
         if not near:
-            errors.append(f"UNLISTED restatement: rule {r} is referenced in [{sec}] "
-                          f"but no Precedence item anchors rule {r} within {WINDOW} lines of it")
+            title = next(t for t, n in TITLES.items() if n == r)
+            errors.append(f"UNLISTED restatement: section \"{title}\" is cited in [{sec}] "
+                          f"but no Precedence item anchors it within {WINDOW} lines of it")
 
 if errors:
     print("check-restatements: the Precedence list does not match the gate.\n", file=sys.stderr)

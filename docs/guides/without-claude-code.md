@@ -82,8 +82,8 @@ template_version           fail      no template-version marker in body (current
 labels                     fail      no area label (one of: api, privacy, web, mobile, backend, database, components, tooling, governance)
 sections                   fail      heading absent: Summary; Priority; Area(s) affected; Files to create/modify; Rollback plan; ...
 gwt                        fail      needs at least one Positive and one Negative block (found 0 positive, 0 negative)
-unit_tests                 referred  no section matched unit tests; the critic must judge rule 2 unaided
-e2e_tests                  referred  no section matched E2E; the critic must judge rule 3 unaided
+unit_tests                 referred  no section matched unit tests; the critic must judge section "Unit test specs" unaided
+e2e_tests                  referred  no section matched E2E; the critic must judge section "E2E test specs" unaided
 docs_impact                pass      CLAUDE.md's validation list and the shipped-executables section. ...
 
 forge-gate-mechanics: issue #182 against .github/ISSUE_TEMPLATE/infrastructure.yml (ticket vnone, current v6)

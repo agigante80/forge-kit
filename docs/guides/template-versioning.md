@@ -31,8 +31,8 @@ matching /GDPR/ first, since the v5 wording differed per template. `dep-auditor`
 v5 added the ticket-standard improvements approved 2026-07-16 (see
 `docs/superpowers/specs/2026-07-16-ticket-standard-improvements-design.md`): a required
 `docs_impact` field on all five work templates (docs affected, README impact, why-not-if-none),
-a GWT quality bar with gate-derived scope (rule 1), and the droppable emulator clause on E2E
-specs (rule 3).
+a GWT quality bar with gate-derived scope (section "GWT scenarios"), and the droppable emulator clause on E2E
+specs (section "E2E test specs").
 
 v4 added three key fields to all templates:
 - `scenarios` - Given/When/Then test scenarios (one positive + one negative per condition)

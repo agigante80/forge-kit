@@ -180,7 +180,7 @@ body:
 OPT
 printf '<!-- template-version: 6 -->\n\n### Summary\n\nsomething\n\n### E2E test scenarios\n\n_No response_\n' > "$WORK/opt.md"
 optout="$(bash "$SCRIPT" --body "$WORK/opt.md" --template "$WORK/opt.yml" --tpl-version 6 --current-tpl-version 6 --labels backend,feature)"
-# `na` would be a fail-open of its own: rules 3 and 7 still bind on an optional section, and
+# `na` would be a fail-open of its own: the E2E and documentation sections still bind when optional, and
 # nothing looks at an `na` row again.
 expect "an OPTIONAL section left empty is REFERRED, neither fail nor na" referred "$(outcome "$optout" e2e_tests)"
 expect "and check 3 still passes it" pass "$(outcome "$optout" sections)"
@@ -283,7 +283,7 @@ U="$(mkbody feature "shortcircuit.md" "" "N/A docs-only change" "")"
 expect "REGRESSION: a referred unit result does not hide an unusable E2E section" fail \
   "$(outcome "$(run "$U" feature)" e2e_tests)"
 E="$(mkbody feature "e2ena.md" "" "" "N/A, this ticket changes no UI-visible behaviour at all")"
-expect "an E2E N/A with a reason is REFERRED, since rule 3 is the critic's call" referred "$(outcome "$(run "$E" feature)" e2e_tests)"
+expect "an E2E N/A with a reason is REFERRED, since the E2E test specs section is the critic's call" referred "$(outcome "$(run "$E" feature)" e2e_tests)"
 E="$(mkbody feature "e2enapath.md" "" "" "N/A, covered by \`tests/unit/auth.test.ts\` instead")"
 expect "REGRESSION: an N/A citing a path is still an N/A claim, not a pass" referred "$(outcome "$(run "$E" feature)" e2e_tests)"
 E="$(mkbody feature "e2ebare.md" "" "" "N/A")"
@@ -319,7 +319,7 @@ expect "#459: na as the start of a longer word is not a claim" fail "$(outcome "
 echo "check-ticket-mechanics: documentation impact"
 expect "naming a doc passes" pass "$(outcome "$(run "$B" feature)" docs_impact)"
 D="$(mkbody feature "docsnone.md" "" "" "" "None, this changes no documented behaviour whatsoever")"
-expect "a reasoned none is REFERRED, since rule 7 applies to every work ticket" referred "$(outcome "$(run "$D" feature)" docs_impact)"
+expect "a reasoned none is REFERRED, since the documentation currency section applies to every work ticket" referred "$(outcome "$(run "$D" feature)" docs_impact)"
 D="$(mkbody feature "docsbare.md" "" "" "" "none")"
 expect "a bare none fails" fail "$(outcome "$(run "$D" feature)" docs_impact)"
 D="$(mkbody feature "docsvague.md" "" "" "" "we should think about it")"
@@ -427,7 +427,7 @@ case "$(gwt_ev "$(run "$O6" feature)")" in *"found 0 positive, 0 negative"*) ok 
 N1="$(mkbody feature "na1.md" "$(printf -- 'N/A: documentation only, no behaviour delta, nothing for a scenario to review.')")"
 o="$(run "$N1" feature)"
 expect "#241: a reasoned N/A in the scenarios section refers" referred "$(outcome "$o" gwt)"
-case "$(gwt_ev "$o")" in *"claim N/A"*"rule 1"*) ok "#241: and the evidence is in check 5's shape" ;; *) bad "#241: evidence shape: $(gwt_ev "$o")" ;; esac
+case "$(gwt_ev "$o")" in *"claim N/A"*'section "GWT scenarios"'*) ok "#241: and the evidence is in check 5's shape" ;; *) bad "#241: evidence shape: $(gwt_ev "$o")" ;; esac
 N2="$(mkbody feature "na2.md" "$(printf -- 'N/A.')")"
 expect "#241: a bare N/A with no reason fails" fail "$(outcome "$(run "$N2" feature)" gwt)"
 N3="$(mkbody feature "na3.md" "$(printf -- 'Positive\n- Given: a config whose field is N/A\n- When: b\n- Then: c\n\nNegative\n- Given: d\n- When: e\n- Then: 401 AUTH_FAILED')")"
@@ -568,7 +568,7 @@ expect "#490: a complete pair quoted only inside a fence fails 0/0 (accepted pas
 # evidence quotes the fence opener, the field's first non-blank line.
 F490A="$(one479 f490na "$(printf -- '%s\nN/A: a docs-only change with no behaviour delta\n%s' "$FB" "$FB")")"
 expect "#490 guard: a fence holding only a reasoned N/A stays referred, evidence read from the raw field" \
-  "referred|scenarios claim N/A; legitimate only where rule 1 finds no behaviour delta: $FB" "$(g490 "$F490A")"
+  "referred|scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $FB" "$(g490 "$F490A")"
 # A field whose only scenario is a fenced one-liner fails 0/0 where it referred: intended.
 F490O="$(one479 f490one "$(printf -- '%s\n- Positive: Given a. When b. Then c.\n- Negative: Given d. When e. Then 400 INVALID.\n%s' "$FB" "$FB")")"
 expect "#490: a field whose only scenarios are fenced one-liners fails 0/0 (referred before, intended)" "fail|needs at least one Positive and one Negative block (found 0 positive, 0 negative)" "$(g490 "$F490O")"
@@ -1559,8 +1559,8 @@ cmp -s "$GATE_MD" "$WORK/gate-noex.md" && bad "#273: the no-example copy did not
 msg="$(gw_example "$WORK/gate-noex.md" 2>&1 >/dev/null)"; rc=$?
 expect "#273: a missing example fails loudly" "documented gate-written scenario example not found" "$msg"
 [ "$rc" -ne 0 ] && ok "#273: and returns non-zero" || bad "#273: a missing example returned 0"
-grep -q 'Apply the rule-1 quality bar.*`\*\*Positive:\*\* <title>`' "$GATE_MD" \
-  && ok "#273: the Step 0c-iii scenarios row states the label form beside its rule-1 anchor" || bad "#273: the scenarios row lacks the label form"
+grep -q 'Apply the section "GWT scenarios" quality bar.*`\*\*Positive:\*\* <title>`' "$GATE_MD" \
+  && ok "#273: the Step 0c-iii scenarios row states the label form beside its section anchor" || bad "#273: the scenarios row lacks the label form"
 # #349: the critic's own advice names a label check 4 reads. Step 3B element 3 gives the shape the
 # critic writes; #341's critic invented `Control (...)`, which check 4 does not read, and #292's
 # writer used `_(...)_`. The checker is unchanged: the guidance moved to it.
@@ -2631,6 +2631,30 @@ grep -qF -- "$OLD512" "$GATE" && bad "#512: the WRITE ONCE paragraph is back to 
 sed 's/gate-tagged section, never author text/section synthesised by THIS run'"'"'s 0c, never author text/' "$GATE" > "$WORK/gate-wo-mut.md"
 cmp -s "$GATE" "$WORK/gate-wo-mut.md" && bad "#512: the WRITE ONCE mutant did not apply"
 grep -qF -- "gate-tagged section, never author text" "$WORK/gate-wo-mut.md" && bad "#512: MUTANT survived: the gate-tagged pin passes on a reverted paragraph" || ok "#512: MUTANT: reverting the paragraph fails the gate-tagged pin"
+
+# #510: the script's evidence cites a ticket-standards section by TITLE, never by number, because an
+# adapted doc renumbers its sections and "rule 3" then pointed at the wrong one. Evidence is column 3.
+evid() { printf '%s\n' "$1" | awk -F'\t' -v c="$2" '$1 == c { print $3 }'; }
+E510="$(mkbody feature "e510e2e.md" "" "" "N/A, this ticket changes no UI-visible behaviour at all")"
+R510="$(run "$E510" feature)"
+case "$(evid "$R510" e2e_tests)" in *'section "E2E test specs"'*) ok "#510: the E2E N/A evidence names section \"E2E test specs\"" ;; *) bad "#510: E2E evidence lost the section title ($(evid "$R510" e2e_tests))" ;; esac
+U510="$(mkbody feature "e510un.md" "" "N/A, a docs-only change with no code")"
+R510="$(run "$U510" feature)"
+case "$(evid "$R510" unit_tests)" in *'section "Unit test specs"'*) ok "#510: the unit N/A evidence names section \"Unit test specs\"" ;; *) bad "#510: unit evidence lost the section title ($(evid "$R510" unit_tests))" ;; esac
+G510="$(mkbody feature "e510gw.md" "N/A, a docs-only change with no behaviour delta")"
+R510="$(run "$G510" feature)"
+case "$(evid "$R510" gwt)" in *'section "GWT scenarios"'*) ok "#510: the GWT N/A evidence names section \"GWT scenarios\"" ;; *) bad "#510: GWT evidence lost the section title ($(evid "$R510" gwt))" ;; esac
+D510="$(mkbody feature "e510dc.md" "" "" "" "None, nothing user-visible changes")"
+R510="$(run "$D510" feature)"
+case "$(evid "$R510" docs_impact)" in *'section "Documentation currency"'*) ok "#510: the docs none-claim evidence names section \"Documentation currency\"" ;; *) bad "#510: docs evidence lost the section title ($(evid "$R510" docs_impact))" ;; esac
+n510="$(printf '%s\n%s\n%s\n%s\n' "$(run "$E510" feature)" "$(run "$U510" feature)" "$(run "$G510" feature)" "$(run "$D510" feature)" | grep -ciE 'rules? ?-?[0-9]')"
+[ "$n510" = 0 ] && ok "#510: no evidence line cites a numbered rule" || bad "#510: $n510 evidence lines still cite a numbered rule"
+n510="$(grep -ciE 'rules? ?-?[0-9]' "$SCRIPT")"
+[ "$n510" = 0 ] && ok "#510: the script source cites no numbered rule" || bad "#510: the script source has $n510 numbered rule citations"
+sed 's/section \\"E2E test specs\\" says a UI-touching/rule 3 says a UI-touching/' "$SCRIPT" > "$WORK/mut-510.sh"
+cmp -s "$SCRIPT" "$WORK/mut-510.sh" && bad "#510: the numbered-citation mutant did not apply"
+n510="$(grep -ciE 'rules? ?-?[0-9]' "$WORK/mut-510.sh")"
+[ "$n510" != 0 ] && ok "#510: MUTANT: a reverted citation is caught by the no-numbered-rule row" || bad "#510: MUTANT survived: the no-numbered-rule row passes a reverted citation"
 
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
