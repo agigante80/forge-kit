@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# close-shipped-version: 1
+# close-shipped-version: 2
 # close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496).
 # Closing shipped tickets was a step someone had to remember (the `release` skill's step 5), and on
 # a two branch model the host's own auto close never fires, because the feature PRs target the
@@ -9,7 +9,8 @@
 #   close-shipped.sh <tag> [--to <ref>]       comment "Released in <tag>" on, then close, every
 #                                             open issue the release shipped
 #   close-shipped.sh --report <tag>           read only: list shipped issues that are still open
-#   close-shipped.sh --report --last <N>      the same for the N highest release tags
+#   close-shipped.sh --report --last <N>      the same for the N highest release tags in the
+#                                             repository (run `git fetch --tags` first)
 #   close-shipped.sh --help
 #
 # THE MANIFEST is read from commit SUBJECTS only, `git log --no-merges --pretty=%s <prev>..<end>`,
@@ -17,8 +18,12 @@
 # Only the TRAILING run of groups at the end of a subject counts, each one either `(#N)` (shipped:
 # close) or `(refs #N)` (the opt-out: shipped in part, keep open). A `(#N)` anywhere else in a
 # subject, and anything in a body (bodies cite CVE and alert numbers), is never read. A number cited
-# as `(#N)` anywhere in the range is closed even if another subject cites it as `(refs #N)`. Close
-# mode and report mode share this one matcher, so they cannot disagree. A squash-promoted range
+# as `(#N)` anywhere in the range is closed even if another subject cites it as `(refs #N)`. A
+# commit reverted inside the same range ships nothing: a subject quoted by a `Revert "<subject>"`
+# subject in the range is dropped, once per revert, before the matcher runs. A reapply (git's
+# `Reapply "<subject>"`, or a revert of the revert) is dropped with it, so a reapplied ticket needs
+# its own trailing `(#N)` on the reapply commit to be closed. Close mode and report mode share this
+# one matcher, so they cannot disagree. A squash-promoted range
 # whose subject carries only a PR number yields that number, which is skipped as a pull request:
 # resolving a PR to its linked issues is out of scope.
 #
@@ -36,7 +41,12 @@
 # failed to close converges on rerun with no duplicate; then it is closed. A close is never
 # attempted after a failed comment. Every failure prints `::warning::<step> #N failed (rc=R)` and
 # the loop goes on; the run exits 1 at the end if any ticket failed. It runs AFTER the tag, so a
-# red run means "rerun me", and a rerun converges.
+# red run means: rerun THIS script by hand (`close-shipped.sh <tag>`), which converges. Never rerun
+# the release lane, which would cut another release.
+#
+# The owner/repo is resolved ONCE, before the first host call, and a failure exits 2 with
+# forge-lib's own error: an unresolved repo would otherwise build `repos//issues/N`, which the
+# host answers with a 404 that reads as `not found`, a green run that closed nothing.
 #
 # DRY_RUN=1 (or an inherited FORGE_DRY_RUN=1) still READS, with FORGE_DRY_RUN scoped to 0 on the
 # reads so they return real data, and prints `[dry-run] would comment and close #N for <tag>`
@@ -133,7 +143,7 @@ prev_tag() {
 # THE one matcher: only the trailing run of `(#N)` / `(refs #N)` groups of each subject.
 manifest() {
   local s re='^(.*)\((refs #|#)([0-9]+)\)[[:space:]]*$'
-  git log --no-merges --pretty=%s "$1" -- | while IFS= read -r s; do
+  git log --no-merges --pretty=%s "$1" -- | _drop_reverted | while IFS= read -r s; do
     while [[ "$s" =~ $re ]]; do
       if [ "${BASH_REMATCH[2]}" = "#" ]; then echo "close $((10#${BASH_REMATCH[3]}))"
       else echo "refs $((10#${BASH_REMATCH[3]}))"; fi
@@ -141,6 +151,27 @@ manifest() {
       s="${s%"${s##*[![:space:]]}"}"
     done
   done | sort -u -k2,2n -k1,1 | awk '!seen[$2]++'   # `close` sorts before `refs`, so close wins
+}
+
+# _drop_reverted: stdin subjects minus every subject a `Revert "<subject>"` line quotes, once per
+# revert. The quoted subject runs from after `Revert "` to the LAST double quote, so a squash
+# suffix such as ` (#25)` after it is not part of it. POSIX awk only.
+_drop_reverted() {
+  awk '
+    { s[NR] = $0
+      if (substr($0, 1, 8) == "Revert \"") {
+        r = substr($0, 9); q = 0
+        for (j = length(r); j > 0; j--) if (substr(r, j, 1) == "\"") { q = j; break }
+        if (q > 0) rev[substr(r, 1, q - 1)]++
+      } }
+    END { for (k = 1; k <= NR; k++) { if (rev[s[k]] > 0) { rev[s[k]]--; continue }; print s[k] } }'
+}
+
+# need_repo: resolve owner/repo once, before the first host call; exit 2 with forge-lib's error.
+need_repo() {
+  [ -z "${_REPO_OK:-}" ] || return 0
+  FORGE_REPO="$(forge_repo)" || { echo "close-shipped: cannot resolve owner/repo; set FORGE_REPO or an origin remote" >&2; exit 2; }
+  export FORGE_REPO; _REPO_OK=1
 }
 
 # view <n>: sets V to notfound | pr | closed | open | fail, and VRC to the read's exit code.
@@ -172,6 +203,7 @@ release_one() {   # release_one <tag> <end> <label>: one tag's manifest and acti
   m="$(manifest "$prev..$end")"
   echo "manifest: $(grep -c '^close ' <<< "$m") tickets ($prev..$label)"
   [ -n "$m" ] || return 0
+  grep -q '^close ' <<< "$m" && need_repo
   body="Released in $tag"
   while read -r kind n; do
     [ -n "$n" ] || continue
@@ -210,7 +242,10 @@ release_one() {   # release_one <tag> <end> <label>: one tag's manifest and acti
 closed=0 already=0 kept=0 skipped=0 failed=0 open=0
 
 if [ -n "$last" ]; then
-  tags="$(git tag --merged HEAD --list "$TAG_GLOB" --sort=-v:refname 2>/dev/null \
+  # Every release tag in the repository, not only those merged into HEAD: run from a development
+  # branch, the tags live on the production branch and --merged HEAD found none (review M2).
+  # Reachability still bounds each tag's range, inside prev_tag.
+  tags="$(git tag --list "$TAG_GLOB" --sort=-v:refname 2>/dev/null \
     | while IFS= read -r t; do _is_release "$t" && printf '%s\n' "$t"; done | head -n "$last")"
   [ -n "$tags" ] || echo "no release tags"
   while IFS= read -r t; do

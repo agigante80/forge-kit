@@ -3,7 +3,7 @@ name: working-overnight
 description: Run governed, unattended overnight work. Pulls from a defined work source (gated tickets, tickets to gate, or investigations like full/security reviews that create tickets), implements safe work as branch-plus-PR without ever merging, defers you-only decisions instead of guessing, and writes a morning report. Use when the user says to work overnight, run unattended, keep going while they are away, or asks to set up autonomous overnight work. Driven by /loop; not a single unbounded session.
 ---
 
-<!-- working-overnight-version: 11 -->
+<!-- working-overnight-version: 12 -->
 
 # Working overnight
 
@@ -79,7 +79,8 @@ Reached at queue-empty (the goal) or the backstop.
 1. Write `.claude/overnight/report.md`: PRs opened (links), decisions deferred (with
    options), investigations done, assumptions to verify, suggested next steps. Use
    the handoff shape from the `closing-sessions` skill. Add a "released but still open" line
-   from `bash scripts/close-shipped.sh --report --last 1` (read only; `not installed` when the
+   from `git fetch --tags` then `bash scripts/close-shipped.sh --report --last 1` (read only;
+   the fetch brings the release tags the production branch carries; `not installed` when the
    script is absent): its exit 1 lists tickets a release shipped and nobody closed, a finding for
    the morning, never a failure of the run and never something to close overnight (#496).
 2. Remove `.claude/overnight/active.md` to disarm the hook.

@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. The enforced/automated sibling of the invoked `release` skill. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 10 -->
+<!-- release-automation-version: 11 -->
 
 # Release automation
 
@@ -125,6 +125,8 @@ is skipped, never written to. A first release closes nothing.
 
 - **Opt-out:** end a subject with `(refs #N)` instead of `(#N)` for a ticket the commit ships only
   part of; the last commit of a split ticket writes `(#N)`.
+- **Reverts:** a commit reverted inside the same range (`Revert "<subject>"`) ships nothing and
+  closes nothing. A reapply needs its own trailing `(#N)`.
 - **Squash promotions:** a release commit whose subject carries only the PR number closes nothing;
   keep the ticket numbers in the subjects.
 - **Token:** the App behind `GH_TOKEN` needs **Issues: Read and write** (see
@@ -134,7 +136,8 @@ is skipped, never written to. A first release closes nothing.
   re-enters `release-run.sh` from the top, which in file mode cuts a phantom patch release. Run the
   command it prints, `bash scripts/close-shipped.sh <tag>`, which converges.
 - **Report:** `close-shipped.sh --report --last <N>` lists released but still open tickets and never
-  writes (exit 1 when it finds one), so a skipped close is visible.
+  writes (exit 1 when it finds one), so a skipped close is visible. It reads the N newest release
+  tags in the repository from any branch, so run `git fetch --tags` first.
 
 ## Install (what forge-adapt does)
 

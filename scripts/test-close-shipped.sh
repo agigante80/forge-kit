@@ -6,7 +6,8 @@
 # `gh` that serves issue JSON and comment arrays from a per-test state directory, flips an issue
 # to closed on the close PATCH, appends a comment on the POST, answers 403, 404 or 500 when a
 # fixture file says so, and logs every call. A write is logged as `WRITE <METHOD> <n> <body>`, so
-# "no write" is a grep, and a read of an issue is visible as its path. One row uses a `curl` shim
+# "no write" is a grep, and a read of an issue is visible as its path. A path with an empty
+# owner/repo (`repos//`) gets the 404 GitHub really answers it with. One row uses a `curl` shim
 # to prove the Forgejo 404 arm (forge_api's rc 44).
 set -uo pipefail
 HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
@@ -33,6 +34,9 @@ while [ $# -gt 0 ]; do
   case "$1" in -X) method="$2"; shift ;; --paginate) ;; --input) shift ;; *) path="$1" ;; esac
   shift
 done
+case "$path" in   # an empty owner/repo is what GitHub answers with a 404 (review M1)
+  *repos//*) echo '{"message":"Not Found"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+esac
 case "$path" in
   */issues/*/comments) n="${path%/comments}"; n="${n##*/}"; kind=comments ;;
   */issues/*)          n="${path##*/}"; kind=issue ;;
@@ -153,6 +157,16 @@ check "a 404 is a skip, not a failure" '[ $rc -eq 0 ] && grep -q "^skip #10: not
 std; failop GET-issue 10 500; run_cs v1.2.0
 check "a failed issue read is a failure, not a skip" '[ $rc -eq 1 ] && grep -q "^::warning::view #10 failed (rc=1)$" <<< "$out" && ! grep -q "^WRITE [A-Z]* 10 " "$S/log"'
 
+std; failop GET-issue 10 403; run_cs v1.2.0
+check "a 403 on the issue read is a failure, never a not-found skip" '[ $rc -eq 1 ] && grep -q "^::warning::view #10 failed (rc=1)$" <<< "$out" && ! grep -q "^skip #10" <<< "$out" && ! grep -q "^WRITE [A-Z]* 10 " "$S/log"'
+
+# Review M1: no origin and no FORGE_REPO used to build repos//issues/N, read the 404 as not found
+# and exit 0 having closed nothing.
+std; run_cs FORGE_REPO= v1.2.0
+check "an unresolvable owner/repo exits 2 with forge-lib's error and makes no host call" '[ $rc -eq 2 ] && grep -q "forge-lib: " <<< "$out" && grep -q "cannot resolve owner/repo" <<< "$out" && ! grep -q "^skip #" <<< "$out" && [ "$(calls)" = 0 ]'
+run_cs FORGE_REPO= --report v1.2.0
+check "report mode refuses the same way (exit 2, no zero-open summary)" '[ $rc -eq 2 ] && ! grep -q "^close-shipped report:" <<< "$out" && [ "$(calls)" = 0 ]'
+
 echo "the manifest"
 mkrepo; tg v1.1.0; c "feat(c): part one (refs #14)"; tg v1.2.0
 newstate; issue 14 open; run_cs v1.2.0
@@ -173,6 +187,18 @@ check "a mid-subject (#N) is not a match" '[ $rc -eq 0 ] && grep -q "^manifest: 
 mkrepo; tg v1.1.0; c "fix(a): x (#10)"; c "fix(a): again (#10)"; tg v1.2.0
 newstate; issue 10 open; run_cs v1.2.0
 check "a number cited twice is closed once with one comment" '[ "$(posts 10)" = 1 ] && grep -q "^manifest: 1 tickets" <<< "$out"'
+
+mkrepo; tg v1.1.0; c "fix: x (#10)"; c 'Revert "fix: x (#10)" (#25)'; c "feat: y (#11)"; tg v1.2.0
+newstate; issue 10 open; issue 11 open; issue 25 open pr; run_cs v1.2.0
+check "a commit reverted in the same range ships nothing" '[ $rc -eq 0 ] && ! touched 10 && [ "$(state 10)" = open ] && [ "$(state 11)" = closed ]'
+
+mkrepo; tg v1.1.0; c "fix: x (#10)"; c 'Revert "fix: x (#10)"'; c "fix: x again (#10)"; tg v1.2.0
+newstate; issue 10 open; run_cs v1.2.0
+check "a ticket cited again after the revert is still closed" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ]'
+
+mkrepo; tg v1.1.0; c "fix: x (#10)"; c "fix: x (#10)"; c 'Revert "fix: x (#10)"'; tg v1.2.0
+newstate; issue 10 open; run_cs v1.2.0
+check "one revert cancels one copy of a subject, not every copy (a cherry-pick survives)" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ]'
 
 mkrepo; c "feat: start (#1)"; tg v1.0.0
 newstate; issue 1 open; run_cs v1.0.0
@@ -239,6 +265,18 @@ newstate; issue 60 open; issue 61 open; run_cs --report --last 2
 check "--last 2 reports the two highest tags, each against its own previous" '[ $rc -eq 1 ] && grep -q "^== v1.3.0$" <<< "$out" && grep -q "^== v1.2.0$" <<< "$out" && grep -q "^released but open: #60$" <<< "$out" && grep -q "^released but open: #61$" <<< "$out" && grep -q "(v1.2.0..v1.3.0)" <<< "$out" && [ "$(writes)" = 0 ]'
 run_cs --report --last 1
 check "--last 1 reports only the newest tag" 'grep -q "#61" <<< "$out" && ! grep -q "#60" <<< "$out"'
+
+mkrepo; tg v1.1.0; c "a (#62)"; c "b (#63)"; tg v1.2.0
+newstate; issue 62 open; issue 63 open; failop GET-issue 63 500; run_cs --report v1.2.0
+check "report: one open ticket and one failed read exits 1, open outranking the failure" '[ $rc -eq 1 ] && grep -q "^released but open: #62$" <<< "$out" && grep -q "^::warning::view #63 failed" <<< "$out"'
+
+# Review M2: the tag lives on main behind a --no-ff merge, and the report runs from a branch cut
+# from develop, which does not contain that merge.
+mkrepo; tg v1.1.0; git -C "$R" checkout --quiet -b develop; c "fix: shipped (#70)"
+git -C "$R" checkout --quiet main; git -C "$R" merge --quiet --no-ff -m "Release v1.2.0" develop; tg v1.2.0
+git -C "$R" checkout --quiet develop; git -C "$R" checkout --quiet -b feature; c "wip"
+newstate; issue 70 open; run_cs --report --last 1
+check "--last finds tags not merged into HEAD (run from a development branch)" '[ $rc -eq 1 ] && grep -q "^== v1.2.0$" <<< "$out" && grep -q "^released but open: #70$" <<< "$out"'
 
 echo "interface and environment"
 std; run_cs
