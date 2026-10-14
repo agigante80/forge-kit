@@ -7,6 +7,11 @@ data that would let it change. It is the rationale only: the contract itself is 
 and this page restates none of it beyond one sentence. Decided on issue #445 (maintainer decision
 2026-10-11, option B).
 
+What happens to each finding below Medium (fix, ticket or drop, decided in the same batch) is a
+separate rule with its own canonical home, the `review-lows` skill
+(`plugins/forge-kit-review/skills/review-lows/SKILL.md`, #495); this page does not restate it.
+<!-- rule: review-lows v2 -->
+
 ## 1. Round 2 always runs
 
 The contract reviews the fix delta (`previous_ref...HEAD`) in round 2 whatever round 1 found,

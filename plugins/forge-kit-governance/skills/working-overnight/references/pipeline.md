@@ -42,11 +42,12 @@ To gate a ticket, run ticket-gate: a clean pass moves it to the ready queue; a
 non-pass parks it with the gate's review (verdict + required changes).
 
 For an investigation, run the relevant review: full-review in its unattended mode
-(every prompt auto-resolves; ticket filing honours the manifest's investigation-depth
-cap, over-cap findings listed unfiled in the report), or a security-auditor pass for
-security investigations (no checkpoint machinery; its findings are filed within the same
-cap). Write findings and create tickets for actionable items within the
-investigation-depth cap, then let a later cycle gate and implement them.
+(every prompt auto-resolves; ticket outcomes honour the manifest's investigation-depth
+cap, over-cap ones listed unfiled in the report), or a security-auditor pass for security
+investigations (no checkpoint machinery). Triage every finding below Medium by the
+`forge-kit-review:review-lows` skill <!-- rule: review-lows v2 -->: each gets a fix, ticket
+or drop outcome, and only ticket outcomes are filed, within the same cap. Write the findings
+down, then let a later cycle gate and implement the tickets.
 
 ## Repeated reviews: chain the rounds, and stop where the contract says stop
 
@@ -69,20 +70,21 @@ written to prevent.
 If neither store has a ref, this IS round 1 and `--since` is omitted. Never invent one: a `--since`
 pointing at the wrong commit reviews the wrong delta and reports clean.
 
-**The trip wire is a defer, never a decision.** The contract says remaining findings become
-tickets and continuing past the trip wire is the caller's explicit call, never a default.
+**The trip wire is a defer, never a decision.** The contract says remaining findings take the
+same `review-lows` triage and continuing past the trip wire is the caller's explicit call, never a default.
 Overnight has no caller, so nothing here is entitled to make that call, and "the findings look
 minor" is that call being made anyway.
 
-So on a `trip wire` stop, do both halves. File the remaining findings as tickets, within the
-manifest's investigation-depth cap like any other overnight filing. Then append the item to
+So on a `trip wire` stop, do both halves. Triage the remaining findings by `review-lows` and
+file the ticket outcomes within the manifest's investigation-depth cap, like any other overnight
+filing. Then append the item to
 `.claude/overnight/decisions.md` with the loop's own stopping data (rounds run, the count of
-rounds that found in-prior-fix defects, the tickets filed) and pick another item. The question
+rounds that found in-prior-fix defects, the outcome counts and the tickets filed) and pick another item. The question
 being deferred is whether to CONTINUE the loop, not what to do with the findings; those are
 already handled.
 
 A `hard stop` is not a defer. The contract ends the loop there with no decision offered, so its
-remaining findings become tickets and the item is done, the same as `clean round`. A stop for
+remaining findings take the same triage and the item is done, the same as `clean round`. A stop for
 `fixes pending` is ordinary and continues. Parking a hard stop would hand the human a decision
 the contract does not give them, which is its own way of not honouring it.
 

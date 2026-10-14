@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails] [--full]"
 ---
 
-<!-- full-review-version: 12 -->
+<!-- full-review-version: 13 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -21,8 +21,8 @@ audit, re-checking a small fix with the reviewer round 1 used for correctness.
 **Where the findings go (the handoff):** the audit run IS round 1 of the Iteration
 contract below (that section is canonical; this paragraph only summarises it). Its
 Critical/High/Medium findings are fixed and verified by a round-2 run (`--since` or the
-verify-fixes pre-flight); Low findings are filed as tickets by the Completion step. No
-finding is ever left with neither a fix round nor a ticket.
+verify-fixes pre-flight); each Low gets a `review-lows` outcome (fix, ticket or drop) at
+Completion. <!-- rule: review-lows v2 -->
 
 **Unattended callers** (working-overnight investigations): EVERY interactive prompt in
 this file resolves without asking. Checkpoints auto-select option 1; a pre-flight
@@ -586,13 +586,9 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Code refactoring opportunities
 - Test quality improvements
 
-### Low Priority (P3 -- Ticketed at Completion)
+### Low Priority (P3 -- Fix, Ticket or Drop)
 
-[All Low findings from all phases]
-
-- Style guide violations
-- Minor code smell issues
-- Nice-to-have improvements
+[Each Low finding with its `review-lows` outcome and a one-line reason]
 
 ## Findings by Category
 
@@ -637,8 +633,8 @@ findings enter a review-fix-review loop, these rules bound the loop (issue #66; 
 reporting half lives in `code-reviewer.md`):
 
 - **Round 1** reviews the change. Fixes go by this command's own severity ladder: Critical,
-  High, and Medium are fixed now; Low becomes a ticket immediately. **A ticket is a
-  finished outcome for a finding, not a failure to fix it.**
+  High, and Medium are fixed now; each Low gets its `review-lows` outcome. **A ticket or a
+  drop is a finished outcome for a finding, not a failure to fix it.**
 - **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set,
   `previous_ref...HEAD` per rule 7). The target must not grow between rounds.
 - **Rounds 3 and 4 each run only if the PREVIOUS round found a Critical or High.**
@@ -646,7 +642,7 @@ reporting half lives in `code-reviewer.md`):
 - **Trip wire:** if two consecutive rounds each find a defect inside the previous round's
   fix, STOP immediately, whatever the round number. That is bad-fix injection above the
   cited base rate, and further iteration removes value rather than adding it. Remaining
-  findings become tickets; continuing past the trip wire is the CALLER's explicit call,
+  findings take the same triage; continuing past the trip wire is the CALLER's explicit call,
   never a default.
 - **Every report states the stopping reason**, from one vocabulary: `loop continues: fixes
   pending` (non-terminal: blocking findings exist and the loop is expected to go on),
@@ -685,20 +681,19 @@ skipped phase's file as produced)
 1. Review the full report at .full-review/05-final-report.md
 2. Fix Critical (P0), High (P1), and Medium (P2) findings; verify with a round-2 run
    (--since <reviewed_ref> or the verify-fixes pre-flight)
-3. Low (P3) tickets filed: [list of created issue URLs]
+3. Low (P3): one outcome line per Low; fixed [n], ticketed [n] (URLs), dropped [n]
 ```
 
-**Ticket filing (part of Completion, not advice):** for each Low finding: FIRST search
-open issues for it (the source marker makes prior filings greppable:
-`forge_issue_list open` or `gh issue list --search`, filter for the finding's summary);
-an already-open ticket satisfies the no-finding-left rule, note its URL instead of
-re-filing, or periodic audits re-file every stable Low forever. Otherwise create one
-issue via the host-aware adapter where installed (`forge_issue_create "<title>" "<body>"`,
+**Low triage (part of Completion, not advice):** load the `review-lows` skill and give
+each Low its outcome; file only the ticket outcomes. FIRST search open issues for each
+(the source marker makes prior filings greppable: `forge_issue_list open` or
+`gh issue list --search`); an already-open ticket counts, note its URL instead of
+re-filing. Otherwise create one issue via the host-aware adapter where installed (`forge_issue_create "<title>" "<body>"`,
 then `forge_issue_label`), falling back to `gh issue create`; body = the finding verbatim
 plus `(source: full-review round <N>, <date>)`; label `enhancement` unless the finding
 names a better fit. **Check `forge_issue_label`'s exit**: on Forgejo its contract is
 REFUSE-ALL (an unresolvable name fails the whole call and applies nothing), so create the
-missing label first or drop it, then retry, exactly as ticket-gate and dep-auditor
-document. List every created-or-found URL in Next Steps. A Low finding with neither is a
-Completion failure, per the handoff's no-finding-left rule, EXCEPT findings listed as
-unfiled under an unattended caller's declared cap (see Unattended callers above).
+missing label first or drop it, then retry. List every created-or-found URL in Next Steps.
+A Low with no outcome is a Completion failure, EXCEPT ticket outcomes listed as unfiled
+under an unattended caller's declared cap (see Unattended callers above); drops never
+count against that cap.
