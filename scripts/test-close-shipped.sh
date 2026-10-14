@@ -204,6 +204,102 @@ mkrepo; tg v1.1.0; c 'fix: handle "foo" input (#10)'; c 'Revert "fix: handle "fo
 newstate; issue 10 open; issue 25 open pr; run_cs v1.2.0
 check "a reverted subject with its own double quotes, behind a squash suffix, ships nothing" '[ $rc -eq 0 ] && ! touched 10 && [ "$(state 10)" = open ]'
 
+# #498: a whole merged PR reverted inside the range (`git revert -m 1`, the host's Revert button on
+# a --no-ff merge). The revert quotes the MERGE subject, which the --no-merges manifest never lists.
+fc() {     # fc <subject>: a commit that changes a file, so a revert of it has something to undo
+  echo "$1" >> "$R/f.$(git -C "$R" rev-parse --abbrev-ref HEAD)"
+  git -C "$R" add -A && git -C "$R" commit --quiet -m "$1"
+}
+br() {     # br <branch> <subject>...: a branch off main carrying one file-changing commit per subject
+  local b="$1" s; shift
+  git -C "$R" checkout --quiet -b "$b" main
+  for s in "$@"; do fc "$s"; done
+  git -C "$R" checkout --quiet main
+}
+mkpr() {   # mkpr <branch> <subject>...: that branch merged --no-ff as "Merge pull request #24 from o/<branch>"
+  br "$@"
+  git -C "$R" merge --quiet --no-ff -m "Merge pull request #24 from o/$1" "$1"
+}
+revm() {   # revm [<merge>]: revert a merge (default HEAD) as the host's Revert button does; a fixture failure is loud
+  git -C "$R" revert --no-edit -m 1 "${1:-HEAD}" >/dev/null 2>&1 || bad "fixture: git revert -m 1 failed"
+}
+revm_nobody() {   # revm_nobody: the same revert with its message rewritten to the subject alone (no sha line)
+  local s; s="Revert \"$(git -C "$R" log -1 --pretty=%s HEAD)\""
+  git -C "$R" revert --no-commit -m 1 HEAD >/dev/null 2>&1 && git -C "$R" commit --quiet -m "$s" \
+    || bad "fixture: subject-only revert failed"
+}
+mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)" "feat: b (#12)"; revm; tg v1.2.0
+newstate; issue 10 open; issue 12 open; issue 24 open pr; run_cs v1.2.0
+check "a merge reverted in the same range ships none of the PR's tickets" '[ $rc -eq 0 ] && ! touched 10 && ! touched 12 && [ "$(state 10)" = open ] && [ "$(state 12)" = open ] && grep -q "^manifest: 0 tickets" <<< "$out" && [ "$(writes)" = 0 ]'
+check "the reverted merge is reported" 'grep -q "^reverted in range: merge [0-9a-f]\{7\} Merge pull request #24 from o/feat$" <<< "$out"'
+
+mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)" "feat: b (#12)"; revm; fc "fix: redo (#10)"; tg v1.2.0
+newstate; issue 10 open; issue 12 open; run_cs v1.2.0
+check "after a reverted merge, a commit citing the ticket again still closes it" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(posts 10)" = 1 ] && [ "$(state 12)" = open ] && ! touched 12'
+
+mkrepo; tg v1.1.0; br a "feat: a (#10)"; br b "feat: b (#12)"; br d "feat: d (#13)"
+git -C "$R" merge --quiet --no-ff -m "Merge octopus" a b d >/dev/null 2>&1; revm; tg v1.2.0
+newstate; issue 10 open; issue 12 open; issue 13 open; run_cs v1.2.0
+check "a reverted octopus merge ships the tickets of none of its parents" '[ $rc -eq 0 ] && [ "$(git -C "$R" rev-list --parents -n 1 HEAD~1 | wc -w)" = 5 ] && ! touched 10 && ! touched 12 && ! touched 13'
+
+# The merge lies BEFORE the previous tag, so it is not this release's to undo; the same subject
+# landing again inside the range ships. An unrelated merge in range makes the lookup actually run.
+mkrepo; mkpr feat "feat: a (#10)"; tg v1.1.0; revm; fc "feat: a (#10)"; mkpr other "feat: c (#14)"; tg v1.2.0
+newstate; issue 10 open; issue 14 open; run_cs v1.2.0
+check "a revert of a merge outside the range drops nothing" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(state 14)" = closed ] && ! grep -q "^reverted in range:" <<< "$out"'
+
+# Merge subjects repeat on a two-branch model. The revert body's sha, not the subject, picks the
+# merge: reverting the second drops #12 only, reverting the first drops #10 only.
+dup() {
+  mkrepo; tg v1.1.0; br a "feat: a (#10)"; git -C "$R" merge --quiet --no-ff -m "Merge branch dev" a
+  M1=$(git -C "$R" rev-parse HEAD)
+  br b "feat: b (#12)"; git -C "$R" merge --quiet --no-ff -m "Merge branch dev" b
+}
+dup; revm; tg v1.2.0; newstate; issue 10 open; issue 12 open; run_cs v1.2.0
+check "two merges share a subject: the revert of the second drops only the second" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(state 12)" = open ] && ! touched 12'
+dup; revm "$M1"; tg v1.2.0; newstate; issue 10 open; issue 12 open; run_cs v1.2.0
+check "two merges share a subject: the revert of the first drops only the first" '[ $rc -eq 0 ] && [ "$(state 10)" = open ] && ! touched 10 && [ "$(state 12)" = closed ]'
+
+# A revert whose message lost the sha line (edited, or squash-merged with a rewritten message)
+# falls back to its quoted subject, and only an unambiguous one drops anything.
+mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)"; revm_nobody; tg v1.2.0
+newstate; issue 10 open; run_cs v1.2.0
+check "no sha line: a quoted subject matching exactly one merge drops it" '[ $rc -eq 0 ] && ! touched 10 && grep -q "^reverted in range: merge " <<< "$out"'
+dup; revm_nobody; tg v1.2.0; newstate; issue 10 open; issue 12 open; run_cs v1.2.0
+check "no sha line: a quoted subject matching two merges drops nothing and says so" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(state 12)" = closed ] && grep -q "^reverted merge not identified: 2 merges match \"Merge branch dev\"; nothing dropped$" <<< "$out"'
+
+# Only a commit whose subject is `Revert "..."` counts: a plain commit that quotes the sha line in
+# its body (a partial undo, a cherry-pick note) drops nothing.
+mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)"; M=$(git -C "$R" rev-parse HEAD)
+echo z >> "$R/z"; git -C "$R" add -A; git -C "$R" commit --quiet -m "fix: partial undo" -m "This reverts commit $M, in part."
+tg v1.2.0; newstate; issue 10 open; run_cs v1.2.0
+check "a non-revert commit naming a merge sha in its body drops nothing" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && ! grep -q "^reverted in range:" <<< "$out"'
+
+# `git revert -m 2` writes the same subject and sha line but undoes the MAINLINE side and keeps the
+# feature: its `changes made to` sha is M^2, not M^1, so it drops nothing and says so.
+mkrepo; tg v1.1.0; br feat "feat: a (#10)"; fc "chore: main work"
+git -C "$R" merge --quiet --no-ff -m "Merge pull request #24 from o/feat" feat
+git -C "$R" revert --no-edit -m 2 HEAD >/dev/null 2>&1 || bad "fixture: git revert -m 2 failed"
+tg v1.2.0; newstate; issue 10 open; run_cs v1.2.0
+check "a -m 2 revert of a merge drops nothing and says so" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && grep -q "^reverted merge [0-9a-f]\{7\} not on mainline 1; nothing dropped$" <<< "$out" && ! grep -q "^reverted in range:" <<< "$out"'
+
+# A reapply restores nothing: as for a reverted commit, the ticket needs its own trailing (#N).
+mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)"; revm; git -C "$R" revert --no-edit HEAD >/dev/null 2>&1; tg v1.2.0
+newstate; issue 10 open; run_cs v1.2.0
+check "a reapplied merge revert keeps the ticket open (the documented own (#N) rule)" '[ $rc -eq 0 ] && ! touched 10 && [ "$(state 10)" = open ]'
+
+# The previous tag sits on the merged branch itself, so the merge's second parent reaches back past
+# it. Exclusion is by sha, so main's in-range cherry-pick with the same subject still ships.
+mkrepo; br feat "feat: a (#10)"; git -C "$R" tag v1.1.0 feat; fc "feat: a (#10)"
+git -C "$R" merge --quiet --no-ff -m "Merge pull request #24 from o/feat" feat; revm; tg v1.2.0
+newstate; issue 10 open; run_cs v1.2.0
+check "a reverted merge never drops a same-subject commit it did not bring in" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ]'
+
+# Report mode shares the matcher: the reverted PR's tickets are not released-but-open.
+mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)"; revm; fc "fix: z (#13)"; tg v1.2.0
+newstate; issue 10 open; issue 13 open; run_cs --report v1.2.0
+check "report mode does not list a reverted merge's ticket" '[ $rc -eq 1 ] && grep -q "^released but open: #13$" <<< "$out" && ! grep -q "#10" <<< "$out" && [ "$(writes)" = 0 ]'
+
 mkrepo; c "feat: start (#1)"; tg v1.0.0
 newstate; issue 1 open; run_cs v1.0.0
 check "a first release closes nothing and makes no call" '[ $rc -eq 0 ] && grep -q "no previous tag; nothing closed" <<< "$out" && [ "$(calls)" = 0 ]'

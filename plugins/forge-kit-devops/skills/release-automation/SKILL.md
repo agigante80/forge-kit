@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. The enforced/automated sibling of the invoked `release` skill. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 13 -->
+<!-- release-automation-version: 14 -->
 
 # Release automation
 
@@ -120,18 +120,23 @@ until you push an initial tag to bootstrap. See `references/python-tag-derived.m
 A release that ships tickets must close them, and on a two branch model the host never does: GitHub
 auto closes only for a PR merged into the DEFAULT branch, and feature PRs target the development
 branch. `assets/close-shipped.sh <tag>` makes it mechanical (#496). It reads the trailing `(#N)`
-groups of the commit SUBJECTS since the previous release tag reachable from the tag (bodies are
-never read), and for each open issue posts `Released in <tag>` (once: it never reposts an existing
-one) and closes it. It decides issue versus pull request from the host, so a PR number in a subject
-is skipped, never written to. A first release closes nothing.
+groups of the commit SUBJECTS since the previous release tag reachable from the tag (a body
+is read only for the `This reverts commit <sha>` line of a revert, never for ticket numbers),
+and for each open issue posts `Released in <tag>` (once: it never reposts an existing one) and
+closes it. It decides issue versus pull request from the host, so a PR number in a subject is
+skipped, never written to. A first release closes nothing.
 
 - **Opt-out:** end a subject with `(refs #N)` instead of `(#N)` for a ticket the commit ships only
   part of; the last commit of a split ticket writes `(#N)`.
 - **Reverts:** a commit reverted inside the same range (`Revert "<subject>"`) ships nothing and
   closes nothing. A reapply needs its own trailing `(#N)`. Reverting a whole merged PR
-  (`git revert -m 1`, or the Revert button on a `--no-ff` merge) is not detected, because that
-  revert quotes the merge subject, which the manifest never reads: use the `(refs #N)` opt-out or
-  reopen the ticket (follow-up #498).
+  (`git revert -m 1`, or the Revert button on a `--no-ff` merge) closes none of the tickets that
+  merge brought in (#498): the reverted merge is the in-range merge named by the revert's
+  `This reverts commit <sha>` line, or, without that line, the one in-range merge whose subject it
+  quotes (several matches drop nothing and say so). Its commits (`M^1..M`, every octopus parent)
+  are excluded by sha, so a number still closes if any surviving commit cites it, and a reapply
+  again needs its own `(#N)`. Only a mainline 1 revert (`-m 1`) is handled; a `-m 2`
+  revert drops nothing and says so.
 - **Squash promotions:** a release commit whose subject carries only the PR number closes nothing;
   keep the ticket numbers in the subjects.
 - **Token:** the App behind `GH_TOKEN` needs **Issues: Read and write** (see

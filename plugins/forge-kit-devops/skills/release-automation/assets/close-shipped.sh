@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# close-shipped-version: 3
+# close-shipped-version: 4
 # close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496).
 # Closing shipped tickets was a step someone had to remember (the `release` skill's step 5), and on
 # a two branch model the host's own auto close never fires, because the feature PRs target the
@@ -17,18 +17,18 @@
 # over all parents (`--first-parent` would hide feature commits under a merge-commit promotion).
 # Only the TRAILING run of groups at the end of a subject counts, each one either `(#N)` (shipped:
 # close) or `(refs #N)` (the opt-out: shipped in part, keep open). A `(#N)` anywhere else in a
-# subject, and anything in a body (bodies cite CVE and alert numbers), is never read. A number cited
-# as `(#N)` anywhere in the range is closed even if another subject cites it as `(refs #N)`. A
-# commit reverted inside the same range ships nothing: a subject quoted by a `Revert "<subject>"`
-# subject in the range is dropped, once per revert, before the matcher runs. A reapply (git's
-# `Reapply "<subject>"`, or a revert of the revert) is dropped with it, so a reapplied ticket needs
-# its own trailing `(#N)` on the reapply commit to be closed. NOT detected: reverting a whole
-# merged PR (`git revert -m 1`, or the host's Revert button on a --no-ff merge), because that
-# revert quotes the MERGE subject, which --no-merges excludes; mark such a ticket with the
-# `(refs #N)` opt-out or reopen it by hand (follow-up #498). Close mode and report mode share this
-# one matcher, so they cannot disagree. A squash-promoted range
-# whose subject carries only a PR number yields that number, which is skipped as a pull request:
-# resolving a PR to its linked issues is out of scope.
+# subject, and anything in a body (bodies cite CVE and alert numbers), is never read as a ticket
+# number. A number cited as `(#N)` anywhere in the range is closed even if another subject cites it
+# as `(refs #N)`. A commit reverted inside the same range ships nothing: a subject quoted by a
+# `Revert "<subject>"` subject in the range is dropped, once per revert, before the matcher runs. A
+# reapply (git's `Reapply "<subject>"`, or a revert of the revert) is dropped with it, so a
+# reapplied ticket needs its own trailing `(#N)` on the reapply commit to be closed. A reverted
+# whole merged PR (`git revert -m 1`, or the host's Revert button on a --no-ff merge) quotes the
+# MERGE subject, which --no-merges excludes, so it is matched to its merge separately and the
+# merge's commits are excluded by sha (#498, see _merge_drops: the one place a body is read, for its
+# `This reverts commit <sha>` line only). Close mode and report mode share this one matcher, so they
+# cannot disagree. A squash-promoted range whose subject carries only a PR number yields that
+# number, which is skipped as a pull request: resolving a PR to its linked issues is out of scope.
 #
 # THE RANGE starts at the highest release tag (TAG_GLOB, default `${TAG_PREFIX}*`, TAG_PREFIX
 # default `v`, the defaults version-lib.sh uses) REACHABLE from the range end, excluding the tag
@@ -142,11 +142,15 @@ prev_tag() {
   return 0
 }
 
-# manifest <range>: one line per cited number, `close N` or `refs N`, deduplicated, close winning.
-# THE one matcher: only the trailing run of `(#N)` / `(refs #N)` groups of each subject.
+# manifest <prev> <end>: one line per cited number, `close N` or `refs N`, deduplicated, close
+# winning. THE one matcher: only the trailing run of `(#N)` / `(refs #N)` groups of each subject,
+# of the range's non-merge commits minus those a reverted merge brought in (by sha, _merge_drops).
 manifest() {
   local s re='^(.*)\((refs #|#)([0-9]+)\)[[:space:]]*$'
-  git log --no-merges --pretty=%s "$1" -- | _drop_reverted | while IFS= read -r s; do
+  { echo "-"; _merge_drops "$1" "$2"; } > "$WORK/drops"   # "-" keeps the file non-empty for awk
+  git log --no-merges --pretty='%H %s' "$1..$2" -- \
+    | awk 'NR == FNR { d[$1]; next } !($1 in d) { print substr($0, index($0, " ") + 1) }' "$WORK/drops" - \
+    | _drop_reverted | while IFS= read -r s; do
     while [[ "$s" =~ $re ]]; do
       if [ "${BASH_REMATCH[2]}" = "#" ]; then echo "close $((10#${BASH_REMATCH[3]}))"
       else echo "refs $((10#${BASH_REMATCH[3]}))"; fi
@@ -168,6 +172,50 @@ _drop_reverted() {
         if (q > 0) rev[substr(r, 1, q - 1)]++
       } }
     END { for (k = 1; k <= NR; k++) { if (rev[s[k]] > 0) { rev[s[k]]--; continue }; print s[k] } }'
+}
+
+# _merge_drops <prev> <end>: the shas of the commits a merge reverted inside the range brought in,
+# one per line (#498). `git revert -m 1 <M>` and the host's Revert button on a --no-ff merge quote
+# the MERGE subject, which the --no-merges manifest never lists, so the subject rule above cannot
+# see them. For each non-merge `Revert "..."` commit in the range, the reverted merge M is the
+# first sha after `This reverts commit` in its body (the one body line this script reads, and never
+# for ticket numbers), accepted only if M is a merge inside the range. With no such line, the
+# quoted subject must match exactly one in-range merge subject; none or several drops nothing.
+# Dropped: `git rev-list --no-merges M^1..M`, exactly what a mainline 1 revert removes, so every
+# parent of an octopus counts. A number still closes if any surviving commit cites it. A reapply
+# (`Reapply "<merge subject>"`) restores nothing here: as for a reverted commit, a reapplied ticket
+# needs its own trailing (#N). Only `-m 1` is handled: a revert whose `changes made to` sha is not
+# M^1 (`-m 2`) drops nothing and says so. Each reverted merge is reported on stderr.
+_merge_drops() {
+  local merges r m subj q n body p
+  merges="$(git log --merges --pretty='%H %s' "$1..$2" --)"
+  [ -n "$merges" ] || return 0
+  git log --no-merges --pretty='%H %s' "$1..$2" -- | while read -r r subj; do
+    case "$subj" in 'Revert "'*'"'*) ;; *) continue ;; esac
+    body="$(git log -1 --pretty=%B "$r")"
+    m="$(grep -oE 'This reverts commit [0-9a-f]{40,}' <<< "$body" | head -n 1)"
+    m="${m##* }"
+    if [ -n "$m" ]; then
+      grep -q "^$m " <<< "$merges" || continue
+      # `-m 2` writes the same subject and sha but keeps the FEATURE side; its `changes made to`
+      # sha is then not M^1, and dropping M^1..M would keep shipped tickets open.
+      p="$(tr '\n' ' ' <<< "$body" | grep -oE 'changes made to [0-9a-f]{40,}' | head -n 1)"
+      if [ -n "$p" ] && [ "${p##* }" != "$(git rev-parse "$m^1")" ]; then
+        echo "reverted merge ${m:0:7} not on mainline 1; nothing dropped" >&2
+        continue
+      fi
+    else
+      q="${subj#Revert \"}"; q="${q%\"*}"
+      n="$(awk -v q="$q" 'substr($0, index($0, " ") + 1) == q' <<< "$merges" | grep -c .)"
+      if [ "$n" -ne 1 ]; then
+        [ "$n" -eq 0 ] || echo "reverted merge not identified: $n merges match \"$q\"; nothing dropped" >&2
+        continue
+      fi
+      m="$(awk -v q="$q" 'substr($0, index($0, " ") + 1) == q { print $1 }' <<< "$merges")"
+    fi
+    echo "reverted in range: merge ${m:0:7} $(grep "^$m " <<< "$merges" | cut -d' ' -f2-)" >&2
+    git rev-list --no-merges "$m^1..$m" --
+  done
 }
 
 # need_repo: resolve owner/repo once, before the first host call; exit 2 with forge-lib's error.
@@ -203,7 +251,7 @@ release_one() {   # release_one <tag> <end> <label>: one tag's manifest and acti
     else echo "$tag: no previous tag; nothing reported"; fi
     return 0
   fi
-  m="$(manifest "$prev..$end")"
+  m="$(manifest "$prev" "$end")"
   echo "manifest: $(grep -c '^close ' <<< "$m") tickets ($prev..$label)"
   [ -n "$m" ] || return 0
   grep -q '^close ' <<< "$m" && need_repo
