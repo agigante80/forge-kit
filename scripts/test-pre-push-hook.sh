@@ -40,21 +40,17 @@ git remote set-head origin main >/dev/null 2>&1
 # wording that sits on the wrong stream.
 run_hook_stdout() {
   local ref="$1" sha; sha=$(git rev-parse HEAD)
-  printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" \
-    "0000000000000000000000000000000000000000" | bash .githooks/pre-push origin "$BARE" 2>/dev/null
+  bash .githooks/pre-push origin "$BARE" 2>/dev/null <<< "$(printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" "0000000000000000000000000000000000000000")"
 }
 run_hook_stderr() {
   local ref="$1" hook="${2:-.githooks/pre-push}" sha; sha=$(git rev-parse HEAD)
-  printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" \
-    "0000000000000000000000000000000000000000" | bash "$hook" origin "$BARE" 2>&1 >/dev/null
+  bash "$hook" origin "$BARE" 2>&1 >/dev/null <<< "$(printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" "0000000000000000000000000000000000000000")"
 }
 
 # push_stdin <ref>: the four fields git feeds a pre-push hook for a new branch.
 run_hook() {
   local ref="$1" hook="${2:-.githooks/pre-push}" sha; sha=$(git rev-parse HEAD)
-  printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" \
-    "0000000000000000000000000000000000000000" \
-    | bash "$hook" origin "$BARE" 2>&1
+  bash "$hook" origin "$BARE" 2>&1 <<< "$(printf '%s %s %s %s\n' "refs/heads/$ref" "$sha" "refs/heads/$ref" "0000000000000000000000000000000000000000")"
 }
 
 # --- 1. a clean branch passes ------------------------------------------------------------------
@@ -131,13 +127,13 @@ out=$(run_hook unbumped); rc=$?
 [ "$rc" -eq 0 ] && ok "marker + semver both bumped passes" || bad "marker + semver both bumped passes (rc=$rc)"
 
 # --- 5. a branch DELETION is not audited -------------------------------------------------------
-out=$(printf 'refs/heads/x 0000000000000000000000000000000000000000 refs/heads/x %s\n' \
-        "$(git rev-parse HEAD)" | bash .githooks/pre-push origin "$BARE" 2>&1); rc=$?
+out=$(bash .githooks/pre-push origin "$BARE" 2>&1 <<< "$(printf 'refs/heads/x 0000000000000000000000000000000000000000 refs/heads/x %s\n' \
+        "$(git rev-parse HEAD)")"); rc=$?
 [ "$rc" -eq 0 ] && ok "a branch deletion is not audited" || bad "a branch deletion is not audited (rc=$rc)"
 
 # --- 6. pushing a ref that is not the checked-out HEAD is skipped, loudly ----------------------
-out=$(printf 'refs/heads/other %s refs/heads/other 0000000000000000000000000000000000000000\n' \
-        "$(git rev-parse main)" | bash .githooks/pre-push origin "$BARE" 2>&1); rc=$?
+out=$(bash .githooks/pre-push origin "$BARE" 2>&1 <<< "$(printf 'refs/heads/other %s refs/heads/other 0000000000000000000000000000000000000000\n' \
+        "$(git rev-parse main)")"); rc=$?
 [ "$rc" -eq 0 ] && ok "a non-HEAD ref does not fail the push" || bad "a non-HEAD ref does not fail the push"
 grep -q 'not the checked-out HEAD' <<< "$out" \
   && ok "a non-HEAD ref is skipped LOUDLY" || bad "a non-HEAD ref is skipped loudly"
@@ -465,6 +461,21 @@ cmp -s .githooks/pre-push.mut-crash-control .githooks/pre-push && crash_ok=0
 case "$cap" in *"drops could not RUN"*|*"treated as absent"*) crash_ok=0 ;; esac
 [ "$crash_ok" = 1 ] && ok "crash control: pp_kill reports a crashing hook as crashed, never as a kill" \
   || bad "crash control: pp_kill credited or missed a crashing hook"
+# #511: the hook is fed from a here-string, not a pipe. A hook that exits before reading (the
+# crash-control copy above) used to leave a piped writer with EPIPE, and bash prints that as
+# `line N: printf: write error: Broken pipe`, which matches the crash signature the liveness run
+# reads, so the control sometimes reported "a crash signature on stderr" instead of "the liveness
+# run failed" (it needs SIGPIPE ignored, as under some CI parents). The race is forced here: SIGPIPE
+# is ignored and the writer slowed with a printf shadow, so a piped writer loses it every time and
+# a here-string, filled before the hook starts, cannot.
+printf 'exit 127\n' > "$TMP/exit-at-once.sh"
+epipe_log="$TMP/epipe.log"
+( trap "" PIPE; printf() { sleep 0.3; builtin printf "$@"; }; run_hook leakcheck "$TMP/exit-at-once.sh" ) >/dev/null 2>"$epipe_log"
+if grep -q 'write error' "$epipe_log"; then
+  bad "#511: feeding a hook that exits at once leaves no write error"
+else
+  ok "#511: feeding a hook that exits at once leaves no write error"
+fi
 rm -f .githooks/pre-push.mut-*
 # #396: the hook changes to the work-tree root before every directory-relative step, so a hand run
 # from a SUBDIRECTORY scans the whole of HEAD, exactly as a run from the root does. Git itself runs
@@ -478,8 +489,7 @@ rm -f .githooks/pre-push.mut-*
 HOOKABS="$REPO/.githooks/pre-push"
 run_hook_in() {  # run_hook_in <dir> <hook>: the hook run with <dir> as its working directory
   local sha; sha=$(git rev-parse HEAD)
-  ( CDPATH= cd -- "$1" && printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" \
-      "0000000000000000000000000000000000000000" | bash "$2" origin "$BARE" 2>&1 )
+  ( CDPATH= cd -- "$1" && bash "$2" origin "$BARE" 2>&1 <<< "$(printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" "0000000000000000000000000000000000000000")" )
 }
 run_hook_sub() { run_hook_in "$REPO/sub" "$1"; }  # run_hook_sub <hook>: sub/ as the working directory
 mkdir -p sub; printf 'clean\n' > sub/notes.md; hook_commit "a clean tracked file under sub/"
@@ -539,8 +549,7 @@ rm -f .githooks/pre-push.mut-*
 # neither set, and the root is still right.
 run_hook_env() {  # run_hook_env <dir> <hook> [VAR=value...]: the hook run from <dir> under env
   local dir="$1" hook="$2" sha; shift 2; sha=$(git rev-parse HEAD)
-  ( CDPATH= cd -- "$dir" && printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" \
-      "0000000000000000000000000000000000000000" | env "$@" bash "$hook" origin "$BARE" 2>&1 )
+  ( CDPATH= cd -- "$dir" && env "$@" bash "$hook" origin "$BARE" 2>&1 <<< "$(printf '%s %s %s %s\n' "refs/heads/leakcheck" "$sha" "refs/heads/leakcheck" "0000000000000000000000000000000000000000")" )
 }
 gd_found() {  # gd_found <label> <rc> <out>: the root leak is reported and nothing could not RUN
   [ "$2" -eq 1 ] && grep -q 'root-leak.md:1: home-path:' <<< "$3" && ! grep -q 'could not RUN' <<< "$3" \
@@ -717,8 +726,7 @@ SENT="$TMP/sent"; mkdir -p "$SENT"
 # push_range <base-sha>: the stdin a real push sends when the remote already has the branch.
 push_range() {
   local sha; sha=$(git rev-parse HEAD)
-  printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1" \
-    | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1
+  SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1 <<< "$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1")"
 }
 
 # A push that touches no counted suite must run none of them.
@@ -750,8 +758,7 @@ rm -f "$SENT"/*.ran
 mkdir -p sub
 sub_push() {  # sub_push <hook> <base-sha>: the hook run from sub/ over the main push
   local sha; sha=$(git rev-parse HEAD)
-  ( CDPATH= cd -- "$REPO/sub" && printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$2" \
-      | SENTINEL_DIR="$SENT" bash "$1" origin "$BARE" 2>&1 )
+  ( CDPATH= cd -- "$REPO/sub" && SENTINEL_DIR="$SENT" bash "$1" origin "$BARE" 2>&1 <<< "$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$2")" )
 }
 out="$(sub_push "$REPO/.githooks/pre-push" "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "suite counts from sub/: a stale claim still blocks the push (rc 1)" || bad "suite counts from sub/: a stale claim still blocks the push (rc $rc, $out)"
@@ -809,7 +816,7 @@ for c in git bash sed grep awk cat cut sort uniq head tail diff mktemp rm mkdir 
   p_="$(command -v "$c" 2>/dev/null)"; [ -n "$p_" ] && ln -sf "$p_" "$TMP/nopy/$c"
 done
 sha=$(git rev-parse HEAD)
-out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$base" | PATH="$TMP/nopy" bash .githooks/pre-push origin "$BARE" 2>&1)"; rc=$?
+out="$(PATH="$TMP/nopy" bash .githooks/pre-push origin "$BARE" 2>&1 <<< "$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$base")")"; rc=$?
 [ "$rc" -eq 0 ] && ok "no python3 does not block the push" || bad "no python3 does not block the push (rc $rc, $out)"
 grep -q 'python3 not found' <<< "$out" && ok "and says so loudly" || bad "and says so loudly"
 
@@ -819,8 +826,7 @@ grep -q 'python3 not found' <<< "$out" && ok "and says so loudly" || bad "and sa
 # the contract is that the notice is on stderr: a merged stream would pass a notice sent to stdout.
 push_range_err() {  # push_range_err <base-sha>: the hook's stderr only
   local sha; sha=$(git rev-parse HEAD)
-  printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1" \
-    | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1 >/dev/null
+  SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1 >/dev/null <<< "$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "$1")"
 }
 # The exit code is read with `rc=$?` IMMEDIATELY after `err="$(push_range_err ...)"`. Under
 # pipefail the status of that assignment is the pipeline's, and the hook is the pipeline's last
@@ -930,9 +936,8 @@ grep -q 'test-fixture-one.sh' <<< "$out" && ok "and still names the claim" || ba
 # range to compute, so the rule must say so in its own words rather than leave the impression it
 # checked. Distinct from the range guards' 'range checks SKIPPED', which is a different rule.
 sha=$(git rev-parse HEAD)
-out="$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" \
-  "0000000000000000000000000000000000000000" \
-  | SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1)"; rc=$?
+out="$(SENTINEL_DIR="$SENT" bash .githooks/pre-push origin "$BARE" 2>&1 \
+  <<< "$(printf '%s %s %s %s\n' "refs/heads/main" "$sha" "refs/heads/main" "0000000000000000000000000000000000000000")")"; rc=$?
 [ "$rc" -eq 0 ] && ok "with no range at all the push is not blocked" || bad "with no range at all the push is not blocked (rc $rc)"
 grep -q 'suite-count claims were NOT checked' <<< "$out" \
   && ok "and the rule says so in its own words" || bad "and the rule says so in its own words"
