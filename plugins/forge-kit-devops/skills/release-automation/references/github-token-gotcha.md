@@ -19,8 +19,14 @@ never built/published: a silent half-release.
 push use it) and for `gh release create`. A tag pushed with an App token *is* a real identity
 event, so it triggers the downstream publish workflow.
 
-- Preferred: a GitHub App (least-privilege, short-lived, not tied to a person). Needs `contents:
-  write` on the repo; store `RELEASE_APP_ID` + `RELEASE_APP_PRIVATE_KEY` as secrets.
+- Preferred: a GitHub App (least-privilege, short-lived, not tied to a person). Needs **Contents:
+  Read and write** and **Issues: Read and write** on the repo (the second because `release-run.sh`
+  closes the tickets the release shipped through `close-shipped.sh`, #496; without it every comment
+  and close returns 403 and the lane goes red after the tag exists); store `RELEASE_APP_ID` +
+  `RELEASE_APP_PRIVATE_KEY` as secrets. A workflow `permissions:` block does NOT grant these: it
+  scopes only `GITHUB_TOKEN`, while an App token carries the installation's own permissions. The
+  lanes still declare `issues: write` so a project that swaps the App for `GITHUB_TOKEN` keeps the
+  close step working.
 - Fallback: a PAT secret (a personal identity, broader scope); swap the token step for it.
 - Token-free alternative: have the release workflow `repository_dispatch` the publish workflow
   instead of relying on the tag push (the one event the default token *can* trigger).
