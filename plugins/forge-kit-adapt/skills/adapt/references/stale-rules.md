@@ -49,7 +49,9 @@ and never quote a retired phrasing back into any file.
   the only write it allows here. A component row in the project's `.claude/` goes through
   `refresh <name>` instead; `refresh` never reads the config dir, so a component row there takes
   this per-file fix like prose. Never edit a file outside the project unless the user confirms
-  that file by name.
+  that file by name. A config-dir row is printed at the place the user knows, but when that path is
+  a followed symlink the proposal names its real file (`readlink -f`) and `yes` confirms that file,
+  because the write lands there and not at the link (#499).
 
 ## What it cannot find
 

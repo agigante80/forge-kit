@@ -507,6 +507,11 @@ run
 find "$P" "$T/home" -type f -exec cksum {} + | sort > "$T/after"
 expect "no file under the project or HOME changes" "" "$(diff "$T/before" "$T/after")"
 
+# --- #499: a fix to a followed link is confirmed against the link's real file --------------------
+grep -q 'proposal names its real file' "$HERE/../plugins/forge-kit-adapt/skills/adapt/references/stale-rules.md" \
+  && ok "the reference makes the proposal name a followed link's real file" \
+  || bad "references/stale-rules.md does not say the proposal names the real file"
+
 echo ""
 echo "stale-rules tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
