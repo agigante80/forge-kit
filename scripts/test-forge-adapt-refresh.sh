@@ -96,8 +96,9 @@ out=$(bash "$S" 2>&1); eq "no argument: exit 2" "$?" 2
 case "$out" in *"usage: forge-adapt-refresh.sh <library dir>"*) ok "no argument: the usage line" ;; *) bad "no argument: '$out'" ;; esac
 out=$(bash "$S" "" 2>&1); eq "an empty argument: exit 2" "$?" 2
 # The #502 fix must not be undone inside the helper, where overnight-guard cannot see it.
-grep -v '^[[:space:]]*#' "$S" | grep -q 'reset --hard' && bad "the helper runs reset --hard" || ok "the helper has no reset --hard"
-grep -v '^[[:space:]]*#' "$S" | grep -q 'merge --ff-only' && bad "the helper runs merge --ff-only" || ok "the helper has no merge --ff-only"
+code=$(grep -v '^[[:space:]]*#' "$S")
+case "$code" in *"reset --hard"*) bad "the helper runs reset --hard" ;; *) ok "the helper has no reset --hard" ;; esac
+case "$code" in *"merge --ff-only"*) bad "the helper runs merge --ff-only" ;; *) ok "the helper has no merge --ff-only" ;; esac
 [ -x "$S" ] && ok "the helper is executable" || bad "the helper is not executable"
 
 echo ""
