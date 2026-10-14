@@ -230,14 +230,54 @@ git -C "$R" commit --quiet -am "fix(a): x (#10)"; O=$(mkorigin "$R"); openissue 
   && ok "an existing release still closes" \
   || bad "an existing release still closes (rc=$rc: $out)"
 
-# The tag already existed (here: the next patch was tagged on a sibling commit): the close still runs.
+# --- 7. an existing tag on another commit (#497) -------------------------------------------------
+# The next patch was hand-tagged on a side branch. The close works on the TAG's range, so accepting
+# that tag closed the side branch's tickets (#11) although main never shipped them. The lane must
+# stop red, naming the tag, its commit and HEAD, before any release or close.
 newstate; R=$(mkrepo); git -C "$R" tag v1.0.0
 git -C "$R" checkout --quiet -b side; git -C "$R" commit --quiet --allow-empty -m "fix: side (#11)"; git -C "$R" tag v1.0.1
 git -C "$R" checkout --quiet main; git -C "$R" commit --quiet --allow-empty -m "feat: work"
+side=$(git -C "$R" rev-parse side); head=$(git -C "$R" rev-parse HEAD)
 openissue 11; runreal "$R" VERSION_SOURCE=git
-[ "$rc" -eq 0 ] && grep -q 'tag v1.0.1 already exists' <<< "$out" && grep -q '^WRITE PATCH 11 ' "$GHSTUB/log" \
-  && ok "the close runs when the tag already existed" \
-  || bad "the close runs when the tag already existed (rc=$rc: $out)"
+[ "$rc" -eq 1 ] && grep -q "^::error::tag v1.0.1 already exists at $side, not at HEAD $head; refusing to release or close anything" <<< "$out" \
+  && ! grep -q '^WRITE' "$GHSTUB/log" && ! grep -q '^gh release create' "$GHSTUB/log" \
+  && [ "$(jq -r .state "$GHSTUB/issues/11.json")" = open ] \
+  && ok "an existing tag on another commit stops the lane red, naming both commits, and closes nothing" \
+  || bad "an existing tag on another commit stops the lane red (rc=$rc: $out)"
+
+# The same in a dry run: the preview must not show the side branch's tickets as shipped.
+newstate; R=$(mkrepo); git -C "$R" tag v1.0.0
+git -C "$R" checkout --quiet -b side; git -C "$R" commit --quiet --allow-empty -m "fix: side (#11)"; git -C "$R" tag v1.0.1
+git -C "$R" checkout --quiet main; git -C "$R" commit --quiet --allow-empty -m "feat: work"
+openissue 11; run "$R" VERSION_SOURCE=git
+[ "$rc" -eq 1 ] && grep -q '^::error::tag v1.0.1 already exists at ' <<< "$out" && ! grep -q 'would comment and close #11' <<< "$out" && ! grep -q 'would tag' <<< "$out" \
+  && ! grep -q '^gh release create' "$GHSTUB/log" \
+  && ok "a dry run refuses an existing tag on another commit the same way" \
+  || bad "a dry run refuses an existing tag on another commit (rc=$rc: $out)"
+
+# An ANNOTATED tag elsewhere is compared, and named, by its peeled commit, not the tag object.
+newstate; R=$(mkrepo); git -C "$R" tag v1.0.0
+git -C "$R" checkout --quiet -b side; git -C "$R" commit --quiet --allow-empty -m "fix: side (#11)"
+git -C "$R" tag -a v1.0.1 -m "Release v1.0.1"
+git -C "$R" checkout --quiet main; git -C "$R" commit --quiet --allow-empty -m "feat: work"
+side=$(git -C "$R" rev-parse side); tobj=$(git -C "$R" rev-parse refs/tags/v1.0.1)
+openissue 11; runreal "$R" VERSION_SOURCE=git
+[ "$rc" -eq 1 ] && grep -q "^::error::tag v1.0.1 already exists at $side, not at HEAD " <<< "$out" \
+  && ! grep -q "$tobj" <<< "$out" && ! grep -q '^WRITE' "$GHSTUB/log" \
+  && ok "an annotated tag on another commit is refused by its peeled commit" \
+  || bad "an annotated tag on another commit is refused by its peeled commit (rc=$rc: $out)"
+
+# An existing ANNOTATED tag AT HEAD stays the idempotent path: no re-tag, the close still runs.
+# The version decision cannot normally pick a tag that already sits at HEAD (it would read it as
+# the latest release), so a TAG_GLOB that hides it from version-lib reaches this branch. Annotated,
+# so a comparison of the tag object instead of its peeled commit would refuse it.
+newstate; R=$(mkrepo); git -C "$R" tag v1.0.0; echo "1.1.0" > "$R/VERSION"
+git -C "$R" commit --quiet -am "fix(a): x (#10)"; git -C "$R" tag -a v1.1.0 -m "Release v1.1.0"
+openissue 10; runreal "$R" TAG_GLOB='v1.0.*'
+[ "$rc" -eq 0 ] && grep -q '^::notice::tag v1.1.0 already exists, not re-tagging.$' <<< "$out" \
+  && grep -q '^WRITE PATCH 10 ' "$GHSTUB/log" && grep -q '^gh release create v1.1.0' "$GHSTUB/log" \
+  && ok "an existing annotated tag at HEAD is not re-tagged and the close still runs" \
+  || bad "an existing annotated tag at HEAD is idempotent (rc=$rc: $out)"
 
 echo ""
 echo "release-run tests: $pass passed, $fail failed"

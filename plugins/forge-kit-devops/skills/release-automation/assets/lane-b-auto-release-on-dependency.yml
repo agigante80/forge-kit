@@ -5,7 +5,7 @@
 #
 # The release MECHANICS live in scripts/release-run.sh (shared with lane C) so a fix lands once:
 # recursion guard, the dependency scope gate (REQUIRE_DEP_SCOPE=1 below), decide+bump, idempotent
-# tag+release, the App-token/recursion/push-race handling. See references/github-token-gotcha.md.
+# tag+release (an existing tag only at HEAD), the App-token/recursion/push-race handling. See references/github-token-gotcha.md.
 #
 # Installed by the forge-kit `release-automation` skill when a dep bot is present (.github/
 # dependabot.yml or renovate.json). forge-adapt tailors: the CI workflow name, the production

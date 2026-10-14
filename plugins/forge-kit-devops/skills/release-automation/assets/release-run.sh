@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# release-run-version: 4
+# release-run-version: 5
 # release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). It
 # single-sources the release MECHANICS so a fix lands once, not copy-pasted per lane. `version-lib.sh`
 # (sourced) decides the version<->tag verdict; this applies the lane policy: recursion guard, an
 # optional dependency scope gate (lane B), decide the version (file: bump+commit+push; tag-derived
-# git: gate on unreleased commits, tag-only), then tag + create the release idempotently, then close
-# the tickets the release shipped through close-shipped.sh beside it (#496).
+# git: gate on unreleased commits, tag-only), then tag + create the release idempotently (an
+# existing tag is accepted only at HEAD, #497), then close the tickets the release shipped through
+# close-shipped.sh beside it (#496).
 #
 # Driven entirely by env (the lane YAML sets these):
 #   VERSION_SOURCE VERSION_FILE TAG_GLOB TAG_PREFIX  (passed through to version-lib.sh)
@@ -116,7 +117,7 @@ else
 fi
 [ -n "$version" ] || { echo "::error::no version decided"; exit 1; }
 
-# --- Tag + release (idempotent): a half-finished or retried run converges, never double-tags ---
+# --- Tag + release (idempotent): a retried run converges, never double-tags, never adopts a tag elsewhere ---
 tag="${TAG_PREFIX}${version}"
 
 # --- Close what the release shipped (#496) ---
@@ -136,6 +137,20 @@ close_shipped() {
   fi
 }
 
+# An existing tag is accepted only AT HEAD, the idempotent rerun (#497). On another commit (a hand
+# pushed tag on a side branch, say) the release would point there and close-shipped.sh, which reads
+# the TAG's range, would close that branch's tickets. Compare peeled commits, so an annotated tag at
+# HEAD is not refused. Checked before the dry-run preview too, so the preview cannot show them.
+# In file mode the bump is already pushed by now, so a refusal here leaves an untagged bump commit;
+# only a TAG_GLOB that hides the tag from version-lib, or a race, gets here, so it is documented
+# rather than reordered.
+if tag_at=$(git rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null); then
+  head_at=$(git rev-parse HEAD)
+  if [ "$tag_at" != "$head_at" ]; then
+    echo "::error::tag $tag already exists at $tag_at, not at HEAD $head_at; refusing to release or close anything. Move or delete the tag, or release a higher version."
+    exit 1
+  fi
+fi
 if [ "$DRY_RUN" = 1 ]; then
   echo "[dry-run] would tag $tag and create release (committed=$committed)"
   close_rc=0; close_shipped "$tag" --to HEAD || close_rc=$?   # the preview: reads, never writes

@@ -69,7 +69,9 @@ by the time the lane pushes. The template `git fetch origin "$BRANCH" && git reb
 before pushing, so the push is a fast-forward, never `--force`. A genuine concurrent version bump
 surfaces as a rebase conflict (the run fails loudly and is retried on the next trigger) rather than
 a silently lost release. The tag/release step is idempotent (skips an existing tag/release), so a
-retried or half-finished run converges instead of wedging on `tag already exists`.
+retried or half-finished run converges instead of wedging on `tag already exists`. A tag of that
+version on ANOTHER commit is refused instead (#497): adopting it would release, and close the
+tickets of, a commit this run did not build.
 
 ## Sources
 - GITHUB_TOKEN does not trigger workflows: https://docs.github.com/en/actions/concepts/security/github_token

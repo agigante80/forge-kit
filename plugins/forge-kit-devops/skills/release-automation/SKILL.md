@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. The enforced/automated sibling of the invoked `release` skill. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 12 -->
+<!-- release-automation-version: 13 -->
 
 # Release automation
 
@@ -36,9 +36,9 @@ regression. Build the comparison once (this script); each lane is a thin policy 
 
 Two scripts, single-sourced: **`version-lib.sh`** is the pure read-only verdict (used directly by
 the gate); **`release-run.sh`** is the shared side-effecting driver for the write-lanes (B and C):
-recursion guard, optional dependency scope gate, decide+bump, idempotent tag+release. Lanes B and C
-are thin YAML wrappers that set env and call `release-run.sh`, so a mechanics fix lands once, not
-copy-pasted. `release-run.sh` also honours `DRY_RUN=1` (print would-be actions, write nothing).
+recursion guard, optional dependency scope gate, decide+bump, idempotent tag+release (an existing
+tag is reused only at HEAD). Lanes B and C are thin YAML wrappers that set env and call
+`release-run.sh`, so a mechanics fix lands once, not copy-pasted. `release-run.sh` also honours `DRY_RUN=1` (print would-be actions, write nothing).
 After the tag and release it runs **`close-shipped.sh`**, the third script, which closes the tickets
 the release shipped (see "Closing shipped tickets" below).
 Every source reader yields *empty* (never a sentinel) when the version is absent, and the verdict
@@ -83,7 +83,9 @@ validated `head_sha`, confirms the change is **bot-authored and confined to depe
 manifests/lockfiles**, then acts on the `version-lib.sh` verdict: `equal` → auto-patch + commit +
 push; `ahead`/`first-release` → release the current version as-is (a first release must not be
 patched, or the initial version is skipped); `behind` → refuse (regression). Then it tags and cuts
-the release (idempotently, so a re-run never double-tags).
+the release (idempotently, so a re-run never double-tags; a tag of that version already on another
+commit stops the lane red with an `::error::` naming both commits, dry run included, before any
+release or close, #497).
 
 Because it writes, it needs an **App token** (so the pushed tag triggers the downstream publish
 workflow) and therefore a **recursion guard + concurrency**: adopting that token forfeits the
