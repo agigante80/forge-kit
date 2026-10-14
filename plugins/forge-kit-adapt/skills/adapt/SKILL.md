@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 83 -->
+<!-- forge-adapt-version: 84 -->
 
 # forge-adapt
 
@@ -114,13 +114,13 @@ else
 fi
 echo "forge-adapt: library at $(git -C "$FORGE_KIT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?') ($FORGE_KIT_SRC): $FORGE_KIT_DIR"
 
-# SEPARATE QUESTION, do not conflate: where the library lives says NOTHING about which plugin
-# groups the user enabled. A plugin's hooks/hooks.json is live only when THAT plugin is installed.
-GOVERNANCE_PLUGIN_ACTIVE=no
-if [ -d ~/.claude/plugins/cache/forge-kit/forge-kit-governance ] \
-   || grep -q 'forge-kit-governance@forge-kit' ~/.claude/plugins/installed_plugins.json 2>/dev/null; then
-  GOVERNANCE_PLUGIN_ACTIVE=yes
+# Only an exact `yes` counts (#500); the library's location says nothing about live plugins.
+GOVERNANCE_PLUGIN_ACTIVE=no; why="plugin check unavailable"
+PA="$FORGE_KIT_DIR/scripts/forge-adapt-plugin-active.sh"
+if [ -x "$PA" ]; then
+  r=$("$PA" forge-kit-governance@forge-kit 2>&1) && [ "$r" = yes ] && GOVERNANCE_PLUGIN_ACTIVE=yes || why=${r#*$'\t'}
 fi
+[ "$GOVERNANCE_PLUGIN_ACTIVE" = yes ] || echo "governance-plugin-reason=$why"
 echo "governance-plugin-active=$GOVERNANCE_PLUGIN_ACTIVE"
 ```
 

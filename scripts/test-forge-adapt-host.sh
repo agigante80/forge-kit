@@ -317,14 +317,34 @@ run_block "$KB" FORGE_KIT_DIR="$L"
 # S2 prints the library path and the governance flag, and decides the library itself.
 SB=$(fence 'FORGE_KIT_DIR=""; FORGE_KIT_SRC=""')
 s2home() { local h; h=$(mktemp -d "$T/s2h.XXXXXX"); mkdir -p "$h/.claude/plugins/marketplaces/forge-kit/plugins"; echo "$h"; }
-s2() { local h="$1"; shift; bout=$(env -i PATH="$PATH" HOME="$h" GIT_CEILING_DIRECTORIES="$T" "$@" bash -c "$SB" 2>&1); brc=$?; }
+s2() { local h="$1"; shift; bout=$(cd "$h" && env -i PATH="$PATH" HOME="$h" GIT_CEILING_DIRECTORIES="$T" "$@" bash -c "$SB" 2>&1); brc=$?; }
 H=$(s2home); s2 "$H"
 case "$bout" in *governance-plugin-active=no*) ok "#321: S2 prints governance-plugin-active=no" ;; *) bad "#321: S2 printed no governance flag: $bout" ;; esac
 case "$bout" in *": $H/.claude/plugins/marketplaces/forge-kit"*) ok "#321: S2 prints the library path" ;; *) bad "#321: S2 printed no library path: $bout" ;; esac
 [ ! -e "$H/forge-kit" ] && ok "#321: S2 (governance absent): no clone ran" || bad "#321: S2 cloned"
+# #500: a leftover cache directory is NOT an installed plugin, and a library without the plugin-active
+# script (a stale or non-git library) answers no with a reason line, never the old heuristic's yes.
 H=$(s2home); mkdir -p "$H/.claude/plugins/cache/forge-kit/forge-kit-governance"; s2 "$H"
-case "$bout" in *governance-plugin-active=yes*) ok "#321: S2 prints governance-plugin-active=yes with the plugin installed" ;; *) bad "#321: S2 governance present: $bout" ;; esac
-case "$bout" in *governance-plugin-active=no*) bad "#321: S2 also printed =no" ;; *) ok "#321: S2 governance present: no =no line" ;; esac
+case "$bout" in *governance-plugin-active=no*) ok "#500: S2 prints =no for a leftover cache dir with no registry entry" ;; *) bad "#500: S2 cache dir only: $bout" ;; esac
+case "$bout" in *governance-plugin-active=yes*) bad "#500: S2 read the cache dir as installed" ;; *) ok "#500: S2 cache dir only: no =yes line" ;; esac
+expect "#500: S2 prints exactly one governance-plugin-active= line" 1 "$(printf '%s\n' "$bout" | grep -c '^governance-plugin-active=')"
+expect "#500: S2 without the script prints one governance-plugin-reason= line" 1 "$(printf '%s\n' "$bout" | grep -c '^governance-plugin-reason=')"
+[ ! -e "$H/forge-kit" ] && ok "#321: S2 (cache dir only): no clone ran" || bad "#321: S2 cloned"
+# #500: the real script, a registry entry, a manifest and settings make S2 read yes; a local disable makes it no.
+H=$(s2home); LIB500="$H/.claude/plugins/marketplaces/forge-kit"; mkdir -p "$LIB500/scripts" "$H/.claude/plugins/cache/g/.claude-plugin" "$H/.claude/plugins/cache/d/.claude-plugin"
+cp "$ROOT/scripts/forge-adapt-plugin-active.sh" "$LIB500/scripts/"
+echo '{"name":"forge-kit-governance","dependencies":["forge-kit-devops@forge-kit"]}' > "$H/.claude/plugins/cache/g/.claude-plugin/plugin.json"
+echo '{"name":"forge-kit-devops"}' > "$H/.claude/plugins/cache/d/.claude-plugin/plugin.json"
+jq -n --arg g "$H/.claude/plugins/cache/g" --arg d "$H/.claude/plugins/cache/d" \
+  '{version:2,plugins:{"forge-kit-governance@forge-kit":[{scope:"user",installPath:$g}],"forge-kit-devops@forge-kit":[{scope:"user",installPath:$d}]}}' > "$H/.claude/plugins/installed_plugins.json"
+s2 "$H"
+expect "#500: S2 with a live plugin prints exactly one governance-plugin-active=yes" 1 "$(printf '%s\n' "$bout" | grep -c '^governance-plugin-active=yes$')"
+expect "#500: S2 with a live plugin prints no governance-plugin-active=no" 0 "$(printf '%s\n' "$bout" | grep -c '^governance-plugin-active=no')"
+expect "#500: S2 with a live plugin prints no reason line" 0 "$(printf '%s\n' "$bout" | grep -c '^governance-plugin-reason=')"
+mkdir -p "$H/proj/.claude"; echo '{"enabledPlugins":{"forge-kit-devops@forge-kit":false}}' > "$H/proj/.claude/settings.local.json"
+bout=$(cd "$H/proj" && env -i PATH="$PATH" HOME="$H" GIT_CEILING_DIRECTORIES="$T" bash -c "$SB" 2>&1); brc=$?
+case "$bout" in *"governance-plugin-reason=dependency forge-kit-devops disabled"*) ok "#500: S2 reads no when a dependency is disabled in the project, with the reason" ;; *) bad "#500: S2 disabled dependency: $bout" ;; esac
+expect "#500: S2 with a disabled dependency prints exactly one governance-plugin-active=no" 1 "$(printf '%s\n' "$bout" | grep -c '^governance-plugin-active=no$')"
 [ ! -e "$H/forge-kit" ] && ok "#321: S2 (governance present): no clone ran" || bad "#321: S2 cloned"
 A=$(lib); H=$(s2home); s2 "$H" FORGE_KIT_DIR="$A"
 case "$bout" in *": $H/.claude/plugins/marketplaces/forge-kit"*) ok "#321: S2 decides the library itself, ignoring an exported FORGE_KIT_DIR" ;; *) bad "#321: S2 precedence: $bout" ;; esac

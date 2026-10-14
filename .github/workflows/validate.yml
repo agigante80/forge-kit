@@ -492,6 +492,11 @@ jobs:
       - name: forge-adapt drift-status tests
         run: bash scripts/test-forge-adapt-drift-status.sh
 
+      # Issue #500: S2 read a leftover cache dir or another project's install as a live plugin,
+      # then deleted a working local hook as superseded.
+      - name: forge-adapt plugin-active tests
+        run: bash scripts/test-forge-adapt-plugin-active.sh
+
       # Issue #158: these two were `pull_request`-only, and since work stopped arriving as pull
       # requests they ran on NO path at all. They now run on both, and the base is resolved by a
       # TESTED script rather than a YAML expression, because `github.event.before` is the

@@ -18,6 +18,13 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 nothing about which plugins are enabled, and `hooks/hooks.json` loads only when
 `forge-kit-governance` itself is installed.
 
+The flag is `yes` only when `scripts/forge-adapt-plugin-active.sh` says the plugin is live HERE
+(#500): installed for this project, enabled after the settings precedence (local, project, user),
+and every plugin it depends on installed and enabled too. A leftover cache directory, another
+project's `local` install, or a disabled dependency reads `no`. S2 then prints a separate
+`governance-plugin-reason=` line; show it, and treat `no` and `unknown` alike (copy the hook, delete
+nothing). A library without the script also reads `no`.
+
 `yes`: the hook is already registered and running in every project. Do NOT copy the script and do
 NOT touch `settings.json`; that installs a duplicate that fires alongside it. A plugin-registered
 `block-dashes` stays dormant until the project opts in, so the whole install is
