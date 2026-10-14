@@ -224,16 +224,19 @@ expect "FK_TPL_VER reads \$FK, not the unset \$FORGE_KIT_DIR" 1 "$(grep -c '^FK_
 # library path and the governance flag, which is how a later block learns them.
 #
 # WHY S2 REFRESHES (moved here from the skill to pay for the #321 words): both library sources are
-# plain git checkouts of the repo tracking origin/main, so fetch + reset --hard makes either current.
-# The marketplace checkout is NOT auto-pulled between manual `/plugin marketplace update` runs and
-# pins no SHA (known_marketplaces.json holds only source + installLocation), so resetting it forward
-# lands exactly what an update would. A stale checkout both mis-catalogues versions and lacks the
+# plain git checkouts of the repo tracking origin/main, so fetch + `checkout -B <default branch>
+# origin/HEAD` makes either current (#502: not reset --hard, which overnight-guard denies in a
+# .claude/no-destructive project, and not merge --ff-only, which refuses a depth-1 fetch as
+# "unrelated histories"). The marketplace checkout is NOT auto-pulled between manual
+# `/plugin marketplace update` runs and pins no SHA (known_marketplaces.json holds only source +
+# installLocation), so moving it forward lands exactly what an update would. A stale checkout both mis-catalogues versions and lacks the
 # scripts/ and docs/ files a governance install copies.
 #
 # S2 FIXTURE RULE: S2's first statement discards an exported FORGE_KIT_DIR, and it runs fetch and
-# reset --hard on any git checkout it picks, so every S2 fixture is a NON-git mktemp library placed
+# checkout -B on any git checkout it picks, so every S2 fixture is a NON-git mktemp library placed
 # where S2 looks, in a throwaway HOME, never the MH/CH symlinks to this repository; each S2 case
 # asserts that no clone ran. GIT_CEILING_DIRECTORIES keeps git from finding an enclosing checkout.
+# The one exception is the #502 block, which tests the refresh itself on a throwaway depth-1 clone.
 echo "== #321: later blocks stop on an unset library instead of reading a bare path =="
 export GIT_CEILING_DIRECTORIES="$T"
 # fence <content-pattern>: the one fenced bash block (indented fences included) holding the pattern,
@@ -362,6 +365,48 @@ bout=$(cd "$H/proj" && env -i PATH="$PATH" HOME="$H" GIT_CEILING_DIRECTORIES="$T
 case "$bout" in *"governance-plugin-reason=dependency forge-kit-devops disabled"*) ok "#500: S2 reads no when a dependency is disabled in the project, with the reason" ;; *) bad "#500: S2 disabled dependency: $bout" ;; esac
 expect "#500: S2 with a disabled dependency prints exactly one governance-plugin-active=no" 1 "$(printf '%s\n' "$bout" | grep -c '^governance-plugin-active=no$')"
 [ ! -e "$H/forge-kit" ] && ok "#321: S2 (governance present): no clone ran" || bad "#321: S2 cloned"
+# #502: S2 refreshes a GIT library without `git reset --hard`, which overnight-guard denies in a
+# .claude/no-destructive project. These fixtures are the deliberate exception to the S2 FIXTURE RULE
+# above: the refresh itself is what is under test, so the library is a real depth-1 clone of a local
+# upstream (file:// URL, because a plain path clones in full and is not shallow), in a throwaway HOME.
+gx() { GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git "$@"; }
+# mk502 <branch>: sets H (home), UP (upstream), LB (the shallow library S2 will pick).
+mk502() { H=$(s2home); UP=$(mktemp -d "$T/up.XXXXXX"); LB="$H/.claude/plugins/marketplaces/forge-kit"; rm -rf "$LB"
+  gx init -q -b "$1" "$UP"; mkdir -p "$UP/plugins"; echo 1 > "$UP/plugins/f.txt"; echo a > "$UP/g.txt"
+  gx -C "$UP" add .; gx -C "$UP" commit -qm c1; echo 2 > "$UP/plugins/f.txt"; gx -C "$UP" commit -qam c2
+  gx clone -q --depth 1 "file://$UP" "$LB"; }
+# up502 <file> <content>: one more upstream commit.
+up502() { printf '%s\n' "$2" > "$UP/$1"; gx -C "$UP" add -A; gx -C "$UP" commit -qm "more $1"; }
+nowarn() { case "$bout" in *"could not refresh"*) bad "$1: warned: $bout" ;; *) ok "$1: no could-not-refresh line" ;; esac; }
+mk502 main; expect "#502: the fixture library is shallow" true "$(git -C "$LB" rev-parse --is-shallow-repository)"
+up502 plugins/f.txt 3; s2 "$H"
+nowarn "#502: shallow library"; expect "#502: shallow refresh exits 0" 0 "$brc"
+expect "#502: the shallow library HEAD equals the upstream" "$(git -C "$UP" rev-parse HEAD)" "$(git -C "$LB" rev-parse HEAD)"
+# A detached HEAD on a library whose default branch is not main refreshes too (the branch comes from origin/HEAD).
+mk502 trunk; git -C "$LB" checkout -q --detach HEAD; up502 plugins/f.txt 3; s2 "$H"
+nowarn "#502: detached HEAD, default branch trunk"
+expect "#502: detached non-main library HEAD equals the upstream" "$(git -C "$UP" rev-parse HEAD)" "$(git -C "$LB" rev-parse HEAD)"
+expect "#502: the refresh leaves the library on the default branch" trunk "$(git -C "$LB" symbolic-ref --short HEAD)"
+# A conflicting tracked edit is refused, not overwritten.
+mk502 main; echo local > "$LB/plugins/f.txt"; old=$(git -C "$LB" rev-parse HEAD); up502 plugins/f.txt 3; s2 "$H"
+case "$bout" in *"forge-adapt: could not refresh the marketplace library at $LB; it may be behind (fix: /plugin marketplace update forge-kit)."*) ok "#502: a conflicting local edit warns with the fix line" ;; *) bad "#502: conflicting edit: $bout" ;; esac
+expect "#502: a conflicting local edit survives" local "$(cat "$LB/plugins/f.txt")"
+expect "#502: a refused refresh leaves HEAD unchanged" "$old" "$(git -C "$LB" rev-parse HEAD)"
+# A non-conflicting tracked edit is carried silently.
+mk502 main; echo mine >> "$LB/g.txt"; up502 plugins/f.txt 3; s2 "$H"
+nowarn "#502: a non-conflicting edit"
+expect "#502: a non-conflicting edit is carried" mine "$(tail -1 "$LB/g.txt")"
+expect "#502: a non-conflicting edit still moves HEAD" "$(git -C "$UP" rev-parse HEAD)" "$(git -C "$LB" rev-parse HEAD)"
+# An untracked file the new commit adds is refused.
+mk502 main; echo mine > "$LB/added.txt"; up502 added.txt theirs; s2 "$H"
+case "$bout" in *"could not refresh"*) ok "#502: an untracked file the commit adds warns" ;; *) bad "#502: untracked collision: $bout" ;; esac
+expect "#502: the colliding untracked file survives" mine "$(cat "$LB/added.txt")"
+# The guard: the refresh, as the Bash call S2 makes, passes overnight-guard in a no-destructive project,
+# and a reset --hard is still denied by the same unchanged hook.
+GP=$(mktemp -d "$T/guard.XXXXXX"); mkdir -p "$GP/.claude"; : > "$GP/.claude/no-destructive"
+guard() { jq -n --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}' | (cd "$GP" && CLAUDE_PROJECT_DIR="$GP" python3 "$ROOT/plugins/forge-kit-governance/hooks/overnight-guard.py"); }
+case "$(guard "$SB")" in *deny*) bad "#502: overnight-guard denied the S2 block" ;; *) ok "#502: overnight-guard allows the S2 block in a no-destructive project" ;; esac
+case "$(guard 'git -C lib fetch --depth 1 origin --quiet && git -C lib reset --hard origin/HEAD --quiet')" in *'"deny"'*) ok "#502: overnight-guard still denies reset --hard" ;; *) bad "#502: the guard control did not deny" ;; esac
 A=$(lib); H=$(s2home); s2 "$H" FORGE_KIT_DIR="$A"
 case "$bout" in *": $H/.claude/plugins/marketplaces/forge-kit"*) ok "#321: S2 decides the library itself, ignoring an exported FORGE_KIT_DIR" ;; *) bad "#321: S2 precedence: $bout" ;; esac
 case "$bout" in *"$A"*) bad "#321: S2 printed the exported path" ;; *) ok "#321: S2 never printed the exported path" ;; esac
