@@ -279,6 +279,24 @@ openissue 10; runreal "$R" TAG_GLOB='v1.0.*'
   && ok "an existing annotated tag at HEAD is not re-tagged and the close still runs" \
   || bad "an existing annotated tag at HEAD is idempotent (rc=$rc: $out)"
 
+# 7. The lane workflows' job guard. workflow_run's `branches:` filter matches head_branch by NAME,
+# so a CI run on a fork's pull_request from a branch called main passes it, and the lane would run
+# that fork's release-run.sh holding the release token. The job `if:` must also pin the triggering
+# event to a push, the head repository to this one, and head_branch to the filtered branch.
+echo "Section 7: lane workflow job guard"
+for lane in lane-b-auto-release-on-dependency.yml lane-c-auto-release-on-merge.yml; do
+  f="$ASSETS/$lane"
+  branch=$(sed -n 's/^ *branches: \[\([^]]*\)\].*/\1/p' "$f")
+  guard=$(sed -n '/^jobs:/,$ s/^    if: //p' "$f" | head -1)
+  for want in "workflow_run.conclusion == 'success'" "workflow_run.event == 'push'" \
+              "workflow_run.head_repository.full_name == github.repository" \
+              "workflow_run.head_branch == '$branch'"; do
+    [ -n "$branch" ] && grep -qF "$want" <<< "$guard" \
+      && ok "$lane job guard has: $want" \
+      || bad "$lane job guard lacks: $want (guard: $guard)"
+  done
+done
+
 echo ""
 echo "release-run tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
