@@ -33,6 +33,9 @@ say current     "a bare local against a v catalogue" --local 4 --catalogue v3
 say behind      "v9 against v10 is numeric, not text" --local v9 --catalogue v10
 say unversioned "v1 against none is unversioned" --local v1 --catalogue none
 say registered  "absent with the group enabled against v3" --local absent --catalogue v3 --group-enabled
+# The drift table prints an unmarked component as `vnone` (v${v:-none}), so that cell is read as none.
+say unversioned "the table cell vnone is read as none" --local vnone --catalogue 1
+say unversioned "vnone against a v catalogue" --local vnone --catalogue v2
 
 echo "== edge markers (#504) =="
 say current "zero against zero is current" --local 0 --catalogue 0

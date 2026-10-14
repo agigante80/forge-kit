@@ -53,6 +53,8 @@ norm() { # norm <token>: prints the bare number, or exits 2 naming the token
   [ "${#n}" -le 9 ] || { echo "drift-status: '$t' is too large to compare" >&2; exit 2; }
   printf '%s' "$n"
 }
+# The drift table prints an unmarked component as `vnone`; read that cell as `none`.
+[ "$LOCAL" = vnone ] && LOCAL=none
 case "$LOCAL" in none|absent) ;; *) LOCAL=$(norm "$LOCAL") || exit 2 ;; esac
 case "$CATALOGUE" in none|absent) ;; *) CATALOGUE=$(norm "$CATALOGUE") || exit 2 ;; esac
 # The catalogue is the library's own copy; it is never "absent" from a library that lists it, and
