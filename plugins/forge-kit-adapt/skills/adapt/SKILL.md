@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 79 -->
+<!-- forge-adapt-version: 80 -->
 
 # forge-adapt
 
@@ -630,8 +630,8 @@ The only full content diff here, and it must NEVER blind-overwrite adaptation. S
    ```
 4. On `yes`: produce a MERGED file - preserve all adaptation verbatim, splice in only the missing
    forge-kit improvements, bump the local `<name>-version` marker to the catalogue value. Write it,
-   **For an agent, also run Install step 4's companion-skill
-   step**: a refresh can splice IN a `skills:` line, and skipping it fails silently. Confirm `✓ <name> refreshed v<old> → v<new> (adaptation preserved)`.
+   **For an agent or a command, also run Install step 4's companion-skill
+   steps**: a refresh can splice IN a `skills:` line or a skill load, and skipping it fails silently. Confirm `✓ <name> refreshed v<old> → v<new> (adaptation preserved)`.
    On `no`: write nothing.
 
 If the marker already matches the catalogue, say so and offer a content diff anyway (a

@@ -48,9 +48,15 @@ trap 'rm -rf "$WORK"' EXIT
 # symlink is a pointer whose target is tracked and scanned itself; `grep -I` drops a binary (and an
 # empty file, which states nothing). An UNREADABLE file stays in the list on purpose: the scanner
 # reports it not-scanned and exits 3, which fails here, where skipping it would be a false clean.
-git -C "$ROOT" ls-files > "$WORK/all" 2>"$WORK/err" || die "cannot list tracked files: $(head -1 "$WORK/err")"
+git -C "$ROOT" ls-files -z > "$WORK/all" 2>"$WORK/err" || die "cannot list tracked files: $(head -1 "$WORK/err")"
 : > "$WORK/list"
-while IFS= read -r p; do
+# NUL separated: without -z, git quotes a non-ASCII path ("docs/\303\251.md"), which names no
+# file, so that file would be skipped as missing. The scanner reads one path per line, so a path
+# holding a newline cannot be passed on and fails rather than going unscanned.
+nl='
+'
+while IFS= read -r -d '' p; do
+  case "$p" in *"$nl"*) die "a tracked path holds a newline and cannot be scanned: $p" ;; esac
   if grep -qxF -- "$p" <<< "$EXEMPT"; then continue; fi
   [ -L "$ROOT/$p" ] && continue
   [ -e "$ROOT/$p" ] || continue

@@ -1,9 +1,9 @@
 ---
-description: "Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bounded review loop or become tickets. Not the per-task reviewer."
+description: "Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings are fixed in-loop, ticketed or dropped. Not the per-task reviewer."
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails] [--full]"
 ---
 
-<!-- full-review-version: 14 -->
+<!-- full-review-version: 15 -->
 
 # Comprehensive Code Review Orchestrator
 

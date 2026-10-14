@@ -25,7 +25,7 @@ nrows() { printf '%s\n' "$out" | grep -c "^$1	" | tr -d ' '; }
 [ -f "$S" ] || { echo "missing script: $S"; exit 1; }
 [ -f "$RULES" ] || { echo "missing data file: $RULES"; exit 1; }
 
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d); trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
 T=$(CDPATH= cd -P -- "$T" && pwd -P)
 TAB=$(printf '\t')
 TL="~"   # a tilde built apart from its path, so the public-leak guard reads no home root here
@@ -174,12 +174,14 @@ for phrase in 'ticketed immediately' 'becomes a ticket immediately' 'become a ti
   'Ticketed at Completion' 'a Low twin is ticketed like any other Low' 'ticket-fodder by default' \
   'anything below becomes a ticket' 'anything below High becomes a ticket' 'the user wants every Low ticketed' \
   'every Low finding is ticketed' 'Low findings are filed as tickets' 'no finding is ever left with neither' \
-  'no finding is left with neither'; do
+  'no finding is left with neither' 'findings enter the bounded review loop or become tickets' \
+  'Findings enter the bounded loop or become tickets'; do
   fresh; put "$P/CLAUDE.md" "$phrase\n"; run
   expect "listed: $phrase" 1 "$(nrows stale-rule)"
 done
 for phrase in 'Each Low gets exactly one outcome: fix, ticket or drop.' 'ticket it only when a user could hit it' \
-  'An out-of-target observation is dropped with one line unless a user could hit it.' 'the ticket was filed immediately'; do
+  'An out-of-target observation is dropped with one line unless a user could hit it.' 'the ticket was filed immediately' \
+  'findings are fixed in-loop, ticketed or dropped' 'enter the bounded loop and become reviewable'; do
   fresh; put "$P/CLAUDE.md" "$phrase\n"; run
   expect "not listed: $phrase" 0 "$(nrows stale-rule)"
 done
@@ -217,6 +219,24 @@ expect "--project names the project from elsewhere" 1 "$(nrows stale-rule)"
 put "$T/home/.claude/projects/other/memory/x.md" 'Low findings are ticketed immediately\n'
 run
 expect "another project's memory is not read" 1 "$(nrows stale-rule)"
+fresh
+s=$(slug "$P")
+put "$T/cfg/projects/$s/memory/x.md" 'Low findings are ticketed immediately\n'
+put "$T/home/.claude/projects/$s/memory/y.md" 'Low findings are ticketed immediately\n'
+runcfg "$T/cfg"
+has "stale-rule${TAB}memory${TAB}$T/cfg/projects/$s/memory/x.md${TAB}1${TAB}review-lows" "auto memory is read under CLAUDE_CONFIG_DIR"
+expect "and not under HOME/.claude when it is set" 1 "$(nrows stale-rule)"
+fresh
+# A non-ASCII project path: the CLI drops UTF-8 continuation bytes before replacing, so the two
+# bytes of an e-acute become ONE dash, where a plain byte replacement would give two.
+U="$T/p$(printf '\303\251')"; rm -rf "$U"; mkdir -p "$U"; git init --quiet "$U" >/dev/null 2>&1
+su="$(slug "$T/p")-"
+put "$T/home/.claude/projects/$su/memory/x.md" 'Low findings are ticketed immediately\n'
+put "$T/home/.claude/projects/$su-/memory/x.md" 'Low findings are ticketed immediately\n'
+out=$(cd "$U" && env -u CLAUDE_CONFIG_DIR HOME="$T/home" bash "$S" --kit "$KIT" 2>/dev/null); rc=$?
+has "stale-rule${TAB}memory${TAB}~/.claude/projects/$su/memory/x.md${TAB}1${TAB}review-lows" "a non-ASCII project path derives the CLI's slug"
+expect "and only that slug's memory is read" 1 "$(nrows stale-rule)"
+rm -rf "$U"
 
 echo "== the config dir =="
 fresh
@@ -287,6 +307,22 @@ else
   ok "unreadable case skipped: running as a user who can read mode 000"
 fi
 chmod 644 "$P/.claude/memory/x.md"
+fresh
+put "$P/.claude/memory/locked/x.md" 'Low findings are ticketed immediately\n'
+chmod 000 "$P/.claude/memory/locked"
+if [ ! -r "$P/.claude/memory/locked" ]; then
+  run
+  has "not-scanned${TAB}.claude/memory/locked${TAB}unreadable" "an unreadable directory is reported"
+  expect "and the scan exits 3, never 0" 3 "$rc"
+  chmod 644 "$P/.claude/memory/locked"
+  run
+  has "not-scanned${TAB}.claude/memory/locked${TAB}unreadable" "a directory that can be listed but not entered is reported"
+  expect "and exits 3 too" 3 "$rc"
+else
+  ok "unreadable directory skipped: running as a user who can read mode 000"
+  ok "skipped"; ok "skipped"; ok "skipped"
+fi
+chmod 755 "$P/.claude/memory/locked"
 
 echo "== --files-from scans a given list as prose =="
 fresh

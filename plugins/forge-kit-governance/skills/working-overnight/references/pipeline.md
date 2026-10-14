@@ -42,12 +42,14 @@ To gate a ticket, run ticket-gate: a clean pass moves it to the ready queue; a
 non-pass parks it with the gate's review (verdict + required changes).
 
 For an investigation, run the relevant review: full-review in its unattended mode
-(every prompt auto-resolves; ticket outcomes honour the manifest's investigation-depth
-cap, over-cap ones listed unfiled in the report), or a security-auditor pass for security
-investigations (no checkpoint machinery). Triage every finding below Medium by the
-`forge-kit-review:review-lows` skill <!-- rule: review-lows v2 -->: each gets a fix, ticket
-or drop outcome, and only ticket outcomes are filed, within the same cap. Write the findings
-down, then let a later cycle gate and implement the tickets.
+(every prompt auto-resolves), or a security-auditor pass for security investigations (no
+checkpoint machinery). An investigation implements nothing, so nothing is fixed: every
+Critical, High and Medium finding is ticketed, and each Low gets a ticket or a drop by the
+`forge-kit-review:review-lows` skill <!-- rule: review-lows v2 --> (its fix branch does not
+apply here). When that skill is not installed, file no Low and list every Low untriaged in the
+report. Every filing, from either review, honours the manifest's investigation-depth cap, and
+over-cap tickets are listed unfiled in the report. Write the findings down, then let a later
+cycle gate and implement the tickets.
 
 ## Repeated reviews: chain the rounds, and stop where the contract says stop
 

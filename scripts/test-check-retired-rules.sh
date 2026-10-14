@@ -70,6 +70,14 @@ has "docs/CHANGELOG.md:1: retired rule review-lows" "the basename alone earns no
 fresh 7; printf 'Lows were ticketed immediately.\n' > "$R/$A/notes.md"; git -C "$R" add -A; run
 expect "a file beside the exempt data file is scanned" 1 "$rc"
 
+echo "a non-ASCII path"
+fresh 13; NA="docs/caf$(printf '\303\251').md"; printf 'Lows were ticketed immediately.\n' > "$R/$NA"; git -C "$R" add -A; run
+expect "a tracked non-ASCII path is scanned" 1 "$rc"
+has "$NA:1: retired rule review-lows" "and named as it is spelled"
+fresh 14; printf 'clean\n' > "$R/docs/a
+b.md"; git -C "$R" add -A; run
+expect "a tracked path holding a newline fails, never goes unscanned" 2 "$rc"
+
 echo "only tracked files"
 fresh 8; printf 'Lows were ticketed immediately.\n' > "$R/docs/untracked.md"; run
 expect "an untracked file is not this guard's business" 0 "$rc"

@@ -54,6 +54,10 @@ expect "a canonical bump without the pointers fails" 1 "$rc"
 names "$CR: rule id review-lows v2, canonical is v3" "each stale pointer is named"
 names "$RL: rule id review-lows v2, canonical is v3" "a docs pointer is named too"
 
+fresh; sed -i "s/roughly 15 minutes/about a quarter hour/" "$R/$CANON"; run
+expect "an anchor missing from the canonical file fails" 1 "$rc"
+names "$CANON: anchor 'roughly 15 minutes' is missing" "the canonical file and the anchor are named"
+
 echo "declared pointers"
 fresh; setv "$FR" 1; run
 expect "a pointer at an older version fails" 1 "$rc"

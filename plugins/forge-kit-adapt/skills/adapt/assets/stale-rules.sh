@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# stale-rules-version: 1
+# stale-rules-version: 2
 # stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495).
 #
 # A rule outlives its source. Version markers find a component that is behind the kit; they cannot
@@ -45,7 +45,7 @@
 # skipped when any line it spans carries the word `retired-rule-quote` (a deliberate quote).
 #
 # READ ONLY, and no symlink is followed: a symlinked named file or directory, or a symlink inside
-# one, is a not-scanned row. Portable to bash 3.2 (stock macOS): no mapfile, no associative arrays.
+# one, is a not-scanned row, and so is a file or directory it cannot read. Portable to bash 3.2 (stock macOS): no mapfile, no associative arrays.
 set -uo pipefail
 export LC_ALL=C   # byte semantics: the copied slug code needs it, and gawk rejects its octal range otherwise
 
@@ -193,6 +193,14 @@ scan_tree() {
   [ -e "$root" ] || return 0
   if [ -f "$root" ]; then scan_file "$place" "$root" "$(show "$root")"; return 0; fi
   [ -d "$root" ] || return 0
+  # A directory find cannot list or enter hides whatever is in it, and find says so only on
+  # stderr: report it as unreadable, or a hit inside it reads as a clean scan.
+  find "$root" -type d 2>/dev/null | LC_ALL=C sort > "$WORK/dirs"
+  while IFS= read -r p; do
+    if [ -r "$p" ] && [ -x "$p" ]; then continue; fi
+    grep -qxF -- "$p" "$WORK/seen" && continue
+    printf '%s\n' "$p" >> "$WORK/seen"; not_scanned "$(show "$p")" unreadable
+  done < "$WORK/dirs"
   find "$root" -type l 2>/dev/null | LC_ALL=C sort > "$WORK/links"
   while IFS= read -r p; do
     grep -qxF -- "$p" "$WORK/seen" && continue

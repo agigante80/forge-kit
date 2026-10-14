@@ -5,7 +5,7 @@
 # the overnight pipeline, so changing it meant finding every copy, and the copies were missed.
 # The rule now lives once, in the review-lows skill, and every place that names it carries the
 # same rule id comment `<!-- rule: review-lows v<N> -->`. This keeps that true:
-#   1. the canonical skill carries exactly one rule id;
+#   1. the canonical skill carries exactly one rule id, and every anchor phrase of check 4;
 #   2. each declared pointer below carries it, every id comment in it at the canonical version;
 #   3. any other tracked file under plugins/ or docs/ that carries the id has the canonical version;
 #   4. the rule's own anchor phrases appear under plugins/ in the canonical skill only (matched
@@ -57,6 +57,13 @@ canon_ids=$(ids "$ROOT/$CANON")
 n=$(printf '%s' "$canon_ids" | grep -c . | tr -d ' ')
 [ "$n" -eq 1 ] || { flag "$CANON: must carry exactly one '<!-- rule: $ID v<N> -->' comment (found $n)"; exit 1; }
 V="$canon_ids"
+
+# 1b. the anchors are phrases of the canonical text: once one is reworded out of it, check 4
+# matches nothing anywhere and passes forever, so a missing anchor fails here.
+canon_flat=$(tr -s '[:space:]' ' ' < "$ROOT/$CANON")
+while IFS= read -r a; do
+  grep -qiF -- "$a" <<< "$canon_flat" || flag "$CANON: anchor '$a' is missing; name a phrase the rule still uses in ANCHORS"
+done <<< "$ANCHORS"
 
 # 2. declared pointers
 while IFS= read -r p; do

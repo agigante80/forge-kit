@@ -43,8 +43,10 @@ and never quote a retired phrasing back into any file.
   the prose and memory rows one file at a time: show the line, propose the replacement (for a
   memory note, a rewording or its deletion), and write only on `yes` for that file; a `no` keeps
   the file byte for byte. This is the "confirmed stale-rule fix" SKILL.md's write rule allows, and
-  the only write it allows here. A component row goes through `refresh <name>` instead. Never edit
-  a file outside the project unless the user confirms that file by name.
+  the only write it allows here. A component row in the project's `.claude/` goes through
+  `refresh <name>` instead; `refresh` never reads the config dir, so a component row there takes
+  this per-file fix like prose. Never edit a file outside the project unless the user confirms
+  that file by name.
 
 ## What it cannot find
 

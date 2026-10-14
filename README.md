@@ -55,10 +55,10 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.12.10 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.12.11 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.22.16 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.35.30 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
-| `forge-kit-review` | 0.7.3 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
+| `forge-kit-governance` | 0.35.31 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
+| `forge-kit-review` | 0.7.4 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.15.20 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.17.7 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
@@ -238,8 +238,8 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v79 | 7121 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
-| `forge-kit-adapt` | shell asset | `stale-rules` | v1 |  | stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495). |
+| `forge-kit-adapt` | skill | `adapt` | v80 | 7128 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | shell asset | `stale-rules` | v2 |  | stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495). |
 | `forge-kit-devops` | agent | `dep-auditor` | v11 | 1345 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
 | `forge-kit-devops` | agent | `health-check` | v13 | 1378 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
 | `forge-kit-devops` | command | `ci-health` | v7 | 750 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
@@ -261,7 +261,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |
 | `forge-kit-governance` | skill | `decision-brief` | v5 | 1451 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
 | `forge-kit-governance` | skill | `ticket-gate-reference` | v12 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
-| `forge-kit-governance` | skill | `working-overnight` | v11 | 691 | Run governed, unattended overnight work. |
+| `forge-kit-governance` | skill | `working-overnight` | v12 | 691 | Run governed, unattended overnight work. |
 | `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
 | `forge-kit-governance` | hook | `masked-exit-advisory` | v3 |  | PostToolUse Bash advisory: a check's exit code is masked by the filter it is piped into (#420). |
 | `forge-kit-governance` | hook | `no-poll-loops` | v12 |  | PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263). |
@@ -277,7 +277,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | agent | `code-reviewer` | v15 | 1739 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v3 | 450 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
 | `forge-kit-review` | agent | `coding-standards-auditor` | v4 | 1310 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
-| `forge-kit-review` | command | `full-review` | v14 | 3982 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings enter the bo… |
+| `forge-kit-review` | command | `full-review` | v15 | 3980 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings are fixed in… |
 | `forge-kit-review` | skill | `review-lows` | v1 | 261 | Canonical rule for review findings below Medium: fix, ticket or drop, in the same batch. |
 | `forge-kit-review` | skill | `review-sizing` | v2 | 889 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |
@@ -308,7 +308,7 @@ Hand-written on purpose: this is sequencing guidance, not inventory.
 |---|---|---|
 | Before writing code for a ticket | `/gate-ticket <N>` | A ticket that fails the gate costs a rewrite; one that passes carries its own GWT scenarios and test specs. |
 | While implementing | `code-reviewer` | The per-task reviewer, under the bounded iteration contract. Not `/full-review`. |
-| Before merging, or periodically | `/full-review` | Multi-lens audit. Findings enter the bounded loop or become tickets. |
+| Before merging, or periodically | `/full-review` | Multi-lens audit. Findings are fixed in-loop, ticketed or dropped. |
 | When CI is red | `/ci-health` | Files P0 tickets for failures and auto-fixes the safe classes. |
 | Periodically | "audit dependencies", "health check" | `dep-auditor` and `health-check` are agents, not slash commands: mention them in conversation. |
 | Before a session ends | `closing-sessions` | Persists durable facts and resume state; without it the next session starts cold. |
