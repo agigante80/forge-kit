@@ -75,10 +75,11 @@ if { [ -z "$sha" ] || is_boundary "$sha"; } && is_shallow; then
   if [ -e "$GD/shallow.lock" ]; then
     unavailable "cannot deepen the library: another forge-adapt run holds shallow.lock"
   fi
+  # macOS has no timeout(1): a stalled transfer is bounded by git itself (under 1000 B/s for 30 s aborts).
   T=()
   command -v timeout >/dev/null 2>&1 && T=(timeout 120)
-  if ! ${T[@]+"${T[@]}"} git -C "$LIB" fetch --quiet --unshallow origin >/dev/null 2>&1; then
-    ${T[@]+"${T[@]}"} git -C "$LIB" fetch --quiet --deepen=1000 origin >/dev/null 2>&1 \
+  if ! ${T[@]+"${T[@]}"} git -C "$LIB" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch --quiet --unshallow origin >/dev/null 2>&1; then
+    ${T[@]+"${T[@]}"} git -C "$LIB" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch --quiet --deepen=1000 origin >/dev/null 2>&1 \
       || unavailable "cannot deepen the library: origin unreachable"
   fi
   sha="$(find_commit)"

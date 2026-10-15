@@ -131,6 +131,7 @@ mkorigin 1 2 3; shallow; : > "$T/log"
 runshim demo 1 SHIM_NO_UNSHALLOW=1 SHIM_LOG="$T/log"
 eq "--unshallow refused: the plain deepen fallback gives the delta, exit 0" "$rc" 0; has "...delta printed" "+rule-3" "$out"
 eq "...two fetches, no more (no loop)" "$(wc -l < "$T/log" | tr -d ' ')" 2
+eq "...both fetches carry the low-speed time bound (no timeout(1) on macOS, #529)" "$(grep -c -e '-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch' "$T/log" | tr -d ' ')" 2
 mkorigin 1 2 3; shallow; : > "$T/log"
 runshim demo 1 SHIM_NO_FETCH=1 SHIM_LOG="$T/log"
 eq "every fetch refused: exit 1" "$rc" 1; has "...origin unreachable" "cannot deepen the library: origin unreachable" "$out"
