@@ -25,3 +25,4 @@ gate-committee	11	2026-08-28	10/10 from (all|every|each)	The gate returns PASS, 
 gate-committee	11	2026-08-28	minimum passing score	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.
 gate-committee	11	2026-08-28	5 core agents	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.
 gate-committee	11	2026-08-28	all agents must score	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.
+gate-committee	11	2026-08-28	all must (hit|reach|get) 10(/10)?([,.;:)]|$)	The gate returns PASS, NEEDS-WORK or BLOCKED from one critic plus label-triggered lenses, never a numeric scorecard. Canonical text: forge-kit-governance:ticket-gate.

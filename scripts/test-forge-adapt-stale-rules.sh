@@ -192,7 +192,8 @@ done
 echo "== gate-committee: the pre-#70 scorecard wording (#509) =="
 for phrase in '- **Minimum passing score: 10/10 from every agent that runs.** No exceptions.' 'ALL must score 10 to pass' \
   'ALL must score 10/10 to pass' '5 core agents always run' \
-  'All agents must score 10/10 for the ticket to be considered implementation-ready.'; do
+  'All agents must score 10/10 for the ticket to be considered implementation-ready.' \
+  'Core + label-selected reviewers score 1-10, all must hit 10, scorecard posted back as a comment.'; do
   fresh; put "$P/CLAUDE.md" "$phrase\n"; run
   has "stale-rule${TAB}prose${TAB}CLAUDE.md${TAB}1${TAB}gate-committee" "listed: $phrase"
   expect "exit 1 for: $phrase" 1 "$rc"
@@ -207,6 +208,8 @@ has "stale-rule${TAB}prose${TAB}CLAUDE.md${TAB}3${TAB}gate-committee" "a wrapped
 expect "and only one row" 1 "$(nrows stale-rule)"
 fresh; put "$P/CLAUDE.md" 'The onboarding flow scored 10/10, and reviewers must score 10 on the rubric.\n'; run
 expect "an unrelated 10/10 is not reported" 0 "$(nrows stale-rule)"
+fresh; put "$P/CLAUDE.md" 'To launch, we all must reach 100 users and all must get 10x faster.\n'; run
+expect "an unrelated 'all must reach 100' is not reported" 0 "$(nrows stale-rule)"
 expect "and exits 0" 0 "$rc"
 fresh; put "$P/docs/history.md" 'All agents must score 10/10 for the ticket. retired-rule-quote\n'; run
 expect "the quote opt-out skips a retired gate phrase" 0 "$(nrows stale-rule)"

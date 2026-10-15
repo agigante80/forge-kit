@@ -26,6 +26,10 @@ ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
 bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+# $T must not sit inside a repository (TMPDIR may point into this checkout): since #520 a labels
+# file inside one is printed relative to its root, and every "(from $T/labels.yml)" below expects
+# the absolute form.
+export GIT_CEILING_DIRECTORIES="$(dirname "$T")"
 cp "$SRC" "$T/sync-labels.sh"
 
 cat > "$T/forge-lib.sh" <<'STUB'
@@ -653,6 +657,23 @@ sl 'l=x.yml'
 [ "$(printf '%s' "$out" | sed 's/l=x\.yml/LABELS/g')" = "$plain_out" ] && ok "#405: and plans the same changes" || bad "#405: l=x.yml planned: $out"
 case "$out" in *"declares no labels"*) bad "#405: l=x.yml read as declaring no labels" ;; *) ok "#405: l=x.yml is never read as declaring no labels" ;; esac
 grep -q 'bug' <<< "$plain_out" && ok "#405: the control plans the declared labels" || bad "#405: the control planned nothing: $plain_out"
+
+echo "== the labels file is named relative to the repository root (#520) =="
+# A public repo's CI log must not carry the runner's home path. Discovery and an absolute --labels
+# both resolve to a path inside the repository; the summary names it from the root.
+R="$T/repo"; mkdir -p "$R/.github" "$R/sub"; git init -q "$R"
+cp "$T/sync-labels.sh" "$T/forge-lib.sh" "$R/sub/"
+printf -- '- name: bug\n  color: "d73a4a"\n  description: first\n' > "$R/.github/labels.yml"
+host_json '[{"name":"bug","color":"d73a4a","description":"first","id":1}]'
+for how in discovered absolute; do
+  if [ "$how" = discovered ]; then set --; else set -- --labels "$R/.github/labels.yml"; fi
+  out=$(cd "$R/sub" && GIT_CEILING_DIRECTORIES= HOST_LABELS="$T/host.json" REQLOG="$T/req.log" bash ./sync-labels.sh --check "$@" 2>&1); rc=$?
+  [ "$rc" -eq 0 ] && grep -qF 'matches .github/labels.yml (' <<< "$out" \
+    && ok "#520: a $how labels file inside the repo is named from its root" \
+    || bad "#520: $how: rc=$rc: $out"
+  case "$out" in *"$T"*) bad "#520: $how: the absolute path leaked: $out" ;; *) ok "#520: $how: no absolute path in the output" ;; esac
+done
+set --
 
 echo ""
 echo "sync-labels tests: $pass passed, $fail failed"

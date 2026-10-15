@@ -248,6 +248,14 @@ echo "Run: bash scripts/sync-labels.sh --check"
 - **Refusals** (exit 1, nothing written): a description outside the allow-list, over 100 characters (GitHub's cap) or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[A-Za-z0-9][A-Za-z0-9._-]*$` (uppercase is allowed; the message names the rule), a duplicate, or
   a type, priority or special label name, the last two compared without regard to case (`API` beside `api`, `P0`, `Bug`).
 
+**After the first `--check`.** An http `FORGE_API_URL` (a LAN Forgejo) is refused until
+`FORGE_ALLOW_HTTP=1` reaches the tool shell, and the refusal surfaces only as a failed label list:
+offer the `env` block of the untracked `.claude/settings.local.json`, never the committed
+`settings.json` (that ships the bypass to every checkout), and say it lets the token cross that
+network unencrypted. Labels the check reports as on the host but undeclared are never deleted; offer
+to declare each one the project uses, with its live colour and description, so the declaration is
+complete.
+
 Downstream agreement between the doc and the declaration is verified only by this report, since
 `check-label-taxonomy.sh` is forge-kit-only. Show the user the block's output, then confirm:
 `✓ labels.md and the label declaration installed; run bash scripts/sync-labels.sh --check`.
