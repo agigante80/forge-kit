@@ -29,3 +29,32 @@ others.
 One bare word: `current`, `behind`, `unversioned`, `registered` or `missing`. A marker over nine
 digits is refused (exit 2, `is too large to compare`) instead of being called `current`; STOP and
 report that row, since a marker that long is a typo in the component.
+
+## Gate citations the project's doc lacks (#519)
+
+Since #510 the gate cites `docs/guides/ticket-standards.md` sections by title, as `section "Unit
+test specs"`. A project that renamed those sections has a gate pointing at headings that are not
+there, and neither the markers nor `stale-rules.sh` can see it. After the marker table, run (read
+only, writes nothing):
+
+```bash
+"${FORGE_KIT_DIR:?}"/plugins/forge-kit-adapt/skills/adapt/assets/citation-check.sh \
+  --kit "$FORGE_KIT_DIR" --project "$PWD"
+```
+
+It reads the citing files from the project's own copy, else the live plugin copy the registry
+names, else the kit, and prints tab-separated rows:
+
+- `citation-missing "<Title>"`: the gate cites a title the doc has no heading for. Print a
+  `Gate citations` table, one row per title, and offer the user two fixes: restore or rename that
+  section in the doc, or, only for a COPIED gate (`scope: project`, or a bare-clone install), map
+  the citation in the adapted copy. A registered gate is the plugin cache's file, replaced on every
+  plugin update: never edit it, restore the doc section instead. Say which section titles the gate
+  cites that the doc lacks, never which section "replaces" them: that is the user's mapping.
+- `skipped no ticket-standards doc`: print one line, nothing per title.
+- `not-scanned <what> <reason>`: print it; the gate was not found or the doc was unreadable.
+- `summary <checked> <missing> <not-scanned>`, always last.
+
+Exit 0 is clean (a skipped doc counts), 1 has a missing title, 3 is incomplete and is never clean,
+2 is a usage error. A heading matches on its whole title, ignoring a leading `N. ` and a trailing
+parenthetical; a title only inside a longer heading, or only inside a code fence, is missing.
