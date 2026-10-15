@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 46 -->
+<!-- forge-host-version: 47 -->
 
 # forge-host: host-aware forge operations
 
@@ -74,8 +74,10 @@ because callers read the body with `$(...)` and a variable set in that subshell 
 
 `FORGE_DRY_RUN=1` prints would-be requests (to stderr) instead of sending them, and that includes
 GET: `forge_api` short-circuits on every method, so a read under the flag returns empty stdout with
-rc 0 rather than the real body, not only a suppressed write. The one exception: a refused
-`FORGE_API_URL` makes the read return rc 2, because the dry run validates the URL the real run would. Scope it to the write step alone, or
+rc 0 rather than the real body, not only a suppressed write. The one exception: a `FORGE_API_URL`
+that is not http(s), or is unset, makes the read return rc 2, because the dry run validates the URL the real run would. A plain
+`http://` URL without `FORGE_ALLOW_HTTP=1` is the one relaxation (v49, #527): a dry run sends nothing, so it prints one
+`note: dry run only` line and carries on, where v38 refused. Scope it to the write step alone, or
 clear it around a read that must see the host. Run `bash forge-lib.sh detect` for a one-line
 host/repo/api/ci diagnostic.
 
@@ -102,7 +104,12 @@ a guard placed later would splice against an empty string and report success.
 **`FORGE_DEBUG=1` makes the one routine explanation speak, and nothing else changes (#236).**
 `forge_api_paginate` writes four kinds of line to stderr. Three are never gated: the identical-page
 stop, which says the server is ignoring `page`, and the two failures that end the walk with rc 2. A
-caller needs those whether or not it asked for them. The fourth, the ordinary end of a list, was
+caller needs those whether or not it asked for them. One narrowing (v49, #524): on the issue comments
+path (`/repos/*/issues/*/comments`) the identical-page line needs `FORGE_DEBUG=1`, because Forgejo's
+`ListIssueComments` takes no `page` or `limit` and returns every comment on every page, so a repeat
+there is the end of a complete list. The rule keys on the endpoint, never on a row count (a 60-comment
+issue is as complete as a 4-comment one, and `rows < limit` is the inference #62 rejected); every other
+path still warns ungated. The fourth, the ordinary end of a list, was
 unconditional in v18 and printed once per list call, so a `/phase` read of a milestone opened with a
 line per ticket before it said anything. It is quiet by default from v23 and returns under
 `FORGE_DEBUG=1`. The test is `= 1`, the same shape `FORGE_DRY_RUN` uses, so `FORGE_DEBUG=no` is off.
@@ -153,7 +160,7 @@ cannot), redirects are never followed, and the token reaches curl through `-K`, 
 the file, `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`. A name you
 export yourself is trusted as-is. `forge_token_present` reports whether the token variable is
 set, never printing it; `forge_token_available` (#454) also counts git's credential helper.
-On Forgejo every dry-run branch runs the same URL check first, so `FORGE_DRY_RUN=1` refuses what a real run refuses (rc 2); `forge_api_paginate` callers now see that rc.
+On Forgejo every dry-run branch runs the URL check first (`_forge_dry_url_check`), so `FORGE_DRY_RUN=1` refuses what a real run refuses (rc 2) except plain http, which prints a note instead (v49, #527); `forge_api_paginate` callers see that rc.
 
 `.forge.conf` names the env var (`FORGE_TOKEN_ENV`, default `FORGEJO_TOKEN`); how the token
 gets INTO it depends on the context, detailed in `references/local-auth.md`:

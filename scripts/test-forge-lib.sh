@@ -497,14 +497,15 @@ rc=$?
   out=$(forge_issue_comments 104 2>"$T/ign.err") || exit 9
   [ "$(printf '%s' "$out" | jq 'length')" = 2 ] || exit 1
   [ "$(grep -c comments "$REQLOG")" = 2 ] || exit 2
-  grep -q 'identical page: server ignores page' "$T/ign.err" || exit 3
+  # #524: the comments endpoint is the documented unpaged one, so the stop is silent here
+  [ ! -s "$T/ign.err" ] || exit 3
   exit 0
 )
 case $? in
-  0) ok "paginate stops after one identical page on a host that ignores page= (#228)";;
+  0) ok "paginate stops after one identical page on a host that ignores page= (#228), and says nothing on the unpaged comments path (#524)";;
   1) bad "paginate returned the identical page more than once (accumulated before comparing)";;
   2) bad "paginate made more than two requests on an identical page (did not stop)";;
-  3) bad "paginate did not say on stderr that the identical-page stop fired";;
+  3) bad "paginate printed a line for the identical page on the issue comments path (#524)";;
   *) bad "paginate ran to the cap on an identical page (#228 spin)";;
 esac
 
@@ -517,14 +518,14 @@ esac
   out=$(forge_api_paginate /repos/o/r/issues/1/comments 2>"$T/vol.err") || exit 9
   [ "$(printf '%s' "$out" | jq 'length')" = 2 ] || exit 1
   [ "$(wc -l < "$REQLOG" | tr -d " ")" = 2 ] || exit 2
-  grep -q 'identical page: server ignores page' "$T/vol.err" || exit 3
+  [ ! -s "$T/vol.err" ] || exit 3   # #524: silent on the comments path
   exit 0
 )
 case $? in
-  0) ok "paginate's identical-page stop compares keys, so a volatile updated_at does not defeat it";;
+  0) ok "paginate's identical-page stop compares keys, so a volatile updated_at does not defeat it (silent on the comments path, #524)";;
   1) bad "paginate returned duplicated rows when only a volatile field differed";;
   2) bad "paginate kept requesting when only a volatile field differed (byte comparison)";;
-  3) bad "the volatile-field stop did not name itself on stderr";;
+  3) bad "the volatile-field stop printed a line on the issue comments path (#524)";;
   *) bad "paginate ran to the cap when only a volatile field differed";;
 esac
 
@@ -3445,6 +3446,45 @@ m442 "#452 tag stderr discarded (kills the http refusal row)" 'forge_api GET "/r
 m442 "#452 tag stderr discarded (kills the HTTP 500 row)" 'forge_api GET "/repos/$repo/tags/$1" >/dev/null ;;' 'forge_api GET "/repos/$repo/tags/$1" >/dev/null 2>&1 ;;' c452_500
 m442 "#452 GitHub arm back on the Forgejo route" 'forge_api GET "/repos/$repo/git/ref/tags/$1" >/dev/null ;;' 'forge_api GET "/repos/$repo/tags/$1" >/dev/null ;;' c452_gh_present
 
+# -- #524: the identical-page line is keyed on the ENDPOINT, not on a row count -----------------------
+# Forgejo's ListIssueComments takes no page or limit and returns every comment on every page, so a
+# repeat there is the end of a complete list. Every other path keeps the ungated line (v23).
+# c524_walk <rows> <path> [FORGE_DEBUG value]: the stub returns the same <rows> ids for every page.
+c524_walk() {
+  : > "$T/c524.log"
+  ( . "${K442LIB:-$LIB}"; N524="$1"
+    export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=3
+    [ -z "${3-}" ] || export FORGE_DEBUG="$3"
+    forge_api() { echo "$1 $2" >> "$T/c524.log"; jq -nc --argjson n "$N524" '[range($n) | {id: (. + 1), body: "c"}]'; }
+    forge_api_paginate "$2" > "$T/c524.out" 2> "$T/c524.err" )
+  C524RC=$?
+}
+c524_stopped() { [ "$C524RC" = 0 ] && [ "$(jq 'length' "$T/c524.out")" = "$1" ] && [ "$(wc -l < "$T/c524.log" | tr -d ' ')" = 2 ]; }
+c524_quiet()  { c524_walk "$1" "$2" "${3-}"; c524_stopped "$1" && [ ! -s "$T/c524.err" ]; }
+c524_loud()   { c524_walk "$1" "$2" "${3-}"; c524_stopped "$1" && [ "$(cat "$T/c524.err")" = "forge-lib: paginate: identical page: server ignores page (stopped at page 2 of $2)" ]; }
+c524_short()  { c524_quiet 4 /repos/o/r/issues/7/comments; }
+c524_long()   { c524_quiet 60 /repos/o/r/issues/7/comments; }
+c524_query()  { c524_quiet 4 "/repos/o/r/issues/7/comments?since=2026-01-01T00:00:00Z"; }
+c524_debug()  { c524_loud 4 /repos/o/r/issues/7/comments 1; }
+c524_dbgno()  { c524_quiet 4 /repos/o/r/issues/7/comments no; }
+c524_other()  { c524_loud 2 /repos/o/r/milestones && c524_loud 50 /repos/o/r/pulls/7/comments; }
+c524_cap() {   # fresh ids on every page: only the cap stops it, and the comments path does not hide it
+  ( . "${K442LIB:-$LIB}"
+    export FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_PAGINATE_MAX_PAGES=3
+    forge_api() { jq -nc --argjson p "${2##*page=}" '[range(50) | {id: ($p * 100 + .)}]'; }
+    forge_issue_comments 7 > /dev/null 2> "$T/c524.err" )
+  [ "$?" = 2 ] && grep -qF 'exceeded 3 pages on /repos/o/r/issues/7/comments' "$T/c524.err"; }
+for c in short long query debug dbgno other cap; do
+  "c524_$c" && ok "#524: c524_$c is green on the real library" || bad "#524: c524_$c fails on the real library (rc $C524RC err $(cat "$T/c524.err"))"
+done
+CASE524='/repos/*/issues/*/comments) [ "${FORGE_DEBUG:-0}" = 1 ] && echo'
+m442 "#524 comments path warns ungated again" "$CASE524" '/repos/*/issues/*/comments) echo' c524_short
+m442 "#524 comments path warns ungated again (60 rows)" "$CASE524" '/repos/*/issues/*/comments) echo' c524_long
+m442 "#524 FORGE_DEBUG tested as != 0" "$CASE524" '/repos/*/issues/*/comments) [ "${FORGE_DEBUG:-0}" != 0 ] && echo' c524_dbgno
+m442 "#524 comments path silent even under FORGE_DEBUG=1" "$CASE524" '/repos/*/issues/*/comments) false && echo' c524_debug
+m442 "#524 query string not stripped before the path match" 'case "${path%%\?*}" in' 'case "$path" in' c524_query
+m442 "#524 every other path silenced too" '        *) echo "forge-lib: paginate: identical page' '        *) : "forge-lib: paginate: identical page' c524_other
+
 # -- #449: round-1 lows from #442, and the dry run that refuses what the real run refuses -----------
 echo "== #449: #442 round-1 lows, dry-run URL validation, forge_url_check =="
 # Item 1: the argv assertion has its own mutants. A library that keeps -K and ALSO adds -H carries the
@@ -3487,26 +3527,28 @@ doc_cred "$WCC" && ok "#449: without-claude-code.md names FORGE_TOKEN_ENV, the c
 grep -v 'FORGE_NO_GIT_CREDENTIALS' "$WCC" > "$K/wcc-mut1.md"; { cat "$WCC"; printf '%s\n' 'auth are read from the environment by `forge-lib.sh`.'; } > "$K/wcc-mut2.md"
 ! doc_cred "$K/wcc-mut1.md" && ! doc_cred "$K/wcc-mut2.md" && ok "#449 mutant: dropping the credential-helper note, or restoring the old sentence, fails the doc row" || bad "#449 mutant: the doc row survived a doc mutant"
 
-# Item 6: every Forgejo dry-run branch validates the URL as the real run does. The refused URL is a
-# file http:// URL (conf, no opt-in); the credential helper is ON so a token read would show.
-c449_refused() { [ "$K442RC" = 2 ] && k_err "refusing to send the token over http" && ! grep -qF '[dry-run]' "$K/err" "$K/out" && [ ! -s "$K/out" ] && k_nocurl && ! grep -q '^credential' "$K/gitlog"; }
-c449_dr() { k442 "FORGE_API_URL=http://evil.invalid" NONE FORGE_DRY_RUN=1 FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- "$@"; c449_refused; }
+# Item 6: every Forgejo dry-run branch validates the URL as the real run does. #527 relaxed ONE case,
+# plain http (a note, see the c527 rows below), so the refused URL here is a file ftp:// URL (conf);
+# the credential helper is ON so a token read would show.
+c449_refused() { [ "$K442RC" = 2 ] && k_err "FORGE_API_URL must be an https URL" && ! grep -qF '[dry-run]' "$K/err" "$K/out" && [ ! -s "$K/out" ] && k_nocurl && ! grep -q '^credential' "$K/gitlog"; }
+c449_dr() { k442 "FORGE_API_URL=ftp://evil.invalid" NONE FORGE_DRY_RUN=1 FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- "$@"; c449_refused; }
 c449_dr_api() {
   c449_dr $GET1 || return 1
   k442 "" NONE FORGE_DRY_RUN=1 -- $GET1
   [ "$K442RC" = 2 ] && k_err "FORGE_API_URL must be set in .forge.conf" && ! grep -qF '[dry-run]' "$K/err" || return 1
-  k442 "" NONE FORGE_API_URL=http://f.invalid FORGE_DRY_RUN=1 -- $GET1
-  [ "$K442RC" = 2 ] && k_err "refusing to send the token over http" && ! grep -qF '[dry-run]' "$K/err" && k_nocurl; }
+  k442 "" NONE FORGE_API_URL=ftp://f.invalid FORGE_DRY_RUN=1 -- $GET1
+  [ "$K442RC" = 2 ] && k_err "FORGE_API_URL must be an https URL" && ! grep -qF '[dry-run]' "$K/err" && k_nocurl; }
 c449_dr_paginate()  { c449_dr forge_api_paginate /repos/o/r/issues; }
 c449_dr_list()      { c449_dr forge_issue_list open; }
 c449_dr_edit()      { c449_dr forge_issue_edit 1 body; }
 c449_dr_label()     { c449_dr forge_issue_label 1 bug; }
 c449_dr_region()    { c449_dr forge_body_region_set 1 gate gate-context text; }
 c449_dr_compose()   { c449_dr forge_body_compose_preserving 1 body; }
+c449_dr_append()    { c449_dr forge_body_section_append 1 Label "x (gate-written, round 1)"; }
 c449_dr_close()     { c449_dr forge_milestone_close "Phase A"; }
 c449_dr_milestone() { c449_dr forge_issue_milestone 1 "Phase A" && c449_dr forge_issue_milestone 1 ""; }
-for fn in api paginate list edit label region compose close milestone; do
-  "c449_dr_$fn" && ok "#449 dry run, $fn: a refused file URL returns 2 with the real refusal, no [dry-run] line, nothing on stdout, no credential asked" \
+for fn in api paginate list edit label region compose append close milestone; do
+  "c449_dr_$fn" && ok "#449 dry run, $fn: a refused (non-https) file URL returns 2 with the real refusal, no [dry-run] line, nothing on stdout, no credential asked" \
     || bad "#449 dry run, $fn (rc $K442RC out $(cat "$K/out") err $(cat "$K/err"))"
 done
 c449_dr_ok() {  # an accepted URL keeps its [dry-run] line and rc 0; GitHub is untouched
@@ -3527,9 +3569,9 @@ c449_url_check() {  # forge_url_check: silent rc 0 when accepted, the refusal an
 c449_dr_api && c449_dr_ok && c449_url_check && ok "#449: the dry-run cases and forge_url_check are green on the real library" || bad "#449: a dry-run case fails on the real library"
 # One mutant per dry-run branch, each with its own anchor (m442 needs exactly one match and the suite
 # forbids duplicate row texts). The anchor is the added check plus the branch's next line.
-CHK='forge_url_check || return 2'
+CHK='_forge_dry_url_check || return 2'
 m449() { m442 "dry run skips the URL check ($1)" "$2" "$3" "$4"; }
-m449 forge_api "    $CHK   # #449: a dry run refuses what the real run refuses
+m449 forge_api "    $CHK   # #449, #527: a dry run refuses what the real run refuses, except plain http (a note)
     # to stderr" "    # to stderr" c449_dr_api
 m442 "dry run skips the URL check (forge_api_paginate rc discarded)" '[ "$rc" = 0 ] || return "$rc"
     printf '"'"'[]\n'"'"'; return 0' "printf '[]\\n'; return 0" c449_dr_paginate
@@ -3543,6 +3585,8 @@ m449 _forge_region_write "    $CHK
     printf '[dry-run] %s region" "    printf '[dry-run] %s region" c449_dr_region
 m449 forge_body_compose_preserving "    $CHK
     printf '[dry-run] compose body" "    printf '[dry-run] compose body" c449_dr_compose
+m449 forge_body_section_append "    $CHK
+    printf '[dry-run] append to section" "    printf '[dry-run] append to section" c449_dr_append
 m449 forge_milestone_close "    $CHK
     printf '[dry-run] close milestone" "    printf '[dry-run] close milestone" c449_dr_close
 m449 forge_issue_milestone "    $CHK
@@ -3553,18 +3597,131 @@ m442 "forge_url_check approves every URL" '  : "$base"
   _forge_check_url
 }' '  : "$base"
   return 0
-}' c449_dr_label
-m442 "forge_url_check is not a no-op on GitHub" '  [ "$host" = forgejo ] || return 0
-' '' c449_dr_ok
-m442 "forge_url_check calls forge_api_base bare" '  base="$(forge_api_base)" || return 2
-  : "$base"' '  forge_api_base >/dev/null || return 2
-  : "$base"' c449_url_check
+}' c449_url_check
+m442 "forge_url_check is not a no-op on GitHub" 'forge_url_check() {
+  local host base=""
+  host="$(forge_host)" || return 2
+  [ "$host" = forgejo ] || return 0
+' 'forge_url_check() {
+  local host base=""
+  host="$(forge_host)" || return 2
+' c449_dr_ok
+m442 "forge_url_check calls forge_api_base bare" 'forge_url_check() {
+  local host base=""
+  host="$(forge_host)" || return 2
+  [ "$host" = forgejo ] || return 0
+  base="$(forge_api_base)" || return 2' 'forge_url_check() {
+  local host base=""
+  host="$(forge_host)" || return 2
+  [ "$host" = forgejo ] || return 0
+  forge_api_base >/dev/null || return 2' c449_url_check
 m442 "forge_url_check reads the token" '  : "$base"
   _forge_check_url
 }' '  : "$base"
   _forge_check_url || return 2
   _forge_token >/dev/null 2>&1
 }' c449_url_check
+
+# -- #527: a dry run sends nothing, so a plain-http FORGE_API_URL is a NOTE there, not a refusal -------
+# This partly reverses #449 item 6 (v38), for that one reason: no token can leak from a request that
+# is never made. Everything else stays: another scheme and an unset URL are still rc 2 (the c449_dr_*
+# rows above, now driven with ftp://), the real send path and scoped reads still refuse http, and
+# forge_url_check (c449_url_check above) is unchanged. A NOTE is not the refusal's wording, so the
+# `refusing to send the token over http` counters in test-gate-status and test-check-phases still
+# count only real refusals.
+c527_note() { [ "$(grep -cF 'forge-lib: note: dry run only' "$K/err")" = 1 ] && ! k_err 'refusing to send the token over http'; }
+c527_dr() {   # <function words>: rc 0, one note, a [dry-run] line, no curl call, no credential asked
+  k442 "FORGE_API_URL=http://f.invalid" NONE FORGE_DRY_RUN=1 FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- "$@"
+  [ "$K442RC" = 0 ] && c527_note && k_err '[dry-run]' && k_nocurl && ! grep -q '^credential' "$K/gitlog"; }
+c527_dr_api()      { c527_dr $GET1; }
+c527_dr_paginate() { c527_dr forge_api_paginate /repos/o/r/issues && [ "$(cat "$K/out")" = '[]' ]; }
+c527_dr_list()      { c527_dr forge_issue_list open; }
+c527_dr_edit()      { c527_dr forge_issue_edit 1 body; }
+c527_dr_label()     { c527_dr forge_issue_label 1 bug; }
+c527_dr_region()    { c527_dr forge_body_region_set 1 gate gate-context text; }
+c527_dr_compose()   { c527_dr forge_body_compose_preserving 1 body; }
+c527_dr_append()    { c527_dr forge_body_section_append 1 Label "x (gate-written, round 1)"; }
+c527_dr_close()     { c527_dr forge_milestone_close "Phase A"; }
+c527_dr_milestone() { c527_dr forge_issue_milestone 1 "Phase A" && c527_dr forge_issue_milestone 1 ""; }
+for fn in api paginate list edit label region compose append close milestone; do
+  "c527_dr_$fn" && ok "#527 dry run, $fn: an http file URL returns 0 with one note, a [dry-run] line, no curl call and no credential asked" \
+    || bad "#527 dry run, $fn (rc $K442RC out $(cat "$K/out") err $(cat "$K/err"))"
+done
+c527_optin() {   # the opt-in is exported: no note at all, only the request line
+  k442 "FORGE_API_URL=http://f.invalid" NONE FORGE_DRY_RUN=1 FORGE_ALLOW_HTTP=1 -- $GET1
+  [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "[dry-run] GET http://f.invalid/api/v1/repos/o/r/issues/1" ] && k_nocurl; }
+c527_github() {   # GitHub never had the check, and the helper is a no-op there
+  k442 "FORGE_API_URL=http://f.invalid" NONE FORGE_HOST=github FORGE_DRY_RUN=1 -- $GET1
+  [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "[dry-run] GET https://api.github.com/repos/o/r/issues/1" ]; }
+c527_real_refuses() {   # no dry run: the real send path refuses http, sends nothing, asks for no credential
+  k442 "FORGE_API_URL=http://f.invalid" NONE FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- $GET1
+  [ "$K442RC" = 2 ] && k_err 'refusing to send the token over http' && ! k_err 'note: dry run only' && k_nocurl && ! grep -q '^credential' "$K/gitlog" || return 1
+  k442 "FORGE_API_URL=http://f.invalid" NONE FORGE_DRY_RUN=0 -- $GET1
+  [ "$K442RC" = 2 ] && k_err 'refusing to send the token over http' && k_nocurl; }
+c527_scoped_read() {   # the callers' shape: FORGE_DRY_RUN=1 exported, one real read scoped with FORGE_DRY_RUN=0
+  k442 "FORGE_API_URL=http://f.invalid" NONE FORGE_DRY_RUN=1 FORGE_NO_GIT_CREDENTIALS=0 K442CRED=cred -- \
+    bash -c ". \"\${K442LIB:-$LIB}\"; FORGE_DRY_RUN=0 forge_api GET /repos/o/r/issues/1; echo \"rc=\$?\""
+  [ "$(cat "$K/out")" = "rc=2" ] && k_err 'refusing to send the token over http' && ! k_err 'note: dry run only' && k_nocurl && ! grep -q '^credential' "$K/gitlog"; }
+for c in optin github real_refuses scoped_read; do
+  "c527_$c" && ok "#527: c527_$c is green on the real library" || bad "#527: c527_$c fails on the real library (rc $K442RC out $(cat "$K/out") err $(cat "$K/err"))"
+done
+# Mutants. The helper accepts any scheme: killed by every per-branch ftp row (c449_dr_*). The note is
+# removed: killed by the http rows. The real send path takes the lenient helper: killed by
+# c527_real_refuses and c527_scoped_read, which no dry-run-site mutation can reach (the real path is
+# independent of the dry-run branches). forge_url_check itself made lenient: killed by c449_url_check.
+# One dry-run site back on the strict forge_url_check: killed by that site's http row.
+m442 "#527 dry-run helper accepts any scheme" '  _forge_check_url
+}
+
+_forge_token() {' '  return 0
+}
+
+_forge_token() {' c449_dr_api
+m442 "#527 dry-run helper accepts any scheme (paginate row)" '  _forge_check_url
+}
+
+_forge_token() {' '  return 0
+}
+
+_forge_token() {' c449_dr_paginate
+m442 "#527 dry-run note removed" '      echo "forge-lib: note: dry run only;' '      : "forge-lib: note: dry run only;' c527_dr_api
+m442 "#527 real send path takes the lenient helper (kills the real-path row)" '  _forge_check_url         || return 2
+  tok=' '  _forge_dry_url_check     || return 2
+  tok=' c527_real_refuses
+m442 "#527 real send path takes the lenient helper (kills the scoped-read row)" '  _forge_check_url         || return 2
+  tok=' '  _forge_dry_url_check     || return 2
+  tok=' c527_scoped_read
+m442 "#527 forge_url_check made lenient" '  : "$base"
+  _forge_check_url
+}' '  : "$base"
+  _forge_dry_url_check
+}' c449_url_check
+m442 "#527 note printed even with FORGE_ALLOW_HTTP=1" '    http://*) [ "${FORGE_ALLOW_HTTP:-0}" = 1 ] || {
+      echo "forge-lib: note:' '    http://*) {
+      echo "forge-lib: note:' c527_optin
+m442 "#527 helper is not a no-op on GitHub" '_forge_dry_url_check() {
+  local host base="" url
+  host="$(forge_host)" || return 2
+  [ "$host" = forgejo ] || return 0
+' '_forge_dry_url_check() {
+  local host base="" url
+  host="$(forge_host)" || return 2
+' c527_github
+STRICT527='_forge_dry_url_check || return 2'
+m527s() {   # <name> <anchor after the check> <case-fn>: that dry-run site back on the strict check
+  m442 "#527 $1 dry run back on the strict forge_url_check" "    $STRICT527
+    $2" "    forge_url_check || return 2
+    $2" "$3"
+}
+m442 "#527 forge_api dry run back on the strict forge_url_check" "    $STRICT527   # #449, #527: a dry run refuses what the real run refuses, except plain http (a note)" "    forge_url_check || return 2   # #449, #527: a dry run refuses what the real run refuses, except plain http (a note)" c527_dr_api
+m527s forge_issue_list "printf '[dry-run] GET %s/repos/%s/issues?state" c527_dr_list
+m527s forge_issue_edit "printf '[dry-run] replace body" c527_dr_edit
+m527s forge_issue_label "printf '[dry-run] label issue" c527_dr_label
+m527s _forge_region_write "printf '[dry-run] %s region" c527_dr_region
+m527s forge_body_compose_preserving "printf '[dry-run] compose body" c527_dr_compose
+m527s forge_body_section_append "printf '[dry-run] append to section" c527_dr_append
+m527s forge_milestone_close "printf '[dry-run] close milestone" c527_dr_close
+m527s forge_issue_milestone "if [ -n \"\$title\" ]; then printf '[dry-run] set milestone" c527_dr_milestone
 
 # Item 8: a 301 or 307 is reported, not followed, and the docs say what to do about it.
 c449_redirect() {
