@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 45
+# check-ticket-mechanics-version: 46
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -726,7 +726,17 @@ MARK_ANY="$(marker_re 'Positive|Negative')"; MARK_POS="$(marker_re Positive)"; M
 # (`-`, `*`, `1.`, `1)`), checkbox, a short `Label:` (`Unit tests: NA`) and bold or italic
 # wrapper. grep runs per line, so `^` is a line start.
 looks_na()   { grep -qiE '(^|[^a-z])n/a([^a-z]|$)|not applicable|^[[:space:]]*([-*][[:space:]]+|[0-9]+[.)][[:space:]]+)?(\[[ xX]\][[:space:]]+)?([A-Za-z][A-Za-z0-9 /-]{0,40}:[[:space:]]*)?([*][*]|__|[*]|_)?na([^a-z]|$)' <<< "$1"; }
-long_enough() { [ "$(printf '%s' "$1" | tr -d '[:space:]' | wc -c)" -gt 12 ]; }
+# The gate-written tag (`(gate-written, round N)`) is not a reason (#535). `--tag-blocks` ends the
+# first line of EVERY blank-separated block with it, so a synthesised bare `N/A` carries 21 tag
+# characters and used to clear the 12-character bar as "referred". The strip is PER LINE, because
+# the argument is a whole section and the tag ends a line mid-section; END-ANCHORED, so a tag with
+# text after it on its line (hand-written prose quoting the tag) is left alone; and its trailing
+# `[[:space:]]*` absorbs blanks and the CR a CRLF body leaves on the line (section_of() prints the
+# raw line). A tag on a line of its own strips to an empty line. The measure stays the whole
+# section: a bare N/A beside any other block of more than 12 characters is still referred, as
+# before. looks_na reads the raw text; only the length test sees the strip. Written as a POSIX BRE
+# with `[0-9][0-9]*` (no `sed -E`, no `+`) for Apple sed. Each part is pinned by a mutant.
+long_enough() { [ "$(printf '%s\n' "$1" | sed 's/[[:space:]]*(gate-written, round [0-9][0-9]*)[[:space:]]*$//' | tr -d '[:space:]' | wc -c)" -gt 12 ]; }
 names_path() { grep -qE '`[^`]*/[^`]*`|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rb|rs|java|kt|php|cs|sh|sql|md|yml|yaml)([^A-Za-z0-9]|$)' <<< "$1"; }
 # A ONE-LINE scenario (#233): after an optional list marker, optional bold or italic markup and
 # whitespace, the marker word followed by `.` or `:`, with Given, When and Then inline. It is a
