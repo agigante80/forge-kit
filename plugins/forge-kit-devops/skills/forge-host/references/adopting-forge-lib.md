@@ -59,3 +59,39 @@ adapter, use `forge_*`), but their many inline `gh …` snippets are kept as the
 form* rather than rewritten in place. A long agent (e.g. `ticket-gate`) relies on the preamble being
 applied to each snippet. A future pass should replace the inline `gh` snippets with their `forge_*`
 equivalents inline, so an agent can't pattern-match a raw `gh` command and run it on Forgejo.
+
+## The leak scan of caller-supplied text (forge-lib v53, #539)
+
+The #536 hook sees only a body typed into a `gh` command line. Every body write in `forge-lib.sh`
+sends JSON through `gh api --input -`, so gate reviews and decision sections reached the forge
+unscanned. Seven writers now scan the text their CALLER supplies, at their entry and before their
+`FORGE_DRY_RUN` guard: `forge_issue_comment` (`body`), `forge_issue_create` (`title`, `body`),
+`forge_issue_edit` (`body`), `forge_release_create` (`name`, `notes`), `forge_body_region_set`
+(`content`; a clear supplies none, so it is never refused), `forge_body_section_append` (`content`)
+and `forge_body_compose_preserving` (`body`, the new text, never the recomposed one). A leak already
+in an issue body therefore never blocks the write that removes it.
+
+- **Opt-in, one switch for both layers:** the sentinel `.claude/scan-forge-writes` at the repository
+  root, or `FORGE_LEAK_SCAN=1`. `FORGE_LEAK_SCAN=0` forces it off. Any other value is treated as
+  unset, with one note. With neither, there is no scanner, no note and no cost.
+- **Return code 110** means a scanner found a leak: nothing was sent, and the stderr line names the
+  writer, the rule, the field and the line, never the matched text. It is final for that call. An
+  agent stops and reports it to the user, and never sets `FORGE_LEAK_SCAN=0` itself.
+  `ticket-gate` needs no change: it already treats any non-zero code from a writer as a failure to
+  report.
+- **Fail open** (one stderr note per shell, even under `FORGE_LEAK_SCAN=1`): scanners not found, a
+  scanner exiting anything but 0 or 1, a timeout, a temp file that cannot be made, a field over 1 MiB.
+  The one exception is an explicit `FORGE_LEAK_GUARD_DIR` that does not hold both marked scanners:
+  that refuses (110), because the operator asked for those scanners.
+- **Discovery** needs both `check-private-leaks.sh` and `check-public-leaks.sh`, each with its
+  version marker: `FORGE_LEAK_GUARD_DIR`; forge-lib's own directory (resolved to an absolute physical
+  path when the library is loaded, never `.`); the sibling `forge-kit-security` group only when the
+  library sits at `forge-kit-devops/skills/forge-host/assets`; then the highest
+  `check-private-leaks-version` under `$HOME/.claude/plugins`. forge-kit-devops does not depend on
+  forge-kit-security, so a project with neither simply gets the not-found note.
+- **Scanner call:** each field goes to its own 0600 temp file, never to an argument; the forge token
+  variables are removed from the scanner environment; `<root>/.leak-guard-allow` goes to the public
+  scanner when it exists; 4 s per scan and 8 s in all when `timeout` exists.
+- **Not scanned (known gaps):** `forge_api` direct writes, `forge_milestone_create`,
+  `forge_issue_milestone`, label writes and `sync-labels.sh` descriptions, anything run with
+  `FORGE_LEAK_SCAN=0` or a custom `FORGE_LEAK_GUARD_DIR`, a field over 1 MiB, and every fail-open case.

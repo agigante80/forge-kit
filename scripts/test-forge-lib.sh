@@ -39,8 +39,10 @@ set -uo pipefail
 # because forge-lib.sh unsets them each time it is sourced; the _FORGE_FILEVAL_* memo it does not,
 # so it is cleared here. FORGE_LIB_UNDER_TEST is read just below on purpose and never unset. The
 # "unset line covers forge-lib's names" row near the top keeps this line complete.
-unset FORGE_API_URL FORGE_ALLOW_HTTP FORGE_DEBUG FORGE_DRY_RUN FORGE_HOST FORGE_NO_GIT_CREDENTIALS FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE FORGE_REPO FORGE_TOKEN FORGE_TOKEN_ENV FORGEJO_TOKEN MC_LIB
+unset FORGE_API_URL FORGE_ALLOW_HTTP FORGE_DEBUG FORGE_DRY_RUN FORGE_HOST FORGE_LEAK_GUARD_DIR FORGE_LEAK_SCAN FORGE_NO_GIT_CREDENTIALS FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE FORGE_REPO FORGE_TOKEN FORGE_TOKEN_ENV FORGEJO_TOKEN MC_LIB
 unset "${!_FORGE_FILEVAL_@}"
+# #539: the opt-in leak scan is off for every row that is not about it, so a sentinel in the invoker's own repo cannot start a scanner under an existing row. The #539 section opts in per row.
+export FORGE_LEAK_SCAN=0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="${FORGE_LIB_UNDER_TEST:-$HERE/../plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh}"
 # #404 (closed as not reproduced, outcome 3): the "issue_list returned the wrong count on large
@@ -4510,6 +4512,423 @@ for site in 1 2 3 4; do
 done
 awk '$0=="  _forge_pin_check || return 2" || index($0,"  _forge_pin_check || return 2 ")==1 {c++; if (c==4) next} 1' "$LIB" > "$T/lib517"
 if K442LIB="$T/lib517" row_gh_paginate; then bad "#517 MUTANT SURVIVED: the pin call dropped from forge_api_paginate (GitHub arm)"; else ok "#517 mutant 'pin call dropped from forge_api_paginate' dies on the GitHub arm too"; fi
+
+# --- #539: the leak scan of caller-supplied text before the seven public writers send it -------------
+# forge_issue_comment, forge_issue_edit, forge_issue_create, forge_release_create, forge_body_region_set,
+# forge_body_compose_preserving and forge_body_section_append scan the text they are GIVEN (never the
+# recomposed body, never a clear) with the two leak-guard scanners, opt-in by the #536 sentinel or
+# FORGE_LEAK_SCAN=1, and refuse with rc 110. The scanners here are STUBS (marked, so discovery accepts
+# them) that log their argv, their token env and the file they were handed, and decide by two literal
+# markers: PRIVNAME (private stub, rule private-name) and ADDRESS (public stub, rule email-address).
+# The real scanners are driven in the rows named "real scanners". Every row is a function of $L539, so
+# the mutants below run the SAME rows against a damaged copy of the library.
+L539="$LIB"
+SD539="$T/s539"                      # the good stub pair
+RS539="$T/r539/sentinel"             # a repo carrying .claude/scan-forge-writes
+RS2539="$T/r539/sentinel2"           # a second such repo
+RN539="$T/r539/plain"                # a repo without the sentinel
+RA539="$T/r539/allow"                # sentinel + .leak-guard-allow permitting ~/data
+EH539="$T/emptyhome539"              # a HOME with no plugins and no names list
+RH539="$T/home539"                   # a HOME with a seeded names list, for the real scanners
+REAL539="$(cd "$HERE/../plugins/forge-kit-security/skills/leak-guard/assets" && pwd -P)"
+mkdir -p "$T/m539" "$EH539" "$RH539/.claude/forge-kit"
+printf 'secretproj\n' > "$RH539/.claude/forge-kit/private-names.txt"
+mkstub539() {   # <dir>: a marked private + public stub pair
+  local d="$1" kind mark rule
+  mkdir -p "$d"
+  for kind in private public; do
+    if [ "$kind" = private ]; then mark=PRIVNAME; rule=private-name; else mark=ADDRESS; rule=email-address; fi
+    cat > "$d/check-$kind-leaks.sh" <<'STUB'
+#!/usr/bin/env bash
+# check-@KIND@-leaks-version: 1
+f="${*: -1}"
+{ printf 'RUN @KIND@ argv:'; printf ' [%s]' "$@"; printf '\n'
+  printf 'ENV @KIND@ GH=%s GHT=%s FJ=%s MY=%s AF=%s\n' "${GH_TOKEN-U}" "${GITHUB_TOKEN-U}" "${FORGEJO_TOKEN-U}" "${MYTOK-U}" "${ALLOW_FILE-U}"
+  printf 'FILE @KIND@ %s\n' "$f"
+  printf 'SCRIPT @KIND@ %s\n' "$0"
+} >> "${STUBLOG:-/dev/null}"
+[ -z "${STUBCOPY-}" ] || cp -- "$f" "$STUBCOPY.@KIND@"
+case "${STUBMODE-}" in exit2) exit 2 ;; exit127) exit 127 ;; hang) exec sleep 30 ;; slow) sleep 1 ;; esac
+n="$(grep -n -m1 '@MARK@' "$f" | cut -d: -f1)"
+[ -z "$n" ] || { printf '%s:%s: @RULE@: evidence @MARK@\n' "$f" "$n"; exit 1; }
+exit 0
+STUB
+    sed -i "s/@KIND@/$kind/g; s/@MARK@/$mark/g; s/@RULE@/$rule/g" "$d/check-$kind-leaks.sh"
+  done
+}
+mkrepo539() {   # <dir> [nosentinel]
+  mkdir -p "$1"; git init -q "$1" 2>/dev/null
+  [ "${2-}" = nosentinel ] || { mkdir -p "$1/.claude"; : > "$1/.claude/scan-forge-writes"; }
+}
+mkstub539 "$SD539"
+mkrepo539 "$RS539"; mkrepo539 "$RS2539"; mkrepo539 "$RN539" nosentinel; mkrepo539 "$RA539"
+printf '%s\n' 'root ~/data' > "$RA539/.leak-guard-allow"
+D539GET_DEFAULT='{"body":"intro\n\n<!-- gate-verdict:start -->\nold PRIVNAME\n<!-- gate-verdict:end -->\n\n## Decision\n\ntext"}'
+# r539 <workdir> <lib> <script> [VAR=val | -u:VAR]...: source <lib> in <workdir> (relative load with
+# R539LOAD, an eval load with R539EVAL), stub forge_api unless D539REAL is set, run <script>.
+# Sets R539RC; stdout in $T/o539, stderr in $T/e539, requests in $T/req539.log, stub runs in $T/stub539.log.
+r539() {
+  local wd="$1" lib="$2" body="$3"; shift 3
+  local -a ea=(-u FORGE_LEAK_SCAN -u FORGE_LEAK_GUARD_DIR FORGE_HOST=github FORGE_REPO=o/r "STUBLOG=$T/stub539.log" "D539LOG=$T/req539.log" "D539GET=$D539GET_DEFAULT")
+  local a; for a in "$@"; do case "$a" in -u:*) ea+=(-u "${a#-u:}") ;; *) ea+=("$a") ;; esac; done
+  : > "$T/stub539.log"; : > "$T/req539.log"
+  ( cd "$wd" && env "${ea[@]}" bash -c '
+      if [ -n "${R539EVAL-}" ]; then eval "$(cat "$1")"; else . "${R539LOAD:-$1}"; fi
+      if [ -z "${D539REAL-}" ]; then
+        forge_api() { printf "%s %s\n" "$1" "$2" >> "$D539LOG"; [ "$1" != GET ] || printf "%s" "$D539GET"; return 0; }
+      fi
+      eval "$2"' _ "$lib" "$body" ) > "$T/o539" 2> "$T/e539"
+  R539RC=$?
+}
+reqs539() { grep -c "^$1 " "$T/req539.log"; }   # <POST|PATCH|(POST|PATCH) with grep -E off>: count of logged writes
+writes539() { grep -cE '^(POST|PATCH) ' "$T/req539.log"; }
+runs539() { grep -c '^RUN ' "$T/stub539.log"; }
+G539="FORGE_LEAK_GUARD_DIR=$SD539"
+AP539='D539GET={"body":"intro\n\n## Decision\n\nfirst (gate-written, round 1)\nbody"}'   # a Decision section a gate block may be appended to
+# lc539 <script> <writer> <field>: the script's write is refused (110), nothing is sent, and the one
+# line names the writer, a rule and the field, never the matched text.
+lc539() {
+  r539 "$RS539" "$L539" "$1" "$G539" ${4:+"$4"}
+  [ "$R539RC" = 110 ] && [ "$(writes539)" = 0 ] \
+    && grep -qE "^forge-lib: $2: leak-guard: [a-z-]+ in $3 line 1; not sent\. Stop and report this to the user; do not set FORGE_LEAK_SCAN=0 yourself\.\$" "$T/e539" \
+    && ! grep -q 'PRIVNAME\|ADDRESS' "$T/e539" && [ "$(wc -l < "$T/e539")" = 1 ]
+}
+w539_comment() { lc539 'forge_issue_comment 5 "hello PRIVNAME"' forge_issue_comment body; }
+w539_edit() { lc539 'forge_issue_edit 5 "hello PRIVNAME"' forge_issue_edit body; }
+w539_create() { lc539 'forge_issue_create "clean title" "hello PRIVNAME"' forge_issue_create body; }
+w539_create_title() { lc539 'forge_issue_create "PRIVNAME title" "clean body"' forge_issue_create title; }
+w539_release() { lc539 'forge_release_create v1 "clean name" "notes PRIVNAME"' forge_release_create notes; }
+w539_release_name() { lc539 'forge_release_create v1 "PRIVNAME name" "clean notes"' forge_release_create name; }
+w539_region() { lc539 'forge_body_region_set 7 gate gate-verdict "new PRIVNAME"' forge_body_region_set content; }
+w539_compose() { lc539 'forge_body_compose_preserving 7 "new PRIVNAME"' forge_body_compose_preserving body; }
+w539_append() { lc539 'forge_body_section_append 7 Decision "PRIVNAME (gate-written, round 1)"' forge_body_section_append content "$AP539"; }
+w539_append_addr() {   # the address is on line 2, and neither it nor a temp path is printed
+  r539 "$RS539" "$L539" 'forge_body_section_append 7 Decision "title (gate-written, round 1)"$'"'"'\nreach ADDRESS'"'"'' "$G539" "$AP539"
+  [ "$R539RC" = 110 ] && grep -q 'leak-guard: email-address in content line 2; not sent' "$T/e539" \
+    && ! grep -q 'ADDRESS' "$T/e539" && ! grep -q "$TMPDIR" "$T/e539" && [ "$(writes539)" = 0 ]
+}
+c539_clean_comment() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean text"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && [ ! -s "$T/e539" ] && [ "$(runs539)" = 2 ]
+}
+c539_clean_edit() {
+  r539 "$RS539" "$L539" 'forge_issue_edit 5 "clean text"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 PATCH)" = 1 ] && [ ! -s "$T/e539" ]
+}
+c539_clean_create() {
+  r539 "$RS539" "$L539" 'forge_issue_create "clean title" "clean body"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && [ ! -s "$T/e539" ] && [ "$(runs539)" = 4 ]
+}
+c539_clean_release() {
+  r539 "$RS539" "$L539" 'forge_release_create v1 "clean name" "clean notes"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && [ ! -s "$T/e539" ]
+}
+c539_create_exact() {   # the exact refusal text, for a leak in the title only
+  r539 "$RS539" "$L539" 'forge_issue_create "PRIVNAME title" "clean body"' "$G539"
+  [ "$R539RC" = 110 ] && [ "$(cat "$T/e539")" = "forge-lib: forge_issue_create: leak-guard: private-name in title line 1; not sent. Stop and report this to the user; do not set FORGE_LEAK_SCAN=0 yourself." ]
+}
+c539_append_clean() {
+  r539 "$RS539" "$L539" 'forge_body_section_append 7 Decision "title (gate-written, round 1)"' "$G539" "$AP539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 PATCH)" = 1 ] && [ ! -s "$T/e539" ]
+}
+c539_clear_passes() {   # the region holds PRIVNAME already; clearing it supplies no text, so it is not refused
+  r539 "$RS539" "$L539" 'forge_body_region_clear 7 gate gate-verdict' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 PATCH)" = 1 ] && [ "$(runs539)" = 0 ]
+}
+c539_no_sentinel() {
+  r539 "$RN539" "$L539" 'forge_issue_comment 5 "hello PRIVNAME"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 0 ] && [ ! -s "$T/e539" ] && [ "$(reqs539 POST)" = 1 ]
+}
+c539_forced_on() {
+  r539 "$RN539" "$L539" 'forge_issue_comment 5 "hello PRIVNAME"' "$G539" FORGE_LEAK_SCAN=1
+  [ "$R539RC" = 110 ] && [ "$(writes539)" = 0 ]
+}
+c539_off_wins() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "hello PRIVNAME"' "$G539" FORGE_LEAK_SCAN=0
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 0 ] && [ ! -s "$T/e539" ]
+}
+c539_badval() {   # any other value is treated as unset, with one note per shell
+  r539 "$RN539" "$L539" 'forge_issue_comment 5 "a PRIVNAME"; forge_issue_comment 6 "b PRIVNAME"' "$G539" FORGE_LEAK_SCAN=yes
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 0 ] && [ "$(cat "$T/e539")" = "forge-lib: FORGE_LEAK_SCAN=yes is not 0 or 1; using the sentinel" ] || return 1
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "a PRIVNAME"' "$G539" FORGE_LEAK_SCAN=yes
+  [ "$R539RC" = 110 ] && grep -q '^forge-lib: FORGE_LEAK_SCAN=yes is not 0 or 1; using the sentinel$' "$T/e539"
+}
+c539_guard_missing() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean"' "FORGE_LEAK_GUARD_DIR=$T/nodir539"
+  [ "$R539RC" = 110 ] && [ "$(writes539)" = 0 ] && [ "$(cat "$T/e539")" = "forge-lib: FORGE_LEAK_GUARD_DIR=$T/nodir539 does not hold both marked leak-guard scanners; not sent" ]
+}
+c539_guard_one() {
+  mkdir -p "$T/one539"; cp "$SD539/check-private-leaks.sh" "$T/one539/"
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean"' "FORGE_LEAK_GUARD_DIR=$T/one539"
+  [ "$R539RC" = 110 ] && [ "$(writes539)" = 0 ] && grep -q 'does not hold both marked leak-guard scanners; not sent$' "$T/e539"
+}
+c539_guard_relative() {   # a relative value is resolved once, to an absolute path, and reused after a cd
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 clean; cd "$ALT539"; forge_issue_comment 6 "x PRIVNAME"' "FORGE_LEAK_GUARD_DIR=../../s539" "ALT539=$RS2539"
+  [ "$R539RC" = 110 ] && [ "$(reqs539 POST)" = 1 ]
+}
+c539_notfound() {   # a copy with no scanner anywhere: one note across two writes, again in another repo
+  local d="$T/iso539/a/b/c/scripts"; mkdir -p "$d"; cp "$L539" "$d/forge-lib.sh"
+  mkstub539 "$T/iso539/forge-kit-security/skills/leak-guard/assets"   # four levels above scripts/: must NOT be found
+  r539 "$RS539" "$d/forge-lib.sh" 'forge_issue_comment 5 "x PRIVNAME"; forge_issue_comment 6 "y PRIVNAME"' "HOME=$EH539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 2 ] && [ "$(runs539)" = 0 ] && [ "$(cat "$T/e539")" = "forge-lib: leak-guard scanner not found; body not scanned" ] || return 1
+  r539 "$RS539" "$d/forge-lib.sh" 'forge_issue_comment 5 x; cd "$ALT539"; forge_issue_comment 6 y' "HOME=$EH539" "ALT539=$RS2539"
+  [ "$R539RC" = 0 ] && [ "$(grep -c 'scanner not found' "$T/e539")" = 2 ] && [ "$(runs539)" = 0 ]
+}
+c539_intree() {   # the source layout: the sibling forge-kit-security group is found from forge-kit-devops/skills/forge-host/assets
+  local d="$T/tree539/forge-kit-devops/skills/forge-host/assets"; mkdir -p "$d"; cp "$L539" "$d/forge-lib.sh"
+  mkstub539 "$T/tree539/forge-kit-security/skills/leak-guard/assets"
+  r539 "$RS539" "$d/forge-lib.sh" 'forge_issue_comment 5 "x PRIVNAME"' "HOME=$EH539"
+  [ "$R539RC" = 110 ] && [ "$(runs539)" -ge 1 ]
+}
+c539_home_plugins() {   # the cache layout under $HOME/.claude/plugins: highest check-private-leaks-version wins, tie to the lexically last path
+  local h="$T/hp539" a b
+  rm -rf "$h"; a="$h/.claude/plugins/cache/x/forge-kit-security/1.0.0/skills/leak-guard/assets"; b="$h/.claude/plugins/cache/x/forge-kit-security/1.1.0/skills/leak-guard/assets"
+  mkstub539 "$a"; mkstub539 "$b"
+  sed -i 's/^# check-private-leaks-version: 1$/# check-private-leaks-version: 9/' "$a/check-private-leaks.sh"
+  local d="$T/hpl539/a/b/c/scripts"; mkdir -p "$d"; cp "$L539" "$d/forge-lib.sh"
+  r539 "$RS539" "$d/forge-lib.sh" 'forge_issue_comment 5 "clean"' "HOME=$h"
+  [ "$R539RC" = 0 ] && grep -q "^SCRIPT private .*/forge-kit-security/1.0.0/" "$T/stub539.log" && grep -q "^SCRIPT public .*/forge-kit-security/1.0.0/" "$T/stub539.log"
+}
+c539_scanner_exit2() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "x PRIVNAME"' "$G539" STUBMODE=exit2
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && [ "$(cat "$T/e539")" = "forge-lib: leak-guard could not run; body not scanned" ]
+}
+c539_scanner_exit127() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "x PRIVNAME"' "$G539" STUBMODE=exit127
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && [ "$(cat "$T/e539")" = "forge-lib: leak-guard could not run; body not scanned" ]
+}
+c539_hang() {
+  local t0=$SECONDS
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "x PRIVNAME"' "$G539" STUBMODE=hang
+  [ "$R539RC" = 0 ] && [ "$((SECONDS - t0))" -le 11 ] && [ "$(reqs539 POST)" = 1 ] && [ "$(cat "$T/e539")" = "forge-lib: leak-guard could not run; body not scanned" ]
+}
+c539_big() {
+  r539 "$RS539" "$L539" 'b="$(head -c 1048577 /dev/zero | tr "\0" a)"; forge_issue_comment 5 "$b"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 0 ] && [ "$(reqs539 POST)" = 1 ] && [ "$(cat "$T/e539")" = "forge-lib: leak-guard: body over 1 MiB; not scanned" ]
+}
+c539_dry_leak() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "x PRIVNAME"' "$G539" FORGE_DRY_RUN=1 D539REAL=1
+  [ "$R539RC" = 110 ] && ! grep -q 'dry-run' "$T/e539"
+}
+c539_dry_edit_leak() {
+  r539 "$RS539" "$L539" 'forge_issue_edit 5 "x PRIVNAME"' "$G539" FORGE_DRY_RUN=1 D539REAL=1
+  [ "$R539RC" = 110 ] && ! grep -q 'dry-run' "$T/e539"
+}
+c539_dry_compose_leak() {
+  r539 "$RS539" "$L539" 'forge_body_compose_preserving 7 "x PRIVNAME"' "$G539" FORGE_DRY_RUN=1 D539REAL=1
+  [ "$R539RC" = 110 ] && ! grep -q 'dry-run' "$T/e539"
+}
+c539_dry_clean() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean"' "$G539" FORGE_DRY_RUN=1 D539REAL=1
+  [ "$R539RC" = 0 ] && [ "$(wc -l < "$T/e539")" = 1 ] && grep -q '^\[dry-run\] POST ' "$T/e539" && [ "$(runs539)" = 2 ]
+}
+c539_milestone() {   # an unscanned writer, listed as a known gap
+  r539 "$RS539" "$L539" 'forge_milestone_create m1 "desc PRIVNAME"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 0 ] && [ "$(reqs539 POST)" = 1 ]
+}
+c539_allow_file() {
+  local root; root="$(cd "$RA539" && pwd -P)"
+  r539 "$RA539" "$L539" 'forge_issue_comment 5 "clean"' "$G539"
+  [ "$R539RC" = 0 ] && grep -q "^RUN public argv: \[--allow-file\] \[$root/.leak-guard-allow\] \[--\] \[" "$T/stub539.log" \
+    || return 1
+  case "$(grep '^RUN private' "$T/stub539.log")" in *allow-file*) return 1 ;; esac
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 2 ] && ! grep -q 'allow-file' "$T/stub539.log"
+}
+c539_real_allow() {   # real scanners: the allow file permits a tilde root, its absence refuses it
+  r539 "$RA539" "$L539" 'forge_issue_comment 5 "see ~/data/a"' "FORGE_LEAK_GUARD_DIR=$REAL539" "HOME=$RH539"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] || return 1
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "see ~/data/a"' "FORGE_LEAK_GUARD_DIR=$REAL539" "HOME=$RH539"
+  [ "$R539RC" = 110 ] && grep -q 'leak-guard: home-root in body line 1; not sent' "$T/e539" && ! grep -q '/data' "$T/e539"
+}
+c539_real_names() {   # real scanners with a seeded names list under HOME
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "fine"; forge_issue_comment 6 "about secretproj"' "FORGE_LEAK_GUARD_DIR=$REAL539" "HOME=$RH539"
+  [ "$R539RC" = 110 ] && [ "$(reqs539 POST)" = 1 ] && grep -q 'leak-guard: private-name in body line 1; not sent' "$T/e539" && ! grep -q 'secretproj' "$T/e539"
+}
+c539_tokens() {   # the scanners never see the forge token, whichever variable holds it
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean"' "$G539" GH_TOKEN=a GITHUB_TOKEN=b FORGEJO_TOKEN=c MYTOK=d FORGE_TOKEN_ENV=MYTOK ALLOW_FILE=/x
+  [ "$R539RC" = 0 ] && [ "$(grep -c '^ENV .* GH=U GHT=U FJ=U MY=U ' "$T/stub539.log")" = 2 ] && grep -q '^ENV private GH=U GHT=U FJ=U MY=U AF=U$' "$T/stub539.log"
+}
+c539_tokenenv_member() {   # FORGE_TOKEN_ENV naming one of the three is not given to env -u twice
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean"' "$G539" GH_TOKEN=a FORGE_TOKEN_ENV=GH_TOKEN
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 2 ] && [ ! -s "$T/e539" ]
+}
+c539_badname() {   # an invalid FORGE_TOKEN_ENV is never given to env -u (it exits 125 on a name holding "=")
+  local v
+  for v in "bad name" "a=b"; do
+    r539 "$RS539" "$L539" 'forge_issue_comment 5 "x PRIVNAME"' "$G539" "FORGE_TOKEN_ENV=$v"
+    [ "$R539RC" = 110 ] && [ "$(runs539)" = 1 ] && ! grep -q 'could not run' "$T/e539" || return 1
+  done
+}
+c539_inject() {   # shell metacharacters and a leading dash reach the scanner byte for byte, as file content
+  local inj; inj="$(printf -- '-rf `touch %s/PWNED539` $(touch %s/PWNED539b); x\n--allow-file /etc/passwd' "$T" "$T")"
+  rm -f "$T/PWNED539" "$T/PWNED539b" "$T/copy539.private"
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "$INJ539"' "$G539" "INJ539=$inj" "STUBCOPY=$T/copy539"
+  [ "$R539RC" = 0 ] && [ "$(cat "$T/copy539.private")" = "$inj" ] && [ ! -e "$T/PWNED539" ] && [ ! -e "$T/PWNED539b" ] \
+    && ! grep -q 'etc/passwd' "$T/stub539.log"
+}
+c539_concurrent() {
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 a & forge_issue_comment 6 b & wait' "$G539" STUBMODE=slow
+  [ "$R539RC" = 0 ] && [ "$(grep '^FILE private ' "$T/stub539.log" | sort -u | wc -l)" = 2 ]
+}
+c539_rel_cd() {   # load by a relative path in A, cd into B (sentinel + marked stubs in scripts/): B's stubs never run
+  local a="$T/relA539" b="$T/relB539"; mkdir -p "$a/scripts"; cp "$L539" "$a/scripts/forge-lib.sh"
+  mkrepo539 "$b"; mkstub539 "$b/scripts"
+  r539 "$a" "$a/scripts/forge-lib.sh" 'cd "$ALT539"; forge_issue_comment 5 "x PRIVNAME"' "R539LOAD=scripts/forge-lib.sh" "ALT539=$b" "HOME=$EH539"
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 0 ] && [ "$(cat "$T/e539")" = "forge-lib: leak-guard scanner not found; body not scanned" ]
+}
+c539_cdpath() {   # an exported CDPATH must not redirect the load-time cd
+  local p="$T/cdp539/proj" real; mkdir -p "$p/scripts"; cp "$L539" "$p/scripts/forge-lib.sh"; mkrepo539 "$p"
+  mkstub539 "$T/cdp539/elsewhere/scripts"; real="$(cd "$p/scripts" && pwd -P)"
+  r539 "$p" "$p/scripts/forge-lib.sh" 'printf "%s\n" "$_FORGE_LIB_DIR"; forge_issue_comment 5 "x PRIVNAME"' "R539LOAD=scripts/forge-lib.sh" "CDPATH=$T/cdp539/elsewhere:." "HOME=$EH539"
+  [ "$R539RC" = 0 ] && [ "$(cat "$T/o539")" = "$real" ] && [ "$(runs539)" = 0 ]
+}
+c539_eval_load() {   # no BASH_SOURCE: the own directory is empty and never "." (stubs sit in the cwd and in its scripts/)
+  local e="$T/ev539"; mkrepo539 "$e"; mkstub539 "$e"; mkstub539 "$e/scripts"
+  sed 's/^if \[ "${BASH_SOURCE\[0\]}" = "${0}" \]; then$/if false; then/' "$L539" > "$e/lib-noguard.sh"
+  r539 "$e" "$e/lib-noguard.sh" 'printf "[%s]\n" "$_FORGE_LIB_DIR"; forge_issue_comment 5 "x PRIVNAME"' "R539EVAL=1" "HOME=$EH539"
+  [ "$R539RC" = 0 ] && [ "$(cat "$T/o539")" = "[]" ] && [ "$(runs539)" = 0 ] && grep -q 'scanner not found' "$T/e539"
+}
+row539() { if "$2"; then ok "$1"; else bad "$1 (rc $R539RC, stderr: $(head -c 300 "$T/e539" 2>/dev/null | tr '\n' '|'))"; fi; }
+
+row539 "#539: a clean comment is sent once, silently, after both scanners ran" c539_clean_comment
+row539 "#539: a comment naming a listed name is refused 110, nothing sent, the name not echoed" w539_comment
+row539 "#539: a clean edit is sent" c539_clean_edit
+row539 "#539: a leaking edit is refused 110, nothing sent" w539_edit
+row539 "#539: a clean create is sent, both fields scanned by both scanners" c539_clean_create
+row539 "#539: a create with a leak in the body only is refused naming body" w539_create
+row539 "#539: a create with a leak in the title only is refused naming title" w539_create_title
+row539 "#539: the create refusal line is exactly the documented one" c539_create_exact
+row539 "#539: a clean release is sent" c539_clean_release
+row539 "#539: a release leaking in the notes is refused naming notes" w539_release
+row539 "#539: a release leaking in the name is refused naming name" w539_release_name
+row539 "#539: a clean section append is sent" c539_append_clean
+row539 "#539: a section append leaking is refused naming content" w539_append
+row539 "#539: an address on line 2 of an append is refused as line 2, without the address or a temp path" w539_append_addr
+row539 "#539: a leaking region set is refused 110, no PATCH" w539_region
+row539 "#539: a leaking compose is refused 110, no PATCH" w539_compose
+row539 "#539: a region clear on a region that already leaks is not refused" c539_clear_passes
+row539 "#539: no sentinel and FORGE_LEAK_SCAN unset: no scanner, no stderr, the write goes" c539_no_sentinel
+row539 "#539: FORGE_LEAK_SCAN=1 scans without a sentinel" c539_forced_on
+row539 "#539: FORGE_LEAK_SCAN=0 beats the sentinel" c539_off_wins
+row539 "#539: another FORGE_LEAK_SCAN value is a noted no-op, once per shell, and the sentinel decides" c539_badval
+row539 "#539: a FORGE_LEAK_GUARD_DIR that is missing refuses 110 and never falls through to the library's own scanners" c539_guard_missing
+row539 "#539: a FORGE_LEAK_GUARD_DIR holding one scanner refuses 110" c539_guard_one
+row539 "#539: a relative FORGE_LEAK_GUARD_DIR is resolved once to an absolute path and reused after a cd" c539_guard_relative
+row539 "#539: scanners not found: rc 0, one note across two writes, again in another repo, nothing found above scripts/" c539_notfound
+row539 "#539: the source layout finds the sibling security group's scanners" c539_intree
+row539 "#539: the plugin cache is searched and a candidate is chosen" c539_home_plugins
+row539 "#539: a scanner exiting 2 fails open with one could-not-run note" c539_scanner_exit2
+row539 "#539: a scanner exiting 127 fails open with one could-not-run note" c539_scanner_exit127
+if command -v timeout >/dev/null 2>&1; then
+  row539 "#539: a hanging scanner fails open inside the total bound with one note" c539_hang
+else
+  ok "#539: a hanging scanner fails open inside the total bound with one note (skipped: no timeout command)"
+fi
+row539 "#539: a body over 1 MiB is not scanned, with one note" c539_big
+row539 "#539: a dry run with a leak is refused 110 before any dry-run line" c539_dry_leak
+row539 "#539: a dry run of an edit with a leak is refused 110 before any dry-run line" c539_dry_edit_leak
+row539 "#539: a dry run of a compose with a leak is refused 110 before any dry-run line" c539_dry_compose_leak
+row539 "#539: a clean dry run prints only the dry-run line" c539_dry_clean
+row539 "#539: forge_milestone_create is a known unscanned gap, pinned" c539_milestone
+row539 "#539: the allow file is passed to the public scanner only, and only when it exists" c539_allow_file
+row539 "#539: real scanners: the allow file permits a tilde root, its absence refuses it as home-root" c539_real_allow
+row539 "#539: real scanners: a seeded name is refused as private-name without echoing it" c539_real_names
+row539 "#539: the scanners see no forge token and no inherited ALLOW_FILE on the private one" c539_tokens
+row539 "#539: FORGE_TOKEN_ENV naming GH_TOKEN still scans cleanly" c539_tokenenv_member
+row539 "#539: an invalid FORGE_TOKEN_ENV is never given to env -u" c539_badname
+row539 "#539: shell metacharacters and a leading dash reach the scanner byte for byte" c539_inject
+row539 "#539: concurrent calls use distinct temp files" c539_concurrent
+row539 "#539: a relative load then a cd into another repo never runs that repo's scripts/ stubs" c539_rel_cd
+row539 "#539: an exported CDPATH does not redirect the own-directory resolution" c539_cdpath
+row539 "#539: an eval load leaves the own directory empty and never uses the current directory" c539_eval_load
+expect "#539: the suite exports FORGE_LEAK_SCAN=0 so no other row can start a scanner" "0" "${FORGE_LEAK_SCAN-}"
+expect "#539: no helper temp file is left behind" "" "$(ls -A "$T/tmp" 2>&1)"
+
+# Mutants: each damages one decision and the row that pins it must fail.
+mut539() {   # mut539 <label> <row-fn> <old> <new> [<old2> <new2>]
+  local label="$1" fn="$2"; shift 2
+  python3 - "$LIB" "$T/m539/forge-lib.sh" "$@" <<'PY' || { bad "#539: mutant '$label' did not apply"; return 0; }
+import sys
+src, dst, *pairs = sys.argv[1:]
+s = open(src).read()
+for i in range(0, len(pairs), 2):
+    assert s.count(pairs[i]) == 1, (s.count(pairs[i]), pairs[i][:50])
+    s = s.replace(pairs[i], pairs[i + 1])
+open(dst, "w").write(s)
+PY
+  L539="$T/m539/forge-lib.sh"
+  if "$fn"; then bad "#539 MUTANT SURVIVED: $label"; else ok "#539 mutant '$label' dies"; fi
+  L539="$LIB"
+}
+mut539 'the edit scan placed after its dry-run guard' c539_dry_edit_leak \
+  '  _forge_leak_scan forge_issue_edit "body=$2" || return $?   # #539: before the payload and the dry-run guard
+' '' \
+  '    return 0
+  fi
+  local rc=0; forge_api PATCH' '    return 0
+  fi
+  _forge_leak_scan forge_issue_edit "body=$2" || return $?
+  local rc=0; forge_api PATCH'
+mut539 'the compose scan placed after its dry-run guard' c539_dry_compose_leak \
+  '  _forge_leak_scan forge_body_compose_preserving "body=$new" || return $?   # #539: the new text, not the recomposed body
+' '' \
+  '    return 0
+  fi
+  body="$(_forge_body_of "$n")" || return $?
+  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/new.$$"' '    return 0
+  fi
+  _forge_leak_scan forge_body_compose_preserving "body=$new" || return $?
+  body="$(_forge_body_of "$n")" || return $?
+  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/new.$$"'
+mut539 'the comment scan placed after the send (a dry run has already printed its line)' c539_dry_leak \
+  '  _forge_leak_scan forge_issue_comment "body=${2-}" || return $?   # #539: before the payload and any dry-run guard
+' '' \
+  '  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null || rc=$?' '  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null || rc=$?
+  _forge_leak_scan forge_issue_comment "body=${2-}" || return $?'
+mut539 'the token strip removed' c539_tokens 'local envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN)' 'local envu=(-u NOPE539)'
+mut539 'the FORGE_TOKEN_ENV strip removed' c539_tokens '*) envu+=(-u "$tv") ;; esac' '*) ;; esac'
+mut539 'any non-empty FORGE_TOKEN_ENV given to env -u' c539_badname 'if [[ "$tv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then' 'if [ -n "$tv" ]; then'
+mut539 'the private scanner keeps an inherited ALLOW_FILE' c539_tokens 'if [ "$tool" = private ]; then xu=(-u ALLOW_FILE);' 'if [ "$tool" = private ]; then xu=();'
+mut539 'the sibling probe loses its layout confinement' c539_notfound '      */forge-kit-devops/skills/forge-host/assets)' '      *)'
+mut539 'the allow file is not passed' c539_allow_file 'xa=(--allow-file "$allow")' 'xa=()'
+mut539 'the own directory is left relative' c539_rel_cd \
+  '_FORGE_LIB_DIR="$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || _FORGE_LIB_DIR=""' \
+  '_FORGE_LIB_DIR="$(dirname -- "${BASH_SOURCE[0]}")"'
+mut539 'the own directory resolution is CDPATH-unsafe' c539_cdpath '$(CDPATH= cd -P -- "$(dirname' '$(cd -P -- "$(dirname'
+mut539 'an empty own directory falls back to the current directory' c539_eval_load '|| _FORGE_LIB_DIR=""
+fi' '|| _FORGE_LIB_DIR=""
+else
+  _FORGE_LIB_DIR="."
+fi'
+mut539 'any non-zero scanner exit is treated as a refusal' c539_scanner_exit2 'if [ "$rc" = 1 ]; then' 'if [ "$rc" != 0 ]; then'
+mut539 'the not-found note is not memoized' c539_notfound '_forge_leak_note nf "leak-guard scanner not found; body not scanned"; return 0' 'echo "forge-lib: leak-guard scanner not found; body not scanned" >&2; return 0'
+mut539 'an invalid FORGE_LEAK_GUARD_DIR falls through to discovery' c539_guard_missing '    return 110
+  fi
+  [ "${_FORGE_LEAK_DONE-}" = "d:" ] && return 0' '    :
+  fi
+  [ "${_FORGE_LEAK_DONE-}" = "d:" ] && return 0'
+mut539 'the size cap removed' c539_big '[ "${#ftext}" -gt 1048576 ]' '[ "${#ftext}" -gt 99999999999 ]'
+# each call site removed in turn (the Nth scan call in file order)
+n539sites="$(grep -cE '_forge_leak_scan (forge_|"forge_body_region_)' "$LIB")"
+expect "#539: the library has seven scan call sites" 7 "$n539sites"
+for site in 1 2 3 4 5 6 7; do
+  awk -v n="$site" '/_forge_leak_scan (forge_|"forge_body_region_)/ && !/^_forge_leak_scan/ {c++; if (c==n) next} 1' "$LIB" > "$T/m539/forge-lib.sh"
+  cmp -s "$LIB" "$T/m539/forge-lib.sh" && bad "#539: call-site mutant $site did not apply"
+  case $site in
+    1) lbl=forge_body_region_set; r=w539_region ;; 2) lbl=forge_body_compose_preserving; r=w539_compose ;;
+    3) lbl=forge_body_section_append; r=w539_append ;; 4) lbl=forge_issue_comment; r=w539_comment ;;
+    5) lbl=forge_issue_edit; r=w539_edit ;; 6) lbl=forge_issue_create; r=w539_create ;; 7) lbl=forge_release_create; r=w539_release ;;
+  esac
+  L539="$T/m539/forge-lib.sh"
+  if "$r"; then bad "#539 MUTANT SURVIVED: the scan call dropped from $lbl"; else ok "#539 mutant 'scan call dropped from $lbl' dies"; fi
+  L539="$LIB"
+done
+expect "#539: the mutant runs leave no helper temp file behind" "" "$(ls -A "$T/tmp" 2>&1)"
+rm -rf "$T/m539" "$T/iso539" "$T/tree539" "$T/hp539" "$T/hpl539" "$T/relA539" "$T/relB539" "$T/cdp539" "$T/ev539" "$T/one539"
+
 
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 52
+# forge-lib-version: 53
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -234,6 +234,17 @@
 #       The per-line parse of _forge_load_conf is now _forge_conf_line, shared with the
 #       default-branch scan. Not called from forge_host, forge_api_base or _forge_load_conf.
 #       Narrows #468's accepted risk to a hostile repository whose default branch is hostile too.
+#   v53 NEW RETURN CODE 110 (#539). When scanning is switched on (the #536 sentinel
+#       .claude/scan-forge-writes at the repository root, or FORGE_LEAK_SCAN=1; FORGE_LEAK_SCAN=0
+#       forces it off), the seven public writers (forge_issue_comment, forge_issue_edit,
+#       forge_issue_create, forge_release_create, forge_body_region_set,
+#       forge_body_compose_preserving, forge_body_section_append) run the leak-guard scanners over
+#       the text THE CALLER SUPPLIED, before the dry-run guard, and return 110 with nothing sent
+#       when a scanner reports a finding. Only exit 1 refuses: a scanner that is missing, exits
+#       any other code or times out lets the write through with one stderr note per shell. A
+#       caller that treats every non-zero as fatal (ticket-gate's `|| exit 2`, gate-status's
+#       mark) already does the right thing; one that retries on non-zero must not retry a 110.
+#       With neither switch on nothing changes: no scanner, no note, no new stderr.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -270,6 +281,18 @@ _forge_clear_file_vals() {
 # unset the config keys directly, so the list grants nothing they did not already have.
 _forge_clear_file_vals
 unset _FORGE_TMPDIR _FORGE_CONF_PWD _FORGE_FROM_FILE _FORGE_PIN_PWD   # _FORGE_PIN_PWD: the pin memo (#517), never inherited
+unset _FORGE_LEAK_DIR _FORGE_LEAK_DONE _FORGE_LEAK_NOTED _FORGE_LEAK_ROOT _FORGE_LEAK_ROOT_PWD   # the leak-scan memos (#539), never inherited
+# This library's own directory, resolved to an ABSOLUTE physical path ONCE, here at load time
+# (#539): the documented `source scripts/forge-lib.sh` leaves BASH_SOURCE relative, so resolving it
+# at use time would, after a cd into another checkout, name THAT checkout's scripts/ and run its
+# scanners. CDPATH= and -- because an exported CDPATH would otherwise redirect the cd (and
+# scripts/check-cdpath-cd.sh requires them). An empty BASH_SOURCE[0] (an `eval` load) or a failed
+# resolution leaves it EMPTY, which the discovery below treats as "no own directory"; it never
+# falls back to `.`, the one value that would mean "wherever the caller is now".
+_FORGE_LIB_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  _FORGE_LIB_DIR="$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || _FORGE_LIB_DIR=""
+fi
 
 _forge_root() { git rev-parse --show-toplevel 2>/dev/null || pwd; }
 
@@ -337,6 +360,7 @@ _forge_load_conf() {
   # caller's, and env wins.
   _forge_clear_file_vals
   _FORGE_CONF_PWD="${PWD-}"; unset _FORGE_PIN_PWD   # every reload is a new load to pin (#517 round 1)
+  unset _FORGE_LEAK_NOTED   # #539: moving to another repository prints its own leak-scan notes. Only the NOTES memo resets here: _FORGE_LEAK_DIR is an absolute path that does not depend on the repository, and _FORGE_LEAK_ROOT_PWD is keyed on $PWD itself.
   f="$root/.forge.conf"
   [ -f "$f" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -947,6 +971,182 @@ _forge_tmp_done() {
   return 0
 }
 
+# --- #539: the leak scan of the text a caller hands to a public writer -----------------------------
+# The #536 hook sees only a body typed into a `gh` command line. Every body write in this file ends
+# in _forge_payload or _forge_body_write, which send JSON through `gh api --input -`, so a Bash hook
+# never sees that body; gate reviews and decision sections go out that way. _forge_leak_scan runs the
+# two leak-guard scanners over the CALLER-SUPPLIED text at the entry of the seven public writers,
+# BEFORE their FORGE_DRY_RUN guard (a dry run refuses what the real run refuses), in the caller's
+# shell (never inside $( ), so rc 110 and the memos survive). It never scans the recomposed body: a
+# leak already in an issue body must not block the write that removes it, and a clear supplies no text.
+#
+# OPT-IN, one switch for both layers: the #536 sentinel .claude/scan-forge-writes at the repository
+# root this library resolves for .forge.conf, or FORGE_LEAK_SCAN=1. FORGE_LEAK_SCAN=0 forces it off.
+# With neither: no scanner, no note, no new stderr. Any other value is treated as unset, with a note.
+# FAIL OPEN, uniformly (the #536 policy, even under an explicit FORGE_LEAK_SCAN=1): scanners not
+# found, a scanner exiting any code but 0 and 1, a timeout, a temp file that cannot be made, or a
+# field over 1 MiB all let the write through with ONE stderr note per shell. Only exit 1 refuses.
+# One exception, an explicit FORGE_LEAK_GUARD_DIR that does not hold both marked scanners: the
+# operator asked for those scanners, so it refuses (110) instead of silently scanning nothing.
+#
+# DISCOVERY is a soft probe, not a declared dependency (forge-kit-devops must install alone), and
+# is CONFINED: a directory counts only when it holds BOTH scanners, each with its version marker.
+# Order: FORGE_LEAK_GUARD_DIR; this library's own directory (_FORGE_LIB_DIR, absolute, resolved at
+# load); the sibling forge-kit-security group, ONLY when the library sits at
+# .../forge-kit-devops/skills/forge-host/assets (a source or marketplace checkout), so a project
+# scripts/ copy can never reach a directory above the project; then the highest
+# check-private-leaks-version under $HOME/.claude/plugins (ties: the lexically last path, #189).
+# The result is memoized absolute in _FORGE_LEAK_DIR; _FORGE_LEAK_DONE records the
+# FORGE_LEAK_GUARD_DIR value it was made for, so changing the variable re-resolves.
+#
+# SCANNER CALL: each field goes to its own 0600 temp file (under _forge_tmp_init's directory) named
+# *.txt, never to an argv. `bash check-private-leaks.sh -- <file>` and `bash check-public-leaks.sh
+# [--allow-file <root>/.leak-guard-allow] -- <file>` (the pair only when that file exists), under
+# `env -u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN` plus the variable FORGE_TOKEN_ENV names when
+# that is a valid identifier (an empty or invalid name is never given to `env -u`, which exits 125
+# on ""), so a scanner never sees the forge token; the private one also under `-u ALLOW_FILE`, which
+# it would otherwise inherit. 4 s per scan and 8 s in all when `timeout` exists. Output is parsed for
+# the first `<file>:<line>: <rule>:` and discarded: check-public-leaks.sh prints evidence unredacted,
+# so the refusal message is built here and carries a rule and a line, never matched text.
+_forge_leak_note() {   # <memo key, no spaces> <text>: once per shell until the config reloads
+  case " ${_FORGE_LEAK_NOTED-} " in *" $1 "*) return 0 ;; esac
+  _FORGE_LEAK_NOTED="${_FORGE_LEAK_NOTED:+$_FORGE_LEAK_NOTED }$1"
+  echo "forge-lib: $2" >&2
+}
+
+_forge_leak_clean() {   # <value>: printable, bounded, for a message that names an operator's value
+  local v="${1-}"; v="${v//[![:print:]]/?}"; printf '%s' "${v:0:200}"
+}
+
+_forge_leak_phys() {   # <dir>: its absolute physical path, empty when it cannot be entered
+  ( CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P )
+}
+
+_forge_leak_qualifies() {   # <dir>: both scanners present, each carrying its version marker
+  [ -f "$1/check-private-leaks.sh" ] && [ -f "$1/check-public-leaks.sh" ] \
+    && grep -q '^# check-private-leaks-version: [0-9]' "$1/check-private-leaks.sh" \
+    && grep -q '^# check-public-leaks-version: [0-9]' "$1/check-public-leaks.sh"
+}
+
+# rc 0 with _FORGE_LEAK_DIR set (or empty: not found), rc 110 for an invalid explicit directory.
+_forge_leak_discover() {
+  local LC_ALL=C gd="${FORGE_LEAK_GUARD_DIR-}" d="" cand f v best="" bestv=-1
+  if [ -n "$gd" ]; then
+    [ "${_FORGE_LEAK_DONE-}" = "g:$gd" ] && return 0
+    d="$(_forge_leak_phys "$gd")"
+    if [ -n "$d" ] && _forge_leak_qualifies "$d"; then
+      _FORGE_LEAK_DIR="$d"; _FORGE_LEAK_DONE="g:$gd"; return 0
+    fi
+    echo "forge-lib: FORGE_LEAK_GUARD_DIR=$(_forge_leak_clean "$gd") does not hold both marked leak-guard scanners; not sent" >&2
+    return 110
+  fi
+  [ "${_FORGE_LEAK_DONE-}" = "d:" ] && return 0
+  d=""
+  if [ -n "$_FORGE_LIB_DIR" ] && _forge_leak_qualifies "$_FORGE_LIB_DIR"; then
+    d="$_FORGE_LIB_DIR"
+  else
+    case "$_FORGE_LIB_DIR" in
+      */forge-kit-devops/skills/forge-host/assets)
+        cand="$(_forge_leak_phys "$_FORGE_LIB_DIR/../../../../forge-kit-security/skills/leak-guard/assets")"
+        if [ -n "$cand" ] && _forge_leak_qualifies "$cand"; then d="$cand"; fi ;;
+    esac
+  fi
+  if [ -z "$d" ] && [ -n "${HOME-}" ] && [ -d "$HOME/.claude/plugins" ]; then
+    while IFS= read -r -d '' f; do
+      cand="${f%/*}"
+      _forge_leak_qualifies "$cand" || continue
+      v="$(sed -n 's/^# check-private-leaks-version: \([0-9][0-9]*\)[[:space:]]*$/\1/p' "$cand/check-private-leaks.sh")"
+      v="${v%%$'\n'*}"; [ -n "$v" ] || continue
+      if [ "$v" -gt "$bestv" ] || { [ "$v" -eq "$bestv" ] && [[ "$cand" > "$best" ]]; }; then best="$cand"; bestv="$v"; fi
+    done < <(find "$HOME/.claude/plugins" -maxdepth 8 -name check-private-leaks.sh -type f -print0 2>/dev/null)
+    [ -z "$best" ] || d="$(_forge_leak_phys "$best")"
+  fi
+  _FORGE_LEAK_DIR="$d"; _FORGE_LEAK_DONE="d:"
+  return 0
+}
+
+# _forge_leak_scan <writer> <field>=<text>...   rc 0 (scanned clean, or fail-open, or switched off)
+# or 110 (a finding: nothing is sent). An empty text is skipped.
+_forge_leak_scan() {
+  local LC_ALL=C writer="$1"; shift
+  [ "${FORGE_LEAK_SCAN-}" = 0 ] && return 0
+  _forge_load_conf || true   # in THIS shell (not $( )): moving repository resets the notes memo, and FORGE_TOKEN_ENV is read below
+  local on=0 root spec any=0
+  if [ "${_FORGE_LEAK_ROOT_PWD-}" != "${PWD-}" ] || [ -z "${_FORGE_LEAK_ROOT-}" ]; then
+    _FORGE_LEAK_ROOT="$(_forge_root)"; _FORGE_LEAK_ROOT_PWD="${PWD-}"
+  fi
+  root="$_FORGE_LEAK_ROOT"
+  case "${FORGE_LEAK_SCAN-}" in
+    1) on=1 ;;
+    '') ;;
+    *) _forge_leak_note badval "FORGE_LEAK_SCAN=$(_forge_leak_clean "$FORGE_LEAK_SCAN") is not 0 or 1; using the sentinel" ;;
+  esac
+  [ "$on" = 1 ] || { [ -n "$root" ] && [ -e "$root/.claude/scan-forge-writes" ] && on=1; }
+  [ "$on" = 1 ] || return 0
+  for spec in "$@"; do [ -z "${spec#*=}" ] || any=1; done
+  [ "$any" = 1 ] || return 0
+  _forge_leak_discover || return $?
+  if [ -z "${_FORGE_LEAK_DIR-}" ]; then
+    _forge_leak_note nf "leak-guard scanner not found; body not scanned"; return 0
+  fi
+  if ! _forge_tmp_init; then
+    _forge_leak_note norun "leak-guard could not run; body not scanned"; return 0
+  fi
+  local fname ftext f files=() fnames=() norun=0 result=0 i
+  for spec in "$@"; do
+    fname="${spec%%=*}"; ftext="${spec#*=}"
+    [ -n "$ftext" ] || continue
+    if [ "${#ftext}" -gt 1048576 ]; then   # bytes: LC_ALL=C above
+      _forge_leak_note "over-$fname" "leak-guard: $fname over 1 MiB; not scanned"; continue
+    fi
+    f="$(mktemp "$_FORGE_TMPDIR/leak.XXXXXX" 2>/dev/null)" || { norun=1; continue; }
+    if mv -- "$f" "$f.txt" 2>/dev/null; then f="$f.txt"; fi
+    files+=("$f"); fnames+=("$fname")
+    case "$f" in *.txt) ;; *) norun=1; continue ;; esac
+    printf '%s\n' "$ftext" > "$f" 2>/dev/null || norun=1
+  done
+  local envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN) tv="${FORGE_TOKEN_ENV-}" allow="" start="$SECONDS"
+  if [[ "$tv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    case "$tv" in GH_TOKEN|GITHUB_TOKEN|FORGEJO_TOKEN) ;; *) envu+=(-u "$tv") ;; esac
+  fi
+  [ -n "$root" ] && [ -f "$root/.leak-guard-allow" ] && allow="$root/.leak-guard-allow"
+  local tool script out rc budget l r line rule re='^([0-9]+): ([a-z][a-z0-9-]*)(:|$)' tc=() xu=() xa=()
+  for ((i = 0; i < ${#files[@]}; i++)); do
+    f="${files[$i]}"; fname="${fnames[$i]}"
+    [ -s "$f" ] || { norun=1; continue; }
+    for tool in private public; do
+      script="$_FORGE_LEAK_DIR/check-$tool-leaks.sh"
+      xu=(); xa=()
+      if [ "$tool" = private ]; then xu=(-u ALLOW_FILE); elif [ -n "$allow" ]; then xa=(--allow-file "$allow"); fi
+      budget=$((8 - (SECONDS - start))); [ "$budget" -le 4 ] || budget=4
+      if [ "$budget" -le 0 ]; then norun=1; continue; fi
+      tc=()
+      if command -v timeout >/dev/null 2>&1; then tc=(timeout "$budget")
+      else _forge_leak_note nots "leak-guard: no timeout command; the scan is not time-bounded"; fi
+      rc=0
+      out="$("${tc[@]+"${tc[@]}"}" env "${envu[@]}" "${xu[@]+"${xu[@]}"}" bash "$script" "${xa[@]+"${xa[@]}"}" -- "$f" 2>/dev/null </dev/null)" || rc=$?
+      if [ "$rc" = 1 ]; then
+        line="?"; rule="finding"
+        while IFS= read -r l; do
+          case "$l" in
+            "$f":*) r="${l#"$f":}"
+                    if [[ "$r" =~ $re ]]; then line="${BASH_REMATCH[1]}"; rule="${BASH_REMATCH[2]}"; break; fi ;;
+          esac
+        done <<< "$out"
+        echo "forge-lib: $writer: leak-guard: $rule in $fname line $line; not sent. Stop and report this to the user; do not set FORGE_LEAK_SCAN=0 yourself." >&2
+        result=110; break 2
+      elif [ "$rc" != 0 ]; then
+        norun=1
+      fi
+    done
+  done
+  for f in ${files[@]+"${files[@]}"}; do _forge_tmp_done "$f"; done
+  if [ "$result" = 0 ] && [ "$norun" = 1 ]; then
+    _forge_leak_note norun "leak-guard could not run; body not scanned"
+  fi
+  return "$result"
+}
+
 
 # _forge_resolve_names <listfile> <name...>  resolve names against the label lists (JSON arrays,
 # one per line) in <listfile> -> [{name, id|null}]. ONE resolution pass drives BOTH the refusal
@@ -1233,6 +1433,8 @@ _forge_region_write() {
     return 103
   fi
   forge_host >/dev/null || return 2   # an invalid host refuses even under dry run (#256); stderr is the one line
+  # #539: the caller's text only (a clear supplies none), before the dry-run guard like every writer.
+  if [ "$mode" = set ]; then _forge_leak_scan "forge_body_region_$mode" "content=$content" || return $?; fi
   # THE DRY-RUN GUARD SITS HERE, BEFORE THE FETCH. forge_api short-circuits EVERY method including
   # GET under dry-run, returning 0 with an empty body, so a guard placed after the fetch would
   # splice against an empty string and report success.
@@ -1283,6 +1485,7 @@ forge_body_compose_preserving() {
   [ -n "$n" ] && [ -n "$new" ] || {
     echo "forge-lib: usage: forge_body_compose_preserving <issue> <new-body>" >&2; return 2; }
   forge_host >/dev/null || return 2   # above the dry-run guard (#256)
+  _forge_leak_scan forge_body_compose_preserving "body=$new" || return $?   # #539: the new text, not the recomposed body
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     _forge_dry_url_check || return 2
     printf '[dry-run] compose body of issue %s on %s (%s characters)\n' "$n" "$(forge_repo)" "${#new}" >&2
@@ -1419,6 +1622,7 @@ forge_body_section_append() {
     *) echo "forge-lib: could not check the content for '$label' (awk exited $rc); nothing was sent" >&2; return 2 ;;
   esac
   forge_host >/dev/null || return 2   # above the dry-run guard (#256)
+  _forge_leak_scan forge_body_section_append "content=$content" || return $?   # #539: before the dry-run guard
   # Before the fetch, as in _forge_region_write: forge_api answers a dry-run GET with an empty body,
   # which a guard after the fetch would read as a body with no heading. 107 to 109 are therefore
   # unreachable under dry run.
@@ -1523,6 +1727,7 @@ _forge_payload() {
 
 forge_issue_comment() {
   local payload rc=0
+  _forge_leak_scan forge_issue_comment "body=${2-}" || return $?   # #539: before the payload and any dry-run guard
   payload="$(printf '%s' "$2" | _forge_payload forge_issue_comment '{body:$b}')" || return 2   # forge-lib: payload (comment)
   # `rc=0; ... || rc=$?`, never `...; rc=$?` (#237): under a `set -e` caller errexit fires on the
   # forge_api line before rc=$? runs, and the 404 line is never printed. The || form is the one
@@ -1554,6 +1759,7 @@ forge_issue_close() {
 forge_issue_edit() {
   [ -n "${2:-}" ] || { echo "forge_issue_edit: refusing to replace issue #${1:-?} with an empty body" >&2; return 2; }
   forge_host >/dev/null || return 2   # above the dry-run guard (#256): both hosts PATCH, but an invalid one must not dry-run clean
+  _forge_leak_scan forge_issue_edit "body=$2" || return $?   # #539: before the payload and the dry-run guard
   local payload; payload="$(printf '%s' "$2" | _forge_payload forge_issue_edit '{body:$b}')" || return 2   # forge-lib: payload (edit)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     _forge_dry_url_check || return 2
@@ -1587,6 +1793,7 @@ forge_issue_list() {
 # add them in a follow-up host-specific step rather than risk a cross-host mismatch here.
 forge_issue_create() {
   local repo payload; repo="$(forge_repo)" || return 2
+  _forge_leak_scan forge_issue_create "title=${1-}" "body=${2-}" || return $?   # #539: before the payload
   payload="$(printf '%s' "$2" | _forge_payload forge_issue_create '{title:$t, body:$b}' --arg t "$1")" || return 2   # forge-lib: payload (create)
   forge_api POST "/repos/$repo/issues" "$payload"
 }
@@ -1809,6 +2016,7 @@ forge_tag_exists() {
 
 # forge_release_create <tag> [title] [notes]   (both hosts accept tag_name/name/body)
 forge_release_create() {
+  _forge_leak_scan forge_release_create "name=${2-}" "notes=${3-}" || return $?   # #539: before the payload
   local payload; payload="$(printf '%s' "${3-}" | _forge_payload forge_release_create '{tag_name:$t,name:$n,body:$b}' --arg t "$1" --arg n "${2:-$1}")" || return 2   # forge-lib: payload (release)
   forge_api POST "/repos/$(forge_repo)/releases" "$payload" >/dev/null
 }

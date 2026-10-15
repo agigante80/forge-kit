@@ -13,6 +13,16 @@ command line shows.
 - Plugin only. It finds the scanners from its own plugin root (`../skills/leak-guard/assets`), so a
   copy under `.claude/hooks/` would scan nothing; forge-adapt recommends the plugin instead.
 - Fail open everywhere. It denies only on a scanner finding; every other outcome allows.
+- The same sentinel (or `FORGE_LEAK_SCAN=1`) also switches on the second layer, `forge-lib.sh`'s
+  own scan of the text its seven public writers are given (#539). The hook cannot see those bodies,
+  because they travel as JSON on stdin of `gh api --input -`; the library scans them in the caller's
+  shell, before the dry-run guard, and a finding returns 110 with a `forge-lib: <writer>: leak-guard:
+  <rule> in <field> line <N>; not sent` line. Its call contract matches the one below (temp file per
+  field, `--allow-file` when present, 4 s and 8 s, the first `<file>:<line>: <rule>:` parsed and the
+  output discarded), plus the forge token variables removed from the scanner's environment. Its
+  discovery is a soft probe (`FORGE_LEAK_GUARD_DIR`, its own directory, the sibling group in a source
+  layout, then `$HOME/.claude/plugins`) and fails open with a note when no pair of marked scanners is
+  found; see `forge-host/references/adopting-forge-lib.md`.
 
 ## What it reads
 
@@ -76,8 +86,15 @@ evidence or scanner output; the model gets the location and the rule, not the se
 ## Known bypasses, pinned by tests
 
 - Out of scope subcommands in gh 2.74: `issue close|reopen --comment`, `pr close|reopen --comment`,
-  `pr review --body`, `pr merge --body`, `release create --notes`, `gh api -f body=...`, and the
-  shell helper `forge_issue_comment`. No scanner starts for them.
+  `pr review --body`, `pr merge --body`, `release create --notes` and `gh api -f body=...`. No
+  scanner starts for them. A call to `forge_issue_comment` (or any of the other six writers) is NOT
+  read by this hook, but since #539 `forge-lib.sh` scans it itself when the project opted in.
+- Still unscanned by either layer (#539, pinned by tests in `scripts/test-forge-lib.sh`): `forge_api`
+  direct writes, `forge_milestone_create`, `forge_issue_milestone`, label writes, `sync-labels.sh`
+  descriptions, any run with `FORGE_LEAK_SCAN=0` or a custom `FORGE_LEAK_GUARD_DIR`, a field over
+  1 MiB (one note, not scanned), and every fail-open case: scanners not found, a scanner exiting
+  other than 0 or 1, a timeout, a temp file that cannot be made. The one refusal outside a finding
+  is an explicit `FORGE_LEAK_GUARD_DIR` that does not hold both marked scanners (110).
 - A body produced by a script the command does not name (`python3 gen.py && gh issue comment 5
   --body-file w.md`) is judged on the file's content before the command runs.
 - Anything behind a variable, a command substitution other than the heredoc idiom, a function, an
