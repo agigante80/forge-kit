@@ -30,7 +30,7 @@ fi
 #
 # Stage 1, by name: the marker must be a lowercase-kebab name followed by digits, anchored to its
 # comment lead-in so a match-name that is a suffix of a longer marker (e.g. "adapt" inside
-# "forge-adapt-version") cannot match by substring; \K then captures only the digits.
+# "forge-adapt-version") cannot match by substring; a sed capture group then keeps only the digits (POSIX only, #533).
 #
 # Stage 2, the fallback (issue #95): take the file's FIRST marker whatever its name, which is the
 # same positional "first <name>-version wins" rule the three enforcement points use (see ver_of in
@@ -53,9 +53,9 @@ fi
 # component. test-forge-adapt-catalogue.sh asserts no row prints it.
 cat_row() {  # $1 = type label, $2 = file, $3 = NAME (never basename "$2")
   local v
-  v=$(grep -oP -- "(?:<!--\s*|#\s*)${3}-version:\s*\K\d+" "$2" | head -1)
-  [ -n "$v" ] || v=$(grep -oP -- '[a-z0-9-]+-version:\s*\d+' "$2" \
-                       | grep -v '^template-version' | head -1 | grep -oP '\d+$')
+  v=$(sed -nE "s/.*(<!--|#)[[:space:]]*${3}-version:[[:space:]]*([0-9]+).*/\2/p" "$2" | head -1)
+  [ -n "$v" ] || v=$(grep -oE -- '[a-z0-9-]+-version:[[:space:]]*[0-9]+' "$2" \
+                       | grep -v '^template-version' | head -1 | sed 's/.*[^0-9]//')
   if [ "$MODE" = tsv ]; then
     printf '%s\t%s\t%s\t%s\t%s\n' "$GROUP" "$1" "$3" "${v:-none}" "$2"
   else

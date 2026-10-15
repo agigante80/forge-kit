@@ -542,6 +542,89 @@ S3=$(printf '%s\n' "$S3" | sed -e '/FORGE_KIT_SRC:?/d' -e 's/\${NM:-}/${NO_MARKE
 s3 FORGE_KIT_DIR="$ROOT" FORGE_KIT_SRC=clone
 case "$bout" in register*) ok "#407: mutant: the NO_MARKETPLACE form registers a clone install, so the copy row above dies on it" ;; *) bad "#407: mutant did not register: '$bout'" ;; esac
 
+# #533: every version-marker read in the Step 1 probe and in Templates mode must work on a grep that
+# rejects -P (stock macOS). The shim is on PATH only for the block under test, resolves the real grep
+# by an absolute path taken before PATH changes (exec by name from a first-on-PATH dir recurses), and
+# the expected rows are the ones the unchanged block prints under GNU grep.
+echo "== #533: marker reads without grep -P =="
+REALGREP=$(type -P grep)
+case "$REALGREP" in /*) ;; *) echo "cannot resolve an absolute grep: $REALGREP"; exit 1 ;; esac
+mkdir -p "$T/gshim"
+cat > "$T/gshim/grep" <<EOS
+#!/usr/bin/env bash
+for a in "\$@"; do
+  case "\$a" in
+    --) break ;;
+    --perl-regexp|-[a-zA-Z]*P*) echo "grep: invalid option -- P" >&2; exit 2 ;;
+  esac
+done
+exec "$REALGREP" "\$@"
+EOS
+chmod +x "$T/gshim/grep"
+SHIMPATH="$T/gshim:$PATH"
+P1=$(fence 'Already installed (name = match key')
+FKV=$("$REALGREP" -hoP 'template-version: \K\d+' "$ROOT"/.github/ISSUE_TEMPLATE/*.yml | sort -un | tail -1)
+# mkproj <template-file-content> : a project holding an agent, a hook, a shell asset and one issue template.
+mkproj() { local d; d=$(mktemp -d "$T/p533.XXXXXX"); mkdir -p "$d/.claude/agents" "$d/.claude/hooks" "$d/scripts" "$d/.github/ISSUE_TEMPLATE"
+  printf -- '---\nname: code-reviewer\ndescription: reviews\n---\n<!-- other-version: 2 -->\n<!-- code-reviewer-version: 7 -->\n' > "$d/.claude/agents/code-reviewer.md"
+  printf '#!/usr/bin/env python3\n# block-dashes-version: 3\n' > "$d/.claude/hooks/block-dashes.py"
+  printf '#!/bin/sh\n# mytool-version: 4\n' > "$d/scripts/mytool.sh"; : > "$d/scripts/$(basename "$d").ignored"
+  printf '%s\n' "$1" > "$d/.github/ISSUE_TEMPLATE/a.yml"; echo "$d"; }
+# probe <block> <projdir> [PATH]: sets pout.
+pout=""
+probe() { pout=$(cd "$2" && env -i PATH="${3:-$PATH}" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" FORGE_KIT_DIR="$ROOT" bash -c "$1" 2>/dev/null); }
+has() { grep -Fxq -- "$2" <<< "$pout" && ok "$1" || bad "$1 (missing line '$2')"; }
+hasnot() { grep -Fxq -- "$2" <<< "$pout" && bad "$1 (found line '$2')" || ok "$1"; }
+
+PA=$(mkproj '<!-- template-version: 5 -->')
+probe "$P1" "$PA" "$SHIMPATH"
+has "#533: agent marker read (first marker is foreign, own marker second)" "  code-reviewer | v7 | reviews"
+has "#533: hook marker read" "  block-dashes (hook) | v3"
+has "#533: shell asset marker read" "  mytool | v4 | shell asset (verbatim copy)"
+has "#533: canonical project and library template versions" "issue-templates: project=v5 canonical-marker=yes dir=.github/ISSUE_TEMPLATE forge-kit=v$FKV lockstep-guard=no"
+base="$pout"
+probe "$P1" "$PA"
+[ "$pout" = "$base" ] && ok "#533: the probe output is byte-identical under the shim and the plain grep" || bad "#533: shim and plain probe output differ"
+PB=$(mkproj 'TEMPLATE-VERSION: 6')
+probe "$P1" "$PB" "$SHIMPATH"
+has "#533: case-insensitive lenient template read" "issue-templates: project=v6 canonical-marker=no dir=.github/ISSUE_TEMPLATE forge-kit=v$FKV lockstep-guard=no"
+PC=$(mkproj 'template_version: 6')
+probe "$P1" "$PC" "$SHIMPATH"
+has "#533: an underscore key is not a template version" "issue-templates: project=vnone canonical-marker=no dir=.github/ISSUE_TEMPLATE forge-kit=v$FKV lockstep-guard=no"
+
+# Mutant rows: restore the -P form of one site at a time in the extracted block; each must change the row.
+# mut <block> <nth> <from> <to>: replace the nth literal occurrence of <from>.
+mut() { printf '%s\n' "$1" | N="$2" F="$3" R="$4" awk '{ l = $0; f = ENVIRON["F"]; i = index(l, f); if (i) { c++; if (c == ENVIRON["N"]) l = substr(l, 1, i - 1) ENVIRON["R"] substr(l, i + length(f)) } print l }'; }
+S174='sed -nE "s/.*(<!--|#)[[:space:]]*${n}-version:[[:space:]]*([0-9]+).*/\2/p" "$f"'
+O174='grep -oP -- "(?:<!--\s*|#\s*)${n}-version:\s*\K\d+" "$f"'
+S201='sed -nE "s/.*#[[:space:]]*${n}-version:[[:space:]]*([0-9]+).*/\1/p" "$f"'
+O201='grep -oP -- "#\s*${n}-version:\s*\K\d+" "$f"'
+S212="grep -hoiE 'template[ -]version:[[:space:]]*\\*{0,2}[[:space:]]*[0-9]+' \"\$PRJ_TPL_DIR\"/*.yml 2>/dev/null | sed 's/.*[^0-9]//'"
+O212="grep -hoiP 'template[ -]version:\\s*\\*{0,2}\\s*\\K\\d+' \"\$PRJ_TPL_DIR\"/*.yml 2>/dev/null"
+S214="grep -qE '<!--[[:space:]]*template-version:[[:space:]]*[0-9]'"
+O214="grep -qP '<!--\\s*template-version:\\s*\\d+'"
+S215="sed -nE 's/.*template-version: ([0-9]+).*/\\1/p' \"\$FK\"/.github/ISSUE_TEMPLATE/*.yml"
+O215="grep -hoP 'template-version: \\K\\d+' \"\$FK\"/.github/ISSUE_TEMPLATE/*.yml"
+probe "$(mut "$P1" 1 "$S174" "$O174")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, agent site back to -P: the v7 row dies" "  code-reviewer | v7 | reviews"
+probe "$(mut "$P1" 2 "$S174" "$O174")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, hook site back to -P: the v3 row dies" "  block-dashes (hook) | v3"
+probe "$(mut "$P1" 1 "$S201" "$O201")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, shell asset site back to -P: the v4 row dies" "  mytool | v4 | shell asset (verbatim copy)"
+probe "$(mut "$P1" 1 "$S212" "$O212")" "$PA" "$SHIMPATH"; case "$pout" in *"project=v5 "*) bad "#533: mutant 212 survived" ;; *) ok "#533: mutant, project version site back to -P: project=v5 dies" ;; esac
+probe "$(mut "$P1" 1 "$S214" "$O214")" "$PA" "$SHIMPATH"; case "$pout" in *"canonical-marker=yes"*) bad "#533: mutant 214 survived" ;; *) ok "#533: mutant, canonical site back to -P: canonical-marker=yes dies" ;; esac
+probe "$(mut "$P1" 1 "$S215" "$O215")" "$PA" "$SHIMPATH"; case "$pout" in *"forge-kit=v$FKV "*) bad "#533: mutant 215 survived" ;; *) ok "#533: mutant, library template site back to -P: forge-kit=v$FKV dies" ;; esac
+
+# Templates mode: line 673 (TB, above) and the project read (the block holding HAS_DOC).
+tm() { bout=$(cd "$PROJ" && env -i PATH="$SHIMPATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" "$@" bash -c "$TB" 2>/dev/null); }
+PROJ=$(mktemp -d "$T/proj.XXXXXX"); tm FORGE_KIT_DIR="$TL"; expect "#533: templates mode reads the library version under the shim" V=6 "$bout"
+HB=$(fence 'HAS_DOC=')$'\necho "PRJ=$PRJ_TPL_VER"'
+hb() { bout=$(cd "$1" && env -i PATH="$SHIMPATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" bash -c "$HB" 2>/dev/null); }
+hb "$PA"; expect "#533: templates mode reads the canonical project version under the shim" PRJ=5 "$bout"
+PD=$(mkproj 'Template version: 5'); hb "$PD"; expect "#533: templates mode is strict: a visible 'Template version: 5' reads empty" PRJ= "$bout"
+bout=$(cd "$PA" && env -i PATH="$SHIMPATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" bash -c "$(mut "$HB" 1 "sed -nE 's/.*template-version: ([0-9]+).*/\\1/p' \"\$PRJ_TPL_DIR\"" "grep -hoP 'template-version: \\K\\d+' \"\$PRJ_TPL_DIR\"")" 2>/dev/null)
+expect "#533: mutant, templates-mode project site back to -P: PRJ=5 dies" PRJ= "$bout"
+TBM=$(mut "$TB" 1 "sed -nE 's/.*template-version: ([0-9]+).*/\\1/p'" "grep -oP 'template-version: \\K\\d+'")
+bout=$(cd "$PROJ" && env -i PATH="$SHIMPATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" FORGE_KIT_DIR="$TL" bash -c "$TBM" 2>/dev/null)
+expect "#533: mutant, templates-mode library site back to -P: V=6 dies" V= "$bout"
+
 echo ""
 echo "forge-adapt host probe tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

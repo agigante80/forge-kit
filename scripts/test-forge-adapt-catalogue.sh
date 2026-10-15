@@ -111,6 +111,67 @@ text_n=$(printf '%s\n' "$out" | grep -c '^[a-z]*: ')
 # Missing/absent library arg is a graceful exit 0 (read-only, no crash).
 bash "$SCRIPT" /nonexistent-forge-kit >/dev/null 2>&1 && ok "missing library dir exits 0" || bad "missing library dir exits 0"
 
+# #533: the marker read must not need GNU grep -P (stock macOS grep rejects it, so every row would read
+# vnone and drift would say unversioned). The shim rejects any -P grep and is on PATH ONLY for the script
+# under test: this suite's own assertions above use grep -qP. It resolves the real grep with type -P
+# BEFORE PATH is changed, because exec-by-name from a shim dir that is first on PATH recurses forever.
+REALGREP=$(type -P grep)
+case "$REALGREP" in /*) ;; *) echo "FAIL: cannot resolve an absolute grep ($REALGREP)"; exit 1 ;; esac
+T533=$(mktemp -d "${TMPDIR:-/tmp}/cat533.XXXXXX"); trap 'rm -rf "$T533"' EXIT
+mkdir -p "$T533/shim"
+cat > "$T533/shim/grep" <<EOS
+#!/usr/bin/env bash
+for a in "\$@"; do
+  case "\$a" in
+    --) break ;;
+    --perl-regexp|-[a-zA-Z]*P*) echo "grep: invalid option -- P" >&2; exit 2 ;;
+  esac
+done
+exec "$REALGREP" "\$@"
+EOS
+chmod +x "$T533/shim/grep"
+shimcat() { PATH="$T533/shim:$PATH" bash "$SCRIPT" "$1"; }
+mklib() { local d="$T533/$1"; mkdir -p "$d/plugins/g/agents"; printf '%s\n' "$2" > "$d/plugins/g/agents/code-reviewer.md"; echo "$d"; }
+row533() { grep -F 'subagent: code-reviewer |' <<< "$1"; }
+
+L1=$(mklib l1 '<!-- code-reviewer-version: 7 -->')
+[ "$(row533 "$(shimcat "$L1")")" = 'subagent: code-reviewer | v7' ] \
+  && ok "#533: under a grep that rejects -P the marker still reads v7" || bad "#533: shimmed marker read"
+[ "$(shimcat "$L1")" = "$(bash "$SCRIPT" "$L1")" ] \
+  && ok "#533: shimmed output is byte-identical to the plain-grep output" || bad "#533: shim and plain output differ"
+L2=$(mklib l2 $'<!-- other-version: 2 -->\n<!-- code-reviewer-version: 7 -->')
+[ "$(row533 "$(shimcat "$L2")")" = 'subagent: code-reviewer | v7' ] \
+  && ok "#533: a foreign marker on an earlier line does not win over the component's own (kills a line-56 revert)" || bad "#533: own marker lost to a foreign one"
+L3=$(mklib l3 '<!-- other-version: 2 -->')
+[ "$(row533 "$(shimcat "$L3")")" = 'subagent: code-reviewer | v2' ] \
+  && ok "#533: the deliberate any-marker fallback still reads v2 under the shim" || bad "#533: fallback row"
+L4=$(mklib l4 '<!-- template-version: 6 -->')
+[ "$(row533 "$(shimcat "$L4")")" = 'subagent: code-reviewer | vnone' ] \
+  && ok "#533: a lone template-version marker is not a component marker (vnone)" || bad "#533: template-version read as a component marker"
+L5=$(mklib l5 'no marker here')
+[ "$(row533 "$(shimcat "$L5")")" = 'subagent: code-reviewer | vnone' ] \
+  && ok "#533: no marker at all reads vnone" || bad "#533: unmarked row"
+real_rows=$(shimcat "$ROOT" | grep -c '| vnone$')
+[ "$real_rows" -eq 0 ] && ok "#533: over this repository, no row is vnone under the -P-rejecting grep" || bad "#533: $real_rows vnone rows under the shim"
+# Drift end to end: what the user sees. Local v7 against the shimmed catalogue v7 is current; v6 is behind.
+cv=$(row533 "$(shimcat "$L1")"); cv=${cv##*| }
+[ "$(bash "$HERE/forge-adapt-drift-status.sh" --local v7 --catalogue "$cv")" = current ] \
+  && ok "#533: drift word is current against the shimmed catalogue read" || bad "#533: drift word current"
+[ "$(bash "$HERE/forge-adapt-drift-status.sh" --local v6 --catalogue "$cv")" = behind ] \
+  && ok "#533: drift word is behind (not unversioned) for a v6 install" || bad "#533: drift word behind"
+# Static ban: no grep flag cluster containing P, separated or not, in the two files this ticket converted.
+ban='grep([[:space:]]+-[a-zA-Z]+)*[[:space:]]+(-[a-zA-Z]*P|--perl-regexp)'
+for f in "$ROOT/plugins/forge-kit-adapt/skills/adapt/SKILL.md" "$HERE/forge-adapt-catalogue.sh"; do
+  hits=$(grep -nE -- "$ban" "$f" || true)
+  [ -z "$hits" ] && ok "#533: no grep -P in $(basename "$f")" || bad "#533: grep -P in $(basename "$f"): $hits"
+done
+for s in 'grep -oP x' 'grep -o -P x' 'grep -hoiP x' 'grep -qP x' 'grep --perl-regexp x'; do
+  grep -qE -- "$ban" <<< "$s" && ok "#533: ban pattern catches '$s'" || bad "#533: ban pattern misses '$s'"
+done
+for s in "grep -hoiE x" "grep -qE x" "sed -nE x" "grep -m1 x"; do
+  grep -qE -- "$ban" <<< "$s" && bad "#533: ban pattern wrongly catches '$s'" || ok "#533: ban pattern passes '$s'"
+done
+
 echo ""
 echo "forge-adapt-catalogue tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
