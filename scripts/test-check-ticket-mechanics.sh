@@ -2466,7 +2466,7 @@ expect "#532: a heading first line and a _No response_ placeholder pass through 
 _No response_" "$(TB '## H
 
 _No response_')"
-expect "#532: CRLF text keeps its tag at the end of the visible line (no CR inside the tag)" "x (gate-written, round 1)" "$(printf 'x\r\n' | bash "$SCRIPT" --tag-blocks 1 | tr -d '\r')"
+expect "#532: CRLF text keeps its tag at the end of the visible line (no CR inside the tag)" "x (gate-written, round 1)" "$(printf 'x\r\n' | bash "$SCRIPT" --tag-blocks 1)"
 bash "$SCRIPT" --tag-blocks x </dev/null >/dev/null 2>&1; expect "#532: a non-numeric round is refused, exit 2" 2 "$?"
 bash "$SCRIPT" --tag-blocks 1 --roles </dev/null >/dev/null 2>&1; expect "#532: --tag-blocks with another mode is refused, exit 2" 2 "$?"
 bash "$SCRIPT" --tag-blocks </dev/null >/dev/null 2>&1; expect "#532: --tag-blocks without a value is refused, exit 2" 2 "$?"
@@ -2477,6 +2477,7 @@ tbmut() {  # tbmut <name> <sed expr>: the mutant must change TB's answer on the 
   if [ "$a" = "$TB_OUT" ] && [ "$b" = "$(TB "$TB_FENCE")" ] && [ "$c" = "kept (gate-written, round 0)" ]; then bad "#532: MUTANT survived: $1"; else ok "#532: MUTANT: $1 changes the output"; fi; }
 tbmut "no blank-line reset, so only the first block is tagged" 's/l == "" { first = 1; print; next }/l == "" { print; next }/'
 tbmut "a mid-line or in-bold tag is not removed" 's/^      gsub(.*$//'
+tbmut "a CR is left inside the visible line" 's/print l " " tag/print $0 " " tag/'
 tbmut "a fence opener sets no fence state" 's/isf = fence_open(l); if (isf) fopen = 1/isf = fence_open(l)/'
 tbmut "an existing tag is re-stamped instead of kept" 's/if (tagged(l)) { print; next }//'
 tbmut "a fence-first block is tagged on the fence line" 's/if (isf) { print tag; print l; next }//'
