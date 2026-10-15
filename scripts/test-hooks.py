@@ -2107,6 +2107,719 @@ check("hooks.md no branch creates the sentinel",
       "sentinel with the command above" in " ".join(mea_detail.split("`no`:")[-1].split()), True)
 check("hooks.md detail has a confirm line", "Confirm:" in mea_detail, True)
 
+# --- scan-forge-writes (PreToolUse Bash, forge-kit-security, #536) -----------------------------
+# Scans the body and title typed into `gh issue|pr create|edit|comment` before gh publishes them.
+# Own sentinel .claude/scan-forge-writes; plugin-only (the scanners are found from the hook's own
+# plugin root, so every fixture here copies the hook into a throwaway plugin root). The deny reason
+# is `leak-guard: <flag> (write <K>) line <N> (<rule>)`, never a path, a name or scanner text.
+print("\n  -- scan-forge-writes (PreToolUse Bash) --")
+
+import time
+import types
+
+SFW = ROOT / "plugins/forge-kit-security/hooks/scan-forge-writes.py"
+SFW_ASSETS = ROOT / "plugins/forge-kit-security/skills/leak-guard/assets"
+SFW_HOOKS_JSON = ROOT / "plugins/forge-kit-security/hooks/hooks.json"
+NAME = "bramble"                                     # an invented private name
+USER = "zq" + "vx"                                   # a real-shaped username, assembled at runtime
+HOMEPATH = "/ho" + "me/" + USER + "/proj"            # so this file is not itself a leak
+NL = chr(10)
+
+
+def sfw_stub(body):
+    return "#!/bin/bash\n" + body + "\n"
+
+
+class Sfw:
+    """A throwaway plugin root (hook copy plus scanners), project, HOME and TMPDIR."""
+
+    def __init__(self, td, *, hook=SFW, private=None, public=None, names=(NAME,), allow=None):
+        td = pathlib.Path(td).resolve()
+        self.td = td
+        self.proot = td / "plugin"
+        assets = self.proot / "skills/leak-guard/assets"
+        assets.mkdir(parents=True)
+        (self.proot / "hooks").mkdir()
+        shutil.copy(hook, self.proot / "hooks/scan-forge-writes.py")
+        for nm, stub in (("check-private-leaks.sh", private), ("check-public-leaks.sh", public)):
+            if stub is None:
+                shutil.copy(SFW_ASSETS / nm, assets / nm)
+            else:
+                (assets / nm).write_text(stub)
+        self.proj = td / "proj"
+        (self.proj / ".claude").mkdir(parents=True)
+        (self.proj / ".claude/scan-forge-writes").touch()
+        self.home = td / "home"
+        (self.home / ".claude/forge-kit").mkdir(parents=True)
+        if names is not None:
+            (self.home / ".claude/forge-kit/private-names.txt").write_text("\n".join(names) + "\n")
+        self.tmp = td / "tmp"
+        self.tmp.mkdir()
+        if allow is not None:
+            (self.proj / ".leak-guard-allow").write_text(allow)
+
+    def put(self, name, content):
+        p = self.proj / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            p.write_bytes(content)
+        else:
+            p.write_text(content)
+        return p
+
+    def run(self, command, *, raw=None, payload=None, sentinel=True, cwd=None, env_extra=None):
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env.update(HOME=str(self.home), TMPDIR=str(self.tmp), CLAUDE_PROJECT_DIR=str(self.proj))
+        if env_extra:
+            env.update(env_extra)
+        if not sentinel:
+            (self.proj / ".claude/scan-forge-writes").unlink(missing_ok=True)
+        if raw is None:
+            body = payload if payload is not None else {
+                "tool_name": "Bash", "cwd": str(cwd or self.proj), "tool_input": {"command": command}}
+            raw = json.dumps(body)
+        t0 = time.monotonic()
+        p = subprocess.run([sys.executable, str(self.proot / "hooks/scan-forge-writes.py")],
+                           input=raw, capture_output=True, text=True, cwd="/", env=env)
+        r = types.SimpleNamespace(rc=p.returncode, out=p.stdout, err=p.stderr,
+                                  secs=time.monotonic() - t0, reason=None, decision=ALLOW)
+        if p.stdout.strip():
+            hso = json.loads(p.stdout)["hookSpecificOutput"]
+            r.decision, r.reason = hso["permissionDecision"], hso["permissionDecisionReason"]
+        return r
+
+
+def sfw_reason(line, rule, flag="--body-file", k=1):
+    return "leak-guard: %s (write %d) line %s (%s)" % (flag, k, line, rule)
+
+
+def sfw_denies(r, reason):
+    return (r.rc, r.decision, r.reason, r.err) == (0, DENY, reason, "")
+
+
+def sfw_silent(r):
+    return (r.rc, r.out, r.err) == (0, "", "")
+
+
+def sfw_note(r, note):
+    return (r.rc, r.out, r.err) == (0, "", note + "\n")
+
+
+def sfw_clean_of(r, *bad):
+    text = r.out + r.err
+    return not any(b in text for b in bad)
+
+
+def chk(label, cond, extra=""):
+    check(label, bool(cond), True, extra)
+
+
+N_STDIN = "leak-guard: stdin body not scanned"
+N_HEREDOC = "leak-guard: heredoc body not scanned"
+N_SAME = "leak-guard: body written in the same command not scanned"
+N_NOTREG = "leak-guard: body not a regular file, not scanned"
+N_UNREAD = "leak-guard: body file unreadable, not scanned"
+N_NOEXTRACT = "leak-guard: body not extractable, not scanned"
+N_PAYLOAD = "leak-guard: payload not understood, not scanned"
+N_DIDNT = "leak-guard: scan did not run"
+N_TIMEOUT = "leak-guard: scan timed out"
+N_OVER = "leak-guard: body over 1048576 bytes not scanned"
+N_BINARY = "leak-guard: binary body not scanned"
+
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td)
+    f.put("clean.md", "all fine\nnothing here\n")
+    f.put("n.md", "one\ntwo\nthree\n")
+    f.put("leak3.md", "one\ntwo\nsee %s-social\n" % NAME)
+    f.put("leak1.md", "see %s\n" % NAME)
+    f.put("leak2.md", "ok\nsee %s\n" % NAME)
+
+    # --- recognition and the body-file operand --------------------------------------------
+    r = f.run("gh issue comment 536 --body-file clean.md")
+    chk("sfw clean body, list present: silent", sfw_silent(r))
+    r = f.run("gh issue comment 536 --body-file leak3.md")
+    chk("sfw body line 3 denied in the pinned format", sfw_denies(r, sfw_reason(3, "private-name")))
+    chk("sfw reason names neither the name, its redaction, nor the file",
+        sfw_clean_of(r, NAME, "br*", "leak3"))
+    r = f.run("gh pr comment 12 --body-file leak2.md")
+    chk("sfw gh pr comment --body-file", sfw_denies(r, sfw_reason(2, "private-name")))
+    r = f.run("gh issue edit 5 -F leak3.md")
+    chk("sfw gh issue edit -F", sfw_denies(r, sfw_reason(3, "private-name", flag="-F")))
+    r = f.run("gh pr create --title t -F leak1.md")
+    chk("sfw gh pr create -F", sfw_denies(r, sfw_reason(1, "private-name", flag="-F")))
+    for cmd in ("gh issue list --state open", "gh pr view 12 --json body"):
+        r = f.run(cmd)
+        chk("sfw not a write, silent: " + cmd, sfw_silent(r))
+
+    # --- title ----------------------------------------------------------------------------
+    r = f.run('gh issue create --title "%s rollout" --body "clean"' % NAME)
+    chk("sfw leaking --title", sfw_denies(r, sfw_reason(1, "private-name", flag="--title")))
+    chk("sfw title deny hides the name", sfw_clean_of(r, NAME))
+    r = f.run('gh pr create -t "%s rollout" --body clean' % NAME)
+    chk("sfw leaking -t", sfw_denies(r, sfw_reason(1, "private-name", flag="-t")))
+    r = f.run('gh issue create --title "fix retry" --body "clean"')
+    chk("sfw clean title and body: silent", sfw_silent(r))
+
+    # --- inline body, quoting forms -------------------------------------------------------
+    r = f.run('gh issue create --title t --body "line one%ssee %s here"' % (NL, NAME))
+    chk("sfw inline body with a real newline: line 2", sfw_denies(r, sfw_reason(2, "private-name", flag="--body")))
+    chk("sfw inline deny shows no temp path or name", sfw_clean_of(r, NAME, "fgw", str(f.tmp)))
+    for label, cmd in [
+        ("--body=text", "gh issue comment 5 --body=%s" % NAME),
+        ("-b text", "gh issue comment 5 -b %s" % NAME),
+        ("-bTEXT", "gh issue comment 5 -b%s" % NAME),
+        ("-b=text", "gh issue comment 5 -b=%s" % NAME),
+        ("--body-file=f", "gh issue comment 5 --body-file=leak1.md"),
+        ("-Ff", "gh issue comment 5 -Fleak1.md"),
+        ("after &&", "echo hi && gh issue comment 5 -F leak1.md"),
+        ("after ;", "echo hi; gh issue comment 5 -F leak1.md"),
+        ("after a pipe", "echo hi | gh issue comment 5 -F leak1.md"),
+        ("after a newline", "echo hi" + NL + "gh issue comment 5 -F leak1.md"),
+        ("env prefix", "GH_PAGER= gh issue comment 5 -F leak1.md"),
+        ("-R other/repo", "gh issue comment 5 -R other/repo -F leak1.md"),
+        ("subshell", "(gh issue comment 5 -F leak1.md)"),
+        ("command substitution", "URL=$(gh issue comment 5 -F leak1.md)"),
+    ]:
+        r = f.run(cmd)
+        chk("sfw quoting form denied: " + label, r.decision == DENY and r.rc == 0, extra=(r.reason or r.err)[:50])
+    for label, cmd, flag in [
+        ("title with parens, no spaces", 'gh issue create --title "fix(%s)" --body ok' % NAME, "--title"),
+        ("body with a semicolon, no spaces", 'gh issue create --title ok --body "a;%s"' % NAME, "--body"),
+        ("body with parens and a space", 'gh issue create --title ok --body "x (%s)"' % NAME, "--body"),
+        ("single-quoted operators", "gh issue create --title ok --body 'a|b&c;%s'" % NAME, "--body"),
+        ("escaped semicolon", "gh issue create --title ok --body a\\;%s" % NAME, "--body"),
+    ]:
+        r = f.run(cmd)
+        chk("sfw operators inside quotes still extracted: " + label,
+            sfw_denies(r, sfw_reason(1, "private-name", flag=flag)))
+    r = f.run('gh issue create --title "fix(retry)" --body "a;b"')
+    chk("sfw clean operator-bearing text: silent", sfw_silent(r))
+    r = f.run('gh issue create --title "fix(retry)" --body ";"')
+    chk("sfw a lone quoted operator is a word, not a separator", sfw_silent(r))
+
+    # --- tilde and dollar paths, leading dash ---------------------------------------------
+    f.home_proj = f.home / "foo"
+    f.home_proj.mkdir(exist_ok=True)
+    (f.home_proj / "n.md").write_text("see %s\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file ~/foo/n.md")
+    chk("sfw leading ~ expands to HOME", sfw_denies(r, sfw_reason(1, "private-name")))
+    r = f.run('gh issue comment 5 --body-file "$HOME/foo/n.md"')
+    chk("sfw a $ in the path is not extractable", sfw_note(r, N_NOEXTRACT))
+    r = f.run("gh issue comment 5 --body-file $HOME/foo/n.md")
+    chk("sfw an unquoted $ in the path is not extractable", sfw_note(r, N_NOEXTRACT))
+    f.put("-n.md", "see %s\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file=-n.md")
+    chk("sfw --body-file=-n.md (leading dash) denied, no scanner error",
+        sfw_denies(r, sfw_reason(1, "private-name")))
+
+    # --- heredoc shapes -------------------------------------------------------------------
+    r = f.run("gh issue comment 5 --body \"$(cat <<'EOF'" + NL + "ok" + NL + "see %s" % NAME + NL + "EOF" + NL + ')"')
+    chk("sfw --body \"$(cat <<'EOF'...)\" scanned", sfw_denies(r, sfw_reason(2, "private-name", flag="--body heredoc")))
+    r = f.run("gh issue comment 5 -F - <<'EOF'" + NL + "see %s" % NAME + NL + "EOF" + NL)
+    chk("sfw -F - plus a heredoc scanned", sfw_denies(r, sfw_reason(1, "private-name", flag="-F heredoc")))
+    r = f.run("gh issue comment 5 --body-file - <<'EOF'" + NL + "see %s" % NAME + NL + "EOF" + NL)
+    chk("sfw --body-file - plus a heredoc scanned", sfw_denies(r, sfw_reason(1, "private-name", flag="--body-file heredoc")))
+    r = f.run("gh issue comment 5 -F - <<'EOF'" + NL + "clean text" + NL + "EOF" + NL
+              + "gh issue comment 6 -F leak1.md")
+    chk("sfw a heredoc does not stop later segments",
+        sfw_denies(r, sfw_reason(1, "private-name", flag="-F", k=2)))
+    r = f.run("gh issue comment 5 --body \"$(cat <<'EOF'" + NL + "it's a \"quoted\" (odd) body" + NL + "EOF" + NL + ')"')
+    chk("sfw apostrophes, quotes and parens in a heredoc body do not break the parse", sfw_silent(r))
+    r = f.run("gh issue comment 5 --body \"$(cat <<'EOF'" + NL + "ok")
+    chk("sfw unterminated heredoc: note", sfw_note(r, N_HEREDOC))
+    r = f.run("gh issue comment 5 -F - <<'EOF'" + NL + "see %s" % NAME)
+    chk("sfw unterminated -F - heredoc: note", sfw_note(r, N_HEREDOC))
+    r = f.run("gh issue comment 5 -F - <<EOF" + NL + "see $X %s" % NAME + NL + "EOF" + NL)
+    chk("sfw an expanding (unquoted-delimiter) heredoc is not a literal", sfw_note(r, N_NOEXTRACT))
+    r = f.run("cat n.md | gh issue comment 5 -F -")
+    chk("sfw pipe-fed -F -: stdin note", sfw_note(r, N_STDIN))
+    r = f.run("cat n.md | gh issue comment 5 --body-file -")
+    chk("sfw pipe-fed --body-file -: stdin note", sfw_note(r, N_STDIN))
+    chk("sfw the stdin note carries no command text", "cat" not in r.err and "n.md" not in r.err)
+
+    # --- bodies the command text does not show --------------------------------------------
+    r = f.run('gh issue comment 5 --body "$BODY"')
+    chk("sfw --body \"$BODY\": not extractable", sfw_note(r, N_NOEXTRACT))
+    chk("sfw not-extractable note echoes no command text", "BODY" not in r.err)
+    for label, cmd in [
+        ("--editor", "gh issue create --title t --editor"),
+        ("-e", "gh issue comment 5 -e"),
+        ("--web", "gh issue create --web"),
+        ("-T", "gh issue create --title t -T bug"),
+        ("--template", "gh issue create --title t --template bug"),
+        ("pr create --fill", "gh pr create --fill"),
+        ("pr create --fill-first", "gh pr create --fill-first"),
+        ("pr create --fill-verbose", "gh pr create --fill-verbose"),
+        ("comment --edit-last", "gh issue comment 5 --edit-last"),
+    ]:
+        r = f.run(cmd)
+        chk("sfw unseen body, note: " + label, sfw_note(r, N_NOEXTRACT))
+    r = f.run("gh issue comment 5 --edit-last --body %s" % NAME)
+    chk("sfw --edit-last WITH --body is scanned", sfw_denies(r, sfw_reason(1, "private-name", flag="--body")))
+    r = f.run("gh issue edit 5 --add-label bug")
+    chk("sfw an edit that carries no text is silent", sfw_silent(r))
+    r = f.run("gh issue comment 5 --body-file missing.md")
+    chk("sfw unreadable body file: note", sfw_note(r, N_UNREAD))
+    chk("sfw unreadable note does not contain the path", "missing" not in r.err)
+
+    # --- write then post in one command ---------------------------------------------------
+    f.put("w.md", "clean on disk\n")
+    r = f.run("cat > w.md <<'EOF'" + NL + "see %s" % NAME + NL + "EOF" + NL + "gh issue comment 5 --body-file w.md")
+    chk("sfw cat > f <<'EOF' is scanned from its literal text, not the stale file",
+        sfw_denies(r, sfw_reason(1, "private-name")))
+    r = f.run("cat > w.md <<'EOF'" + NL + "clean" + NL + "EOF" + NL + "gh issue comment 5 --body-file w.md")
+    chk("sfw a clean literal heredoc write: silent", sfw_silent(r))
+    f.put("w.md", "see %s\n" % NAME)
+    r = f.run("cat > w.md <<'EOF'" + NL + "clean" + NL + "EOF" + NL + "gh issue comment 5 --body-file w.md")
+    chk("sfw the leaking stale file is never judged when a heredoc replaced it", sfw_silent(r))
+    for label, cmd in [
+        ("append", "cat >> w.md <<'EOF'" + NL + "more" + NL + "EOF" + NL + "gh issue comment 5 --body-file w.md"),
+        ("cp", "cp n.md w.md && gh issue comment 5 --body-file w.md"),
+        ("tee", "echo hi | tee w.md && gh issue comment 5 --body-file w.md"),
+        ("mv", "mv n.md w.md && gh issue comment 5 --body-file w.md"),
+        ("sed -i", "sed -i s/a/b/ w.md && gh issue comment 5 --body-file w.md"),
+        ("printf redirect", "printf '%s' \"$X\" > w.md && gh issue comment 5 --body-file w.md"),
+        ("unquoted-delimiter heredoc", "cat > w.md <<EOF" + NL + "x" + NL + "EOF" + NL + "gh issue comment 5 --body-file w.md"),
+        ("cd first", "cd sub && gh issue comment 5 --body-file w.md"),
+        ("pushd first", "pushd sub; gh issue comment 5 --body-file w.md"),
+        ("absolute path", "cp n.md %s/w.md && gh issue comment 5 --body-file %s/w.md" % (f.proj, f.proj)),
+    ]:
+        r = f.run(cmd)
+        chk("sfw same-command note, stale leaking file never judged: " + label, sfw_note(r, N_SAME))
+    r = f.run("python3 gen.py && gh issue comment 5 --body-file w.md")
+    chk("sfw a generator script that does not name the file: the old content is scanned (known bypass)",
+        sfw_denies(r, sfw_reason(1, "private-name")))
+
+    # --- file kinds -----------------------------------------------------------------------
+    f.put("body.lock", "see %s\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file body.lock")
+    chk("sfw leaking body.lock denied (a neutral temp name defeats skip-by-name)",
+        sfw_denies(r, sfw_reason(1, "private-name")))
+    os.symlink(f.proj / "leak1.md", f.proj / "link.md")
+    r = f.run("gh issue comment 5 --body-file link.md")
+    chk("sfw symlink to a leaking file denied", sfw_denies(r, sfw_reason(1, "private-name")))
+    os.mkfifo(f.proj / "p.fifo")
+    r = f.run("gh issue comment 5 --body-file p.fifo")
+    chk("sfw FIFO: returns in time with the note", sfw_note(r, N_NOTREG) and r.secs < 5, extra="%.1fs" % r.secs)
+    r = f.run("gh issue comment 5 --body-file /")
+    chk("sfw a directory is not a regular file", sfw_note(r, N_NOTREG))
+    r = f.run("gh issue comment 5 --body-file /dev/null")
+    chk("sfw a device is not a regular file", sfw_note(r, N_NOTREG))
+    f.put("crlf.md", ("ok\r\nsee %s\r\n" % NAME).encode())
+    r = f.run("gh issue comment 5 --body-file crlf.md")
+    chk("sfw CRLF body scanned", sfw_denies(r, sfw_reason(2, "private-name")))
+
+    # --- the path never leaks into the output ---------------------------------------------
+    f.put("%s-%s/note.md" % (NAME, USER), "see %s\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file %s-%s/note.md" % (NAME, USER))
+    chk("sfw a path holding a name and a username: deny", sfw_denies(r, sfw_reason(1, "private-name")))
+    chk("sfw ... and neither appears in the output", sfw_clean_of(r, NAME, USER))
+    r = f.run("gh issue comment 5 --body-file %s-%s/gone.md" % (NAME, USER))
+    chk("sfw ... a missing such file: fixed note, no path", sfw_note(r, N_UNREAD) and sfw_clean_of(r, NAME, USER))
+
+    # --- private and public halves --------------------------------------------------------
+    r = f.run("gh issue comment 536 --body-file leak3.md")
+    chk("sfw private deny hides the name and its redaction", sfw_clean_of(r, NAME, "br*"))
+    f.put("path-ok.md", "install under /home/<name>/project\n")
+    r = f.run("gh issue comment 5 --body-file path-ok.md")
+    chk("sfw placeholder path passes", sfw_silent(r))
+    f.put("path-bad.md", "see %s now\n" % HOMEPATH)
+    r = f.run("gh issue comment 5 --body-file path-bad.md")
+    chk("sfw real-shaped home path denied by rule", sfw_denies(r, sfw_reason(1, "home-path")))
+    chk("sfw ... without the evidence", sfw_clean_of(r, USER))
+    f.put("mail.md", "mail a" + "." + "b@" + "corp" + "x.io\n")
+    r = f.run("gh issue comment 5 --body-file mail.md")
+    chk("sfw email denied by rule", sfw_denies(r, sfw_reason(1, "email")))
+    f.put("word.md", "a bramblefoo b\n")
+    r = f.run("gh issue comment 5 --body-file word.md")
+    chk("sfw a substring list entry also catches a longer word", sfw_denies(r, sfw_reason(1, "private-name")))
+
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td, names=("=" + NAME,))
+    f.put("whole.md", "see %s.\n" % NAME)
+    f.put("longer.md", "see %sfoo\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file whole.md")
+    chk("sfw a whole-word (=) entry: the word is denied", sfw_denies(r, sfw_reason(1, "private-name")))
+    r = f.run("gh issue comment 5 --body-file longer.md")
+    chk("sfw a whole-word (=) entry: a longer word passes", sfw_silent(r))
+
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td, names=None)
+    f.put("clean.md", "fine\n")
+    f.put("bad.md", "see %s\n" % HOMEPATH)
+    r = f.run("gh issue comment 5 --body-file clean.md")
+    chk("sfw no private list, clean body: silent", sfw_silent(r))
+    r = f.run("gh issue comment 5 --body-file bad.md")
+    chk("sfw no private list: the public half still denies", sfw_denies(r, sfw_reason(1, "home-path")))
+    chk("sfw ... and the username is not in the output", sfw_clean_of(r, USER))
+
+with tempfile.TemporaryDirectory() as td:
+    log = pathlib.Path(td) / "public.log"
+    f = Sfw(td, names=None, public=sfw_stub('echo run >> "%s"\nexit 0' % log))
+    f.put("clean.md", "fine\n")
+    r = f.run("gh issue comment 5 --body-file clean.md")
+    chk("sfw no private list: the public scanner ran exactly once",
+        sfw_silent(r) and log.read_text().count("run") == 1)
+
+# --- the allow-file ---------------------------------------------------------------------
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td, allow="root ~/forge-kit" + NL)
+    f.put("b.md", "clone to ~/forge-kit" + NL)
+    r = f.run("gh issue comment 5 --body-file b.md")
+    chk("sfw .leak-guard-allow prevents a false deny", sfw_silent(r))
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td)
+    f.put("b.md", "clone to ~/forge-kit" + NL)
+    r = f.run("gh issue comment 5 --body-file b.md")
+    chk("sfw without the allow-file the same body is denied by rule",
+        sfw_denies(r, sfw_reason(1, "home-root")))
+    chk("sfw ... and ~/forge-kit is absent from the output", sfw_clean_of(r, "forge-kit"))
+
+# --- scanner failure, time, size, several writes --------------------------------------------
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td, private=sfw_stub("exit 2"), public=sfw_stub("exit 2"))
+    f.put("a.md", "x\n")
+    r = f.run("gh issue comment 5 --body-file a.md")
+    chk("sfw scanner exit 2: allow with 'scan did not run'", sfw_note(r, N_DIDNT))
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td)
+    (f.proot / "skills/leak-guard/assets/check-private-leaks.sh").unlink()
+    (f.proot / "skills/leak-guard/assets/check-public-leaks.sh").unlink()
+    f.put("a.md", "x\n")
+    r = f.run("gh issue comment 5 --body-file a.md")
+    chk("sfw missing scanners: the same note", sfw_note(r, N_DIDNT))
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td, private=sfw_stub("echo 'garbage line without a path'\nexit 1"), public=sfw_stub("exit 0"))
+    f.put("a.md", "x\n")
+    r = f.run("gh issue comment 5 --body-file a.md")
+    chk("sfw unparseable finding from a scanner that exited 1 still denies",
+        sfw_denies(r, "leak-guard: --body-file (write 1) line ? (unparsed)"))
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td, private=sfw_stub("sleep 60"), public=sfw_stub("exit 0"))
+    f.put("a.md", "x\n")
+    r = f.run("gh issue comment 5 --body-file a.md")
+    chk("sfw a scanner that outlives its 4 s: allow with 'scan timed out', under 10 s",
+        sfw_note(r, N_TIMEOUT) and r.secs < 10, extra="%.1fs" % r.secs)
+with tempfile.TemporaryDirectory() as td:
+    hang = sfw_stub("sleep 60")
+    f = Sfw(td, private=hang, public=hang)
+    r = f.run('gh issue create --title "t" --body "b"')
+    chk("sfw title plus body, both scanners hanging: under 10 s with the timeout note",
+        sfw_note(r, N_TIMEOUT) and r.secs < 10, extra="%.1fs" % r.secs)
+    f.put("a.md", "x\n")
+    r = f.run("gh issue comment 5 -F a.md && gh issue comment 6 -F a.md")
+    chk("sfw two writes, both scanners hanging: under 10 s with the timeout note",
+        sfw_note(r, N_TIMEOUT) and r.secs < 10, extra="%.1fs" % r.secs)
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td)
+    f.put("edge.md", b"a" * 1048575 + b"\n")
+    f.put("over.md", b"a" * 1048577)
+    f.put("nul.md", ("see %s\n" % NAME).encode() + b"\x00bin")
+    r = f.run("gh issue comment 5 --body-file edge.md")
+    chk("sfw a body of 1048576 bytes is scanned (no note)", sfw_silent(r))
+    r = f.run("gh issue comment 5 --body-file over.md")
+    chk("sfw a body of 1048577 bytes: over-cap note", sfw_note(r, N_OVER))
+    r = f.run("gh issue comment 5 --body-file nul.md")
+    chk("sfw a body with a NUL: binary note", sfw_note(r, N_BINARY))
+    f.put("big.md", b"x" * (10 * 1024 * 1024))
+    r = f.run("gh issue comment 5 --body-file big.md")
+    chk("sfw a 10 MB body: over-cap note, no traceback", sfw_note(r, N_OVER))
+    f.put("clean.md", "fine\n")
+    f.put("leak.md", "see %s\n" % NAME)
+    r = f.run("gh issue comment 5 -F clean.md && gh issue comment 5 -F leak.md")
+    chk("sfw two writes, the second leaking: write 2", sfw_denies(r, sfw_reason(1, "private-name", flag="-F", k=2)))
+    chk("sfw ... names neither file", sfw_clean_of(r, "leak.md", "clean.md"))
+    r = f.run("gh issue comment 5 -F leak.md && gh issue comment 5 -F clean.md")
+    chk("sfw two writes, the first leaking: write 1", sfw_denies(r, sfw_reason(1, "private-name", flag="-F", k=1)))
+    r = f.run("gh issue comment 5 -F clean.md; gh issue comment 6 -F clean.md; gh issue edit 7 --title %s" % NAME)
+    chk("sfw three writes, the title of the third leaks",
+        sfw_denies(r, sfw_reason(1, "private-name", flag="--title", k=3)))
+
+# --- pinned gaps: out of scope, silent, no scanner started ---------------------------------
+with tempfile.TemporaryDirectory() as td:
+    log = pathlib.Path(td) / "calls.log"
+    spy = sfw_stub('echo called >> "%s"\nexit 0' % log)
+    f = Sfw(td, private=spy, public=spy)
+    for cmd in [
+        "gh issue close 5 --comment 'text %s'" % NAME,
+        "gh issue reopen 5 -c 'text %s'" % NAME,
+        "gh pr close 5 --comment 'text %s'" % NAME,
+        "gh pr reopen 5 -c 'text %s'" % NAME,
+        "gh pr review 5 --body 'text %s'" % NAME,
+        "gh pr merge 5 --body 'text %s'" % NAME,
+        "gh release create v1 --notes 'text %s'" % NAME,
+        "gh api repos/o/r/issues -f body='text %s'" % NAME,
+        "forge_issue_comment 5 \"text with %s\"" % NAME,
+        "gh issue list --state open",
+        "gh pr view 12 --json body",
+        "echo hello",
+    ]:
+        r = f.run(cmd)
+        chk("sfw pinned gap, silent: " + cmd[:44], sfw_silent(r))
+    chk("sfw no scanner was started for any non-write", not log.exists())
+    r = f.run("gh issue comment 5 --body clean")
+    chk("sfw the spy does record a real write (the log check is not vacuous)", log.exists())
+
+# --- fail open on bad input -----------------------------------------------------------------
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td)
+    for label, raw in [("not json", "not json"), ("empty stdin", ""), ("a JSON array", "[1]"),
+                       ("no tool_name", json.dumps({"tool_input": {"command": "gh issue comment 1 -b x"}})),
+                       ("other tool", json.dumps({"tool_name": "Write", "tool_input": {"command": "gh issue comment 1 -b %s" % NAME}}))]:
+        r = f.run(None, raw=raw)
+        chk("sfw fails open (exit 0, silent): " + label, sfw_silent(r))
+    r = f.run(None, payload={"tool_name": "Bash", "cwd": str(f.proj), "tool_input": {"command": ["gh", "issue"]}})
+    chk("sfw a non-string command: payload note", sfw_note(r, N_PAYLOAD))
+    r = f.run(None, payload={"tool_name": "Bash", "cwd": str(f.proj)})
+    chk("sfw no tool_input: payload note, no traceback", sfw_note(r, N_PAYLOAD))
+    r = f.run('gh issue comment 5 --body "unbalanced')
+    chk("sfw unbalanced quotes: not-extractable note, no traceback", sfw_note(r, N_NOEXTRACT))
+    canary = f.proj / "CANARY"
+    r = f.run("gh issue comment 5 --body-file 'x; touch CANARY'")
+    chk("sfw an injection-shaped path is data: not run, unreadable note",
+        sfw_note(r, N_UNREAD) and not canary.exists())
+    r = f.run("gh issue comment 5 --body-file x; touch CANARY")
+    chk("sfw an injection after the command is never executed by the hook",
+        r.rc == 0 and not canary.exists())
+    r = f.run("gh issue comment 5 --body \"$(touch CANARY)\"")
+    chk("sfw a command substitution is never executed", sfw_note(r, N_NOEXTRACT) and not canary.exists())
+    r = f.run("gh issue comment 5 --body-file clean.md", sentinel=False)
+    chk("sfw no sentinel (defence in depth): silent", sfw_silent(r))
+    (f.proj / ".claude/scan-forge-writes").touch()
+    leftovers = sorted(p.name for p in f.tmp.iterdir())
+    chk("sfw no temp files left behind after every case above", leftovers == [], extra=str(leftovers))
+    r = f.run("gh issue comment 5 --body %s" % NAME, cwd=f.proj / "sub" / "deeper")
+    chk("sfw a cwd that does not exist: falls back, still scans", sfw_denies(r, sfw_reason(1, "private-name", flag="--body")))
+    (f.proj / "sub").mkdir()
+    f.put("sub/rel.md", "see %s\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file rel.md", cwd=f.proj / "sub")
+    chk("sfw a cwd below the project root: relative path resolves there",
+        sfw_denies(r, sfw_reason(1, "private-name")))
+
+    st = subprocess.run([sys.executable, str(SFW), "--self-test"], capture_output=True, text=True)
+    chk("sfw --self-test passes", (st.returncode, "PASS" in st.stdout) == (0, True), extra=st.stdout[-80:])
+    broken = pathlib.Path(td) / "broken-sfw.py"
+    broken.write_text(SFW.read_text().replace("if rc == 1:", "if rc == 99:"))
+    st = subprocess.run([sys.executable, str(broken), "--self-test"], capture_output=True, text=True)
+    chk("sfw --self-test fails on a broken hook", (st.returncode, "FAIL" in st.stdout) == (1, True))
+
+# --- mutants: each breaks the hook one way, one named row must notice -------------------------
+print("\n  -- scan-forge-writes mutants --")
+SFW_SRC = SFW.read_text()
+
+
+def sfw_mutant(td, old, new):
+    assert SFW_SRC.count(old) >= 1, old
+    p = pathlib.Path(td) / "mutant-sfw.py"
+    p.write_text(SFW_SRC.replace(old, new, 1))
+    return p
+
+
+def row_no_leak_in_reason(hook, td):
+    f = Sfw(td, hook=hook)
+    f.put("leak3.md", "one\ntwo\nsee %s-social\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file leak3.md")
+    return sfw_denies(r, sfw_reason(3, "private-name")) and sfw_clean_of(r, NAME, "br*")
+
+
+def row_exit0_on_bad_json(hook, td):
+    f = Sfw(td, hook=hook)
+    return sfw_silent(f.run(None, raw="not json"))
+
+
+def row_no_leftover(hook, td):
+    f = Sfw(td, hook=hook)
+    f.put("a.md", "x\n")
+    f.run("gh issue comment 5 --body-file a.md")
+    return list(f.tmp.iterdir()) == []
+
+
+def row_content_scanned(hook, td):
+    f = Sfw(td, hook=hook)
+    f.put("body.lock", "see %s\n" % NAME)
+    os.symlink(f.proj / "body.lock", f.proj / "link.md")
+    a = f.run("gh issue comment 5 --body-file body.lock")
+    b = f.run("gh issue comment 5 --body-file link.md")
+    return a.decision == DENY and b.decision == DENY
+
+
+def row_note_has_no_path(hook, td):
+    f = Sfw(td, hook=hook)
+    r = f.run("gh issue comment 5 --body-file %s-%s.md" % (NAME, USER))
+    return sfw_note(r, N_UNREAD)
+
+
+def row_neutral_temp_name(hook, td):
+    f = Sfw(td, hook=hook)
+    f.put("a.md", "see %s\n" % NAME)
+    return f.run("gh issue comment 5 --body-file a.md").decision == DENY
+
+
+def row_deadline(hook, td):
+    hang = sfw_stub("sleep 60")
+    f = Sfw(td, hook=hook, private=hang, public=hang)
+    r = f.run('gh issue create --title "t" --body "b"')
+    return sfw_note(r, N_TIMEOUT) and r.secs < 10
+
+
+def row_stale_file(hook, td):
+    f = Sfw(td, hook=hook)
+    f.put("w.md", "see %s\n" % NAME)
+    r = f.run("cp n.md w.md && gh issue comment 5 --body-file w.md")
+    return sfw_note(r, N_SAME)
+
+
+def row_title_scanned(hook, td):
+    f = Sfw(td, hook=hook)
+    r = f.run('gh issue create --title "%s" --body ok' % NAME)
+    return sfw_denies(r, sfw_reason(1, "private-name", flag="--title"))
+
+
+def row_operator_quotes(hook, td):
+    f = Sfw(td, hook=hook)
+    r = f.run('gh issue create --title "fix(%s)" --body "a;%s"' % (NAME, NAME))
+    return sfw_denies(r, sfw_reason(1, "private-name", flag="--title"))
+
+
+def row_second_write(hook, td):
+    f = Sfw(td, hook=hook)
+    f.put("c.md", "fine\n")
+    f.put("l.md", "see %s\n" % NAME)
+    r = f.run("gh issue comment 5 -F c.md && gh issue comment 5 -F l.md")
+    return sfw_denies(r, sfw_reason(1, "private-name", flag="-F", k=2))
+
+
+def row_scope(hook, td):
+    f = Sfw(td, hook=hook)
+    return sfw_silent(f.run("gh pr review 5 --body 'text %s'" % NAME))
+
+
+def row_space_form_only(hook, td):
+    f = Sfw(td, hook=hook)
+    return f.run("gh issue comment 5 --body=%s" % NAME).decision == DENY
+
+
+MUTANTS = [
+    ("forward the scanner's finding text in the reason", row_no_leak_in_reason,
+     'tail = "(%s)" % rule if rule else "(unparsed)"', 'tail = "(%s) %s" % (rule, out)'),
+    ("exit 2 on unparseable JSON", row_exit0_on_bad_json,
+     "    except (json.JSONDecodeError, ValueError):\n        return 0", "    except (json.JSONDecodeError, ValueError):\n        return 2"),
+    ("skip the temp-file cleanup", row_no_leftover, "os.unlink(tmp)", "pass"),
+    ("hand the scanner no content (the user's path stands in)", row_content_scanned,
+     "data, note = read_file(target)", "data, note = (target.encode(), None)"),
+    ("echo the path in the unreadable note", row_note_has_no_path,
+     "        return None, NOTE_UNREADABLE\n    try:", "        return None, NOTE_UNREADABLE + ' ' + path\n    try:"),
+    ("a skippable temp name (.lock)", row_neutral_temp_name, 'suffix=".txt"', 'suffix=".lock"'),
+    ("no hook-wide deadline", row_deadline, "DEADLINE = 8.0", "DEADLINE = 1000.0"),
+    ("judge a stale file when an earlier segment wrote it", row_stale_file,
+     "    return (\"note\",)\n\n\n# --- reading", "    return None\n\n\n# --- reading"),
+    ("ignore --title", row_title_scanned, 'TEXT_FLAGS = {"--body": "text", "-b": "text", "--title": "text", "-t": "text",',
+     'TEXT_FLAGS = {"--body": "text", "-b": "text",'),
+    ("stop after the first write", row_second_write, "    for idx, seg in writes:\n        k += 1\n",
+     "    for idx, seg in writes[:1]:\n        k += 1\n"),
+    ("widen the scope to pr review", row_scope, 'WRITE_SUBS = ("create", "edit", "comment")',
+     'WRITE_SUBS = ("create", "edit", "comment", "review")'),
+    ("only the space form of --body", row_space_form_only, '            name, eq, val = a.partition("=")',
+     '            name, eq, val = a, "", ""'),
+]
+for label, row, old, new in MUTANTS:
+    with tempfile.TemporaryDirectory() as t1:
+        ok_real = row(SFW, t1)
+    if old == new:  # a mutant that needs a different cut: quoted operators are handled in sq/dq
+        continue
+    with tempfile.TemporaryDirectory() as t0:
+        mut = sfw_mutant(t0, old, new)
+        with tempfile.TemporaryDirectory() as t2:
+            ok_mut = row(mut, t2)
+    check("sfw mutant killed: " + label, (ok_real, ok_mut), (True, False))
+
+# --- registration (hooks.json): the shell gate, exec form, timeout 10 ----------------------------
+print("\n  -- scan-forge-writes registration --")
+sfw_spec = json.loads(SFW_HOOKS_JSON.read_text())
+sfw_entry = sfw_spec["hooks"]["PreToolUse"][0]
+sfw_reg = sfw_entry["hooks"][0]
+check("sfw matcher is Bash", sfw_entry["matcher"], "Bash")
+check("sfw exec form", ("command" in sfw_reg and "args" in sfw_reg), True)
+check("sfw sh-gates on its own sentinel", ".claude/scan-forge-writes" in " ".join(sfw_reg["args"]), True)
+check("sfw plugin root braced", "${CLAUDE_PLUGIN_ROOT}" in " ".join(sfw_reg["args"]), True)
+check("sfw hooks.json timeout is 10", sfw_reg.get("timeout"), 10)
+check("sfw is the only PreToolUse entry", len(sfw_spec["hooks"]["PreToolUse"]), 1)
+
+
+def invoke_sfw(plugin_root, project_dir, payload, home, tmp):
+    argv = [sfw_reg["command"]] + [
+        a.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root)) for a in sfw_reg["args"]]
+    env = dict(os.environ)
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    env.update(HOME=str(home), TMPDIR=str(tmp))
+    if project_dir is not None:
+        env["CLAUDE_PROJECT_DIR"] = str(project_dir)
+    return subprocess.run(argv, input=json.dumps(payload), capture_output=True, text=True,
+                          env=env, cwd="/")
+
+
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td)
+    f.put("leak.md", "ok\nsee %s\n" % NAME)
+    f.put("clean.md", "fine\n")
+    sentinel = f.proj / ".claude/scan-forge-writes"
+    sentinel.unlink()
+
+    def pl(cmd):
+        return {"tool_name": "Bash", "cwd": str(f.proj), "tool_input": {"command": cmd}}
+
+    leaking = pl("gh issue comment 5 --body-file leak.md")
+    p = invoke_sfw(f.proot, f.proj, leaking, f.home, f.tmp)
+    chk("sfw registered, no sentinel: allowed", (p.returncode, p.stdout) == (0, ""))
+    # The sh guard must SHORT-CIRCUIT: a poison script denies unconditionally.
+    script = f.proot / "hooks/scan-forge-writes.py"
+    original = script.read_bytes()
+    script.write_text(
+        "import json\n"
+        'print(json.dumps({"hookSpecificOutput":'
+        '{"hookEventName":"PreToolUse","permissionDecision":"deny",'
+        '"permissionDecisionReason":"POISON: interpreter was spawned"}}))\n')
+    p = invoke_sfw(f.proot, f.proj, leaking, f.home, f.tmp)
+    chk("sfw no sentinel spawns no python (guard short-circuits)", verdict(p) == ALLOW and "POISON" not in p.stdout)
+    (f.proj / ".claude/no-dashes").touch()
+    p = invoke_sfw(f.proot, f.proj, leaking, f.home, f.tmp)
+    chk("sfw another hook's sentinel does not arm it", verdict(p) == ALLOW and "POISON" not in p.stdout)
+    (f.proj / ".claude/no-dashes").unlink()
+    sentinel.touch()
+    p = invoke_sfw(f.proot, f.proj, leaking, f.home, f.tmp)
+    chk("sfw sentinel present: the script runs (POISON reaches stdout)", "POISON" in p.stdout)
+    script.write_bytes(original)
+
+    p = invoke_sfw(f.proot, f.proj, pl("gh issue comment 5 --body-file clean.md"), f.home, f.tmp)
+    chk("sfw registered E2E, clean body: exit 0, silent", (p.returncode, p.stdout, p.stderr) == (0, "", ""))
+    p = invoke_sfw(f.proot, f.proj, leaking, f.home, f.tmp)
+    chk("sfw registered E2E, leaking body: the pinned deny",
+        verdict(p) == DENY and json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+        == sfw_reason(2, "private-name"))
+    chk("sfw registered E2E deny never names the file or the name",
+        "leak.md" not in p.stdout and NAME not in p.stdout)
+    p = invoke_sfw(f.proot, f.proj, {"tool_name": "Bash", "tool_input": {"command": ["x"]}}, f.home, f.tmp)
+    chk("sfw registered E2E, unparseable shape: allowed with the payload note",
+        (p.returncode, p.stdout, p.stderr) == (0, "", N_PAYLOAD + "\n"))
+    p = invoke_sfw(f.proot, None, leaking, f.home, f.tmp)
+    chk("sfw registered, no CLAUDE_PROJECT_DIR: allowed (fail open)", (p.returncode, p.stdout) == (0, ""))
+
+# forge-adapt hooks.md: the scan-forge-writes row and install detail
+sfw_row = [l for l in HOOKS_MD.splitlines() if "| `scan-forge-writes.py` |" in l]
+check("hooks.md has one scan-forge-writes signal row", len(sfw_row), 1)
+check("hooks.md row is PreToolUse, Bash, security group",
+      bool(sfw_row) and "PreToolUse" in sfw_row[0] and "`Bash`" in sfw_row[0] and "| security |" in sfw_row[0], True)
+sfw_detail = HOOKS_MD.split("## Install detail (scan-forge-writes.py)")[-1].split("\n## ")[0] \
+    if "## Install detail (scan-forge-writes.py)" in HOOKS_MD else ""
+check("hooks.md has the scan-forge-writes install detail", sfw_detail != "", True)
+check("hooks.md detail names the sentinel and the touch command",
+      "mkdir -p .claude && touch .claude/scan-forge-writes" in sfw_detail, True)
+check("hooks.md detail is plugin-only: no copy shape, branches on the plugin check",
+      "forge-adapt-plugin-active.sh forge-kit-security@forge-kit" in sfw_detail
+      and "install nothing else" in sfw_detail, True)
+check("hooks.md detail has a confirm line", "Confirm:" in sfw_detail, True)
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} case(s): {', '.join(failures)}")

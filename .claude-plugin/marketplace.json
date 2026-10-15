@@ -31,7 +31,7 @@
     {
       "name": "forge-kit-security",
       "source": "./plugins/forge-kit-security",
-      "description": "Security agents (security-auditor, backend-security-coder, api-security-tester), the OWASP API security checklist skill, and the opt-in privacy-regime skill"
+      "description": "Security agents (security-auditor, backend-security-coder, api-security-tester), the OWASP API security checklist skill, the opt-in privacy-regime skill, and an opt-in hook that scans gh issue and PR text for leaks"
     },
     {
       "name": "forge-kit-testing",
