@@ -2443,6 +2443,7 @@ expect "#532: every block, the Assumption paragraph, a tag inside bold and a tag
 expect "#532: it is idempotent" "$(TB "$TB_IN")" "$(TB "$(TB "$TB_IN")")"
 expect "#532: a first line already ending in a tag keeps its round byte for byte" "**Positive:** p (gate-written, round 0)" "$(TB '**Positive:** p (gate-written, round 0)' 3)"
 expect "#532: a tag quoted mid-line is left intact, text and all, and the block still gets its own tag" "text (gate-written, round 0) more (gate-written, round 2)" "$(TB 'text (gate-written, round 0) more' 2)"
+expect "#532: a tag followed by text (the Assumptions (gate-written, round 0): x shape) is kept and the line gains its own tag, the documented trade-off" "Assumptions (gate-written, round 0): x (gate-written, round 1)" "$(TB 'Assumptions (gate-written, round 0): x')"
 expect "#532: a tag quoted in backticks mid-line is left intact" 'use `(gate-written, round 0)` here (gate-written, round 1)' "$(TB 'use `(gate-written, round 0)` here')"
 expect "#532: a tag inside an underscore-emphasised line is moved out of it" "_Condition: x_ (gate-written, round 1)" "$(TB '_Condition: x (gate-written, round 0)_')"
 TB_FENCE='```bash

@@ -137,9 +137,11 @@
 # (tagged only a first line or the Condition lines, left an Assumption paragraph bare, put the tag
 # inside the bold markers), and each time the same run's append refused with 108. This makes the
 # shape mechanical instead. A first line already ending in a tag is kept byte for byte, whatever
-# its round (provenance survives a re-run, so it is idempotent). Any other `(gate-written, round
-# K)` in that line is removed with the blanks before it and the tag is added at the end, so
+# its round (provenance survives a re-run, so it is idempotent). A tag followed by nothing but
+# closing `*` or `_` is moved out of the emphasis to the end, with the blanks before it, so
 # `**Condition: x (gate-written, round 0)**` becomes `**Condition: x** (gate-written, round 0)`.
+# A tag quoted anywhere else in the line stays where it is and the block still gets its own tag
+# at the end: `Assumptions (gate-written, round 0): x` gains ` (gate-written, round N)`.
 # A block opening with a fence gets a line of its own holding just the tag, since a tag on a fence
 # line would change the fence. A block opening with a heading or a region marker is passed through
 # untouched: the append refuses those loudly (103) and tagging would corrupt them. A block that is
