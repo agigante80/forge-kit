@@ -4415,6 +4415,27 @@ repob517() {
 p517 "$G517" "$G517" -- repob517
 [ "$K442RC" = 2 ] && k_err FORGE_API_URL && [ "$(wc -l < "$K/calls" | tr -d ' ')" = 1 ] \
   && ok "#517: a pass in repo A is not carried to repo B: B's differing file is refused" || bad "#517: memo across repos (rc $K442RC calls $(wc -l < "$K/calls"): $(cat "$K/err"))"
+# round 1: a refused reload is not memoized, so without clearing the memo on every reload a pass in
+# the root survived cd sub (refused) and cd .. (the same hostile file, accepted on the stale memo)
+back517() {
+  forge_api GET /repos/o/r/issues/1 || return $?
+  printf '%s\n' "$E517" > .forge.conf; mkdir -p sub; cd sub && forge_api GET /repos/o/r/issues/2; cd .. && forge_api GET /repos/o/r/issues/3; }
+p517 "$G517" "$G517" -- back517
+[ "$K442RC" = 2 ] && k_err FORGE_API_URL && [ "$(wc -l < "$K/calls" | tr -d ' ')" = 1 ] \
+  && ok "#517: a pass, a hostile rewrite, cd sub and cd back: every reload is pinned again, the stale pass is not reused" || bad "#517: memo after cd back (rc $K442RC calls $(wc -l < "$K/calls"): $(cat "$K/err"))"
+# round 1: ls-tree must read the ROOT path from a subdirectory, as cat-file does; a default branch with
+# only pkg/.forge.conf, run from pkg/, would otherwise list it and fail open with the note
+pkg517() {
+  local b t c
+  b="$(printf '%s\n' "$G517" | "$K442GIT" hash-object -w --stdin)"
+  t="$(printf '100644 blob %s\t.forge.conf\n' "$b" | "$K442GIT" mktree)"
+  t="$(printf '040000 tree %s\tpkg\n' "$t" | "$K442GIT" mktree)"
+  c="$(echo base | "$K442GIT" -c user.name=t -c user.email=t@example.com commit-tree "$t")"
+  "$K442GIT" update-ref refs/remotes/origin/main "$c" && "$K442GIT" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  mkdir -p pkg && cd pkg && forge_api GET /repos/o/r/issues/1; }
+p517 "$E517" ABSENT -- pkg517
+[ "$K442RC" = 2 ] && k_err FORGE_API_URL && ! k_err "skipped" && k_nocurl \
+  && ok "#517: run from pkg/ against a default branch holding only pkg/.forge.conf: refused as absent, not skipped" || bad "#517: ls-tree from a subdirectory (rc $K442RC: $(cat "$K/err"))"
 
 # zero git calls when nothing is file-sourced
 p517 "" "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com -- $GET1
@@ -4461,6 +4482,8 @@ row_dup_evil() { p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https:
 row_rewrite() { p517 "$E517" "$G517" -- rewrite517; [ "$K442RC" = 2 ] && k_nocurl; }
 row_lazy() { p517 "$G517" "$G517" -- $GET1; [ -s "$K/lazylog" ] && ! grep -qv '^lazy=1 ' "$K/lazylog"; }
 row_repob() { p517 "$G517" "$G517" -- repob517; [ "$K442RC" = 2 ]; }
+row_back() { p517 "$G517" "$G517" -- back517; [ "$K442RC" = 2 ]; }
+row_pkg() { p517 "$E517" ABSENT -- pkg517; [ "$K442RC" = 2 ]; }
 row_memo_reuse() { p517 "$G517" "$G517" -- three517; [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ]; }
 row_absent() { p517 "$E517" ABSENT -- $GET1; [ "$K442RC" = 2 ]; }
 PIN='  _forge_pin_check || return 2'
@@ -4472,8 +4495,10 @@ mut517 'working copy side re-parsed, last value wins' '    eval "was=\${_FORGE_F
     dv="_forge_dv_$k"; cur="${!dv-}"' row_dup_evil
 mut517 'a second, naive parser for the default branch blob' '    _forge_conf_line "$line" || continue            # the SAME parse as the loader' '    case "$line" in FORGE_*=*) _FORGE_LK="${line%%=*}"; _FORGE_LV="${line#*=}" ;; *) continue ;; esac' row_quirky
 mut517 'GIT_NO_LAZY_FETCH=1 dropped from cat-file' 'blob="$(GIT_NO_LAZY_FETCH=1 git cat-file' 'blob="$(git cat-file' row_lazy
-mut517 'memo keyed without the repo (never re-checked)' '  [ -z "${_FORGE_PIN_PWD-}" ] || [ "${_FORGE_PIN_PWD-}" != "${_FORGE_CONF_PWD-}" ] || return 0' '  [ -z "${_FORGE_PIN_PWD-}" ] || return 0' row_repob
-mut517 'memo removed (every call re-checks)' '  [ -z "${_FORGE_PIN_PWD-}" ] || [ "${_FORGE_PIN_PWD-}" != "${_FORGE_CONF_PWD-}" ] || return 0' '  :' row_memo_reuse
+mut517 'memo not cleared by a reload (a stale pass is reused)' '  _FORGE_CONF_PWD="${PWD-}"; unset _FORGE_PIN_PWD' '  _FORGE_CONF_PWD="${PWD-}"' row_back
+mut517 'memo not cleared by a reload, seen from repo B' '  _FORGE_CONF_PWD="${PWD-}"; unset _FORGE_PIN_PWD' '  _FORGE_CONF_PWD="${PWD-}"' row_repob
+mut517 'ls-tree reads the path relative to the current directory' 'git ls-tree --full-tree "$ref"' 'git ls-tree "$ref"' row_pkg
+mut517 'memo removed (every call re-checks)' '  [ -z "${_FORGE_PIN_PWD-}" ] || return 0' '  :' row_memo_reuse
 mut517 'absent file treated as skip, not as no keys' '    if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then' '    if true; then' row_absent
 mut517 'working-copy exported remote ignored (always origin)' '*) [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE" ;; esac' '*) ;; esac' row_remote_exported
 # each call site removed in turn (the Nth pin line in file order)

@@ -570,26 +570,26 @@ mkproj() { local d; d=$(mktemp -d "$T/p533.XXXXXX"); mkdir -p "$d/.claude/agents
   printf '#!/usr/bin/env python3\n# block-dashes-version: 3\n' > "$d/.claude/hooks/block-dashes.py"
   printf '#!/bin/sh\n# mytool-version: 4\n' > "$d/scripts/mytool.sh"; : > "$d/scripts/$(basename "$d").ignored"
   printf '%s\n' "$1" > "$d/.github/ISSUE_TEMPLATE/a.yml"; echo "$d"; }
-# probe <block> <projdir> [PATH]: sets pout.
+# probe533 <block> <projdir> [PATH]: sets pout.
 pout=""
-probe() { pout=$(cd "$2" && env -i PATH="${3:-$PATH}" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" FORGE_KIT_DIR="$ROOT" bash -c "$1" 2>/dev/null); }
+probe533() { pout=$(cd "$2" && env -i PATH="${3:-$PATH}" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" FORGE_KIT_DIR="$ROOT" bash -c "$1" 2>/dev/null); }
 has() { grep -Fxq -- "$2" <<< "$pout" && ok "$1" || bad "$1 (missing line '$2')"; }
 hasnot() { grep -Fxq -- "$2" <<< "$pout" && bad "$1 (found line '$2')" || ok "$1"; }
 
 PA=$(mkproj '<!-- template-version: 5 -->')
-probe "$P1" "$PA" "$SHIMPATH"
+probe533 "$P1" "$PA" "$SHIMPATH"
 has "#533: agent marker read (first marker is foreign, own marker second)" "  code-reviewer | v7 | reviews"
 has "#533: hook marker read" "  block-dashes (hook) | v3"
 has "#533: shell asset marker read" "  mytool | v4 | shell asset (verbatim copy)"
 has "#533: canonical project and library template versions" "issue-templates: project=v5 canonical-marker=yes dir=.github/ISSUE_TEMPLATE forge-kit=v$FKV lockstep-guard=no"
 base="$pout"
-probe "$P1" "$PA"
+probe533 "$P1" "$PA"
 [ "$pout" = "$base" ] && ok "#533: the probe output is byte-identical under the shim and the plain grep" || bad "#533: shim and plain probe output differ"
 PB=$(mkproj 'TEMPLATE-VERSION: 6')
-probe "$P1" "$PB" "$SHIMPATH"
+probe533 "$P1" "$PB" "$SHIMPATH"
 has "#533: case-insensitive lenient template read" "issue-templates: project=v6 canonical-marker=no dir=.github/ISSUE_TEMPLATE forge-kit=v$FKV lockstep-guard=no"
 PC=$(mkproj 'template_version: 6')
-probe "$P1" "$PC" "$SHIMPATH"
+probe533 "$P1" "$PC" "$SHIMPATH"
 has "#533: an underscore key is not a template version" "issue-templates: project=vnone canonical-marker=no dir=.github/ISSUE_TEMPLATE forge-kit=v$FKV lockstep-guard=no"
 
 # Mutant rows: restore the -P form of one site at a time in the extracted block; each must change the row.
@@ -605,12 +605,12 @@ S214="grep -qE '<!--[[:space:]]*template-version:[[:space:]]*[0-9]'"
 O214="grep -qP '<!--\\s*template-version:\\s*\\d+'"
 S215="sed -nE 's/.*template-version: ([0-9]+).*/\\1/p' \"\$FK\"/.github/ISSUE_TEMPLATE/*.yml"
 O215="grep -hoP 'template-version: \\K\\d+' \"\$FK\"/.github/ISSUE_TEMPLATE/*.yml"
-probe "$(mut "$P1" 1 "$S174" "$O174")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, agent site back to -P: the v7 row dies" "  code-reviewer | v7 | reviews"
-probe "$(mut "$P1" 2 "$S174" "$O174")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, hook site back to -P: the v3 row dies" "  block-dashes (hook) | v3"
-probe "$(mut "$P1" 1 "$S201" "$O201")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, shell asset site back to -P: the v4 row dies" "  mytool | v4 | shell asset (verbatim copy)"
-probe "$(mut "$P1" 1 "$S212" "$O212")" "$PA" "$SHIMPATH"; case "$pout" in *"project=v5 "*) bad "#533: mutant 212 survived" ;; *) ok "#533: mutant, project version site back to -P: project=v5 dies" ;; esac
-probe "$(mut "$P1" 1 "$S214" "$O214")" "$PA" "$SHIMPATH"; case "$pout" in *"canonical-marker=yes"*) bad "#533: mutant 214 survived" ;; *) ok "#533: mutant, canonical site back to -P: canonical-marker=yes dies" ;; esac
-probe "$(mut "$P1" 1 "$S215" "$O215")" "$PA" "$SHIMPATH"; case "$pout" in *"forge-kit=v$FKV "*) bad "#533: mutant 215 survived" ;; *) ok "#533: mutant, library template site back to -P: forge-kit=v$FKV dies" ;; esac
+probe533 "$(mut "$P1" 1 "$S174" "$O174")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, agent site back to -P: the v7 row dies" "  code-reviewer | v7 | reviews"
+probe533 "$(mut "$P1" 2 "$S174" "$O174")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, hook site back to -P: the v3 row dies" "  block-dashes (hook) | v3"
+probe533 "$(mut "$P1" 1 "$S201" "$O201")" "$PA" "$SHIMPATH"; hasnot "#533: mutant, shell asset site back to -P: the v4 row dies" "  mytool | v4 | shell asset (verbatim copy)"
+probe533 "$(mut "$P1" 1 "$S212" "$O212")" "$PA" "$SHIMPATH"; case "$pout" in *"project=v5 "*) bad "#533: mutant 212 survived" ;; *) ok "#533: mutant, project version site back to -P: project=v5 dies" ;; esac
+probe533 "$(mut "$P1" 1 "$S214" "$O214")" "$PA" "$SHIMPATH"; case "$pout" in *"canonical-marker=yes"*) bad "#533: mutant 214 survived" ;; *) ok "#533: mutant, canonical site back to -P: canonical-marker=yes dies" ;; esac
+probe533 "$(mut "$P1" 1 "$S215" "$O215")" "$PA" "$SHIMPATH"; case "$pout" in *"forge-kit=v$FKV "*) bad "#533: mutant 215 survived" ;; *) ok "#533: mutant, library template site back to -P: forge-kit=v$FKV dies" ;; esac
 
 # Templates mode: line 673 (TB, above) and the project read (the block holding HAS_DOC).
 tm() { bout=$(cd "$PROJ" && env -i PATH="$SHIMPATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" "$@" bash -c "$TB" 2>/dev/null); }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 50
+# forge-lib-version: 51
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -336,7 +336,7 @@ _forge_load_conf() {
   # Only clear a key that still holds exactly what the file put there. Anything else is the
   # caller's, and env wins.
   _forge_clear_file_vals
-  _FORGE_CONF_PWD="${PWD-}"
+  _FORGE_CONF_PWD="${PWD-}"; unset _FORGE_PIN_PWD   # every reload is a new load to pin (#517 round 1)
   f="$root/.forge.conf"
   [ -f "$f" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -385,7 +385,7 @@ _forge_load_conf() {
 _forge_pin_check() {
   _forge_load_conf || true
   local IFS=$' \t\n'                         # a strict-mode caller's IFS must not glue the key list
-  [ -z "${_FORGE_PIN_PWD-}" ] || [ "${_FORGE_PIN_PWD-}" != "${_FORGE_CONF_PWD-}" ] || return 0
+  [ -z "${_FORGE_PIN_PWD-}" ] || return 0   # set by a pass, cleared by every reload of the file
   local k was keys="" remote=origin dv diff="" ref="" refs want blob="" listed cur lrc line
   for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE; do
     case " ${_FORGE_FROM_FILE-} " in *" $k "*) ;; *) continue ;; esac
@@ -413,7 +413,7 @@ refs/remotes/$remote/$want
   fi
   if ! blob="$(GIT_NO_LAZY_FETCH=1 git cat-file blob "$ref:.forge.conf" 2>/dev/null)"; then
     blob=""
-    listed="$(GIT_NO_LAZY_FETCH=1 git ls-tree "$ref" .forge.conf 2>/dev/null)"; lrc=$?
+    listed="$(GIT_NO_LAZY_FETCH=1 git ls-tree --full-tree "$ref" .forge.conf 2>/dev/null)"; lrc=$?
     if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then   # listed but not local, or unreadable: fail open
       _forge_pin_note "$remote"; _forge_pin_memo; return 0
     fi                                              # absent from the tree: no keys
