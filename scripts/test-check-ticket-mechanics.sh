@@ -2484,11 +2484,11 @@ tbmut "a CR is left inside the visible line" 's/print l " " tag/print $0 " " tag
 tbmut "a fence opener sets no fence state" 's/isf = fence_open(l); if (isf) fopen = 1/isf = fence_open(l)/'
 tbmut "an existing tag is re-stamped instead of kept" 's/if (tagged(l)) { print; next }//'
 tbmut "a fence-first block is tagged on the fence line" 's/if (isf) { print tag; print l; next }//'
-TB_PROSE0='Pass only composed text through `"$MECH" --tag-blocks 0`, tagging each block `(gate-written, round 0)`; kept author text verbatim, untagged; never hand-tag.'
+TB_PROSE0='Pass composed `scenarios`/`docs_impact` text through `"$MECH" --tag-blocks 0`, tagging each block `(gate-written, round 0)`; kept author text verbatim, untagged; never hand-tag.'
 TB_PROSE6='each item piped through `"$MECH" --tag-blocks N`'
 gate_pin "$TB_PROSE0" "$GATE" && ok "#532: Step 0c-iii routes the synthesised text through --tag-blocks 0" || bad "#532: Step 0c-iii lost the --tag-blocks call"
 gate_pin "$TB_PROSE6" "$GATE" && ok "#532: Step 6 item 2 routes appended items through --tag-blocks N" || bad "#532: Step 6 item 2 lost the --tag-blocks call"
-sed 's/Pass only composed text through/Pass each `scenarios` or `docs_impact` text through/' "$GATE" > "$WORK/gate-tb-mut.md"
+sed 's/Pass composed `scenarios`\/`docs_impact` text through/Hand-tag each block of/' "$GATE" > "$WORK/gate-tb-mut.md"
 cmp -s "$GATE" "$WORK/gate-tb-mut.md" && bad "#532: the 0c-iii prose mutant did not apply"
 gate_pin "$TB_PROSE0" "$WORK/gate-tb-mut.md" && bad "#532: MUTANT survived: the 0c-iii pin passes with hand-tagging back" || ok "#532: MUTANT: returning to hand-tagging in 0c-iii fails the pin"
 sed 's/each item piped through/each item written/' "$GATE" > "$WORK/gate-tb-mut2.md"

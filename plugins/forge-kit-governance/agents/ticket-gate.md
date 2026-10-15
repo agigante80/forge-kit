@@ -134,7 +134,7 @@ target section under another heading (bar `personal_data`'s GDPR match), is Miss
 Write each section, inline or dispatched, as `## <label>` holding the template's unquoted
 `label:` value, scenarios following its `placeholder:` shape, never placeholder text; where
 the body cannot support a specific case, write the most concrete one and note the assumption.
-Pass only composed text through `"$MECH" --tag-blocks 0`, tagging each block
+Pass composed `scenarios`/`docs_impact` text through `"$MECH" --tag-blocks 0`, tagging each block
 `(gate-written, round 0)`; kept author text verbatim, untagged; never hand-tag.
 
 Fast path: when the ONLY gap is `docs_impact`, synthesise it inline, then 0c-iv.
