@@ -2476,8 +2476,9 @@ bash "$SCRIPT" --tag-blocks </dev/null >/dev/null 2>&1; expect "#532: --tag-bloc
 tbmut() {  # tbmut <name> <sed expr>: the mutant must change TB's answer on the fixtures above
   sed "$2" "$SCRIPT" > "$WORK/tb-mut.sh"
   cmp -s "$SCRIPT" "$WORK/tb-mut.sh" && { bad "#532: mutant '$1' did not apply"; return; }
-  local a b c; a="$(TBS="$WORK/tb-mut.sh" TB "$TB_IN")"; b="$(TBS="$WORK/tb-mut.sh" TB "$TB_FENCE")"; c="$(TBS="$WORK/tb-mut.sh" TB "kept (gate-written, round 0)" 3)"
-  if [ "$a" = "$TB_OUT" ] && [ "$b" = "$(TB "$TB_FENCE")" ] && [ "$c" = "kept (gate-written, round 0)" ]; then bad "#532: MUTANT survived: $1"; else ok "#532: MUTANT: $1 changes the output"; fi; }
+  local a b c d; a="$(TBS="$WORK/tb-mut.sh" TB "$TB_IN")"; b="$(TBS="$WORK/tb-mut.sh" TB "$TB_FENCE")"; c="$(TBS="$WORK/tb-mut.sh" TB "kept (gate-written, round 0)" 3)"
+  d="$(printf 'x\r\n' | bash "$WORK/tb-mut.sh" --tag-blocks 1)"   # a CR input, or the CR mutant has nothing to change
+  if [ "$a" = "$TB_OUT" ] && [ "$b" = "$(TB "$TB_FENCE")" ] && [ "$c" = "kept (gate-written, round 0)" ] && [ "$d" = "x (gate-written, round 1)" ]; then bad "#532: MUTANT survived: $1"; else ok "#532: MUTANT: $1 changes the output"; fi; }
 tbmut "no blank-line reset, so only the first block is tagged" 's/l == "" { first = 1; print; next }/l == "" { print; next }/'
 tbmut "an in-bold tag is not removed" 's/^      if (match(l, .*$//'
 tbmut "a CR is left inside the visible line" 's/print l " " tag/print $0 " " tag/'
