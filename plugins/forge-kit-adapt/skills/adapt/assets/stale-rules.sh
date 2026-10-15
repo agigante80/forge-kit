@@ -122,7 +122,17 @@ physdir() { (CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P); }
 parent_out() {
   local path="$1" root="$2" rel base dir acc="" part rest link=0 pd
   case "$path" in
-    /*) rel="${path#"$root"/}"; [ "$rel" != "$path" ] || return 1; base="$root" ;;
+    /*) rel="${path#"$root"/}"
+       if [ "$rel" = "$path" ]; then
+         # Not under the physical root: it may still reach the project through a symlinked prefix
+         # (the project named logically). Resolve the parent physically; a parent that differs from
+         # its logical spelling and lands outside the root is a symlink escape (#518).
+         pd=$(physdir "$(dirname -- "$path")"); [ -n "$pd" ] || return 1
+         [ "$pd" != "$(dirname -- "$path")" ] || return 1
+         case "$pd" in "$root"|"$root"/*) return 1 ;; esac
+         return 0
+       fi
+       base="$root" ;;
     *)  rel="$path"; base="." ;;
   esac
   dir=$(dirname -- "$rel"); [ "$dir" != "." ] || return 1
@@ -393,10 +403,10 @@ slug() {
 PROOT=""
 if [ "$HAVE_LIST" -eq 1 ]; then
   if [ "$LIST" = "-" ]; then cat > "$WORK/list"; else cat -- "$LIST" > "$WORK/list"; fi
-  LROOT=$(physdir "${PROJECT:-.}")
+  LROOT=$(physdir "${PROJECT:-.}"); [ -n "$LROOT" ] || usage "cannot resolve '${PROJECT:-.}'"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    if [ -n "$LROOT" ] && parent_out "$p" "$LROOT"; then not_scanned "$p" symlink; continue; fi
+    if parent_out "$p" "$LROOT"; then not_scanned "$p" symlink; continue; fi
     scan_file prose "$p" "$p"
   done < "$WORK/list"
 else

@@ -624,6 +624,17 @@ ln -s real "$P/inlnk"
 printf 'inlnk/a.md\n' > "$T/list"
 out=$(cd "$P" && bash "$S" --kit "$KIT" --files-from "$T/list" 2>/dev/null); rc=$?
 has "stale-rule${TAB}prose${TAB}inlnk/a.md${TAB}1${TAB}review-lows" "--files-from: a symlinked parent that stays inside the project is read"
+# #518 round 2: an absolute entry named through a symlinked spelling of the project is still parent-checked.
+fresh
+put "$T/outside/x/a.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside" "$P/lnk"; ln -s "$P" "$T/plink"
+printf '%s\n' "$T/plink/lnk/x/a.md" > "$T/list"
+out=$(cd "$T/plink" && bash "$S" --kit "$KIT" --files-from "$T/list" 2>/dev/null); rc=$?
+has "not-scanned${TAB}$T/plink/lnk/x/a.md${TAB}symlink" "--files-from: an absolute entry through a logical project prefix is parent-checked"
+hasnt "stale-rule" "and is not read"
+out=$(cd "$P" && bash "$S" --kit "$KIT" --project "$T/no-such-dir" --files-from "$T/list" 2>/dev/null); rc=$?
+expect "--files-from with an unresolvable --project exits 2" 2 "$rc"
+expect "and prints nothing on stdout" "" "$out"
 # The config dir is the user's own: a linked parent there is allowed (unchanged).
 fresh
 put "$T/outside/skills/s/SKILL.md" 'Low findings are ticketed immediately\n'
