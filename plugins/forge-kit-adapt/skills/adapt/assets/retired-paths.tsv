@@ -1,0 +1,2 @@
+# path, retired-in issue, date, note (tab separated). Add a row when the kit stops shipping a file a project may still hold.
+scripts/test-template-lockstep.sh	506	2026-10-14	kit-only contract test; downstream copies were never refreshed

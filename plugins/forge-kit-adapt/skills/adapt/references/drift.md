@@ -29,3 +29,27 @@ others.
 One bare word: `current`, `behind`, `unversioned`, `registered` or `missing`. A marker over nine
 digits is refused (exit 2, `is too large to compare`) instead of being called `current`; STOP and
 report that row, since a marker that long is a typo in the component.
+
+## An unmarked copy of a kit asset (#522)
+
+The Step 1 probe lists a shell asset in `scripts/` when it carries a version marker, or when the
+catalogue ships an asset of that name. A copy with no marker therefore prints `vnone` and reads
+`unversioned`, which is how a pre-marker install surfaces instead of vanishing. That includes a
+project's own script that happens to share a kit asset's name: it also reads `unversioned`, and this
+is accepted. Drift writes nothing; `refresh <name>` deep-compares the file and asks before replacing it.
+
+## The ticket-standards doc row (#525)
+
+`docs/guides/ticket-standards.md` is a doc, not a component, so the marker comparison never reaches
+it. Print its row in the same table:
+
+```bash
+"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-standards-row.sh --project "$PWD" --kit "$FORGE_KIT_DIR"
+```
+
+For example `ticket-standards (doc-rules) | v20 | v21 | behind`. It compares `doc-rules-version`
+only: the install sets the doc's `template-version` to the project's own, so comparing that to the
+kit's would read `behind` on every project whose templates lag on purpose (the Step 1 probe already
+reports the templates). The script prints nothing when the project has no such doc, shows an unmarked
+doc as `none | v<N> | unversioned`, and exits 2 when the kit copy is missing or unmarked: report that
+and keep the rest of the table. The comparison word comes from `forge-adapt-drift-status.sh`.

@@ -342,6 +342,52 @@ case "$dout" in *"other | "*) bad "#506: an unrelated unmarked script was listed
 printf '#!/bin/sh\n# check-template-lockstep-version: 1\n' > "$DP/scripts/check-template-lockstep.sh"
 dout=$(cd "$DP" && env -i PATH="$PATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" bash -c "$DB" 2>/dev/null)
 case "$dout" in *"  check-template-lockstep | v1 | shell asset (verbatim copy)"*) ok "#506: a marked installed guard reads its version" ;; *) bad "#506: marked guard row: $dout" ;; esac
+# #522: an unmarked copy of ANY catalogue shell asset is listed as 'vnone' (so it reads unversioned), found by
+# the library's asset names. The fixture library needs a forge-lib.sh stub, or FK stays empty and nothing prints.
+mk522lib() { local d a; d=$(mktemp -d "$T/l522.XXXXXX"); mkdir -p "$d/plugins/forge-kit-devops/skills/forge-host/assets" "$d/plugins/g/skills/s/assets"
+  printf 'forge_host() { echo github; }\n' > "$d/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh"
+  for a in version-lib release-run context-budget abc; do printf '#!/bin/sh\n# %s-version: 1\n' "$a" > "$d/plugins/g/skills/s/assets/$a.sh"; done
+  echo "$d"; }
+# d522 <project> [VAR=value ...]: the drift block under env -i; sets dout (shell-asset lines only), dall, drc.
+dout=""; dall=""; drc=""
+d522() { local p="$1"; shift; dall=$(cd "$p" && env -i PATH="$PATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" "$@" bash -c "$DB" 2>"$T/berr"); drc=$?
+  dout=$(printf '%s\n' "$dall" | grep -F 'shell asset (verbatim copy)'); }
+mk522proj() { local p; p=$(mktemp -d "$T/p522.XXXXXX"); mkdir -p "$p/scripts"; echo "$p"; }
+L522=$(mk522lib)
+P=$(mk522proj); printf '#!/bin/sh\n' > "$P/scripts/version-lib.sh"
+d522 "$P" FORGE_KIT_DIR="$L522"
+expect "#522: an unmarked catalogue-named copy is the one listed row" "  version-lib | vnone | shell asset (verbatim copy)" "$dout"
+P=$(mk522proj); printf '#!/bin/sh\n' > "$P/scripts/version-lib-extra.sh"; printf '#!/bin/sh\n' > "$P/scripts/deploy.sh"
+d522 "$P" FORGE_KIT_DIR="$L522"
+expect "#522: a near-miss and a project-only name list no row" "" "$dout"
+expect "#522: ... and the block exits 0" 0 "$drc"
+P=$(mk522proj); printf '#!/bin/sh\n' > "$P/scripts/check-template-lockstep.sh"; printf '#!/bin/sh\n' > "$P/scripts/version-lib.sh"
+d522 "$P"
+expect "#522: no library: only the lockstep floor is listed" "  check-template-lockstep | vnone | shell asset (verbatim copy)" "$dout"
+case "$dall" in *"forge-host: github"*) ok "#522: no library: the later forge-host line still prints" ;; *) bad "#522: no library: forge-host line missing: $dall" ;; esac
+P=$(mk522proj); printf '#!/bin/sh\n# other-version: 2\n' > "$P/scripts/context-budget.sh"
+d522 "$P" FORGE_KIT_DIR="$L522"
+expect "#522: a marker for another name does not count (vnone)" "  context-budget | vnone | shell asset (verbatim copy)" "$dout"
+P=$(mk522proj); printf '#!/bin/sh\n# release-run-version: 4\n' > "$P/scripts/release-run.sh"; printf '#!/bin/sh\n' > "$P/scripts/deploy.sh"
+d522 "$P" FORGE_KIT_DIR="$L522"
+expect "#522: a marked copy still reads its version" "  release-run | v4 | shell asset (verbatim copy)" "$dout"
+# A project's OWN script that shares a kit name is listed vnone too (accepted: drift writes nothing). Nothing is written.
+P=$(mk522proj); printf '#!/bin/sh\necho mine, nothing like the kit copy\n' > "$P/scripts/version-lib.sh"
+sum=$(cksum "$P/scripts/version-lib.sh"); before=$(cd "$P" && find . -type f | LC_ALL=C sort | tr '\n' ' ')
+d522 "$P" FORGE_KIT_DIR="$L522"
+expect "#522: an own script sharing a kit name is listed vnone" "  version-lib | vnone | shell asset (verbatim copy)" "$dout"
+expect "#522: ... and drift writes nothing (content and file set unchanged)" "$sum|$before" "$(cksum "$P/scripts/version-lib.sh")|$(cd "$P" && find . -type f | LC_ALL=C sort | tr '\n' ' ')"
+# A glob character in a project file name is matched literally, never as a pattern against the library names.
+P=$(mk522proj); printf '#!/bin/sh\n' > "$P/scripts/a*.sh"
+d522 "$P" FORGE_KIT_DIR="$L522"
+expect "#522: a metacharacter file name lists no row (abc.sh in the library is not a match)" "" "$dout"
+# Every name the real catalogue lists is found when its copy is unmarked: derived, so the count cannot go stale.
+P=$(mk522proj); want=""
+for nm in $(bash "$ROOT/scripts/forge-adapt-catalogue.sh" "$ROOT" | sed -n 's/^asset: \([^ ]*\) |.*/\1/p'); do
+  printf '#!/bin/sh\n' > "$P/scripts/$nm.sh"; want="$want  $nm | vnone | shell asset (verbatim copy)"$'\n'; done
+d522 "$P" FORGE_KIT_DIR="$ROOT"
+expect "#522: every catalogue asset name, unmarked, is listed (derived from the catalogue)" "$(printf '%s' "$want" | LC_ALL=C sort)" "$(printf '%s\n' "$dout" | LC_ALL=C sort)"
+[ -n "$want" ] && ok "#522: the real catalogue yielded asset names" || bad "#522: the real catalogue yielded no asset names"
 run_block "$KB"
 [ "$brc" != 0 ] && case "$berr" in *FORGE_KIT_DIR*) true ;; *) false ;; esac && ok "#321: lockstep unset: exits non-zero naming FORGE_KIT_DIR" || bad "#321: lockstep unset: rc $brc, stderr '$berr'"
 [ ! -e "$PROJ/scripts" ] && ok "#321: lockstep unset: no scripts/ directory created" || bad "#321: lockstep unset: created scripts/"

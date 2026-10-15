@@ -449,6 +449,15 @@ jobs:
       - name: Stale-rules scanner tests
         run: bash scripts/test-forge-adapt-stale-rules.sh
 
+      # Issue #525: drift's row for the project's ticket-standards doc-rules-version; the status
+      # word still comes from forge-adapt-drift-status.sh.
+      - name: Standards-row tests
+        run: bash scripts/test-forge-adapt-standards-row.sh
+
+      # Issue #521: the retired-file scan and its one-step removal, the riskiest write forge-adapt makes.
+      - name: Retired-paths scanner tests
+        run: bash scripts/test-forge-adapt-retired-paths.sh
+
       # Issue #495, the kit's own half: the same scanner over every tracked file, so a retired
       # rule put back into a component fails here before any project installs it, and the
       # review-lows rule keeps one canonical home that every pointer names at the same version.
