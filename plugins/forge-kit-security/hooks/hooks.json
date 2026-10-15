@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": [
+              "-c",
+              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/scan-forge-writes\" ] || exit 0; exec python3 \"$0\"",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scan-forge-writes.py"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

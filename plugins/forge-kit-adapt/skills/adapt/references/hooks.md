@@ -10,6 +10,7 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 | the project dispatches subagents (`ticket-gate`, `/full-review` or `working-overnight` installed) | `no-poll-loops.py` | governance | PreToolUse | stop shell waits on dispatched subagents | `Bash\|Monitor` |
 | `working-overnight` is installed, or CLAUDE.md states a rule against destructive commands (`rm -rf`, `git reset --hard`, discarding uncommitted work) | `overnight-guard.py` | governance | PreToolUse | deny destructive git and rm -rf, day and night | `Bash` |
 | the project has a test or check runner (`scripts/test-*` or `scripts/check-*`, a `package.json` test script, `pytest`, a `Makefile` test target, `Cargo.toml`, `go.mod`) | `masked-exit-advisory.py` | governance | PostToolUse | flag a check whose exit code a pipe masks | `Bash` |
+| the repo has a `.leak-guard-allow` or the leak-guard is installed, and agents file tickets or PR text with `gh` | `scan-forge-writes.py` | security | PreToolUse | scan gh issue and PR text for leaks before it posts | `Bash` |
 | `.forge.conf` present (repo migrated off GitHub to a self-hosted forge) | `block-legacy-host-push.py` | devops | PreToolUse | deny git push to the archived legacy host | `Bash` |
 
 ## Install detail (block-dashes.py)
@@ -140,6 +141,34 @@ the sentinel. Optionally sanity-run `python3 .claude/hooks/masked-exit-advisory.
 `hooks/README.md`; do not restate them.
 
 When NOT to recommend: a project with no test or check runner, since there is nothing to mask.
+
+## Install detail (scan-forge-writes.py)
+
+The hook scans the body and title typed into `gh issue|pr create|edit|comment` with both leak
+scanners before gh publishes them. It ships ONLY in `forge-kit-security`, because it finds the
+scanners from the plugin's own root: there is no project-local copy shape. It has its OWN sentinel,
+`.claude/scan-forge-writes`, and the file's content is never read. Without the file the hook is
+inert in every project that has the plugin.
+
+Branch on `scripts/forge-adapt-plugin-active.sh forge-kit-security@forge-kit`:
+
+`yes`: the plugin's `hooks.json` already registers the hook, shell-gated on the sentinel. Do NOT
+copy the script and do NOT touch `settings.json`. The whole install is:
+
+```bash
+mkdir -p .claude && touch .claude/scan-forge-writes
+```
+
+`no` or `unknown`: recommend installing `forge-kit-security` and install nothing else. A copy under
+`.claude/hooks/` would not find the scanners, so it would scan nothing.
+
+Confirm: `✓ scan-forge-writes (hook): armed via .claude/scan-forge-writes`. Opt out later by
+deleting the sentinel. Tell the user first that a leaking body is denied and that a body the hook
+cannot read (stdin, an unterminated heredoc, a variable) is allowed with a one-line stderr note.
+The reach and the known bypasses are in `leak-guard/references/forge-writes.md`; do not restate them.
+
+When NOT to recommend: a project that never publishes text with `gh`, or one without the private
+list and the leak-guard's scanners.
 
 ## Install detail (block-legacy-host-push.py)
 
