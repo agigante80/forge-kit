@@ -517,6 +517,14 @@ jobs:
       - name: forge-adapt refresh tests
         run: bash scripts/test-forge-adapt-refresh.sh
 
+      # Issue #528: an http forge URL makes forge-lib refuse in CI unless FORGE_ALLOW_HTTP is 1.
+      - name: forge-adapt http-steps tests
+        run: bash scripts/test-forge-adapt-http-steps.sh
+
+      # Issue #529: refresh <name> showing the upstream delta from a depth-1 marketplace checkout.
+      - name: forge-adapt marker-delta tests
+        run: bash scripts/test-forge-adapt-marker-delta.sh
+
       # Issue #158: these two were `pull_request`-only, and since work stopped arriving as pull
       # requests they ran on NO path at all. They now run on both, and the base is resolved by a
       # TESTED script rather than a YAML expression, because `github.event.before` is the

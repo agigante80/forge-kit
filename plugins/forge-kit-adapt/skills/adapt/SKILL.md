@@ -570,7 +570,7 @@ Run only when explicitly invoked, or offer them after the user replies "none".
 ### Refresh / drift mode  ("refresh", "refresh <name>", "drift")
 
 Every shape, and the main flow's Version status block, also runs the retired-rule scan in
-`references/stale-rules.md` (#495) and the retired-file scan in `references/retired-paths.md` (#521). It also prints the doc-rules row of `references/drift.md` (#525).
+`references/stale-rules.md` (#495) and the retired-file scan in `references/retired-paths.md` (#521). It also prints the doc-rules row and http-steps scan of `references/drift.md` (#525, #528).
 
 **`refresh` / `drift` (no name) - report only, writes nothing.** For every installed component,
 compare its `<name>-version` marker against the catalogue and print a drift report:
@@ -604,17 +604,18 @@ with local additions -> do NOT overwrite and do NOT merge: report the diff and p
 a contribution candidate, not an adaptation (decided in issue #64).
 
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
-The only full content diff here, and it must NEVER blind-overwrite adaptation. Steps:
+The only full content diff, and it must NEVER blind-overwrite adaptation. Steps:
 
 1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy.
 2. **Classify every difference:**
    - **Adaptation (keep):** project-specific stack/domain customisation, and `<!-- adapt-dropped: <name> -->`
      tombstones (a deliberately dropped conditional paragraph; never re-offer the clause).
-   - **Behind forge-kit (offer to apply):** structural/behavioural improvements present in the
-     catalogue copy but missing locally (new rules, new sections, the version bump).
+   - **Behind forge-kit (offer to apply):** structural/behavioural improvements found only in the
+     catalogue (new rules, new sections, the version bump).
    - **Tier:** `"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-tier-diff.sh <installed> <catalogue>`; copy its
      lines into the report verbatim. Keep the local tier; it never enters the merge.
-3. Print the report - what is adaptation, what is missing, and the proposed merge:
+   - **Delta:** `"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-marker-delta.sh <library> <path> <name> <old>`; copy its lines verbatim.
+3. Print the report (adaptation, missing, proposed merge):
 
    ```
    refresh: <name>  (installed v<old> → forge-kit v<new>)
