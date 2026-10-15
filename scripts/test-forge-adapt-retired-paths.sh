@@ -68,6 +68,21 @@ d=$(proj quoted); wf "$d" a.yml "${HEAD}      - uses: x\n      - run: 'bash scri
 run "$d"; expect "a quoted command is other" "other" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
 d=$(proj only); wf "$d" a.yml "${HEAD}      - run: bash scripts/test-template-lockstep.sh\n"
 run "$d"; expect "the only step of a job is other (deleting it would empty the job)" "other" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
+# #521 round 1: continuation keys under the dash belong to the step, so deleting only the run line would
+# reattach them to the previous step. The next line deeper than the dash makes the row `other`.
+d=$(proj cont); wf "$d" a.yml "${HEAD}      - uses: x\n      - run: bash scripts/test-template-lockstep.sh\n        if: github.event_name == 'push'\n"
+run "$d"; expect "a step with a continuation key (if:) is other" "other" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
+d=$(proj contenv); wf "$d" a.yml "${HEAD}      - uses: x\n      - run: bash scripts/test-template-lockstep.sh\n\n        # why\n        env:\n          A: b\n"
+run "$d"; expect "a blank and a comment line before the continuation key are skipped" "other" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
+d=$(proj nocont); wf "$d" a.yml "${HEAD}      - uses: x\n      - run: bash scripts/test-template-lockstep.sh\n\n  other:\n    steps:\n      - uses: y\n"
+run "$d"; expect "a following dedented job does not disqualify the step" "step" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
+# The sibling must sit in the same steps: block, not anywhere in the file.
+d=$(proj onpush); wf "$d" a.yml "name: lock\non:\n  push:\n    branches:\n      - main\njobs:\n  lock:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/test-template-lockstep.sh\n"
+run "$d"; expect "a '- main' under on.push.branches is not a sibling step" "other" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
+d=$(proj otherjob); wf "$d" a.yml "${HEAD}      - run: bash scripts/test-template-lockstep.sh\n  second:\n    steps:\n      - uses: y\n"
+run "$d"; expect "a step in another job is not a sibling" "other" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
+d=$(proj flush); wf "$d" a.yml "name: lock\njobs:\n  lock:\n    steps:\n    - uses: x\n    - run: bash scripts/test-template-lockstep.sh\n"
+run "$d"; expect "steps: with items at the key's own indent still finds its sibling" "step" "$(printf '%s\n' "$out" | head -n 1 | cut -f5)"
 d=$(proj cmt); wf "$d" a.yml "${HEAD}      # - run: bash scripts/test-template-lockstep.sh\n      - uses: x\n"
 run "$d"; expect "a commented line is not a caller" "retired${TAB}$P${TAB}-${TAB}-${TAB}-" "$(printf '%s\n' "$out" | head -n 1)"
 d=$(proj two); wf "$d" a.yml "${HEAD}      - uses: x\n      - run: bash scripts/test-template-lockstep.sh\n"; wf "$d" b.yaml "${HEAD}      - uses: x\n      - run: bash scripts/test-template-lockstep.sh\n"
@@ -87,6 +102,11 @@ expect "the refusal message is exact" "not removed: .github/workflows/a.yml:10 i
 d=$(proj slwf); mkdir -p "$T/elsewhere"; rm -rf "$d/.github/workflows"; ln -s "$T/elsewhere" "$d/.github/workflows"
 run "$d"; expect "a symlinked workflow directory is reported not-scanned" "not-scanned${TAB}.github/workflows${TAB}symlink" "$(printf '%s\n' "$out" | grep '^not-scanned')"
 run "$d" --remove "$P"; expect "and it blocks a removal" 1 "$rc"; [ -f "$d/$P" ] && ok "blocked removal keeps the script" || bad "removed despite a symlinked workflow dir"
+# A symlinked workflow location is only worth a not-scanned row when a retired file exists to be run by it.
+d="$T/slclean"; mkdir -p "$d/.github/workflows" "$d/.forgejo"; ln -s ../.github/workflows "$d/.forgejo/workflows"
+run "$d"; expect "symlinked workflow dir, no retired file: clean, exit 0" "summary${TAB}0${TAB}0|0" "$out|$rc"
+d=$(proj slfound); mkdir -p "$d/.forgejo"; ln -s ../.github/workflows "$d/.forgejo/workflows"
+run "$d"; expect "symlinked workflow dir with a retired file present: reported" "not-scanned${TAB}.forgejo/workflows${TAB}symlink" "$(printf '%s\n' "$out" | grep '^not-scanned')"
 d=$(proj slpath); rm "$d/$P"; echo real > "$T/realfile"; ln -s "$T/realfile" "$d/$P"
 run "$d"; expect "a symlinked retired path is not-scanned, never followed" "not-scanned${TAB}$P${TAB}symlink" "$(printf '%s\n' "$out" | grep '^not-scanned')"
 expect "and counts as incomplete: exit 3" 3 "$rc"

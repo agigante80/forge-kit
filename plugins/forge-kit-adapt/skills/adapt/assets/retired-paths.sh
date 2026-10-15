@@ -32,12 +32,14 @@
 #   retired      <path>  <caller>  <line>  <form>   one row per workflow line naming the path; the
 #                                                    caller is the workflow file, relative to the
 #                                                    project. With no such line: caller, line, form `-`.
-#   not-scanned  <path>  <symlink|unreadable>       a path or workflow location it did not read
+#   not-scanned  <path>  <symlink|unreadable>       a path or workflow location it did not read (workflow
+#                                                    locations only when a listed path exists)
 #   exempt       kit checkout                       (instead of a scan, see above)
 #   summary      <retired paths found>  <not-scanned rows>                            (always last)
 #
-# FORM is `step` only for an exact one-line run step, `- run: bash|sh [./]<path>`, that has a sibling
-# step at the same indentation (so deleting it cannot leave a job with no steps). Anything else is
+# FORM is `step` only for an exact one-line run step, `- run: bash|sh [./]<path>`, with no deeper line
+# under it (an if:/env:/name: key belongs to the step) and a sibling step at the same indentation
+# inside the same `steps:` block (so deleting it cannot leave a job with no steps). Anything else is
 # `other`: a multi-line or `run: |` step, a quoted command, `./<path>` run directly, a line that
 # merely mentions the path, a `name:`/`if:` block around it. A `#` comment line is not a caller.
 # A mention counts when the path is not part of a longer file name (`.bak`, `-old` do not match).
@@ -137,6 +139,33 @@ function mentions_from(l, p, start,   k, n, b, e) {
   return 0
 }
 { sub(/\r$/, "", $0); raw[NR] = $0 }
+function skip(l) { return l ~ /^[ ]*$/ || l ~ /^[ ]*#/ }
+function indent_of(l) { match(l, /^ */); return RLENGTH }
+# step_ok(i, ind): the `- run:` line i, dash at column ind, is removable as one line when (a) nothing
+# deeper follows it (an if:, env: or name: under the dash belongs to this step, #521) and (b) another
+# `- ` item at the same indent sits inside the SAME `steps:` block, not anywhere in the file (an
+# `on: push: branches: - main` would otherwise pass for a sibling).
+function step_ok(i, ind,   j, h, e, sib) {
+  for (j = i + 1; j <= NR; j++) {
+    if (skip(raw[j])) continue
+    if (indent_of(raw[j]) > ind) return 0
+    break
+  }
+  h = 0
+  for (j = i - 1; j >= 1; j--) {
+    if (skip(raw[j])) continue
+    if (indent_of(raw[j]) < ind || (indent_of(raw[j]) == ind && substr(raw[j], ind + 1, 2) != "- ")) { h = j; break }
+  }
+  if (h == 0 || raw[h] !~ /^[ ]*steps:[ ]*(#.*)?$/) return 0
+  sib = 0
+  for (j = h + 1; j <= NR; j++) {
+    if (skip(raw[j])) continue
+    e = indent_of(raw[j])
+    if (e < ind || (e == ind && substr(raw[j], ind + 1, 2) != "- ")) break
+    if (j != i && e == ind) sib = 1
+  }
+  return sib
+}
 END {
   for (i = 1; i <= NR; i++) {
     l = raw[i]
@@ -150,11 +179,7 @@ END {
         sub(/^\.\//, "", rest)
         if (rest == P) {
           ind = index(t, "-") - 1
-          pre = sprintf("%" ind "s", ""); if (ind == 0) pre = ""
-          for (j = 1; j <= NR; j++) {
-            if (j == i || raw[j] ~ /^[ ]*#/) continue
-            if (substr(raw[j], 1, ind + 2) == pre "- ") { form = "step"; break }
-          }
+          if (step_ok(i, ind)) form = "step"
         }
       }
     }
@@ -207,6 +232,9 @@ scan_path() {
 if [ -z "$REMOVE" ]; then
   for p in "${PATHS[@]+"${PATHS[@]}"}"; do scan_path "$p"; done
   cat "$ROWS"
+  # A workflow location is reported only when a listed path exists: with none, there is nothing a
+  # step could run, so a symlinked .forgejo/workflows must not turn a clean scan into exit 3.
+  [ "$NFOUND" -gt 0 ] || : > "$WORK/wfblock"
   while IFS=$'\t' read -r where why; do printf 'not-scanned\t%s\t%s\n' "$where" "$why"; done < "$WORK/wfblock"
   while IFS=$'\t' read -r where why; do printf 'not-scanned\t%s\t%s\n' "$where" "$why"; done < "$NOTSC"
   NNS=$(( $(grep -c . "$WORK/wfblock") + $(grep -c . "$NOTSC") ))
