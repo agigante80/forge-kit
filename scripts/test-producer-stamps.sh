@@ -214,6 +214,111 @@ bash "$SCRIPT" "$R/plugins" >/dev/null 2>&1
                || bad "a tracked file missing from the worktree reported a scan error"
 ( cd "$R" && git checkout -- . ) >/dev/null 2>&1
 
+# --- #537: dep-auditor and /ci-health read the stamp without grep -P ----------------------------
+# THE DEFECT. Both components read the current template-version with `grep -hoP '...\K\d+'`. BSD
+# grep on stock macOS has no -P, so the variable came back empty and every ticket they filed lost
+# its marker. The fix is a POSIX sed with exactly ONE literal space after the colon (what the old
+# pattern accepted); two spaces stay unversioned, as before.
+# MUTANTS RUN (2026-10-15), each on a scratch copy confirmed to differ: -P restored in dep-auditor
+# and in ci-health; the long --perl-regexp form; the sed widened to [[:space:]]* in each file; the
+# sed given two spaces; tail -1 turned into head -1; sort -un weakened; the sed line duplicated in
+# each file. All killed by the m537 ledger rows below.
+REPO="$(cd "$HERE/.." && pwd)"
+DEP537="$REPO/plugins/forge-kit-devops/agents/dep-auditor.md"
+CIH537="$REPO/plugins/forge-kit-devops/commands/ci-health.md"
+SED537="sed -n 's/.*template-version: \([0-9][0-9]*\).*/\1/p'"
+SORT537='| sort -un | tail -1'
+REALGREP537="$(type -P grep)"
+SHIM537="$T/shim537"; mkdir -p "$SHIM537"
+cat > "$SHIM537/grep" <<SH
+#!/usr/bin/env bash
+# stands in for BSD grep on stock macOS: no -P, no --perl-regexp
+for a in "\$@"; do
+  case "\$a" in -[a-zA-Z]*P*|--perl-regexp) echo "grep: invalid option -- P" >&2; exit 2 ;; esac
+done
+exec "$REALGREP537" "\$@"
+SH
+chmod +x "$SHIM537/grep"
+
+mkfix537() {  # mkfix537 <name> <file name> <content>
+  mkdir -p "$T/f537-$1/.github/ISSUE_TEMPLATE"
+  [ -n "$2" ] && printf '%s\n' "$3" > "$T/f537-$1/.github/ISSUE_TEMPLATE/$2"
+  return 0
+}
+mkfix537 good a.yml '# <!-- template-version: 5 -->'
+printf '%s\n' '# <!-- template-version: 6 -->' > "$T/f537-good/.github/ISSUE_TEMPLATE/b.yml"
+mkfix537 nomark a.yml 'name: Feature'
+mkfix537 two a.yml '# <!-- template-version:  7 -->'
+mkfix537 abc a.yml '# <!-- template-version: abc -->'
+printf '%s\n' 'other: 3' >> "$T/f537-abc/.github/ISSUE_TEMPLATE/a.yml"
+mkdir -p "$T/f537-none"
+
+# ext537 <agent file> <fixture>: run the file's own TPL_DIR= and CURRENT_TPL_VER= lines in a CHILD
+# bash with the rejecting grep first on PATH. Prints the value, or "no-extract" unless exactly one
+# line matches each, so a reflow or a deleted line cannot pass vacuously.
+ext537() {
+  local f="$1" fix="$2" a b lines
+  a=$("$REALGREP537" -c '^[[:space:]]*TPL_DIR=' "$f"); b=$("$REALGREP537" -c '^[[:space:]]*CURRENT_TPL_VER=' "$f")
+  if [ "$a" != 1 ] || [ "$b" != 1 ]; then printf 'no-extract'; return; fi
+  lines=$("$REALGREP537" -E '^[[:space:]]*(TPL_DIR|CURRENT_TPL_VER)=' "$f" | sed 's/^[[:space:]]*//')
+  ( cd "$fix" && PATH="$SHIM537:$PATH" bash -c "$lines"$'\n''printf "%s" "$CURRENT_TPL_VER"' 2>/dev/null )
+}
+count537() { "$REALGREP537" -oF -- "$1" "$2" | wc -l | tr -d " "; }
+absent537() { "$REALGREP537" -cE 'grep [^|]*-[A-Za-z]*P|--perl-regexp' "$1"; }
+
+# control: the shim really rejects -P and passes the rest
+"$SHIM537/grep" -oP 'x' /dev/null >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && ok "the shim grep exits 2 on -P (control)" || bad "shim rejects -P (rc=$rc)"
+printf 'a\n' | "$SHIM537/grep" -q a && ok "and the shim passes every other call to the real grep" || bad "shim passes other calls"
+expect537() { local want="$1" got="$2" msg="$3"; [ "$got" = "$want" ] && ok "$msg" || bad "$msg (got '$got', want '$want')"; }
+expect537 6 "$(ext537 "$DEP537" "$T/f537-good")" "under a grep that rejects -P, dep-auditor's own lines yield the highest version, 6"
+expect537 "" "$(ext537 "$DEP537" "$T/f537-none")" "no template directory leaves CURRENT_TPL_VER empty"
+expect537 "" "$(ext537 "$DEP537" "$T/f537-nomark")" "a template with no template-version text leaves it empty"
+expect537 "" "$(ext537 "$DEP537" "$T/f537-two")" "two spaces after the colon read as unversioned, as the old pattern did"
+expect537 "" "$(ext537 "$DEP537" "$T/f537-abc")" "template-version: abc yields no digit, not 0 and not one from another line"
+
+for f in "$DEP537" "$CIH537"; do
+  n=$(basename "$f")
+  expect537 0 "$(absent537 "$f")" "$n has no grep -P or --perl-regexp on any line (no fence or comment filter)"
+  expect537 1 "$(count537 "$SED537" "$f")" "$n carries the POSIX sed literal exactly once"
+  expect537 1 "$(count537 "$SORT537" "$f")" "$n carries '$SORT537' exactly once"
+done
+
+# --- the m537 mutant ledger, modelled on m416 in test-check-private-leaks.sh --------------------
+sig537() {  # sig537 <dep copy> <ci-health copy>
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
+    "$(ext537 "$1" "$T/f537-good")" "$(ext537 "$1" "$T/f537-two")" "$(ext537 "$1" "$T/f537-none")" \
+    "$(absent537 "$1")" "$(absent537 "$2")" "$(count537 "$SED537" "$1")" "$(count537 "$SED537" "$2")" \
+    "$(count537 "$SORT537" "$1")" "$(count537 "$SORT537" "$2")" "$("$REALGREP537" -c '^[[:space:]]*CURRENT_TPL_VER=' "$1")"
+}
+GOOD537="$(sig537 "$DEP537" "$CIH537")"
+mkdir -p "$T/m537"
+m537() {  # m537 <name> <dep|ci> <what it undoes> <old> <new>
+  local d="$T/m537/$1-dep.md" c="$T/m537/$1-ci.md" src content
+  cp "$DEP537" "$d"; cp "$CIH537" "$c"
+  if [ "$2" = dep ]; then src="$DEP537"; else src="$CIH537"; fi
+  content="$(cat "$src"; printf x)"; content="${content%x}"
+  printf '%s' "${content//"$4"/"$5"}" > "$T/m537/$1-new.md"
+  if [ "$2" = dep ]; then cp "$T/m537/$1-new.md" "$d"; else cp "$T/m537/$1-new.md" "$c"; fi
+  if cmp -s "$src" "$T/m537/$1-new.md"; then bad "mutant ledger (#537, $1): the edit changed nothing"; return; fi
+  ok "mutant ledger (#537, $1): the scratch copy differs from the component"
+  local sig; sig="$(sig537 "$d" "$c")"
+  if [ "$sig" != "$GOOD537" ]; then ok "mutant (#537, $1): $3 changes a row"; else bad "mutant (#537, $1): $3 survives every row"; fi
+}
+PERL537="grep -hoP 'template-version: \\K\\d+'"
+m537 dep-perl dep "restoring grep -hoP in dep-auditor" "$SED537" "$PERL537"
+m537 ci-perl ci "restoring grep -hoP in ci-health" "$SED537" "$PERL537"
+m537 ci-long ci "a --perl-regexp mention in ci-health" "$SED537" "grep --perl-regexp"
+m537 dep-star dep "widening the dep-auditor sed to [[:space:]]*" "template-version: \\(" "template-version:[[:space:]]*\\("
+m537 ci-star ci "widening the ci-health sed to [[:space:]]*" "template-version: \\(" "template-version:[[:space:]]*\\("
+m537 dep-two dep "two spaces in the dep-auditor sed" "template-version: \\(" "template-version:  \\("
+m537 dep-head dep "head -1 for tail -1 in dep-auditor" "$SORT537" "| sort -un | head -1"
+m537 ci-head ci "head -1 for tail -1 in ci-health" "$SORT537" "| sort -un | head -1"
+m537 dep-nosort dep "dropping -u from the dep-auditor sort" "$SORT537" "| sort -n | tail -1"
+m537 dep-dup dep "a second CURRENT_TPL_VER line in dep-auditor" "$SED537" "$SED537
+  CURRENT_TPL_VER=x  # $SED537"
+m537 ci-dup ci "the sed literal twice in ci-health" "$SED537" "$SED537 $SED537"
+
 echo ""
 echo "producer-stamp tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

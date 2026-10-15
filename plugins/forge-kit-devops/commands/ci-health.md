@@ -2,7 +2,7 @@
 description: "Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures."
 ---
 
-<!-- ci-health-version: 7 -->
+<!-- ci-health-version: 8 -->
 
 # CI Health Monitor
 
@@ -73,7 +73,7 @@ gh issue list --search "fix(ci): <job-name-keyword>" --state open --limit 1
      - Affected files (if identifiable from logs)
      - the CURRENT `<!-- template-version: N -->` marker (never a hardcoded number). Resolve it
        ONCE for the whole run, not per ticket, with the same host-aware read dep-auditor
-       documents (template dir loop + `grep -hoP 'template-version: \K\d+' | sort -un | tail -1`;
+       documents (template dir loop + `sed -n 's/.*template-version: \([0-9][0-9]*\).*/\1/p' | sort -un | tail -1`;
        shared resolver tracked in #77); when it resolves empty (no versioned templates), OMIT
        the marker line rather than stamping a blank or invented number
      - Acceptance criteria: "CI job passes on `<branch>`"

@@ -22,7 +22,7 @@ effort: medium
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 11 -->
+<!-- dep-auditor-version: 12 -->
 
 Tier: a bounded-analysis role, so Sonnet at medium effort, which in measurement reported every finding a stronger tier rated medium or above.
 
@@ -231,7 +231,7 @@ All tickets use **P0 priority**.
 
   ```bash
   TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do [ -d "$d" ] && { echo "$d"; break; }; done)
-  CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+  CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && sed -n 's/.*template-version: \([0-9][0-9]*\).*/\1/p' "$TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
   ```
 
   When `CURRENT_TPL_VER` is empty (a project with no versioned templates), OMIT the marker line
