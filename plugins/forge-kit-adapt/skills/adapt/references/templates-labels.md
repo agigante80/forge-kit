@@ -87,14 +87,30 @@ vname() {  # vname <name>: the allow-list, the fixed-name list and the duplicate
 }
 for a in ${LABEL_AREAS:-}; do vname "$a"; n=$((n + 1)); done
 [ "$n" -gt 0 ] || die "LABEL_AREAS is empty: ask the user which areas the project uses"
-okdesc() {  # the allow-list, then GitHub's 100-character cap on a label description
+okchars() {  # the allow-list, the ONE copy of the set (descwhy reuses it, so the two cannot drift)
   case "$1" in ""|[!A-Za-z0-9]*|*[!A-Za-z0-9\ ,.\;\(\)/\'_-]*) return 1 ;; esac
+}
+okdesc() {  # the allow-list, then GitHub's 100-character cap on a label description
+  okchars "$1" || return 1
   [ "${#1}" -le 100 ]
+}
+descwhy() {  # descwhy <desc>: " (why okdesc refused it)"; the first bad byte is quoted, or shown as \xNN unless printable ASCII
+  local s="$1" i=1 c v
+  [ -n "$s" ] || { printf ' (empty)'; return 0; }
+  while [ "$i" -le "${#s}" ]; do
+    if okchars "${s:0:i}"; then i=$((i + 1)); continue; fi
+    c=${s:i-1:1}; v=$(( $(printf '%d' "'$c") & 255 ))
+    if [ "$v" -ge 32 ] && [ "$v" -le 126 ]; then c="'$c'"; else c=$(printf "'\\\\x%02x'" "$v"); fi
+    if [ "$i" -eq 1 ]; then printf ' (%s at position 1, must start with a letter or digit)' "$c"
+    else printf ' (%s at position %d, outside the allowed set)' "$c" "$i"; fi
+    return 0
+  done
+  printf ' (%d characters, cap is 100)' "${#s}"
 }
 while IFS= read -r l; do
   [ -n "$l" ] || continue
   case "$seen" in *" ${l%%=*} "*) ;; *) die "refused area description: ${l%%=*} (not in LABEL_AREAS)" ;; esac
-  okdesc "${l#*=}" || die "refused area description: ${l%%=*}"
+  okdesc "${l#*=}" || die "refused area description: ${l%%=*}$(descwhy "${l#*=}")"
 done <<EOF_DESCS
 ${LABEL_AREA_DESCS:-}
 EOF_DESCS
@@ -245,7 +261,7 @@ echo "Run: bash scripts/sync-labels.sh --check"
 - **Read-only target**: a `labels.md` at mode 0444 is merged like any other, and keeps 0444.
 - **Link refusals** (exit 1, before anything is created, for both outputs): a dangling link (its
   target directory does not exist) and a link loop, each named by path.
-- **Refusals** (exit 1, nothing written): a description outside the allow-list, over 100 characters (GitHub's cap) or for an unlisted area, a name (confirmed or read from an existing doc) outside `^[A-Za-z0-9][A-Za-z0-9._-]*$` (uppercase is allowed; the message names the rule), a duplicate, or
+- **Refusals** (exit 1, nothing written): a description outside the allow-list, over 100 characters (GitHub's cap) or for an unlisted area (a description refusal keeps the `refused area description: <area>` prefix and names the cause: the first offending character and its byte position, with a non-printable or non-ASCII byte shown as `\xNN`; a bad first character; the length against the cap; or that it is empty), a name (confirmed or read from an existing doc) outside `^[A-Za-z0-9][A-Za-z0-9._-]*$` (uppercase is allowed; the message names the rule), a duplicate, or
   a type, priority or special label name, the last two compared without regard to case (`API` beside `api`, `P0`, `Bug`).
 
 **After the first `--check`.** An http `FORGE_API_URL` (a LAN Forgejo) is refused until
