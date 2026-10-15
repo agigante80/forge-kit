@@ -177,6 +177,16 @@ run "$P"; lacks "a password containing @ is cut at the LAST @" "ss@" "$out"; has
 P=$(mk u3 "FORGE_API_URL=$HTTPURL"); wf1 "$P" "$STEP"
 run "$P" FORGE_API_URL=http://u2:pw2@10.9.9.9/x
 lacks "an exported url is stripped too" "pw2" "$out$err"
+# #528 round 1: the userinfo may hold / ? or #, and a query may hold a token. Over-redact.
+P=$(mk u4 "FORGE_API_URL=http://us:pa/zs7@10.0.0.7/api/v1"); wf1 "$P" "$STEP"
+run "$P"; lacks "a password containing / is not printed" "zs7" "$out$err"; has "...host kept" "forge-url	http://10.0.0.7/api/v1" "$out"
+P=$(mk u5 "FORGE_API_URL=http://us:pa?zq9@10.0.0.8/api/v1"); wf1 "$P" "$STEP"
+run "$P"; lacks "a password containing ? is not printed" "zq9" "$out$err"; has "...host kept" "forge-url	http://10.0.0.8/api/v1" "$out"
+P=$(mk u6 "FORGE_API_URL=$HTTPURL"); wf1 "$P" "$STEP"
+run "$P" 'FORGE_API_URL=http://us:pa#zr8@10.0.0.9/api/v1'
+lacks "a password containing # is not printed" "zr8" "$out$err"; has "...host kept" "forge-url	http://10.0.0.9/api/v1" "$out"
+P=$(mk u7 "FORGE_API_URL=http://10.0.0.10/api/v1?token=tok777#frag"); wf1 "$P" "$STEP"
+run "$P"; lacks "a ?token= query is dropped" "tok777" "$out$err"; has "...and so is the fragment" "forge-url	http://10.0.0.10/api/v1" "$out"
 
 echo "== read-only and settings =="
 P=$(mk r1 "FORGE_API_URL=$HTTPURL"); wf1 "$P" "$STEP"; mkdir -p "$P/.claude"; echo '{"permissions":{}}' > "$P/.claude/settings.json"

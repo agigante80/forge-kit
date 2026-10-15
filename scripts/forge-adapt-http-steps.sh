@@ -66,9 +66,13 @@ fi
 case "$url" in http://*) ;; *) exit 0 ;; esac
 [ "$fhost" != github ] || exit 0
 
-# Remove userinfo: everything up to the LAST @ of the authority (a password may contain @).
-rest="${url#*://}"; auth="${rest%%[/?#]*}"
-case "$auth" in *@*) url="http://${auth##*@}${rest#"$auth"}" ;; esac
+# Over-redact (#528): a password may contain @ / ? or #, so the authority cannot be found by splitting
+# at the first / ? or #. If the URL holds any @, keep only what follows the LAST one; then drop any
+# ?query or #fragment (a ?token= must never print). The cost is a lost path after an @ in a path.
+rest="${url#*://}"
+case "$rest" in *@*) rest="${rest##*@}" ;; esac
+rest="${rest%%[?#]*}"
+url="http://$rest"
 printf 'forge-url\t%s\n' "$url"
 
 # The project scripts that source forge-lib, by basename, one per line.
