@@ -260,7 +260,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | shell asset | `release-run` | v5 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v15 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v84 | 5120 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
+| `forge-kit-governance` | agent | `ticket-gate` | v84 | 5119 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v10 | 306 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo). |
 | `forge-kit-governance` | skill | `closing-sessions` | v9 | 1191 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |

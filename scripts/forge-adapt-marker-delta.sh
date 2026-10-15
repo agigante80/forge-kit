@@ -39,8 +39,8 @@ if [ "$#" -ne 4 ]; then
 fi
 LIB="$1"; REL="$2"; NAME="$3"; VER="$4"
 
-printf '%s' "$NAME" | grep -qE '^[a-z0-9][a-z0-9-]*$' || bad "invalid component name '$NAME'"
-printf '%s' "$VER" | grep -qE '^[0-9]{1,9}$' || bad "invalid version '$VER'"
+grep -qE '^[a-z0-9][a-z0-9-]*$' <<<"$NAME" || bad "invalid component name '$NAME'"
+grep -qE '^[0-9]{1,9}$' <<<"$VER" || bad "invalid version '$VER'"
 case "$REL" in
   ''|/*|..|../*|*/..|*/../*) bad "invalid component path '$REL'" ;;
 esac
