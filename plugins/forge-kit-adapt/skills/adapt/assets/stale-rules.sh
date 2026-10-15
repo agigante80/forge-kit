@@ -59,6 +59,10 @@
 #     link (enter_dir's bound argument); otherwise `docs/x -> ../shared` plus `shared/esc ->
 #     <outside>` would reopen the hole #495 closed. A project link whose target is missing is also
 #     `symlink`. A link listed through --files-from is never followed: `not-scanned <path> symlink`.
+#     A symlinked PARENT directory counts the same: `<project>/.claude -> /elsewhere` is `not-scanned
+#     <root> symlink` for every root under it, because testing only the last component would read
+#     /elsewhere under an in-project name (#518). --files-from applies that test to each entry (a
+#     relative entry from the current directory, judged against --project or the current directory).
 # Project loops: a project link whose target is an ancestor of the link's own directory, the project
 # root included (docs/loop -> ../docs, docs/up -> ..), is `symlink loop` at the link and nothing is
 # re-read under it; so is a chain over 40 hops (docs/self -> self). The ancestors are seeded from the
@@ -109,6 +113,31 @@ fi
 
 # physdir <dir>: the physical absolute path of a directory, or nothing.
 physdir() { (CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+# parent_out <path> <project root>: success when a directory ABOVE <path> (below the root) is a symlink
+# whose physical target is outside the root, or cannot be resolved. Testing only the last component
+# misses `<project>/.claude -> /elsewhere`, which would read /elsewhere/agents/*.md under an
+# in-project name (#518). A relative path is taken from the current directory; an absolute path
+# outside the root is not checked (the caller named it). The config dir walk never calls this.
+parent_out() {
+  local path="$1" root="$2" rel base dir acc="" part rest link=0 pd
+  case "$path" in
+    /*) rel="${path#"$root"/}"; [ "$rel" != "$path" ] || return 1; base="$root" ;;
+    *)  rel="$path"; base="." ;;
+  esac
+  dir=$(dirname -- "$rel"); [ "$dir" != "." ] || return 1
+  rest="$dir"
+  while [ -n "$rest" ]; do
+    part="${rest%%/*}"
+    if [ "$part" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+    acc="${acc:+$acc/}$part"
+    [ -L "$base/$acc" ] && link=1
+  done
+  [ "$link" -eq 1 ] || return 1
+  pd=$(physdir "$base/$dir"); [ -n "$pd" ] || return 0
+  case "$pd" in "$root"|"$root"/*) return 1 ;; esac
+  return 0
+}
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/stale-rules.XXXXXX") || usage "cannot create a temporary directory"
 trap 'rm -rf "$WORK"' EXIT
@@ -254,6 +283,7 @@ project_link() {
 # through scan_followed.
 scan_tree() {
   local place="$1" root="$2" glob="$3" p
+  if parent_out "$root" "$PROOT"; then not_scanned "$(show "$root")" symlink; return 0; fi
   if [ -L "$root" ]; then
     project_link "$place" "$root" "$glob"
     return 0
@@ -363,8 +393,10 @@ slug() {
 PROOT=""
 if [ "$HAVE_LIST" -eq 1 ]; then
   if [ "$LIST" = "-" ]; then cat > "$WORK/list"; else cat -- "$LIST" > "$WORK/list"; fi
+  LROOT=$(physdir "${PROJECT:-.}")
   while IFS= read -r p; do
     [ -n "$p" ] || continue
+    if [ -n "$LROOT" ] && parent_out "$p" "$LROOT"; then not_scanned "$p" symlink; continue; fi
     scan_file prose "$p" "$p"
   done < "$WORK/list"
 else

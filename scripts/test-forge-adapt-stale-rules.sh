@@ -591,6 +591,46 @@ out=$(cd "$P" && printf 'c.md\n' | bash "$S" --kit "$KIT" --files-from - 2>/dev/
 has "not-scanned${TAB}c.md${TAB}symlink" "a listed symlink is reported, not followed"
 expect "and exits 3" 3 "$rc"
 
+echo "== a symlinked PARENT directory is judged like a symlinked root (#518) =="
+fresh
+put "$T/outside/agents/a.md" 'Low findings are ticketed immediately\n'
+put "$T/outside/CLAUDE.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside" "$P/.claude"
+run
+has "not-scanned${TAB}.claude/agents${TAB}symlink" ".claude -> outside: the agents root is not-scanned"
+hasnt "stale-rule" "and nothing under the outside target is read"
+has "not-scanned${TAB}.claude/CLAUDE.md${TAB}symlink" "a file root under the linked parent is not-scanned too"
+expect "and the scan exits 3, never clean" 3 "$rc"
+fresh
+put "$P/real-claude/agents/a.md" 'Low findings are ticketed immediately\n'
+ln -s real-claude "$P/.claude"
+run
+has "stale-rule${TAB}component${TAB}.claude/agents/a.md${TAB}1${TAB}review-lows" ".claude -> a directory INSIDE the project is still scanned"
+fresh
+put "$T/outside/a.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside" "$P/docs"
+run
+has "not-scanned${TAB}docs${TAB}symlink" "docs -> outside is still reported (the root itself)"
+fresh
+put "$T/outside/x/a.md" 'Low findings are ticketed immediately\n'
+ln -s "$T/outside" "$P/lnk"
+printf 'lnk/x/a.md\n' > "$T/list"
+out=$(cd "$P" && bash "$S" --kit "$KIT" --files-from "$T/list" 2>/dev/null); rc=$?
+has "not-scanned${TAB}lnk/x/a.md${TAB}symlink" "--files-from: an entry under a symlinked parent that leaves the project is not-scanned"
+hasnt "stale-rule" "and is not read"
+expect "and exits 3" 3 "$rc"
+put "$P/real/a.md" 'Low findings are ticketed immediately\n'
+ln -s real "$P/inlnk"
+printf 'inlnk/a.md\n' > "$T/list"
+out=$(cd "$P" && bash "$S" --kit "$KIT" --files-from "$T/list" 2>/dev/null); rc=$?
+has "stale-rule${TAB}prose${TAB}inlnk/a.md${TAB}1${TAB}review-lows" "--files-from: a symlinked parent that stays inside the project is read"
+# The config dir is the user's own: a linked parent there is allowed (unchanged).
+fresh
+put "$T/outside/skills/s/SKILL.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$T/home"; ln -s "$T/outside" "$T/home/.claude"
+run
+has "stale-rule${TAB}component${TAB}${TL}/.claude/skills/s/SKILL.md${TAB}1${TAB}review-lows" "the config dir behind a linked parent is still walked"
+
 echo "== usage errors exit 2 with nothing on stdout =="
 fresh
 run --bogus
