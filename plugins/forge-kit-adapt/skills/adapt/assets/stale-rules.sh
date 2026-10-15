@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# stale-rules-version: 3
+# stale-rules-version: 4
 # stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495).
 #
 # A rule outlives its source. Version markers find a component that is behind the kit; they cannot
@@ -44,18 +44,32 @@
 # one space, and case is folded; a match is reported at the line where it starts. A match is
 # skipped when any line it spans carries the word `retired-rule-quote` (a deliberate quote).
 #
-# READ ONLY. Symlinks are followed ONLY under the config dir (#499) and never in the project:
-#   - The config dir is the user's own, and a user skill installed as a link to a checkout is an
-#     ordinary shape. Refusing every link there made exit 3 permanent on such a machine, so exit 3
-#     stopped meaning anything. A link met at a named place or inside one is scanned through its
-#     target and printed under the link's own path, never the target's.
-#   - The project is a cloned tree that may be untrusted. A link there (docs/x.md pointing at the
-#     config dir's CLAUDE.md, docs/home pointing at $HOME) would print a row under an in-project
-#     name, send the refresh fix writing outside the project and walk a huge tree. So a project
-#     symlink stays `not-scanned <path> symlink`, as #495 decided, and so does a link listed through
-#     --files-from.
-# Cycles and repeats (config dir only): the walker keeps a stack of the physical paths of the
-# directories it is inside. Re-entering one of them is `symlink loop` (also a link that points at
+# READ ONLY. A symlink is followed in two cases, each with its own rule (#499, #518):
+#   - Under the config dir, anywhere. The config dir is the user's own, and a user skill installed
+#     as a link to a checkout is an ordinary shape. Refusing every link there made exit 3 permanent
+#     on such a machine, so exit 3 stopped meaning anything. A link met at a named place or inside
+#     one is scanned through its target and printed under the link's own path, never the target's.
+#   - In the project, only when the link's fully resolved PHYSICAL target is inside the physical
+#     project root (compared against PROOT plus a trailing slash, so a sibling `<project>-evil` is
+#     outside). The project is a cloned tree that may be untrusted. A link that leaves it
+#     (docs/x.md pointing at the config dir's CLAUDE.md, docs/home pointing at $HOME) would print a
+#     row under an in-project name, send the refresh fix writing outside the project and walk a huge
+#     tree, so it stays `not-scanned <path> symlink`. The same test applies to EVERY link the walk
+#     meets, including one nested inside a directory that was itself reached through an in-project
+#     link (enter_dir's bound argument); otherwise `docs/x -> ../shared` plus `shared/esc ->
+#     <outside>` would reopen the hole #495 closed. A project link whose target is missing is also
+#     `symlink`. A link listed through --files-from is never followed: `not-scanned <path> symlink`.
+# Project loops: a project link whose target is an ancestor of the link's own directory, the project
+# root included (docs/loop -> ../docs, docs/up -> ..), is `symlink loop` at the link and nothing is
+# re-read under it; so is a chain over 40 hops (docs/self -> self). The ancestors are seeded from the
+# physical chain PROOT .. dirname(link), because the project walk uses find and never stacks them.
+# A project link to a very large tree INSIDE the project costs a walk of it: accepted (read only,
+# bounded by the stack, the seen list and the *.md glob). "Never walked" holds only for links that
+# leave the project. A target reached both through a link and directly prints under the LINK's path:
+# within one named place the link pass runs before the file pass, and prose places run in the order
+# CLAUDE.md ... AGENTS.md, so `CLAUDE.md -> AGENTS.md` prints as CLAUDE.md.
+# Cycles and repeats (the config dir, and followed project links): the walker keeps a stack of the
+# physical paths of the directories it is inside. Re-entering one of them is `symlink loop` (also a link that points at
 # itself or round a chain); reaching any other directory a second time, by two links or by a link to
 # a real sibling, is skipped silently because it is not a defect. When one file or directory is
 # reached two ways the first in sorted order (named places in script order, entries within a
@@ -203,12 +217,45 @@ scan_file() {
   done < <(sort -t "$(printf '\t')" -k1,1n -k2,2 "$WORK/hits")
 }
 
-# scan_tree <place> <abs path> <glob>: a named file or directory in the PROJECT; every symlink met
-# is reported, never followed (the config dir goes through scan_followed).
+# project_link <place> <link> <glob>: one symlink in the PROJECT. Followed only when its physical
+# target is inside PROOT; a loop (an ancestor target, PROOT included, or over 40 hops) is
+# `symlink loop`; a missing or outside target is `symlink`. See the header. Defined before
+# scan_tree, which calls it.
+project_link() {
+  local place="$1" l="$2" glob="$3" tp rc d chain="" name
+  grep -qxF -- "$l" "$WORK/seen" && return 0
+  printf '%s\n' "$l" >> "$WORK/seen"
+  tp=$(resolve_link "$l"); rc=$?
+  if [ "$rc" -eq 1 ]; then not_scanned "$(show "$l")" "symlink loop"; return 0; fi
+  if [ "$rc" -ne 0 ] || [ -z "$tp" ]; then not_scanned "$(show "$l")" symlink; return 0; fi
+  case "$tp" in
+    "$PROOT"|"$PROOT"/*) ;;
+    *) not_scanned "$(show "$l")" symlink; return 0 ;;
+  esac
+  if [ -d "$tp" ]; then
+    d=$(dirname -- "$l")
+    while :; do
+      chain="$d$NL$chain"
+      if [ "$d" = "$PROOT" ] || [ "$d" = "/" ] || [ "$d" = "." ]; then break; fi
+      d=$(dirname -- "$d")
+    done
+    ANC="$chain"
+    enter_dir "$place" "$(show "$l")" "$tp" "$glob" "$PROOT"
+    ANC=""
+  elif [ -f "$tp" ]; then
+    name=$(basename -- "$l")
+    # shellcheck disable=SC2254
+    case "$name" in $glob) scan_file "$place" "$tp" "$(show "$l")" followed ;; esac
+  fi
+}
+
+# scan_tree <place> <abs path> <glob>: a named file or directory in the PROJECT. A symlink met is
+# followed only when its physical target is inside the project (project_link); the config dir goes
+# through scan_followed.
 scan_tree() {
   local place="$1" root="$2" glob="$3" p
   if [ -L "$root" ]; then
-    if ! grep -qxF -- "$root" "$WORK/seen"; then printf '%s\n' "$root" >> "$WORK/seen"; not_scanned "$(show "$root")" symlink; fi
+    project_link "$place" "$root" "$glob"
     return 0
   fi
   [ -e "$root" ] || return 0
@@ -222,11 +269,9 @@ scan_tree() {
     grep -qxF -- "$p" "$WORK/seen" && continue
     printf '%s\n' "$p" >> "$WORK/seen"; not_scanned "$(show "$p")" unreadable
   done < "$WORK/dirs"
+  # The link pass runs BEFORE the file pass, so a target reached both ways prints under the link.
   find "$root" -type l 2>/dev/null | LC_ALL=C sort > "$WORK/links"
-  while IFS= read -r p; do
-    grep -qxF -- "$p" "$WORK/seen" && continue
-    printf '%s\n' "$p" >> "$WORK/seen"; not_scanned "$(show "$p")" symlink
-  done < "$WORK/links"
+  while IFS= read -r p; do project_link "$place" "$p" "$glob"; done < "$WORK/links"
   find "$root" -type f -name "$glob" 2>/dev/null | LC_ALL=C sort > "$WORK/files"
   while IFS= read -r p; do scan_file "$place" "$p" "$(show "$p")"; done < "$WORK/files"
 }
@@ -252,10 +297,12 @@ DSEEN=""   # newline separated physical paths of every directory entered or refu
 in_list() { case "$1" in *"$NL$2$NL"*) return 0 ;; esac; return 1; }
 NL=$'\n'
 
-# enter_dir <place> <printed path> <physical dir> <glob>: walk a directory reached by following
-# links. A directory already on the stack is a loop; one seen before is skipped without a row.
+# enter_dir <place> <printed path> <physical dir> <glob> [bound]: walk a directory reached by
+# following links. A directory already on the stack is a loop; one seen before is skipped without a
+# row. With a bound (the project root) EVERY link met inside must resolve under it, else
+# `not-scanned <path> symlink`; without one (the config dir) outside targets are allowed.
 enter_dir() {
-  local place="$1" shown="$2" phys="$3" glob="$4"
+  local place="$1" shown="$2" phys="$3" glob="$4" bound="${5:-}"
   if in_list "$NL$ANC" "$phys"; then not_scanned "$shown" "symlink loop"; return 0; fi
   if in_list "$NL$DSEEN" "$phys"; then return 0; fi
   DSEEN="$DSEEN$phys$NL"
@@ -269,12 +316,18 @@ enter_dir() {
     if [ -L "$ep" ]; then
       tp=$(resolve_link "$ep"); rc=$?
       if [ "$rc" -eq 1 ]; then not_scanned "$fp" "symlink loop"; continue; fi
-      if [ "$rc" -ne 0 ] || [ -z "$tp" ]; then not_scanned "$fp" "dangling symlink"; continue; fi
+      if [ "$rc" -ne 0 ] || [ -z "$tp" ]; then
+        if [ -n "$bound" ]; then not_scanned "$fp" symlink; else not_scanned "$fp" "dangling symlink"; fi
+        continue
+      fi
+      if [ -n "$bound" ]; then
+        case "$tp" in "$bound"|"$bound"/*) ;; *) not_scanned "$fp" symlink; continue ;; esac
+      fi
     else
       tp="$ep"
     fi
     if [ -d "$tp" ]; then
-      enter_dir "$place" "$fp" "$tp" "$glob"
+      enter_dir "$place" "$fp" "$tp" "$glob" "$bound"
     elif [ -f "$tp" ]; then
       # shellcheck disable=SC2254
       case "$name" in $glob) scan_file "$place" "$tp" "$fp" followed ;; esac
