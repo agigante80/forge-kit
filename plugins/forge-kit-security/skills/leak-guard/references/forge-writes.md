@@ -18,7 +18,19 @@ command line shows.
 
 Writes are `gh issue|pr create|edit|comment`, after env assignments and the wrappers `command`,
 `exec`, `time`, `nohup`, `env`, `builtin`, anywhere in a compound command (`&&`, `;`, `|`, newline,
-subshell, `$(...)`). Per write it scans every text it can see, each as its own temp file:
+subshell, `$(...)`). The command word may follow a shell reserved word (`do`, `then`, `else`, `elif`,
+`if`, `while`, `until`, `{`, `!`), so loops, conditionals and brace groups are seen. Also read:
+
+- a write inside a double-quoted `$(...)` or inside backticks (each such span is parsed again as a
+  command of its own, nested to depth 4; a span that cannot be judged leaves the not-extractable note);
+- gh's own spellings: `-R owner/repo`, `--repo owner/repo`, `--repo=owner/repo` (before or after
+  `issue|pr`, and attached `-Rowner/repo`), and the alias `new` for `create`.
+
+A shell comment is not code: a `#` that begins a word runs to the end of the line and is dropped, so an
+apostrophe or a `<<` in a comment cannot desync the parse. `$#`, `${#x}` and `issue#5` are text. An
+ANSI-C string `$'...'` is tracked so its escaped `'` keeps the quote state in step; as a body value it
+is not a literal and leaves the not-extractable note. Per write it scans every text it can see, each
+as its own temp file:
 
 - `--title` and `-t`, `--body` and `-b` (space, `=`, attached `-bTEXT`, `-b=TEXT`);
 - `--body-file` and `-F` files, read as bytes (symlinks followed, a leading `~` expanded, a relative
@@ -69,6 +81,7 @@ evidence or scanner output; the model gets the location and the rule, not the se
 - A body produced by a script the command does not name (`python3 gen.py && gh issue comment 5
   --body-file w.md`) is judged on the file's content before the command runs.
 - Anything behind a variable, a command substitution other than the heredoc idiom, a function, an
-  alias, or a wrapper not in the list above.
+  alias, or a wrapper not in the list above (`env -u X gh ...` is one).
+- A backslash-newline inside double quotes and a partly quoted heredoc delimiter are not modelled.
 - A body changed between the hook and gh by another process.
-- `-R other/repo` is scanned the same as the current repo.
+- `-R other/repo` is scanned the same as the current repo (the flag no longer hides the write).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scan-forge-writes-version: 1
+# scan-forge-writes-version: 2
 """PreToolUse Bash guard: scan an issue or PR body and title for leaks before gh publishes them (#536).
 
 The leak guard scans files (pre-commit, pre-push, CI). Text typed straight into
@@ -75,6 +75,8 @@ NOTE_BINARY = "leak-guard: binary body not scanned"
 
 WRITE_SUBS = ("create", "edit", "comment")
 WRAPPERS = ("command", "exec", "time", "nohup", "env", "builtin")
+# Shell reserved words that can precede a command in the same segment (`do gh ...`, `{ gh ...`).
+RESERVED = ("{", "!", "if", "elif", "then", "else", "do", "while", "until")
 # Flags whose value the command text carries (long form, short form).
 TEXT_FLAGS = {"--body": "text", "-b": "text", "--title": "text", "-t": "text",
               "--body-file": "file", "-F": "file"}
@@ -101,17 +103,36 @@ def deny(reason):
 def prepass(cmd):
     """Quote-aware rewrite of the command into text shlex can word-split safely.
 
-    Returns (text, heredocs, unbalanced). Heredocs are lifted out as `\\x02N\\x02` placeholders
+    Returns (text, heredocs, unbalanced, spans). `spans` are the source texts of every outermost
+    `$( )` inside "..." and every backtick pair: their content is invisible in `text` (inert or
+    behind an EXP), so judge() parses each again as a command of its own. Heredocs are lifted out as `\\x02N\\x02` placeholders
     (a `<<` inside a quote is text, not a heredoc), top-level newlines become ` ; `, operator
     characters inside quotes are mapped away from shlex's punctuation set, and every expanding
     `$` or backtick becomes `\\x01` so a value holding one is known not to be a literal.
     """
-    out, hds, pending = [], [], []
+    out, hds, pending, spans = [], [], [], []
     stack = ["top"]
+    rec = {}                 # stack depth -> source start of a recorded outermost dsub
+    bt = None                # source start of an open outermost backtick pair
     i, n = 0, len(cmd)
 
     def mapc(c):
         return _MAP.get(c, c)
+
+    def comment_start(pos):
+        # `#` begins a comment only where a word could begin: at 0, after whitespace, or after an
+        # unescaped operator character. `$#`, `${#x}` and `issue#5` are text.
+        if pos == 0:
+            return True
+        prev = cmd[pos - 1]
+        if prev in " \t\n":
+            return True
+        if prev in _OPS:
+            back = 0
+            while pos - 2 - back >= 0 and cmd[pos - 2 - back] == "\\":
+                back += 1
+            return back % 2 == 0
+        return False
 
     def read_bodies(pos):
         for idx in pending:
@@ -139,6 +160,20 @@ def prepass(cmd):
                 stack.pop()
             i += 1
             continue
+        if ctx == "ansi":
+            # $'...': a backslash consumes the next character, only an unescaped ' closes
+            if c == "\\" and i + 1 < n:
+                nx = cmd[i + 1]
+                out.append(c + (INERT if nx == "'" else mapc(nx)))
+                i += 2
+            elif c == "'":
+                stack.pop()
+                out.append(INERT if stack[-1] == "dsub" else c)
+                i += 1
+            else:
+                out.append(mapc(c))
+                i += 1
+            continue
         if ctx == "dq":
             if c == "\\" and i + 1 < n:
                 nx = cmd[i + 1]
@@ -146,13 +181,21 @@ def prepass(cmd):
                 i += 2
             elif c == '"':
                 stack.pop()
-                out.append(c)
+                out.append(INERT if stack[-1] == "dsub" else c)
                 i += 1
             elif c == "$" and cmd[i + 1:i + 2] == "(":
                 out.append(EXP + mapc("("))
+                if "dsub" not in stack and bt is None:
+                    rec[len(stack) + 1] = i + 2
                 stack.append("dsub")
                 i += 2
             elif c in "$`":
+                if c == "`" and "dsub" not in stack:
+                    if bt is None:
+                        bt = i + 1
+                    else:
+                        spans.append(cmd[bt:i])
+                        bt = None
                 out.append(EXP)
                 i += 1
             else:
@@ -171,6 +214,15 @@ def prepass(cmd):
             else:
                 out.append(mapc(nx) if nx in _OPS else c + nx)
             i += 2
+            continue
+        if c == "$" and cmd[i + 1:i + 2] == "'":
+            out.append(EXP + (INERT if inert else "'"))
+            stack.append("ansi")
+            i += 2
+            continue
+        if c == "#" and comment_start(i):
+            e = cmd.find("\n", i)
+            i = n if e < 0 else e
             continue
         if c == "'":
             stack.append("sq")
@@ -233,18 +285,26 @@ def prepass(cmd):
         if c == ")":
             out.append(mapc(c) if inert else c)
             if ctx in ("tsub", "dsub"):
+                if ctx == "dsub" and len(stack) in rec:
+                    spans.append(cmd[rec.pop(len(stack)):i])
                 stack.pop()
             i += 1
             continue
         if c in "$`":
+            if c == "`" and "dsub" not in stack:
+                if bt is None:
+                    bt = i + 1
+                else:
+                    spans.append(cmd[bt:i])
+                    bt = None
             out.append(EXP)
             i += 1
             continue
         out.append(mapc(c) if inert else c)
         i += 1
     # a heredoc still pending at the end of the command stays unterminated
-    unbalanced = any(s in ("sq", "dq", "dsub") for s in stack)
-    return "".join(out), hds, unbalanced
+    unbalanced = any(s in ("sq", "dq", "dsub", "ansi") for s in stack)
+    return "".join(out), hds, unbalanced, spans
 
 
 def word_tokens(text):
@@ -294,7 +354,7 @@ def segments(tokens):
 
 def command_word(words):
     for k, w in enumerate(words):
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w) or w in WRAPPERS:
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w) or w in WRAPPERS or w in RESERVED:
             continue
         return k
     return None
@@ -306,8 +366,20 @@ def write_args(seg):
     if k is None or os.path.basename(seg["words"][k]) != "gh":
         return None
     w = seg["words"][k + 1:]
-    if len(w) >= 2 and w[0] in ("issue", "pr") and w[1] in WRITE_SUBS:
-        return w[1], w[2:]
+    head, i = [], 0
+    while i < len(w) and len(head) < 2:
+        a = w[i]
+        if a in ("-R", "--repo"):
+            i += 2
+        elif a.startswith("--repo=") or (a.startswith("-R") and len(a) > 2):
+            i += 1
+        else:
+            head.append(a)
+            i += 1
+    if len(head) == 2 and head[0] in ("issue", "pr"):
+        sub = "create" if head[1] == "new" else head[1]
+        if sub in WRITE_SUBS:
+            return sub, w[i:]
     return None
 
 
@@ -375,7 +447,10 @@ def earlier_effect(target, cwd, earlier, hds, relative):
     touching = []
     for s in earlier:
         # An earlier gh write only READS its body file, so its words never change the target.
-        names = [] if write_args(s) is not None else [w for w in s["words"][1:] if EXP not in w]
+        kk = command_word(s["words"])
+        reads = write_args(s) is not None or (
+            kk is not None and s["words"][kk] in ("[", "[[", "test"))   # these only read
+        names = [] if reads else [w for w in s["words"][1:] if EXP not in w]
         names += [t for _, t in s["redirs"] if t is not None and EXP not in t]
         if any(resolve_path(restore(x), cwd) == target for x in names):
             touching.append(s)
@@ -532,7 +607,35 @@ def repo_root(cwd, clock):
 # --- the judgement -----------------------------------------------------------------------------
 
 def gh_write_shape(cmd):
-    return re.search(r"\bgh\s+(?:issue|pr)\s+(?:create|edit|comment)\b", cmd) is not None
+    repo = r"(?:(?:-R\s*|--repo[=\s]\s*)\S+\s+)*"
+    return re.search(r"\bgh\s+" + repo + r"(?:issue|pr)\s+" + repo
+                     + r"(?:create|new|edit|comment)\b", cmd) is not None
+
+
+def fail_note(command, notes):
+    if gh_write_shape(command):
+        unterminated = re.search(r"<<-?\s*[\"']?\w+", command) is not None
+        notes.append(NOTE_HEREDOC if unterminated else NOTE_NOT_EXTRACTABLE)
+
+
+def gather(command, notes, depth):
+    """Every write in `command` as (index, segment, segments, heredocs); raises ValueError when the
+    top level cannot be parsed. Spans hidden inside "$( )" and backticks are parsed again as
+    commands of their own, nested to depth 4; a span that cannot be judged leaves the note."""
+    text, hds, unbalanced, spans = prepass(command)
+    if unbalanced:
+        raise ValueError("unbalanced")
+    segs = segments(word_tokens(text))
+    found = [(idx, s, segs, hds) for idx, s in enumerate(segs) if write_args(s) is not None]
+    for sp in spans:
+        if depth >= 4:
+            fail_note(sp, notes)
+            continue
+        try:
+            found += gather(sp, notes, depth + 1)
+        except ValueError:
+            fail_note(sp, notes)
+    return found
 
 
 def judge(command, cwd, project):
@@ -541,22 +644,16 @@ def judge(command, cwd, project):
     clock = Clock()
     command = command.replace("\x00", "")
     try:
-        text, hds, unbalanced = prepass(command)
-        if unbalanced:
-            raise ValueError("unbalanced")
-        segs = segments(word_tokens(text))
+        writes = gather(command, notes, 0)
     except ValueError:
-        if gh_write_shape(command):
-            unterminated = re.search(r"<<-?\s*[\"']?\w+", command) is not None
-            notes.append(NOTE_HEREDOC if unterminated else NOTE_NOT_EXTRACTABLE)
+        fail_note(command, notes)
         return None, notes
 
-    writes = [(idx, s) for idx, s in enumerate(segs) if write_args(s) is not None]
     if not writes:
         return None, notes
     root = repo_root(cwd, clock)
     k = 0
-    for idx, seg in writes:
+    for idx, seg, segs, hds in writes:
         k += 1
         sub, args = write_args(seg)
         items, unseen = extract(sub, args)
@@ -714,6 +811,13 @@ def self_test():
             ("DENY", "gh issue comment 5 -F - <<'EOF'\nsee bramble\nEOF\n"),
             ("DENY", "gh issue comment 5 --body \"$(cat <<'EOF'\nsee bramble\nEOF\n)\""),
             ("DENY", "cat > f.md <<'EOF'\nbramble\nEOF\ngh issue comment 5 --body-file f.md"),
+            ("DENY", "# don't wait\ngh issue comment 5 --body-file leak.md\n# it's fine"),
+            ("DENY", "for n in 5 6; do gh issue comment $n --body-file leak.md; done"),
+            ("DENY", 'echo "posted: $(gh issue comment 5 --body-file leak.md)"'),
+            ("DENY", "u=`gh issue create --title t --body-file leak.md`"),
+            ("DENY", "gh -R o/r issue comment 5 --body-file leak.md"),
+            ("DENY", "gh issue new --title bramble --body x"),
+            ("DENY", "echo $'it\\'s' && gh issue comment 5 --body-file leak.md"),
             ("ALLOW", "gh issue comment 5 --body-file clean.md"),
             ("ALLOW", "gh issue list --state open"),
             ("ALLOW", "gh issue close 5 --comment 'see bramble'"),
