@@ -10,7 +10,8 @@ of machine, and the credential-helper fallback built into the adapter. Use place
 `.forge.conf` is trusted like an exported one, over https only, and needs no setup. The risk is
 accepted: a cloned repository's `.forge.conf` can name the server that receives your token, so
 run forge-kit commands only in repositories you trust. An http-only instance
-needs `FORGE_ALLOW_HTTP=1` exported in your environment; the file cannot set it. In the file,
+needs `FORGE_ALLOW_HTTP=1` exported in your environment; the file cannot set it (a `FORGE_DRY_RUN=1` run
+sends nothing, so it only prints a note for an http URL instead of refusing). In the file,
 `FORGE_TOKEN_ENV` may name only `FORGEJO_TOKEN` or `FORGE_TOKEN`; export any other name
 yourself. Run `forge_token_present` to see which variable is read and whether it is set, or
 `forge_token_available` to include the credential-helper fallback below (section 3).

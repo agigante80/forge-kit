@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 48
+# forge-lib-version: 49
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -95,7 +95,8 @@
 #       matches what every caller that was redirecting the line away already saw.
 #       THE ANOMALY LINES ARE NOT GATED and must not be: the identical-page stop says the server
 #       is ignoring `page`, and the two rc-2 lines say the walk could not continue. A caller
-#       needs all three whether or not it asked for debugging.
+#       needs all three whether or not it asked for debugging. (v49 narrows this for ONE
+#       endpoint, the issue comments path: see the v49 entry, #524.)
 #       The test is `= 1`, matching every FORGE_DRY_RUN guard in this file; `!= 0` would have
 #       made `FORGE_DEBUG=no` turn debugging on.
 #   v24 forge_body_region_get / _set / _clear and forge_body_compose_preserving are NEW (#248):
@@ -204,6 +205,22 @@
 #       on stderr, still rc 2, and an HTTP error prints forge_api's `HTTP <n>` line, still rc 22.
 #       Its return codes are unchanged (0, 44, 22, 2). On GitHub it now asks git/ref/tags/<tag>
 #       instead of the Forgejo-only tags/<tag>, so an existing tag answers 0 instead of rc 1.
+#   v49 Two changes. (#524) The identical-page line is no longer printed on the issue comments path
+#       (`/repos/*/issues/*/comments`) unless FORGE_DEBUG=1. REASON, narrowing the v23 rule "the
+#       anomaly lines are never gated": Forgejo's ListIssueComments reads only since/before, takes
+#       no page or limit, and returns every comment on every page, so a repeated page there is the
+#       documented end of a complete list, not an anomaly. It is keyed on the endpoint and not on a
+#       row count: a 60-comment issue is as complete as a 4-comment one, and `rows < limit` is the
+#       inference #62 rejected on paged endpoints, where a clamped host would have its truncation
+#       silenced. Every other path still prints the line ungated; the stop itself (rc 0, two
+#       requests) and both rc-2 guards are unchanged. (#527) A dry run (FORGE_DRY_RUN=1) no longer
+#       refuses an http FORGE_API_URL without FORGE_ALLOW_HTTP=1: it prints one stderr NOTE saying
+#       a real run would refuse, then continues (rc 0, its `[dry-run]` line). This PARTLY REVERSES
+#       v38 (#449 item 6, "a dry run refuses what the real run refuses"), for one reason: a dry
+#       run sends nothing, so no token can leak over http, and the refusal only blocked tests that
+#       used a plain-http URL. Kept: any non-http scheme and an unset URL still return 2 in a dry
+#       run; the real send path, forge_url_check and every non-dry read still refuse. The dry-run
+#       sites call the new _forge_dry_url_check; nothing else changed.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -497,6 +514,29 @@ forge_url_check() {
   _forge_check_url
 }
 
+# _forge_dry_url_check: forge_url_check for the DRY-RUN branches (#527). The same host, base and
+# scheme checks, except that an http URL without FORGE_ALLOW_HTTP=1 prints a NOTE and returns 0: a
+# dry run sends nothing, so no token can go over http. The note does not reuse the real refusal's
+# wording, so a counter of that phrase still counts only real refusals. An unset URL still returns
+# 2 from forge_api_base, before any caller's `$(forge_api_base)` printf; any other scheme still
+# returns 2. The check runs BEFORE the `[dry-run]` line at every site. The real send path keeps
+# _forge_check_url, and forge_url_check is unchanged.
+_forge_dry_url_check() {
+  local host base="" url
+  host="$(forge_host)" || return 2
+  [ "$host" = forgejo ] || return 0
+  base="$(forge_api_base)" || return 2
+  : "$base"
+  _forge_load_conf
+  url="${FORGE_API_URL-}"
+  case "$url" in
+    http://*) [ "${FORGE_ALLOW_HTTP:-0}" = 1 ] || {
+      echo "forge-lib: note: dry run only; FORGE_API_URL is http, so a real run would refuse it unless FORGE_ALLOW_HTTP=1 is exported" >&2
+      return 0; } ;;
+  esac
+  _forge_check_url
+}
+
 _forge_token() {
   local _fx=0 rc; case $- in *x*) _fx=1; set +x ;; esac
   _forge_token_impl; rc=$?
@@ -581,7 +621,7 @@ forge_api() {
   local host
   host="$(forge_host)" || return 2   # forge_api-host-capture: ABOVE the dry-run guard, so a dry run refuses an invalid host too (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2   # #449: a dry run refuses what the real run refuses
+    _forge_dry_url_check || return 2   # #449, #527: a dry run refuses what the real run refuses, except plain http (a note)
     # to stderr, so it survives callers that redirect the JSON response to /dev/null
     printf '[dry-run] %s %s%s%s\n' "$method" "$(forge_api_base)" "$path" "${body:+  body=$body}" >&2
     return 0
@@ -711,7 +751,15 @@ forge_api_paginate() {
     # page 1, page 3 then matches page 2, and page 1 is carried twice; the next read is correct.
     sig="$(printf '%s' "$chunk" | jq -c 'if all(.[]; type == "object" and (.id // .number) != null) then map(.id // .number) else . end' 2>/dev/null)"
     if [ -n "$prev" ] && [ "$sig" = "$prev" ]; then
-      echo "forge-lib: paginate: identical page: server ignores page (stopped at page ${page} of ${path})" >&2
+      # #524: Forgejo's ListIssueComments takes no page or limit and returns EVERY comment on every
+      # page, so on the issue comments path a repeat is the documented end of a complete list and
+      # the line is noise (a 60-comment issue is as complete as a 4-comment one, so no row count
+      # can tell them apart). The rule keys on the ENDPOINT. Every other path keeps the line
+      # ungated, as v23 decided: there a repeat is news. FORGE_DEBUG=1 prints it everywhere.
+      case "${path%%\?*}" in
+        /repos/*/issues/*/comments) [ "${FORGE_DEBUG:-0}" = 1 ] && echo "forge-lib: paginate: identical page: server ignores page (stopped at page ${page} of ${path})" >&2 ;;
+        *) echo "forge-lib: paginate: identical page: server ignores page (stopped at page ${page} of ${path})" >&2 ;;
+      esac
       break
     fi
     prev="$sig"
@@ -1057,7 +1105,7 @@ _forge_region_write() {
   # GET under dry-run, returning 0 with an empty body, so a guard placed after the fetch would
   # splice against an empty string and report success.
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     printf '[dry-run] %s region %s of issue %s on %s (%s characters)\n' "$mode" "$region" "$n" "$(forge_repo)" "${#content}" >&2
     return 0
   fi
@@ -1104,7 +1152,7 @@ forge_body_compose_preserving() {
     echo "forge-lib: usage: forge_body_compose_preserving <issue> <new-body>" >&2; return 2; }
   forge_host >/dev/null || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     printf '[dry-run] compose body of issue %s on %s (%s characters)\n' "$n" "$(forge_repo)" "${#new}" >&2
     return 0
   fi
@@ -1243,7 +1291,7 @@ forge_body_section_append() {
   # which a guard after the fetch would read as a body with no heading. 107 to 109 are therefore
   # unreachable under dry run.
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     printf '[dry-run] append to section %s of issue %s on %s (%s characters)\n' "$label" "$n" "$(forge_repo)" "${#content}" >&2
     return 0
   fi
@@ -1376,7 +1424,7 @@ forge_issue_edit() {
   forge_host >/dev/null || return 2   # above the dry-run guard (#256): both hosts PATCH, but an invalid one must not dry-run clean
   local payload; payload="$(printf '%s' "$2" | _forge_payload forge_issue_edit '{body:$b}')" || return 2   # forge-lib: payload (edit)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     printf '[dry-run] replace body of issue %s on %s (%s characters)\n' "$1" "$(forge_repo)" "${#2}" >&2
     return 0
   fi
@@ -1391,7 +1439,7 @@ forge_issue_list() {
   local repo state host; repo="$(forge_repo)" || return 2; state="${1:-open}"
   host="$(forge_host)" || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     printf '[dry-run] GET %s/repos/%s/issues?state=%s (issues only, all pages)\n' "$(forge_api_base)" "$repo" "$state" >&2; return 0
   fi
   case "$host" in
@@ -1424,7 +1472,7 @@ forge_issue_label() {
   local repo host; repo="$(forge_repo)" || return 2
   host="$(forge_host)" || return 2   # above the dry-run guard (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     printf '[dry-run] label issue %s on %s with: %s\n' "$n" "$repo" "$*" >&2; return 0
   fi
   case "$host" in
@@ -1527,7 +1575,7 @@ forge_milestone_close() {
   # also prints the line and returns 0, because the caller already resolved it from a real read.
   forge_host >/dev/null || return 2   # above the dry-run guard: an invalid host must not dry-run clean (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     printf '[dry-run] close milestone %s on %s\n' "$title" "$repo" >&2
     return 0
   fi
@@ -1569,7 +1617,7 @@ forge_issue_milestone() {
   # milestone cases (set and clear); the real-mode ones pin the refusal itself.
   host="$(forge_host)" || return 2
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
-    forge_url_check || return 2
+    _forge_dry_url_check || return 2
     if [ -n "$title" ]; then printf '[dry-run] set milestone of issue %s to %s on %s\n' "$n" "$title" "$repo" >&2
     else printf '[dry-run] clear the milestone of issue %s on %s\n' "$n" "$repo" >&2; fi
     return 0
