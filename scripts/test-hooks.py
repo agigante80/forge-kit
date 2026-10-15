@@ -2561,6 +2561,71 @@ with tempfile.TemporaryDirectory() as td:
     r = f.run("gh issue comment 5 --body clean")
     chk("sfw the spy does record a real write (the log check is not vacuous)", log.exists())
 
+# --- round 1 review: comments, reserved words, quoted substitutions, backticks, gh spellings ---
+with tempfile.TemporaryDirectory() as td:
+    f = Sfw(td)
+    f.put("leak2.md", "ok\nsee %s here\n" % NAME)
+    f.put("clean.md", "all fine\n")
+    D2 = sfw_reason(2, "private-name")
+    # shell comments are not code: an apostrophe or << in one must not desync the parse
+    for label, cmd in [
+            ("apostrophe comment before and after", "# don't post yet" + NL + "gh issue comment 5 --body-file leak2.md" + NL + "# it's fine"),
+            ("parens and apostrophes in comments", "# post it (we can't wait)" + NL + "gh issue comment 5 --body-file leak2.md" + NL + "# that's all"),
+            ("a << in a comment is not a heredoc", "# write the body with <<EOF style" + NL + "gh issue comment 5 --body-file leak2.md" + NL + "echo done"),
+            ("trailing comment with an apostrophe", "gh issue comment 5 --body-file leak2.md   # don't forget"),
+            ("a comment after ; and &&", "echo a;# it's" + NL + "echo b && gh issue comment 5 --body-file leak2.md"),
+            ("$# ${#x} issue#5 are text, not comments", "echo $# ${#x} issue#5; gh issue comment 5 --body-file leak2.md"),
+            ("# after a closing quote is text", "echo 'a'#b; gh issue comment 5 --body-file leak2.md")]:
+        chk("sfw comment: " + label, sfw_denies(f.run(cmd), D2))
+    chk("sfw a # inside a quoted body is body text", sfw_denies(f.run("gh issue comment 5 --body 'x #" + NAME + "'"), sfw_reason(1, "private-name", flag="--body")))
+    chk("sfw a word-internal # in a body value is text", sfw_denies(f.run("gh issue comment 5 --body issue#5" + NAME), sfw_reason(1, "private-name", flag="--body")))
+    chk("sfw a commented-out write is not a write", sfw_silent(f.run("# gh issue comment 5 --body-file leak2.md" + NL + "echo ok")))
+    # reserved words in front of the command
+    for label, cmd in [
+            ("for/do", "for n in 5 6; do gh issue comment $n --body-file leak2.md; done"),
+            ("while/do with a redirect", "while read n; do gh issue comment $n --body-file leak2.md; done < ids.txt"),
+            ("if/then", "if [ -f leak2.md ]; then gh issue comment 5 --body-file leak2.md; fi"),
+            ("brace group", "{ gh issue comment 5 --body-file leak2.md; }"),
+            ("brace group after a pipe", "echo x | { gh issue comment 5 --body-file leak2.md; }"),
+            ("negation", "! gh issue comment 5 --body-file leak2.md"),
+            ("else branch", "if false; then echo a; else gh issue comment 5 --body-file leak2.md; fi"),
+            ("until/do", "until false; do gh issue comment 5 --body-file leak2.md; break; done")]:
+        chk("sfw reserved word: " + label, sfw_denies(f.run(cmd), D2))
+    # a write inside "$( )" or backticks
+    for label, cmd in [
+            ("assignment in double-quoted $( )", 'url="$(gh issue create --title t --body-file leak2.md)"'),
+            ("echo with a $( ) inside double quotes", 'echo "posted: $(gh issue comment 5 --body-file leak2.md)"'),
+            ("nested double-quoted $( )", 'echo "a $(echo "b $(gh issue comment 5 --body-file leak2.md)")"'),
+            ("backtick assignment", 'url=`gh issue create --title t --body-file leak2.md`'),
+            ("backtick inside double quotes", 'echo "x `gh issue comment 5 --body-file leak2.md`"')]:
+        chk("sfw substitution: " + label, sfw_denies(f.run(cmd), D2))
+    chk("sfw a title leak inside a quoted $( ) is found",
+        sfw_denies(f.run('x="$(gh issue create --title %s --body ok)"' % NAME), sfw_reason(1, "private-name", flag="--title")))
+    chk("sfw a clean write inside a quoted $( ): silent", sfw_silent(f.run('url="$(gh issue create --title t --body-file clean.md)"')))
+    r = f.run('echo "$(gh issue comment 5 --body-file leak2.md)" && gh issue comment 6 --body-file leak2.md')
+    chk("sfw writes outside the span are numbered first", sfw_denies(r, sfw_reason(2, "private-name", k=1)))
+    r = f.run('echo "$(gh issue comment 5 --body $BODY)"')
+    chk("sfw an unjudgeable write inside a span leaves the note, never silence", sfw_note(r, N_NOEXTRACT))
+    # gh's own spellings
+    for label, cmd in [
+            ("-R owner/repo", "gh -R o/r issue comment 5 --body-file leak2.md"),
+            ("--repo owner/repo", "gh --repo o/r issue comment 5 --body-file leak2.md"),
+            ("--repo=owner/repo", "gh --repo=o/r issue comment 5 --body-file leak2.md"),
+            ("-Rowner/repo attached", "gh -Ro/r pr comment 5 --body-file leak2.md"),
+            ("-R between issue and the verb", "gh issue -R o/r comment 5 --body-file leak2.md"),
+            ("-R after the verb", "gh issue comment 5 -R o/r --body-file leak2.md")]:
+        chk("sfw repo flag: " + label, sfw_denies(f.run(cmd), D2))
+    chk("sfw issue new is create", sfw_denies(f.run("gh issue new --title %s --body x" % NAME), sfw_reason(1, "private-name", flag="--title")))
+    chk("sfw pr new is create", sfw_denies(f.run("gh pr new --title %s --body x" % NAME), sfw_reason(1, "private-name", flag="--title")))
+    chk("sfw -R with an out-of-scope verb stays out of scope", sfw_silent(f.run("gh -R o/r pr review 5 --body 'x %s'" % NAME)))
+    chk("sfw gh -R alone with a list verb: silent", sfw_silent(f.run("gh -R o/r issue list")))
+    # ANSI-C quoting keeps the quote state in step
+    for label, cmd in [
+            ("an escaped ' inside $'...'", "echo $'it\\'s done' && gh issue comment 5 --body-file leak2.md"),
+            ("a lone $'\\'' then a stray backslash quote", "echo $'\\'' ; gh issue comment 5 --body-file leak2.md ; echo \\'")]:
+        chk("sfw ansi-c quoting: " + label, sfw_denies(f.run(cmd), D2))
+    chk("sfw a $'...' body value is not a literal: the note", sfw_note(f.run("gh issue comment 5 --body $'x %s'" % NAME), N_NOEXTRACT))
+
 # --- fail open on bad input -----------------------------------------------------------------
 with tempfile.TemporaryDirectory() as td:
     f = Sfw(td)
@@ -2641,7 +2706,10 @@ def row_content_scanned(hook, td):
     os.symlink(f.proj / "body.lock", f.proj / "link.md")
     a = f.run("gh issue comment 5 --body-file body.lock")
     b = f.run("gh issue comment 5 --body-file link.md")
-    return a.decision == DENY and b.decision == DENY
+    # Assert the RULE, not just a deny: a scanner handed the path text instead of the content can
+    # still deny it for a home-path hit when TMPDIR sits under a home directory (L2, round 1).
+    return (sfw_denies(a, sfw_reason(1, "private-name", flag="--body-file"))
+            and sfw_denies(b, sfw_reason(1, "private-name", flag="--body-file")))
 
 
 def row_note_has_no_path(hook, td):
@@ -2700,6 +2768,53 @@ def row_space_form_only(hook, td):
     return f.run("gh issue comment 5 --body=%s" % NAME).decision == DENY
 
 
+def sfw_round1_fixture(td, hook):
+    f = Sfw(td, hook=hook)
+    f.put("leak2.md", "ok\nsee %s here\n" % NAME)
+    return f
+
+
+def row_comments(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    d2 = sfw_reason(2, "private-name")
+    a = f.run("# don't post yet" + NL + "gh issue comment 5 --body-file leak2.md" + NL + "# it's fine")
+    b = f.run("gh issue comment 5 --body-file leak2.md   # don't forget")
+    c = f.run("# write the body with <<EOF style" + NL + "gh issue comment 5 --body-file leak2.md" + NL + "echo done")
+    return sfw_denies(a, d2) and sfw_denies(b, d2) and sfw_denies(c, d2)
+
+
+def row_reserved(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    r = f.run("for n in 5 6; do gh issue comment $n --body-file leak2.md; done")
+    return sfw_denies(r, sfw_reason(2, "private-name"))
+
+
+def row_spans(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    d2 = sfw_reason(2, "private-name")
+    a = f.run('echo "posted: $(gh issue comment 5 --body-file leak2.md)"')
+    b = f.run('url=`gh issue create --title t --body-file leak2.md`')
+    return sfw_denies(a, d2) and sfw_denies(b, d2)
+
+
+def row_repo_flag(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    d2 = sfw_reason(2, "private-name")
+    return sfw_denies(f.run("gh -R o/r issue comment 5 --body-file leak2.md"), d2)
+
+
+def row_new_alias(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    r = f.run("gh issue new --title %s --body x" % NAME)
+    return sfw_denies(r, sfw_reason(1, "private-name", flag="--title"))
+
+
+def row_ansi(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    r = f.run("echo $'it\\'s done' && gh issue comment 5 --body-file leak2.md")
+    return sfw_denies(r, sfw_reason(2, "private-name"))
+
+
 MUTANTS = [
     ("forward the scanner's finding text in the reason", row_no_leak_in_reason,
      'tail = "(%s)" % rule if rule else "(unparsed)"', 'tail = "(%s) %s" % (rule, out)'),
@@ -2716,12 +2831,24 @@ MUTANTS = [
      "    return (\"note\",)\n\n\n# --- reading", "    return None\n\n\n# --- reading"),
     ("ignore --title", row_title_scanned, 'TEXT_FLAGS = {"--body": "text", "-b": "text", "--title": "text", "-t": "text",',
      'TEXT_FLAGS = {"--body": "text", "-b": "text",'),
-    ("stop after the first write", row_second_write, "    for idx, seg in writes:\n        k += 1\n",
-     "    for idx, seg in writes[:1]:\n        k += 1\n"),
+    ("stop after the first write", row_second_write, "    for idx, seg, segs, hds in writes:\n        k += 1\n",
+     "    for idx, seg, segs, hds in writes[:1]:\n        k += 1\n"),
     ("widen the scope to pr review", row_scope, 'WRITE_SUBS = ("create", "edit", "comment")',
      'WRITE_SUBS = ("create", "edit", "comment", "review")'),
     ("only the space form of --body", row_space_form_only, '            name, eq, val = a.partition("=")',
      '            name, eq, val = a, "", ""'),
+    ("treat # as an ordinary character (no comment state)", row_comments,
+     'if c == "#" and comment_start(i):', 'if False and c == "#" and comment_start(i):'),
+    ("no reserved-word skip before the command", row_reserved,
+     " or w in RESERVED:", ":"),
+    ("do not parse substitution and backtick spans again", row_spans,
+     "found += gather(sp, notes, depth + 1)", "pass"),
+    ("no -R / --repo skip", row_repo_flag,
+     'if a in ("-R", "--repo"):', 'if False:'),
+    ("no new to create alias", row_new_alias,
+     'sub = "create" if head[1] == "new" else head[1]', 'sub = head[1]'),
+    ("no ANSI-C quoting context", row_ansi,
+     'if c == "$" and cmd[i + 1:i + 2] == "\'":', 'if False and c == "$" and cmd[i + 1:i + 2] == "\'":'),
 ]
 for label, row, old, new in MUTANTS:
     with tempfile.TemporaryDirectory() as t1:
