@@ -298,7 +298,8 @@ if [ -n "$TAG_ROUND" ]; then   # #532: a stdin filter, before any mode or file c
       if (RLENGTH <= 3 && (t ~ /^#+ / || t ~ /^<!-- [^ \t]+:(start|end) -->$/ || l == "_No response_")) { print; next }
       if (tagged(l)) { print; next }
       if (isf) { print tag; print l; next }
-      gsub(/[ \t]*\(gate-written, round [0-9]+\)/, "", l)
+      # a tag quoted mid-line stays; only one followed by nothing but closing * or _ (in bold) goes
+      if (match(l, /[ \t]*\(gate-written, round [0-9]+\)[*_ \t]*$/)) { c = substr(l, RSTART); sub(/^[ \t]*\(gate-written, round [0-9]+\)/, "", c); sub(/[ \t]+$/, "", c); l = substr(l, 1, RSTART - 1) c }
       print l " " tag
     }'
   exit 0

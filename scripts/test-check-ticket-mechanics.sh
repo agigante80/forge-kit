@@ -2442,7 +2442,9 @@ TB_OUT="Assumption: the status is exit 4. (gate-written, round 1)
 expect "#532: every block, the Assumption paragraph, a tag inside bold and a tag on a later line, ends its first line with the tag" "$TB_OUT" "$(TB "$TB_IN")"
 expect "#532: it is idempotent" "$(TB "$TB_IN")" "$(TB "$(TB "$TB_IN")")"
 expect "#532: a first line already ending in a tag keeps its round byte for byte" "**Positive:** p (gate-written, round 0)" "$(TB '**Positive:** p (gate-written, round 0)' 3)"
-expect "#532: a mid-line tag is moved to the end under the requested round" "text more (gate-written, round 2)" "$(TB 'text (gate-written, round 0) more' 2)"
+expect "#532: a tag quoted mid-line is left intact, text and all, and the block still gets its own tag" "text (gate-written, round 0) more (gate-written, round 2)" "$(TB 'text (gate-written, round 0) more' 2)"
+expect "#532: a tag quoted in backticks mid-line is left intact" 'use `(gate-written, round 0)` here (gate-written, round 1)' "$(TB 'use `(gate-written, round 0)` here')"
+expect "#532: a tag inside an underscore-emphasised line is moved out of it" "_Condition: x_ (gate-written, round 1)" "$(TB '_Condition: x (gate-written, round 0)_')"
 TB_FENCE='```bash
 a
 
@@ -2476,7 +2478,7 @@ tbmut() {  # tbmut <name> <sed expr>: the mutant must change TB's answer on the 
   local a b c; a="$(TBS="$WORK/tb-mut.sh" TB "$TB_IN")"; b="$(TBS="$WORK/tb-mut.sh" TB "$TB_FENCE")"; c="$(TBS="$WORK/tb-mut.sh" TB "kept (gate-written, round 0)" 3)"
   if [ "$a" = "$TB_OUT" ] && [ "$b" = "$(TB "$TB_FENCE")" ] && [ "$c" = "kept (gate-written, round 0)" ]; then bad "#532: MUTANT survived: $1"; else ok "#532: MUTANT: $1 changes the output"; fi; }
 tbmut "no blank-line reset, so only the first block is tagged" 's/l == "" { first = 1; print; next }/l == "" { print; next }/'
-tbmut "a mid-line or in-bold tag is not removed" 's/^      gsub(.*$//'
+tbmut "an in-bold tag is not removed" 's/^      if (match(l, .*$//'
 tbmut "a CR is left inside the visible line" 's/print l " " tag/print $0 " " tag/'
 tbmut "a fence opener sets no fence state" 's/isf = fence_open(l); if (isf) fopen = 1/isf = fence_open(l)/'
 tbmut "an existing tag is re-stamped instead of kept" 's/if (tagged(l)) { print; next }//'
