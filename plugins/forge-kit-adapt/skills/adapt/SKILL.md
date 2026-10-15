@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 90 -->
+<!-- forge-adapt-version: 91 -->
 
 # forge-adapt
 
@@ -181,13 +181,6 @@ done
 # the cache outlives uninstalls and keeps old versions beside the live one.
 SP_STATUS=$(grep -q '"superpowers@' ~/.claude/plugins/installed_plugins.json 2>/dev/null && echo present || echo absent)
 echo "superpowers: $SP_STATUS"   # printed so Step 2 (a fresh shell) reads it from the transcript
-# Shell assets in scripts/, same rules:
-for f in scripts/*.sh; do          # every asset, not a list
-  grep -qE '^# [a-z0-9-]+-version: [0-9]+' "$f" 2>/dev/null || [ "$f" = scripts/check-template-lockstep.sh ] || continue   # #506: the unmarked pre-marker guard reads "unversioned"
-  n=$(basename "$f" .sh)
-  v=$(grep -oP -- "#\s*${n}-version:\s*\K\d+" "$f" | head -1)
-  echo "  $n | v${v:-none} | shell asset (verbatim copy)"
-done
 # Hooks carry markers too (e.g. # block-dashes-version: N) - include them in drift detection:
 for f in .claude/hooks/*; do
   [ -f "$f" ] || continue
@@ -201,6 +194,13 @@ FORGE_HOST=$(FORGE_API_URL=x bash -c '. "$1" && forge_host' _ "$FK/plugins/forge
 echo "forge-host: $FORGE_HOST"
 # Domain/pattern sample:
 find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep -vE 'node_modules|\.claude|dist' | head -20
+# Shell assets in scripts/, same rules (#522):
+for f in scripts/*.sh; do
+  n=$(basename "$f" .sh)
+  grep -qE '^# [a-z0-9-]+-version: [0-9]+' "$f" 2>/dev/null || [ "$n" = check-template-lockstep ] || ls "$FK"/plugins/*/skills/*/assets/"$n.sh" >/dev/null 2>&1 || continue
+  v=$(grep -oP -- "#\s*${n}-version:\s*\K\d+" "$f" | head -1)
+  echo "  $n | v${v:-none} | shell asset (verbatim copy)"
+done
 # Issue-template drift (host-aware) + governance state. Exit-0-safe: a missing dir is a normal finding.
 # HOST-grouped like resolve_dir and ticket-gate (a live Forgejo dir, either casing, outranks a stale
 # retained .github one); within a host, uppercase wins. Lowercase = legacy v34-and-earlier installs (issue #61).
@@ -570,7 +570,7 @@ Run only when explicitly invoked, or offer them after the user replies "none".
 ### Refresh / drift mode  ("refresh", "refresh <name>", "drift")
 
 Every shape, and the main flow's Version status block, also runs the retired-rule scan in
-`references/stale-rules.md` (#495).
+`references/stale-rules.md` (#495) and the retired-file scan in `references/retired-paths.md` (#521). It also prints the doc-rules row of `references/drift.md` (#525).
 
 **`refresh` / `drift` (no name) - report only, writes nothing.** For every installed component,
 compare its `<name>-version` marker against the catalogue and print a drift report:
@@ -758,7 +758,7 @@ Confirm: `✓ template-lockstep guard installed + wired (<host-workflows-dir>)`.
   project (reference the project's ACTUAL template set and package names; drop rules for sections the
   project's templates do not carry; honour `adapt-droppable` paragraph markers per the Step 3 rule,
   e.g. drop the emulator clause, leaving its `adapt-dropped` tombstone, where the project has no
-  emulator or simulator suite), and **set its `template-version` marker to `$PRJ_TPL_VER`** - the
+  emulator or simulator suite), and **set its `template-version` marker to `$PRJ_TPL_VER`** (keep `doc-rules-version`) - the
   project's own value, NOT forge-kit's - so the lockstep guard locks the doc to the project's
   templates rather than failing on a version mismatch. Write it to `docs/guides/ticket-standards.md`
   (the path the copied guard reads by default).
@@ -788,7 +788,7 @@ Confirm: `✓ ticket-standards doc written at v$PRJ_TPL_VER; gate + CLAUDE.md re
 - **Recommended table = top picks, not the whole catalogue.** Lead with the most valuable per category;
   "more <category>" expands one category into its full-catalogue table on request.
 - **Every "why" is specific and <= 60 chars.** One strongest signal, never generic best-practice text.
-- **Never write outside Step 3, a confirmed `refresh <name>` or a confirmed stale-rule fix.** Recommendations, the "Updates
+- **Never write outside Step 3, a confirmed `refresh <name>`, stale-rule fix or retired-file removal.** Recommendations, the "Updates
   available" block, and the `refresh`/`drift` report all write nothing. Self-update (Setup S1) is the
   only other exception and only ever writes its own SKILL.md.
 - **Drift is detected by version markers, not by diffing.** The cheap up-front signal and the
