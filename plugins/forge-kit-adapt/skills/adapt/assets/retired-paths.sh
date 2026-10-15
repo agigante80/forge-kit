@@ -162,7 +162,7 @@ function step_ok(i, ind,   j, h, e, sib) {
     if (skip(raw[j])) continue
     e = indent_of(raw[j])
     if (e < ind || (e == ind && substr(raw[j], ind + 1, 2) != "- ")) break
-    if (j != i && e == ind) sib = 1
+    if (j != i && e == ind && !mentions_from(raw[j], P, 1)) sib = 1   # a retired-script run is no sibling (#521)
   }
   return sib
 }
