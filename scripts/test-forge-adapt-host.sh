@@ -294,7 +294,10 @@ done
 # it cannot go back to a bare script name that every guess then fails against.
 dspan=$(span 'forge-adapt-drift-status.sh')
 case "$dspan" in *"--local <installed>"*"--catalogue <catalogue>"*) ok "#504: the drift span passes --local and --catalogue" ;; *) bad "#504: the drift span is '$dspan'" ;; esac
-grep -q 'forge-adapt-drift-status.sh --local <installed> --catalogue <catalogue>` (inputs: `references/drift.md`)' "$SKILL" \
+# Wording-proof (#519): the call line and a `references/drift.md` pointer must sit on one line, in whatever
+# parenthetical the prose uses ("inputs:", "inputs and citation check:").
+dline=$(grep -F 'forge-adapt-drift-status.sh --local <installed> --catalogue <catalogue>' "$SKILL" | grep -F '`references/drift.md`' | head -1)
+[ -n "$dline" ] \
   && ok "#504: the drift call site points at references/drift.md" || bad "#504: the drift call site names no reference"
 [ -f "$(dirname "$SKILL")/references/drift.md" ] && ok "#504: references/drift.md exists" || bad "#504: references/drift.md is missing"
 grep -q 'forge-adapt-plugin-active.sh <group>@forge-kit' "$(dirname "$SKILL")/references/drift.md" \
