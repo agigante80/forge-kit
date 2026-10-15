@@ -423,6 +423,79 @@ sc_tmpfile() {  # #466: outputs are published through their symlinks, beside the
   ck "dangling declaration: the message names .github/labels.yml" "forge-adapt: .github/labels.yml is a dangling symlink (its target directory does not exist): nothing written" "$(printf '%s\n' "$err" | tail -n 1)"
   ck "dangling declaration: the doc and docs/guides were not created" no "$([ -e "$P/docs" ] && echo yes || echo no)"
 }
+sc_why() {  # #531: a description refusal names its cause (character and byte position, first character, length, empty)
+  local a100 a101 y
+  a100=$(printf 'a%.0s' $(seq 1 100)); a101="${a100}a"
+  # an allowed description of every punctuation class still passes, written unchanged
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS="ops=Run (a/b), c.d; e_f-g 'h'"
+  ck "why: every allowed punctuation class: exit 0" 0 "$rc"
+  ck "why: every allowed punctuation class: no refused text" no "$(has refused "$err")"
+  ck "why: every allowed punctuation class: written unchanged" yes "$(has "description: Run (a/b), c.d; e_f-g 'h'" "$(cat "$P/.github/labels.yml" 2>/dev/null)")"
+  # the colon: character, position, area
+  proj; run LABEL_AREAS="tls" FORGE_HOST=github LABEL_AREA_DESCS=$'tls=Certs and TLS: rotation'
+  ck "why colon: exit 1" 1 "$rc"
+  ck "why colon: prefix kept, character and position named" yes "$(has "refused area description: tls (':' at position 14, outside the allowed set)" "$err")"
+  ck "why colon: nothing written" "" "$(files)"
+  # a printable offender is shown as itself
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS=$'ops=Run#book'
+  ck "why hash: exit 1" 1 "$rc"
+  ck "why hash: shown quoted" yes "$(has "'#' at position 4, outside the allowed set" "$err")"
+  # a bad first character
+  proj; run LABEL_AREAS="tls" FORGE_HOST=github LABEL_AREA_DESCS=$'tls=-rotation'
+  ck "why dash: exit 1" 1 "$rc"
+  ck "why dash: first-character wording" yes "$(has "'-' at position 1, must start with a letter or digit" "$err")"
+  ck "why dash: not reported as outside the set" no "$(has "outside the allowed set" "$err")"
+  proj; run LABEL_AREAS="tls" FORGE_HOST=github LABEL_AREA_DESCS=$'tls= leading space'
+  ck "why space: exit 1" 1 "$rc"
+  ck "why space: names the space" yes "$(has "' ' at position 1" "$err")"
+  proj; run LABEL_AREAS="tls" FORGE_HOST=github LABEL_AREA_DESCS=$'tls=2FA and TLS settings'
+  ck "why digit first: accepted" 0 "$rc"
+  # the cap
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS="ops=$a100"
+  ck "why 100 chars: accepted" 0 "$rc"
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS="ops=$a101"
+  ck "why 101 chars: exit 1" 1 "$rc"
+  ck "why 101 chars: length and cap named" yes "$(has "refused area description: ops (101 characters, cap is 100)" "$err")"
+  ck "why 101 chars: nothing written" "" "$(files)"
+  # empty
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS=$'ops='
+  ck "why empty: exit 1" 1 "$rc"
+  ck "why empty: says empty" yes "$(has "refused area description: ops (empty)" "$err")"
+  ck "why empty: nothing written" "" "$(files)"
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS=$'ops=a'
+  ck "why one char: accepted" 0 "$rc"
+  # an ESC byte is escaped, never echoed raw
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS=$'ops=ab\033[31m'
+  ck "why ESC: exit 1" 1 "$rc"
+  ck "why ESC: escaped, position 3" yes "$(has "'\\x1b' at position 3" "$err")"
+  case "$err" in *$'\033'*) y=yes ;; *) y=no ;; esac
+  ck "why ESC: no raw 0x1b byte reaches stderr" no "$y"
+  # a multibyte character is its first byte, escaped, and nothing above 0x7e is echoed
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS=$'ops=caf\303\251'
+  ck "why multibyte: exit 1" 1 "$rc"
+  ck "why multibyte: first byte escaped at position 4" yes "$(has "'\\xc3' at position 4" "$err")"
+  ck "why multibyte: no byte above 0x7e echoed" "" "$(printf '%s' "$err" | LC_ALL=C tr -d '\000-\177')"
+  # a bad character wins over the cap
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS="ops=a:$a100"
+  ck "why precedence: exit 1" 1 "$rc"
+  ck "why precedence: the character is named" yes "$(has "':' at position 2" "$err")"
+  ck "why precedence: the cap is not" no "$(has "cap is 100" "$err")"
+  # shell metacharacters are echoed as text, never expanded
+  for y in '`' '$' '|' '"' '*' '\'; do
+    proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS="ops=ab${y}cd"
+    ck "why meta [$y]: refused and named at position 3" yes "$(has "'$y' at position 3, outside the allowed set" "$err")"
+  done
+  # only the first of several offenders is named
+  proj; run LABEL_AREAS="ops" FORGE_HOST=github LABEL_AREA_DESCS=$'ops=a:b#c'
+  ck "why several: only the first is named" yes "$(has "':' at position 2" "$err")"
+  ck "why several: and not the second" no "$(has "'#'" "$err")"
+  # a doc-derived bad description is still silent and non-fatal
+  proj; mkdir -p "$P/docs/guides"
+  printf '# L\n\n### Area labels\n| Label | Description |\n|---|---|\n| `ops` | Ops: on-call |\n' > "$P/docs/guides/labels.md"
+  run LABEL_AREAS="ops" FORGE_HOST=github LABELS_MERGE=no
+  ck "why doc-derived: exit 0" 0 "$rc"
+  ck "why doc-derived: falls back to the neutral description" yes "$(has "description: Project-specific area" "$(cat "$P/.github/labels.yml" 2>/dev/null)")"
+}
 sc_case472() {  # #472: the kit's row and declaration are found without regard to case, written under the CONFIRMED spelling
   local y m
   proj; run LABEL_AREAS="API" FORGE_HOST=github
@@ -474,6 +547,7 @@ echo "== #424 fixtures =="; sc_round2
 echo "== #465 fixtures =="; sc_case
 echo "== #466 fixtures =="; sc_tmpfile
 echo "== #472 fixtures =="; sc_case472
+echo "== #531 fixtures =="; sc_why
 
 echo "== the kit's own doc carries the markers the installer drops =="
 KD=$(cat "$ROOT/docs/guides/labels.md")
@@ -552,6 +626,14 @@ mutant "the kit row lookup is exact-case again (#472)" 's/tolower(substr(\$0, 4,
 mutant "the kit declaration lookup is exact-case again (#472)" 's/tolower(\$0) == k {/$0 == "- name: " ENVIRON["K"] {/' sc_case472
 mutant "the kit row is written under the kit spelling, not the confirmed one (#472)" 's/print "| `" ENVIRON\["K"\] "` |" substr/print "| `api` |" substr/' sc_case472
 mutant "a supplied description no longer wins over a folded kit entry (#472)" 's/^kit_ok() .*$/kit_ok() { true; }/' sc_case
+mutant "the offending position is 0-based (#531)" 's/c=\${s:i-1:1}; v=/i=$((i - 1)); c=${s:i:1}; v=/' sc_why
+mutant "the offending character is dropped from the message (#531)" 's/printf . (%s at position %d, outside/printf " (position %d, outside/;s/"\$c" "\$i"; fi/"$i"; fi/' sc_why
+mutant "a non-printable byte is echoed raw (#531)" 's/if \[ "\$v" -ge 32 \] \&\& \[ "\$v" -le 126 \]/if true/' sc_why
+mutant "the cap message reports no length (#531)" "s/printf ' (%d characters, cap is 100)' \"\\\${#s}\"/printf ' (over the cap)'/" sc_why
+mutant "empty and first-character causes merge into one generic message (#531)" 's/ (empty)/ (outside the allowed set)/;s/, must start with a letter or digit)/, outside the allowed set)/' sc_why
+mutant "a bad first character reads as outside the set (#531)" 's/if \[ "\$i" -eq 1 \]; then/if false; then/' sc_why
+mutant "the cap is checked before the characters (#531)" 's/^  while \[ "\$i" -le "\${#s}" \]; do/  [ "${#s}" -le 100 ] || { printf " (%d characters, cap is 100)" "${#s}"; return 0; }\n  while [ "$i" -le "${#s}" ]; do/' sc_why
+mutant "the refusal drops the reason (#531)" 's/\$(descwhy "\${l#\*=}")//' sc_why
 
 echo ""
 echo "forge-adapt templates labels tests: $pass passed, $fail failed"

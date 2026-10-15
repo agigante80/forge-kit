@@ -458,6 +458,12 @@ jobs:
       - name: Retired-paths scanner tests
         run: bash scripts/test-forge-adapt-retired-paths.sh
 
+      # Issue #519: drift reports the ticket-standards section titles the gate cites that the
+      # project's own doc lacks. A false clean (no gate found, an unreadable doc) is the worst
+      # failure, so each way of not looking is pinned to exit 3 or a skip row.
+      - name: Citation-check tests
+        run: bash scripts/test-forge-adapt-citation-check.sh
+
       # Issue #495, the kit's own half: the same scanner over every tracked file, so a retired
       # rule put back into a component fails here before any project installs it, and the
       # review-lows rule keeps one canonical home that every pointer names at the same version.
