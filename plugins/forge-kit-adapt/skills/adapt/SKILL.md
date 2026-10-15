@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 91 -->
+<!-- forge-adapt-version: 92 -->
 
 # forge-adapt
 
@@ -171,7 +171,7 @@ cat CLAUDE.md 2>/dev/null
 for f in .claude/agents/*.md .claude/commands/*.md .claude/skills/*/SKILL.md; do
   [ -f "$f" ] || continue
   case "$f" in */skills/*) n=$(basename "$(dirname "$f")");; *) n=$(basename "$f" .md);; esac
-  v=$(grep -oP -- "(?:<!--\s*|#\s*)${n}-version:\s*\K\d+" "$f" | head -1)  # anchored: same ver_of as S3
+  v=$(sed -nE "s/.*(<!--|#)[[:space:]]*${n}-version:[[:space:]]*([0-9]+).*/\2/p" "$f" | head -1)  # anchored: same ver_of as S3
   d=$(grep -m1 '^description:' "$f" | sed 's/description: *//')
   echo "  $n | v${v:-none} | $d"
 done
@@ -185,7 +185,7 @@ echo "superpowers: $SP_STATUS"   # printed so Step 2 (a fresh shell) reads it fr
 for f in .claude/hooks/*; do
   [ -f "$f" ] || continue
   n=$(basename "$f"); n=${n%.*}
-  v=$(grep -oP -- "(?:<!--\s*|#\s*)${n}-version:\s*\K\d+" "$f" | head -1)  # anchored: same ver_of as S3
+  v=$(sed -nE "s/.*(<!--|#)[[:space:]]*${n}-version:[[:space:]]*([0-9]+).*/\2/p" "$f" | head -1)  # anchored: same ver_of as S3
   echo "  $n (hook) | v${v:-none}"
 done
 # Sentinel API url: non-GitHub reads forgejo (#215).
@@ -198,7 +198,7 @@ find . \( -name '*.ts' -o -name '*.py' -o -name '*.go' -o -name '*.rs' \) | grep
 for f in scripts/*.sh; do
   n=$(basename "$f" .sh)
   grep -qE '^# [a-z0-9-]+-version: [0-9]+' "$f" 2>/dev/null || [ "$n" = check-template-lockstep ] || ls "$FK"/plugins/*/skills/*/assets/"$n.sh" >/dev/null 2>&1 || continue
-  v=$(grep -oP -- "#\s*${n}-version:\s*\K\d+" "$f" | head -1)
+  v=$(sed -nE "s/.*#[[:space:]]*${n}-version:[[:space:]]*([0-9]+).*/\1/p" "$f" | head -1)
   echo "  $n | v${v:-none} | shell asset (verbatim copy)"
 done
 # Issue-template drift (host-aware) + governance state. Exit-0-safe: a missing dir is a normal finding.
@@ -209,10 +209,10 @@ PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template .gitea/IS
 # Lenient project read: accept forge-kit's canonical hidden marker AND a visible "Template version: N"
 # line (some projects predate the canonical form). Upgrading normalises them; the lockstep guard
 # stays strict (canonical-only).
-PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoiP 'template[ -]version:\s*\*{0,2}\s*\K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoiE 'template[ -]version:[[:space:]]*\*{0,2}[[:space:]]*[0-9]+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sed 's/.*[^0-9]//' | sort -un | tail -1)
 # Is the version carried in the canonical `<!-- template-version: N -->` form (vs a visible line)?
-PRJ_TPL_CANONICAL=no; { [ -n "$PRJ_TPL_DIR" ] && grep -qP '<!--\s*template-version:\s*\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null && PRJ_TPL_CANONICAL=yes; } || true
-FK_TPL_VER=$(grep -hoP 'template-version: \K\d+' "$FK"/.github/ISSUE_TEMPLATE/*.yml 2>/dev/null | sort -un | tail -1)
+PRJ_TPL_CANONICAL=no; { [ -n "$PRJ_TPL_DIR" ] && grep -qE '<!--[[:space:]]*template-version:[[:space:]]*[0-9]' "$PRJ_TPL_DIR"/*.yml 2>/dev/null && PRJ_TPL_CANONICAL=yes; } || true
+FK_TPL_VER=$(sed -nE 's/.*template-version: ([0-9]+).*/\1/p' "$FK"/.github/ISSUE_TEMPLATE/*.yml 2>/dev/null | sort -un | tail -1)
 HAS_LOCKSTEP=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
 echo "issue-templates: project=v${PRJ_TPL_VER:-none} canonical-marker=${PRJ_TPL_CANONICAL} dir=${PRJ_TPL_DIR:-none} forge-kit=v${FK_TPL_VER:-none} lockstep-guard=${HAS_LOCKSTEP}"
 # CI / releases / dep-automation signals. Exit-0-safe: a missing path is a normal finding (do NOT
@@ -670,7 +670,7 @@ Audit `.github/ISSUE_TEMPLATE/*.yml` against the forge-kit reference version.
 
 ```bash
 ls "${FORGE_KIT_DIR:?}/.github/ISSUE_TEMPLATE/feature.yml" >/dev/null || exit 1
-FORGE_KIT_TEMPLATE_VERSION=$(grep -oP 'template-version: \K\d+' "${FORGE_KIT_DIR:?}/.github/ISSUE_TEMPLATE/feature.yml" | head -1)
+FORGE_KIT_TEMPLATE_VERSION=$(sed -nE 's/.*template-version: ([0-9]+).*/\1/p' "${FORGE_KIT_DIR:?}/.github/ISSUE_TEMPLATE/feature.yml" | head -1)
 ```
 
 Show a per-template status table (missing / outdated / incomplete / current), ask which to
@@ -697,7 +697,7 @@ them the guard is meaningless, so skip this block entirely. Detect the current s
 PRJ_TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
               .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do
   [ -d "$d" ] && { echo "$d"; break; }; done)
-PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
+PRJ_TPL_VER=$([ -n "$PRJ_TPL_DIR" ] && sed -nE 's/.*template-version: ([0-9]+).*/\1/p' "$PRJ_TPL_DIR"/*.yml 2>/dev/null | sort -un | tail -1)
 HAS_GUARD=$([ -f scripts/check-template-lockstep.sh ] && echo yes || echo no)
 HAS_DOC=$([ -f docs/guides/ticket-standards.md ] && echo yes || echo no)
 ```
