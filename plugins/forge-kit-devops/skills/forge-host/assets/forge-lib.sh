@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 51
+# forge-lib-version: 52
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -374,8 +374,8 @@ _forge_load_conf() {
 #     listed but not local fails open. No usable ref (shallow CI clone, no origin/HEAD, refs but
 #     none of the three names) also fails open with one note per load: the attacker controls the
 #     working copy, not the remote-tracking refs, so refusing there bought nothing (#517).
-#   - Zero git calls unless a routing key is file-sourced. A pass is memoized beside
-#     _FORGE_CONF_PWD, so a pass in repo A is never carried to repo B. A refusal is not memoized.
+#   - Zero git calls unless a routing key is file-sourced. A pass is memoized until the
+#     next reload of .forge.conf, which unsets it, so a pass in repo A is never carried to repo B. A refusal is not memoized.
 #   - NEVER call it from forge_host, forge_api_base or _forge_load_conf: the adapt Step 1 probe
 #     passes the sentinel FORGE_API_URL=x and `detect` runs them before the file is merged.
 # The message names the keys and the ref, never a value, and ends with the agent-stop sentence: it
@@ -444,7 +444,7 @@ _forge_pin_note() {
   echo "forge-lib: default-branch check skipped (no readable .forge.conf reference for remote $1); routing keys from .forge.conf are not verified" >&2
 }
 
-# Record a pass for this load. Keyed on _FORGE_CONF_PWD, the same discipline as the config memo.
+# Record a pass for this load. Valid until the next reload of .forge.conf, which unsets it.
 _forge_pin_memo() {
   _FORGE_PIN_PWD="${_FORGE_CONF_PWD-}"; export -n _FORGE_PIN_PWD
   return 0
