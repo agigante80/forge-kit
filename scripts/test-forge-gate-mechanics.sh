@@ -191,12 +191,58 @@ via=$(cd "$T/proj" && FIXTURE_ISSUE="$T/issue.json" bash "$BIN/forge-gate-mechan
 [ -n "$direct" ] && [ "$direct" = "$via" ] && ok "the checker receives the original-case labels" \
   || bad "the checker receives the original-case labels (diff: $(diff <(printf '%s' "$direct") <(printf '%s' "$via") | head -2 | tr '\n' ' '))"
 
-echo "== no template directory at all is reported, not guessed =="
+echo "== no versioned template is NO_TEMPLATES, exit 4, with the remedy (#523) =="
+# One predicate, two shapes: no template directory, and a directory in which no *.yml carries a
+# template-version marker. Exit 4 is distinct from the generic 2 so a caller can tell a missing
+# input from a crash. The AGENT never runs this script; its stop is Step 0a (test-check-ticket-mechanics.sh).
 rm -rf "$T/proj"; mkdir -p "$T/proj"; issue "$FULL" feature P2 api
 run 42
-[ "$rc" -ne 0 ] && ok "a project with no template directory exits non-zero" \
-  || bad "a project with no template directory exits non-zero (rc=$rc)"
-contains "template" "$out" "and says what is missing"
+expect "no template directory exits 4" 4 "$rc"
+contains "NO_TEMPLATES" "$out" "and names the status"
+contains "forge-adapt templates" "$out" "and names the remedy"
+lacks "no template-version marker in" "$out" "and no longer prints the old crash wording"
+run 42 --template .github/ISSUE_TEMPLATE/feature.yml
+expect "--template with no directory is still exit 4" 4 "$rc"
+rm -rf "$T/proj"; mkdir -p "$T/proj/.github/ISSUE_TEMPLATE"; : > "$T/proj/.github/ISSUE_TEMPLATE/config.yml"
+run 42
+expect "a directory holding only config.yml exits 4" 4 "$rc"
+contains "NO_TEMPLATES" "$out" "and names the status"
+contains ".github/ISSUE_TEMPLATE" "$out" "and names the directory it found"
+contains "forge-adapt templates" "$out" "and names the remedy"
+# First existing directory wins, so an empty Forgejo dir shadows a populated GitHub one; the message
+# must name the directory that shadowed, or "install the templates" misleads.
+proj .github/ISSUE_TEMPLATE; mkdir -p "$T/proj/.forgejo/ISSUE_TEMPLATE"
+run 42
+expect "an empty .forgejo dir shadowing populated templates exits 4" 4 "$rc"
+contains ".forgejo/ISSUE_TEMPLATE" "$out" "and names the shadowing directory"
+# Versioned templates present but the type's template missing stays a crash, never NO_TEMPLATES.
+rm -rf "$T/proj"; mkdir -p "$T/proj/.github/ISSUE_TEMPLATE"
+cp "$ROOT/.github/ISSUE_TEMPLATE/feature.yml" "$T/proj/.github/ISSUE_TEMPLATE/"
+issue "$FULL" bug P2 api
+run 42
+expect "versioned templates but no bug.yml stays exit 2" 2 "$rc"
+contains "no template for type 'bug'" "$out" "and says so"
+lacks "NO_TEMPLATES" "$out" "and does not claim the templates are missing"
+issue "$FULL" feature P2 api
+proj .github/ISSUE_TEMPLATE
+run 42
+expect "a project with templates still exits 0 (unchanged)" 0 "$rc"
+lacks "NO_TEMPLATES" "$out" "and prints no NO_TEMPLATES text"
+
+# Mutants of the #523 stop (cp backup, never git checkout): each must flip a row above.
+cp "$BIN/forge-gate-mechanics.sh" "$T/fgm523.bak"
+mutrc() {  # mutrc <sed-expr> <fixture>: exit code of the mutated script on the named fixture
+  sed "$1" "$T/fgm523.bak" > "$BIN/forge-gate-mechanics.sh"
+  rm -rf "$T/proj"; mkdir -p "$T/proj"; [ "$2" = cfg ] && mkdir -p "$T/proj/.github/ISSUE_TEMPLATE" && : > "$T/proj/.github/ISSUE_TEMPLATE/config.yml"
+  issue "$FULL" feature P2 api; run 42
+}
+mutrc 's/; exit 4; }$/; exit 2; }/' none
+expect "mutant: no_templates exits 2 instead of 4 is caught" 2 "$rc"
+mutrc 's/Install the templates with forge-adapt templates\./Install the templates./' none
+lacks "forge-adapt templates" "$out" "mutant: a message without the remedy is caught"
+mutrc 's/no_templates "found \$TPL_DIR"/no_templates "found nothing"/' cfg
+lacks ".github/ISSUE_TEMPLATE" "$out" "mutant: a message that drops the directory is caught"
+cp "$T/fgm523.bak" "$BIN/forge-gate-mechanics.sh"
 
 echo "== a body that was never template-shaped is reported ONCE, not as seven failures (#184) =="
 # The finding behind this: the gate's Step 0c SYNTHESISES a body and writes it back to the forge

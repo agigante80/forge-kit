@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-gate-mechanics-version: 9
+# forge-gate-mechanics-version: 10
 #
 # Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182).
 #
@@ -9,6 +9,12 @@
 #   exit 0  the checks ran and none of them failed
 #   exit 1  at least one check FAILED
 #   exit 2  the checks could not run
+#   exit 4  NO_TEMPLATES: no work template carries a template-version marker (#523), so there is no
+#           standard to check against. Stderr names the directory found and the remedy,
+#           `forge-adapt templates`. Covers both "no template directory" and "a directory with no
+#           marker", with or without --template. The ticket-gate AGENT never runs this script; its
+#           own stop is Step 0a's `BLOCKED - NO_TEMPLATES`, keyed on the same predicate. Versioned
+#           templates present but the type's template missing is still exit 2.
 #
 # WHY THIS EXISTS. Every mechanical check this kit has is already plain shell with its own contract
 # suite, and `forge-lib.sh` already fetches an issue from GitHub or Forgejo. What was missing was the
@@ -65,6 +71,7 @@ MECH=$(find_beside check-ticket-mechanics.sh forge-kit-governance/skills/ticket-
 
 NUM=""; REPO_OVERRIDE=""; FORMAT=human; TEMPLATE=""; TYPE=""
 die() { printf 'forge-gate-mechanics: %s\n' "$1" >&2; exit 2; }
+no_templates() { printf 'forge-gate-mechanics: NO_TEMPLATES: %s, no template-version marker found. Install the templates with forge-adapt templates.\n' "$1" >&2; exit 4; }
 need() { [ "$1" -ge 2 ] || die "$2 needs a value"; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -89,13 +96,13 @@ command -v jq >/dev/null 2>&1 || die "jq is required (forge-lib.sh parses the fo
 TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
                    .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do
   [ -d "$d" ] && { echo "$d"; break; }; done)
-[ -n "$TPL_DIR" ] || die "no issue-template directory here. Looked for the five host-grouped names; run this from the project root."
+[ -n "$TPL_DIR" ] || no_templates "no issue-template directory here (looked for the five host-grouped names; run this from the project root)"
 
 # The CURRENT standard is the highest marker across ALL work templates, never feature.yml alone:
 # the six templates do not share a section set and reading one mis-fires for every other type.
 CURRENT_TPL_VER=$(grep -ho 'template-version: [0-9]*' "$TPL_DIR"/*.yml 2>/dev/null \
                     | grep -o '[0-9]*' | sort -un | tail -1)
-[ -n "$CURRENT_TPL_VER" ] || die "no template-version marker in $TPL_DIR, so there is no standard to check against"
+[ -n "$CURRENT_TPL_VER" ] || no_templates "found $TPL_DIR"
 
 issue_json=$(forge_issue_view "$NUM") || die "could not fetch issue #$NUM"
 body=$(printf '%s' "$issue_json" | jq -r '.body // ""')

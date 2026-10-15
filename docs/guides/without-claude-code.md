@@ -110,6 +110,15 @@ Three things to read from that, because they are the whole shape of this tool:
   that step generates prose and needs a model. If your team files tickets by hand, take the
   `referred` rows and the named absences as the useful signal.
 
+**No issue templates installed** is its own status, not a crash. `forge-gate-mechanics.sh` exits
+**4** and prints `NO_TEMPLATES` with the directory it found (or that it found none) when no work
+template in the first existing template directory carries a `template-version` marker. Exit 2 still
+means the checks could not run for another reason, including versioned templates present but none
+for the ticket's type. The remedy is `forge-adapt templates` in Claude Code; without it, copy the
+work templates from forge-kit's `.github/ISSUE_TEMPLATE` into yours. The first existing directory
+wins, so an empty `.forgejo/ISSUE_TEMPLATE` shadows a populated `.github/ISSUE_TEMPLATE`, which is
+why the message names the directory.
+
 **Count the gate rounds a ticket has had**, which is the number a bounded review loop stops on:
 
 ```bash

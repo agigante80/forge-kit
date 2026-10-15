@@ -2396,6 +2396,101 @@ sed 's/| API-design brief | label `api` OR/| API-design brief | label `API` OR/'
 cmp -s "$GATE" "$WORK/gate-row-mut.md" && bad "#472: the row mutant did not apply"
 gate_pin '| API-design brief | label `api` OR body matches' "$WORK/gate-row-mut.md" && bad "#472: MUTANT survived: the row pin passes with the row reworded" || ok "#472: MUTANT: rewording the API row fails the pin"
 
+# #523: the gate's own stop when no work template carries a marker. forge-gate-mechanics.sh is a
+# different entry point the agent never calls, so the agent half is prose and is pinned and mutated
+# here: the sentence, its remedy, and its position (after 0a's echo, before 0b's write steps).
+NT_PHRASE='If `CURRENT_TPL_VER` is empty, return `BLOCKED - NO_TEMPLATES` now, before any write'
+NT_REMEDY='and the remedy `forge-adapt templates`; never `RUN_FAILED`'
+gate_pin "$NT_PHRASE" "$GATE" && ok "#523: Step 0a stops with BLOCKED - NO_TEMPLATES before any write" || bad "#523: Step 0a lost the NO_TEMPLATES stop"
+gate_pin "$NT_REMEDY" "$GATE" && ok "#523: the stop names forge-adapt templates and forbids RUN_FAILED" || bad "#523: the stop lost its remedy or the RUN_FAILED prohibition"
+sed 's/return `BLOCKED - NO_TEMPLATES` now/return `BLOCKED - RUN_FAILED` now/' "$GATE" > "$WORK/gate-nt-mut.md"
+cmp -s "$GATE" "$WORK/gate-nt-mut.md" && bad "#523: the status mutant did not apply"
+gate_pin "$NT_PHRASE" "$WORK/gate-nt-mut.md" && bad "#523: MUTANT survived: the pin passes with RUN_FAILED as the status" || ok "#523: MUTANT: returning RUN_FAILED fails the pin"
+sed 's/the remedy `forge-adapt templates`; never/the remedy `forge-adapt`; never/' "$GATE" > "$WORK/gate-nt-mut2.md"
+cmp -s "$GATE" "$WORK/gate-nt-mut2.md" && bad "#523: the remedy mutant did not apply"
+gate_pin "$NT_REMEDY" "$WORK/gate-nt-mut2.md" && bad "#523: MUTANT survived: the pin passes with the wrong remedy" || ok "#523: MUTANT: naming the wrong remedy fails the pin"
+# Position: strictly between 0a's echo line and the 0b heading, in the file's own line order.
+nt_pos() { local e s b; e="$(grep -nF 'echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"' "$1" | head -1 | cut -d: -f1)"
+  s="$(grep -nF "$NT_PHRASE" "$1" | head -1 | cut -d: -f1)"; b="$(grep -n '^#### 0b\.' "$1" | head -1 | cut -d: -f1)"
+  [ -n "$e" ] && [ -n "$s" ] && [ -n "$b" ] && [ "$e" -lt "$s" ] && [ "$s" -lt "$b" ]; }
+nt_pos "$GATE" && ok "#523: the stop sits after Step 0a's echo and before #### 0b" || bad "#523: the stop is not between the 0a echo and #### 0b"
+awk -v p="$NT_PHRASE" 'index($0, p) == 1 { held = $0; next } { print } /^#### 0b\./ { want = 1 } want && /^$/ && held != "" { print held; held = ""; want = 0 }' "$GATE" > "$WORK/gate-nt-mut3.md"
+cmp -s "$GATE" "$WORK/gate-nt-mut3.md" && bad "#523: the position mutant did not apply"
+nt_pos "$WORK/gate-nt-mut3.md" && bad "#523: MUTANT survived: the order pin passes with the stop moved after 0b" || ok "#523: MUTANT: moving the stop after 0b fails the order pin"
+gate_pin "$ROLES_PHRASE" "$GATE" && gate_pin "$STOP_PHRASE" "$GATE" && ok "#523: the RUN_FAILED stop for a failed --roles is untouched (versioned templates, unreadable type template)" || bad "#523: the --roles RUN_FAILED stop moved"
+
+# #532: --tag-blocks makes the gate-written tag a mechanical property of the text the gate composes,
+# so the same run's forge_body_section_append never reads it back as author text (108). The prose
+# half is pinned below; the append half is driven against the real library in test-forge-lib.sh.
+TB() { bash "${TBS:-$SCRIPT}" --tag-blocks "${2:-1}" <<< "$1"; }
+TB_IN="Assumption: the status is exit 4.
+
+**Condition: x (gate-written, round 0)**
+
+**Positive:** p
+- Given: g
+- When: w
+- Then: t (gate-written, round 0)"
+TB_OUT="Assumption: the status is exit 4. (gate-written, round 1)
+
+**Condition: x** (gate-written, round 1)
+
+**Positive:** p (gate-written, round 1)
+- Given: g
+- When: w
+- Then: t (gate-written, round 0)"
+expect "#532: every block, the Assumption paragraph, a tag inside bold and a tag on a later line, ends its first line with the tag" "$TB_OUT" "$(TB "$TB_IN")"
+expect "#532: it is idempotent" "$(TB "$TB_IN")" "$(TB "$(TB "$TB_IN")")"
+expect "#532: a first line already ending in a tag keeps its round byte for byte" "**Positive:** p (gate-written, round 0)" "$(TB '**Positive:** p (gate-written, round 0)' 3)"
+expect "#532: a mid-line tag is moved to the end under the requested round" "text more (gate-written, round 2)" "$(TB 'text (gate-written, round 0) more' 2)"
+TB_FENCE='```bash
+a
+
+b
+```
+tail
+
+after'
+expect "#532: a block opening with a fence gets a tag line of its own, a blank inside the fence is no boundary, and the next block is tagged" \
+  '(gate-written, round 1)
+```bash
+a
+
+b
+```
+tail
+
+after (gate-written, round 1)' "$(TB "$TB_FENCE")"
+expect "#532: a heading first line and a _No response_ placeholder pass through untouched" "## H
+
+_No response_" "$(TB '## H
+
+_No response_')"
+expect "#532: CRLF text keeps its tag at the end of the visible line (no CR inside the tag)" "x (gate-written, round 1)" "$(printf 'x\r\n' | bash "$SCRIPT" --tag-blocks 1 | tr -d '\r')"
+bash "$SCRIPT" --tag-blocks x </dev/null >/dev/null 2>&1; expect "#532: a non-numeric round is refused, exit 2" 2 "$?"
+bash "$SCRIPT" --tag-blocks 1 --roles </dev/null >/dev/null 2>&1; expect "#532: --tag-blocks with another mode is refused, exit 2" 2 "$?"
+bash "$SCRIPT" --tag-blocks </dev/null >/dev/null 2>&1; expect "#532: --tag-blocks without a value is refused, exit 2" 2 "$?"
+tbmut() {  # tbmut <name> <sed expr>: the mutant must change TB's answer on the fixtures above
+  sed "$2" "$SCRIPT" > "$WORK/tb-mut.sh"
+  cmp -s "$SCRIPT" "$WORK/tb-mut.sh" && { bad "#532: mutant '$1' did not apply"; return; }
+  local a b c; a="$(TBS="$WORK/tb-mut.sh" TB "$TB_IN")"; b="$(TBS="$WORK/tb-mut.sh" TB "$TB_FENCE")"; c="$(TBS="$WORK/tb-mut.sh" TB "kept (gate-written, round 0)" 3)"
+  if [ "$a" = "$TB_OUT" ] && [ "$b" = "$(TB "$TB_FENCE")" ] && [ "$c" = "kept (gate-written, round 0)" ]; then bad "#532: MUTANT survived: $1"; else ok "#532: MUTANT: $1 changes the output"; fi; }
+tbmut "no blank-line reset, so only the first block is tagged" 's/l == "" { first = 1; print; next }/l == "" { print; next }/'
+tbmut "a mid-line or in-bold tag is not removed" 's/^      gsub(.*$//'
+tbmut "a fence opener sets no fence state" 's/isf = fence_open(l); if (isf) fopen = 1/isf = fence_open(l)/'
+tbmut "an existing tag is re-stamped instead of kept" 's/if (tagged(l)) { print; next }//'
+tbmut "a fence-first block is tagged on the fence line" 's/if (isf) { print tag; print l; next }//'
+TB_PROSE0='Pass each `scenarios` or `docs_impact` text through `"$MECH" --tag-blocks 0`, which ends every block with `(gate-written, round 0)`; never tag by hand.'
+TB_PROSE6='each item piped through `"$MECH" --tag-blocks N`'
+gate_pin "$TB_PROSE0" "$GATE" && ok "#532: Step 0c-iii routes the synthesised text through --tag-blocks 0" || bad "#532: Step 0c-iii lost the --tag-blocks call"
+gate_pin "$TB_PROSE6" "$GATE" && ok "#532: Step 6 item 2 routes appended items through --tag-blocks N" || bad "#532: Step 6 item 2 lost the --tag-blocks call"
+sed 's/text through `"$MECH" --tag-blocks 0`/text, tagging the first line of each block/' "$GATE" > "$WORK/gate-tb-mut.md"
+cmp -s "$GATE" "$WORK/gate-tb-mut.md" && bad "#532: the 0c-iii prose mutant did not apply"
+gate_pin "$TB_PROSE0" "$WORK/gate-tb-mut.md" && bad "#532: MUTANT survived: the 0c-iii pin passes with hand-tagging back" || ok "#532: MUTANT: returning to hand-tagging in 0c-iii fails the pin"
+sed 's/each item piped through/each item written/' "$GATE" > "$WORK/gate-tb-mut2.md"
+cmp -s "$GATE" "$WORK/gate-tb-mut2.md" && bad "#532: the Step 6 prose mutant did not apply"
+gate_pin "$TB_PROSE6" "$WORK/gate-tb-mut2.md" && bad "#532: MUTANT survived: the Step 6 pin passes without the call" || ok "#532: MUTANT: dropping the Step 6 call fails the pin"
+
 # #513: --classes partitions a template's labels into what the gate owns, what Step 0c writes and what
 # only the author supplies, so check 3's absent set on a post-0c body is a computed fact, not a claim.
 echo "check-ticket-mechanics: --classes partitions the template labels (#513)"

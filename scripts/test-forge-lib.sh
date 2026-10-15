@@ -3978,6 +3978,41 @@ for a in gawk mawk original-awk busybox; do
   expect "#494: every section-append row passes under awk=$a" "" "$f494"
 done
 
+echo "== #532: text the gate composed and ran through --tag-blocks is appendable; author text still refuses =="
+# Five gate runs on one night wrote Step 0c's scenarios section with the tag in the wrong shape (only
+# a first or Condition line, a bare Assumption paragraph, the tag inside the bold markers) and the
+# same run's append refused 108. The shape is now produced by check-ticket-mechanics.sh --tag-blocks,
+# so the contract is end to end: the real filter, then the real append. TBX532 points a row at a
+# stand-in filter so the control and the mutant use the same composing code.
+TBS532="$HERE/../plugins/forge-kit-governance/skills/ticket-gate-reference/assets/check-ticket-mechanics.sh"
+RAW532="Assumption: the status is exit 4.
+
+**Condition: x (gate-written, round 0)**
+
+**Positive:** p
+- Given: g
+- When: w
+- Then: t
+
+**Negative:** n (gate-written, round 0)
+- Given: g
+- When: w
+- Then: rc 108"
+tag532() { if [ -n "${TBX532:-}" ]; then "$TBX532"; else bash "$TBS532" --tag-blocks 0; fi; }
+c532_tagged() { local sec; sec="$(printf '%s\n' "$RAW532" | tag532)"
+  app494 "$(b486 "$TS494" '' "$sec" '' "$UT494")"; [ "$R486RC" = 0 ] && grep -qF -- "$N1_494" "$R486/patch"; }
+c532_author_edit() { local sec; sec="$(printf '%s\n' "$RAW532" | bash "$TBS532" --tag-blocks 0)"
+  # An author edit after the gate's write: an untagged block in the same section keeps it protected.
+  app494 "$(b486 "$TS494" '' "$sec" '' 'The author added this line later.' '' "$UT494")"; none494 108 "already holds author text (WRITE ONCE)"; }
+c532_author_section() { app494 "$(b486 "$TS494" '' 'The author wrote this section.' '' "$UT494")"; none494 108 "already holds author text (WRITE ONCE)"; }
+c532_tagged && ok "#532: the raw variants (bare Assumption, tag in bold, untagged Positive block) run through --tag-blocks append with rc 0" \
+  || bad "#532: the filtered section was not appendable (rc $R486RC, err $(cat "$R486/err" 2>/dev/null))"
+c532_author_edit && ok "#532: an author edit after the gate's write still refuses 108" || bad "#532: the later author edit was not refused 108 (rc $R486RC)"
+c532_author_section && ok "#532: a section the author wrote still refuses 108" || bad "#532: the author-written section was not refused 108 (rc $R486RC)"
+printf '#!/bin/sh\ncat\n' > "$R486/passthru532"; chmod +x "$R486/passthru532"
+if TBX532="$R486/passthru532" c532_tagged; then bad "#532: MUTANT survived: with no filter the raw variants still append"
+else [ "$R486RC" = 108 ] && ok "#532: MUTANT: without the filter the same text refuses 108 (the control the filter fixes)" || bad "#532: the no-filter control failed with rc $R486RC, not 108"; fi
+
 echo "== #512: a section Step 0c wrote with the documented tag is appendable by the same run =="
 # The ticket-gate prose (Step 0c-iii) tells the gate to end the first line of each scenarios and
 # docs_impact block with a backticked tag. This extracts that tag FROM THE PROSE, builds the
