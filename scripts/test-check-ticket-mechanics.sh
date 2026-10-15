@@ -2823,7 +2823,7 @@ got534="$(run534_348 "$GATE" "$B534")"
 [ "$got534" = 6 ] && ok "#534: Step 3A --tpl-version reads the first marker under the shim" || bad "#534: Step 3A gave '$got534', expected 6 (stderr: $(cat "$WORK/err534"))"
 got534="$(run534_348 "$GATE" $'no marker\n')"
 [ -z "$got534" ] && ok "#534: Step 3A --tpl-version is empty for a marker-less body" || bad "#534: Step 3A gave '$got534' for a marker-less body"
-n534="$("$REALGREP534" -cE 'grep -[a-zA-Z]*P' "$GATE")"
+n534="$("$REALGREP534" -cE 'grep [^|]*-[A-Za-z]*P|--perl-regexp' "$GATE")"
 [ "$n534" = 0 ] && ok "#534: ticket-gate.md contains no grep -P at all" || bad "#534: ticket-gate.md still has $n534 grep -P uses"
 # Mutants. Each is built on a copy; cmp proves it applied; the pins must then fail.
 OLD534='CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP '"'"'template-version: \K\d+'"'"' "$TPL_DIR"/*.yml | sort -un | tail -1)'
@@ -2831,7 +2831,7 @@ OLD534="$OLD534" awk '/^CURRENT_TPL_VER=/ { print ENVIRON["OLD534"]; next } { pr
 cmp -s "$GATE" "$WORK/gate-534-m1.md" && bad "#534: the Step 0a grep -hoP mutant did not apply"
 got534="$(run534_82 "$WORK/gate-534-m1.md" "$TPLDIR")"
 [ "$got534" != "$EXP534" ] && ok "#534: MUTANT: restoring grep -hoP at Step 0a gives an empty value under the shim" || bad "#534: MUTANT survived: restored grep -hoP still reads $got534 under the shim"
-[ "$("$REALGREP534" -cE 'grep -[a-zA-Z]*P' "$WORK/gate-534-m1.md")" != 0 ] && ok "#534: MUTANT: restoring grep -hoP fails the absence assertion" || bad "#534: MUTANT survived: the absence assertion passes with grep -hoP restored"
+[ "$("$REALGREP534" -cE 'grep [^|]*-[A-Za-z]*P|--perl-regexp' "$WORK/gate-534-m1.md")" != 0 ] && ok "#534: MUTANT: restoring grep -hoP fails the absence assertion" || bad "#534: MUTANT survived: the absence assertion passes with grep -hoP restored"
 sed '/jq -r .\.body \/\/ ""/s/ | head -1$//' "$GATE" > "$WORK/gate-534-m2.md"
 cmp -s "$GATE" "$WORK/gate-534-m2.md" && bad "#534: the dropped head -1 mutant did not apply"
 got534="$(run534_92 "$WORK/gate-534-m2.md" "$B534")"
@@ -2889,11 +2889,14 @@ expect "#535: E2E 'N/A $T535 x' is referred (the tag is not last on its line)" r
 # A tag on a line of its own strips to an empty line; --tag-blocks prints it BEFORE a fence line.
 FN535="$(printf '%s\n```\nN/A\n```' "$T535")"
 expect "#535: a tag-only line then a plain fence holding only N/A fails" fail "$(t535 gwt s535f "$FN535")"
+# A tag inside closing bold or italic markup is still the tag (the set --tag-blocks accepts).
+expect "#535: scenarios '**N/A $T535**' fails" fail "$(t535 gwt s535b "**N/A $T535**")"
+expect "#535: docs '_none ${T535}_' fails" fail "$(t535 docs_impact d535i "_none ${T535}_")"
 
 # Mutants of long_enough, each on a scratch copy of the script, each with the row it flips.
 LE535="$(grep -c '^long_enough() ' "$SCRIPT")"
 [ "$LE535" = 1 ] && ok "mutant ledger: the script has one long_enough (#535)" || bad "mutant ledger: long_enough count is $LE535"
-STRIP535="sed 's/[[:space:]]*(gate-written, round [0-9][0-9]*)[[:space:]]*\$//'"
+STRIP535="sed 's/[[:space:]]*(gate-written, round [0-9][0-9]*)[*_[:space:]]*\$//'"
 grep -qF "$STRIP535" "$SCRIPT" && ok "mutant ledger: the script carries the per-line, end-anchored tag strip (#535)" || bad "mutant ledger: #535 strip not found"
 mut535() { # mut535 <name> <old> <new>: write $WORK/mut535.sh with the first literal <old> replaced
   local c; c="$(cat "$SCRIPT")"; printf '%s\n' "${c/"$2"/"$3"}" > "$WORK/mut535.sh"
@@ -2908,14 +2911,18 @@ if mut535 "no strip" " | $STRIP535" ""; then
   expect "mutant 1 (strip removed): the tagged bare scenarios row flips to referred" referred "$(outcome "$(mr535 "$B535S")" gwt)"
   expect "mutant 1 (strip removed): the tagged bare E2E row flips to referred" referred "$(outcome "$(mr535 "$B535E")" e2e_tests)"
   expect "mutant 1 (strip removed): the tagged bare docs row flips to referred" referred "$(outcome "$(mr535 "$B535D")" docs_impact)"; fi
-if mut535 "no trailing class" ")[[:space:]]*\$//'" ")\$//'"; then
+if mut535 "no trailing class" ")[*_[:space:]]*\$//'" ")\$//'"; then
   expect "mutant 2 (trailing [[:space:]]* dropped): the CRLF scenarios row flips to referred" referred "$(outcome "$(mr535 "$S535C")" gwt)"
   expect "mutant 2 (trailing [[:space:]]* dropped): the LF scenarios row still fails" fail "$(outcome "$(mr535 "$S535L")" gwt)"; fi
 if mut535 "join before strip" "printf '%s\\n' \"\$1\" | sed" "printf '%s\\n' \"\$1\" | tr '\\n' ' ' | sed"; then
   expect "mutant 3 (lines joined before the strip): the scenarios two-block row flips to referred" referred "$(outcome "$(mr535 "$B535TB")" gwt)"; fi
-if mut535 "no end anchor" ")[[:space:]]*\$//'" ")[[:space:]]*//'"; then
+if mut535 "no end anchor" ")[*_[:space:]]*\$//'" ")[*_[:space:]]*//'"; then
   expect "mutant 4 (end anchor removed): the E2E '... x' row flips to fail" fail "$(outcome "$(mr535 "$B535X")" e2e_tests)"
   expect "mutant 4 (end anchor removed): the tagged bare scenarios row still fails" fail "$(outcome "$(mr535 "$B535S")" gwt)"; fi
+B535B="$(b535 gwt m535b.md "**N/A $T535**")"
+if mut535 "no markup in the trailing class" ")[*_[:space:]]*\$//'" ")[[:space:]]*\$//'"; then
+  expect "mutant 5 (markup dropped from the trailing class): the bold scenarios row flips to referred" referred "$(outcome "$(mr535 "$B535B")" gwt)"
+  expect "mutant 5 (markup dropped from the trailing class): the plain scenarios row still fails" fail "$(outcome "$(mr535 "$B535S")" gwt)"; fi
 
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
