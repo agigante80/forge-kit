@@ -2849,6 +2849,74 @@ cmp -s "$GATE" "$WORK/gate-534-m6.md" && bad "#534: the Step 3A head -1 mutant d
 got534="$(run534_348 "$WORK/gate-534-m6.md" "$B534")"
 [ "$got534" != 6 ] && ok "#534: MUTANT: dropping head -1 at Step 3A fails the first-marker row" || bad "#534: MUTANT survived: Step 3A still gave '$got534' without head -1"
 
+# --- #535: the gate-written tag is not a reason. `--tag-blocks` ends the first line of every block
+# with it, so a synthesised bare N/A used to clear the length bar. long_enough strips it per line.
+echo "check-ticket-mechanics: the gate-written tag is not a reason (#535)"
+T535='(gate-written, round 0)'
+b535() { # b535 <role> <name> <text>: a bug-template body with <text> in the role's section
+  case "$1" in
+    gwt) mkbody bug "$2" "$3" ;;
+    e2e_tests) mkbody bug "$2" "" "" "$3" ;;
+    docs_impact) mkbody bug "$2" "" "" "" "$3" ;;
+  esac; }
+t535() { outcome "$(run "$(b535 "$1" "$2" "$3")" bug)" "$1"; }
+ev535() { run "$(b535 "$1" "$2" "$3")" bug | awk -F'\t' -v c="$1" '$1 == c { print $3 }'; }
+expect "#535: scenarios 'N/A $T535' fails" fail "$(t535 gwt s535a "N/A $T535")"
+case "$(ev535 gwt s535a "N/A $T535")" in *"scenarios claim a bare N/A with no reason"*) ok "#535: ...with the existing bare-N/A message" ;; *) bad "#535: scenarios evidence: $(ev535 gwt s535a "N/A $T535")" ;; esac
+expect "#535: E2E 'N/A $T535' fails" fail "$(t535 e2e_tests e535a "N/A $T535")"
+case "$(ev535 e2e_tests e535a "N/A $T535")" in *"E2E N/A with no reason given"*) ok "#535: ...with the existing E2E message" ;; *) bad "#535: E2E evidence: $(ev535 e2e_tests e535a "N/A $T535")" ;; esac
+expect "#535: docs 'none $T535' fails" fail "$(t535 docs_impact d535a "none $T535")"
+case "$(ev535 docs_impact d535a "none $T535")" in *"claims no docs needed with no reason given"*) ok "#535: ...with the existing docs message" ;; *) bad "#535: docs evidence: $(ev535 docs_impact d535a "none $T535")" ;; esac
+R535="N/A - pure documentation change, no behaviour to specify $T535"
+expect "#535: a reasoned tagged scenarios N/A is referred" referred "$(t535 gwt s535r "$R535")"
+expect "#535: a reasoned tagged E2E N/A is referred" referred "$(t535 e2e_tests e535r "$R535")"
+expect "#535: a reasoned tagged docs none is referred" referred "$(t535 docs_impact d535r "none - the change is internal to one script $T535")"
+expect "#535: a multi-digit round ('round 12') is stripped too" fail "$(t535 gwt s535m "N/A (gate-written, round 12)")"
+# CRLF: section_of() prints the raw line, so the text reaching long_enough ends `)\r`.
+S535L="$(b535 gwt s535lf.md "N/A $T535")"
+S535C="$WORK/s535crlf.md"; sed 's/$/\r/' "$S535L" > "$S535C"
+grep -q $'(gate-written, round 0)\r$' "$S535C" && ok "#535: the CRLF fixture's tag line ends in a CR (fixture sanity)" || bad "#535: the CRLF fixture has no CR after the tag"
+expect "#535: CRLF scenarios 'N/A $T535' fails" fail "$(outcome "$(run "$S535C" bug)" gwt)"
+expect "#535: ...and equals its LF copy" "$(outcome "$(run "$S535L" bug)" gwt)" "$(outcome "$(run "$S535C" bug)" gwt)"
+# Two blocks: the tag ends a NON-final line, so a strip anchored to the whole string misses it.
+TB535="$(printf 'N/A %s\n\nok %s' "$T535" "$T535")"
+expect "#535: scenarios N/A, blank, 'ok' each tagged fails (whole section measured after the per-line strip)" fail "$(t535 gwt s535tb "$TB535")"
+expect "#535: a tagged bare docs none beside a tagged reasoned block is referred" referred \
+  "$(t535 docs_impact d535tb "$(printf 'none %s\n\nWhy not: the change is internal to one script %s' "$T535" "$T535")")"
+# End anchor: text after the tag on its line keeps the line as written. `x` is the shortest text for
+# which a strip anywhere on the line (leaving `N/Ax`, 4 characters) differs from the anchored one.
+expect "#535: E2E 'N/A $T535 x' is referred (the tag is not last on its line)" referred "$(t535 e2e_tests e535x "N/A $T535 x")"
+# A tag on a line of its own strips to an empty line; --tag-blocks prints it BEFORE a fence line.
+FN535="$(printf '%s\n```\nN/A\n```' "$T535")"
+expect "#535: a tag-only line then a plain fence holding only N/A fails" fail "$(t535 gwt s535f "$FN535")"
+
+# Mutants of long_enough, each on a scratch copy of the script, each with the row it flips.
+LE535="$(grep -c '^long_enough() ' "$SCRIPT")"
+[ "$LE535" = 1 ] && ok "mutant ledger: the script has one long_enough (#535)" || bad "mutant ledger: long_enough count is $LE535"
+STRIP535="sed 's/[[:space:]]*(gate-written, round [0-9][0-9]*)[[:space:]]*\$//'"
+grep -qF "$STRIP535" "$SCRIPT" && ok "mutant ledger: the script carries the per-line, end-anchored tag strip (#535)" || bad "mutant ledger: #535 strip not found"
+mut535() { # mut535 <name> <old> <new>: write $WORK/mut535.sh with the first literal <old> replaced
+  local c; c="$(cat "$SCRIPT")"; printf '%s\n' "${c/"$2"/"$3"}" > "$WORK/mut535.sh"
+  cmp -s "$SCRIPT" "$WORK/mut535.sh" && { bad "#535: mutant '$1' did not apply"; return 1; }; return 0; }
+mr535() { bash "$WORK/mut535.sh" --body "$1" --template "$TPLDIR/bug.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" 2>/dev/null; }
+B535S="$(b535 gwt m535s.md "N/A $T535")"
+B535E="$(b535 e2e_tests m535e.md "N/A $T535")"
+B535D="$(b535 docs_impact m535d.md "none $T535")"
+B535TB="$(b535 gwt m535tb.md "$TB535")"
+B535X="$(b535 e2e_tests m535x.md "N/A $T535 x")"
+if mut535 "no strip" " | $STRIP535" ""; then
+  expect "mutant 1 (strip removed): the tagged bare scenarios row flips to referred" referred "$(outcome "$(mr535 "$B535S")" gwt)"
+  expect "mutant 1 (strip removed): the tagged bare E2E row flips to referred" referred "$(outcome "$(mr535 "$B535E")" e2e_tests)"
+  expect "mutant 1 (strip removed): the tagged bare docs row flips to referred" referred "$(outcome "$(mr535 "$B535D")" docs_impact)"; fi
+if mut535 "no trailing class" ")[[:space:]]*\$//'" ")\$//'"; then
+  expect "mutant 2 (trailing [[:space:]]* dropped): the CRLF scenarios row flips to referred" referred "$(outcome "$(mr535 "$S535C")" gwt)"
+  expect "mutant 2 (trailing [[:space:]]* dropped): the LF scenarios row still fails" fail "$(outcome "$(mr535 "$S535L")" gwt)"; fi
+if mut535 "join before strip" "printf '%s\\n' \"\$1\" | sed" "printf '%s\\n' \"\$1\" | tr '\\n' ' ' | sed"; then
+  expect "mutant 3 (lines joined before the strip): the scenarios two-block row flips to referred" referred "$(outcome "$(mr535 "$B535TB")" gwt)"; fi
+if mut535 "no end anchor" ")[[:space:]]*\$//'" ")[[:space:]]*//'"; then
+  expect "mutant 4 (end anchor removed): the E2E '... x' row flips to fail" fail "$(outcome "$(mr535 "$B535X")" e2e_tests)"
+  expect "mutant 4 (end anchor removed): the tagged bare scenarios row still fails" fail "$(outcome "$(mr535 "$B535S")" gwt)"; fi
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
