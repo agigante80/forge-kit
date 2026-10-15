@@ -22,11 +22,17 @@ Rows on stdout, tab separated:
 - `stale-rule <place> <path> <line> <id>`: `place` is `component`, `prose` or `memory`. Matches
   of one id in one paragraph merge into one row at the earliest start line; distinct ids and
   separate paragraphs never merge.
-- `not-scanned <path> <reason>`: a symlink in the project (never followed: the project may be
-  untrusted), a `symlink loop` or `dangling symlink` under the config dir, an unreadable file, a
-  directory it cannot read or enter, or an auto memory slug too long to derive. Print each one; the
-  user must know where nothing was read. A symlink under the config dir whose target exists is
-  scanned through and its rows carry the link's own path, so a fix there edits the target.
+- `not-scanned <path> <reason>`: a project symlink whose resolved target is outside the project or
+  missing (`symlink`), a project link to an ancestor of itself, the project root included, or a
+  chain over 40 hops (`symlink loop`), a `symlink loop` or `dangling symlink` under the config dir,
+  an unreadable file, a directory it cannot read or enter, or an auto memory slug too long to
+  derive. Print each one; the user must know where nothing was read. A project symlink whose
+  physical target stays inside the project is read, and so is a link nested in a directory reached
+  that way; the check applies to every link met (an escaping nested link is `symlink`), because the
+  project may be untrusted. A symlink under the config dir whose target exists is scanned through
+  anywhere, and a symlink named by `--files-from` is never followed. Rows of a followed link carry
+  the link's own path, so a fix there edits the target; a target reached both ways prints under the
+  link.
 - `summary <files> <stale> <not-scanned>`, always last.
 
 The matched text is never printed: memory can hold names. Read the line yourself when you need it,
@@ -37,7 +43,12 @@ and never quote a retired phrasing back into any file.
 - **`drift` and plain `refresh`** (report only, write nothing): after the marker table, print a
   `Stale rules` table, one row per `stale-rule` row (place, path, line, rule id) with the
   replacement summary from the data file's last column, then every `not-scanned` row. Nothing is
-  written, exactly as for the marker table.
+  written, exactly as for the marker table. When at least one `stale-rule` row has place `prose` or
+  `memory`, print this constant line once, before the `not-scanned` rows: `A line kept on purpose as
+  history (a changelog entry, a note quoting the old wording) can carry the word retired-rule-quote
+  and is then skipped; a rule still in force must be replaced, not marked.` A table of only
+  `component` rows gets no such line (`refresh <name>` replaces that paragraph, and marking it
+  would hide a live rule for good), nor does a clean scan or one with only `not-scanned` rows.
 - **`refresh <name>`**: a stale-rule row inside that component is classified **behind forge-kit**,
   never adaptation, even when the wording is the project's own. The merge replaces the paragraph
   with the component's current text for that rule.
@@ -51,7 +62,8 @@ and never quote a retired phrasing back into any file.
   this per-file fix like prose. Never edit a file outside the project unless the user confirms
   that file by name. A config-dir row is printed at the place the user knows, but when that path is
   a followed symlink the proposal names its real file (`readlink -f`) and `yes` confirms that file,
-  because the write lands there and not at the link (#499).
+  because the write lands there and not at the link (#499). A followed project link works the same
+  way: `yes` confirms the in-project target file (#518).
 
 ## What it cannot find
 

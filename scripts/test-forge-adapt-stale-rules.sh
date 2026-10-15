@@ -40,7 +40,7 @@ P=""
 # fresh: an empty git project (its own toplevel, so the slug is the fixture's, never an enclosing
 # checkout's) and an empty HOME with no CLAUDE_CONFIG_DIR.
 fresh() {
-  rm -rf "$T/p" "$T/home" "$T/cfg" "$T/outside"
+  rm -rf "$T/p" "$T/p-evil" "$T/home" "$T/cfg" "$T/outside"
   P="$T/p"; mkdir -p "$P" "$T/home"
   git init --quiet "$P" >/dev/null 2>&1
 }
@@ -431,8 +431,113 @@ fresh
 put "$P/AGENTS.md" 'Low findings are ticketed immediately\n'
 ln -s AGENTS.md "$P/CLAUDE.md"
 run
-has "not-scanned${TAB}CLAUDE.md${TAB}symlink" "a symlinked prose file is reported"
-expect "a hit plus an unscanned place exits 1" 1 "$rc"
+has "stale-rule${TAB}prose${TAB}CLAUDE.md${TAB}1${TAB}review-lows" "a symlinked prose file inside the project is read, printed under the link's own name (#518)"
+hasnt "AGENTS.md" "and no row names the target"
+hasnt "not-scanned" "and nothing is not-scanned"
+has "summary${TAB}1${TAB}1${TAB}0" "and the target is counted once"
+expect "a hit exits 1" 1 "$rc"
+echo "== a project symlink whose target stays inside the project is followed (#518) =="
+fresh
+put "$P/.agents/skills/s/SKILL.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/.claude"; ln -s ../.agents/skills "$P/.claude/skills"
+run
+has "stale-rule${TAB}component${TAB}.claude/skills/s/SKILL.md${TAB}1${TAB}review-lows" ".claude/skills -> ../.agents/skills is scanned, printed under the link's path"
+expect "no not-scanned row" 0 "$(nrows not-scanned)"
+has "summary${TAB}1${TAB}1${TAB}0" "and the target is counted once"
+expect "a hit exits 1" 1 "$rc"
+fresh
+put "$P/.agents/skills/s/SKILL.md" 'Fix, ticket or drop.\n'
+mkdir -p "$P/.claude"; ln -s ../.agents/skills "$P/.claude/skills"
+run
+expect "a clean run whose only link is inside the project exits 0, never 3" 0 "$rc"
+fresh
+mkdir -p "$P/.claude"; ln -s ../.agents/agents "$P/.claude/agents"
+run
+has "not-scanned${TAB}.claude/agents${TAB}symlink" "an in-project link with a missing target is not-scanned symlink"
+has "summary${TAB}0${TAB}0${TAB}1" "and counted"
+expect "and exits 3" 3 "$rc"
+fresh
+put "$P/notes/x.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs"; ln -s "$P/notes" "$P/docs/abs"
+run
+has "stale-rule${TAB}prose${TAB}docs/abs/x.md${TAB}1${TAB}review-lows" "an absolute link to an in-project directory is followed"
+hasnt "not-scanned" "with no not-scanned row"
+fresh
+put "$P/a/b/c/x.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs"; ln -s "$P/a/b/c" "$P/docs/deep"
+run
+has "stale-rule${TAB}prose${TAB}docs/deep/x.md${TAB}1${TAB}review-lows" "a link deep inside the project is followed"
+fresh
+put "$T/outside/d/x.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs"; ln -s "$T/outside/d" "$P/docs/home"
+run
+has "not-scanned${TAB}docs/home${TAB}symlink" "a link to an outside directory stays refused"
+expect "and no stale-rule row" 0 "$(nrows stale-rule)"
+has "summary${TAB}0${TAB}0${TAB}1" "and counted"
+expect "and exits 3" 3 "$rc"
+fresh
+put "$T/p-evil/x.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs"; ln -s "$T/p-evil" "$P/docs/evil"
+run
+has "not-scanned${TAB}docs/evil${TAB}symlink" "a sibling sharing the project path prefix is outside"
+expect "and its file is not read" 0 "$(nrows stale-rule)"
+expect "and exits 3" 3 "$rc"
+fresh
+put "$P/docs/real/x.md" 'Low findings are ticketed immediately\n'
+ln -s b "$P/docs/a"; ln -s real "$P/docs/b"
+run
+has "stale-rule${TAB}prose${TAB}docs/a/x.md${TAB}1${TAB}review-lows" "a chain ending inside is followed, printed under the link (link side wins)"
+expect "and the repeat under docs/real is skipped" 1 "$(nrows stale-rule)"
+hasnt "not-scanned" "with no not-scanned row"
+has "summary${TAB}1${TAB}1${TAB}0" "and the file is counted once"
+expect "and exits 1" 1 "$rc"
+fresh
+put "$T/outside/d/y.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs"; ln -s b "$P/docs/a"; ln -s "$T/outside/d" "$P/docs/b"
+run
+has "not-scanned${TAB}docs/a${TAB}symlink" "a chain ending outside is refused at the link"
+expect "and nothing is read" 0 "$(nrows stale-rule)"
+fresh
+put "$T/outside/d/y.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs" "$P/shared"
+ln -s ../shared "$P/docs/x"; ln -s "$T/outside/d" "$P/shared/esc"
+run
+has "not-scanned${TAB}docs/x/esc${TAB}symlink" "a link nested in a followed in-project directory is refused when it leaves the project"
+expect "and the outside file is never read" 0 "$(nrows stale-rule)"
+expect "and exits 3" 3 "$rc"
+fresh
+put "$T/p-evil/y.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs" "$P/shared"
+ln -s ../shared "$P/docs/x"; ln -s "$T/p-evil" "$P/shared/esc"
+run
+has "not-scanned${TAB}docs/x/esc${TAB}symlink" "a nested link to a sibling sharing the project path prefix is refused"
+expect "and the sibling's file is never read" 0 "$(nrows stale-rule)"
+fresh
+put "$P/real/z.md" 'Low findings are ticketed immediately\n'
+mkdir -p "$P/docs" "$P/shared"
+ln -s ../shared "$P/docs/x"; ln -s ../real "$P/shared/y"
+run
+has "stale-rule${TAB}prose${TAB}docs/x/y/z.md${TAB}1${TAB}review-lows" "a nested link that stays inside the project is followed"
+hasnt "not-scanned" "with no not-scanned row"
+expect "and exits 1" 1 "$rc"
+fresh
+put "$P/docs/real/x.md" 'Low findings are ticketed immediately\n'
+ln -s ../docs "$P/docs/loop"; ln -s .. "$P/docs/up"; ln -s self "$P/docs/self"
+run
+has "not-scanned${TAB}docs/loop${TAB}symlink loop" "a link to its own directory is a loop at the link"
+has "not-scanned${TAB}docs/up${TAB}symlink loop" "a link to the project root is a loop"
+has "not-scanned${TAB}docs/self${TAB}symlink loop" "a self link (hop limit) is a loop"
+expect "exactly one stale-rule row" 1 "$(nrows stale-rule)"
+has "stale-rule${TAB}prose${TAB}docs/real/x.md${TAB}1${TAB}review-lows" "printed under the real path, none under docs/loop"
+has "summary${TAB}1${TAB}1${TAB}3" "and the summary counts one file, one hit, three loops"
+expect "and exits 1" 1 "$rc"
+fresh
+put "$P/AGENTS.md" 'Low findings are ticketed immediately\n'
+put "$P/CONTRIBUTING.md" 'Low findings are ticketed immediately\n'
+ln -s AGENTS.md "$P/CLAUDE.md"
+run
+has "summary${TAB}2${TAB}2${TAB}0" "two distinct files with one text are both counted, a link adds no third"
+
 fresh
 LONG="$P"
 for i in 1 2 3 4 5; do LONG="$LONG/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$i"; done
@@ -514,6 +619,16 @@ expect "no file under the project or HOME changes" "" "$(diff "$T/before" "$T/af
 grep -q 'proposal names its real file' "$HERE/../plugins/forge-kit-adapt/skills/adapt/references/stale-rules.md" \
   && ok "the reference makes the proposal name a followed link's real file" \
   || bad "references/stale-rules.md does not say the proposal names the real file"
+
+# --- #530: drift names the retired-rule-quote opt-out, only next to a prose or memory hit ----------
+# The scoped range starts at the drift bullet and ends before the next one, because the word
+# already appears at the end of the file and a whole-file grep could never fail. Whitespace is
+# flattened so a rewrap does not break the phrases.
+REF="$HERE/../plugins/forge-kit-adapt/skills/adapt/references/stale-rules.md"
+drift=$(awk '/^- \*\*`drift` and plain `refresh`\*\*/ {f=1} /^- \*\*`refresh <name>`\*\*/ {f=0} f' "$REF" | tr '\n' ' ' | tr -s ' ')
+for phrase in 'retired-rule-quote' 'must be replaced, not marked' 'has place `prose` or `memory`' 'only `component` rows gets no such line'; do
+  if grep -qF -- "$phrase" <<< "$drift"; then ok "the drift bullet carries: $phrase"; else bad "the drift bullet lacks: $phrase"; fi
+done
 
 echo ""
 echo "stale-rules tests: $pass passed, $fail failed"
