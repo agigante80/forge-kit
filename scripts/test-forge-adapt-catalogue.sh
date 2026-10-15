@@ -54,7 +54,7 @@ grep -qP '^asset: leak-lib \| v1$' <<< "$out" \
   || bad "a sourced shell library appears with its marker (leak-lib)"
 
 # #506: the lockstep guard is a catalogued, versioned asset, so drift can compare an installed copy.
-grep -qP '^asset: check-template-lockstep \| v1$' <<< "$out" \
+grep -qP '^asset: check-template-lockstep \| v2$' <<< "$out" \
   && ok "the template lockstep guard appears with its marker (check-template-lockstep)" \
   || bad "the template lockstep guard appears with its marker (check-template-lockstep)"
 

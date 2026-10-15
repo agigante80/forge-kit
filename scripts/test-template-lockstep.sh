@@ -163,6 +163,101 @@ run "...and still catches drift when the markers are reversed" 1 "$d" "$t/doc-c2
 mkdoc "$t/doc-d.md" 4 1
 run "template-version drift is still caught when both markers are present" 1 "$d" "$t/doc-d.md"
 
+# --- #538: bash 3.2 and POSIX grep/sed -------------------------------------------------------
+# The guard once used `grep -P` and `declare -A`. Under a grep without -P, or under stock macOS bash
+# 3.2, it printed an error and then "fewer than 2 versioned files; nothing to lock" and EXITED 0 over
+# drift. Every case below therefore asserts exit 1 with the DRIFT report, not merely "no crash".
+mkdir -p "$t/shim"
+REALGREP="$(command -v grep)"
+# Rejects -P in any spelling (-P, -oP, -o -P, --perl-regexp); delegates every other call to the real grep.
+cat > "$t/shim/grep" <<SHIM
+#!/bin/sh
+for a in "\$@"; do
+  case "\$a" in
+    --perl-regexp|-P|-[A-Za-z]*P*) echo "grep: invalid option -- P" >&2; exit 2 ;;
+  esac
+done
+exec "$REALGREP" "\$@"
+SHIM
+chmod +x "$t/shim/grep"
+
+d="$t/shim-drift"; mkdir -p "$d"
+mk "$d" feature 6; mk "$d" bug 5
+out=$(PATH="$t/shim:$PATH" bash "$SCRIPT" "$d" 2>&1); rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'template-version DRIFT' <<< "$out" && ! grep -q 'invalid option' <<< "$out"; then
+  echo "  ok: under a grep that rejects -P a 6 vs 5 fixture exits 1 with the DRIFT report"; pass=$((pass + 1))
+else
+  echo "  FAIL: -P-rejecting grep shim, drifted fixture (expected exit 1 + DRIFT, got exit $rc): $out"; fail=$((fail + 1))
+fi
+d="$t/shim-eq"; mkdir -p "$d"
+mk "$d" feature 6; mk "$d" bug 6
+out=$(PATH="$t/shim:$PATH" bash "$SCRIPT" "$d" 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'all 2 versioned files at template-version 6\.' <<< "$out"; then
+  echo "  ok: under the same shim a locked fixture prints the lockstep line"; pass=$((pass + 1))
+else
+  echo "  FAIL: -P-rejecting grep shim, locked fixture (expected exit 0 + 'all 2 versioned files'): $out"; fail=$((fail + 1))
+fi
+
+# First marker on a line wins; the marker needs exactly one space (the gate's readers agree).
+d="$t/twomark"; mkdir -p "$d"
+printf 'name: a\n<!-- template-version: 5 --> <!-- template-version: 6 -->\n' > "$d/a.yml"
+mk "$d" b 5
+run "a line carrying markers 5 then 6 is read as 5 (first wins), beside a 5" 0 "$d"
+d="$t/twomark-drift"; mkdir -p "$d"
+printf 'name: a\n<!-- template-version: 5 --> <!-- template-version: 6 -->\n' > "$d/a.yml"
+mk "$d" b 6
+out=$(bash "$SCRIPT" "$d" 2>&1); rc=$?
+if [ "$rc" -eq 1 ] && grep -q '  v5  .*a\.yml' <<< "$out"; then
+  echo "  ok: 5 then 6 beside a 6 is drift and the template is listed at v5"; pass=$((pass + 1))
+else
+  echo "  FAIL: two markers beside a 6 (expected exit 1 listing v5, got exit $rc): $out"; fail=$((fail + 1))
+fi
+d="$t/nospace"; mkdir -p "$d"
+printf 'name: a\n<!-- template-version:7 -->\n' > "$d/a.yml"
+mk "$d" b 6; mk "$d" c 6
+run "template-version:7 with no space is unversioned, so it cannot cause drift" 0 "$d"
+
+# The bash 3.2 proof. Run the guard by EXPLICIT PATH under the harness bash: running this whole suite
+# with the harness bash proves nothing, because run() takes bash from PATH (use
+# PATH="$H:$PATH" bash scripts/test-template-lockstep.sh for that). Skipped, and counted as a pass,
+# when the harness is not built, so CI does not depend on it.
+H="$(bash "$HERE/build-mac-shell-harness.sh" --bin-dir 2>/dev/null || true)"
+if [ -z "$H" ] || [ ! -x "$H/bash" ]; then
+  echo "  ok: bash 3.2 drift case skipped (mac shell harness not built)"; pass=$((pass + 1))
+else
+  d="$t/b32-drift"; mkdir -p "$d"
+  mk "$d" feature 6; mk "$d" bug 5
+  printf 'canonical\n<!-- template-version: 6 -->\n' > "$t/b32-doc.md"
+  out=$("$H/bash" "$SCRIPT" "$d" "$t/b32-doc.md" 2>&1); rc=$?
+  if [ "$rc" -eq 1 ] && grep -q 'template-version DRIFT' <<< "$out" && grep -q '  v5  .*bug\.yml' <<< "$out" \
+     && ! grep -q 'declare:' <<< "$out" && ! grep -q 'nothing to lock' <<< "$out"; then
+    echo "  ok: under bash 3.2 (explicit harness path) a drifted fixture exits 1 and lists v5"; pass=$((pass + 1))
+  else
+    echo "  FAIL: bash 3.2 drifted fixture (expected exit 1 + DRIFT + v5, got exit $rc): $out"; fail=$((fail + 1))
+  fi
+fi
+
+# Static ban, comment-stripped (the header names the banned tools on purpose). Mutants prove each ban bites.
+ban_count() { grep -v '^[[:space:]]*#' "$1" | grep -cE "$2"; }
+BAN_P='grep [^|]*-[A-Za-z]*P'
+BAN_A='declare -A'
+if [ "$(ban_count "$SCRIPT" "$BAN_P")" -eq 0 ]; then echo "  ok: the guard's code has no grep -P"; pass=$((pass + 1))
+else echo "  FAIL: the guard's code uses grep -P"; fail=$((fail + 1)); fi
+if [ "$(ban_count "$SCRIPT" "$BAN_A")" -eq 0 ]; then echo "  ok: the guard's code has no associative array"; pass=$((pass + 1))
+else echo "  FAIL: the guard's code uses declare -A"; fail=$((fail + 1)); fi
+for spelling in 'grep -oP x' 'grep -o -P x' 'grep -P x' 'grep -E -oP x'; do
+  { cat "$SCRIPT"; printf '%s\n' "$spelling"; } > "$t/mut.sh"
+  if [ "$(ban_count "$t/mut.sh" "$BAN_P")" -ge 1 ]; then echo "  ok: mutant '$spelling' trips the grep -P ban"; pass=$((pass + 1))
+  else echo "  FAIL: mutant '$spelling' slipped past the grep -P ban"; fail=$((fail + 1)); fi
+done
+{ cat "$SCRIPT"; printf 'declare -A m=()\n'; } > "$t/mut.sh"
+if [ "$(ban_count "$t/mut.sh" "$BAN_A")" -ge 1 ]; then echo "  ok: mutant 'declare -A' trips the associative-array ban"; pass=$((pass + 1))
+else echo "  FAIL: mutant 'declare -A' slipped past the ban"; fail=$((fail + 1)); fi
+{ cat "$SCRIPT"; printf '# grep -oP and declare -A named in a comment\n'; } > "$t/mut.sh"
+if [ "$(ban_count "$t/mut.sh" "$BAN_P")" -eq 0 ] && [ "$(ban_count "$t/mut.sh" "$BAN_A")" -eq 0 ]; then
+  echo "  ok: a comment naming the banned tools does not trip the bans"; pass=$((pass + 1))
+else echo "  FAIL: the bans fire on comments"; fail=$((fail + 1)); fi
+
 rm -rf "$t"
 
 # The no-arg path is what CI invokes: it resolves the template dir and the canonical doc
