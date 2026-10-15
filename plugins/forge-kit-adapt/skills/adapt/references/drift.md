@@ -53,3 +53,45 @@ kit's would read `behind` on every project whose templates lag on purpose (the S
 reports the templates). The script prints nothing when the project has no such doc, shows an unmarked
 doc as `none | v<N> | unversioned`, and exits 2 when the kit copy is missing or unmarked: report that
 and keep the rest of the table. The comparison word comes from `forge-adapt-drift-status.sh`.
+
+## The http-steps scan (#528)
+
+forge-lib refuses an `http://` forge URL unless `FORGE_ALLOW_HTTP` is exactly `1` (#442, forge-lib
+v36). A project on a LAN Forgejo works in a local session and then fails in CI. Run the scan on every
+`drift` and `refresh`:
+
+```bash
+"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-http-steps.sh --project "$PWD"
+```
+
+`--project` defaults to the repository root. The URL comes from the environment, else the first
+non-empty `FORGE_API_URL` line of `.forge.conf` (the same parse as forge-lib: read, never sourced;
+first line wins). It stays silent unless the URL starts `http://` and `FORGE_HOST` is not `github`. A
+step qualifies when its `run:` text names a `scripts/*.sh` that sources forge-lib (or `gate-env`,
+`phase-env`, `roadmap-lib`), calls a `forge_*` function, or names `forge-lib`, and neither the step,
+its job nor the workflow sets `FORGE_ALLOW_HTTP` to exactly `1`.
+
+Rows are tab separated: `forge-url` (credentials stripped), one `step <workflow> <job / step>` per
+qualifying step labelled by workflow dir (`forgejo=runs` for `.forgejo/workflows`, `forgejo=ignored`
+for the others), `not-scanned`, `warning`, `local-session` (names only `.claude/settings.local.json`)
+and a final `summary`. When the URL is http and no step qualifies it says so. Exit 0 is clean or
+reported, 3 means a workflow dir or file was unreadable (report it, keep the rest), 2 is usage.
+
+The script prints; editing a workflow is the user's act. Never edit one, and never write the variable
+into settings.
+
+## The marker delta in `refresh <name>` (#529)
+
+The library is a depth-1 marketplace checkout, so the history behind an installed marker is usually
+absent. Ask the helper for the upstream delta:
+
+```bash
+"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-marker-delta.sh <library> <component path> <name> <installed version>
+```
+
+It finds the commit that set `<name>-version: <N>`, deepening the library ONCE (`fetch --unshallow`,
+else one `--deepen`) when that commit is missing, and prints the diff from that commit to HEAD for
+the one file. It skips deepening while `.git/shallow.lock` exists, and `forge-adapt-refresh.sh`
+re-shallows the library later, which is accepted. Exit 1 prints `marker-delta: unavailable
+(<reason>)`: show that line and carry on with the content diff. It never fails the refresh. The delta
+is display only and never a 3-way merge base; the two-way classification is unchanged.

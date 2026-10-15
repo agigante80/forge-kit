@@ -121,7 +121,8 @@ document, because it is canonical rather than a summary,
 **when** you run `forge-adapt drift`,
 **then** each installed component is compared against the library by version marker, a stale
 marketplace checkout is reported, every place still carrying a retired rule (an adapted copy, your
-instruction files, memory) is listed by file and line, and nothing is written,
+instruction files, memory) is listed by file and line, an http forge URL lists the workflow steps that need
+`FORGE_ALLOW_HTTP`, and nothing is written,
 **and** acting on it means `marketplace update` then `update` per group, because registration tracks
 this repository and pulls nothing.
 
