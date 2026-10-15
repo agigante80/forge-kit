@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scan-forge-writes-version: 2
+# scan-forge-writes-version: 3
 """PreToolUse Bash guard: scan an issue or PR body and title for leaks before gh publishes them (#536).
 
 The leak guard scans files (pre-commit, pre-push, CI). Text typed straight into
@@ -122,12 +122,12 @@ def prepass(cmd):
     def comment_start(pos):
         # `#` begins a comment only where a word could begin: at 0, after whitespace, or after an
         # unescaped operator character. `$#`, `${#x}` and `issue#5` are text.
+        # An escaped blank (`a\ #b`) or a backslash-newline (`x\<NL>#`) does not end the word, so
+        # the character before `#` counts only when an even run of backslashes precedes it.
         if pos == 0:
             return True
         prev = cmd[pos - 1]
-        if prev in " \t\n":
-            return True
-        if prev in _OPS:
+        if prev in " \t\n" or prev in _OPS:
             back = 0
             while pos - 2 - back >= 0 and cmd[pos - 2 - back] == "\\":
                 back += 1
@@ -155,7 +155,8 @@ def prepass(cmd):
         c = cmd[i]
         ctx = stack[-1]
         if ctx == "sq":
-            out.append(mapc(c))
+            # inside a "$( )" the enclosing shlex word is double-quoted, so a " here would close it
+            out.append(INERT if c == '"' and "dsub" in stack else mapc(c))
             if c == "'":
                 stack.pop()
             i += 1
@@ -164,14 +165,14 @@ def prepass(cmd):
             # $'...': a backslash consumes the next character, only an unescaped ' closes
             if c == "\\" and i + 1 < n:
                 nx = cmd[i + 1]
-                out.append(c + (INERT if nx == "'" else mapc(nx)))
+                out.append(c + (INERT if nx == "'" or (nx == '"' and "dsub" in stack) else mapc(nx)))
                 i += 2
             elif c == "'":
                 stack.pop()
                 out.append(INERT if stack[-1] == "dsub" else c)
                 i += 1
             else:
-                out.append(mapc(c))
+                out.append(INERT if c == '"' and "dsub" in stack else mapc(c))
                 i += 1
             continue
         if ctx == "dq":
@@ -618,21 +619,23 @@ def fail_note(command, notes):
         notes.append(NOTE_HEREDOC if unterminated else NOTE_NOT_EXTRACTABLE)
 
 
-def gather(command, notes, depth):
-    """Every write in `command` as (index, segment, segments, heredocs); raises ValueError when the
-    top level cannot be parsed. Spans hidden inside "$( )" and backticks are parsed again as
-    commands of their own, nested to depth 4; a span that cannot be judged leaves the note."""
+def gather(command, notes, depth, outer=()):
+    """Every write in `command` as (index, segment, segments, heredocs, outer); raises ValueError
+    when the top level cannot be parsed. Spans hidden inside "$( )" and backticks are parsed again
+    as commands of their own, nested to depth 4; a span that cannot be judged leaves the note.
+    `outer` holds (segments, heredocs) of every enclosing level, so a span write still sees a cd,
+    a write to its body file or a `cat > f <<'EOF'` anywhere in the commands around it."""
     text, hds, unbalanced, spans = prepass(command)
     if unbalanced:
         raise ValueError("unbalanced")
     segs = segments(word_tokens(text))
-    found = [(idx, s, segs, hds) for idx, s in enumerate(segs) if write_args(s) is not None]
+    found = [(idx, s, segs, hds, outer) for idx, s in enumerate(segs) if write_args(s) is not None]
     for sp in spans:
         if depth >= 4:
             fail_note(sp, notes)
             continue
         try:
-            found += gather(sp, notes, depth + 1)
+            found += gather(sp, notes, depth + 1, outer + ((segs, hds),))
         except ValueError:
             fail_note(sp, notes)
     return found
@@ -653,7 +656,7 @@ def judge(command, cwd, project):
         return None, notes
     root = repo_root(cwd, clock)
     k = 0
-    for idx, seg, segs, hds in writes:
+    for idx, seg, segs, hds, outer in writes:
         k += 1
         sub, args = write_args(seg)
         items, unseen = extract(sub, args)
@@ -699,11 +702,17 @@ def judge(command, cwd, project):
                     path = restore(raw)
                     target = resolve_path(path, cwd)
                     relative = not (path.startswith("/") or path.startswith("~"))
-                    eff = earlier_effect(target, cwd, earlier, hds, relative)
+                    # Over-approximate for a span write: every segment of an enclosing level counts as
+                    # earlier, each judged against its own level's heredocs (round 2 review).
+                    hits = [(e, h) for e, h in
+                            [(earlier_effect(target, cwd, earlier, hds, relative), hds)]
+                            + [(earlier_effect(target, cwd, os_, oh, relative), oh) for os_, oh in outer]
+                            if e is not None]
+                    eff, src = hits[0] if len(hits) == 1 else ((("note",), hds) if hits else (None, hds))
                     if eff is None:
                         data, note = read_file(target)
                     elif eff[0] == "hd":
-                        data = hds[eff[1]]["body"].encode("utf-8", "replace")
+                        data = src[eff[1]]["body"].encode("utf-8", "replace")
                     else:
                         note = NOTE_SAME_CMD
             if data is not None and note is None:

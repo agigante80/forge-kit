@@ -2606,6 +2606,26 @@ with tempfile.TemporaryDirectory() as td:
     chk("sfw writes outside the span are numbered first", sfw_denies(r, sfw_reason(2, "private-name", k=1)))
     r = f.run('echo "$(gh issue comment 5 --body $BODY)"')
     chk("sfw an unjudgeable write inside a span leaves the note, never silence", sfw_note(r, N_NOEXTRACT))
+    # round 2: a span write sees every segment of the commands around it, as a top-level write does
+    HDQ = "cat > clean.md <<'EOF'" + NL + "see %s" % NAME + NL + "EOF" + NL
+    plain = f.run(HDQ + "url=$(gh issue create --title t --body-file clean.md)")
+    chk("sfw (control) a heredoc written before an unquoted $( ) write is scanned", plain.decision == DENY)
+    for label, cmd in [("double-quoted $( )", HDQ + 'url="$(gh issue create --title t --body-file clean.md)"'),
+                       ("backticks", HDQ + "url=`gh issue create --title t --body-file clean.md`")]:
+        r = f.run(cmd)
+        chk("sfw a heredoc written before a write in " + label + " is scanned as the unquoted form is",
+            sfw_denies(r, plain.reason))
+    chk("sfw a body file rewritten before a quoted $( ) write: the same-command note, not the stale file",
+        sfw_note(f.run("printf 'fine\\n' > leak2.md && url=\"$(gh issue create --title t --body-file leak2.md)\""), N_SAME))
+    chk("sfw a cd before a quoted $( ) write: the same-command note",
+        sfw_note(f.run('cd sub && url="$(gh issue create --title t --body-file leak2.md)"'), N_SAME))
+    # round 2: a # after an escaped blank or a backslash-newline is word text, as in bash
+    chk("sfw comment: # after an escaped blank is text", sfw_denies(f.run("echo a\\ #b; gh issue comment 5 --body-file leak2.md"), D2))
+    chk("sfw comment: # after a backslash-newline is text", sfw_denies(f.run("x\\" + NL + "#; gh issue comment 5 --body-file leak2.md"), D2))
+    # round 2: a " inside a quote within a double-quoted $( ) must not shift the quote state
+    for label, q in [("$'...'", "$'\"'"), ("'...'", "'\"'")]:
+        chk("sfw a \" in " + label + " inside \"$( )\" keeps the write between two of them visible",
+            sfw_denies(f.run('echo "$(printf %s)"; gh issue comment 5 --body-file leak2.md; echo "$(printf %s)"' % (q, q)), D2))
     # gh's own spellings
     for label, cmd in [
             ("-R owner/repo", "gh -R o/r issue comment 5 --body-file leak2.md"),
@@ -2809,6 +2829,30 @@ def row_new_alias(hook, td):
     return sfw_denies(r, sfw_reason(1, "private-name", flag="--title"))
 
 
+def row_outer(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    f.put("clean.md", "all fine\n")
+    r = f.run("cat > clean.md <<'EOF'" + NL + "see %s" % NAME + NL + "EOF" + NL + 'url="$(gh issue create --title t --body-file clean.md)"')
+    return r.decision == DENY
+
+
+def row_escaped_hash(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    return sfw_denies(f.run("echo a\\ #b; gh issue comment 5 --body-file leak2.md"), sfw_reason(2, "private-name"))
+
+
+def row_dq_in_sq(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    return sfw_denies(f.run('echo "$(printf \'"\')"; gh issue comment 5 --body-file leak2.md; echo "$(printf \'"\')"'),
+                      sfw_reason(2, "private-name"))
+
+
+def row_dq_in_ansi(hook, td):
+    f = sfw_round1_fixture(td, hook)
+    return sfw_denies(f.run('echo "$(printf $\'"\')"; gh issue comment 5 --body-file leak2.md; echo "$(printf $\'"\')"'),
+                      sfw_reason(2, "private-name"))
+
+
 def row_ansi(hook, td):
     f = sfw_round1_fixture(td, hook)
     r = f.run("echo $'it\\'s done' && gh issue comment 5 --body-file leak2.md")
@@ -2831,8 +2875,8 @@ MUTANTS = [
      "    return (\"note\",)\n\n\n# --- reading", "    return None\n\n\n# --- reading"),
     ("ignore --title", row_title_scanned, 'TEXT_FLAGS = {"--body": "text", "-b": "text", "--title": "text", "-t": "text",',
      'TEXT_FLAGS = {"--body": "text", "-b": "text",'),
-    ("stop after the first write", row_second_write, "    for idx, seg, segs, hds in writes:\n        k += 1\n",
-     "    for idx, seg, segs, hds in writes[:1]:\n        k += 1\n"),
+    ("stop after the first write", row_second_write, "    for idx, seg, segs, hds, outer in writes:\n        k += 1\n",
+     "    for idx, seg, segs, hds, outer in writes[:1]:\n        k += 1\n"),
     ("widen the scope to pr review", row_scope, 'WRITE_SUBS = ("create", "edit", "comment")',
      'WRITE_SUBS = ("create", "edit", "comment", "review")'),
     ("only the space form of --body", row_space_form_only, '            name, eq, val = a.partition("=")',
@@ -2842,11 +2886,19 @@ MUTANTS = [
     ("no reserved-word skip before the command", row_reserved,
      " or w in RESERVED:", ":"),
     ("do not parse substitution and backtick spans again", row_spans,
-     "found += gather(sp, notes, depth + 1)", "pass"),
+     "found += gather(sp, notes, depth + 1, outer + ((segs, hds),))", "pass"),
     ("no -R / --repo skip", row_repo_flag,
      'if a in ("-R", "--repo"):', 'if False:'),
     ("no new to create alias", row_new_alias,
      'sub = "create" if head[1] == "new" else head[1]', 'sub = head[1]'),
+    ("a span write sees only its own level", row_outer,
+     "+ [(earlier_effect(target, cwd, os_, oh, relative), oh) for os_, oh in outer]", "+ []"),
+    ("an escaped blank before # ends the word", row_escaped_hash,
+     'if prev in " \\t\\n" or prev in _OPS:', 'if prev in " \\t\\n":\n            return True\n        if prev in _OPS:'),
+    ("a \" inside '...' within \"$( )\" reaches shlex", row_dq_in_sq,
+     "            out.append(INERT if c == '\"' and \"dsub\" in stack else mapc(c))", "            out.append(mapc(c))"),
+    ("a \" inside $'...' within \"$( )\" reaches shlex", row_dq_in_ansi,
+     "                out.append(INERT if c == '\"' and \"dsub\" in stack else mapc(c))", "                out.append(mapc(c))"),
     ("no ANSI-C quoting context", row_ansi,
      'if c == "$" and cmd[i + 1:i + 2] == "\'":', 'if False and c == "$" and cmd[i + 1:i + 2] == "\'":'),
 ]
