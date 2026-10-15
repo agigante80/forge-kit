@@ -108,6 +108,12 @@ printf 'protocol=https\nhost=forge.example.com\nusername=<you>\npassword=<token>
   | git credential approve
 ```
 
+Prefer this over an environment token when you check out untrusted branches: the helper hands out a
+token only for the host it was stored under, so a changed `FORGE_API_URL` naming another server gets
+nothing, while an environment token goes wherever the URL points. The routing keys are also pinned to
+the default branch since forge-lib v50 (#517), which covers the case where the helper's host is the
+one being named.
+
 Notes: helpers key on protocol+host (port included), not per-repo; `git-credential-store`
 is a plaintext backend, prefer libsecret/osxkeychain; git itself never prompts here and the
 fallback never writes, it only reads, but a helper may open its own unlock dialog or sign-in. **Opt out** with `FORGE_NO_GIT_CREDENTIALS=1` (env or `.forge.conf`)

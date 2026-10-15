@@ -2958,6 +2958,7 @@ STUB
 cat > "$K/bin/git" <<'STUB'
 #!/bin/sh
 echo "$*" >> "$K442/gitlog"
+[ "$1" != cat-file ] || echo "lazy=${GIT_NO_LAZY_FETCH-} $*" >> "$K442/lazylog"
 if [ "$1" = credential ]; then cat > /dev/null; [ -z "${K442CREDSLEEP-}" ] || sleep "$K442CREDSLEEP"; [ -n "${K442CRED-}" ] && printf 'password=%s\n' "$K442CRED"; exit 0; fi
 exec "$K442GIT" "$@"
 STUB
@@ -2983,15 +2984,34 @@ fi
 # k442 <conf-text> <hosts-text|NONE> [VAR=value ...] -- <command words>: <hosts-text> is a stale forge/hosts (#468, never read; NONE writes none). Runs the command in the
 # case repo; stdout, stderr and rc land in $K/out, $K/err and K442RC. FORGE_HOST, FORGE_REPO and
 # FORGE_NO_GIT_CREDENTIALS=1 are the defaults, and a VAR=value after them overrides.
+k442_base() {   # <text|ABSENT|MISSING|NONE> [dir]: a commit on refs/remotes/<K442BASEREMOTE:-origin>/<K442BASEREF:-main>, and its HEAD symref unless K442BASEHEAD=0 (plumbing only)
+  local t="$1" blob="" tree c r="${K442BASEREMOTE:-origin}" n="${K442BASEREF:-main}"
+  [ "$t" != NONE ] || return 0
+  ( cd "${2:-$K/r}" || exit 1
+    if [ "$t" = ABSENT ] || [ -z "$t" ]; then tree="$("$K442GIT" mktree < /dev/null)"
+    elif [ "$t" = MISSING ]; then   # listed in the tree, absent from the object store (a partial clone)
+      tree="$(printf '100644 blob %s\t.forge.conf\n' 1111111111111111111111111111111111111111 | "$K442GIT" mktree --missing)"
+    else blob="$(printf '%s\n' "$t" | "$K442GIT" hash-object -w --stdin)"
+         tree="$(printf '100644 blob %s\t.forge.conf\n' "$blob" | "$K442GIT" mktree)"; fi
+    c="$(echo base | "$K442GIT" -c user.name=t -c user.email=t@example.com commit-tree "$tree")"
+    "$K442GIT" update-ref "refs/remotes/$r/$n" "$c"
+    [ "${K442BASEHEAD-1}" = 0 ] || "$K442GIT" symbolic-ref "refs/remotes/$r/HEAD" "refs/remotes/$r/$n" ) >/dev/null 2>&1
+}
 k442() {
   local conf="$1" hosts="$2"; shift 2
   rm -rf "$K/r" "$K/xdg"; mkdir -p "$K/r" "$K/xdg/forge"; ( cd "$K/r" && "$K442GIT" init -q . )
-  : > "$K/args"; : > "$K/first"; : > "$K/calls"; : > "$K/kcfg"; : > "$K/gitlog"; rm -f "$T/PWNED"
+  : > "$K/args"; : > "$K/first"; : > "$K/calls"; : > "$K/kcfg"; : > "$K/gitlog"; : > "$K/lazylog"; : > "$K/ghlog"; rm -f "$T/PWNED"
+  [ -z "${K442REMOTE-}" ] || ( cd "$K/r" && "$K442GIT" remote add origin "$K442REMOTE" )
   [ -z "$conf" ] || printf '%s\n' "$conf" > "$K/r/.forge.conf"
+  # #517: the default-branch pin. Unless the row says otherwise, refs/remotes/origin/HEAD carries a
+  # .forge.conf equal to the working copy's, so a row that is not ABOUT the pin sees it pass in
+  # silence. K442BASE=<text> puts that text on the default branch instead; K442BASE=ABSENT gives a
+  # default branch with no .forge.conf; K442BASE=NONE makes no ref at all (the no-ref state).
+  k442_base "${K442BASE-$conf}"
   [ "$hosts" = NONE ] || printf '%s\n' "$hosts" > "$K/xdg/forge/hosts"
   ( cd "$K/r" || exit 99
     export PATH="$K/bin:$PATH" K442="$K" K442GIT XDG_CONFIG_HOME="$K/xdg" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_NO_GIT_CREDENTIALS=1
-    while [ "$1" != -- ]; do export "$1"; shift; done; shift
+    while [ "$1" != -- ]; do case "$1" in -*) unset "${1#-}" ;; *) export "$1" ;; esac; shift; done; shift   # -NAME unsets (#517)
     . "${K442LIB:-$LIB}" >/dev/null 2>&1 || exit 98
     "$@" ) > "$K/out" 2> "$K/err"
   K442RC=$?
@@ -3241,6 +3261,7 @@ hc442() {  # hc442 <lib-copy> <extra-conf> <hosts-text|NONE> [url-line]: run the
   rm -rf "$K/hc" "$K/hcxdg"; mkdir -p "$K/hc/scripts" "$K/hcxdg/forge"; ( cd "$K/hc" && "$K442GIT" init -q . ); cp "$1" "$K/hc/scripts/forge-lib.sh"; rm -f "$T/PWNED"
   [ "$3" = NONE ] || printf '%s\n' "$3" > "$K/hcxdg/forge/hosts"
   printf 'FORGE_HOST=forgejo\nFORGE_REPO=o/r\n%s\n%s\n' "${4-FORGE_API_URL=https://f.invalid}" "$2" > "$K/hc/.forge.conf"
+  k442_base "$(cat "$K/hc/.forge.conf")" "$K/hc"   # #517: the default branch carries the same file
   ( cd "$K/hc" && FORGE_NO_GIT_CREDENTIALS=1 XDG_CONFIG_HOME="$K/hcxdg" FORGEJO_TOKEN="${HC442TOK-tok}" bash "${HC442SH:-$K/hc.sh}" 2>&1 ); }
 [ -s "$K/hc.sh" ] && expect "#442: health-check step 9 reports a present token" "Forgejo token (FORGEJO_TOKEN) present for o/r" "$(hc442 "$LIB" '' NONE)" \
   || bad "#442: health-check step 9 block not found"
@@ -3285,6 +3306,7 @@ hc454() {
   local lib="$1" conf="$2"; shift 2
   rm -rf "$K/hc"; mkdir -p "$K/hc/scripts"; ( cd "$K/hc" && "$K442GIT" init -q . ); cp "$lib" "$K/hc/scripts/forge-lib.sh"; rm -f "$T/PWNED"
   printf 'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://f.invalid\n%s\n' "$conf" > "$K/hc/.forge.conf"
+  k442_base "$(cat "$K/hc/.forge.conf")" "$K/hc"   # #517: the default branch carries the same file
   : > "$K/gitlog"
   ( cd "$K/hc" && env -u FORGEJO_TOKEN -u FORGE_TOKEN -u FORGE_NO_GIT_CREDENTIALS -u FORGE_ALLOW_HTTP -u K442CRED \
       PATH="$K/bin:$PATH" K442="$K" K442GIT="$K442GIT" XDG_CONFIG_HOME="$K/hcxdg" "$@" bash ${HC454X:+-x} "$K/hc.sh" 2>&1 ); }
@@ -3366,9 +3388,9 @@ unset _FORGE_TMPDIR' c442_resource
 m442 "file list split on IFS" '  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_TOKEN_ENV FORGE_REMOTE FORGE_NO_GIT_CREDENTIALS; do
     case " ${_FORGE_FROM_FILE-} " in *" $k "*) ;; *) continue ;; esac' '  for k in ${_FORGE_FROM_FILE-}; do
     case "$k" in FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS) ;; *) continue ;; esac' c442_ifs
-m442 "file values left exportable (set -a half)" '                              export -n "$k" "_FORGE_FILEVAL_$k"
+m442 "file values left exportable (set -a half)" '                          export -n "$k" "_FORGE_FILEVAL_$k"
 ' '' c442_allexport_a
-m442 "file values left exportable (exported-empty half)" '                              export -n "$k" "_FORGE_FILEVAL_$k"
+m442 "file values left exportable (exported-empty half)" '                          export -n "$k" "_FORGE_FILEVAL_$k"
 ' '' c442_allexport_b
 m442 "host check skipped" '  _forge_check_url         || return 2' '' c450_refuse
 m442 "name not validated" '    [0123456789]*|*[!${_FORGE_ALNUM}_]*)' '    "")' c442_name
@@ -3600,18 +3622,22 @@ m442 "forge_url_check approves every URL" '  : "$base"
 }' c449_url_check
 m442 "forge_url_check is not a no-op on GitHub" 'forge_url_check() {
   local host base=""
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
   [ "$host" = forgejo ] || return 0
 ' 'forge_url_check() {
   local host base=""
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
 ' c449_dr_ok
 m442 "forge_url_check calls forge_api_base bare" 'forge_url_check() {
   local host base=""
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
   [ "$host" = forgejo ] || return 0
   base="$(forge_api_base)" || return 2' 'forge_url_check() {
   local host base=""
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
   [ "$host" = forgejo ] || return 0
   forge_api_base >/dev/null || return 2' c449_url_check
@@ -3701,10 +3727,12 @@ m442 "#527 note printed even with FORGE_ALLOW_HTTP=1" '    http://*) [ "${FORGE_
       echo "forge-lib: note:' c527_optin
 m442 "#527 helper is not a no-op on GitHub" '_forge_dry_url_check() {
   local host base="" url
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
   [ "$host" = forgejo ] || return 0
 ' '_forge_dry_url_check() {
   local host base="" url
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
 ' c527_github
 STRICT527='_forge_dry_url_check || return 2'
@@ -3746,7 +3774,7 @@ c449_inherit() {
   k442 "FORGE_REPO=o/r" NONE -- bash -c "unset FORGE_REPO; IFS=\$'\\n\\t'; set -a; . \"\${K442LIB:-$LIB}\"; forge_host >/dev/null; [ \"\$(forge_repo)\" = o/r ] && env"
   [ "$K442RC" = 0 ] && [ "$(grep -c -E '^(_FORGE_FROM_FILE|_FORGE_FILEVAL_)' "$K/out")" = 0 ]; }
 c449_inherit && ok "#449: an exported caller value survives sourcing, and a set -a parent hands a child neither tracking name" || bad "#449: tracking variables (rc $K442RC: $(grep -E '^_FORGE_' "$K/out" | tr '\n' ' '))"
-m442 "tracking list left exportable" '                              export -n _FORGE_FROM_FILE; } ;;  # env wins; else file' '                              :; } ;;  # env wins; else file' c449_inherit
+m442 "tracking list left exportable" '                          export -n _FORGE_FROM_FILE; }    # env wins; else file' '                          :; }    # env wins; else file' c449_inherit
 
 echo "== #486: a region marker inside a fenced code block is author text =="
 # Every reader of a region marker (the splice, its bottom append, get and both compose scans) uses
@@ -4208,6 +4236,255 @@ cmp -s "$GATE512" "$R486/gate512.md" && bad "#512: the prose mutant did not appl
 if G512="$R486/gate512.md" c512_synth 2> "$R486/err512"; then bad "#512: MUTANT survived: the prose without the tag still composes"
 elif grep -qF "tag not found in Step 0c-iii" "$R486/err512"; then ok "#512: MUTANT: deleting the tag from the prose fails the row with 'tag not found in Step 0c-iii'"
 else bad "#512: the tag-less prose failed without naming the missing tag"; fi
+
+echo "== #517: .forge.conf routing keys are pinned to the default branch =="
+# Every row runs the REAL forge_api (or the named function) through k442 in a throwaway repo whose
+# refs/remotes/origin/main carries the default-branch copy of .forge.conf (K442BASE). p517 unsets the
+# exported FORGE_HOST and FORGE_REPO k442 defaults to, so a key is file-sourced unless the row
+# exports it. A refusal must leave the curl and gh logs EMPTY: nothing was sent, no token was read.
+G517=$'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://forge.example.com'
+E517=$'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://evil.example'
+STOP517='An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed.'
+p517() {  # p517 <conf> <base> [VAR=value|-VAR ...] -- <command words>
+  local conf="$1" base="$2"; shift 2
+  K442BASE="$base" k442 "$conf" NONE -FORGE_HOST -FORGE_REPO FORGEJO_TOKEN=tok "$@"; }
+g517() {  # g517 <conf> <base> [VAR=value|-VAR ...] -- <command words>: a github.com origin
+  local conf="$1" base="$2"; shift 2
+  K442REMOTE=https://github.com/o/r.git K442BASE="$base" k442 "$conf" NONE -FORGE_HOST -FORGE_REPO "$@"; }
+r517_pass() { [ "$K442RC" = 0 ] && [ ! -s "$K/err" ] && [ -s "$K/calls" ]; }
+r517_refused() {  # rc 2, nothing sent, the message names the compared ref and never a working-copy value
+  [ "$K442RC" = 2 ] && k_nocurl && [ ! -s "$K/ghlog" ] && k_err "differs from the copy at" && ! grep -q 'evil' "$K/err"; }
+
+p517 "$G517" "$G517" -- $GET1
+r517_pass && k_cfg tok && k_after --url https://forge.example.com/api/v1/repos/o/r/issues/1 \
+  && ok "#517: a file URL equal to the default branch's copy is used: the request goes out, no message" \
+  || bad "#517: matching file URL (rc $K442RC: $(cat "$K/err"))"
+p517 "$E517" "$G517" -- $GET1
+r517_refused && k_err FORGE_API_URL && k_err "refs/remotes/origin/HEAD" && ! k_err FORGE_REPO \
+  && ok "#517: a file URL that differs from the default branch is refused with rc 2, nothing sent, the key and ref named, the value not" \
+  || bad "#517: differing file URL (rc $K442RC, calls $(cat "$K/calls" | wc -l): $(cat "$K/err"))"
+p517 "$E517" "$G517" FORGE_DRY_RUN=1 -- $GET1
+r517_refused && ok "#517: FORGE_DRY_RUN=1 refuses the same file, so the dry run predicts the real run" \
+  || bad "#517: dry run of a differing file URL (rc $K442RC: $(cat "$K/err"))"
+p517 "$E517" "$G517" FORGE_API_URL=https://forge.example.com -- $GET1
+r517_pass && k_after --url https://forge.example.com/api/v1/repos/o/r/issues/1 \
+  && ok "#517: an exported URL overrides a differing file and is never compared" \
+  || bad "#517: exported URL over a differing file (rc $K442RC: $(cat "$K/err"))"
+p517 $'FORGE_HOST=forgejo\nFORGE_REPO=evil/other\nFORGE_API_URL=https://evil.example' "$G517" FORGE_API_URL=https://forge.example.com -- $GET1
+[ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_REPO && ! k_err FORGE_API_URL \
+  && ok "#517: exporting one key does not launder another: FORGE_REPO from the file is still refused, FORGE_API_URL is not named" \
+  || bad "#517: one exported key laundered another (rc $K442RC: $(cat "$K/err"))"
+
+# first adoption: nothing on the default branch to compare against
+F517=$'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://forge.example.com\nFORGE_REMOTE=origin'
+p517 "$F517" ABSENT FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com FORGE_REMOTE=origin -- $GET1
+r517_pass && ok "#517: first adoption with all four keys exported passes (no .forge.conf on the default branch to compare)" \
+  || bad "#517: first adoption, all four exported (rc $K442RC: $(cat "$K/err"))"
+p517 "$F517" ABSENT -FORGE_API_URL -FORGE_REMOTE -- $GET1
+[ "$K442RC" = 2 ] && k_nocurl && [ "$(grep -c 'forge-lib: refusing' "$K/err")" = 1 ] \
+  && k_err FORGE_HOST && k_err FORGE_REPO && k_err FORGE_API_URL && k_err FORGE_REMOTE \
+  && ok "#517: first adoption with none exported is refused in ONE message that names all four keys" \
+  || bad "#517: first adoption, four keys file-sourced (rc $K442RC: $(cat "$K/err"))"
+
+# the wording: conditional remedy, and the stop sentence naming FORGE_REMOTE
+p517 "$E517" "$G517" -- $GET1
+k_err "only if you authored this change" && k_err "do not run forge commands on this checkout" && k_err "$STOP517" \
+  && ok "#517: the refusal pins the conditional remedy and ends with the agent-stop sentence naming FORGE_REMOTE" \
+  || bad "#517: refusal wording: $(cat "$K/err")"
+
+FH517="$HERE/../plugins/forge-kit-devops/skills/forge-host/SKILL.md"
+GF517="$HERE/../plugins/forge-kit-devops/skills/github-to-forgejo/SKILL.md"
+grep -qF -- "$STOP517" "$FH517" && ok "#517: forge-host SKILL.md repeats the agent-stop sentence the refusal prints" \
+  || bad "#517: forge-host SKILL.md lacks the agent-stop sentence"
+grep -qF 'FORGE_REMOTE=forgejo' "$GF517" && grep -q 'ci=not_configured' "$GF517" \
+  && ok "#517: github-to-forgejo Phase 2 has the human export FORGE_REMOTE=forgejo and names the not_configured refusal" \
+  || bad "#517: github-to-forgejo Phase 2 lacks the FORGE_REMOTE export or the detect behaviour"
+! grep -q 'no-op on GitHub' "$FH517" && ok "#517: forge-host SKILL.md no longer calls forge_url_check a no-op on GitHub" \
+  || bad "#517: forge-host SKILL.md still says forge_url_check is a no-op on GitHub"
+
+# GitHub: FORGE_REPO and FORGE_HOST from the file are routing keys on a github.com origin too
+GH517=$'FORGE_REPO=o/r'
+EGH517=$'FORGE_REPO=evil/other'
+g517 "$EGH517" "$GH517" -- $GET1
+[ "$K442RC" = 2 ] && [ ! -s "$K/ghlog" ] && k_err FORGE_REPO && k_err "refs/remotes/origin/HEAD" \
+  && ok "#517: GitHub host: a file FORGE_REPO that differs from the default branch is refused and gh is never called" \
+  || bad "#517: github FORGE_REPO (rc $K442RC, gh $(cat "$K/ghlog"): $(cat "$K/err"))"
+g517 "$EGH517" "$GH517" FORGE_DRY_RUN=1 -- $GET1
+[ "$K442RC" = 2 ] && [ ! -s "$K/ghlog" ] && k_err FORGE_REPO \
+  && ok "#517: GitHub host under FORGE_DRY_RUN=1: refused, gh log empty" || bad "#517: github dry run (rc $K442RC: $(cat "$K/err"))"
+g517 "$EGH517" "$GH517" -- forge_api_paginate /repos/o/r/issues
+[ "$K442RC" = 2 ] && [ ! -s "$K/ghlog" ] && k_err FORGE_REPO \
+  && ok "#517: GitHub host through forge_api_paginate: refused, gh log empty" || bad "#517: github paginate (rc $K442RC, gh $(cat "$K/ghlog"): $(cat "$K/err"))"
+g517 "$GH517" "$GH517" -- $GET1
+[ "$K442RC" != 2 ] && [ -s "$K/ghlog" ] && ! k_err "forge-lib: refusing" \
+  && ok "#517: GitHub host: a matching file FORGE_REPO reaches gh" || bad "#517: github matching (rc $K442RC: $(cat "$K/err"))"
+g517 $'FORGE_HOST=forgejo\nFORGE_API_URL=https://evil.example' "$GH517" -- $GET1
+[ "$K442RC" = 2 ] && [ ! -s "$K/ghlog" ] && k_nocurl && k_err FORGE_HOST && k_err FORGE_API_URL \
+  && ok "#517: a host flip (FORGE_HOST=forgejo plus FORGE_API_URL in the file, a github.com origin) is refused before any request" \
+  || bad "#517: host flip (rc $K442RC: $(cat "$K/err"))"
+
+# which remote is compared
+: > "$K/gitlog"
+K442BASEREMOTE=forgejo p517 "$G517" "$G517" FORGE_REMOTE=forgejo -- $GET1
+r517_pass && ! grep -q 'refs/remotes/origin' "$K/gitlog" && grep -q 'refs/remotes/forgejo/' "$K/gitlog" \
+  && ok "#517: an exported FORGE_REMOTE=forgejo selects refs/remotes/forgejo/ and origin is never read" \
+  || bad "#517: exported FORGE_REMOTE (rc $K442RC: $(cat "$K/err") / $(cat "$K/gitlog"))"
+fork517() { K442BASEREMOTE=fork k442_base "$E517" "$K/r"; forge_api GET /repos/o/r/issues/1; }
+p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://evil.example\nFORGE_REMOTE=fork' "$G517" -- fork517
+r517_refused && ! grep -q 'refs/remotes/fork' "$K/gitlog" \
+  && ok "#517: the working copy's FORGE_REMOTE=fork never selects the ref: a fork remote cannot vouch for its own file" \
+  || bad "#517: file FORGE_REMOTE (rc $K442RC: $(cat "$K/err") / $(cat "$K/gitlog"))"
+
+# no usable reference: fail open, one fixed note per load, nothing from the working copy in it
+NOTE517='forge-lib: default-branch check skipped (no readable .forge.conf reference for remote origin); routing keys from .forge.conf are not verified'
+p517 "$E517" NONE -- $GET1
+[ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && [ -s "$K/calls" ] \
+  && ok "#517: no remote-tracking ref: the request goes ahead with exactly the fixed note, which carries no working-copy value" \
+  || bad "#517: no-ref note (rc $K442RC: $(cat "$K/err"))"
+two517() { forge_api GET /repos/o/r/issues/1; forge_api GET /repos/o/r/issues/2; }
+p517 "$E517" NONE -- two517
+[ "$K442RC" = 0 ] && [ "$(grep -c 'default-branch check skipped' "$K/err")" = 1 ] \
+  && ok "#517: the skip note prints once per load, not once per call" || bad "#517: note count (rc $K442RC: $(cat "$K/err"))"
+mkdir -p "$K/pbin"
+printf '#!/bin/sh\nn=$(cat "$PAGEC" 2>/dev/null||echo 0);n=$((n+1));echo $n>"$PAGEC"\nif [ $n -le 5 ]; then printf "[{\\"id\\":$n}]\\n200"; else printf "[]\\n200"; fi\n' > "$K/pbin/curl"; chmod +x "$K/pbin/curl"
+pag517() { PAGEC="$K/pagec" PATH="$K/pbin:$PATH"; export PAGEC PATH; : > "$PAGEC"; forge_api_paginate /repos/o/r/labels >/dev/null; }
+p517 "$E517" NONE -- pag517
+[ "$K442RC" = 0 ] && [ "$(cat "$K/pagec")" = 6 ] && [ "$(grep -c 'default-branch check skipped' "$K/err")" = 1 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ] \
+  && ok "#517: a shallow clone with no ref walks 6 stub pages with exactly one note and one for-each-ref" \
+  || bad "#517: paginate with no ref (rc $K442RC pages $(cat "$K/pagec"): $(cat "$K/err") / $(cat "$K/gitlog"))"
+p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=ftp://x.invalid' NONE -- $GET1
+[ "$K442RC" = 2 ] && k_nocurl && k_err "default-branch check skipped" && ! k_err "differs from the copy at" \
+  && ok "#517: when the check is skipped the ftp URL is still refused by the scheme check" || bad "#517: ftp with no ref (rc $K442RC: $(cat "$K/err"))"
+K442BASEREF=dev K442BASEHEAD=0 p517 "$E517" "$G517" -- $GET1
+[ "$K442RC" = 0 ] && k_err "default-branch check skipped" \
+  && ok "#517: refs exist for the remote but none of HEAD, main or master: fails open with the note" || bad "#517: refs without a default (rc $K442RC: $(cat "$K/err"))"
+K442BASEHEAD=0 p517 "$E517" "$G517" -- $GET1
+r517_refused && k_err "refs/remotes/origin/main" \
+  && ok "#517: with origin/HEAD unset, origin/main is still the baseline and a differing file is refused naming that ref" \
+  || bad "#517: main fallback (rc $K442RC: $(cat "$K/err"))"
+K442BASEHEAD=0 p517 "$G517" "$G517" -- $GET1
+r517_pass && ok "#517: the origin/main fallback passes a matching file in silence" || bad "#517: main fallback positive (rc $K442RC: $(cat "$K/err"))"
+
+# partial clones: the blob is read without any lazy fetch
+p517 "$G517" "$G517" -- $GET1
+[ -s "$K/lazylog" ] && ! grep -qv '^lazy=1 ' "$K/lazylog" \
+  && ok "#517: every git cat-file runs with GIT_NO_LAZY_FETCH=1" || bad "#517: lazy fetch env: $(cat "$K/lazylog")"
+p517 "$E517" MISSING -- $GET1
+[ "$K442RC" = 0 ] && k_err "default-branch check skipped" \
+  && ok "#517: a .forge.conf listed in the default branch's tree but missing locally (partial clone) fails open with the note" || bad "#517: listed-missing blob (rc $K442RC: $(cat "$K/err"))"
+p517 "$E517" ABSENT -- $GET1
+[ "$K442RC" = 2 ] && k_err FORGE_API_URL && ! k_err "skipped" \
+  && ok "#517: a default branch that has no .forge.conf means no keys: a file-sourced key is refused, not skipped" || bad "#517: absent file (rc $K442RC: $(cat "$K/err"))"
+
+# one parser for both sides
+Q517=$'FORGE_HOST = forgejo\r\n# a comment\r\nFORGE_REPO="o/r"  # the repo\r\nFORGE_API_URL = "https://forge.example.com/a=b#frag"\r'
+p517 "$Q517" "$Q517" -- $GET1
+[ "$K442RC" = 0 ] && ! k_err "differs from the copy at" \
+  && ok "#517: a quirky file (CRLF, quotes, spaces, # and = in a value) identical on both sides passes: one parse for both" \
+  || bad "#517: quirky identical (rc $K442RC: $(cat "$K/err"))"
+p517 "$G517" $'# reordered\r\nFORGE_API_URL="https://forge.example.com"\r\nFORGE_REPO=o/r\r\nFORGE_HOST=forgejo\r' -- $GET1
+r517_pass && ok "#517: CRLF, quotes, comments and key order differences with the same parsed values are ignored" || bad "#517: reordered base (rc $K442RC: $(cat "$K/err"))"
+p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=HTTPS://forge.example.com' "$G517" -- $GET1
+[ "$K442RC" = 2 ] && k_nocurl && k_err "differs from the copy at" \
+  && ok "#517: a different spelling of the URL (HTTPS://) is a difference" || bad "#517: HTTPS spelling (rc $K442RC: $(cat "$K/err"))"
+
+# duplicate keys: the loader takes the first non-empty value, so the pin compares that one
+D517=$'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://forge.example.com\nFORGE_API_URL=https://other.example'
+p517 "$D517" "$D517" -- $GET1
+r517_pass && ok "#517: duplicate keys that agree on both sides pass (the first value is compared on each, not the last)" || bad "#517: duplicates identical (rc $K442RC: $(cat "$K/err"))"
+p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://evil.example\nFORGE_API_URL=https://forge.example.com' "$G517" -- $GET1
+[ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_API_URL \
+  && ok "#517: an evil line followed by a matching one is refused: the loader's first value is the one compared" || bad "#517: evil then matching (rc $K442RC: $(cat "$K/err"))"
+p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=\nFORGE_API_URL=https://evil.example' "$G517" -- $GET1
+[ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_API_URL \
+  && ok "#517: an empty line followed by an evil one is refused: first NON-EMPTY wins, as in the loader" || bad "#517: empty then evil (rc $K442RC: $(cat "$K/err"))"
+rewrite517() { _forge_load_conf; printf '%s\n' "$G517" > .forge.conf; forge_api GET /repos/o/r/issues/1; }
+p517 "$E517" "$G517" -- rewrite517
+[ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_API_URL \
+  && ok "#517: a file rewritten to match the default branch AFTER the load does not launder the loaded value" || bad "#517: rewrite after load (rc $K442RC: $(cat "$K/err"))"
+
+# memo: a pass is reused in the same repo, never carried to another
+three517() { forge_api GET /repos/o/r/issues/1; forge_api GET /repos/o/r/issues/2; forge_api GET /repos/o/r/issues/3; }
+p517 "$G517" "$G517" -- three517
+[ "$K442RC" = 0 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ] && [ "$(grep -c 'cat-file' "$K/gitlog")" = 1 ] \
+  && ok "#517: three calls in one repo make one for-each-ref and one cat-file: the pass is memoized" || bad "#517: memo reuse (rc $K442RC: $(cat "$K/gitlog"))"
+repob517() {
+  forge_api GET /repos/o/r/issues/1 || return $?
+  rm -rf "$K/rb"; mkdir -p "$K/rb"; ( cd "$K/rb" && "$K442GIT" init -q . ); printf '%s\n' "$E517" > "$K/rb/.forge.conf"; k442_base "$G517" "$K/rb"
+  cd "$K/rb" && forge_api GET /repos/o/r/issues/2; }
+p517 "$G517" "$G517" -- repob517
+[ "$K442RC" = 2 ] && k_err FORGE_API_URL && [ "$(wc -l < "$K/calls" | tr -d ' ')" = 1 ] \
+  && ok "#517: a pass in repo A is not carried to repo B: B's differing file is refused" || bad "#517: memo across repos (rc $K442RC calls $(wc -l < "$K/calls"): $(cat "$K/err"))"
+
+# zero git calls when nothing is file-sourced
+p517 "" "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com -- $GET1
+r517_pass && ! grep -qE 'for-each-ref|cat-file|ls-tree' "$K/gitlog" \
+  && ok "#517: with every key exported (nothing file-sourced) the pin makes no git call" || bad "#517: zero git calls (rc $K442RC: $(cat "$K/gitlog"))"
+
+# the other entry points
+p517 "$E517" "$G517" -- forge_url_check
+[ "$K442RC" = 2 ] && k_err FORGE_API_URL && ok "#517: forge_url_check refuses a differing file URL" || bad "#517: forge_url_check (rc $K442RC: $(cat "$K/err"))"
+p517 "$E517" "$G517" -- _forge_dry_url_check
+[ "$K442RC" = 2 ] && k_err FORGE_API_URL && ok "#517: _forge_dry_url_check refuses a differing file URL" || bad "#517: _forge_dry_url_check (rc $K442RC: $(cat "$K/err"))"
+p517 "$E517" "$G517" -- forge_api_paginate /repos/o/r/labels
+r517_refused && ok "#517: forge_api_paginate refuses a differing file URL before page 1" || bad "#517: paginate (rc $K442RC: $(cat "$K/err"))"
+p517 "$E517" "$G517" -- forge_host
+[ "$K442RC" = 0 ] && ok "#517: forge_host itself is never pinned (the adapt probe and detect run it first)" || bad "#517: forge_host pinned (rc $K442RC: $(cat "$K/err"))"
+p517 "$E517" "$G517" -- forge_api_base
+[ "$K442RC" = 0 ] && ok "#517: forge_api_base itself is never pinned" || bad "#517: forge_api_base pinned (rc $K442RC: $(cat "$K/err"))"
+
+# mutants of the lib, each run against the row that must catch it
+m517() {  # m517 <label> <python-expr on s> ; writes $T/lib517 and sets K442LIB
+  python3 - "$LIB" "$T/lib517" "$2" <<'PY'
+import sys
+s=open(sys.argv[1]).read(); old,new=sys.argv[3].split('\x1f'); n=s.count(old)
+if n!=1: sys.exit("anchor count %d for %r"%(n,old))
+open(sys.argv[2],'w').write(s.replace(old,new))
+PY
+}
+mut517() {  # mut517 <label> <old> <new> <row-fn>: the row must FAIL on the mutated lib
+  local label="$1" old="$2" new="$3" row="$4"
+  if ! m517 "$label" "$old"$'\x1f'"$new" 2> "$T/m517err"; then bad "#517 mutant '$label' did not apply: $(cat "$T/m517err")"; return; fi
+  if K442LIB="$T/lib517" $row; then bad "#517 MUTANT SURVIVED: $label"; else ok "#517 mutant '$label' dies"; fi
+}
+row_diff_url() { p517 "$E517" "$G517" -- $GET1; r517_refused; }
+row_diff_url_dry() { p517 "$E517" "$G517" FORGE_DRY_RUN=1 -- $GET1; r517_refused; }
+row_url_check() { p517 "$E517" "$G517" -- forge_url_check; [ "$K442RC" = 2 ]; }
+row_dry_check() { p517 "$E517" "$G517" -- _forge_dry_url_check; [ "$K442RC" = 2 ]; }
+row_paginate() { p517 "$E517" NONE -- pag517; [ "$(grep -c 'default-branch check skipped' "$K/err")" = 1 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ]; }
+row_gh_paginate() { g517 "$EGH517" "$GH517" -- forge_api_paginate /repos/o/r/issues; [ "$K442RC" = 2 ] && [ ! -s "$K/ghlog" ]; }
+row_remote_exported() { K442BASEREMOTE=forgejo p517 "$G517" "$G517" FORGE_REMOTE=forgejo -- $GET1; r517_pass && ! grep -q 'refs/remotes/origin' "$K/gitlog"; }
+row_fork() { p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://evil.example\nFORGE_REMOTE=fork' "$G517" -- fork517; r517_refused && ! grep -q 'refs/remotes/fork' "$K/gitlog"; }
+row_quirky() { p517 "$Q517" "$Q517" -- $GET1; [ "$K442RC" = 0 ] && ! k_err "differs from the copy at"; }
+row_dup_agree() { p517 "$D517" "$D517" -- $GET1; r517_pass; }
+row_dup_evil() { p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://evil.example\nFORGE_API_URL=https://forge.example.com' "$G517" -- $GET1; [ "$K442RC" = 2 ] && k_nocurl; }
+row_rewrite() { p517 "$E517" "$G517" -- rewrite517; [ "$K442RC" = 2 ] && k_nocurl; }
+row_lazy() { p517 "$G517" "$G517" -- $GET1; [ -s "$K/lazylog" ] && ! grep -qv '^lazy=1 ' "$K/lazylog"; }
+row_repob() { p517 "$G517" "$G517" -- repob517; [ "$K442RC" = 2 ]; }
+row_memo_reuse() { p517 "$G517" "$G517" -- three517; [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ]; }
+row_absent() { p517 "$E517" ABSENT -- $GET1; [ "$K442RC" = 2 ]; }
+PIN='  _forge_pin_check || return 2'
+mut517 'comparison removed (every key passes)' '    [ "$was" = "$cur" ] || diff="${diff:+$diff, }$k"' '    :' row_diff_url
+mut517 'FORGE_REMOTE read from the working copy' '  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE" ;; esac' '  [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE"' row_fork
+mut517 'default branch scan keeps the LAST duplicate' '    [ -n "${!dv-}" ] || printf -v "$dv" '"'%s'"' "$_FORGE_LV"   # first non-empty wins, like the loader' '    printf -v "$dv" '"'%s'"' "$_FORGE_LV"' row_dup_agree
+mut517 'working copy side re-parsed, last value wins' '    eval "was=\${_FORGE_FILEVAL_$k-}"
+    dv="_forge_dv_$k"; cur="${!dv-}"' '    was="$(sed -n "s/^$k=//p" .forge.conf | tail -1)"
+    dv="_forge_dv_$k"; cur="${!dv-}"' row_dup_evil
+mut517 'a second, naive parser for the default branch blob' '    _forge_conf_line "$line" || continue            # the SAME parse as the loader' '    case "$line" in FORGE_*=*) _FORGE_LK="${line%%=*}"; _FORGE_LV="${line#*=}" ;; *) continue ;; esac' row_quirky
+mut517 'GIT_NO_LAZY_FETCH=1 dropped from cat-file' 'blob="$(GIT_NO_LAZY_FETCH=1 git cat-file' 'blob="$(git cat-file' row_lazy
+mut517 'memo keyed without the repo (never re-checked)' '  [ -z "${_FORGE_PIN_PWD-}" ] || [ "${_FORGE_PIN_PWD-}" != "${_FORGE_CONF_PWD-}" ] || return 0' '  [ -z "${_FORGE_PIN_PWD-}" ] || return 0' row_repob
+mut517 'memo removed (every call re-checks)' '  [ -z "${_FORGE_PIN_PWD-}" ] || [ "${_FORGE_PIN_PWD-}" != "${_FORGE_CONF_PWD-}" ] || return 0' '  :' row_memo_reuse
+mut517 'absent file treated as skip, not as no keys' '    if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then' '    if true; then' row_absent
+mut517 'working-copy exported remote ignored (always origin)' '*) [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE" ;; esac' '*) ;; esac' row_remote_exported
+# each call site removed in turn (the Nth pin line in file order)
+for site in 1 2 3 4; do
+  awk -v n="$site" '$0=="  _forge_pin_check || return 2" || index($0,"  _forge_pin_check || return 2 ")==1 {c++; if (c==n) next} 1' "$LIB" > "$T/lib517"
+  cmp -s "$LIB" "$T/lib517" && bad "#517: call-site mutant $site did not apply"
+  case $site in 1) lbl=forge_url_check; r=row_url_check ;; 2) lbl=_forge_dry_url_check; r=row_dry_check ;; 3) lbl=forge_api; r=row_diff_url ;; 4) lbl=forge_api_paginate; r=row_paginate ;; esac
+  if K442LIB="$T/lib517" $r; then bad "#517 MUTANT SURVIVED: the pin call dropped from $lbl"; else ok "#517 mutant 'pin call dropped from $lbl' dies"; fi
+done
+awk '$0=="  _forge_pin_check || return 2" || index($0,"  _forge_pin_check || return 2 ")==1 {c++; if (c==4) next} 1' "$LIB" > "$T/lib517"
+if K442LIB="$T/lib517" row_gh_paginate; then bad "#517 MUTANT SURVIVED: the pin call dropped from forge_api_paginate (GitHub arm)"; else ok "#517 mutant 'pin call dropped from forge_api_paginate' dies on the GitHub arm too"; fi
 
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"

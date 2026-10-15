@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# close-shipped-version: 5
+# close-shipped-version: 6
 # close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496).
 # Closing shipped tickets was a step someone had to remember (the `release` skill's step 5), and on
 # a two branch model the host's own auto close never fires, because the feature PRs target the
@@ -221,6 +221,12 @@ _merge_drops() {
 # need_repo: resolve owner/repo once, before the first host call; exit 2 with forge-lib's error.
 need_repo() {
   [ -z "${_REPO_OK:-}" ] || return 0
+  # #517: load .forge.conf and pin its routing keys to the default branch HERE, in the main shell,
+  # BEFORE the next line exports FORGE_REPO. Exported, it would count as the caller's own value and
+  # the pin would never compare it; and every later read runs in a $(...) subshell where a refusal
+  # (rc 2) would be swallowed as a failed view. The refusal text is already on stderr.
+  _forge_load_conf || true
+  _forge_pin_check || exit 2
   FORGE_REPO="$(forge_repo)" || { echo "close-shipped: cannot resolve owner/repo; set FORGE_REPO or an origin remote" >&2; exit 2; }
   export FORGE_REPO; _REPO_OK=1
 }

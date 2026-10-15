@@ -624,6 +624,24 @@ expect "#533: mutant, templates-mode project site back to -P: PRJ=5 dies" PRJ= "
 TBM=$(mut "$TB" 1 "sed -nE 's/.*template-version: ([0-9]+).*/\\1/p'" "grep -oP 'template-version: \\K\\d+'")
 bout=$(cd "$PROJ" && env -i PATH="$SHIMPATH" HOME="$EH" GIT_CEILING_DIRECTORIES="$T" FORGE_KIT_DIR="$TL" bash -c "$TBM" 2>/dev/null)
 expect "#533: mutant, templates-mode library site back to -P: V=6 dies" V= "$bout"
+echo "== #517: the probe is never pinned (it passes the sentinel FORGE_API_URL=x) =="
+d517=$(mkrepo pin517 'https://forge.example.com/o/r')
+printf 'FORGE_HOST=forgejo\nFORGE_REPO=o/r\n' > "$d517/.forge.conf"
+git -C "$d517" add .forge.conf
+git -C "$d517" -c user.name=t -c user.email=t@example.com commit -q -m base
+git -C "$d517" update-ref refs/remotes/origin/main HEAD
+git -C "$d517" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+printf 'FORGE_HOST=github\nFORGE_REPO=evil/other\nFORGE_API_URL=https://evil.example\n' > "$d517/.forge.conf"
+probe "$d517" "$EH" FORGE_KIT_DIR="$ROOT"
+expect "#517: the probe on a checkout whose .forge.conf differs from the default branch exits 0" 0 "$brc"
+case "$out" in *"forge-lib: refusing"*|*"default-branch check"*) bad "#517: the probe printed a pin message: $out" ;; *) ok "#517: the probe prints no pin refusal and no skip note (forge_host never calls the pin)" ;; esac
+# Mutant: a pin in forge_host would refuse here. The library copy below pins from forge_host; the same probe must then fail.
+LIB517=$(printf '%s' "$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh")
+mkdir -p "$T/k517/plugins/forge-kit-devops/skills/forge-host/assets"
+awk '/^forge_host\(\) \{/ {print; print "  _forge_pin_check || return 2"; next} 1' "$LIB517" > "$T/k517/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh"
+cmp -s "$LIB517" "$T/k517/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh" && bad "#517: the forge_host pin mutant did not apply"
+probe "$d517" "$EH" FORGE_KIT_DIR="$T/k517"
+case "$out" in *"host defaulted to github"*) ok "#517: mutant: a pin inside forge_host sends the probe to its github fallback, so the row above can fail" ;; *) bad "#517: mutant survived: $out" ;; esac
 
 echo ""
 echo "forge-adapt host probe tests: $pass passed, $fail failed"

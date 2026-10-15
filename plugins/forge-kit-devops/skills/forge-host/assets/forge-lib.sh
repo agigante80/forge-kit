@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 49
+# forge-lib-version: 50
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -221,6 +221,19 @@
 #       used a plain-http URL. Kept: any non-http scheme and an unset URL still return 2 in a dry
 #       run; the real send path, forge_url_check and every non-dry read still refuse. The dry-run
 #       sites call the new _forge_dry_url_check; nothing else changed.
+#   v50 SECURITY (#517). The routing keys of .forge.conf (FORGE_HOST, FORGE_API_URL, FORGE_REPO,
+#       FORGE_REMOTE) that come FROM THE FILE are pinned to the file's copy on the default branch.
+#       New _forge_pin_check (rc 0 or 2) runs, in its own shell, before any request, `gh` call or
+#       token read in forge_api (above the dry-run guard), forge_api_paginate, forge_url_check and
+#       _forge_dry_url_check, on BOTH hosts, so a checked-out pull request branch can no longer
+#       aim the token at a server or repository its author chose. An exported value still wins
+#       and is never compared. It refuses with rc 2, naming every differing key and the compared
+#       ref and never a value, and the message tells an automated agent to stop. The comparison
+#       ref is refs/remotes/<R>/HEAD, else main, else master, with <R> an EXPORTED FORGE_REMOTE or
+#       origin (never the working copy's). No usable ref fails open with one stderr note per load.
+#       The per-line parse of _forge_load_conf is now _forge_conf_line, shared with the
+#       default-branch scan. Not called from forge_host, forge_api_base or _forge_load_conf.
+#       Narrows #468's accepted risk to a hostile repository whose default branch is hostile too.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -256,9 +269,29 @@ _forge_clear_file_vals() {
 # (#449 item 10). That is not a security boundary: whoever controls the environment can set or
 # unset the config keys directly, so the list grants nothing they did not already have.
 _forge_clear_file_vals
-unset _FORGE_TMPDIR _FORGE_CONF_PWD _FORGE_FROM_FILE
+unset _FORGE_TMPDIR _FORGE_CONF_PWD _FORGE_FROM_FILE _FORGE_PIN_PWD   # _FORGE_PIN_PWD: the pin memo (#517), never inherited
 
 _forge_root() { git rev-parse --show-toplevel 2>/dev/null || pwd; }
+
+# _forge_conf_line <line>: the ONE per-line parse of a .forge.conf line (#517), shared by the
+# working-copy loader below and the default-branch scan in _forge_pin_check, so the two cannot
+# drift: a second parser would let the pin compare a value the loader never used. rc 0 and
+# _FORGE_LK/_FORGE_LV set only for a line carrying one of the six known keys; rc 1 for a blank,
+# a comment, a line without '=' or an unknown key.
+_forge_conf_line() {
+  local line="$1" k v
+  line="${line%$'\r'}"                                    # tolerate CRLF line endings
+  case "$line" in ''|\#*) return 1 ;; esac                # skip blanks + comments
+  case "$line" in *=*) ;; *) return 1 ;; esac             # skip lines without '='
+  k="${line%%=*}"; v="${line#*=}"                          # split on FIRST '=' (values may contain '=')
+  k="${k//[[:space:]]/}"                                   # keys never contain spaces, so trim fully
+  v="${v%%#*}"; v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
+  case "$k" in
+    FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS)
+      _FORGE_LK="$k"; _FORGE_LV="$v"; return 0 ;;
+  esac
+  return 1
+}
 
 # Load .forge.conf (KEY=value lines) if present. Env vars already set WIN over the file.
 # Memoized per process and per working directory (issue #78.1). Every page of a paginated call used
@@ -307,23 +340,114 @@ _forge_load_conf() {
   f="$root/.forge.conf"
   [ -f "$f" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    line="${line%$'\r'}"                                  # tolerate CRLF line endings
-    case "$line" in ''|\#*) continue ;; esac              # skip blanks + comments
-    case "$line" in *=*) ;; *) continue ;; esac           # skip lines without '='
-    k="${line%%=*}"; v="${line#*=}"                        # split on FIRST '=' (values may contain '=')
-    k="${k//[[:space:]]/}"                                 # keys never contain spaces, so trim fully
-    v="${v%%#*}"; v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
-    case "$k" in
-      FORGE_HOST|FORGE_API_URL|FORGE_REPO|FORGE_TOKEN_ENV|FORGE_REMOTE|FORGE_NO_GIT_CREDENTIALS)
-        [ -n "${!k:-}" ] || { printf -v "$k" '%s' "$v"     # NOT exported: see the header note
-                              printf -v "_FORGE_FILEVAL_$k" '%s' "$v"   # what the file wrote (#131.1)
-                              # set -a, or an exported empty value, would export it anyway, and a
-                              # child would take it for the caller's own (#442 review)
-                              export -n "$k" "_FORGE_FILEVAL_$k"
-                              _FORGE_FROM_FILE="${_FORGE_FROM_FILE-} $k"
-                              export -n _FORGE_FROM_FILE; } ;;  # env wins; else file
-    esac
+    _forge_conf_line "$line" || continue                   # the SHARED parse (#517)
+    k="$_FORGE_LK"; v="$_FORGE_LV"
+    [ -n "${!k:-}" ] || { printf -v "$k" '%s' "$v"       # NOT exported: see the header note
+                          printf -v "_FORGE_FILEVAL_$k" '%s' "$v"   # what the file wrote (#131.1)
+                          # set -a, or an exported empty value, would export it anyway, and a
+                          # child would take it for the caller's own (#442 review)
+                          export -n "$k" "_FORGE_FILEVAL_$k"
+                          _FORGE_FROM_FILE="${_FORGE_FROM_FILE-} $k"
+                          export -n _FORGE_FROM_FILE; }    # env wins; else file
   done < "$f"
+}
+
+# _forge_pin_check: pin the ROUTING keys .forge.conf set (FORGE_HOST, FORGE_API_URL, FORGE_REPO,
+# FORGE_REMOTE) to the file's copy on the default branch (#517). rc 0, or rc 2 with ONE message
+# before any request, `gh` call or token read. WHY: a checked-out pull request branch can edit the
+# file, and the file chooses where the token goes (the server, the repository, the host); no code
+# from the branch needs to run. Renovate and pull_request_target take configuration from the
+# default branch for the same reason. Exported values are the user's own and are never compared
+# (env wins); only a key the LOADER took from the file is.
+#   - It loads the file itself, in ITS OWN shell: forge_api, forge_url_check and _forge_dry_url_check
+#     otherwise load only inside $(forge_host), so _FORGE_FROM_FILE would be empty here and a literal
+#     reading of "return at once unless a key is file-sourced" would never fire.
+#   - The working-copy side is _FORGE_FILEVAL_<key>, the value the loader set (first non-empty
+#     wins), NEVER a re-parse of the file: a duplicate key (evil line, then a matching one) would
+#     show the pin one value and the sender another. The default-branch side is scanned by the
+#     same _forge_conf_line with the same first-non-empty rule. Parsed values, not bytes.
+#   - The comparison remote <R> is an EXPORTED FORGE_REMOTE, else origin; never the working copy's
+#     (a fork remote added by `gh pr checkout` would otherwise vouch for its own file). One
+#     `git for-each-ref` picks refs/remotes/<R>/HEAD, else main, else master; `git cat-file` reads
+#     the blob with GIT_NO_LAZY_FETCH=1 so a partial clone never goes to the network; a failed
+#     read asks `git ls-tree` once: the file absent from the tree means "no keys" (first adoption),
+#     listed but not local fails open. No usable ref (shallow CI clone, no origin/HEAD, refs but
+#     none of the three names) also fails open with one note per load: the attacker controls the
+#     working copy, not the remote-tracking refs, so refusing there bought nothing (#517).
+#   - Zero git calls unless a routing key is file-sourced. A pass is memoized beside
+#     _FORGE_CONF_PWD, so a pass in repo A is never carried to repo B. A refusal is not memoized.
+#   - NEVER call it from forge_host, forge_api_base or _forge_load_conf: the adapt Step 1 probe
+#     passes the sentinel FORGE_API_URL=x and `detect` runs them before the file is merged.
+# The message names the keys and the ref, never a value, and ends with the agent-stop sentence: it
+# is the one carrier every caller sees (ticket-gate, dep-auditor and health-check never load the
+# forge-host skill). FORGE_REMOTE is named in that sentence because exporting the remote a fork
+# added would make the attacker's own file the baseline.
+_forge_pin_check() {
+  _forge_load_conf || true
+  local IFS=$' \t\n'                         # a strict-mode caller's IFS must not glue the key list
+  [ -z "${_FORGE_PIN_PWD-}" ] || [ "${_FORGE_PIN_PWD-}" != "${_FORGE_CONF_PWD-}" ] || return 0
+  local k was keys="" remote=origin dv diff="" ref="" refs want blob="" listed cur lrc line
+  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE; do
+    case " ${_FORGE_FROM_FILE-} " in *" $k "*) ;; *) continue ;; esac
+    eval "was=\${_FORGE_FILEVAL_$k-}"
+    [ "${!k-}" = "$was" ] || continue          # the caller changed it after the load: theirs
+    keys="$keys $k"
+  done
+  [ -n "$keys" ] || return 0
+  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE" ;; esac
+  case "$remote" in
+    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*) remote="" ;;
+  esac
+  if [ -n "$remote" ]; then
+    refs="$(git for-each-ref --format='%(refname)' "refs/remotes/$remote/" 2>/dev/null)"
+    for want in HEAD main master; do
+      case "
+$refs
+" in *"
+refs/remotes/$remote/$want
+"*) ref="refs/remotes/$remote/$want"; break ;; esac
+    done
+  fi
+  if [ -z "$ref" ]; then
+    _forge_pin_note "${remote:-?}"; _forge_pin_memo; return 0
+  fi
+  if ! blob="$(GIT_NO_LAZY_FETCH=1 git cat-file blob "$ref:.forge.conf" 2>/dev/null)"; then
+    blob=""
+    listed="$(GIT_NO_LAZY_FETCH=1 git ls-tree "$ref" .forge.conf 2>/dev/null)"; lrc=$?
+    if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then   # listed but not local, or unreadable: fail open
+      _forge_pin_note "$remote"; _forge_pin_memo; return 0
+    fi                                              # absent from the tree: no keys
+  fi
+  for k in $keys; do unset "_forge_dv_$k"; done
+  while IFS= read -r line || [ -n "$line" ]; do
+    _forge_conf_line "$line" || continue            # the SAME parse as the loader
+    case " $keys " in *" $_FORGE_LK "*) ;; *) continue ;; esac
+    dv="_forge_dv_$_FORGE_LK"
+    [ -n "${!dv-}" ] || printf -v "$dv" '%s' "$_FORGE_LV"   # first non-empty wins, like the loader
+  done <<< "$blob"
+  for k in $keys; do
+    eval "was=\${_FORGE_FILEVAL_$k-}"
+    dv="_forge_dv_$k"; cur="${!dv-}"
+    [ "$was" = "$cur" ] || diff="${diff:+$diff, }$k"
+    unset "$dv"
+  done
+  if [ -n "$diff" ]; then
+    echo "forge-lib: refusing: .forge.conf sets $diff, which differs from the copy at $ref (the default branch), so a checked-out branch could aim your token at another server or repository. If the ref is stale or missing, run 'git fetch $remote' (or 'git remote set-head $remote -a'); if your remote is not origin, export FORGE_REMOTE=<name>; if you committed this change but have not pushed it, push it; export a key only if you authored this change, otherwise do not run forge commands on this checkout. An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed." >&2
+    return 2
+  fi
+  _forge_pin_memo
+}
+
+# The fail-open note of _forge_pin_check: fixed text, the remote's NAME only (an exported value or
+# origin), never a value read from the working copy.
+_forge_pin_note() {
+  echo "forge-lib: default-branch check skipped (no readable .forge.conf reference for remote $1); routing keys from .forge.conf are not verified" >&2
+}
+
+# Record a pass for this load. Keyed on _FORGE_CONF_PWD, the same discipline as the config memo.
+_forge_pin_memo() {
+  _FORGE_PIN_PWD="${_FORGE_CONF_PWD-}"; export -n _FORGE_PIN_PWD
+  return 0
 }
 
 # forge_host: print 'github' or 'forgejo'.
@@ -503,10 +627,13 @@ forge_token_available() {
 }
 
 # forge_url_check: would FORGE_API_URL be accepted? Silent rc 0 if so, else forge_api's own
-# refusal on stderr and rc 2. Forgejo only (a no-op on GitHub); reads no token. forge_api_base
+# refusal on stderr and rc 2. On GitHub it runs only the
+# default-branch pin of #517 (a differing FORGE_REPO or FORGE_HOST is refused there too); on Forgejo
+# it also checks the URL. Reads no token. The pin runs BEFORE the GitHub shortcut (#517). forge_api_base
 # is called inside $(...) because its ${FORGE_API_URL:?} would exit a non-interactive caller.
 forge_url_check() {
   local host base=""
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
   [ "$host" = forgejo ] || return 0
   base="$(forge_api_base)" || return 2
@@ -514,7 +641,7 @@ forge_url_check() {
   _forge_check_url
 }
 
-# _forge_dry_url_check: forge_url_check for the DRY-RUN branches (#527). The same host, base and
+# _forge_dry_url_check: forge_url_check for the DRY-RUN branches (#527). It pins first too (#517). The same host, base and
 # scheme checks, except that an http URL without FORGE_ALLOW_HTTP=1 prints a NOTE and returns 0: a
 # dry run sends nothing, so no token can go over http. The note does not reuse the real refusal's
 # wording, so a counter of that phrase still counts only real refusals. An unset URL still returns
@@ -523,6 +650,7 @@ forge_url_check() {
 # _forge_check_url, and forge_url_check is unchanged.
 _forge_dry_url_check() {
   local host base="" url
+  _forge_pin_check || return 2
   host="$(forge_host)" || return 2
   [ "$host" = forgejo ] || return 0
   base="$(forge_api_base)" || return 2
@@ -593,9 +721,11 @@ _forge_token_impl() {
 # _forge_check_url: may the token be sent to FORGE_API_URL? rc 0 or rc 2 with a message (#442).
 # Every URL must be https, or http with FORGE_ALLOW_HTTP=1 exported (the file cannot set it, since
 # it is not a key _forge_load_conf reads). A URL from .forge.conf is trusted like an exported one
-# (#468): the host allowlist #442 added here was dropped by the maintainer, who accepted that a
-# cloned repository's .forge.conf can name the server that gets the token. Do not reintroduce a
-# per-machine trust file. The URL reaches curl only behind --url and only the token goes in the -K
+# (#468): the host allowlist #442 added here was dropped by the maintainer. Do not reintroduce a
+# per-machine trust file. What narrows that decision is #517: the routing keys the FILE set must
+# match the file on the default branch (_forge_pin_check), so a checked-out pull request branch
+# cannot redirect the token; a hostile repository whose default branch is hostile too remains the
+# accepted risk. The URL reaches curl only behind --url and only the token goes in the -K
 # config, so no URL content can inject curl options. The scheme check lives here and NOT in
 # forge_host or forge_api_base, which adapt/SKILL.md calls with a scheme-less sentinel URL.
 _forge_check_url() {
@@ -619,6 +749,7 @@ _forge_check_url() {
 forge_api() {
   local method="$1" path="$2" body="${3-}"
   local host
+  _forge_pin_check || return 2       # #517: ABOVE the dry-run guard and every request, `gh` call and token read, on both hosts
   host="$(forge_host)" || return 2   # forge_api-host-capture: ABOVE the dry-run guard, so a dry run refuses an invalid host too (#256)
   if [ "${FORGE_DRY_RUN:-0}" = 1 ]; then
     _forge_dry_url_check || return 2   # #449, #527: a dry run refuses what the real run refuses, except plain http (a note)
@@ -702,6 +833,7 @@ forge_api_paginate() {
   _forge_load_conf || true   # ONCE, in this shell: the per-page $(forge_api ...) subshells and
                              # their own $(forge_host) / $(_forge_token) subshells inherit the
                              # memo from here. Loading it deeper would be discarded each time.
+  _forge_pin_check || return 2   # #517: beside the in-shell load, so the page subshells inherit the memo
   local path="$1" sep page=1 chunk n tmp rc host
   case "$path" in *\?*) sep='&' ;; *) sep='?' ;; esac
   host="$(forge_host)" || return 2   # above the dry-run guard (#256)

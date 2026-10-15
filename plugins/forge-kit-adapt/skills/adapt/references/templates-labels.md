@@ -27,6 +27,13 @@ the same call; `FORGE_HOST` comes from the Step 1 probe):
 #   LABELS_MERGE      yes|no, the answer about an EXISTING docs/guides/labels.md (default: unanswered)
 #   FORGE_KIT_DIR     the library root (required)
 #   LABEL_AREA_DESCS  optional, one "name=description" per line, for areas the kit does not describe
+#   TYPED_FORGE_HOST, TYPED_FORGE_API_URL, TYPED_FORGE_REPO, TYPED_FORGE_REMOTE  optional (#517): ONLY
+#                     a routing value the user typed in reply to adapt's prompt in THIS run. The printed
+#                     Run line exports exactly these, each marked as typed. NEVER set one from FORGE_HOST
+#                     above (the Step 1 probe reads the working copy) or from an existing .forge.conf: an
+#                     exported value beats the default-branch pin, so a hostile checkout's file would
+#                     become the user's own. If that file differs from the default branch, show the
+#                     refusal the first forge command prints and stop; never export around it.
 # Report on stdout; refusals on stderr with exit 1; nothing is written until every input is valid.
 export LC_ALL=C; set -f
 die() { echo "forge-adapt: $*" >&2; exit 1; }
@@ -229,7 +236,12 @@ if [ ! -f scripts/forge-lib.sh ]; then
   cp "$KSH/forge-lib.sh" scripts/forge-lib.sh || die "could not copy scripts/forge-lib.sh"; echo "copied scripts/forge-lib.sh"
   [ "$host" = forgejo ] && echo "Forgejo: forge-lib.sh needs the base URL; follow the Step 3 item 4 .forge.conf flow before the first sync."
 fi
-echo "Run: bash scripts/sync-labels.sh --check"
+exp=""; typed=""
+for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE; do
+  eval "v=\${TYPED_$k-}"
+  [ -z "$v" ] || { exp="$exp export $k=$(printf '%q' "$v");"; typed="$typed $k"; }
+done
+echo "Run:${exp} bash scripts/sync-labels.sh --check${typed:+   # typed by you in this run, never read from .forge.conf:$typed}"
 ```
 
 **What the block guarantees** (each is a tested case in `scripts/test-forge-adapt-templates-labels.sh`):
@@ -252,6 +264,12 @@ echo "Run: bash scripts/sync-labels.sh --check"
   plus one entry per area, and never `contribution`.
 - **`scripts/sync-labels.sh` and `scripts/forge-lib.sh`**: copied only when absent, together, never
   run. On Forgejo with `forge-lib.sh` newly copied, finish through the Step 3 item 4 `.forge.conf` flow.
+- **The `Run:` line and routing values (#517)**: it carries an `export` only for a `TYPED_FORGE_*`
+  value (all four keys, `FORGE_HOST` and `FORGE_REMOTE` included), the user's own reply in this run,
+  and says so on the line. It never exports `$FORGE_HOST` from the Step 1 probe or anything read from
+  an existing `.forge.conf`: an exported value beats the default-branch pin, so exporting a hostile
+  checkout's file would defeat it. When that file differs from the default branch, show the refusal
+  the first forge command prints and stop. The host rule is in `forge-host`'s SKILL.md.
 - **Publishing** (all three outputs): each is composed into a `mktemp` file beside its REAL target (a
   symlink is followed with a `readlink` loop, 40 hops, no `readlink -f`) and renamed over it. A
   symlinked `labels.md` stays a symlink and its target gains the content at its own mode; a new file

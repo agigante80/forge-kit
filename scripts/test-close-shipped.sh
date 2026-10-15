@@ -403,6 +403,35 @@ mkrepo; tg v1.1.0; c "fix: x (#10)"; tg v1.2.0; newstate
 run_cs FORGE_HOST=forgejo FORGE_API_URL=https://forge.example FORGEJO_TOKEN=t FORGE_NO_GIT_CREDENTIALS=1 v1.2.0
 check "Forgejo: a 404 (forge_api rc 44) is a skip" '[ $rc -eq 0 ] && grep -q "^skip #10: not found$" <<< "$out" && grep -q "^curl " "$S/log"'
 
+echo "the .forge.conf routing keys are pinned to the default branch (#517)"
+# A github.com origin whose refs/remotes/origin/HEAD carries .forge.conf (FORGE_REPO=o/r), and a
+# working copy that a checked-out branch has edited. run_cs exports FORGE_REPO=o/r and
+# FORGE_HOST=github, which would make every key the caller's own and nothing file-sourced, so these
+# rows blank both (an empty value lets the file set it).
+pinrepo() {   # pinrepo <working-copy .forge.conf text>
+  mkrepo; git -C "$R" remote add origin https://github.com/o/r.git
+  printf 'FORGE_REPO=o/r\n' > "$R/.forge.conf"; git -C "$R" add .forge.conf; git -C "$R" commit --quiet -m "chore: conf"
+  tg v1.1.0; c "fix: x (#10)"; tg v1.2.0
+  git -C "$R" update-ref refs/remotes/origin/main HEAD
+  git -C "$R" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  printf '%s\n' "$1" > "$R/.forge.conf"
+}
+pinrepo 'FORGE_REPO=o/r'; newstate; issue 10 open; run_cs FORGE_REPO= FORGE_HOST= v1.2.0
+check "a .forge.conf equal to the default branch's closes the ticket as before" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ]'
+pinrepo 'FORGE_REPO=evil/other'; newstate; issue 10 open; run_cs FORGE_REPO= FORGE_HOST= v1.2.0
+check "a FORGE_REPO the checkout changed is refused: exit 2, the gh log empty, the key and ref named, the value not" '[ $rc -eq 2 ] && [ "$(calls)" = 0 ] && grep -q "FORGE_REPO" <<< "$out" && grep -q "refs/remotes/origin/HEAD" <<< "$out" && ! grep -q "evil/other" <<< "$out" && [ "$(state 10)" = open ]'
+pinrepo $'FORGE_HOST=forgejo\nFORGE_API_URL=https://evil.example'; newstate; issue 10 open; run_cs FORGE_REPO= FORGE_HOST= v1.2.0
+check "a host flip in the working copy is refused the same way, before any call" '[ $rc -eq 2 ] && [ "$(calls)" = 0 ] && grep -q "FORGE_HOST" <<< "$out" && ! grep -q "evil.example" <<< "$out"'
+pinrepo 'FORGE_REPO=evil/other'; newstate; issue 10 open; run_cs FORGE_REPO= FORGE_HOST= --report v1.2.0
+check "report mode is pinned too" '[ $rc -eq 2 ] && [ "$(calls)" = 0 ]'
+# Mutant: need_repo without the pin call must let the evil FORGE_REPO through to gh.
+MUT="$TMP/mut"; mkdir -p "$MUT"
+grep -v '^  _forge_pin_check || exit 2$' "$CS" > "$MUT/close-shipped.sh"
+cmp -s "$CS" "$MUT/close-shipped.sh" && bad "the need_repo mutant did not apply"
+pinrepo 'FORGE_REPO=evil/other'; newstate; issue 10 open
+CS_UNDER_TEST="$MUT/close-shipped.sh" run_cs FORGE_LIB="$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh" FORGE_REPO= FORGE_HOST= v1.2.0
+check "MUTANT: need_repo without the pin call is swallowed as a failed view (exit 1, not 2), so the exit-2 rows above can fail" '[ $rc -eq 1 ] && grep -q "view #10 failed (rc=2)" <<< "$out"'
+
 echo ""
 echo "close-shipped tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

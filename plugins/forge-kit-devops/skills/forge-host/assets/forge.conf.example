@@ -7,6 +7,12 @@ FORGE_API_URL=https://forge.example.com   # your Forgejo base URL (NO trailing /
 FORGE_REPO=youruser/your-repo         # owner/name as it exists on the forge
 FORGE_REMOTE=forgejo                  # optional: which git remote name points at the forge (default: origin)
 
+# Routing keys (#517): FORGE_HOST, FORGE_API_URL, FORGE_REPO and FORGE_REMOTE are checked against
+# THIS file on the default branch (refs/remotes/<remote>/HEAD, else main, else master) before any
+# request is made. The remote compared is an EXPORTED FORGE_REMOTE, else origin, never the one named
+# here. A pull request branch that edits them is refused; push the change to the default branch
+# first, or export the key yourself if you wrote it. An automated agent must stop, never export.
+#
 # Trust boundary (#442, #468): this file is committed, so whoever controls the repo controls it.
 # A FORGE_API_URL read from here is trusted like one you export (no allowlist); run forge-kit
 # commands only in repositories you trust. The URL must be https; an http instance needs FORGE_ALLOW_HTTP=1 exported in YOUR
