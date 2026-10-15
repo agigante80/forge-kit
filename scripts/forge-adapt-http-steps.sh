@@ -56,9 +56,11 @@ if [ -f "$conf" ] && [ -r "$conf" ]; then
     case "$line" in *=*) ;; *) continue ;; esac
     k="${line%%=*}"; v="${line#*=}"
     k="${k//[[:space:]]/}"
+    # The raw value feeds the URL, so a # inside a password is redacted rather than cut off and printed (#528).
+    rv="$(printf '%s' "$v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
     v="${v%%#*}"; v="$(printf '%s' "$v" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
     case "$k" in
-      FORGE_API_URL) [ -n "$url" ] || url="$v" ;;
+      FORGE_API_URL) [ -n "$url" ] || url="$rv" ;;
       FORGE_HOST)    [ -n "$fhost" ] || fhost="$v" ;;
     esac
   done < "$conf"
@@ -72,6 +74,7 @@ case "$url" in http://*) ;; *) exit 0 ;; esac
 rest="${url#*://}"
 case "$rest" in *@*) rest="${rest##*@}" ;; esac
 rest="${rest%%[?#]*}"
+rest="${rest%"${rest##*[![:space:]]}"}"
 url="http://$rest"
 printf 'forge-url\t%s\n' "$url"
 

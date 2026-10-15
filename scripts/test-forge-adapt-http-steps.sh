@@ -185,6 +185,10 @@ run "$P"; lacks "a password containing ? is not printed" "zq9" "$out$err"; has "
 P=$(mk u6 "FORGE_API_URL=$HTTPURL"); wf1 "$P" "$STEP"
 run "$P" 'FORGE_API_URL=http://us:pa#zr8@10.0.0.9/api/v1'
 lacks "a password containing # is not printed" "zr8" "$out$err"; has "...host kept" "forge-url	http://10.0.0.9/api/v1" "$out"
+P=$(mk u8 "FORGE_API_URL=http://bob:hunter#2@10.0.0.11/api/v1"); wf1 "$P" "$STEP"
+run "$P"; lacks "a # in a .forge.conf password is not printed (#528 round 2)" "hunter" "$out$err"; has "...host kept" "forge-url	http://10.0.0.11/api/v1" "$out"
+P=$(mk u9 "FORGE_API_URL=http://10.0.0.12/api/v1 # the lab"); wf1 "$P" "$STEP"
+run "$P"; has "a trailing comment on the config url is dropped, host kept" "forge-url	http://10.0.0.12/api/v1" "$out"
 P=$(mk u7 "FORGE_API_URL=http://10.0.0.10/api/v1?token=tok777#frag"); wf1 "$P" "$STEP"
 run "$P"; lacks "a ?token= query is dropped" "tok777" "$out$err"; has "...and so is the fragment" "forge-url	http://10.0.0.10/api/v1" "$out"
 
