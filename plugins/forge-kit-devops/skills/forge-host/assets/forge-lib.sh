@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 53
+# forge-lib-version: 54
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -288,9 +288,11 @@ unset _FORGE_LEAK_DIR _FORGE_LEAK_DONE _FORGE_LEAK_NOTED _FORGE_LEAK_ROOT _FORGE
 # scanners. CDPATH= and -- because an exported CDPATH would otherwise redirect the cd (and
 # scripts/check-cdpath-cd.sh requires them). An empty BASH_SOURCE[0] (an `eval` load) or a failed
 # resolution leaves it EMPTY, which the discovery below treats as "no own directory"; it never
-# falls back to `.`, the one value that would mean "wherever the caller is now".
+# falls back to `.`, the one value that would mean "wherever the caller is now". The file must also
+# carry this library's version marker: an `eval "$(cat forge-lib.sh)"` inside a WRAPPER script sets
+# BASH_SOURCE[0] to the wrapper, whose directory is not this library's (#539 review round 1).
 _FORGE_LIB_DIR=""
-if [ -n "${BASH_SOURCE[0]:-}" ]; then
+if [ -n "${BASH_SOURCE[0]:-}" ] && grep -q '^# forge-lib-version: [0-9]' -- "${BASH_SOURCE[0]}" 2>/dev/null; then
   _FORGE_LIB_DIR="$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || _FORGE_LIB_DIR=""
 fi
 
@@ -1018,6 +1020,10 @@ _forge_leak_clean() {   # <value>: printable, bounded, for a message that names 
   local v="${1-}"; v="${v//[![:print:]]/?}"; printf '%s' "${v:0:200}"
 }
 
+_forge_leak_bytes() {   # <text>: its length in BYTES. C only here: the scanners run under the caller's locale
+  local LC_ALL=C; printf '%s' "${#1}"
+}
+
 _forge_leak_phys() {   # <dir>: its absolute physical path, empty when it cannot be entered
   ( CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P )
 }
@@ -1068,7 +1074,7 @@ _forge_leak_discover() {
 # _forge_leak_scan <writer> <field>=<text>...   rc 0 (scanned clean, or fail-open, or switched off)
 # or 110 (a finding: nothing is sent). An empty text is skipped.
 _forge_leak_scan() {
-  local LC_ALL=C writer="$1"; shift
+  local writer="$1"; shift   # never `local LC_ALL=C` here: an exported LC_ALL would hand C to the scanners, whose case folding is then ASCII only
   [ "${FORGE_LEAK_SCAN-}" = 0 ] && return 0
   _forge_load_conf || true   # in THIS shell (not $( )): moving repository resets the notes memo, and FORGE_TOKEN_ENV is read below
   local on=0 root spec any=0
@@ -1096,14 +1102,14 @@ _forge_leak_scan() {
   for spec in "$@"; do
     fname="${spec%%=*}"; ftext="${spec#*=}"
     [ -n "$ftext" ] || continue
-    if [ "${#ftext}" -gt 1048576 ]; then   # bytes: LC_ALL=C above
+    if [ "$(_forge_leak_bytes "$ftext")" -gt 1048576 ]; then
       _forge_leak_note "over-$fname" "leak-guard: $fname over 1 MiB; not scanned"; continue
     fi
     f="$(mktemp "$_FORGE_TMPDIR/leak.XXXXXX" 2>/dev/null)" || { norun=1; continue; }
     if mv -- "$f" "$f.txt" 2>/dev/null; then f="$f.txt"; fi
     files+=("$f"); fnames+=("$fname")
     case "$f" in *.txt) ;; *) norun=1; continue ;; esac
-    printf '%s\n' "$ftext" > "$f" 2>/dev/null || norun=1
+    { printf '%s\n' "$ftext" >| "$f"; } 2>/dev/null || norun=1   # >|: mktemp made the file, so a caller's noclobber would refuse >
   done
   local envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN) tv="${FORGE_TOKEN_ENV-}" allow="" start="$SECONDS"
   if [[ "$tv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
@@ -1141,6 +1147,7 @@ _forge_leak_scan() {
     done
   done
   for f in ${files[@]+"${files[@]}"}; do _forge_tmp_done "$f"; done
+  [ "${#files[@]}" -gt 0 ] || _forge_tmp_done ""   # every field skipped (over 1 MiB): still drop the directory
   if [ "$result" = 0 ] && [ "$norun" = 1 ]; then
     _forge_leak_note norun "leak-guard could not run; body not scanned"
   fi
@@ -2016,7 +2023,7 @@ forge_tag_exists() {
 
 # forge_release_create <tag> [title] [notes]   (both hosts accept tag_name/name/body)
 forge_release_create() {
-  _forge_leak_scan forge_release_create "name=${2-}" "notes=${3-}" || return $?   # #539: before the payload
+  _forge_leak_scan forge_release_create "name=${2:-${1-}}" "notes=${3-}" || return $?   # #539: before the payload; the name defaults to the tag, as in the payload
   local payload; payload="$(printf '%s' "${3-}" | _forge_payload forge_release_create '{tag_name:$t,name:$n,body:$b}' --arg t "$1" --arg n "${2:-$1}")" || return 2   # forge-lib: payload (release)
   forge_api POST "/repos/$(forge_repo)/releases" "$payload" >/dev/null
 }

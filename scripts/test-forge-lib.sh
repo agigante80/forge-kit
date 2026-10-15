@@ -4546,6 +4546,7 @@ f="${*: -1}"
   printf 'ENV @KIND@ GH=%s GHT=%s FJ=%s MY=%s AF=%s\n' "${GH_TOKEN-U}" "${GITHUB_TOKEN-U}" "${FORGEJO_TOKEN-U}" "${MYTOK-U}" "${ALLOW_FILE-U}"
   printf 'FILE @KIND@ %s\n' "$f"
   printf 'SCRIPT @KIND@ %s\n' "$0"
+  printf 'LOC @KIND@ %s\n' "${LC_ALL-U}"
 } >> "${STUBLOG:-/dev/null}"
 [ -z "${STUBCOPY-}" ] || cp -- "$f" "$STUBCOPY.@KIND@"
 case "${STUBMODE-}" in exit2) exit 2 ;; exit127) exit 127 ;; hang) exec sleep 30 ;; slow) sleep 1 ;; esac
@@ -4789,6 +4790,45 @@ c539_eval_load() {   # no BASH_SOURCE: the own directory is empty and never "." 
   r539 "$e" "$e/lib-noguard.sh" 'printf "[%s]\n" "$_FORGE_LIB_DIR"; forge_issue_comment 5 "x PRIVNAME"' "R539EVAL=1" "HOME=$EH539"
   [ "$R539RC" = 0 ] && [ "$(cat "$T/o539")" = "[]" ] && [ "$(runs539)" = 0 ] && grep -q 'scanner not found' "$T/e539"
 }
+# Review round 1 (#539): the name a release defaults to, a wrapper's eval load, the caller's locale,
+# noclobber, the append and region dry-run placement, the plugin-cache tie-break and an all-skipped cleanup.
+w539_release_default() { lc539 'forge_release_create PRIVNAME-v1' forge_release_create name; }
+c539_eval_wrapper() {   # eval inside a WRAPPER script: BASH_SOURCE[0] is the wrapper, whose directory holds marked stubs
+  local w="$T/evw539"; mkdir -p "$w"; mkstub539 "$w"
+  sed 's/^if \[ "${BASH_SOURCE\[0\]}" = "${0}" \]; then$/if false; then/' "$L539" > "$w/lib-noguard.sh"
+  printf '%s\n' 'eval "$(cat "$WLIB")"' 'printf "[%s]\n" "$_FORGE_LIB_DIR"' \
+    'forge_api() { printf "%s %s\n" "$1" "$2" >> "$D539LOG"; return 0; }' 'forge_issue_comment 5 "x PRIVNAME"' > "$w/wrap.sh"
+  : > "$T/stub539.log"; : > "$T/req539.log"
+  ( cd "$RS539" && env -u FORGE_LEAK_SCAN -u FORGE_LEAK_GUARD_DIR FORGE_HOST=github FORGE_REPO=o/r "HOME=$EH539" \
+      "STUBLOG=$T/stub539.log" "D539LOG=$T/req539.log" "WLIB=$w/lib-noguard.sh" bash "$w/wrap.sh" ) > "$T/o539" 2> "$T/e539"
+  R539RC=$?
+  [ "$R539RC" = 0 ] && [ "$(cat "$T/o539")" = "[]" ] && [ "$(runs539)" = 0 ] && grep -q 'scanner not found' "$T/e539"
+}
+c539_locale() {   # an exported LC_ALL reaches both scanners unchanged (C would fold case for ASCII only)
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 "clean"' "$G539" LC_ALL=C.UTF-8
+  [ "$R539RC" = 0 ] && [ "$(grep -c '^LOC .* C\.UTF-8$' "$T/stub539.log")" = 2 ]
+}
+w539_noclobber() { lc539 'set -C; forge_issue_comment 5 "hello PRIVNAME"' forge_issue_comment body; }
+c539_dry_append_leak() {
+  r539 "$RS539" "$L539" 'forge_body_section_append 7 Decision "PRIVNAME (gate-written, round 1)"' "$G539" FORGE_DRY_RUN=1 D539REAL=1 "$AP539"
+  [ "$R539RC" = 110 ] && ! grep -q 'dry-run' "$T/e539"
+}
+c539_dry_region_leak() {
+  r539 "$RS539" "$L539" 'forge_body_region_set 7 gate gate-verdict "new PRIVNAME"' "$G539" FORGE_DRY_RUN=1 D539REAL=1
+  [ "$R539RC" = 110 ] && ! grep -q 'dry-run' "$T/e539"
+}
+c539_home_tie() {   # equal markers: the lexically last path wins
+  local h="$T/ht539" a b
+  rm -rf "$h"; a="$h/.claude/plugins/cache/x/forge-kit-security/1.0.0/skills/leak-guard/assets"; b="$h/.claude/plugins/cache/x/forge-kit-security/1.1.0/skills/leak-guard/assets"
+  mkstub539 "$b"; mkstub539 "$a"
+  local d="$T/htl539/a/b/c/scripts"; mkdir -p "$d"; cp "$L539" "$d/forge-lib.sh"
+  r539 "$RS539" "$d/forge-lib.sh" 'forge_issue_comment 5 "clean"' "HOME=$h"
+  [ "$R539RC" = 0 ] && grep -q "^SCRIPT private .*/forge-kit-security/1.1.0/" "$T/stub539.log" && ! grep -q "/1.0.0/" "$T/stub539.log"
+}
+c539_big_trapped() {   # every field skipped under a caller EXIT trap: the temp directory still goes
+  r539 "$RS539" "$L539" 'trap ": caller" EXIT; b="$(head -c 1048577 /dev/zero | tr "\0" a)"; forge_issue_comment 5 "$b"' "$G539"
+  [ "$R539RC" = 0 ] && [ "$(runs539)" = 0 ] && [ -z "$(ls -A "$T/tmp" 2>&1)" ]
+}
 row539() { if "$2"; then ok "$1"; else bad "$1 (rc $R539RC, stderr: $(head -c 300 "$T/e539" 2>/dev/null | tr '\n' '|'))"; fi; }
 
 row539 "#539: a clean comment is sent once, silently, after both scanners ran" c539_clean_comment
@@ -4842,6 +4882,14 @@ row539 "#539: concurrent calls use distinct temp files" c539_concurrent
 row539 "#539: a relative load then a cd into another repo never runs that repo's scripts/ stubs" c539_rel_cd
 row539 "#539: an exported CDPATH does not redirect the own-directory resolution" c539_cdpath
 row539 "#539: an eval load leaves the own directory empty and never uses the current directory" c539_eval_load
+row539 "#539: a release with no name is scanned under the tag it defaults to" w539_release_default
+row539 "#539: an eval load inside a wrapper script never takes the wrapper's directory" c539_eval_wrapper
+row539 "#539: an exported LC_ALL reaches both scanners unchanged" c539_locale
+row539 "#539: a caller with noclobber set is still scanned and refused" w539_noclobber
+row539 "#539: a dry run of a section append with a leak is refused 110 before any dry-run line" c539_dry_append_leak
+row539 "#539: a dry run of a region set with a leak is refused 110 before any dry-run line" c539_dry_region_leak
+row539 "#539: equal plugin-cache markers go to the lexically last path" c539_home_tie
+row539 "#539: a body over 1 MiB under a caller EXIT trap leaves no temp directory" c539_big_trapped
 expect "#539: the suite exports FORGE_LEAK_SCAN=0 so no other row can start a scanner" "0" "${FORGE_LEAK_SCAN-}"
 expect "#539: no helper temp file is left behind" "" "$(ls -A "$T/tmp" 2>&1)"
 
@@ -4910,7 +4958,28 @@ mut539 'an invalid FORGE_LEAK_GUARD_DIR falls through to discovery' c539_guard_m
   [ "${_FORGE_LEAK_DONE-}" = "d:" ] && return 0' '    :
   fi
   [ "${_FORGE_LEAK_DONE-}" = "d:" ] && return 0'
-mut539 'the size cap removed' c539_big '[ "${#ftext}" -gt 1048576 ]' '[ "${#ftext}" -gt 99999999999 ]'
+mut539 'the release name scanned as given, not as the payload defaults it' w539_release_default '"name=${2:-${1-}}"' '"name=${2-}"'
+mut539 'any file naming BASH_SOURCE gives the own directory' c539_eval_wrapper "] && grep -q '^# forge-lib-version: [0-9]' -- \"\${BASH_SOURCE[0]}\" 2>/dev/null; then" ']; then'
+mut539 'the scan pins LC_ALL=C for the scanners' c539_locale '  local writer="$1"; shift' '  local LC_ALL=C writer="$1"; shift'
+mut539 'the field written with > under noclobber' w539_noclobber '{ printf '"'"'%s\n'"'"' "$ftext" >| "$f"; }' '{ printf '"'"'%s\n'"'"' "$ftext" > "$f"; }'
+mut539 'the append scan placed after its dry-run guard' c539_dry_append_leak \
+  '  _forge_leak_scan forge_body_section_append "content=$content" || return $?   # #539: before the dry-run guard
+' '' \
+  '  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/append.$$"' '  _forge_leak_scan forge_body_section_append "content=$content" || return $?
+  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/append.$$"'
+mut539 'the region scan placed after its dry-run guard' c539_dry_region_leak \
+  '  if [ "$mode" = set ]; then _forge_leak_scan "forge_body_region_$mode" "content=$content" || return $?; fi
+' '' \
+  '  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/region.$$"' '  if [ "$mode" = set ]; then _forge_leak_scan "forge_body_region_$mode" "content=$content" || return $?; fi
+  _forge_tmp_init || return 2
+  tmp="$_FORGE_TMPDIR/region.$$"'
+mut539 'the plugin-cache tie-break reversed' c539_home_tie '[[ "$cand" > "$best" ]]' '[[ "$cand" < "$best" ]]'   # reversed, not dropped: find's order is the filesystem's, so a dropped tie-break could pass by luck
+mut539 'an all-skipped scan keeps its directory' c539_big_trapped '  [ "${#files[@]}" -gt 0 ] || _forge_tmp_done ""' '  :'
+rm -rf "$T"/tmp/tmp.*   # the directory that mutant leaves by design, so the leftover row below still means something
+mut539 'the size cap removed' c539_big '-gt 1048576 ]' '-gt 99999999999 ]'
 # each call site removed in turn (the Nth scan call in file order)
 n539sites="$(grep -cE '_forge_leak_scan (forge_|"forge_body_region_)' "$LIB")"
 expect "#539: the library has seven scan call sites" 7 "$n539sites"
@@ -4927,7 +4996,7 @@ for site in 1 2 3 4 5 6 7; do
   L539="$LIB"
 done
 expect "#539: the mutant runs leave no helper temp file behind" "" "$(ls -A "$T/tmp" 2>&1)"
-rm -rf "$T/m539" "$T/iso539" "$T/tree539" "$T/hp539" "$T/hpl539" "$T/relA539" "$T/relB539" "$T/cdp539" "$T/ev539" "$T/one539"
+rm -rf "$T/m539" "$T/iso539" "$T/tree539" "$T/hp539" "$T/hpl539" "$T/relA539" "$T/relB539" "$T/cdp539" "$T/ev539" "$T/one539" "$T/evw539" "$T/ht539" "$T/htl539"
 
 
 UQ_TEXT="no two ok/FAIL rows share a text"
