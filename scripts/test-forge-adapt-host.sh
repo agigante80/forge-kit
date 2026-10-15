@@ -542,6 +542,25 @@ S3=$(printf '%s\n' "$S3" | sed -e '/FORGE_KIT_SRC:?/d' -e 's/\${NM:-}/${NO_MARKE
 s3 FORGE_KIT_DIR="$ROOT" FORGE_KIT_SRC=clone
 case "$bout" in register*) ok "#407: mutant: the NO_MARKETPLACE form registers a clone install, so the copy row above dies on it" ;; *) bad "#407: mutant did not register: '$bout'" ;; esac
 
+echo "== #517: the probe is never pinned (it passes the sentinel FORGE_API_URL=x) =="
+d517=$(mkrepo pin517 'https://forge.example.com/o/r')
+printf 'FORGE_HOST=forgejo\nFORGE_REPO=o/r\n' > "$d517/.forge.conf"
+git -C "$d517" add .forge.conf
+git -C "$d517" -c user.name=t -c user.email=t@example.com commit -q -m base
+git -C "$d517" update-ref refs/remotes/origin/main HEAD
+git -C "$d517" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+printf 'FORGE_HOST=github\nFORGE_REPO=evil/other\nFORGE_API_URL=https://evil.example\n' > "$d517/.forge.conf"
+probe "$d517" "$EH" FORGE_KIT_DIR="$ROOT"
+expect "#517: the probe on a checkout whose .forge.conf differs from the default branch exits 0" 0 "$brc"
+case "$out" in *"forge-lib: refusing"*|*"default-branch check"*) bad "#517: the probe printed a pin message: $out" ;; *) ok "#517: the probe prints no pin refusal and no skip note (forge_host never calls the pin)" ;; esac
+# Mutant: a pin in forge_host would refuse here. The library copy below pins from forge_host; the same probe must then fail.
+LIB517=$(printf '%s' "$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh")
+mkdir -p "$T/k517/plugins/forge-kit-devops/skills/forge-host/assets"
+awk '/^forge_host\(\) \{/ {print; print "  _forge_pin_check || return 2"; next} 1' "$LIB517" > "$T/k517/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh"
+cmp -s "$LIB517" "$T/k517/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh" && bad "#517: the forge_host pin mutant did not apply"
+probe "$d517" "$EH" FORGE_KIT_DIR="$T/k517"
+case "$out" in *"host defaulted to github"*) ok "#517: mutant: a pin inside forge_host sends the probe to its github fallback, so the row above can fail" ;; *) bad "#517: mutant survived: $out" ;; esac
+
 echo ""
 echo "forge-adapt host probe tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

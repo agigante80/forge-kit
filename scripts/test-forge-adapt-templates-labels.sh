@@ -195,6 +195,17 @@ sc_sync() {  # sync-labels.sh and forge-lib.sh: absent-only, together, never run
   ck "sync: it was not run (no sync-labels output)" no "$(has 'sync-labels:' "$out$err")"
   ck "sync: no gh or curl call" "" "$(cat "$T/stub.log" 2>/dev/null)"
   ck "sync: github host prints no Forgejo pointer" no "$(has 'Forgejo:' "$out")"
+  ck "sync: nothing typed means no export on the Run line (#517)" no "$(has 'export' "$out")"
+  # #517: an existing working-copy .forge.conf that differs from the default branch, and the Step 1
+  # probe's FORGE_HOST, are NOT user-typed values: the Run line exports neither.
+  proj; printf 'FORGE_API_URL=https://hostile.example\nFORGE_REPO=x/y\nFORGE_HOST=forgejo\n' > "$P/.forge.conf"
+  run LABEL_AREAS="api" FORGE_HOST=forgejo
+  ck "sync: an existing .forge.conf and the probe's FORGE_HOST are never exported (#517)" "no no" "$(has 'export' "$out") $(has 'hostile.example' "$out")"
+  ck "sync: the Run line is still the plain run (#517)" yes "$(has 'Run: bash scripts/sync-labels.sh --check' "$out")"
+  proj; run LABEL_AREAS="api" FORGE_HOST=github TYPED_FORGE_API_URL="https://f.example.org/x y" TYPED_FORGE_REMOTE=forgejo
+  ck "sync: a value typed this run is exported, quoted, with its source stated (#517)" yes \
+    "$(has "Run: export FORGE_API_URL=https://f.example.org/x\\ y; export FORGE_REMOTE=forgejo; bash scripts/sync-labels.sh --check   # typed by you in this run, never read from .forge.conf: FORGE_API_URL FORGE_REMOTE" "$out")"
+  ck "sync: an untyped key is not exported even when its twin is (#517)" no "$(has 'export FORGE_HOST' "$out")"
   proj; run LABEL_AREAS="api" FORGE_HOST=forgejo
   ck "sync: a Forgejo host with a new forge-lib.sh points at the .forge.conf flow" yes "$(has '.forge.conf' "$out")"
   # present sync-labels.sh, absent forge-lib.sh: never one alone
@@ -580,6 +591,7 @@ echo "== mutants =="
 mutant "the absent-only guard on labels.md removed (clobbers an existing doc)" 's/^if \[ ! -f "\$DOC" \]; then/if true; then/' sc_present
 mutant "a merge without an explicit yes" 's/elif \[ "\$merge" = yes \]; then/elif [ "$merge" != no ]; then/' sc_present
 mutant "yes never merges" 's/elif \[ "\$merge" = yes \]; then/elif false; then/' sc_present
+mutant "the Run line exports the probe's FORGE_HOST (#517)" 's/eval "v=\\${TYPED_\$k-}"/eval "v=\\${$k-}"/' sc_sync
 mutant "sync-labels.sh is run" '$a bash scripts/sync-labels.sh --check' sc_sync
 mutant "the host switch always writes .github" 's/forgejo) hdir=\.forgejo/forgejo) hdir=.github/' sc_decl
 mutant "an existing declaration is shadowed by a second one" 's/^if \[ -n "\$decl" \]; then/if false; then/' sc_decl

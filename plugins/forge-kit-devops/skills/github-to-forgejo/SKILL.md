@@ -6,7 +6,7 @@ description: >
   push-mirror back to GitHub. Use when moving one or more repos to your own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 11 -->
+<!-- github-to-forgejo-version: 12 -->
 
 # github-to-forgejo
 
@@ -60,8 +60,10 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
   FORGE_REPO=<owner>/<repo>
   FORGE_REMOTE=forgejo
   ```
-- **Trust model** (forge-lib v40, #468): the token goes to the committed URL with no per-machine
-  step (run forge-kit commands only in repositories you trust). An http-only instance needs
+- **Trust model** (forge-lib v40, #468; v50, #517): the token goes to the committed URL with no
+  per-machine step (run forge-kit commands only in repositories you trust). The four routing keys
+  above are also compared with this file on the default branch, which does not hold it until it is
+  pushed there; until then the human exports them. An http-only instance needs
   `FORGE_ALLOW_HTTP=1` exported in your environment, never in `.forge.conf`. A token variable
   other than `FORGEJO_TOKEN` or `FORGE_TOKEN` must be named by an exported `FORGE_TOKEN_ENV`.
 
@@ -81,7 +83,10 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
 - `/forge-kit-adapt:adapt` → install/refresh `forge-host` + the host-aware components
   (release, ci-health, gate-ticket, ticket-gate, dep-auditor, health-check). Retire any
   project-local forge adapter in favour of `scripts/forge-lib.sh`.
-- Sanity: `bash scripts/forge-lib.sh detect` → `host=forgejo repo=… api=… ci=none`.
+- Sanity: `bash scripts/forge-lib.sh detect` → `host=forgejo repo=… api=… ci=none`. The human first
+  exports `FORGE_REMOTE=forgejo` (the pin compares `origin`'s default branch otherwise). Until then
+  `detect` prints `ci=not_configured` with the refusal on stderr; an agent stops and asks, and never
+  exports it itself (#517).
 - **No runner yet?** `forge_ci_status` returns `none` (asked, no run; `not_configured` would mean
   the API could not be asked, #193). Use local gates (`make test`) until a runner exists, and say
   so in any report rather than claiming a remote green.

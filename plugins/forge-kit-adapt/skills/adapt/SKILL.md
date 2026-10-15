@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 91 -->
+<!-- forge-adapt-version: 92 -->
 
 # forge-adapt
 
@@ -430,13 +430,13 @@ Rules for this step:
      version.
 3. Write it: agent -> `.claude/agents/<name>.md`; skill -> `.claude/skills/<name>/SKILL.md`, plus
    its `assets/*.sh` VERBATIM to `scripts/` (uninstalled, it degrades silently); command -> `.claude/commands/<name>.md`.
-4. **Dependencies the component needs installed alongside it.** Both preserve their markers, per
+4. **Dependencies the component needs installed alongside it.** Both preserve markers, per
    the rule above.
    - **Forge-host** (ticket-gate, gate-ticket, dep-auditor, ci-health, release/release-automation),
-     unless the repo is GitHub-only, in which case they fall back to `gh`: copy `forge-lib.sh` to
+     unless the repo is GitHub-only (they fall back to `gh`): copy `forge-lib.sh` to
      `scripts/` VERBATIM, and for a Forgejo or dual-remote repo (`$FORGE_HOST=forgejo`) copy
      `forge.conf.example` -> `.forge.conf`. Its base URL cannot be auto-detected, so ASK
-     (or read an existing `.forge.conf`), then remind the user to export the token.
+     (never from an existing `.forge.conf`, #517; Run line: `references/templates-labels.md`), then remind the user to export the token.
    - **`/full-review`** loads the `review-lows` skill at Completion: install it alongside.
    - **Companion skills (agents):** an agent carries reference material in a SKILL named in its
      `skills:` frontmatter, never its own `references/` (#124). Install each skill named, then
