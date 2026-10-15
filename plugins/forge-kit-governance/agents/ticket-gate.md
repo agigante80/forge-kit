@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 83 -->
+<!-- ticket-gate-version: 84 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -79,10 +79,11 @@ printf '%s\n' "$MECH" > "$D/mech"; . "$(dirname "$MECH")/gate-env.sh" || exit 2 
 TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
           .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do
   [ -d "$d" ] && { echo "$d"; break; }; done)
-# Guard the empty case: with no template dir, "$TPL_DIR"/*.yml would glob "/*.yml".
 CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)
 echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"
 ```
+If `CURRENT_TPL_VER` is empty, return `BLOCKED - NO_TEMPLATES` now, before any write, naming `TPL_DIR` (or "no template directory") and the remedy `forge-adapt templates`; never `RUN_FAILED`.
+
 Use 0a's values below.
 
 2. **Fetch the issue body and check for version marker:**
@@ -133,8 +134,8 @@ target section under another heading (bar `personal_data`'s GDPR match), is Miss
 Write each section, inline or dispatched, as `## <label>` holding the template's unquoted
 `label:` value, scenarios following its `placeholder:` shape, never placeholder text; where
 the body cannot support a specific case, write the most concrete one and note the assumption.
-Tag the first line of each `scenarios` or `docs_impact` block, `**Condition:**` lines too,
-`(gate-written, round 0)`.
+Pass each `scenarios` or `docs_impact` text through `"$MECH" --tag-blocks 0`, which ends every
+block with `(gate-written, round 0)`; never tag by hand.
 
 Fast path: when the ONLY gap is `docs_impact`, synthesise it inline, then 0c-iv.
 
@@ -205,8 +206,8 @@ review says so.
 
 ### Step 1.5: Thin ticket pre-check
 
-Runs BEFORE the critic; see the round table. A shrunk body would also justify it, but nothing persists a prior body to compare
-against, so that trigger is #147 rather than an unexecutable rule here. Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket
+Runs BEFORE the critic; see the round table. A shrunk-body trigger is #147 (no prior body persists).
+Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket
 that would fail purely for missing information is better halted now with targeted questions than
 pushed through a full critique.
 
@@ -551,8 +552,8 @@ alike), per Step 3B. A **fundamental** item's architecture alternatives were gen
 Under the lifecycle above, one region per call:
 1. Replace `gate-required-changes` with the blocking items as a checklist
 2. Where the critic WROTE improved GWT scenarios or a docs_impact paragraph, append them with
-   `forge_body_section_append` (WRITE ONCE above), each item one block, first line ending like
-   `**Negative:** <title> (gate-written, round N)`
+   `forge_body_section_append` (WRITE ONCE above), each item piped through
+   `"$MECH" --tag-blocks N` (first line like `**Negative:** <title> (gate-written, round N)`)
 3. If architecture alternatives were generated, replace `gate-alternatives` with the
    2 to 3 options
 

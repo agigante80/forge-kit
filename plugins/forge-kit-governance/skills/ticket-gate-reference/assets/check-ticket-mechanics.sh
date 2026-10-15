@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 44
+# check-ticket-mechanics-version: 45
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -128,6 +128,26 @@
 #   forge_issue_create "$title" "$body"
 # --classes prints `<class>\t<label>` per template field (#513), see the block that implements it.
 #
+# --tag-blocks N filters stdin to stdout and exits (#532): the text the GATE composed for a body
+# section (Step 0c-iii's scenarios and docs_impact, Step 6's appended items), with EVERY block
+# ending its first line `(gate-written, round N)`. A block is a maximal run of non-blank lines, a
+# fence line and every line inside a fence counting as non-blank: the same cut forge-lib.sh's
+# forge_body_section_append reads, which treats a block as the gate's only when its first line ENDS
+# with that tag. A synthesiser writing the tag freehand got that wrong five times in one night
+# (tagged only a first line or the Condition lines, left an Assumption paragraph bare, put the tag
+# inside the bold markers), and each time the same run's append refused with 108. This makes the
+# shape mechanical instead. A first line already ending in a tag is kept byte for byte, whatever
+# its round (provenance survives a re-run, so it is idempotent). Any other `(gate-written, round
+# K)` in that line is removed with the blanks before it and the tag is added at the end, so
+# `**Condition: x (gate-written, round 0)**` becomes `**Condition: x** (gate-written, round 0)`.
+# A block opening with a fence gets a line of its own holding just the tag, since a tag on a fence
+# line would change the fence. A block opening with a heading or a region marker is passed through
+# untouched: the append refuses those loudly (103) and tagging would corrupt them. A block that is
+# exactly `_No response_` is a placeholder and also passes through. NEVER pipe AUTHOR text through
+# this: tagging author text as the gate's is the one thing the write-once rule exists to stop, so
+# only text the gate itself composed goes in. N is a non-negative integer; exclusive of every other
+# mode, and it needs no --body or --template.
+#
 # --roles prints `<role>\t<label>` per resolved role and exits (#213), in the fixed order
 # scenarios, unit_tests, e2e_tests, docs_impact: the ids ticket-gate's Step 0c targets and the
 # synthesis table are keyed on (`scenarios` feeds check 3's row `gwt`). Same resolution as
@@ -165,7 +185,7 @@
 #
 set -uo pipefail
 
-BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
+TAG_ROUND=""; BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -251,6 +271,7 @@ while [ $# -gt 0 ]; do
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
     --roles)               ROLES=1; shift ;;
+    --tag-blocks)          need_value $# "$1"; TAG_ROUND="$2"; shift 2 ;;
     --headings)            HEADINGS=1; shift ;;
     --classes)             CLASSES=1; shift ;;
     --skeleton)            SKELETON=1; shift ;;
@@ -259,6 +280,29 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ -n "$TAG_ROUND" ]; then   # #532: a stdin filter, before any mode or file checks
+  case "$TAG_ROUND" in ''|*[!0-9]*) die "--tag-blocks takes a round number (digits only), got '$TAG_ROUND'" ;; esac
+  [ -z "$BODY$TEMPLATE" ] && [ "$ROLES$DUMP_FIELDS$HEADINGS$CLASSES$SKELETON" = 00000 ] \
+    || die "--tag-blocks is exclusive of every other mode and takes no --body or --template"
+  GATE_ROUND="$TAG_ROUND" awk "$FENCE_AWK"'
+    function tagged(s) { return s ~ /\(gate-written, round [0-9]+\)$/ }
+    BEGIN { first = 1; tag = "(gate-written, round " ENVIRON["GATE_ROUND"] ")" }
+    { l = $0; sub(/\r$/, "", l); sub(/[ \t]+$/, "", l) }
+    fopen { if (fence_close(l)) fopen = 0; print; next }
+    l == "" { first = 1; print; next }
+    {
+      isf = fence_open(l); if (isf) fopen = 1   # the fence state the lines after it are read in
+      if (!first) { print; next }
+      first = 0
+      match(l, /^ */); t = substr(l, RLENGTH + 1)
+      if (RLENGTH <= 3 && (t ~ /^#+ / || t ~ /^<!-- [^ \t]+:(start|end) -->$/ || l == "_No response_")) { print; next }
+      if (tagged(l)) { print; next }
+      if (isf) { print tag; print l; next }
+      gsub(/[ \t]*\(gate-written, round [0-9]+\)/, "", l)
+      print l " " tag
+    }'
+  exit 0
+fi
 [ "$ROLES" -eq 0 ] || [ "$DUMP_FIELDS" -eq 0 ] || die "--roles and --dump-fields are mutually exclusive"
 [ "$HEADINGS" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ]; } || die "--headings is exclusive of --roles and --dump-fields"
 [ "$CLASSES" -eq 0 ] || { [ "$ROLES" -eq 0 ] && [ "$DUMP_FIELDS" -eq 0 ] && [ "$HEADINGS" -eq 0 ]; } || die "--classes is exclusive of --roles, --dump-fields and --headings"

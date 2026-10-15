@@ -3,7 +3,7 @@ description: "Run the ticket readiness gate on a forge issue (GitHub or self-hos
 argument-hint: "<issue number>"
 ---
 
-<!-- gate-ticket-version: 9 -->
+<!-- gate-ticket-version: 10 -->
 
 Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo, where the ticket-gate
 agent detects the host via the `forge-host` adapter).
@@ -30,6 +30,6 @@ The ticket-gate agent handles all steps:
 4. Runs the deterministic mechanical checks, then ONE critic agent (plus the security
    lens when the `security` or `critical` label is present)
 5. Compiles and posts the review (verdict + critique, never a numeric scorecard) as a forge comment
-6. Returns PASS or NEEDS-WORK with specific required changes, or BLOCKED (missing required labels, or a ticket too thin to review: fix labels / answer the posted questions, then re-run; `RUN_FAILED` when a step's own guard stops the run, its stderr line relayed: fix what it names, then re-run)
+6. Returns PASS or NEEDS-WORK with specific required changes, or BLOCKED (missing required labels, or a ticket too thin to review: fix labels / answer the posted questions, then re-run; `NO_TEMPLATES` when the project has no versioned issue template: run `forge-adapt templates` (`/forge-kit-adapt:adapt`), then re-run; `RUN_FAILED` when a step's own guard stops the run, its stderr line relayed: fix what it names, then re-run)
 
 The ticket is implementation-ready when every mechanical check passes and the critic (and any lens) raises zero blocking items.
