@@ -1208,8 +1208,7 @@ mut431 'drop $PWD/ in the doc' "$DOC" '\$PWD/<0a' '<0a' '$PWD/<0a'"'"'s TPL_DIR>
 grep -qxF 'Use 0a'"'"'s values below.' "$GATE" && ok "#431: Step 0a hands over 0a's values, not an unset variable" || bad "#431: Step 0a still says Use \$CURRENT_TPL_VER everywhere below"
 mut431 'restore the unset-variable sentence' "$GATE" "^Use 0a.s values below\\.\$" 'Use `$CURRENT_TPL_VER` everywhere below.' 'Use 0a'"'"'s values below.'
 # #430 item 1: 0a keeps the first marker only. #431 item 3: 0a ends by echoing the two values later steps reuse.
-grep -qF "| grep -oPm1 'template-version: \\K\\d+'" "$GATE" && ok "#430: Step 0a's extraction keeps the first marker only (-m1)" || bad "#430: Step 0a's extraction can print several markers"
-mut431 'Step 0a extraction without -m1' "$GATE" 'grep -oPm1 ' 'grep -oP ' "| grep -oPm1 'template-version: \\K\\d+'"
+# #430 item 1 (first marker only) is pinned behaviourally by the #534 rows below: the extraction is POSIX sed now, so -m1 is gone and head -1 carries the rule.
 grep -qxF 'echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"' "$GATE" && ok "#431: Step 0a echoes TPL_DIR and CURRENT_TPL_VER" || bad "#431: Step 0a echoes neither value"
 mut431 'Step 0a echo deleted' "$GATE" '^echo "TPL_DIR=.*$' '' 'echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"'
 grep -qF 'never placeholder text' "$GATE" && ok "#361: the never-placeholder-text instruction is kept" || bad "#361: never placeholder text was dropped"
@@ -2760,6 +2759,95 @@ sed 's/section \\"E2E test specs\\" says a UI-touching/rule 3 says a UI-touching
 cmp -s "$SCRIPT" "$WORK/mut-510.sh" && bad "#510: the numbered-citation mutant did not apply"
 n510="$(grep -ciE 'rules? ?-?[0-9]' "$WORK/mut-510.sh")"
 [ "$n510" != 0 ] && ok "#510: MUTANT: a reverted citation is caught by the no-numbered-rule row" || bad "#510: MUTANT survived: the no-numbered-rule row passes a reverted citation"
+
+# #534: the gate read template-version with GNU-only grep -P, so on stock macOS (BSD grep, no -P) the
+# Step 0a value was empty and the #523 NO_TEMPLATES stop fired on every ticket. The three reads are POSIX
+# sed with exactly ONE literal space after the colon (what forge-gate-mechanics.sh's grep pipeline accepts,
+# so the agent proceeds exactly where the script does). This is prose a model runs, so the suite extracts
+# each command line from the agent and runs it under a PATH shim grep that rejects -P, the way BSD grep does.
+# Ratchet note: the agent plus ticket-gate-reference sit at the 5634-word baseline, so keep the sed
+# expression one token per space as written; do not reword it into a longer form.
+REALGREP534="$(type -P grep)"; SHIM534="$WORK/shim534"; mkdir -p "$SHIM534"   # absolute path, resolved before PATH changes
+cat > "$SHIM534/grep" <<SH
+#!/usr/bin/env bash
+for a in "\$@"; do case "\$a" in -P|-[a-zA-Z]*P|-[a-zA-Z]*P[a-zA-Z0-9]*|--perl-regexp) echo "grep: invalid option -- P" >&2; exit 2 ;; esac; done
+exec $REALGREP534 "\$@"
+SH
+chmod +x "$SHIM534/grep"
+printf 'x\n' | env PATH="$SHIM534:$PATH" grep -P x >/dev/null 2>&1 && bad "#534: the shim grep accepted -P" || ok "#534: the shim grep rejects -P like BSD grep"
+printf 'x\n' | env PATH="$SHIM534:$PATH" grep -oPm1 x >/dev/null 2>&1 && bad "#534: the shim grep accepted -oPm1" || ok "#534: the shim grep rejects the bundled -oPm1 form"
+printf 'x\n' | env PATH="$SHIM534:$PATH" grep -hoP x >/dev/null 2>&1 && bad "#534: the shim grep accepted -hoP" || ok "#534: the shim grep rejects the trailing-P form -hoP"
+printf 'x\n' | env PATH="$SHIM534:$PATH" grep -ho x >/dev/null 2>&1 && ok "#534: the shim grep accepts -ho (no P)" || bad "#534: the shim grep rejected -ho"
+printf 'x\n' | env PATH="$SHIM534:$PATH" grep -q x && ok "#534: the shim grep passes a plain call through to the real grep" || bad "#534: the shim grep broke a plain call"
+# Extractions. Each must be non-empty and exactly one line, or the run below would be an empty command
+# that prints nothing and passes as a false "empty output" negative.
+x534_82()  { "$REALGREP534" '^CURRENT_TPL_VER=' "$1"; }
+x534_92()  { "$REALGREP534" -F -- "jq -r '.body // \"\"' <<<\"\$I\" | " "$1"; }
+x534_348() { "$REALGREP534" -F -- '--tpl-version "$(' "$1"; }
+for site in 82 92 348; do
+  n534="$(x534_$site "$GATE" | wc -l | tr -d ' ')"
+  [ "$n534" = 1 ] && ok "#534: line extraction $site finds exactly one line in ticket-gate.md" || bad "#534: line extraction $site found $n534 lines (a false empty-output negative would follow)"
+done
+# Runners: each takes the agent file and an input and prints what the site yields under the shim.
+EXP534="$("$REALGREP534" -hoE 'template-version: [0-9]+' "$TPLDIR"/*.yml | sed 's/.*: //' | sort -un | tail -1)"
+[ -n "$EXP534" ] && ok "#534: the repo's templates carry a template-version ($EXP534)" || bad "#534: no template-version found in $TPLDIR"
+run534_82() { local l; l="$(x534_82 "$1")"; [ -n "$l" ] || { echo EMPTY-EXTRACTION; return; }
+  PATH="$SHIM534:$PATH" TPL_DIR="$2" bash -c "unset -f grep; $l"'; printf %s "$CURRENT_TPL_VER"' 2>"$WORK/err534"; }
+run534_92() { local l; l="$(x534_92 "$1" | sed 's/<NUMBER>/1/')"; [ -n "$l" ] || { echo EMPTY-EXTRACTION; return; }
+  PATH="$SHIM534:$PATH" BODY534="$2" bash -c 'unset -f grep; forge_issue_view() { jq -n --arg b "$BODY534" "{body: \$b}"; }; '"$l" 2>"$WORK/err534"; }
+run534_348() { local l x; l="$(x534_348 "$1")"; [ -n "$l" ] || { echo EMPTY-EXTRACTION; return; }
+  x="$(printf '%s' "$l" | sed 's/^[[:space:]]*--tpl-version //; s/[[:space:]]*\\$//')"
+  mkdir -p "$WORK/d534"; printf '%s' "$2" > "$WORK/d534/body.md"
+  PATH="$SHIM534:$PATH" D="$WORK/d534" bash -c 'unset -f grep; printf %s '"$x" 2>"$WORK/err534"; }
+mkdir -p "$WORK/t534-none"; printf 'name: Bug\nbody: []\n' > "$WORK/t534-none/bug.yml"
+got534="$(run534_82 "$GATE" "$TPLDIR")"
+[ "$got534" = "$EXP534" ] && ok "#534: Step 0a reads $EXP534 from the real templates under a -P-rejecting grep" || bad "#534: Step 0a gave '$got534', expected $EXP534 (stderr: $(cat "$WORK/err534"))"
+[ ! -s "$WORK/err534" ] && ok "#534: Step 0a prints nothing on stderr under the shim" || bad "#534: Step 0a wrote to stderr: $(cat "$WORK/err534")"
+got534="$(run534_82 "$GATE" "$WORK/t534-none")"
+[ -z "$got534" ] && ok "#534: a template dir with no marker yields an empty value (NO_TEMPLATES stays reachable)" || bad "#534: a marker-less template dir yielded '$got534'"
+got534="$(run534_82 "$GATE" "")"
+[ -z "$got534" ] && ok "#534: an empty TPL_DIR yields an empty value (the guard is kept)" || bad "#534: an empty TPL_DIR yielded '$got534'"
+mkdir -p "$WORK/t534-mix"; printf '# template-version: 5\n' > "$WORK/t534-mix/a.yml"; printf '# template-version: 12\n' > "$WORK/t534-mix/b.yml"; printf '# template-version: 9\n' > "$WORK/t534-mix/c.yml"
+got534="$(run534_82 "$GATE" "$WORK/t534-mix")"
+[ "$got534" = 12 ] && ok "#534: mixed template versions give the numeric maximum (5, 12, 9 gives 12)" || bad "#534: mixed versions gave '$got534', expected 12"
+B534=$'## Title\n<!-- template-version: 6 -->\ntext\n<!-- template-version: 5 -->'
+got534="$(run534_92 "$GATE" "$B534")"
+[ "$got534" = 6 ] && ok "#534: Step 0a step 2 keeps the first of two body markers under the shim" || bad "#534: step 2 gave '$got534', expected 6 (stderr: $(cat "$WORK/err534"))"
+got534="$(run534_92 "$GATE" $'no marker here\n')"
+[ -z "$got534" ] && ok "#534: step 2 prints nothing for a body with no marker" || bad "#534: step 2 gave '$got534' for a marker-less body"
+got534="$(run534_92 "$GATE" $'<!-- template-version:6 -->')"
+[ -z "$got534" ] && ok "#534: step 2 reads nothing from template-version:6, as forge-gate-mechanics.sh does" || bad "#534: step 2 accepted the no-space form and gave '$got534'"
+got534="$(run534_92 "$GATE" $'<!-- template-version: -->\n<!-- template-version: 7 -->')"
+[ "$got534" = 7 ] && ok "#534: a number-less marker line does not shadow the real marker" || bad "#534: number-less marker gave '$got534', expected 7"
+got534="$(run534_348 "$GATE" "$B534")"
+[ "$got534" = 6 ] && ok "#534: Step 3A --tpl-version reads the first marker under the shim" || bad "#534: Step 3A gave '$got534', expected 6 (stderr: $(cat "$WORK/err534"))"
+got534="$(run534_348 "$GATE" $'no marker\n')"
+[ -z "$got534" ] && ok "#534: Step 3A --tpl-version is empty for a marker-less body" || bad "#534: Step 3A gave '$got534' for a marker-less body"
+n534="$("$REALGREP534" -cE 'grep -[a-zA-Z]*P' "$GATE")"
+[ "$n534" = 0 ] && ok "#534: ticket-gate.md contains no grep -P at all" || bad "#534: ticket-gate.md still has $n534 grep -P uses"
+# Mutants. Each is built on a copy; cmp proves it applied; the pins must then fail.
+OLD534='CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP '"'"'template-version: \K\d+'"'"' "$TPL_DIR"/*.yml | sort -un | tail -1)'
+OLD534="$OLD534" awk '/^CURRENT_TPL_VER=/ { print ENVIRON["OLD534"]; next } { print }' "$GATE" > "$WORK/gate-534-m1.md"
+cmp -s "$GATE" "$WORK/gate-534-m1.md" && bad "#534: the Step 0a grep -hoP mutant did not apply"
+got534="$(run534_82 "$WORK/gate-534-m1.md" "$TPLDIR")"
+[ "$got534" != "$EXP534" ] && ok "#534: MUTANT: restoring grep -hoP at Step 0a gives an empty value under the shim" || bad "#534: MUTANT survived: restored grep -hoP still reads $got534 under the shim"
+[ "$("$REALGREP534" -cE 'grep -[a-zA-Z]*P' "$WORK/gate-534-m1.md")" != 0 ] && ok "#534: MUTANT: restoring grep -hoP fails the absence assertion" || bad "#534: MUTANT survived: the absence assertion passes with grep -hoP restored"
+sed '/jq -r .\.body \/\/ ""/s/ | head -1$//' "$GATE" > "$WORK/gate-534-m2.md"
+cmp -s "$GATE" "$WORK/gate-534-m2.md" && bad "#534: the dropped head -1 mutant did not apply"
+got534="$(run534_92 "$WORK/gate-534-m2.md" "$B534")"
+[ "$got534" != 6 ] && ok "#534: MUTANT: dropping head -1 at step 2 prints both markers and fails the first-marker row" || bad "#534: MUTANT survived: step 2 still gave '$got534' without head -1"
+sed '/jq -r .\.body \/\/ ""/s/template-version: /template-version:[[:space:]]*/' "$GATE" > "$WORK/gate-534-m4.md"
+cmp -s "$GATE" "$WORK/gate-534-m4.md" && bad "#534: the step 2 star mutant did not apply"
+got534="$(run534_92 "$WORK/gate-534-m4.md" $'<!-- template-version:6 -->')"
+[ -n "$got534" ] && ok "#534: MUTANT: a [[:space:]]* at step 2 accepts the no-space marker and fails the parity row" || bad "#534: MUTANT survived: the star form still reads nothing from template-version:6"
+sed 's/^\(CURRENT_TPL_VER=\$(\)\[ -n "\$TPL_DIR" \] && /\1/' "$GATE" > "$WORK/gate-534-m5.md"
+cmp -s "$GATE" "$WORK/gate-534-m5.md" && bad "#534: the dropped guard mutant did not apply"
+got534="$(run534_82 "$WORK/gate-534-m5.md" "")"
+[ -n "$got534" ] || [ -s "$WORK/err534" ] && ok "#534: MUTANT: dropping the TPL_DIR guard changes the empty-dir row's result" || bad "#534: MUTANT survived: the empty-dir row passes without the guard"
+sed '/--tpl-version "\$(/s/ | head -1)"/)"/' "$GATE" > "$WORK/gate-534-m6.md"
+cmp -s "$GATE" "$WORK/gate-534-m6.md" && bad "#534: the Step 3A head -1 mutant did not apply"
+got534="$(run534_348 "$WORK/gate-534-m6.md" "$B534")"
+[ "$got534" != 6 ] && ok "#534: MUTANT: dropping head -1 at Step 3A fails the first-marker row" || bad "#534: MUTANT survived: Step 3A still gave '$got534' without head -1"
 
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"

@@ -57,7 +57,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 |---|---|---|---|
 | `forge-kit-adapt` | 0.12.25 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.22.26 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.35.39 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
+| `forge-kit-governance` | 0.35.40 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops and masked-exit-adv… |
 | `forge-kit-review` | 0.7.4 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.17.8 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, and the leak-guard for a repo about to go public. |
@@ -260,7 +260,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | shell asset | `release-run` | v5 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v15 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v84 | 5119 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
+| `forge-kit-governance` | agent | `ticket-gate` | v85 | 5120 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v10 | 306 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo). |
 | `forge-kit-governance` | skill | `closing-sessions` | v9 | 1191 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |

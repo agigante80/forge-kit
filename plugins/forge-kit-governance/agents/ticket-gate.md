@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 84 -->
+<!-- ticket-gate-version: 85 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -79,17 +79,17 @@ printf '%s\n' "$MECH" > "$D/mech"; . "$(dirname "$MECH")/gate-env.sh" || exit 2 
 TPL_DIR=$(for d in .forgejo/ISSUE_TEMPLATE .forgejo/issue_template \
           .gitea/ISSUE_TEMPLATE .gitea/issue_template .github/ISSUE_TEMPLATE; do
   [ -d "$d" ] && { echo "$d"; break; }; done)
-CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && grep -hoP 'template-version: \K\d+' "$TPL_DIR"/*.yml | sort -un | tail -1)
+CURRENT_TPL_VER=$([ -n "$TPL_DIR" ] && sed -n 's/.*template-version: \([0-9][0-9]*\).*/\1/p' "$TPL_DIR"/*.yml | sort -un | tail -1)
 echo "TPL_DIR=$TPL_DIR CURRENT_TPL_VER=$CURRENT_TPL_VER"
 ```
-If `CURRENT_TPL_VER` is empty, return `BLOCKED - NO_TEMPLATES` now, before any write, naming `TPL_DIR` (or "no template directory") and the remedy `forge-adapt templates`; never `RUN_FAILED`.
+If `CURRENT_TPL_VER` is empty, return `BLOCKED - NO_TEMPLATES` now, before any write, naming `TPL_DIR` (or "none") and the remedy `forge-adapt templates`; never `RUN_FAILED`.
 
 Use 0a's values below.
 
 2. **Fetch the issue body and check for version marker:**
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
-I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.body // ""' <<<"$I" | grep -oPm1 'template-version: \K\d+'
+I=$(forge_issue_view <NUMBER>) || exit 2; jq -r '.body // ""' <<<"$I" | sed -n 's/.*template-version: \([0-9][0-9]*\).*/\1/p' | head -1
 ```
 
 3. **Evaluate:**
@@ -345,7 +345,7 @@ which cannot be tested (#149).
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
 [ "$(jq .number "$D/issue.json")" = <NUMBER> ] || exit 2   # another run's fetch: STOP, post nothing (#197)
 "$MECH" --body "$D/body.md" --template <0a's TPL_DIR>/<type>.yml \
-  --tpl-version "$(grep -oP 'template-version: \K\d+' "$D/body.md" | head -1)" \
+  --tpl-version "$(sed -n 's/.*template-version: \([0-9][0-9]*\).*/\1/p' "$D/body.md" | head -1)" \
   --current-tpl-version <0a's value> --labels "$(jq -r '[.labels[].name]|join(",")' "$D/issue.json")" \
   --labels-doc docs/guides/labels.md
 ```
