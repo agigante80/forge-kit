@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 86 -->
+<!-- ticket-gate-version: 87 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -503,8 +503,8 @@ and it is a projection of Step 1's count, never its source.
 
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
-forge_body_region_set <NUMBER> gate <region> "<content>"
-forge_body_region_clear <NUMBER> gate <region>
+forge_body_region_set <NUMBER> gate gate-<name> "<content>"
+forge_body_region_clear <NUMBER> gate gate-<name>
 forge_body_compose_preserving <NUMBER> "<whole body>"
 "$GS" <NUMBER> --stamp   # LAST: after every write and any prompt-mode choice
 ```
