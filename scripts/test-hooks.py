@@ -3067,6 +3067,7 @@ FWC_COMMENT = [
     "gh api graphql -f query='mutation{addComment(input:{subjectId:\"X\",body:\"b\"}){clientMutationId}}'",
     'echo "x `gh issue comment 5 -b y`"',
     "cut -d' ' -f1 ids.txt; gh issue comment 5 -b x",
+    'curl -X POST https://h/api/v1/repos/o/r/issues/5/comments -d \'{"body":"graphql mutation notes"}\'',
     'curl -X POST "https://api.github.com/graphql" -d \'{"query":"mutation{addComment(input:{}){x}}"}\'',
 ]
 FWC_TICKET = [

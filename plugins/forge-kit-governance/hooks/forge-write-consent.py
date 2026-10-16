@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 3
+# forge-write-consent-version: 4
 """Deny forge comments and new tickets unless the user's own prompt granted them (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
@@ -236,7 +236,6 @@ def classify(command):
             need.add("ticket")
         if GRAPHQL.search(blank) and re.search(r"/?graphql\b", raw) and re.search(r"\bmutation\b", raw):
             need.update(kind for kind, name in GRAPHQL_WRITES if name.search(raw))
-            continue
         for tool, writes, reads in API_WRITES.values():
             if tool.search(blank) and writes.search(raw) and not reads.search(raw):
                 if COMMENTS_PATH.search(raw):
