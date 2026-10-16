@@ -8,6 +8,7 @@ Hooks are copied verbatim (never rewritten) and wired into `.claude/settings.jso
 |---|---|---|---|---|---|
 | CLAUDE.md states a no-em/en-dash or strict writing rule | `block-dashes.py` | governance | PreToolUse | enforce the no-dash writing rule | `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` |
 | the project dispatches subagents (`ticket-gate`, `/full-review` or `working-overnight` installed) | `no-poll-loops.py` | governance | PreToolUse | stop shell waits on dispatched subagents | `Bash\|Monitor` |
+| agents post forge comments or file tickets (`ticket-gate`, `decision-brief`, `dep-auditor` or `/full-review` installed), or CLAUDE.md says decisions go in the ticket body | `forge-write-consent.py` | governance | UserPromptSubmit + PreToolUse | no comment or new ticket unless the user grants it | `Bash` (PreToolUse); none (UserPromptSubmit) |
 | `working-overnight` is installed, or CLAUDE.md states a rule against destructive commands (`rm -rf`, `git reset --hard`, discarding uncommitted work) | `overnight-guard.py` | governance | PreToolUse | deny destructive git and rm -rf, day and night | `Bash` |
 | the project has a test or check runner (`scripts/test-*` or `scripts/check-*`, a `package.json` test script, `pytest`, a `Makefile` test target, `Cargo.toml`, `go.mod`) | `masked-exit-advisory.py` | governance | PostToolUse | flag a check whose exit code a pipe masks | `Bash` |
 | the repo has a `.leak-guard-allow` or the leak-guard is installed, and agents file tickets or PR text with `gh` | `scan-forge-writes.py` | security | PreToolUse | scan gh issue and PR text for leaks before it posts | `Bash` |
@@ -75,6 +76,38 @@ sentinel. Optionally sanity-run `python3 .claude/hooks/no-poll-loops.py --self-t
 shape). The deny pattern is in the hook's own header and `hooks/README.md`; do not restate it.
 
 When NOT to recommend: a project that installs none of the components that dispatch subagents.
+
+## Install detail (forge-write-consent.py)
+
+One script, two events: `UserPromptSubmit` records whether the user's own prompt said
+`allow-comment` or `allow-ticket`, and `PreToolUse` `Bash` denies a forge comment or a new ticket
+that has no grant. Its OWN sentinel, `.claude/forge-write-consent`, which forge-adapt creates on
+every install, in both shapes; without it the script is inert, as `no-poll-loops` is.
+
+Branch on `$GOVERNANCE_PLUGIN_ACTIVE`, as for `block-dashes`:
+
+`yes`: the plugin's `hooks.json` already registers both events, shell-gated on the sentinel. Do
+NOT copy the script and do NOT touch `settings.json`. The whole install is:
+
+```bash
+mkdir -p .claude && touch .claude/forge-write-consent
+```
+
+`no`: copy `$FORGE_KIT_DIR/plugins/forge-kit-governance/hooks/forge-write-consent.py` verbatim to
+`.claude/hooks/forge-write-consent.py` (keep the `# forge-write-consent-version: N` marker) and merge
+TWO entries into `.claude/settings.json` with the same `jq` merge and exec form as `block-dashes`
+(`"command": "python3"`, `"args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/forge-write-consent.py"]`):
+one under `PreToolUse` with matcher `Bash`, one under `UserPromptSubmit` with no matcher. Missing
+the second leaves every comment and ticket denied, since no grant is ever recorded. Then create
+the sentinel with the command above.
+
+Confirm: `✓ forge-write-consent (hook): armed via .claude/forge-write-consent; grant with
+allow-comment / allow-ticket in a prompt`. Tell the user those two words, since a denied agent will
+ask for them. Opt out by deleting the sentinel. Optionally sanity-run
+`python3 .claude/hooks/forge-write-consent.py --self-test` (project-local shape). What it denies
+and exempts is in the hook's own header and `hooks/README.md`; do not restate it.
+
+When NOT to recommend: a project whose agents never post to the forge.
 
 ## Install detail (overnight-guard.py)
 

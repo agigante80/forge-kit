@@ -3,7 +3,7 @@ name: decision-brief
 description: Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and rewrite the ticket body so the decision can be made from it. Use when a ticket is waiting on a human decision, when asked for a decision brief on an issue, when a ticket has stalled through several nudges, or when someone asks which option to pick on a ticket.
 ---
 
-<!-- decision-brief-version: 5 -->
+<!-- decision-brief-version: 6 -->
 
 # Decision brief
 
@@ -35,7 +35,7 @@ nothing in devops knows what a decision brief is. Install it alongside.
 
 Read and write through the `forge_*` functions, never `gh` directly, so a brief works on GitHub and
 Forgejo alike: `forge_issue_view <n>` to read, `forge_issue_comment <n> <body>` for a correction
-comment, and the body-region primitives for every write (see Step 7). `forge_api` short-circuits on
+comment (only with the user's go-ahead), and the body-region primitives for every write (see Step 7). `forge_api` short-circuits on
 `FORGE_DRY_RUN=1` for every method, GET included, so exporting it before Step 1 drafts against an
 empty ticket rather than the real one. Export it only around Step 7's writes.
 
@@ -115,7 +115,9 @@ The rewrite MUST:
 - keep every part of the original argument that still holds, **in the author's framing**;
 - state explicitly what was removed and why, rather than quietly dropping it;
 - post a separate correction COMMENT first when a factual claim is being retracted, so the public
-  record shows the correction independently of the rewrite.
+  record shows the correction independently of the rewrite. Ask the user first: every other
+  decision or answer goes into the body, never a comment (the `forge-write-consent` hook denies an
+  ungranted one).
 
 **What this skill may change, stated once.** It OWNS two regions, `brief-preamble` and
 `brief-decision`, which it may create and replace outright. It may ALSO rewrite author sections

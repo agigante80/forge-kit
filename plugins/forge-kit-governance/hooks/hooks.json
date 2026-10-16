@@ -42,6 +42,20 @@
             ]
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": [
+              "-c",
+              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/forge-write-consent\" ] || exit 0; exec python3 \"$0\"",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/forge-write-consent.py"
+            ]
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -68,6 +82,21 @@
             "command": "python3",
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/hooks/overnight-continue.py"
+            ]
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh",
+            "args": [
+              "-c",
+              "[ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/forge-write-consent\" ] || exit 0; exec python3 \"$0\"",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/forge-write-consent.py"
             ]
           }
         ]

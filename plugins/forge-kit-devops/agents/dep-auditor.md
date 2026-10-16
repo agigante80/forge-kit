@@ -3,7 +3,7 @@ name: dep-auditor
 description: |
   Dependency health auditor - unused dependencies, redundant transitive duplicates,
   unmaintained upstream libraries, and known vulnerabilities, across all workspace packages.
-  Files a prioritised ticket for every finding.
+  Drafts a prioritised ticket for every finding and files them when the user asks.
 
   Invoke when:
   - "Audit dependencies"
@@ -22,7 +22,7 @@ effort: medium
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 12 -->
+<!-- dep-auditor-version: 13 -->
 
 Tier: a bounded-analysis role, so Sonnet at medium effort, which in measurement reported every finding a stronger tier rated medium or above.
 
@@ -190,13 +190,15 @@ Flag packages that are 2+ major versions behind latest.
 
 1. **Update the cache:** write `docs/audit/dep-audit-cache.json` with new check dates
 2. **Print the report** to the conversation
-3. **Create GitHub tickets** for all findings (see below)
+3. **Draft a ticket** for every finding, and create them only when asked (see below)
 
 ---
 
-## Automatic ticket creation
+## Ticket drafts and creation
 
-After the report, create GitHub tickets for all findings. Before creating, search for
+After the report, draft a ticket for every finding. Create them only when the user's request
+asked for tickets (where the `forge-write-consent` hook is armed, a prompt holding `allow-ticket`);
+otherwise print the drafts and ask which to file. Before creating, search for
 duplicates: `gh issue list --search "<title>" --state open --limit 1`.
 
 Detect the current active milestone:

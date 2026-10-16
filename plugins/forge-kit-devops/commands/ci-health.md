@@ -2,7 +2,7 @@
 description: "Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures."
 ---
 
-<!-- ci-health-version: 8 -->
+<!-- ci-health-version: 9 -->
 
 # CI Health Monitor
 
@@ -56,6 +56,9 @@ the version per docs/versioning.md" and move on (see Phase 4).
 
 ### Phase 2: Create tickets for failures
 
+With `.claude/forge-write-consent` present (#565), a new ticket needs the user's `allow-ticket` in
+the prompt (`/ci-health allow-ticket`); without it, list the tickets you would file and ask.
+
 For each failing job:
 
 1. **Check for an existing open ticket** to avoid duplicates:
@@ -80,7 +83,8 @@ gh issue list --search "fix(ci): <job-name-keyword>" --state open --limit 1
      - Documentation impact: "None: CI repair, no user-visible surface" unless the fix changes
        documented workflows
 
-3. **If a ticket already exists**, add a comment with the latest error logs.
+3. **If a ticket already exists**, replace the error logs in its BODY (`gh issue edit`) with the
+   latest ones. Never add them as a comment: a ticket is read by its body.
 
 ### Phase 3: Gate each new ticket
 

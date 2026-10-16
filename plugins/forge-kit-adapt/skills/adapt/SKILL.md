@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 93 -->
+<!-- forge-adapt-version: 94 -->
 
 # forge-adapt
 
@@ -490,7 +490,7 @@ the plugin, or install it into the project as below. Never do both.
 1. Copy the script verbatim from `<library>/plugins/<group>/hooks/<file>` to
    `.claude/hooks/<file>` (`mkdir -p .claude/hooks`). Hook scripts are stack-agnostic - do not
    rewrite them; keep the `# <name>-version: N` marker line. A copy in the project root opts
-   `block-dashes` in by location; `no-poll-loops` always needs its own sentinel.
+   `block-dashes` in by location; every other hook gates on its own (references/hooks.md).
 2. Wire it into `.claude/settings.json`, merging (do not clobber existing hooks). Use the **exec form**
    (`command` + `args`), never a bare command string:
 

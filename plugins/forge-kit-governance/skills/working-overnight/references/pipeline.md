@@ -49,8 +49,11 @@ Critical, High and Medium finding is ticketed, and each Low gets a ticket or a d
 ticketed instead. When that skill is not installed, file no Low and list every Low untriaged in the
 report. Every filing, from either review, honours the manifest's investigation-depth cap,
 filing in severity order (Critical first, so the cap is never spent on a Low ahead of a High),
-and over-cap tickets are listed unfiled in the report. Write the findings down, then let a later
-cycle gate and implement the tickets.
+and over-cap tickets are listed unfiled in the report. When the project has
+`.claude/forge-write-consent` (#565), file nothing at all: no cycle has a user prompt to grant it,
+so every ticket that would have been filed is listed unfiled in the report, in the same severity
+order, and the maintainer grants the ones worth filing in the morning. Write the findings down,
+then let a later cycle gate and implement the tickets.
 
 ## Repeated reviews: chain the rounds, and stop where the contract says stop
 

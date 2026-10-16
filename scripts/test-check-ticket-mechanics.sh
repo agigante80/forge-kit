@@ -2765,7 +2765,7 @@ n510="$(grep -ciE 'rules? ?-?[0-9]' "$WORK/mut-510.sh")"
 # sed with exactly ONE literal space after the colon (what forge-gate-mechanics.sh's grep pipeline accepts,
 # so the agent proceeds exactly where the script does). This is prose a model runs, so the suite extracts
 # each command line from the agent and runs it under a PATH shim grep that rejects -P, the way BSD grep does.
-# Ratchet note: the agent plus ticket-gate-reference sit at the 5634-word baseline, so keep the sed
+# Ratchet note: the agent plus ticket-gate-reference sit at the 5632-word baseline, so keep the sed
 # expression one token per space as written; do not reword it into a longer form.
 REALGREP534="$(type -P grep)"; SHIM534="$WORK/shim534"; mkdir -p "$SHIM534"   # absolute path, resolved before PATH changes
 cat > "$SHIM534/grep" <<SH

@@ -10,7 +10,7 @@ never through `gh` directly, is in `ticket-gate.md`; this is the lookup.
 | Need | Call |
 |---|---|
 | view an issue (body/labels/title) | `forge_issue_view <N>` → JSON `{number,title,body,state,labels[].name}` |
-| comment on an issue | `forge_issue_comment <N> "<body>"` (rc 110 since forge-lib v53: the opt-in leak scan found a leak and nothing was sent; stop and report it, never set `FORGE_LEAK_SCAN=0`) |
+| comment on an issue | the gate's own templates and review: `forge_gate_comment <N> <file>` (gate-env.sh, #565; a bare comment is denied by forge-write-consent unless the user granted it). Otherwise `forge_issue_comment <N> "<body>"` (rc 110 since forge-lib v53: the opt-in leak scan found a leak and nothing was sent; stop and report it, never set `FORGE_LEAK_SCAN=0`) |
 | list comments on an issue (all pages) | `forge_issue_comments <N>` (v14; `count-gate-rounds.sh` reads it) |
 | close an issue | `forge_issue_close <N>` |
 | write ONE region of an issue body | `forge_body_region_set <N> gate <region> "<content>" [top]` / `forge_body_region_clear <N> gate <region>` (v24; `top` since v27 places or moves the region to the top). Splices one region and preserves every other byte, refuses a region not prefixed `gate` (101), a body that moved since it was read (102), and a malformed or duplicated marker pair (103), and, when the project opted in to the leak scan, a leak in the content (110, v53) |

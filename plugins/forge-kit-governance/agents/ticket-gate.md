@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 85 -->
+<!-- ticket-gate-version: 86 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -185,7 +185,7 @@ I=$(forge_issue_view <NUMBER>) || exit 2; L=$(jq -r '[.labels[].name]|join(",")'
 ```
 
 2. `BLOCKED - LABELS_REQUIRED` on: doc present, no AREA label (never restated, #188); doc absent,
-   a `fail` row. Comment "Needs an area label (docs/guides/labels.md)." plus its evidence.
+   a `fail` row. Print "Needs an area label (docs/guides/labels.md)." plus its evidence.
 
 ---
 
@@ -482,7 +482,7 @@ Write the review to `$D/review.md`, then post in ONE Bash call (state does not p
 
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
-forge_issue_comment <NUMBER> "$(cat "$D/review.md")" || exit 2   # STOP: Step 6 never runs
+forge_gate_comment <NUMBER> "$D/review.md" || exit 2   # STOP: Step 6 never runs
 ```
 
 An `exit 2` from any block's own guard line stops the run: relay its stderr line as your final
@@ -536,8 +536,8 @@ from its own. 0c-iii's thin append is the deliberate exception (how a pre-v6 sec
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
 `✅ PASS - Ticket #<N> is ready for implementation`, with the reviewed assumptions in one line.
-Where advisories exist, optionally create follow-up tickets for their clusters
-(`forge_issue_create` then `forge_issue_label`, `(source: #<N>)`) and print instead
+Create follow-up tickets for advisories only when the user asked
+(`forge_issue_create` then `forge_issue_label`, `(source: #<N>)`), then print
 `✅ PASS (deferred). Ticket #<N> cleared; <COUNT> follow-up ticket(s) created.` PASS never enters
 auto-remediation and never prints NEEDS-WORK.
 

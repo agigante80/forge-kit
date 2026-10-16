@@ -16,7 +16,7 @@
     {
       "name": "forge-kit-governance",
       "source": "./plugins/forge-kit-governance",
-      "description": "ticket-gate agent, gate-ticket slash command, and the block-dashes, no-poll-loops and masked-exit-advisory hooks."
+      "description": "ticket-gate agent, gate-ticket slash command, and the block-dashes, no-poll-loops, masked-exit-advisory and forge-write-consent hooks."
     },
     {
       "name": "forge-kit-roadmap",

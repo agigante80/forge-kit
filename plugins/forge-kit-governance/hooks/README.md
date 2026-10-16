@@ -18,7 +18,7 @@ registered and `forge-adapt` will install a project-local copy instead.
 **The opt-in sentinel convention (#165).** A plugin hook is live in *every* project that enables
 the group, so behaviour a project has not asked for is gated on a file the project owns, one file
 per hook (`.claude/no-dashes`, `.claude/no-poll-loops`, `.claude/no-destructive`,
-`.claude/masked-exit`). `hooks.json` tests it in the shell and exits before `python3` starts: about
+`.claude/masked-exit`, `.claude/forge-write-consent`). `hooks.json` tests it in the shell and exits before `python3` starts: about
 1.8 ms per matched tool call in a project that has not opted in, against about 44 ms if the
 interpreter started first. The gate inside each script is defence in depth and the only gate for a
 project-local copy. A skill or command has no wrapper and can only gate in its own prose.
@@ -45,6 +45,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
 | `overnight-guard.py` | PreToolUse | 18 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
+| `forge-write-consent.py` | UserPromptSubmit + PreToolUse | 1 | Deny a forge comment or a new ticket in a Bash call unless the user's own latest prompt said `allow-comment` / `allow-ticket`. Body rewrites, closes, reads, the gate's review post and a release note are never denied. Fails open on an unparseable payload; no grant file means no grant. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
@@ -116,6 +117,35 @@ by deleting it. `python3 no-poll-loops.py --self-test` runs the verdict matrix.
 ```bash
 mkdir -p .claude && touch .claude/no-poll-loops   # opt in (forge-adapt does this)
 rm .claude/no-poll-loops                          # opt out
+```
+
+## forge-write-consent.py
+
+Two written rules held mechanically (#565): a ticket is read by its BODY, so decisions and
+corrections are rewritten into it and a comment is only a retraction or a closing note; and a
+finding becomes a ticket only when someone would really hit it and it is too big to fix now. One
+session broke both in a day (25 tickets, 12 decision comments), which is the evidence that prose
+alone does not hold them.
+
+**One script, two events.** `UserPromptSubmit` records the grant: every real prompt overwrites
+`${CLAUDE_CONFIG_DIR:-~/.claude}/forge-write-consent/<session_id>.json` with two booleans, true only
+for the literal word `allow-comment` / `allow-ticket` in that prompt, so a grant lasts until the
+next real prompt. Prompts the harness injects (a background task's `<task-notification>`, a peer
+session's message, a cross-session idle notice) all fire the same event on Claude Code 2.1.301 and
+neither grant nor revoke, which is what stops one session granting another. `PreToolUse` `Bash`
+denies a comment write or a ticket create with no grant; a subagent carries its parent's
+`session_id`, so the grant covers the turn's subagents. The exact shapes, exemptions and known
+limits are in the script's header. The deny reason teaches the rule and names the word to ask
+for.
+
+**Its sentinel is its own file, `.claude/forge-write-consent`**, shell-gated in `hooks.json` on both
+entries, and forge-adapt creates it when it installs the hook. A project-local install needs BOTH
+`settings.json` entries: without the `UserPromptSubmit` one no grant is ever recorded and every
+write is denied. `python3 forge-write-consent.py --self-test` runs a short grant-flow matrix.
+
+```bash
+mkdir -p .claude && touch .claude/forge-write-consent   # opt in (forge-adapt does this)
+rm .claude/forge-write-consent                          # opt out
 ```
 
 ## overnight-guard.py

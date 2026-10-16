@@ -5,8 +5,12 @@
 ## Comment templates
 
 These are PAYLOADS only. WHEN each is posted, and what blocks or proceeds after it, is decided in
-`ticket-gate.md`. Post them through the call mapping below, under the rule `ticket-gate.md` states:
-they left that file in #130.
+`ticket-gate.md`, under the rule that file states: they left it in #130. Post them as the next
+paragraph says, not through the generic call mapping.
+
+Post each one, filled in, from a file with `forge_gate_comment <N> <file>` (gate-env.sh, #565),
+never with a bare `forge_issue_comment`: the forge-write-consent hook denies a comment the user did
+not grant, and the function accepts only a file whose first line is one of these exact headings.
 
 **Synthesis void (Step 0c-v, template auto-upgraded).**
 

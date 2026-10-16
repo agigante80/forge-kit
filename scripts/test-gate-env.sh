@@ -77,6 +77,41 @@ cache_case c29 29 c30 30 'a:b' 31; o=$(ge "$D")
 cache_case; o=$(ge "$D")
 [ "$(field "$o" rc)" = 2 ] && grep -q 'forge-lib.sh not found' "$W/err" && ok "no copy anywhere is refused by name" || bad "a missing forge-lib was not refused: $o"
 
+echo "== gate-env.sh: forge_gate_comment (#565) =="
+# gr <n> <file> [stub rc]: source the asset as the gate does, stub forge_issue_comment AFTER it (the
+# real one lives in forge-lib), call forge_gate_comment; prints rc and what the stub received.
+gr() {
+  env -i PATH="$PATH" HOME="$W/home" SOURCED="$W/sourced" bash -c '
+    D='"'$D'"'; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 9
+    forge_issue_comment() { printf "%s|%s" "$1" "$2" > "'"$W"'/posted"; return '"${3:-0}"'; }
+    forge_gate_comment "$1" "$2"; echo "rc=$?"' _ "$1" "$2" 2>"$W/err"
+}
+gr_case() { fresh; layout "$W/case/scripts" with-lib; D="$W/case/d"; mkdir -p "$D"; echo "$W/case/scripts/check-ticket-mechanics.sh" > "$D/mech"; rm -f "$W/posted"; }
+gr_case; printf '## Ticket Readiness Review - #7\nbody line\n' > "$D/review.md"; o=$(gr 7 "$D/review.md")
+[ "$(field "$o" rc)" = 0 ] && [ "$(cat "$W/posted")" = "7|## Ticket Readiness Review - #7
+body line" ] && ok "a review file for this issue is posted whole" || bad "a valid review was not posted: $o $(cat "$W/posted" 2>/dev/null) $(cat "$W/err")"
+gr_case; printf '## Ticket Readiness Review - #7\n' > "$D/review.md"; o=$(gr 8 "$D/review.md")
+[ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ] && grep -q "does not open with '## Ticket Readiness Review - #8' or another gate heading; nothing posted" "$W/err" \
+  && ok "another issue's review is refused, nothing posted" || bad "a review for another issue was not refused: $o"
+gr_case; printf 'a decision\n## Ticket Readiness Review - #7\n' > "$D/review.md"; o=$(gr 7 "$D/review.md")
+[ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ] && ok "a file whose first line is not the heading is refused" || bad "a non-review comment was posted: $o"
+gr_case; o=$(gr 7 "$D/none.md")
+[ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ] && grep -q 'missing or empty; nothing posted' "$W/err" && ok "a missing review file is refused" || bad "a missing file was not refused: $o"
+gr_case; : > "$D/review.md"; o=$(gr 7 "$D/review.md")
+[ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ] && ok "an empty review file is refused" || bad "an empty file was not refused: $o"
+for h in '## ticket-gate: clarification needed before review' '## ticket-gate: remediation guide' 'Template auto-upgraded to v6 - content synthesised'; do
+  gr_case; printf '%s\nbody\n' "$h" > "$D/review.md"; o=$(gr 7 "$D/review.md")
+  [ "$(field "$o" rc)" = 0 ] && [ -e "$W/posted" ] && ok "gate template '$h' is posted" || bad "gate template '$h' was refused: $o $(cat "$W/err")"
+done
+for h in '## ticket-gate: we decided to drop X' 'Template auto-upgraded to v6 - content synthesised, and we decided X' '## Ticket Readiness Review - #7 and a decision'; do
+  gr_case; printf '%s\n' "$h" > "$D/review.md"; o=$(gr 7 "$D/review.md")
+  [ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ] && ok "near-miss heading '$h' is refused" || bad "near-miss heading '$h' was posted: $o"
+done
+gr_case; printf '## Ticket Readiness Review - #\n' > "$D/review.md"; o=$(gr '' "$D/review.md")
+[ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ] && grep -q "is not a number; nothing posted" "$W/err" && ok "an empty issue number is refused" || bad "an empty issue number was not refused: $o"
+gr_case; printf '## Ticket Readiness Review - #7\n' > "$D/review.md"; o=$(gr 7 "$D/review.md" 44)
+[ "$(field "$o" rc)" = 44 ] && ok "forge_issue_comment's rc is returned unchanged" || bad "the post's rc was not propagated: $o"
+
 echo "== mutants =="
 . "$ROOT/scripts/mutant-crash.sh"
 # ge_live: the build, sourced in the scripts/ layout with the forge-lib stub, still resolves (#360).
@@ -109,13 +144,19 @@ chk_guard() { o=$(env -i PATH="$PATH" HOME="$W/home" SOURCED="$W/sourced" bash -
 m_ge "FORGE_LIB file test removed" '[ -f "$FORGE_LIB" ] || { echo "ticket-gate: FORGE_LIB=$FORGE_LIB is not a file; refusing to fall back" >&2; return 2; }   # gate-env: strict' ':' chk_strict
 m_ge "FORGE_LIB not exported" 'export FORGE_LIB=$_ge_lib   # gate-env: export' 'FORGE_LIB=$_ge_lib' chk_export
 m_ge "colon-unsafe sort restored" "| sed 's/:forge-lib-version: \\([0-9]*\\)\$/	\\1/' | sort -t'	' -k2,2n -k1,1 | tail -1 | cut -f1)" "| sort -t: -k3,3n -k1,1 | tail -1 | cut -d: -f1)" chk_colon
+chk_heading() { gr_case; printf 'a decision\n' > "$D/review.md"; o=$(gr 7 "$D/review.md"); [ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ]; }
+m_ge "any first line accepted" '*) [[ $first =~' '*) true || [[ $first =~' chk_heading
+chk_void() { gr_case; printf 'Template auto-upgraded to v6 - content synthesised, and we decided X\n' > "$D/review.md"; o=$(gr 7 "$D/review.md"); [ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ]; }
+m_ge "void heading unanchored" 'content\ synthesised$ ]]' 'content\ synthesised ]]' chk_void
+chk_num() { gr_case; printf '## Ticket Readiness Review - #\n' > "$D/review.md"; o=$(gr '' "$D/review.md"); [ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/posted" ]; }
+m_ge "issue number check removed" '[[ ${1-} =~ ^[0-9]+$ ]] ||' 'true ||' chk_num
 m_ge "\$D/mech guard removed" 'if [ -z "${D:-}" ] || [ ! -s "$D/mech" ]; then' 'if false; then' chk_guard
 # Crash control (#360): a gate-env.sh that exits, then one that does not parse. m_ge has no no-op
 # check, so the control compares each build with the asset itself. m_ge runs in $( ), so its rows
 # stay out of the total.
 crash_ok=1; crashed=0
 for x in 'exit 127' 'fi fi'; do
-  cap=$(m_ge crash-control '# gate-env-version: 2' "# gate-env-version: 2
+  cap=$(m_ge crash-control '# gate-env-version: 3' "# gate-env-version: 3
 $x" chk_strict)
   cmp -s "$W/mut.sh" "$ASSET" && crash_ok=0
   case "$cap" in *" dies"*|*" survived"*) crash_ok=0 ;; *"FAIL: mutant 'crash-control' crashed ("*) crashed=$((crashed + 1)) ;; esac
