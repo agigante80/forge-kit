@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 54
+# forge-lib-version: 55
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -1837,7 +1837,7 @@ forge_issue_label() {
       all="$(forge_api_paginate "/repos/$repo/labels")" || return 2
       _forge_tmp_init || return 2
       tmp="$(mktemp "$_FORGE_TMPDIR/labels.XXXXXX")" || { _forge_tmp_done ""; return 2; }
-      printf '%s\n' "$all" > "$tmp"
+      printf '%s\n' "$all" >| "$tmp"   # >|: mktemp made the file, so a caller's noclobber would refuse >
       resolved="$(_forge_resolve_names "$tmp" "$@")"
       if [ "$(printf '%s' "$resolved" | jq '[.[] | select(.id == null)] | length')" -gt 0 ]; then
         # With the status available (#78.2), a 404 is the ordinary "this owner is a user, or the
@@ -1847,7 +1847,7 @@ forge_issue_label() {
         # operator needs to know about.
         org="$(forge_api_paginate "/orgs/${repo%%/*}/labels" 2>/dev/null)" || {
           [ "$?" -eq 44 ] || org_failed=1; org='[]'; }
-        printf '%s\n%s\n' "$all" "$org" > "$tmp"
+        printf '%s\n%s\n' "$all" "$org" >| "$tmp"
         resolved="$(_forge_resolve_names "$tmp" "$@")"
       fi
       nlabels="$(jq -s 'add | length' "$tmp")"
@@ -2023,7 +2023,7 @@ forge_tag_exists() {
 
 # forge_release_create <tag> [title] [notes]   (both hosts accept tag_name/name/body)
 forge_release_create() {
-  _forge_leak_scan forge_release_create "name=${2:-${1-}}" "notes=${3-}" || return $?   # #539: before the payload; the name defaults to the tag, as in the payload
+  _forge_leak_scan forge_release_create "tag=${1-}" "name=${2-}" "notes=${3-}" || return $?   # #539: before the payload; the tag is public text too, and the name defaults to it
   local payload; payload="$(printf '%s' "${3-}" | _forge_payload forge_release_create '{tag_name:$t,name:$n,body:$b}' --arg t "$1" --arg n "${2:-$1}")" || return 2   # forge-lib: payload (release)
   forge_api POST "/repos/$(forge_repo)/releases" "$payload" >/dev/null
 }

@@ -66,7 +66,7 @@ The #536 hook sees only a body typed into a `gh` command line. Every body write 
 sends JSON through `gh api --input -`, so gate reviews and decision sections reached the forge
 unscanned. Seven writers now scan the text their CALLER supplies, at their entry and before their
 `FORGE_DRY_RUN` guard: `forge_issue_comment` (`body`), `forge_issue_create` (`title`, `body`),
-`forge_issue_edit` (`body`), `forge_release_create` (`name`, `notes`), `forge_body_region_set`
+`forge_issue_edit` (`body`), `forge_release_create` (`tag`, `name`, `notes`), `forge_body_region_set`
 (`content`; a clear supplies none, so it is never refused), `forge_body_section_append` (`content`)
 and `forge_body_compose_preserving` (`body`, the new text, never the recomposed one). A leak already
 in an issue body therefore never blocks the write that removes it.

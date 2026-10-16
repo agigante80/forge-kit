@@ -177,6 +177,30 @@ case $? in
   2) bad "issue_label did not POST the resolved id";;
   *) bad "issue_label multi-page case errored";;
 esac
+# --- forge_issue_label under a caller's noclobber: the mktemp file is still written (#539 review round 2) ---
+(
+  set -C
+  . "$LIB"
+  REQLOG="$T/cn.log"; : > "$REQLOG"
+  export FORGE_HOST=forgejo FORGE_REPO=o/r
+  forge_api() {
+    echo "$1 $2 ${3-}" >> "$REQLOG"
+    case "$1 $2" in
+      "GET "*"/labels?"*page=1*) printf '[{"name":"bug","id":3}]' ;;
+      "GET "*"/labels?"*)        printf '[]' ;;
+      "POST "*)                  printf '{}' ;;
+    esac
+  }
+  err="$(forge_issue_label 7 bug 2>&1)" || exit 1
+  [ -z "$err" ] || exit 3
+  grep -q '^POST /repos/o/r/issues/7/labels {"labels":\[3\]}' "$REQLOG" || exit 2
+)
+case $? in
+  0) ok "issue_label under noclobber still POSTs the resolved id, with nothing on stderr";;
+  1) bad "issue_label failed on a resolvable name found beyond page 1 (#63 AC6)";;
+  2) bad "issue_label did not POST the resolved id";;
+  *) bad "issue_label multi-page case errored";;
+esac
 
 # --- forge_issue_label: unresolvable name refuses the WHOLE call, names it, POSTs nothing ---
 (
@@ -4792,7 +4816,8 @@ c539_eval_load() {   # no BASH_SOURCE: the own directory is empty and never "." 
 }
 # Review round 1 (#539): the name a release defaults to, a wrapper's eval load, the caller's locale,
 # noclobber, the append and region dry-run placement, the plugin-cache tie-break and an all-skipped cleanup.
-w539_release_default() { lc539 'forge_release_create PRIVNAME-v1' forge_release_create name; }
+w539_release_default() { lc539 'forge_release_create PRIVNAME-v1' forge_release_create tag; }
+w539_release_tag() { lc539 'forge_release_create PRIVNAME-v1 "Release 1" "clean notes"' forge_release_create tag; }
 c539_eval_wrapper() {   # eval inside a WRAPPER script: BASH_SOURCE[0] is the wrapper, whose directory holds marked stubs
   local w="$T/evw539"; mkdir -p "$w"; mkstub539 "$w"
   sed 's/^if \[ "${BASH_SOURCE\[0\]}" = "${0}" \]; then$/if false; then/' "$L539" > "$w/lib-noguard.sh"
@@ -4883,6 +4908,7 @@ row539 "#539: a relative load then a cd into another repo never runs that repo's
 row539 "#539: an exported CDPATH does not redirect the own-directory resolution" c539_cdpath
 row539 "#539: an eval load leaves the own directory empty and never uses the current directory" c539_eval_load
 row539 "#539: a release with no name is scanned under the tag it defaults to" w539_release_default
+row539 "#539: a release whose tag leaks is refused naming tag, even with a name" w539_release_tag
 row539 "#539: an eval load inside a wrapper script never takes the wrapper's directory" c539_eval_wrapper
 row539 "#539: an exported LC_ALL reaches both scanners unchanged" c539_locale
 row539 "#539: a caller with noclobber set is still scanned and refused" w539_noclobber
@@ -4958,7 +4984,8 @@ mut539 'an invalid FORGE_LEAK_GUARD_DIR falls through to discovery' c539_guard_m
   [ "${_FORGE_LEAK_DONE-}" = "d:" ] && return 0' '    :
   fi
   [ "${_FORGE_LEAK_DONE-}" = "d:" ] && return 0'
-mut539 'the release name scanned as given, not as the payload defaults it' w539_release_default '"name=${2:-${1-}}"' '"name=${2-}"'
+mut539 'the release tag not scanned' w539_release_default '"tag=${1-}" "name=${2-}"' '"name=${2-}"'
+mut539 'the release tag not scanned, with a name given' w539_release_tag '"tag=${1-}" "name=${2-}"' '"name=${2-}"'
 mut539 'any file naming BASH_SOURCE gives the own directory' c539_eval_wrapper "] && grep -q '^# forge-lib-version: [0-9]' -- \"\${BASH_SOURCE[0]}\" 2>/dev/null; then" ']; then'
 mut539 'the scan pins LC_ALL=C for the scanners' c539_locale '  local writer="$1"; shift' '  local LC_ALL=C writer="$1"; shift'
 mut539 'the field written with > under noclobber' w539_noclobber '{ printf '"'"'%s\n'"'"' "$ftext" >| "$f"; }' '{ printf '"'"'%s\n'"'"' "$ftext" > "$f"; }'
