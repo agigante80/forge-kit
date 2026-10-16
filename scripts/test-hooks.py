@@ -3066,6 +3066,8 @@ FWC_COMMENT = [
     "gh pr -R o/r review 5 --comment -b x",
     "gh api graphql -f query='mutation{addComment(input:{subjectId:\"X\",body:\"b\"}){clientMutationId}}'",
     'echo "x `gh issue comment 5 -b y`"',
+    "cut -d' ' -f1 ids.txt; gh issue comment 5 -b x",
+    'curl -X POST "https://api.github.com/graphql" -d \'{"query":"mutation{addComment(input:{}){x}}"}\'',
 ]
 FWC_TICKET = [
     'gh issue create --title t --body b',
@@ -3083,6 +3085,7 @@ FWC_TICKET = [
     'gh issue -R "o/r" create --title t --body b',
     'URL="$(gh issue create --title "t" --body-file b.md)"',
     "gh api graphql -f query='mutation{createIssue(input:{repositoryId:\"X\",title:\"t\"}){issue{number}}}'",
+    "awk -F'|' '{print $1}' f; gh issue create -t t -b b",
 ]
 FWC_ALLOW = [
     'gh issue edit 5 --body-file b.md',
@@ -3116,6 +3119,8 @@ FWC_ALLOW = [
     "gh api graphql -f query='query{repository(owner:\"o\",name:\"r\"){issues(first:5){nodes{title}}}}'",
     "gh api graphql -f query='mutation{updateIssue(input:{id:\"X\",body:\"b\"}){clientMutationId}}'",
     'gh issue list --search "$(echo comment)"',
+    'curl -s "https://api.github.com/graphql" -d \'{"query":"query{viewer{login}}"}\'',
+    "gh pr view 5 -c",
 ]
 
 with tempfile.TemporaryDirectory() as td:
@@ -3244,7 +3249,10 @@ with tempfile.TemporaryDirectory() as td:
          [("p", "hi"), ("b", 'URL="$(gh issue create --title "t" --body-file b.md)"')], DENY),
         ("words around a substitution unblanked", "blank(i + 1, min(j, n))", "pass",
          [("p", "hi"), ("b", 'gh issue edit 5 --body "Fixed in $(git rev-parse HEAD): no more gh issue comment"')], ALLOW),
-        ("graphql mutations ignored", 'if GRAPHQL.search(blank) and re.search(r"\\bmutation\\b", raw):', "if False:",
+        ("unmatched quote blanks to the end", "                i += 1\n                continue\n            blank(i + 1, j)",
+         "                j = n - 1\n            blank(i + 1, j)",
+         [("p", "hi"), ("b", "cut -d' ' -f1 ids.txt; gh issue comment 5 -b x")], DENY),
+        ("graphql mutations ignored", 'if GRAPHQL.search(blank) and re.search(r"/?graphql\\b", raw) and re.search(r"\\bmutation\\b", raw):', "if False:",
          [("p", "hi"), ("b", "gh api graphql -f query='mutation{addComment(input:{subjectId:\"X\",body:\"b\"}){clientMutationId}}'")], DENY),
         ("release note widened", r"\1\s*\Z", "",
          [("p", "hi"), ("b", 'forge_issue_comment 5 "Released in v1.2 and we decided X"')], DENY),

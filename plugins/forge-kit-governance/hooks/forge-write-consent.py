@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 2
+# forge-write-consent-version: 3
 """Deny forge comments and new tickets unless the user's own prompt granted them (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
@@ -107,7 +107,7 @@ SEPARATORS = re.compile(r"[;&|\n]")
 
 W = r"(?<![\w.-])"   # a command word starts here: not inside another word or path
 # `gh issue -R o/r comment`: flags may sit between the words; a quoted value is blanked to `"   "`.
-GH_FLAGS = r"(?:\s+-\S+(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|[^-\s]\S*))?)*"
+GH_FLAGS = r"(?:\s+-\S+(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|[^-\s\"']\S*))?)*"
 COMMENT_CMD = re.compile(W + r"(?:gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+comment"
                          r"|gh\s+pr" + GH_FLAGS + r"\s+review\b[^\n]*\s(?:--comment|-c)(?![\w-])"
                          r"|forge_issue_comment|tea\s+comment)\b")
@@ -125,7 +125,7 @@ API_WRITES = {
 }
 COMMENTS_PATH = re.compile(r"/comments\b")
 ISSUES_PATH = re.compile(r"repos/(?:[^/\s\"']+/){1,2}issues/?(?=[\"'\s?)`]|\Z)")
-GRAPHQL = re.compile(W + r"(?:gh\s+api\s+graphql\b|curl\b[^\n]*/graphql\b|forge_api\s+POST\s+\S*graphql\b)")
+GRAPHQL = re.compile(W + r"(?:gh\s+api\s+graphql\b|(?:curl|forge_api\s+POST)\b)")   # curl's URL is often quoted
 GRAPHQL_WRITES = (("comment", re.compile(r"\b(?:addComment|addPullRequestReview\w*|addDiscussionComment)\b")),
                   ("ticket", re.compile(r"\bcreateIssue\b")))
 RELEASE_NOTE = re.compile(
@@ -166,7 +166,8 @@ def blank_text(command):
     """(blanked, substitutions). Heredoc bodies and quoted strings become spaces, same length. A
     "$(...)" or backtick span inside double quotes RUNS, so its text is returned to be judged on
     its own; the words around it are prose and stay blanked (#565 rounds 1 and 2)."""
-    c = list(HEREDOC.sub(lambda m: _blank(m, 4), command))
+    src = HEREDOC.sub(lambda m: _blank(m, 4), command)
+    c = list(src)   # searches read src: same offsets, and no quadratic rebuild of c
     subs, i, n = [], 0, len(c)
     def blank(a, b):
         for k in range(a, b):
@@ -177,8 +178,10 @@ def blank_text(command):
         if ch == "\\":
             i += 2
         elif ch == "'" and (i == 0 or not (c[i - 1].isalnum() or c[i - 1] == "_")):
-            j = "".join(c).find("'", i + 1)
-            j = n - 1 if j < 0 else j
+            j = src.find("'", i + 1)
+            if j < 0:      # unmatched (`cut -d' '` leaves one): blank nothing, as a regex would
+                i += 1
+                continue
             blank(i + 1, j)
             i = j + 1
         elif ch == '"':
@@ -187,7 +190,7 @@ def blank_text(command):
                 if c[j] == "\\":
                     j += 2
                 elif c[j] == "$" and j + 1 < n and c[j + 1] == "(":
-                    k = _close_subst("".join(c), j + 2)
+                    k = _close_subst(src, j + 2)
                     subs.append("".join(c[j + 2:k]))
                     j = k + 1
                 elif c[j] == "`":
@@ -231,7 +234,7 @@ def classify(command):
             need.add("comment")
         if TICKET_CMD.search(blank):
             need.add("ticket")
-        if GRAPHQL.search(blank) and re.search(r"\bmutation\b", raw):
+        if GRAPHQL.search(blank) and re.search(r"/?graphql\b", raw) and re.search(r"\bmutation\b", raw):
             need.update(kind for kind, name in GRAPHQL_WRITES if name.search(raw))
             continue
         for tool, writes, reads in API_WRITES.values():
