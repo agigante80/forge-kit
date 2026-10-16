@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 1
+# forge-write-consent-version: 2
 """Deny forge comments and new tickets unless the user's own prompt granted them (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
 answers and corrections are rewritten into the body, and a comment is only a retraction or a
-closing note. A finding becomes a ticket only when a user or operator could really hit it AND it
-is too big to fix now. One session filed 25 tickets in a day and parked decisions in 12
+closing note. A finding becomes a ticket only as the review-lows skill (forge-kit-review) rules
+it. One session filed 25 tickets in a day and parked decisions in 12
 comments, so the kit enforces both mechanically.
 
 ONE SCRIPT, TWO EVENTS.
@@ -31,7 +31,9 @@ matched against its RAW text (blanking keeps offsets), so a quoted API path stil
            forge_api / curl write whose path ends in repos/<owner>/<repo>/issues.
   A write is per tool: gh api with -f/-F/--field/--raw-field/--input or -X POST, unless -X GET;
   curl with -d/--data*/-F/--form/--json or -X POST, unless -G/-X GET (curl's -f is --fail);
-  forge_api POST|PATCH|PUT. A command inside a double-quoted "$(...)" is judged, and a segment
+  forge_api POST|PATCH|PUT. A GraphQL mutation counts by name: addComment and
+  addPullRequestReview* are comments, createIssue a ticket. A "$(...)" or backtick span inside
+  double quotes is judged as its own command (the text around it stays blanked), and a segment
   asking for --help or -h is not a write.
   never denied: body rewrites (gh issue edit, forge_issue_edit, the body-region primitives),
            closes (a `gh issue close --comment` is a closing note), reads.
@@ -44,7 +46,8 @@ matched against its RAW text (blanking keeps offsets), so a quoted API path stil
 
 Known limits, stated rather than implied: a script written to a file and then run, a body or
 path held in a variable set in an earlier call, a forge_api POST hidden in a function, an inline
-function shadowing forge_gate_comment, `gh issue close --comment` carrying a whole decision, and
+function shadowing forge_gate_comment, any text placed under a gate heading (forge_gate_comment
+checks the first line only), `gh issue close --comment` carrying a whole decision, and
 the model writing the grant file itself. This guards a habit, not an adversary. A user prompt that
 merely quotes the word grants it, `not-allow-comment` included. The hook sees the TYPED prompt, so
 `/ci-health allow-ticket` grants and a command's expanded body never does. It never echoes
@@ -95,7 +98,6 @@ REASONS = {
 # Blanking, as in no-poll-loops: heredoc bodies and quoted strings become spaces, same length.
 HEREDOC = re.compile(
     r"(<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*\n)(.*?)(\n[ \t]*\3[ \t]*(?=\n|\Z))", re.S)
-QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|(?<![\w])'[^']*'", re.S)
 EXECUTES = re.compile(
     r"(?<![\w.-])(?:ba|z|da)?sh\b(?![.\w-])[^\n]*?(?:\s-\w*c\b|<<)"
     r"|\|\s*(?:\S*/)?(?:ba|z|da)?sh\b"
@@ -104,8 +106,10 @@ EXECUTES = re.compile(
 SEPARATORS = re.compile(r"[;&|\n]")
 
 W = r"(?<![\w.-])"   # a command word starts here: not inside another word or path
-GH_FLAGS = r"(?:\s+-\S+(?:\s+[^-\s]\S*)?)*"   # `gh issue -R o/r comment`: flags may sit between the words
-COMMENT_CMD = re.compile(W + r"(?:gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+comment|gh\s+pr\s+review\b[^\n]*\s--comment"
+# `gh issue -R o/r comment`: flags may sit between the words; a quoted value is blanked to `"   "`.
+GH_FLAGS = r"(?:\s+-\S+(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|[^-\s]\S*))?)*"
+COMMENT_CMD = re.compile(W + r"(?:gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+comment"
+                         r"|gh\s+pr" + GH_FLAGS + r"\s+review\b[^\n]*\s(?:--comment|-c)(?![\w-])"
                          r"|forge_issue_comment|tea\s+comment)\b")
 TICKET_CMD = re.compile(W + r"(?:gh\s+issue" + GH_FLAGS + r"\s+create|forge_issue_create|tea\s+(?:issues?|i)\s+create)\b")
 HELP = re.compile(r"(?<![\w-])(?:--help|-h)(?![\w-])")
@@ -120,7 +124,10 @@ API_WRITES = {
     "forge_api": (re.compile(W + r"forge_api\s+(?:POST|PATCH|PUT)\b"), re.compile(r""), re.compile(r"(?!)")),
 }
 COMMENTS_PATH = re.compile(r"/comments\b")
-ISSUES_PATH = re.compile(r"repos/(?:[^/\s\"']+/){1,2}issues/?(?=[\"'\s?]|\Z)")
+ISSUES_PATH = re.compile(r"repos/(?:[^/\s\"']+/){1,2}issues/?(?=[\"'\s?)`]|\Z)")
+GRAPHQL = re.compile(W + r"(?:gh\s+api\s+graphql\b|curl\b[^\n]*/graphql\b|forge_api\s+POST\s+\S*graphql\b)")
+GRAPHQL_WRITES = (("comment", re.compile(r"\b(?:addComment|addPullRequestReview\w*|addDiscussionComment)\b")),
+                  ("ticket", re.compile(r"\bcreateIssue\b")))
 RELEASE_NOTE = re.compile(
     W + r"(?:forge_issue_comment\s+\S+\s+|gh\s+issue\s+comment\s+\S+\s+(?:--body|-b)[\s=]+)"
     r"([\"'])Released in v?[\w.${}+-]+\1\s*\Z")
@@ -134,40 +141,99 @@ def _blank(m, group=0):
     return t[0] + re.sub(r"[^\n]", " ", t[1:-1]) + t[-1]
 
 
-def _blank_quoted(m):
-    # A double-quoted "$(...)" or backtick span RUNS its command, so it stays visible (#565 round 1).
-    t = m.group(0)
-    return t if t[0] == '"' and ("$(" in t or "`" in t) else _blank(m)
+def _close_subst(c, i):
+    """Index of the `)` closing the `$(` whose `(` is at c[i-1]; quotes inside are skipped."""
+    depth = 1
+    while i < len(c):
+        ch = c[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch in "'\"":
+            j = c.find(ch, i + 1)
+            while ch == '"' and j > 0 and c[j - 1] == "\\":
+                j = c.find(ch, j + 1)
+            i = len(c) if j < 0 else j + 1
+            continue
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if depth == 0:
+            return i
+        i += 1
+    return len(c)
 
 
 def blank_text(command):
-    c = HEREDOC.sub(lambda m: _blank(m, 4), command)
-    return QUOTED.sub(_blank_quoted, c)
+    """(blanked, substitutions). Heredoc bodies and quoted strings become spaces, same length. A
+    "$(...)" or backtick span inside double quotes RUNS, so its text is returned to be judged on
+    its own; the words around it are prose and stay blanked (#565 rounds 1 and 2)."""
+    c = list(HEREDOC.sub(lambda m: _blank(m, 4), command))
+    subs, i, n = [], 0, len(c)
+    def blank(a, b):
+        for k in range(a, b):
+            if c[k] != "\n":
+                c[k] = " "
+    while i < n:
+        ch = c[i]
+        if ch == "\\":
+            i += 2
+        elif ch == "'" and (i == 0 or not (c[i - 1].isalnum() or c[i - 1] == "_")):
+            j = "".join(c).find("'", i + 1)
+            j = n - 1 if j < 0 else j
+            blank(i + 1, j)
+            i = j + 1
+        elif ch == '"':
+            j = i + 1
+            while j < n and c[j] != '"':
+                if c[j] == "\\":
+                    j += 2
+                elif c[j] == "$" and j + 1 < n and c[j + 1] == "(":
+                    k = _close_subst("".join(c), j + 2)
+                    subs.append("".join(c[j + 2:k]))
+                    j = k + 1
+                elif c[j] == "`":
+                    k = j + 1
+                    while k < n and c[k] != "`":
+                        k += 2 if c[k] == "\\" else 1
+                    subs.append("".join(c[j + 1:k]))
+                    j = k + 1
+                else:
+                    j += 1
+            blank(i + 1, min(j, n))
+            i = j + 1
+        else:
+            i += 1
+    return "".join(c), subs
 
 
 def segments(command):
-    """(blanked, raw) pairs, split on separators found in the blanked view."""
-    blanked = blank_text(command)
+    """((blanked, raw) pairs split on separators in the blanked view, substitutions)."""
+    blanked, subs = blank_text(command)
     if EXECUTES.search(blanked):
-        blanked = command        # executed text is code: judge it raw
+        blanked, subs = command, []   # executed text is code: judge it raw
     out, start = [], 0
     for m in SEPARATORS.finditer(blanked):
         out.append((blanked[start:m.start()], command[start:m.start()]))
         start = m.end()
     out.append((blanked[start:], command[start:]))
-    return out
+    return out, subs
 
 
 def classify(command):
     """The set of grants this command needs: a subset of {"comment", "ticket"}."""
     need = set()
-    for blank, raw in segments(command):
+    pairs, subs = segments(command)
+    for sub in subs:
+        need |= classify(sub)
+    for blank, raw in pairs:
         if HELP.search(blank):
             continue   # a help request writes nothing
         if COMMENT_CMD.search(blank) and not RELEASE_NOTE.search(raw):
             need.add("comment")
         if TICKET_CMD.search(blank):
             need.add("ticket")
+        if GRAPHQL.search(blank) and re.search(r"\bmutation\b", raw):
+            need.update(kind for kind, name in GRAPHQL_WRITES if name.search(raw))
+            continue
         for tool, writes, reads in API_WRITES.values():
             if tool.search(blank) and writes.search(raw) and not reads.search(raw):
                 if COMMENTS_PATH.search(raw):
