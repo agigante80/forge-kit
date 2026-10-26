@@ -80,3 +80,25 @@ Four streams in parallel worktrees, landed one at a time on `develop`.
 - A release (not requested for this run).
 - Folding the old decision comments into bodies for tickets this run closes; a closed ticket is read
   by its closing note and its commits.
+
+## Close record
+
+Closed 2026-10-26, unattended, **done**. All twenty-six tickets landed on `main` and were closed with
+their commits: five worktree streams (the citation family, forge-adapt states, forge-lib and the leak
+scan, declared dependencies and stack text, and `usage-report`), each reviewed by `code-reviewer`
+alongside an external model under the bounded loop, then merged one at a time on `develop`.
+
+What the premortem caught:
+
+- **The streams collided**, twice, and both were caught before `main`. Merging the forge-adapt stream's
+  README with `--theirs` reverted the stack-text stream's prose; the README was restored from `develop`
+  and regenerated instead. The leak-scan rewrite of the `scan-forge-writes` gate (#558) named the
+  project dir through a variable, which the new sentinel extraction (#564) could not read; the gate
+  keeps the literal sentinel form again (d3c1acc). Semver conflicts took the higher number plus one.
+- **CI met a history the suites did not.** `test-check-doc-drift.sh` read its historical ranges against
+  the live README and failed on the first merge; it now reads them from a pinned commit (e7b1213).
+- **The trip wire was decided, not ignored.** #546, #547, #558, #562 and #564 each carry a dated
+  `Decisions 2026-10-26 (unattended run)` section folded into the body before work started.
+- No ratchet baseline rose, and no ticket was filed: one ticket-worthy low (`/ci-health` treating
+  someone else's open "CI failure: main (" issue as its own) is recorded in the run report for the
+  maintainer to file.
