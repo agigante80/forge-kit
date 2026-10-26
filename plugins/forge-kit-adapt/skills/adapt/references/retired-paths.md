@@ -31,8 +31,14 @@ Rows on stdout, tab separated:
   only for an exact one-line `- run: bash|sh [./]<path>` that has a sibling step, else `other`
   (a multi-line step, `./<path>` run directly, a chained or quoted command). With no workflow line the
   caller, line and form are `-`.
+- `caller-unscanned <path> <file> <line>`: one per non-comment line of a non-workflow caller file that
+  names the path, after that path's `retired` rows (#540). The files are `package.json`, `Makefile`,
+  `makefile`, `GNUmakefile`, `justfile`, `Justfile`, `.justfile` and every regular file directly inside
+  `.githooks/` and `.husky/` (not `_`). The match is the BASENAME at a token boundary, so
+  `cd scripts && ./x.sh` counts; a line whose first non-blank character is `#` does not. The scan exit
+  stays 1 and the summary columns are unchanged.
 - `not-scanned <path> <symlink|unreadable>`: a symlink (never followed: the project may be untrusted)
-  or a workflow location it could not read.
+  or a workflow location or caller file it could not read, once per file.
 - `summary <retired> <not-scanned>`, always last.
 
 ## Where the rows go
@@ -51,10 +57,13 @@ Rows on stdout, tab separated:
 `--remove <path>` rescans, then either does all of it or none of it:
 
 - every caller row is `step`: that one line is deleted from each workflow file, then the script;
-- caller `-`: the script alone goes (say so, because a Makefile or a hook may still run it);
-- any `other` row, a symlink, or an unreadable workflow location: nothing changes and the script
-  stays, so CI never runs a missing file. One line per blocker, exactly:
-  `not removed: <file>:<line> is not a one-line run step; delete it by hand, then remove <path>`.
+- caller `-` and no `caller-unscanned` row: the script alone goes (say so, because a caller outside the
+  scanned files may still run it);
+- any `other` row, any `caller-unscanned` row, a symlink, or an unreadable workflow or caller file:
+  nothing changes (a workflow step that would have gone stays too) and the script stays, so nothing runs
+  a missing file. One line per blocker, exactly:
+  `not removed: <file>:<line> is not a one-line run step; delete it by hand, then remove <path>` or
+  `not removed: <file>:<line> names <path> outside a workflow; delete it by hand, then remove <path>`.
 
 A workflow file is never deleted and never re-serialised: removal drops one recognised line, so
 comments and formatting survive. The real pre-#506 `template-lockstep.yml` had two steps, the live
@@ -62,7 +71,9 @@ guard and the retired test; removal drops only the second.
 
 ## What it cannot find
 
-It reads workflow files only. A Makefile, `package.json`, a git hook or a justfile that runs the file
-is not scanned, so caller `-` means "no workflow names it", never "nothing runs it". When the user
-asks whether a project is clean, say "no listed path found", not "clean". A longer file name
-(`<path>.bak`) is not a match.
+It reads workflow files and the caller files listed under "Rows on stdout". A pre-commit config,
+lefthook, a Taskfile, a `core.hooksPath` directory other than `.githooks` and `.husky`, another CI
+system and a wrapper script that runs the file are not scanned, so caller `-` with no
+`caller-unscanned` row means "none of the scanned files names it", never "nothing runs it". When the
+user asks whether a project is clean, say "no listed path found", not "clean". A longer file name
+(`<path>.bak`, `my-<name>`) is not a match.

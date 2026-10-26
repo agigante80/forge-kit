@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# retired-paths-version: 1
+# retired-paths-version: 2
 # retired-paths.sh: find a file forge-kit RETIRED and an earlier install left behind, and remove it
 # together with the ONE workflow step that still runs it (#521).
 #
@@ -23,17 +23,28 @@
 # forge-kit, where the retired path is a live file the build runs. A scan prints `exempt` and the
 # summary and exits 0; --remove refuses.
 #
-# WHAT IT SCANS. For each listed path that exists as a regular file under the project, the workflow
-# files directly inside .github/workflows, .forgejo/workflows and .gitea/workflows (*.yml, *.yaml).
-# It does NOT scan a Makefile, package.json, a git hook, a justfile or any other caller, so a row whose
-# caller is `-` means "no workflow names it", never "nothing runs it".
+# WHAT IT SCANS. For each listed path that exists as a regular file under the project, two sets of
+# files, read once, never through a symlink (#540):
+#   - the workflow files directly inside .github/workflows, .forgejo/workflows and .gitea/workflows
+#     (*.yml, *.yaml), read as steps (the form below);
+#   - the other callers: package.json, Makefile, makefile, GNUmakefile, justfile, Justfile, .justfile,
+#     and every regular file directly inside .githooks/ and .husky/ (the directory `_` is skipped).
+#     A line there counts as a caller when the BASENAME of the path stands at a token boundary (so
+#     `cd scripts && ./x.sh` matches), unless the line starts with `#` (a tab or space first is fine).
+# It does NOT scan a pre-commit config, lefthook, a Taskfile, a core.hooksPath directory other than
+# the two above, another CI system or a wrapper script, so a row whose caller is `-` and no
+# caller-unscanned row means "none of the files above names it", never "nothing runs it".
 #
 # OUTPUT, stdout, tab separated:
 #   retired      <path>  <caller>  <line>  <form>   one row per workflow line naming the path; the
 #                                                    caller is the workflow file, relative to the
 #                                                    project. With no such line: caller, line, form `-`.
-#   not-scanned  <path>  <symlink|unreadable>       a path or workflow location it did not read (workflow
-#                                                    locations only when a listed path exists)
+#   caller-unscanned <path> <file> <line>            one per line of a non-workflow caller file naming the
+#                                                    path, after that path's retired rows. A removal
+#                                                    refuses on every one (see below).
+#   not-scanned  <path>  <symlink|unreadable>       a path, workflow location or caller file it did not
+#                                                    read (the last two only when a listed path exists,
+#                                                    once per file, however many paths are listed)
 #   exempt       kit checkout                       (instead of a scan, see above)
 #   summary      <retired paths found>  <not-scanned rows>                            (always last)
 #
@@ -49,10 +60,15 @@
 #
 # REMOVAL (--remove). Every caller row must be `step`, or nothing at all is written:
 #   - a `step` row: that exact line is deleted from its workflow file, then the script is deleted;
-#   - caller `-`: the script is deleted alone (the caller can still be a Makefile or hook: say so);
-#   - any `other` row, a symlinked path, or a workflow location it could not read or write: NOTHING is
-#     changed, the script stays so CI never runs a missing file, and one line per blocker is printed:
+#   - caller `-` and no caller-unscanned row: the script is deleted alone (the callers listed under
+#     WHAT IT SCANS found nothing; a caller outside that list can still run it: say so);
+#   - any `other` row, a caller-unscanned row, a symlinked path, or a workflow or caller file it could
+#     not read or write: NOTHING is changed, the script stays so CI never runs a missing file, and one
+#     line per blocker is printed:
 #       not removed: <file>:<line> is not a one-line run step; delete it by hand, then remove <path>
+#       not removed: <file>:<line> names <path> outside a workflow; delete it by hand, then remove <path>
+#       not removed: <file> was not scanned (<why>); check it for a step that runs <path>, then remove it by hand
+#     A workflow step that would otherwise have been deleted stays too: the refusal is all or nothing.
 #   - a workflow FILE is never deleted. Editing is by removing one recognised line, never by parsing
 #     and re-serialising, which would lose comments and formatting.
 # EXIT (remove): 0 removed; 1 refused, nothing changed; 2 usage error or a path that is not listed or
@@ -124,7 +140,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 # The awk finder. For one path it prints "<line>\t<form>" per workflow line naming it. Reads the file
 # whole first, because `step` needs to know whether a sibling step exists.
-FIND_AWK='
+MENTION_AWK='
 function is_word(c) { return c ~ /[A-Za-z0-9_.-]/ }
 function mentions_from(l, p, start,   k, n, b, e) {
   n = length(p)
@@ -137,7 +153,8 @@ function mentions_from(l, p, start,   k, n, b, e) {
     start = k + 1
   }
   return 0
-}
+}'
+FIND_AWK="$MENTION_AWK"'
 { sub(/\r$/, "", $0); raw[NR] = $0 }
 function skip(l) { return l ~ /^[ ]*$/ || l ~ /^[ ]*#/ }
 function indent_of(l) { match(l, /^ */); return RLENGTH }
@@ -187,6 +204,13 @@ END {
   }
 }'
 
+# The caller finder (#540): one line number per non-comment line naming the basename P. A comment is a
+# line whose first non-blank character (space or tab) is `#`.
+CALL_AWK="$MENTION_AWK"'
+{ sub(/\r$/, "", $0) }
+$0 ~ /^[ \t]*#/ { next }
+mentions_from($0, P, 1) { printf "%d\n", NR }'
+
 ROWS="$WORK/rows"; NOTSC="$WORK/notscanned"; : > "$ROWS"; : > "$NOTSC"
 NFOUND=0
 SEEN_PATH=0
@@ -208,12 +232,37 @@ for d in "${WFDIRS[@]}"; do
     printf '%s\n' "$rel" >> "$WFFILES"
   done
 done
+
+# Caller files outside a workflow, listed once (#540). A symlinked or unreadable one goes to wfblock, the
+# same not-scanned route as a workflow file, so it is reported once however many paths are listed and
+# it blocks a removal because it may hold a caller. A directory, or a file that is not there, is skipped.
+CANDS="$WORK/cands"; : > "$CANDS"
+add_cand() {
+  local rel="$1"
+  [ -e "$PROJECT/$rel" ] || [ -L "$PROJECT/$rel" ] || return 0
+  if has_link "$rel"; then printf '%s\tsymlink\n' "$rel" >> "$WORK/wfblock"; return 0; fi
+  [ -f "$PROJECT/$rel" ] || return 0
+  [ -r "$PROJECT/$rel" ] || { printf '%s\tunreadable\n' "$rel" >> "$WORK/wfblock"; return 0; }
+  printf '%s\n' "$rel" >> "$CANDS"
+}
+for n in package.json Makefile makefile GNUmakefile justfile Justfile .justfile; do add_cand "$n"; done
+for d in .githooks .husky; do
+  [ -e "$PROJECT/$d" ] || [ -L "$PROJECT/$d" ] || continue
+  if has_link "$d"; then printf '%s\tsymlink\n' "$d" >> "$WORK/wfblock"; continue; fi
+  [ -d "$PROJECT/$d" ] || continue
+  [ -r "$PROJECT/$d" ] && [ -x "$PROJECT/$d" ] || { printf '%s\tunreadable\n' "$d" >> "$WORK/wfblock"; continue; }
+  for f in "$PROJECT/$d"/* "$PROJECT/$d"/.[!.]*; do
+    [ "${f##*/}" = _ ] && continue
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    add_cand "$d/${f##*/}"
+  done
+done
 [ -f "$WORK/wfblock" ] || : > "$WORK/wfblock"
 
 # scan_path <path>: appends this path's retired rows to ROWS. Returns 1 when the path is not a regular
 # file in the project (nothing to report).
 scan_path() {
-  local p="$1" rel hits found=0
+  local p="$1" rel hits found=0 base="${1##*/}"
   if has_link "$p"; then printf '%s\tsymlink\n' "$p" >> "$NOTSC"; return 1; fi
   [ -f "$PROJECT/$p" ] || return 1
   NFOUND=$((NFOUND + 1))
@@ -226,6 +275,12 @@ scan_path() {
     done <<< "$hits"
   done < "$WFFILES"
   [ "$found" -eq 1 ] || printf 'retired\t%s\t-\t-\t-\n' "$p" >> "$ROWS"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    hits=$(awk -v P="$base" "$CALL_AWK" "$PROJECT/$rel" 2>/dev/null)
+    [ -n "$hits" ] || continue
+    while IFS= read -r ln; do printf 'caller-unscanned\t%s\t%s\t%s\n' "$p" "$rel" "$ln" >> "$ROWS"; done <<< "$hits"
+  done < "$CANDS"
   return 0
 }
 
@@ -261,6 +316,10 @@ done < "$WORK/wfblock"
 while IFS=$'\t' read -r _ _ file ln form; do
   [ "$form" = other ] || continue
   echo "not removed: $file:$ln is not a one-line run step; delete it by hand, then remove $REMOVE" >&2; refused=1
+done < "$ROWS"
+while IFS=$'\t' read -r kind _ file ln _; do
+  [ "$kind" = caller-unscanned ] || continue
+  echo "not removed: $file:$ln names $REMOVE outside a workflow; delete it by hand, then remove $REMOVE" >&2; refused=1
 done < "$ROWS"
 STEPFILES=$(awk -F'\t' '$5 == "step" { print $3 }' "$ROWS" | sort -u)
 for f in $STEPFILES; do
