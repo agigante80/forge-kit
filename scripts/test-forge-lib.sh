@@ -2551,6 +2551,69 @@ OUT="$(FORGE_HOST=gitea FORGE_REPO=o/r PATH="$N256BIN:$PATH" bash "$LIB" detect 
 expect "invalid host: detect exits 2" 2 "$RC"
 expect "invalid host: detect prints nothing on stdout" "" "$OUT"
 expect "invalid host: detect prints the one host line" "$N256LINE" "$(cat "$T/n256.err")"
+# --- #553: detect computes every field, then prints its one line -------------------------------------
+# Each `$(...)` used to expand AFTER `host=... repo=...` was already on stdout, so a stderr note from
+# forge_api_base, forge_ci_status or the pin landed in the middle of the terminal line. d553 runs the
+# executed-directly CLI in a fresh repo (no remote) with stub curl and gh that log their calls, and
+# keeps stdout, stderr and the merged stream apart. L553 is the library under test.
+echo "== #553: detect prints one intact line =="
+L553="$LIB"
+D553="$T/d553"; mkdir -p "$D553/bin"
+printf '#!/bin/sh\necho call >> "%s/curl.log"\nprintf '"'"'{"total_count":1,"state":"success"}\\n200'"'"'\n' "$D553" > "$D553/bin/curl"
+printf '#!/bin/sh\necho none\n' > "$D553/bin/gh"
+chmod +x "$D553/bin/curl" "$D553/bin/gh"
+d553() {  # d553 <conf-text|""> [VAR=value ...]: sets D553OUT, D553ERR, D553ALL and D553RC
+  local conf="$1"; shift
+  rm -rf "$D553/r"; mkdir -p "$D553/r"; ( cd "$D553/r" && git init -q . ); : > "$D553/curl.log"
+  [ -z "$conf" ] || printf '%s\n' "$conf" > "$D553/r/.forge.conf"
+  ( cd "$D553/r" && env -u FORGE_HOST -u FORGE_REPO -u FORGE_API_URL -u FORGE_REMOTE -u FORGE_ALLOW_HTTP \
+      PATH="$D553/bin:$PATH" FORGE_NO_GIT_CREDENTIALS=1 "$@" bash "$L553" detect > "$D553/out" 2> "$D553/err" )
+  D553RC=$?
+  ( cd "$D553/r" && env -u FORGE_HOST -u FORGE_REPO -u FORGE_API_URL -u FORGE_REMOTE -u FORGE_ALLOW_HTTP \
+      PATH="$D553/bin:$PATH" FORGE_NO_GIT_CREDENTIALS=1 "$@" bash "$L553" detect > "$D553/all" 2>&1 )
+  D553OUT="$(cat "$D553/out")"; D553ERR="$(cat "$D553/err")"; D553ALL="$(cat "$D553/all")"
+}
+HTTP553='forge-lib: refusing to send the token over http; use an https FORGE_API_URL, or export FORGE_ALLOW_HTTP=1 for a trusted LAN instance'
+LINE553='host=forgejo  repo=o/r  api=http://f.invalid/api/v1  ci=not_configured'
+row553_http() { d553 "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=http://f.invalid FORGEJO_TOKEN=tok
+  [ "$D553RC" = 0 ] && [ "$D553OUT" = "$LINE553" ] && [ "$D553ERR" = "$HTTP553" ] && [ "$D553ALL" = "$HTTP553"$'\n'"$LINE553" ]; }
+row553_unset() { d553 "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGEJO_TOKEN=tok
+  [ "$D553OUT" = 'host=forgejo  repo=o/r  api=  ci=not_configured' ] && [ -n "$D553ERR" ] && ! grep -qv 'FORGE_API_URL must be set in .forge.conf' "$D553/err" \
+    && [ "$(grep -c 'must be set' "$D553/all")" = "$(grep -c . "$D553/err")" ] && [ "$(tail -1 "$D553/all")" = 'host=forgejo  repo=o/r  api=  ci=not_configured' ]; }
+NOTE553='forge-lib: default-branch check skipped (no readable .forge.conf reference for remote origin); routing keys from .forge.conf are not verified'
+row553_skip() { d553 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://f.invalid' FORGEJO_TOKEN=tok
+  [ "$D553OUT" = 'host=forgejo  repo=o/r  api=https://f.invalid/api/v1  ci=success' ] && grep -qxF "$NOTE553" "$D553/err" \
+    && ! grep -qv -xF "$NOTE553" "$D553/err" && [ "$(tail -1 "$D553/all")" = "$D553OUT" ] && [ -s "$D553/curl.log" ]; }
+row553_http && ok "#553: http FORGE_API_URL: stdout is the one intact line, stderr the one refusal line, and the merged view puts the note first" \
+  || bad "#553: http detect (rc $D553RC) out=[$D553OUT] err=[$D553ERR] all=[$D553ALL]"
+! grep -qw tok "$D553/out" "$D553/err" && ok "#553: the token value never reaches stdout or stderr" || bad "#553: the token was printed"
+row553_unset && ok "#553: unset FORGE_API_URL: stdout is 'api=  ci=not_configured' on one line and every abort line stands alone before it" \
+  || bad "#553: unset api detect (rc $D553RC) out=[$D553OUT] all=[$D553ALL]"
+row553_skip && ok "#553: the default-branch skip note is a whole stderr line and the detect line stays intact" \
+  || bad "#553: skip-note detect (rc $D553RC) out=[$D553OUT] all=[$D553ALL]"
+d553 "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=http://f.invalid FORGEJO_TOKEN=tok FORGE_ALLOW_HTTP=1
+[ "$D553RC" = 0 ] && [ -z "$D553ERR" ] && [ "$D553OUT" = 'host=forgejo  repo=o/r  api=http://f.invalid/api/v1  ci=success' ] && [ -s "$D553/curl.log" ] \
+  && ok "#553: with FORGE_ALLOW_HTTP=1 exported detect still asks the forge" || bad "#553: allow-http detect (rc $D553RC) out=[$D553OUT] err=[$D553ERR]"
+d553 "" FORGE_HOST=github FORGE_REPO=o/r
+expect "#553: GitHub keeps its shape: no api field" "host=github  repo=o/r  ci=none|" "$D553OUT|$D553ERR"
+d553 "" FORGE_HOST=forgejo FORGE_API_URL=https://f.invalid FORGEJO_TOKEN=tok
+[ "$D553RC" = 0 ] && [ "$(grep -c . "$D553/out")" = 1 ] && [ "$D553OUT" = 'host=forgejo  repo=  api=https://f.invalid/api/v1  ci=not_configured' ] \
+  && [ "$(tail -1 "$D553/all")" = "$D553OUT" ] && ok "#553: an unparseable remote leaves repo= empty on one whole line, rc 0, no early exit" \
+  || bad "#553: forge_repo failure (rc $D553RC) out=[$D553OUT] all=[$D553ALL]"
+OLD553='    detect) h="$(forge_host)" || exit 2   # top-level code: exit, not return; nothing on stdout (#256)
+            printf '"'"'host=%s  repo=%s'"'"' "$h" "$(forge_repo)"
+            [ "$h" = forgejo ] && printf '"'"'  api=%s'"'"' "$(forge_api_base)"; printf '"'"'  ci=%s\n'"'"' "$(forge_ci_status "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)")" ;;'
+python3 - "$LIB" "$T/lib553" "$OLD553" <<'PY'
+import re, sys
+s = open(sys.argv[1]).read()
+a = s.index('    detect) h="$(forge_host)"'); b = s.index('    *)      "$@" ;;', a)
+open(sys.argv[2], 'w').write(s[:a] + sys.argv[3] + '\n' + s[b:])
+PY
+cmp -s "$LIB" "$T/lib553" && bad "#553 mutant 'fields printed as they are computed' did not apply"
+for r553 in row553_http row553_unset row553_skip; do
+  if L553="$T/lib553" $r553; then bad "#553 MUTANT SURVIVED: fields printed as they are computed ($r553)"; else ok "#553 mutant 'fields printed as they are computed' dies on $r553"; fi
+done
+
 # The valid hosts are unchanged: the same calls still send, and a dry run still prints its real base.
 : > "$N256LOG"
 ( . "$LIB"; export N256LOG PATH="$N256BIN:$PATH" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example \

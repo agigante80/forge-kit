@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 56
+# forge-lib-version: 57
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -2160,8 +2160,13 @@ forge_ci_no_status_kind() {
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   case "${1:-detect}" in
     detect) h="$(forge_host)" || exit 2   # top-level code: exit, not return; nothing on stdout (#256)
-            printf 'host=%s  repo=%s' "$h" "$(forge_repo)"
-            [ "$h" = forgejo ] && printf '  api=%s' "$(forge_api_base)"; printf '  ci=%s\n' "$(forge_ci_status "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)")" ;;
+            # Every field is computed BEFORE anything is printed, so a stderr note from forge_repo,
+            # forge_api_base, the pin or forge_ci_status lands on its own line, never mid-line (#553).
+            r="$(forge_repo)"; a=""
+            [ "$h" != forgejo ] || a="$(forge_api_base)"
+            c="$(forge_ci_status "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)")"
+            if [ "$h" = forgejo ]; then printf 'host=%s  repo=%s  api=%s  ci=%s\n' "$h" "$r" "$a" "$c"
+            else printf 'host=%s  repo=%s  ci=%s\n' "$h" "$r" "$c"; fi ;;
     *)      "$@" ;;
   esac
 fi
