@@ -66,7 +66,7 @@ echo "== settings.local.json: never edited, and a wired hook there blocks the de
 P=$(mk lw '{"hooks":{}}'); echo '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"python3 .claude/hooks/x.py"}]}]}}' > "$P/.claude/settings.local.json"
 before=$(cat "$P/.claude/settings.local.json"); cap x --project "$P"
 [ "$crc" = 1 ] && [ -z "$cout" ] && [ "$(cat "$P/.claude/settings.local.json")" = "$before" ] && ok "wired in settings.local.json: exit 1, file untouched, nothing on stdout" || bad "local wired: rc=$crc '$cout'"
-case "$cerr" in *settings.local.json*"by hand"*) ok "and names the file and says to unwire by hand" ;; *) bad "local message: '$cerr'" ;; esac
+case "$cerr" in *settings.local.json*"by hand"*"re-run hook-unwire.sh"*) ok "and names the file, says to unwire by hand and to re-run" ;; *) bad "local message: '$cerr'" ;; esac
 P=$(mk lo '{"hooks":{}}'); mkdir -p "$P/.claude"; echo '{"permissions":{}}' > "$P/.claude/settings.local.json"; cap x --project "$P"
 [ "$crc" = 0 ] && [ "$cout" = "no wiring found for x" ] && ok "a settings.local.json that does not wire it is no blocker" || bad "local clean: rc=$crc '$cout'"
 P=$(mk lx "$BOTH"); echo '{bad' > "$P/.claude/settings.local.json"; cap block-dashes --project "$P"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hook-unwire-version: 3
+# hook-unwire-version: 4
 # hook-unwire.sh: remove one hook's wiring from a project's .claude/settings.json (#564).
 #
 #   hook-unwire.sh <name> [--project <dir>]
@@ -73,7 +73,7 @@ if [ "$have_l" -eq 1 ]; then
   one_object "$L" || { echo "hook-unwire: $L is a symlink or not one valid JSON object; cannot tell whether it wires $NAME; left unchanged" >&2; exit 1; }
   lc=$(jq --arg n "$NAME" "$COUNT_JQ" "$L" 2>/dev/null) || lc=""
   [ -n "$lc" ] || { echo "hook-unwire: could not read $L; left unchanged" >&2; exit 1; }
-  [ "$lc" -eq 0 ] || { echo "hook-unwire: $NAME is wired in .claude/settings.local.json, which this script never edits; unwire it there by hand, then delete the file" >&2; exit 1; }
+  [ "$lc" -eq 0 ] || { echo "hook-unwire: $NAME is wired in .claude/settings.local.json, which this script never edits; unwire it there by hand, then re-run hook-unwire.sh (it also checks settings.json) before deleting the file" >&2; exit 1; }
 fi
 if [ "$have_s" -eq 0 ]; then echo "no wiring found for $NAME"; exit 0; fi
 one_object "$S" || { echo "hook-unwire: $S is a symlink, not a regular file, or not one valid JSON object; left unchanged" >&2; exit 1; }
