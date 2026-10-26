@@ -46,7 +46,9 @@ jobs:
     # The checks are seconds of work; the slow steps are the advisory npm install and the
     # contributor-docs suite, which runs three times since #406 (about three to four minutes each).
     # A cap well above normal turns a hung runner into a fast failure instead of a six-hour wait.
-    timeout-minutes: 25
+    # Normal reached 20 to 22 minutes by 2026-10-26 and one push run hit the old 25-minute cap;
+    # keep the cap near twice the normal run time.
+    timeout-minutes: 45
     steps:
       # Pinned to a full commit SHA, not a mutable tag: a tag can be repointed, which is the
       # supply-chain risk GitHub's hardening guide names first, and forge-kit ships components
