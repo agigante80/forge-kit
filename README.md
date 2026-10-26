@@ -56,7 +56,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
 | `forge-kit-adapt` | 0.13.5 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.26.5 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
+| `forge-kit-devops` | 0.26.6 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.36.9 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
 | `forge-kit-review` | 0.7.5 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
@@ -252,7 +252,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-adapt` | shell asset | `stale-rules` | v4 |  | stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495). |
 | `forge-kit-devops` | agent | `dep-auditor` | v14 | 1397 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
 | `forge-kit-devops` | agent | `health-check` | v14 | 1387 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
-| `forge-kit-devops` | command | `ci-health` | v12 | 1586 | Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate ea… |
+| `forge-kit-devops` | command | `ci-health` | v13 | 1626 | Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate ea… |
 | `forge-kit-devops` | skill | `context-budget` | v1 | 585 | Measure, in characters, how much a project's next Claude Code session loads before the first prompt (CLAUDE.md, its tra… |
 | `forge-kit-devops` | skill | `find-dead-code` | v3 | 1123 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
 | `forge-kit-devops` | skill | `forge-host` | v57 | 3269 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
