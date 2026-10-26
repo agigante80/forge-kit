@@ -5486,6 +5486,160 @@ fi
 expect "#541: the filter helper is not counted as a scan call site" 7 "$(grep -cE '_forge_leak_scan (forge_|"forge_body_region_)' "$LIB")"
 rm -rf "$T/m541" "$F541" "$W541" "$NT541"
 
+# --- #558: the leak scan reads the sentinel (union) and the allowlist from the default branch --------
+# A checked-out branch must not weaken the scan. mkrepo558 makes a repository with remote origin (or
+# none); defref558 commits, by plumbing only, a default-branch tree listing the given entries on a
+# ref (sentinel-missing and allow-missing are LISTED with an object the store lacks: a partial
+# clone). The allowlist rows drive the REAL scanners: "~/data/a" is a home-root finding unless an
+# allow line `root ~/data` applies.
+D558="$T/d558"
+mkrepo558() {   # <dir> [noremote]
+  rm -rf "$1"; mkdir -p "$1"; git init -q "$1" 2>/dev/null
+  [ "${2-}" = noremote ] || git -C "$1" remote add origin https://example.invalid/r.git
+}
+defref558() {   # <dir> <ref> [sentinel|sentinel-missing|allow=<line>|allow-missing]...: a commit on <ref>; a refs/remotes/<r>/main ref also gets <r>/HEAD
+  local d="$1" r="$2" e b t c; shift 2
+  ( cd "$d" || exit 1
+    export GIT_INDEX_FILE="$d.idx"; rm -f "$GIT_INDEX_FILE"
+    for e in "$@"; do
+      case "$e" in
+        sentinel) b="$(git hash-object -w --stdin < /dev/null)"; git update-index --add --cacheinfo "100644,$b,.claude/scan-forge-writes" ;;
+        sentinel-missing) git update-index --add --info-only --cacheinfo 100644,2222222222222222222222222222222222222222,.claude/scan-forge-writes ;;
+        allow=*) b="$(printf '%s\n' "${e#allow=}" | git hash-object -w --stdin)"; git update-index --add --cacheinfo "100644,$b,.leak-guard-allow" ;;
+        allow-missing) git update-index --add --info-only --cacheinfo 100644,3333333333333333333333333333333333333333,.leak-guard-allow ;;
+      esac
+    done
+    t="$(git write-tree --missing-ok)"; rm -f "$GIT_INDEX_FILE"
+    c="$(echo base | git -c user.name=t -c user.email=t@example.com commit-tree "$t")"
+    git update-ref "$r" "$c"
+    case "$r" in refs/remotes/*/main) git symbolic-ref "${r%/main}/HEAD" "$r" ;; esac ) >/dev/null 2>&1
+}
+wsent558() { mkdir -p "$1/.claude"; : > "$1/.claude/scan-forge-writes"; }
+wallow558() { printf '%s\n' 'root ~/data' > "$1/.leak-guard-allow"; }
+REF558='forge-lib: forge_issue_comment: leak-guard: home-root in body line 1; not sent. Stop and report this to the user; do not set FORGE_LEAK_SCAN=0 yourself.'
+NDIFF558="forge-lib: leak-guard: .leak-guard-allow in the working copy differs from the default branch; only the default branch's list applies"
+NREF558='forge-lib: leak-guard: default branch not readable; no allowlist used'
+HOMEBODY558='forge_issue_comment 5 "see ~/data/a"'
+real558() { r539 "$D558" "$L539" "$1" "FORGE_LEAK_GUARD_DIR=$REAL539" "HOME=$RH539" "GIT_NO_LAZY_FETCH=1" "${@:2}"; }
+err558() { [ "$(cat "$T/e539")" = "$(printf '%s\n' "$@")" ]; }   # stderr is exactly these lines
+ref558() { [ "$R539RC" = 110 ] && [ "$(writes539)" = 0 ] && ! grep -q '/data' "$T/e539"; }
+c558_branch_allow() {   # a branch-added allow entry cannot silence a home path; one note, no entry named
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main sentinel; wallow558 "$D558"
+  real558 "$HOMEBODY558"; ref558 && err558 "$NDIFF558" "$REF558"
+}
+c558_deleted_sentinel() {   # the default branch commits the sentinel, the branch deleted it
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main sentinel
+  real558 "$HOMEBODY558"; ref558 && err558 "$REF558"
+}
+c558_missing_sentinel() {   # gate round 3: listed on the default branch, its blob not local
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main sentinel-missing
+  real558 "$HOMEBODY558"; ref558 && err558 "$REF558"
+}
+c558_pr_noref() {   # actions/checkout pull_request shape: no default ref, so no allowlist and the note
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/pull/1/merge sentinel; wsent558 "$D558"; wallow558 "$D558"
+  real558 "$HOMEBODY558"; ref558 && err558 "$NREF558" "$REF558"
+}
+c558_missing_allow() {   # the allowlist blob is listed but not local: no allowlist and the note
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main sentinel allow-missing; wallow558 "$D558"
+  real558 "$HOMEBODY558"; ref558 && err558 "$NREF558" "$REF558"
+}
+c558_file_remote() {   # a FORGE_REMOTE from .forge.conf never chooses the ref
+  mkrepo558 "$D558"; git -C "$D558" remote add evil https://example.invalid/e.git
+  defref558 "$D558" refs/remotes/origin/main sentinel; defref558 "$D558" refs/remotes/evil/main sentinel 'allow=root ~/data'
+  printf '%s\n' FORGE_REMOTE=evil > "$D558/.forge.conf"
+  real558 "$HOMEBODY558"; ref558 && err558 "$REF558"
+}
+c558_local_sentinel() {   # an untracked local sentinel still arms; a clean body then passes both scanners
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main; wsent558 "$D558"
+  real558 "$HOMEBODY558"; ref558 && err558 "$REF558" || return 1
+  r539 "$D558" "$L539" 'forge_issue_comment 5 "clean"' "$G539"
+  [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ] && [ "$(runs539)" = 2 ] && [ "$(reqs539 POST)" = 1 ]
+}
+c558_default_allow() {   # the default branch's allow entry is honoured, through a temp copy (HEAD before master)
+  local root
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main sentinel 'allow=root ~/data'
+  defref558 "$D558" refs/remotes/origin/master sentinel; wallow558 "$D558"
+  real558 "$HOMEBODY558"; [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ] && [ "$(reqs539 POST)" = 1 ] || return 1
+  root="$(cd "$D558" && pwd -P)"
+  r539 "$D558" "$L539" 'forge_issue_comment 5 "clean"' "$G539"
+  [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ] && grep -q '^RUN public argv: \[--allow-file\] \[[^]]*/allow\.[^]]*\] \[--\]' "$T/stub539.log" \
+    && ! grep -q "\[$root/.leak-guard-allow\]" "$T/stub539.log"
+}
+c558_allow_differs() {   # a differing working list prints the note once and the default branch's list applies; a symlink is not compared
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main sentinel 'allow=root ~/data'
+  printf '%s\n' 'root ~/data/x' > "$D558/.leak-guard-allow"
+  real558 "$HOMEBODY558"; [ "$R539RC" = 0 ] && err558 "$NDIFF558" && [ "$(reqs539 POST)" = 1 ] || return 1
+  rm -f "$D558/.leak-guard-allow"; ln -s /dev/null "$D558/.leak-guard-allow"
+  real558 "$HOMEBODY558"; [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ]
+}
+c558_first_adoption() {   # a readable ref without the file: no allowlist, no note
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/origin/main sentinel
+  r539 "$D558" "$L539" 'forge_issue_comment 5 "clean"' "$G539"
+  [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ] && [ "$(runs539)" = 2 ] && ! grep -q 'allow-file' "$T/stub539.log"
+}
+c558_noremote() {   # no remote at all: the working copy's allowlist, silently
+  mkrepo558 "$D558" noremote; wsent558 "$D558"; wallow558 "$D558"
+  real558 "$HOMEBODY558"; [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ] && [ ! -s "$T/o539" ] && [ "$(reqs539 POST)" = 1 ]
+}
+c558_noref_off() {   # gate round 3: a remote without a default ref and the scan off prints nothing, twice
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/pull/1/merge
+  r539 "$D558" "$L539" 'forge_issue_comment 5 "clean" && forge_issue_comment 6 "clean"' "$G539"
+  [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ] && [ "$(runs539)" = 0 ] && [ "$(reqs539 POST)" = 2 ]
+}
+c558_noref_once() {   # the note is once per shell, with no writer name
+  mkrepo558 "$D558"; defref558 "$D558" refs/remotes/pull/1/merge; wsent558 "$D558"
+  r539 "$D558" "$L539" 'forge_issue_comment 5 "clean" && forge_issue_comment 6 "clean"' "$G539"
+  [ "$R539RC" = 0 ] && err558 "$NREF558" && [ "$(reqs539 POST)" = 2 ]
+}
+row539 "#558: a branch-added allow entry cannot silence a home path, with one note naming no entry" c558_branch_allow
+row539 "#558: a branch that deletes a committed sentinel still gets the scan" c558_deleted_sentinel
+row539 "#558: a listed but unreadable committed sentinel still arms the scan" c558_missing_sentinel
+row539 "#558: a pull-request checkout with no default ref uses no allowlist, with the note" c558_pr_noref
+row539 "#558: a listed but unreadable allowlist blob uses no allowlist, with the note" c558_missing_allow
+row539 "#558: a file-sourced FORGE_REMOTE does not choose the default branch" c558_file_remote
+row539 "#558: a local untracked sentinel still arms; a clean body passes both scanners silently" c558_local_sentinel
+row539 "#558: the default branch's allow entry is honoured through a temp copy, HEAD before master" c558_default_allow
+row539 "#558: a differing working allowlist prints one note and the default branch's list applies" c558_allow_differs
+row539 "#558: first adoption: a ref without the allowlist means no allowlist and no note" c558_first_adoption
+row539 "#558: no remote at all keeps the working copy's allowlist, silently" c558_noremote
+row539 "#558: no default ref with the scan off prints nothing" c558_noref_off
+row539 "#558: the no-ref note prints once per shell, naming no writer" c558_noref_once
+mkdir -p "$T/m558"
+mut558() {   # mut558 <label> <row-fn> <old> <new>
+  local label="$1" fn="$2"; shift 2
+  python3 - "$LIB" "$T/m558/forge-lib.sh" "$@" <<'PY' || { bad "#558: mutant '$label' did not apply"; return 0; }
+import sys
+src, dst, old, new = sys.argv[1:]
+s = open(src).read()
+assert s.count(old) == 1, (s.count(old), old[:50])
+open(dst, "w").write(s.replace(old, new))
+PY
+  L539="$T/m558/forge-lib.sh"
+  if "$fn"; then bad "#558 MUTANT SURVIVED: $label"; else ok "#558 mutant '$label' dies"; fi
+  L539="$LIB"
+}
+mut558 'the allowlist read from the working copy' c558_branch_allow '  _forge_leak_allow
+' '  [ -n "$root" ] && [ -f "$root/.leak-guard-allow" ] && allow="$root/.leak-guard-allow"
+'
+mut558 'the sentinel read from the working copy only' c558_deleted_sentinel '  if [ "$on" != 1 ]; then   # #558' '  if false; then   # #558'
+mut558 'the sentinel union made an intersection' c558_local_sentinel '  if [ "$on" != 1 ]; then   # #558: the default branch' '  if [ "$on" = 1 ] && [ -z "${FORGE_LEAK_SCAN-}" ]; then on=0; _forge_leak_dref; [ "$dref" != 0 ] || ! _forge_default_listed "$ref" .claude/scan-forge-writes || on=1; fi; if false; then   # #558: the default branch'
+mut558 'sentinel existence by cat-file -e' c558_missing_sentinel '  out="$(GIT_NO_LAZY_FETCH=1 git ls-tree --full-tree --name-only "$1" "$2" 2>/dev/null)" || return 0
+  [ -n "$out" ]' '  GIT_NO_LAZY_FETCH=1 git cat-file -e "$1:$2" 2>/dev/null'
+mut558 'the ref order reversed' c558_default_allow '    for want in HEAD main master; do' '    for want in master main HEAD; do'
+mut558 'a file-sourced FORGE_REMOTE honoured' c558_file_remote '  _forge_file_key FORGE_REMOTE || { [ -z "${FORGE_REMOTE-}" ] || exported=1; }' '  [ -z "${FORGE_REMOTE-}" ] || exported=1'
+mut558 'no remote treated as no usable ref' c558_noremote '  [ "$exported" = 0 ] && [ "$nrc" = 0 ] && [ -z "$names" ] && return 3' '  :'
+mut558 'a remote without a ref treated as no remote' c558_pr_noref '  [ "$exported" = 0 ] && [ "$nrc" = 0 ] && [ -z "$names" ] && return 3' '  [ "$exported" = 0 ] && return 3'
+mut558 'an unreadable allowlist blob falls back to the working copy' c558_missing_allow '  _forge_leak_note noref "leak-guard: default branch not readable; no allowlist used"' '  [ -f "$wc" ] && allow="$wc"'
+mut558 'an absent allowlist treated as unreadable' c558_first_adoption '       if [ -n "$atmp" ] && ! _forge_default_listed "$ref" .leak-guard-allow; then' '       if false; then'
+mut558 'the differs note dropped' c558_allow_differs '         [ "$own" = 0 ] || cmp -s "$wc" "$atmp" || _forge_leak_note' '         : || _forge_leak_note'
+mut558 'the differs note dropped for an absent default list' c558_branch_allow '         [ "$own" = 0 ] || _forge_leak_note allowdiff' '         : || _forge_leak_note allowdiff'
+mut558 'a symlinked working list compared' c558_allow_differs '  [ -f "$wc" ] && [ ! -L "$wc" ] && own=1' '  [ -e "$wc" ] && own=1'
+mut558 'the no-ref note printed with the scan off' c558_noref_off '  [ "$on" = 1 ] || return 0
+  for spec in' '  [ "$on" = 1 ] || { _forge_leak_dref; [ "$dref" = 1 ] && _forge_leak_note noref "leak-guard: default branch not readable; no allowlist used"; return 0; }
+  for spec in'
+mut558 'the no-ref note not memoised' c558_noref_once '  _forge_leak_note noref "leak-guard: default branch not readable; no allowlist used"' '  echo "forge-lib: leak-guard: default branch not readable; no allowlist used" >&2'
+rm -rf "$T/m558" "$D558" "$D558.idx"
+
 
 UQ_TEXT="no two ok/FAIL rows share a text"
 expect "$UQ_TEXT" "" "$(sort "$T/rows" 2>&1 | uniq -d; uq_n=$(grep -cxF -- "$UQ_TEXT" "$T/rows" 2>/dev/null); [ "${uq_n:-0}" = 0 ] || echo "$UQ_TEXT"; [ "$(wc -l 2>/dev/null < "$T/rows" || echo 0)" -ge $((pass+fail)) ] || echo "row recorder saw fewer rows than the counters")"

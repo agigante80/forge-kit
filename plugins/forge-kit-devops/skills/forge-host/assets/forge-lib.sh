@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 59
+# forge-lib-version: 60
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -267,6 +267,14 @@
 #       refusal and the fail-open note keep their wording except that they no longer say
 #       "routing"; a deletion reads "leaves <KEY> unset". A run that reads a Forgejo token with
 #       FORGE_TOKEN_ENV unset now makes one default-branch read per call.
+#   v60 SECURITY (#558). The leak scan no longer trusts the working copy's .claude/scan-forge-writes
+#       and .leak-guard-allow. The sentinel counts when the working copy OR the default branch (the
+#       pin's remote and ref) has it, so a branch that deletes a committed sentinel still gets the
+#       scan. The allowlist is the default branch's blob only, read into a 0600 temp file; a working
+#       copy that differs prints one note. A repository with no remote at all keeps the working
+#       copy, silently. A remote without a readable default ref (an actions/checkout pull_request
+#       clone, a partial clone missing the blob) uses NO allowlist and prints one note, but only when
+#       the scan is on: with the scan off nothing changes. CI that scans must fetch the default ref.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -303,7 +311,7 @@ _forge_clear_file_vals() {
 # unset the config keys directly, so the list grants nothing they did not already have.
 _forge_clear_file_vals
 unset _FORGE_TMPDIR _FORGE_CONF_PWD _FORGE_FROM_FILE _FORGE_PIN_PWD   # _FORGE_PIN_PWD: the pin memo (#517), never inherited
-unset _FORGE_LEAK_DIR _FORGE_LEAK_DONE _FORGE_LEAK_NOTED _FORGE_LEAK_ROOT _FORGE_LEAK_ROOT_PWD   # the leak-scan memos (#539), never inherited
+unset _FORGE_LEAK_DIR _FORGE_LEAK_DONE _FORGE_LEAK_NOTED _FORGE_LEAK_ROOT _FORGE_LEAK_ROOT_PWD _FORGE_LEAK_GIT   # the leak-scan memos (#539, #558), never inherited
 # This library's own directory, resolved to an ABSOLUTE physical path ONCE, here at load time
 # (#539): the documented `source scripts/forge-lib.sh` leaves BASH_SOURCE relative, so resolving it
 # at use time would, after a cd into another checkout, name THAT checkout's scripts/ and run its
@@ -490,13 +498,36 @@ _forge_pin_same() {
 #     none of the three names) also fails open with the note: the attacker controls the working
 #     copy, not the remote-tracking refs, so refusing there bought nothing (#517).
 _forge_pin_read() {
-  local exported=0 names refs want listed lrc
-  remote=origin; ref=""; blob=""
+  local listed lrc
+  blob=""
+  if ! _forge_default_ref; then
+    _forge_pin_note "${remote:-?}"; return 1
+  fi
+  if ! blob="$(GIT_NO_LAZY_FETCH=1 git cat-file blob "$ref:.forge.conf" 2>/dev/null)"; then
+    blob=""
+    listed="$(GIT_NO_LAZY_FETCH=1 git ls-tree --full-tree "$ref" .forge.conf 2>/dev/null)"; lrc=$?
+    if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then   # listed but not local, or unreadable: fail open
+      _forge_pin_note "$remote"; return 1
+    fi                                              # absent from the tree: no keys
+  fi
+  return 0
+}
+
+# _forge_default_ref: the remote and ref choice above, ONE implementation shared by the pin and the
+# leak scan (#558). Sets the CALLER's locals remote and ref. rc 0 with ref set; rc 1 no usable ref
+# (a remote is configured, or exported, but has none of HEAD, main, master; or an invalid name; or
+# `git remote` failed, which fails closed as "configured"); rc 3 NO REMOTE AT ALL: nothing exported
+# and `git remote` succeeded and printed nothing. The pin treats 1 and 3 alike (the note); the leak
+# scan keeps the working copy only for 3. scan-forge-writes.py implements the same rule in Python,
+# and scripts/test-hooks.py drives one matrix through both.
+_forge_default_ref() {
+  local exported=0 names="" nrc=1 refs want
+  remote=origin; ref=""
   _forge_file_key FORGE_REMOTE || { [ -z "${FORGE_REMOTE-}" ] || exported=1; }
   # #542: an explicit export always wins (origin included); otherwise exactly one remote is the baseline
   if [ "$exported" = 1 ]; then remote="$FORGE_REMOTE"
   else
-    names="$(git remote 2>/dev/null)" || names=""
+    names="$(git remote 2>/dev/null)" && nrc=0 || names=""
     case "$names" in ''|*$'\n'*) ;; *) remote="$names" ;; esac
   fi
   case "$remote" in
@@ -512,17 +543,18 @@ refs/remotes/$remote/$want
 "*) ref="refs/remotes/$remote/$want"; break ;; esac
     done
   fi
-  if [ -z "$ref" ]; then
-    _forge_pin_note "${remote:-?}"; return 1
-  fi
-  if ! blob="$(GIT_NO_LAZY_FETCH=1 git cat-file blob "$ref:.forge.conf" 2>/dev/null)"; then
-    blob=""
-    listed="$(GIT_NO_LAZY_FETCH=1 git ls-tree --full-tree "$ref" .forge.conf 2>/dev/null)"; lrc=$?
-    if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then   # listed but not local, or unreadable: fail open
-      _forge_pin_note "$remote"; return 1
-    fi                                              # absent from the tree: no keys
-  fi
-  return 0
+  [ -z "$ref" ] || return 0
+  [ "$exported" = 0 ] && [ "$nrc" = 0 ] && [ -z "$names" ] && return 3
+  return 1
+}
+
+# _forge_default_listed <ref> <path from the root>: rc 0 when the default branch's TREE lists the
+# path, read with ls-tree (never cat-file -e, which fails for a listed blob a partial clone lacks:
+# #558 round 3). A failed ls-tree also counts as listed, so the sentinel fails closed (on).
+_forge_default_listed() {
+  local out
+  out="$(GIT_NO_LAZY_FETCH=1 git ls-tree --full-tree --name-only "$1" "$2" 2>/dev/null)" || return 0
+  [ -n "$out" ]
 }
 
 # _forge_pin_base <KEY>...: one default-branch value per KEY, parsed from the caller's blob by the
@@ -1113,9 +1145,21 @@ _forge_tmp_done() {
 # shell (never inside $( ), so rc 110 and the memos survive). It never scans the recomposed body: a
 # leak already in an issue body must not block the write that removes it, and a clear supplies no text.
 #
-# OPT-IN, one switch for both layers: the #536 sentinel .claude/scan-forge-writes at the repository
-# root this library resolves for .forge.conf, or FORGE_LEAK_SCAN=1. FORGE_LEAK_SCAN=0 forces it off.
-# With neither: no scanner, no note, no new stderr. Any other value is treated as unset, with a note.
+# OPT-IN: the #536 sentinel .claude/scan-forge-writes at the repository root (git's toplevel, else
+# the current directory), or FORGE_LEAK_SCAN=1 (this library only: the hook does not read it).
+# FORGE_LEAK_SCAN=0 forces it off. With neither: no scanner, no note, no new stderr. Any other value
+# is treated as unset, with a note.
+# DEFAULT BRANCH (#558): a checked-out branch must not weaken the scan, so the sentinel counts when
+# the working copy OR the default branch's tree lists it (_forge_default_ref picks the ref, as the
+# pin does; _forge_default_listed reads the tree), and the allowlist is the default branch's
+# .leak-guard-allow blob only, copied to a 0600 temp file. Where the working copy holds a different
+# regular file, one note says so (no entry, no value). A readable ref without the file means no
+# allowlist (first adoption). NO REMOTE AT ALL (rc 3), or not a git repository: the working copy's
+# sentinel and allowlist, silently, as before. A remote with no readable default ref, or a listed
+# allowlist blob that is not local: the working-copy sentinel only and NO allowlist, with one note,
+# printed only when the scan is on. That shape (an actions/checkout pull_request clone) is a stated
+# residual: a pull request that deletes a committed sentinel is not scanned there unless CI fetches
+# the default ref.
 # FAIL OPEN, uniformly (the #536 policy, even under an explicit FORGE_LEAK_SCAN=1): scanners not
 # found, a scanner exiting any code but 0 and 1, a timeout, a temp file that cannot be made, or a
 # field over 1 MiB all let the write through with ONE stderr note per shell. Only exit 1 refuses.
@@ -1153,6 +1197,34 @@ _forge_leak_note() {   # <memo key, no spaces> <text>: once per shell until the 
   case " ${_FORGE_LEAK_NOTED-} " in *" $1 "*) return 0 ;; esac
   _FORGE_LEAK_NOTED="${_FORGE_LEAK_NOTED:+$_FORGE_LEAK_NOTED }$1"
   echo "forge-lib: $2" >&2
+}
+
+_forge_leak_dref() {   # sets the CALLER's dref (0 ref, 1 no usable ref, 3 no remote), remote and ref; once per scan
+  [ -z "$dref" ] || return 0
+  if [ "${_FORGE_LEAK_GIT-1}" = 0 ]; then dref=3; return 0; fi
+  _forge_default_ref && dref=0 || dref=$?
+}
+
+# _forge_leak_allow: the CALLER's allow (the file handed to --allow-file, or empty) and atmp (a temp
+# copy to remove), from the default branch (#558). Run after _forge_tmp_init.
+_forge_leak_allow() {
+  local wc="$root/.leak-guard-allow" own=0
+  [ -f "$wc" ] && [ ! -L "$wc" ] && own=1   # only a regular, non-symlink working file is compared
+  _forge_leak_dref
+  case "$dref" in
+    3) [ -n "$root" ] && [ -f "$wc" ] && allow="$wc"; return 0 ;;   # no remote at all: the working copy, silently
+    0) atmp="$(mktemp "$_FORGE_TMPDIR/allow.XXXXXX" 2>/dev/null)" || atmp=""
+       if [ -n "$atmp" ] && GIT_NO_LAZY_FETCH=1 git cat-file blob "$ref:.leak-guard-allow" >| "$atmp" 2>/dev/null; then
+         allow="$atmp"
+         [ "$own" = 0 ] || cmp -s "$wc" "$atmp" || _forge_leak_note allowdiff "leak-guard: .leak-guard-allow in the working copy differs from the default branch; only the default branch's list applies"
+         return 0
+       fi
+       if [ -n "$atmp" ] && ! _forge_default_listed "$ref" .leak-guard-allow; then   # first adoption: no list
+         [ "$own" = 0 ] || _forge_leak_note allowdiff "leak-guard: .leak-guard-allow in the working copy differs from the default branch; only the default branch's list applies"
+         return 0
+       fi ;;
+  esac
+  _forge_leak_note noref "leak-guard: default branch not readable; no allowlist used"
 }
 
 _forge_leak_clean() {   # <value>: printable, bounded, for a message that names an operator's value
@@ -1216,9 +1288,11 @@ _forge_leak_scan() {
   local writer="$1"; shift   # never `local LC_ALL=C` here: an exported LC_ALL would hand C to the scanners, whose case folding is then ASCII only
   [ "${FORGE_LEAK_SCAN-}" = 0 ] && return 0
   _forge_load_conf || true   # in THIS shell (not $( )): moving repository resets the notes memo, and FORGE_TOKEN_ENV is read below
-  local on=0 root spec any=0
+  local on=0 root spec any=0 dref="" remote="" ref=""
   if [ "${_FORGE_LEAK_ROOT_PWD-}" != "${PWD-}" ] || [ -z "${_FORGE_LEAK_ROOT-}" ]; then
-    _FORGE_LEAK_ROOT="$(_forge_root)"; _FORGE_LEAK_ROOT_PWD="${PWD-}"
+    _FORGE_LEAK_GIT=1   # #558: not a git repository reads like "no remote at all"
+    _FORGE_LEAK_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { _FORGE_LEAK_GIT=0; _FORGE_LEAK_ROOT="$(pwd)"; }
+    _FORGE_LEAK_ROOT_PWD="${PWD-}"
   fi
   root="$_FORGE_LEAK_ROOT"
   case "${FORGE_LEAK_SCAN-}" in
@@ -1227,6 +1301,10 @@ _forge_leak_scan() {
     *) _forge_leak_note badval "FORGE_LEAK_SCAN=$(_forge_leak_clean "$FORGE_LEAK_SCAN") is not 0 or 1; using the sentinel" ;;
   esac
   [ "$on" = 1 ] || { [ -n "$root" ] && [ -e "$root/.claude/scan-forge-writes" ] && on=1; }
+  if [ "$on" != 1 ]; then   # #558: the default branch's tree counts too (union), so a branch cannot delete it
+    _forge_leak_dref
+    [ "$dref" = 0 ] && _forge_default_listed "$ref" .claude/scan-forge-writes && on=1
+  fi
   [ "$on" = 1 ] || return 0
   for spec in "$@"; do [ -z "${spec#*=}" ] || any=1; done
   [ "$any" = 1 ] || return 0
@@ -1250,8 +1328,8 @@ _forge_leak_scan() {
     case "$f" in *.txt) ;; *) norun=1; continue ;; esac
     { printf '%s\n' "$ftext" >| "$f"; } 2>/dev/null || norun=1   # >|: mktemp made the file, so a caller's noclobber would refuse >
   done
-  local envu=() allow="" start="$SECONDS"; _forge_token_envu
-  [ -n "$root" ] && [ -f "$root/.leak-guard-allow" ] && allow="$root/.leak-guard-allow"
+  local envu=() allow="" atmp="" start="$SECONDS"; _forge_token_envu
+  _forge_leak_allow
   local tool script out rc budget l r line rule re='^([0-9]+): ([a-z][a-z0-9-]*)(:|$)' tc=() xu=() xa=()
   for ((i = 0; i < ${#files[@]}; i++)); do
     f="${files[$i]}"; fname="${fnames[$i]}"
@@ -1282,6 +1360,7 @@ _forge_leak_scan() {
       fi
     done
   done
+  [ -z "$atmp" ] || _forge_tmp_done "$atmp"
   for f in ${files[@]+"${files[@]}"}; do _forge_tmp_done "$f"; done
   [ "${#files[@]}" -gt 0 ] || _forge_tmp_done ""   # every field skipped (over 1 MiB): still drop the directory
   if [ "$result" = 0 ] && [ "$norun" = 1 ]; then

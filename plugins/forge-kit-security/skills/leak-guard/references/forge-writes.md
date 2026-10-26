@@ -10,15 +10,23 @@ command line shows.
 
 - A PreToolUse `Bash` hook, registered by the plugin's `hooks/hooks.json` (timeout 10 s) and shell
   gated on the sentinel `.claude/scan-forge-writes` (content never read). Without the file it is inert.
+- The default branch decides (#558), in the shell gate and in the hook, by forge-lib's rule: the
+  sentinel counts when the working copy OR the default branch's tree lists it (`git ls-tree`, so a
+  partial clone missing the blob still counts, and a failed listing counts too), and the allowlist is
+  the default branch's `.leak-guard-allow` blob only. The ref is `refs/remotes/<remote>/HEAD`, then
+  `main`, then `master`, where the remote is an exported `FORGE_REMOTE`, else the sole remote, else
+  `origin` (a `.forge.conf` value is ignored). No remote at all, not a git repository, or a project
+  directory that is not git's toplevel: the working copy, silently (the last is a residual). No
+  readable default ref, or a listed allowlist blob that is not local: no allowlist and one note.
 - Plugin only. It finds the scanners from its own plugin root (`../skills/leak-guard/assets`), so a
   copy under `.claude/hooks/` would scan nothing; forge-adapt recommends the plugin instead.
 - Fail open everywhere. It denies only on a scanner finding; every other outcome allows.
-- The same sentinel (or `FORGE_LEAK_SCAN=1`) also switches on the second layer, `forge-lib.sh`'s
+- The same sentinel (or `FORGE_LEAK_SCAN=1`, read by the library only) also switches on the second layer, `forge-lib.sh`'s
   own scan of the text its seven public writers are given (#539). The hook cannot see those bodies,
   because they travel as JSON on stdin of `gh api --input -`; the library scans them in the caller's
   shell, before the dry-run guard, and a finding returns 110 with a `forge-lib: <writer>: leak-guard:
   <rule> in <field> line <N>; not sent` line. Its call contract matches the one below (temp file per
-  field, `--allow-file` when present, 4 s and 8 s, the first `<file>:<line>: <rule>:` parsed and the
+  field, the default branch's allowlist, 4 s and 8 s, the first `<file>:<line>: <rule>:` parsed and the
   output discarded), plus the forge token variables removed from the scanner's environment. Its
   discovery is a soft probe (`FORGE_LEAK_GUARD_DIR`, its own directory, the sibling group in a source
   layout, then `$HOME/.claude/plugins`) and fails open with a note when no pair of marked scanners is
@@ -53,8 +61,9 @@ as its own temp file:
 
 The hook never hands a user path to a scanner. It writes the text to a 0600 `mkstemp` file
 (`fgw*.txt`, unlinked in `finally`), runs the private scanner then the public one from the git
-toplevel (else the cwd) as `bash <script> ... -- <temp>`, with `--allow-file
-$CLAUDE_PROJECT_DIR/.leak-guard-allow` on the public one when that file exists. Exit 1 is a finding;
+toplevel (else the cwd) as `bash <script> ... -- <temp>`, with `--allow-file` naming the allowlist
+resolved above (a 0600 copy of the default branch's blob) on the public one, and `ALLOW_FILE` removed
+from both environments. Exit 1 is a finding;
 exit 2, any other non-zero status or a missing scanner is `scan did not run`.
 
 Deadline: ONE hook-wide 8 s; each scanner run gets `min(4 s, remaining)` in its own process group,
@@ -82,6 +91,8 @@ evidence or scanner output; the model gets the location and the rule, not the se
 | `leak-guard: scan did not run` | scanner exit 2, other failure or missing |
 | `leak-guard: scan timed out` | the per-scan or hook-wide deadline |
 | `leak-guard: payload not understood, not scanned` | a Bash payload with no usable command |
+| `leak-guard: .leak-guard-allow in the working copy differs from the default branch; only the default branch's list applies` | a regular working list that is not the default branch's (#558) |
+| `leak-guard: default branch not readable; no allowlist used` | a remote with no default ref, or a listed allowlist blob that is not local (#558) |
 
 ## Known bypasses, pinned by tests
 

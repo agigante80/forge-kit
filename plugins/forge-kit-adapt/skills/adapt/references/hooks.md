@@ -181,7 +181,7 @@ The hook scans the body and title typed into `gh issue|pr create|edit|comment` w
 scanners before gh publishes them. It ships ONLY in `forge-kit-security`, because it finds the
 scanners from the plugin's own root: there is no project-local copy shape. It has its OWN sentinel,
 `.claude/scan-forge-writes`, and the file's content is never read. Without the file the hook is
-inert in every project that has the plugin.
+inert in every project with the plugin.
 
 Branch on `scripts/forge-adapt-plugin-active.sh forge-kit-security@forge-kit`:
 
@@ -195,8 +195,8 @@ mkdir -p .claude && touch .claude/scan-forge-writes
 `no` or `unknown`: recommend installing `forge-kit-security` and install nothing else. A copy under
 `.claude/hooks/` would not find the scanners, so it would scan nothing.
 
-Confirm: `✓ scan-forge-writes (hook): armed via .claude/scan-forge-writes`. Opt out later by
-deleting the sentinel. Tell the user first that a leaking body is denied and that a body the hook
+Confirm: `✓ scan-forge-writes (hook): armed via .claude/scan-forge-writes`. Commit it; the default
+branch arms every branch. Tell the user first that a leaking body is denied and that a body the hook
 cannot read (stdin, an unterminated heredoc, a variable) is allowed with a one-line stderr note.
 The reach and the known bypasses are in `leak-guard/references/forge-writes.md`; do not restate them.
 

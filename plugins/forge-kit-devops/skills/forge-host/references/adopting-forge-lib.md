@@ -71,9 +71,19 @@ unscanned. Seven writers now scan the text their CALLER supplies, at their entry
 and `forge_body_compose_preserving` (`body`, the new text, never the recomposed one). A leak already
 in an issue body therefore never blocks the write that removes it.
 
-- **Opt-in, one switch for both layers:** the sentinel `.claude/scan-forge-writes` at the repository
-  root, or `FORGE_LEAK_SCAN=1`. `FORGE_LEAK_SCAN=0` forces it off. Any other value is treated as
-  unset, with one note. With neither, there is no scanner, no note and no cost.
+- **Opt-in:** the sentinel `.claude/scan-forge-writes` at the repository root, or
+  `FORGE_LEAK_SCAN=1`, which only this library reads (the hook does not). `FORGE_LEAK_SCAN=0` forces
+  it off. Any other value is treated as unset, with one note. With neither, there is no scanner, no
+  note and no cost.
+- **The default branch decides (#558):** a checked-out branch cannot weaken the scan. The sentinel
+  counts when the working copy OR the default branch's tree lists it, and the allowlist is the
+  default branch's `.leak-guard-allow` blob only, copied to a 0600 temp file. The remote and ref are
+  the pin's (`_forge_default_ref`): an exported `FORGE_REMOTE`, else the sole remote, else `origin`;
+  then `HEAD`, `main`, `master`. A working list that differs prints one note. No remote at all, or
+  not a git repository: the working copy, silently. A remote with no readable default ref (an
+  `actions/checkout` pull_request clone) or a listed allowlist blob that is not local: no allowlist,
+  one note, and only when the scan is on. Residual: there, a branch that deletes a committed
+  sentinel is not scanned, so CI that scans must fetch the default ref.
 - **Return code 110** means a scanner found a leak: nothing was sent, and the stderr line names the
   writer, the rule, the field and the line, never the matched text. It is final for that call. An
   agent stops and reports it to the user, and never sets `FORGE_LEAK_SCAN=0` itself.
@@ -90,8 +100,8 @@ in an issue body therefore never blocks the write that removes it.
   `check-private-leaks-version` under `$HOME/.claude/plugins`. forge-kit-devops does not depend on
   forge-kit-security, so a project with neither simply gets the not-found note.
 - **Scanner call:** each field goes to its own 0600 temp file, never to an argument; the forge token
-  variables are removed from the scanner environment; `<root>/.leak-guard-allow` goes to the public
-  scanner when it exists; 4 s per scan and 8 s in all when `timeout` exists.
+  variables are removed from the scanner environment; the default branch's allowlist (above) goes to
+  the public scanner; 4 s per scan and 8 s in all when `timeout` exists.
 - **Not scanned (known gaps):** `forge_api` direct writes, `forge_milestone_create`,
   `forge_issue_milestone`, label writes and `sync-labels.sh` descriptions, anything run with
   `FORGE_LEAK_SCAN=0` or a custom `FORGE_LEAK_GUARD_DIR`, a field over 1 MiB, and every fail-open case.
