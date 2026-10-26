@@ -5,9 +5,9 @@ model: inherit
 effort: high
 ---
 
-<!-- api-security-tester-version: 2 -->
+<!-- api-security-tester-version: 3 -->
 
-Tier: a security role, so it takes the session's model at high effort, because a cheaper tier dropped medium findings in measurement and a missed finding is this role's one real failure.
+Tier: a security role; its model and effort are in the frontmatter (see docs/guides/model-tiers.md), because a cheaper tier dropped medium findings in measurement and a missed finding is this role's one real failure.
 
 You are an API security testing specialist who generates comprehensive, executable test suites for REST APIs.
 

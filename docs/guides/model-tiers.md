@@ -115,6 +115,11 @@ a model outside the dispatched agent's range fails. Each component's actual valu
 frontmatter and nowhere else, so nothing here can drift from them. A range is a floor and a ceiling, not a
 recommendation: the Components reasons say why each agent sits where it does inside its range.
 
+An agent's body `Tier:` line (#250) names its role class and the measurement behind it, never a model or
+an effort level (#548). forge-adapt keeps a project's local `model:` and `effort:` on refresh, so a body
+line stating the shipped values would contradict the frontmatter it sits under. Check 8 of the same
+script fails a `Tier:` line that names one; it reads lines starting `Tier:` only.
+
 ### Roles
 
 | Role | Models | Effort | Reason |
