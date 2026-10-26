@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 22 -->
+<!-- doc-rules-version: 24 -->
 
 # Ticket standards (canonical)
 
@@ -16,6 +16,8 @@ open ticket. `doc-rules-version` says *which revision the rules text below is at
 the rules that does not change the form fields bumps **only** `doc-rules-version`, costs nothing
 downstream, and triggers no synthesis. See `docs/guides/template-versioning.md` for the full
 rule and why the two were separated.
+
+A local adaptation never moves `doc-rules-version`: it tracks the kit revision your copy has fully absorbed, and nothing else. Record a local change in a separate comment line; never edit the marker comment, because text inside it stops it parsing and the drift row reads `unversioned`.
 
 Read this alongside `docs/guides/template-versioning.md`, which describes the version marker and
 the gate's auto-synthesis of missing sections. The two are complementary: this doc says *what a
@@ -36,6 +38,10 @@ A ready work ticket must satisfy every rule below whose scope the ticket actuall
 Applicability is decided by the gate from the ticket type and the packages it affects; a rule a
 ticket does not touch is marked N/A with a one-line justification, never failed. A rule that
 *does* apply and is absent fails the gate.
+
+The gate cites these sections by title, so a project's adapted copy
+must keep each section title verbatim and put its own framing in a trailing parenthetical,
+for example `### 3. E2E test specs (integration / subprocess)`; renumbering is harmless.
 
 ### 1. GWT scenarios (Given / When / Then)
 

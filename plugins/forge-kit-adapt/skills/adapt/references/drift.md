@@ -135,6 +135,12 @@ reports the templates). The script prints nothing when the project has no such d
 doc as `none | v<N> | unversioned`, and exits 2 when the kit copy is missing or unmarked: report that
 and keep the rest of the table. The comparison word comes from `forge-adapt-drift-status.sh`.
 
+A local adaptation never moves `doc-rules-version`: it tracks the kit revision the project's copy
+has fully absorbed, and nothing else. A marker bumped for a local edit reads `current` once the kit
+ships that number, although the doc lacks the kit's change: a false current. Record a local change
+in a separate comment line; never edit the marker comment, because text inside it stops it parsing
+and the row reads `none | v<N> | unversioned`.
+
 ## Gate citations the project's doc lacks (#519)
 
 Since #510 the gate cites `docs/guides/ticket-standards.md` sections by title, as `section "Unit
@@ -148,20 +154,62 @@ only, writes nothing):
 ```
 
 It reads the citing files from the project's own copy, else the live plugin copy the registry
-names, else the kit, and prints tab-separated rows:
+names, else the kit. For `check-ticket-mechanics.sh` the project's own copy is
+`scripts/check-ticket-mechanics.sh`, where the installer puts it, read first (a symlink there or a
+symlinked `scripts/` is skipped); its `.claude/` path stays second. The citers are the gate and `check-ticket-mechanics.sh`, plus privacy-regime
+read from the project's own `.claude/skills/privacy-regime/SKILL.md` only (it is a per-project
+fill-in, so no plugin or kit copy counts). It prints tab-separated rows:
 
-- `citation-missing "<Title>"`: the gate cites a title the doc has no heading for. Print a
-  `Gate citations` table, one row per title, and offer the user two fixes: restore or rename that
-  section in the doc, or, only for a COPIED gate (`scope: project`, or a bare-clone install), map
-  the citation in the adapted copy. A registered gate is the plugin cache's file, replaced on every
-  plugin update: never edit it, restore the doc section instead. Say which section titles the gate
-  cites that the doc lacks, never which section "replaces" them: that is the user's mapping.
+- `citation-missing "<Title>"`: the gate cites a title the doc has no heading, alias or
+  acknowledgement for. Print a `Gate citations` table, one row per title, and offer the user the
+  fixes in this order: restore or rename that section in the doc (preferred); or, for a section the
+  project renamed, add an alias line to the doc; or, for a section the project does not have on
+  purpose, an acknowledgement line. Only for a COPIED gate (`scope: project`, or a bare-clone
+  install) may you instead map the citation in the adapted copy. A registered gate is the plugin
+  cache's file, replaced on every plugin update: never edit it; the alias line is the remedy there.
+  Say which titles the gate cites that the doc lacks. Never invent which section "replaces"
+  them: the alias target is the user's mapping, and the only guess you may show is the script's
+  own candidate row below (#544 amended this rule, because that guess is derived by the script
+  from section order alone and is shown report first).
+- `citation-rename-candidate "<Title>" "<Heading>"`: the doc has, in the same stretch of the
+  kit's section order, one renamed heading for the missing title. Show it beside the title's row
+  as a guess the user confirms. On `yes`, write `<!-- citation-alias: "<Title>" = "<Heading>" -->`
+  on its own line of the doc and never rename the heading; before `yes` the doc is untouched. No
+  row means no guess: never pair a title with a heading yourself.
+- `citation-marker-invalid "<Title>" "<Heading>"`: an alias to a heading the doc lacks, or a later
+  alias for the same title that conflicts with an applied one. `citation-marker-invalid line <N>`:
+  a marker on line N with no closing `-->`. Show the line and ask the user to fix it.
+- `citation-aliased "<Title>" "<Heading>"` and `citation-acknowledged "<Title>"`: a marker applied.
+  List them under the table so the user sees what is covered by hand.
+- `citation-marker-stale "<Title>"`: a marker that changes nothing (nothing cites the title, a real
+  heading has it, or another marker won). Offer to delete the line. Never printed on a run that
+  also prints `not-scanned`.
 - `skipped no ticket-standards doc`: print one line, nothing per title.
 - `not-scanned <what> <reason>`: print it; the gate was not found or the doc was unreadable.
 - `summary <checked> <missing> <not-scanned>`, always last.
 
-Exit 0 is clean (a skipped doc counts), 1 has a missing title, 3 is incomplete and is never clean,
-2 is a usage error. A heading matches on its whole title, ignoring a leading `N. ` and a trailing
+The two marker lines, each alone on its own line of the doc and outside any code fence (a fenced
+one is ignored, so a doc can show the form in an example):
+
+```markdown
+<!-- citation-alias: "Unit test specs" = "Unit tests" -->
+<!-- citation-acknowledged: "E2E test specs" -->
+```
+
+The gate's mechanical checker reads the same alias lines (never the acknowledgements), so an
+applied alias also renames the section its evidence cites: `section "Unit tests" (the kit's "Unit
+test specs")`.
+
+Keep the kit's section titles when adapting the doc, at install and at refresh: the gate cites
+them by title, so put project framing in a trailing parenthetical (`### 3. E2E test specs
+(integration / subprocess)`). The doc's own `## Required sections` intro says so, which is what
+carries the rule at install time. An alias line written for a doc renamed earlier fixes only the
+citation: other project docs quoting the old title are not updated.
+
+A real heading beats both markers, and an alias beats an acknowledgement. The alias target is
+checked for existence only: nothing checks it is the right section. Exit 0 is clean (a skipped doc
+counts), 1 has a missing title or an invalid marker, 3 is incomplete and is never clean, 2 is a
+usage error. A heading matches on its whole title, ignoring a leading `N. ` and a trailing
 parenthetical; a title only inside a longer heading, or only inside a code fence, is missing.
 
 ## The http-steps scan (#528)

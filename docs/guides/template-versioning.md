@@ -124,9 +124,12 @@ integer.
 - Change a form field (add, remove, or redefine a section the templates collect):
   bump `template-version` in all five work templates AND in `ticket-standards.md`, per the procedure
   below. The synthesis round trip is the point.
-- Change only the rules text (clarify a bar, add a rule the forms already collect content for,
-  correct the prose): bump `doc-rules-version` alone. The lockstep guard does not look at it, so
-  nothing else has to move.
+- Change only the rules text in the kit's own copy (clarify a bar, add a rule the forms already
+  collect content for, correct the prose): bump `doc-rules-version` alone. The lockstep guard does
+  not look at it, so nothing else has to move.
+- A project editing its own adapted copy bumps nothing: `doc-rules-version` tracks the kit revision
+  that copy has fully absorbed, so a local bump would read `current` against a later kit revision the
+  copy lacks. Record the local change in a separate comment line beside the marker.
 - Fix a typo or reformat: bump nothing.
 
 **Why two markers rather than a "prose-only changes are bumpless" rule.** That was the cheaper

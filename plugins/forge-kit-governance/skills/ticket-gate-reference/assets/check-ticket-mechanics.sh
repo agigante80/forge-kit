@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 47
+# check-ticket-mechanics-version: 49
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -86,6 +86,7 @@
 #   check-ticket-mechanics.sh --body FILE --template FILE \
 #     --tpl-version N --current-tpl-version N --labels "a,b" \
 #     [--labels-doc docs/guides/labels.md] [--area-labels "..."] [--type-labels "..."]
+#     [--standards-doc docs/guides/ticket-standards.md]
 #   check-ticket-mechanics.sh --roles --template FILE   (no --body; see --roles below)
 #
 # THE AREA SET IS THE PROJECT'S OWN, WHEN IT HAS ONE (#204). `--labels-doc` names the project's
@@ -97,6 +98,22 @@
 # then REFERRED rather than failed, because without the doc the checker cannot tell a project's
 # own area from a priority or host label; only type labels alone, or none, still fail. So a
 # missing doc loosens check 2 to a referral, never to a pass.
+#
+# A CITED SECTION FOLLOWS THE PROJECT'S ALIAS (#557). Four referred rows cite a section of the
+# project's ticket-standards doc by its kit title. When that doc renames one and says so with a
+# `<!-- citation-alias: "<Title>" = "<Heading>" -->` line, the row names the project's heading
+# followed by `(the kit's "<Title>")`, so an author can find the section. `--standards-doc` names
+# the doc, default docs/guides/ticket-standards.md in the working directory (the project root, as
+# for --labels-doc), and an empty value turns it off. The doc is read with citation-check.sh's
+# grammar and rules, which forge-kit-adapt ships and which a parity test pins: the whole line is the
+# marker, a fence is a line opening with ``` or ~~~ after any indent and the same character closes
+# it, a heading is `#` to `######` with a leading `N. ` and a trailing parenthetical dropped, an
+# alias applies only when its target is a heading of the doc and its title is not, and the first
+# alias for a title wins. Acknowledgement lines are not read. Only the nine rows written with
+# `crow` are renamed, and only their FIRST citation, the kit's own: author text is never rewritten,
+# not after that citation and not in any other row, whatever it quotes (review round 1 found a pass
+# row rewriting a section title the author had quoted). The rename is spliced as literal text. A
+# missing, unreadable or marker-free doc leaves every row byte for byte as before.
 #
 # Emits TSV to stdout: <check>\t<outcome>\t<evidence>, outcome in pass|fail|warn|na|referred.
 # Exit 0 whenever the checks ran, so a FAIL is data, and so is a version it cannot parse. Exit
@@ -187,7 +204,7 @@
 #
 set -uo pipefail
 
-TAG_ROUND=""; BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
+STANDARDS_DOC="docs/guides/ticket-standards.md"; TAG_ROUND=""; BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -271,6 +288,7 @@ while [ $# -gt 0 ]; do
     --area-labels)         need_value $# "$1"; AREA_LABELS="$2"; AREA_EXPLICIT=1; shift 2 ;;
     --labels-doc)          need_value $# "$1"; LABELS_DOC="$2"; shift 2 ;;
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
+    --standards-doc)       need_value $# "$1"; STANDARDS_DOC="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
     --roles)               ROLES=1; shift ;;
     --tag-blocks)          need_value $# "$1"; TAG_ROUND="$2"; shift 2 ;;
@@ -348,6 +366,50 @@ if [ "$AREA_EXPLICIT" -eq 0 ] && [ -n "$LABELS_DOC" ] && [ -f "$LABELS_DOC" ]; t
   if [ -n "$doc_areas" ]; then AREA_LABELS="$doc_areas"; else DOC_NO_TABLE=1; fi
 fi
 
+# The project's applied aliases, one `<title>\t<heading>` line each (#557, see the header). The doc
+# comes in on stdin, never as an operand or through -v; a failed read leaves the list empty.
+STD_AWK='
+function sp(s) { gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
+function ttl(s) { sub(/[ \t]*\([^)]*\)[ \t]*$/, "", s); return sp(s) }
+function mk(s) { s = ttl(sp(s)); sub(/^[0-9]+\.[ \t]+/, "", s); return sp(s) }
+  { l = $0; sub(/\r$/, "", l) }
+  match(l, /^[ \t]*(```|~~~)/) { c = substr(l, RSTART + RLENGTH - 1, 1); fc = (fc == "") ? c : (fc == c ? "" : fc); next }
+  fc != "" { next }
+  match(l, /^#+[ \t]/) && RLENGTH <= 7 {
+    t = substr(l, RLENGTH + 1); sub(/^[ \t]+/, "", t); sub(/^[0-9]+\.[ \t]+/, "", t)
+    sub(/[ \t]*#*[ \t]*$/, "", t); t = ttl(t); if (t != "") H[t] = 1; next
+  }
+  l ~ /^[ \t]*<!--[ \t]*citation-alias:[ \t]*"[^"]+"[ \t]*=[ \t]*"[^"]+"[ \t]*-->[ \t]*$/ {
+    split(l, q, "\""); t = mk(q[2]); g = mk(q[4])
+    if (t != "" && g != "" && !(t in first)) { first[t] = g; order[++n] = t }
+  }
+  END {
+    for (i = 1; i <= n; i++) { t = order[i]
+      if (!(t in H) && (first[t] in H)) print t "\t" first[t]
+    }
+  }'
+ALIASES=""
+if [ -n "$STANDARDS_DOC" ] && [ -f "$STANDARDS_DOC" ]; then
+  ALIASES="$( { awk "$STD_AWK" < "$STANDARDS_DOC"; } 2>/dev/null)"
+fi
+# The row's first citation, renamed when its title has an applied alias. Plain concatenation, never
+# a ${//} substitution, whose replacement treats & and a backslash as syntax in bash 5.2.
+alias_ev() {
+  local ev="$1" sw=section op pre rest title t g
+  op="$sw \""
+  case "$ev" in *"$op"*) ;; *) printf '%s' "$ev"; return ;; esac
+  pre=${ev%%"$op"*}; rest=${ev#*"$op"}
+  title=${rest%%\"*}
+  while IFS="$(printf '\t')" read -r t g; do
+    if [ "$t" = "$title" ]; then
+      ev="$pre$op$g\" (the kit's \"$title\")${rest#*\"}"; break
+    fi
+  done <<EOF
+$ALIASES
+EOF
+  printf '%s' "$ev"
+}
+
 is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
 # Evidence is untrusted body text. A newline in it would emit a phantom row and a tab would
@@ -359,6 +421,13 @@ row() {
   local ev
   ev="$(printf '%s' "$3" | tr -d '\r' | tr '\n\t' '  ' | cut -c1-1000)"
   printf '%s\t%s\t%s\n' "$1" "$2" "$ev"
+}
+# A row whose evidence OPENS with the kit's own literal citation of a section title (#557). Only these
+# nine rows are renamed: any other row's evidence may quote author text, which is never rewritten.
+crow() {
+  local ev="$3"
+  [ -z "$ALIASES" ] || ev="$(alias_ev "$ev")"
+  row "$1" "$2" "$ev"
 }
 
 # Everything under a `## <label>` or `### <label>` heading, up to the next heading at the same
@@ -824,7 +893,7 @@ without_oneliner_headers() {
 }
 ONE_LINE='^[[:space:]]*([-*][[:space:]]+)?([*][*]|__|[*]|_)?(Positive|Negative)([*][*]|__|[*]|_)?[.:].*(^|[^A-Za-z])Given([^A-Za-z]|$).*(^|[^A-Za-z])When([^A-Za-z]|$).*(^|[^A-Za-z])Then([^A-Za-z]|$)'
 if [ -z "$SCENARIOS_LABEL" ]; then
-  row gwt referred "no section matched Given/When/Then; the critic must judge section \"GWT scenarios\" unaided"
+  crow gwt referred "no section matched Given/When/Then; the critic must judge section \"GWT scenarios\" unaided"
 else
   SCENARIOS="$(section_of "$SCENARIOS_LABEL")"
   if ! has_content "$SCENARIOS"; then
@@ -889,7 +958,7 @@ else
     # behind the refer, since both outcomes are `referred`.
     if [ "$pos_count" -eq 0 ] && [ "$neg_count" -eq 0 ] && [ -z "$one_line" ] && looks_na "$SCENARIOS"; then
       if long_enough "$SCENARIOS"; then
-        row gwt referred "scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $(first_line "$SCENARIOS")"
+        crow gwt referred "scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $(first_line "$SCENARIOS")"
       else
         row gwt fail "scenarios claim a bare N/A with no reason: $(first_line "$SCENARIOS")"
       fi
@@ -901,7 +970,7 @@ else
       elif missing_then="$(then_missing "$judged")"; [ "$missing_then" -gt 0 ]; then
         row gwt fail "a Negative block has no Then line$(then_note "$missing_then")"
       else
-        row gwt referred "one-line scenario form; the critic must judge section \"GWT scenarios\" unaided: $(first_line "$one_line")"
+        crow gwt referred "one-line scenario form; the critic must judge section \"GWT scenarios\" unaided: $(first_line "$one_line")"
       fi
     elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
@@ -943,7 +1012,7 @@ fi
 # claim read as a named path and PASSED a check that must refer it. So did prose like "and/or".
 
 if [ -z "$UNIT_LABEL" ]; then
-  row unit_tests referred "no section matched unit tests; the critic must judge section \"Unit test specs\" unaided"
+  crow unit_tests referred "no section matched unit tests; the critic must judge section \"Unit test specs\" unaided"
 else
   UNIT="$(section_of "$UNIT_LABEL")"
   # N/A is tested BEFORE a path, here and in the E2E branch below, so the two cannot disagree:
@@ -951,7 +1020,7 @@ else
   if ! has_content "$UNIT"; then
     row unit_tests "$(empty_outcome "$UNIT_LABEL")" "no content in $UNIT_LABEL"
   elif looks_na "$UNIT"; then
-    row unit_tests referred "unit tests claim N/A; legitimate only where section \"Unit test specs\" is out of scope: $(first_line "$UNIT")"
+    crow unit_tests referred "unit tests claim N/A; legitimate only where section \"Unit test specs\" is out of scope: $(first_line "$UNIT")"
   elif names_path "$UNIT"; then
     row unit_tests pass "$(first_line "$UNIT")"
   else
@@ -960,7 +1029,7 @@ else
 fi
 
 if [ -z "$E2E_LABEL" ]; then
-  row e2e_tests referred "no section matched E2E; the critic must judge section \"E2E test specs\" unaided"
+  crow e2e_tests referred "no section matched E2E; the critic must judge section \"E2E test specs\" unaided"
 else
   E2E="$(section_of "$E2E_LABEL")"
   if ! has_content "$E2E"; then
@@ -969,7 +1038,7 @@ else
     # Whether the ticket touches UI at all (section "E2E test specs"), is Step 3B's call, so a reasoned N/A is
     # referred rather than passed, and an unreasoned one fails.
     if long_enough "$E2E"; then
-      row e2e_tests referred "E2E N/A with a reason; section \"E2E test specs\" says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
+      crow e2e_tests referred "E2E N/A with a reason; section \"E2E test specs\" says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
     else
       row e2e_tests fail "E2E N/A with no reason given"
     fi
@@ -983,7 +1052,7 @@ fi
 # --- check 6: documentation impact present ----------------------------------------------
 # Presence only. Whether a "none" reason HOLDS is section "Documentation currency", judged by the critic.
 if [ -z "$DOCS_LABEL" ]; then
-  row docs_impact referred "no section matched documentation impact; section \"Documentation currency\" is the critic's"
+  crow docs_impact referred "no section matched documentation impact; section \"Documentation currency\" is the critic's"
 else
   DOCS="$(section_of "$DOCS_LABEL")"
   if ! has_content "$DOCS"; then
@@ -992,7 +1061,7 @@ else
     row docs_impact pass "$(first_line "$DOCS")"
   elif grep -qiE 'none|no doc' <<< "$DOCS"; then
     if long_enough "$DOCS"; then
-      row docs_impact referred "claims no docs needed; section \"Documentation currency\" applies to every work ticket: $(first_line "$DOCS")"
+      crow docs_impact referred "claims no docs needed; section \"Documentation currency\" applies to every work ticket: $(first_line "$DOCS")"
     else
       row docs_impact fail "claims no docs needed with no reason given"
     fi

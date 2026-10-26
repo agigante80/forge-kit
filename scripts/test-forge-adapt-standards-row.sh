@@ -45,6 +45,20 @@ expect "template-version is not compared (project 1, kit 6, rules equal)" "ticke
 run "$(mk pv '<!-- doc-rules-version: v20 -->\n')" "$KIT21"
 expect "a v-prefixed project marker is read as 20 (one cell, no vv)" "ticket-standards (doc-rules) | v20 | v21 | behind" "$out"
 
+echo "== a local adaptation is recorded beside the marker, never in it (#545) =="
+KIT22=$(mk kit22 '<!-- template-version: 6 -->\n<!-- doc-rules-version: 22 -->\n# Ticket standards\n')
+ANNOT='<!-- local adaptation: heading renamed -->'
+run "$(mk pann1 "<!-- doc-rules-version: 21 -->\n$ANNOT\n")" "$KIT22"
+expect "a separate annotation line: the kit moved on, the row reads behind" "ticket-standards (doc-rules) | v21 | v22 | behind" "$out"
+expect "a separate annotation line, kit ahead: exit 0" 0 "$rc"
+# The annotation sits ABOVE the marker here, so a parser that takes any comment line reads it first.
+run "$(mk pann2 "$ANNOT\n<!-- doc-rules-version: 21 -->\n")" "$KIT21"
+expect "an annotation line above the marker leaves it readable" "ticket-standards (doc-rules) | v21 | v21 | current" "$out"
+expect "an annotation line above the marker: exit 0" 0 "$rc"
+run "$(mk pann3 '<!-- doc-rules-version: 21 (local: heading renamed) -->\n')" "$KIT21"
+expect "an annotation inside the marker comment is not a marker" "ticket-standards (doc-rules) | none | v21 | unversioned" "$out"
+expect "an annotation inside the marker comment: exit 0" 0 "$rc"
+
 echo "== unmarked project doc surfaces, never vanishes (#64) =="
 run "$(mk punm '<!-- template-version: 6 -->\n# Ticket standards\n')" "$KIT21"
 expect "unmarked: unversioned with none in the local cell" "ticket-standards (doc-rules) | none | v21 | unversioned" "$out"

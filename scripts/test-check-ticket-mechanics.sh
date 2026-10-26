@@ -2940,6 +2940,173 @@ if mut535 "no markup in the trailing class" ")[*_[:space:]]*\$//'" ")[[:space:]]
   expect "mutant 5 (markup dropped from the trailing class): the bold scenarios row flips to referred" referred "$(outcome "$(mr535 "$B535B")" gwt)"
   expect "mutant 5 (markup dropped from the trailing class): the plain scenarios row still fails" fail "$(outcome "$(mr535 "$B535S")" gwt)"; fi
 
+# #557: an applied citation-alias in the project's ticket-standards doc (--standards-doc, default
+# docs/guides/ticket-standards.md in the working directory) renames the cited section in the
+# referred evidence, under citation-check.sh's own rules; anything else is byte-identical.
+echo "check-ticket-mechanics: a citation-alias renames the cited section (#557)"
+S557="$WORK/s557"; mkdir -p "$S557"
+sd557() { printf '%b' "$2" > "$S557/$1"; printf '%s' "$S557/$1"; }
+AL557='<!-- citation-alias: "Documentation currency" = "Documentation impact" -->'
+DOC557="$(sd557 all.md "# Standards\n\n### 7. Documentation impact (what to update)\n\nbody\n\n$AL557\n### 3. Unit tests\n<!-- citation-alias: \"Unit test specs\" = \"Unit tests\" -->\n#### GWT   cases ##\n  <!--   citation-alias:   \"GWT   scenarios\"   =   \"2. GWT cases (Given / When / Then)\"   -->  \n## E2E checks\n<!-- citation-alias: \"E2E test specs\" = \"E2E checks\" -->\n")"
+has557() { case "$2" in *"$3"*) ok "#557: $1" ;; *) bad "#557: $1 (no '$3' in: $2)" ;; esac; }
+hasnt557() { case "$2" in *"$3"*) bad "#557: $1 (found '$3' in: $2)" ;; *) ok "#557: $1" ;; esac; }
+ev557() { evid "$(run "$1" feature --standards-doc "$2")" "$3"; }
+KS557="(the kit's"
+# Table-driven over every citation the four rows can print: body, row, kit title, project heading.
+while IFS='|' read -r b c t h; do
+  [ -n "$b" ] || continue
+  E="$(ev557 "$b" "$DOC557" "$c")"
+  has557 "the $c row names \"$h\" for the kit's \"$t\"" "$E" "section \"$h\" $KS557 \"$t\")"
+  hasnt557 "and no longer names \"$t\" as a section" "$E" "section \"$t\""
+done <<ROWS557
+$D510|docs_impact|Documentation currency|Documentation impact
+$U510|unit_tests|Unit test specs|Unit tests
+$G510|gwt|GWT scenarios|GWT cases
+$E510|e2e_tests|E2E test specs|E2E checks
+ROWS557
+has557 "the docs row keeps its wording after the rename" "$(ev557 "$D510" "$DOC557" docs_impact)" "section \"Documentation impact\" $KS557 \"Documentation currency\") applies to every work ticket"
+has557 "the unit row keeps its wording after the rename" "$(ev557 "$U510" "$DOC557" unit_tests)" "section \"Unit tests\" $KS557 \"Unit test specs\") is out of scope"
+# A body without those sections: its rows cite no section, so they must come out unchanged.
+NOSEC557="$WORK/nosec557.md"; printf '<!-- template-version: 6 -->\n\n### Summary\n\nfilled in\n' > "$NOSEC557"
+ONE557="$(sd557 one.md "### Documentation impact\n$AL557\n")"
+E="$(ev557 "$U510" "$ONE557" unit_tests)"
+has557 "a title with no alias keeps its kit title" "$E" 'section "Unit test specs"'
+hasnt557 "and gains no (the kit's ...) text" "$E" "$KS557"
+AUTH557="$(mkbody feature "e557au.md" "" "" "" 'None, see section "Documentation currency" there')"
+E="$(ev557 "$AUTH557" "$ONE557" docs_impact)"
+has557 "only the first citation, the kit's, is renamed" "$E" "section \"Documentation impact\" $KS557 \"Documentation currency\") applies"
+has557 "a citation quoted in the author text is left as written" "$E" 'see section "Documentation currency" there'
+# Review round 1: a row that is NOT one of the nine kit citations keeps the author's text, even when
+# that text quotes a kit title as `section "..."`; an unterminated quote is no exception.
+UP557="$(mkbody feature "e557up.md" "" 'Per section "Unit test specs": `tests/foo.test.ts` covers parse()')"
+DP557="$(mkbody feature "e557dp.md" "" "" "" 'Updates `README.md`, as section "Documentation currency" requires')"
+UF557="$(mkbody feature "e557uf.md" "" 'see section "Unit test specs')"
+for t in "$UP557|unit_tests" "$DP557|docs_impact" "$UF557|unit_tests"; do
+  IFS='|' read -r b c <<< "$t"
+  E="$(ev557 "$b" "$DOC557" "$c")"
+  case "$E" in *'section "'*) ;; *) bad "#557: fixture sanity, the $c author text quotes no section ($E)"; continue ;; esac
+  [ "$E" = "$(ev557 "$b" "" "$c")" ] && ok "#557: author text quoting a kit title in the $(outcome "$(run "$b" feature --standards-doc "")" "$c") $c row is not rewritten" \
+    || bad "#557: author text in the $c row was rewritten ($E)"
+done
+CR557="$(sd557 crlf.md "### Documentation impact\r\n$AL557\r\n")"
+has557 "a CRLF doc is read as its LF copy" "$(ev557 "$D510" "$CR557" docs_impact)" "section \"Documentation impact\" $KS557"
+HOST557="$(sd557 hostile.md '### Docs & \\\\1 $(id) `x`\n<!-- citation-alias: "Documentation currency" = "Docs & \\\\1 $(id) `x`" -->\n')"
+has557 "a heading holding &, a backslash, \$( ) and backticks is printed literally" "$(ev557 "$D510" "$HOST557" docs_impact)" "section \"Docs & \\\\1 \$(id) \`x\`\" $KS557 \"Documentation currency\")"
+FIRST557="$(sd557 first.md "### Docs A\n### Documentation impact\n<!-- citation-alias: \"Documentation currency\" = \"Docs A\" -->\n$AL557\n")"
+E="$(ev557 "$D510" "$FIRST557" docs_impact)"
+has557 "the first alias in the doc wins" "$E" "section \"Docs A\" $KS557"
+hasnt557 "and the later one is not applied" "$E" 'Documentation impact'
+IND557="$(sd557 indent.md "### Documentation impact\n    \`\`\`\n### Docs B\n<!-- citation-alias: \"Documentation currency\" = \"Docs B\" -->\n    \`\`\`js\n$AL557\n")"
+has557 "a fence follows citation-check's rule: any indent opens, an info string closes" "$(ev557 "$D510" "$IND557" docs_impact)" "section \"Documentation impact\" $KS557"
+# The default doc is the working directory's docs/guides/ticket-standards.md; an empty value is off.
+mkdir -p "$S557/proj/docs/guides"; cp "$ONE557" "$S557/proj/docs/guides/ticket-standards.md"
+E="$(cd "$S557/proj" && evid "$(run "$D510" feature)" docs_impact)"
+has557 "with no flag the project's own doc is read" "$E" "section \"Documentation impact\" $KS557"
+E="$(cd "$S557/proj" && evid "$(run "$D510" feature --standards-doc "")" docs_impact)"
+hasnt557 "an empty --standards-doc reads no doc" "$E" "$KS557"
+# The byte-identical cases: each is compared with a run that reads no doc at all.
+same557() { # same557 <description> <doc path>
+  local b; for b in "$D510" "$U510" "$G510" "$E510" "$NOSEC557"; do
+    if [ "$(run "$b" feature --standards-doc "$2")" != "$(run "$b" feature --standards-doc "")" ]; then bad "#557: $1 (output differs for $(basename "$b"))"; return; fi
+  done; ok "#557: $1"
+}
+E="$(cd "$S557" && run "$D510" feature)"
+[ "$E" = "$(run "$D510" feature --standards-doc "")" ] && ok "#557: with no flag and no doc in the working directory nothing changes" || bad "#557: a run with no doc anywhere differs"
+same557 "a later valid alias is not promoted over a first that is not applied" "$(sd557 firstx.md "### Documentation impact\n<!-- citation-alias: \"Documentation currency\" = \"Docs gone\" -->\n$AL557\n")"
+same557 "a doc with no markers changes nothing" "$(sd557 none.md "### Documentation impact\n### Unit tests\n")"
+same557 "a missing doc changes nothing" "$S557/absent.md"
+same557 "an empty doc changes nothing" "$(sd557 empty.md "")"
+mkdir -p "$S557/dir.md"; same557 "a directory at the doc path changes nothing" "$S557/dir.md"
+same557 "an alias to a heading the doc lacks is not applied" "$(sd557 notarget.md "### Documentation\n<!-- citation-alias: \"Documentation currency\" = \"Docs impact\" -->\n")"
+same557 "a cited title that is still a real heading wins over its alias" "$(sd557 real.md "### 7. Documentation currency\n### 8. Documentation impact\n$AL557\n")"
+same557 "a marker inside a backtick fence is ignored" "$(sd557 fence.md "### Documentation impact\n\`\`\`\n$AL557\n\`\`\`\n")"
+same557 "a marker inside a tilde fence is ignored" "$(sd557 tfence.md "### Documentation impact\n~~~ md\n$AL557\n~~~\n")"
+same557 "a fenced heading is no alias target" "$(sd557 fhead.md "\`\`\`\n### Documentation impact\n\`\`\`\n$AL557\n")"
+same557 "an acknowledgement is not an alias" "$(sd557 ack.md "### Documentation impact\n<!-- citation-acknowledged: \"Documentation currency\" -->\n")"
+same557 "text before a marker makes it no marker" "$(sd557 before.md "### Documentation impact\nsee $AL557\n")"
+same557 "two markers on one line are no marker" "$(sd557 two.md "### Documentation impact\n$AL557 $AL557\n")"
+same557 "a marker with no closing --> is no marker" "$(sd557 open.md "### Documentation impact\n<!-- citation-alias: \"Documentation currency\" = \"Documentation impact\"\n")"
+same557 "a seven-hash line is no heading" "$(sd557 seven.md "####### Documentation impact\n$AL557\n")"
+same557 "a heading substring is no heading" "$(sd557 substr.md "### Documentation impact for the API\n$AL557\n")"
+if [ "$(id -u)" != 0 ]; then
+  UNR557="$(sd557 unread.md "### Documentation impact\n$AL557\n")"; chmod 000 "$UNR557"
+  same557 "an unreadable doc changes nothing" "$UNR557"
+  E="$(bash "$SCRIPT" --body "$D510" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" --standards-doc "$UNR557" 2>&1 >/dev/null)"
+  expect "#557: and prints nothing on stderr" "" "$E"; chmod 644 "$UNR557"
+fi
+out557="$(bash "$SCRIPT" --body "$D510" --template "$TPLDIR/feature.yml" --standards-doc 2>"$WORK/err557")"; rc557=$?
+expect "#557: --standards-doc as the last argument exits 2" 2 "$rc557"
+expect "#557: and prints nothing on stdout" "" "$out557"
+expect "#557: and names the flag on stderr" "check-ticket-mechanics: --standards-doc needs a value" "$(cat "$WORK/err557")"
+expect "#557: the nine literal citations stay in the source (citation-check and check-restatements read them)" 9 "$(grep -c 'section \\"' "$SCRIPT")"
+
+# Parity with citation-check.sh, the marker rules' owner: on every fixture doc, the titles this
+# script renames are exactly the titles citation-check reports citation-aliased.
+CC557="$ROOT/plugins/forge-kit-adapt/skills/adapt/assets/citation-check.sh"
+par557=0; npar557=0
+for d in "$S557"/*.md; do
+  [ -f "$d" ] && [ -r "$d" ] || continue
+  rm -rf "$S557/pp"; mkdir -p "$S557/pp/docs/guides" "$S557/pcfg"; cp "$d" "$S557/pp/docs/guides/ticket-standards.md"
+  cc="$(env HOME="$S557/pcfg" CLAUDE_CONFIG_DIR="$S557/pcfg" bash "$CC557" --kit "$ROOT" --project "$S557/pp" 2>/dev/null | awk -F'\t' '$1 == "citation-aliased" { gsub(/"/, "", $2); print $2 }' | grep -xE 'Documentation currency|Unit test specs|GWT scenarios|E2E test specs' | sort)"
+  me="$(for t in "$D510|docs_impact|Documentation currency" "$U510|unit_tests|Unit test specs" "$G510|gwt|GWT scenarios" "$E510|e2e_tests|E2E test specs"; do
+    IFS='|' read -r b c n <<< "$t"; case "$(ev557 "$b" "$d" "$c")" in *"$KS557 \"$n\")"*) echo "$n" ;; esac; done | sort)"
+  npar557=$((npar557 + 1))
+  [ "$cc" = "$me" ] || { par557=1; bad "#557: parity with citation-check on $(basename "$d") (citation-check: $(echo $cc), this: $(echo $me))"; }
+done
+[ "$par557" = 0 ] && [ "$npar557" -ge 15 ] && ok "#557: the renamed titles match citation-check's citation-aliased rows on $npar557 docs"
+
+# Review round 2: every crow site is reached. A template with no role labels sends all four rows to
+# their "no section matched" form, and a one-line scenario body to the GWT one-line form; each of
+# those five sites reverting to plain row must be noticed.
+printf '%s\n' 'name: Plain' 'description: no role labels' 'body:' '  - type: markdown' '    attributes:' \
+  '      value: "<!-- template-version: 6 -->"' '  - type: textarea' '    attributes:' '      label: Summary' > "$WORK/plain557.yml"
+nr557() { # nr557 <script> <body> <template> -> the TSV, reading DOC557
+  bash "$1" --body "$2" --template "$3" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" --standards-doc "$DOC557" 2>/dev/null
+}
+R="$(nr557 "$SCRIPT" "$NOSEC557" "$WORK/plain557.yml")"
+for c in gwt unit_tests e2e_tests docs_impact; do
+  has557 "the no-section-matched $c row is renamed" "$(evid "$R" "$c")" "no section matched"
+  has557 "and carries the kit title note" "$(evid "$R" "$c")" "$KS557"
+done
+has557 "the one-line scenario gwt row is renamed" "$(evid "$(nr557 "$SCRIPT" "$O1" "$TPLDIR/feature.yml")" gwt)" "one-line scenario form; the critic must judge section \"GWT cases\" $KS557"
+for t in 'gwt referred "no section matched|gwt|NOSEC|plain' 'gwt referred "one-line scenario|gwt|O1|feature' \
+         'unit_tests referred "no section matched|unit_tests|NOSEC|plain' 'e2e_tests referred "no section matched|e2e_tests|NOSEC|plain' \
+         'docs_impact referred "no section matched|docs_impact|NOSEC|plain'; do
+  IFS='|' read -r pat c b tp <<< "$t"
+  sed -e "s/^\( *\)crow $pat/\1row $pat/" "$SCRIPT" > "$WORK/mut557r.sh"
+  if cmp -s "$SCRIPT" "$WORK/mut557r.sh"; then bad "#557: crow-site mutant did not apply: $pat"; continue; fi
+  [ "$b" = NOSEC ] && b="$NOSEC557" || b="$O1"
+  [ "$tp" = plain ] && tp="$WORK/plain557.yml" || tp="$TPLDIR/feature.yml"
+  case "$(evid "$(nr557 "$WORK/mut557r.sh" "$b" "$tp")" "$c")" in
+    *"$KS557"*) bad "#557: mutant SURVIVED: the crow site '$pat' reverts to row" ;;
+    *) ok "#557: mutant killed: the crow site '$pat' reverts to row" ;;
+  esac
+done
+
+# #557 mutants: each breaks ONE rule in a copy of the script; a row above must notice.
+mut557() { # mut557 <description> <sed expr> <body> <doc> <check> <substring the real output has>
+  sed -e "$2" "$SCRIPT" > "$WORK/mut557.sh"
+  if cmp -s "$SCRIPT" "$WORK/mut557.sh"; then bad "#557: mutant did not apply: $1"; return; fi
+  local got
+  got="$(bash "$WORK/mut557.sh" --body "$3" --template "$TPLDIR/feature.yml" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" --standards-doc "$4" 2>/dev/null | awk -F'\t' -v c="$5" '$1 == c { print $3 }')"
+  case "$got" in *"$6"*) bad "#557: mutant SURVIVED: $1" ;; *) ok "#557: mutant killed: $1" ;; esac
+}
+DCUR557="section \"Documentation currency\" applies"
+mut557 "the aliases are never applied" '/^  \[ -z "\$ALIASES" \] || ev="\$(alias_ev "\$ev")"$/d' "$D510" "$DOC557" docs_impact "$KS557"
+mut557 "every row is renamed, not only the nine" 's/^  printf .%s\\t%s\\t%s\\n. "\$1" "\$2" "\$ev"$/  [ -z "$ALIASES" ] || ev="$(alias_ev "$ev")"; &/' "$UP557" "$DOC557" unit_tests 'Per section "Unit test specs"'
+mut557 "the doc is never read" 's/^if \[ -n "\$STANDARDS_DOC" \] && \[ -f "\$STANDARDS_DOC" \]; then$/if false; then/' "$D510" "$DOC557" docs_impact "$KS557"
+mut557 "a real heading no longer wins" 's/^      if (!(t in H) \&\& (first\[t\] in H))/      if (first[t] in H)/' "$D510" "$S557/real.md" docs_impact "$DCUR557"
+mut557 "the target need not exist" 's/^      if (!(t in H) \&\& (first\[t\] in H))/      if (!(t in H))/' "$D510" "$S557/notarget.md" docs_impact "$DCUR557"
+mut557 "the last alias wins" 's/ \&\& !(t in first)) { first\[t\] = g; order\[++n\] = t }$/) { if (!(t in first)) order[++n] = t; first[t] = g }/' "$D510" "$FIRST557" docs_impact 'section "Docs A"'
+mut557 "a fenced marker is read" '/^  fc != "" { next }$/d' "$D510" "$S557/fence.md" docs_impact "$DCUR557"
+mut557 "a fence needs CommonMark's indent" 's/^  match(l, \/^\[ \\t\]\*(```|~~~)\/)/  match(l, \/^ ? ? ?(```|~~~)\/)/' "$D510" "$IND557" docs_impact "section \"Documentation impact\" $KS557"
+mut557 "text before a marker is accepted" 's/^  l ~ \/^\[ \\t\]\*<!--/  l ~ \/<!--/' "$D510" "$S557/before.md" docs_impact "$DCUR557"
+mut557 "a heading's parenthetical is kept" 's/^function ttl(s) { sub(.*$/function ttl(s) { return sp(s) }/' "$D510" "$DOC557" docs_impact "section \"Documentation impact\" $KS557"
+mut557 "a heading's number is kept" 's/^    t = substr(l, RLENGTH + 1); sub(\/^\[ \\t\]+\/, "", t); sub(\/^\[0-9\]+\\.\[ \\t\]+\/, "", t)$/    t = substr(l, RLENGTH + 1); sub(\/^[ \\t]+\/, "", t)/' "$D510" "$DOC557" docs_impact "section \"Documentation impact\" $KS557"
+mut557 "a CR is kept on a doc line" 's/^  { l = \$0; sub(\/\\r\$\/, "", l) }$/  { l = $0 }/' "$D510" "$CR557" docs_impact "$KS557"
+mut557 "the last citation is renamed, not the first" 's/^  pre=\${ev%%"\$op"\*}; rest=\${ev#\*"\$op"}$/  pre=${ev%"$op"*}; rest=${ev##*"$op"}/' "$AUTH557" "$ONE557" docs_impact "section \"Documentation impact\" $KS557 \"Documentation currency\") applies"
+mut557 "the rename is a bash pattern substitution" 's/^      ev="\$pre\$op\$g\\" (the kit.s \\"\$title\\")\${rest#\*\\"}"; break$/      r="$op$g\\" (the kit'"'"'s \\"$title\\")"; ev=${ev\/"$op$title\\""\/$r}; break/' "$D510" "$HOST557" docs_impact "section \"Docs & \\\\1 \$(id) \`x\`\" $KS557"
+
 echo
 echo "check-ticket-mechanics tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

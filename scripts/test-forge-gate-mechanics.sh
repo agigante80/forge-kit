@@ -442,6 +442,19 @@ proj .github/ISSUE_TEMPLATE; issue "$FULL" feature P2 api
 run
 [ "$rc" -eq 2 ] && ok "no issue number refuses" || bad "no issue number refuses (rc=$rc)"
 
+echo "== a citation-alias in the project's ticket-standards doc reaches the rows (#557) =="
+# The entry point passes no --standards-doc: the checker's default is the working directory's
+# docs/guides/ticket-standards.md, and the entry point runs from the project root, so an applied
+# alias renames the cited section here with no change to this script or to the gate.
+proj .github/ISSUE_TEMPLATE; issue "$FULL" feature P2 api
+run 42 --format tsv
+contains 'section "E2E test specs"' "$out" "with no doc the E2E row cites the kit's title (fixture sanity)"
+mkdir -p "$T/proj/docs/guides"
+printf '%s\n' '### 3. E2E checks' '<!-- citation-alias: "E2E test specs" = "E2E checks" -->' > "$T/proj/docs/guides/ticket-standards.md"
+run 42 --format tsv
+contains "section \"E2E checks\" (the kit's \"E2E test specs\")" "$out" "an applied alias names the project's heading in the E2E row"
+rm -rf "$T/proj/docs/guides/ticket-standards.md"
+
 echo ""
 echo "forge-gate-mechanics tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] || exit 1
