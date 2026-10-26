@@ -141,14 +141,19 @@ done
 # `general-purpose` is Claude Code's own built-in and is not ours to provide.
 agents=$(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/agents/[^/]+\.md$' \
            -exec basename {} .md \; 2>/dev/null | sort -u)
+# Two prose spellings of a dispatch are read: `subagent_type: x` and, since #551, the reference
+# files' ``Use agent type: `x` `` form (the backtick sits between the colon and the name, so the
+# first pattern's class cannot see it; ticket-gate's security lens is written that way).
+SUBTYPE_RE='subagent_type[\":[:space:]=]+\K[a-z][a-z0-9-]*'
+USETYPE_RE='Use agent type:[[:space:]]*`?\K[a-z][a-z0-9-]*'
 while IFS= read -r target; do
   [ -n "$target" ] || continue
   [ "$target" = general-purpose ] && continue
   grep -qxF "$target" <<< "$agents" || {
-    where=$(grep -rlP "subagent_type[\":[:space:]=]+$target\\b" plugins/ 2>/dev/null | head -1)
+    where=$(grep -rlP "(subagent_type[\":[:space:]=]+|Use agent type:[[:space:]]*\`?)$target\\b" plugins/ 2>/dev/null | head -1)
     fail "${where:-plugins/} dispatches subagent_type '$target', which no agent in this tree provides (it would fail silently at runtime)"
   }
-done < <(grep -rhoP 'subagent_type[\":[:space:]=]+\K[a-z][a-z0-9-]*' plugins/ 2>/dev/null | sort -u)
+done < <({ grep -rhoP "$SUBTYPE_RE" plugins/; grep -rhoP "$USETYPE_RE" plugins/; } 2>/dev/null | sort -u)
 
 # A skill or command can dispatch too: `context: fork` runs it as the agent its `agent:` key names,
 # and a missing one fails silently the same way (#279). Read from FRONTMATTER only, through the
@@ -159,10 +164,43 @@ while IFS= read -r f; do
   a=$(component_frontmatter_field "$f" agent)
   a=${a#\"}; a=${a%\"}; a=${a#\'}; a=${a%\'}; a=${a##*:}
   [ -n "$a" ] && [ "$a" != general-purpose ] || continue
+  fm_dispatches+="$f:$a"$'\n'
   grep -qxF "$a" <<< "$agents" ||
     fail "$f declares agent: '$a', which no agent in this tree provides (it would fail silently at runtime)"
 done < <(find plugins -type f -regextype posix-extended \
            -regex '^plugins/[^/]+/commands/[^/]+\.md$|^plugins/[^/]+/skills/[^/]+/SKILL\.md$' 2>/dev/null | sort)
+
+# 5b. a cross-group dispatch needs a declared dependency (#551, #555)
+#
+# Check 5 proves a dispatched agent exists SOMEWHERE under plugins/. It never asked which group
+# ships it, so `/full-review` (forge-kit-review) dispatched `security-auditor` (forge-kit-security)
+# and the ticket gate's security lens did the same, each with the owning group undeclared: on a
+# marketplace install of the dispatching group alone the agent is absent and the dispatch fails.
+# Every spelling check 5 reads is covered (`subagent_type`, ``Use agent type: `x` ``, frontmatter
+# `agent:`). A dispatch inside the agent's own group needs no declaration. An agent two groups ship
+# is reported, since the owner then cannot be named. The name is matched whole, never as a prefix.
+# The declaration is the owner's plugin.json `name` plus the marketplace name, the same
+# identifier check 4 resolves.
+group_of() { local g="${1#plugins/}"; printf '%s' "${g%%/*}"; }
+plugin_name_of() { jq -r '.name // empty' "plugins/$1/.claude-plugin/plugin.json" 2>/dev/null || true; }
+while IFS=: read -r f a; do
+  [ -n "$f" ] && [ -n "$a" ] && [ "$a" != general-purpose ] || continue
+  grep -qxF "$a" <<< "$agents" || continue          # check 5 already failed a missing agent
+  dgroup=$(group_of "$f")
+  owners=()
+  for af in plugins/*/agents/"$a".md; do [ -f "$af" ] && owners+=("$(group_of "$af")"); done
+  case " ${owners[*]} " in *" $dgroup "*) continue ;; esac   # same group: nothing to declare
+  if [ "${#owners[@]}" -gt 1 ]; then
+    fail "agent '$a' is provided by more than one group ($(IFS=,; echo "${owners[*]}" | sed 's/,/, /g')), so its owner cannot be named for the dispatch in $f"
+    continue
+  fi
+  oname=$(plugin_name_of "${owners[0]}"); oname=${oname:-${owners[0]}}
+  dname=$(plugin_name_of "$dgroup"); dname=${dname:-$dgroup}
+  decl=$(jq -r '(.dependencies // []) | if type == "array" then .[] else empty end | strings' \
+           "plugins/$dgroup/.claude-plugin/plugin.json" 2>/dev/null || true)
+  grep -qxF "$oname@$mkt_name" <<< "$decl" ||
+    fail "$f dispatches agent '$a', owned by $oname, but $dname does not declare $oname@$mkt_name in dependencies"
+done < <({ grep -rHoP "$SUBTYPE_RE" plugins/; grep -rHoP "$USETYPE_RE" plugins/; printf '%s' "${fm_dispatches:-}"; } 2>/dev/null | sort -u)
 
 # 6. no scripts/ copy of a shipped shell asset (#231)
 #

@@ -57,8 +57,8 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 |---|---|---|---|
 | `forge-kit-adapt` | 0.12.30 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.25.0 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.36.4 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
-| `forge-kit-review` | 0.7.4 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
+| `forge-kit-governance` | 0.36.5 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
+| `forge-kit-review` | 0.7.5 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.18.3 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
@@ -73,9 +73,11 @@ gate themselves on something the project owns: `roadmap-phases` does nothing wit
 and the overnight guard arms only when a run's manifest exists. Installing a group is not a
 commitment to using it everywhere.
 
-**Two groups declare a dependency.** `forge-kit-governance` and `forge-kit-roadmap` both need
-`forge-lib.sh` from `forge-kit-devops`, and both declare it, so a fresh install pulls it in and says
-so. If you are UPDATING a group you already had, see the upgrade note under
+**Three groups declare a dependency.** `forge-kit-governance` and `forge-kit-roadmap` both need
+`forge-lib.sh` from `forge-kit-devops`. `forge-kit-governance` also declares `forge-kit-security`,
+because the ticket gate's security lens dispatches `security-auditor`, and `forge-kit-review`
+declares it too, because `/full-review` dispatches the same agent. A fresh install pulls each in
+and says so. If you are UPDATING a group you already had, see the upgrade note under
 [Keeping up to date](#keeping-up-to-date).
 
 ## Scenarios
@@ -265,7 +267,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | skill | `closing-sessions` | v9 | 1191 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |
 | `forge-kit-governance` | skill | `decision-brief` | v6 | 1479 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
-| `forge-kit-governance` | skill | `ticket-gate-reference` | v14 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
+| `forge-kit-governance` | skill | `ticket-gate-reference` | v15 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
 | `forge-kit-governance` | skill | `working-overnight` | v15 | 756 | Run governed, unattended overnight work. |
 | `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
 | `forge-kit-governance` | hook | `forge-write-consent` | v4 |  | Deny forge comments and new tickets unless the user's own prompt granted them (#565). |
@@ -283,7 +285,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | agent | `code-reviewer` | v15 | 1739 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v3 | 450 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
 | `forge-kit-review` | agent | `coding-standards-auditor` | v4 | 1310 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
-| `forge-kit-review` | command | `full-review` | v15 | 3980 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings are fixed in… |
+| `forge-kit-review` | command | `full-review` | v16 | 3985 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings are fixed in… |
 | `forge-kit-review` | skill | `review-lows` | v1 | 261 | Canonical rule for review findings below Medium: fix, ticket or drop, in the same batch. |
 | `forge-kit-review` | skill | `review-sizing` | v2 | 889 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |

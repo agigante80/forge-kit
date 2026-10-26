@@ -14,6 +14,8 @@
 Step 3C dispatches these.
 
 ### Security lens (label `security` or `critical`)
+**Depends on `forge-kit-security`, for `security-auditor`.** Install it alongside on a bare clone.
+
 Use agent type: `security-auditor`. Runs AFTER the critic and receives the critic's JSON:
 it reports only NET-NEW findings and explicit disagreements, never restatements of items
 the critic already raised (the retired committee's sequential-execution dedup, kept). NET-NEW
