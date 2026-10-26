@@ -393,3 +393,19 @@ The `health-check` pair from the table above, re-read with it (CLI 2.1.281, `cla
 Turns and tokens agree with the hand count exactly. Wall time reads about two seconds shorter per run,
 because the script measures from the dispatch's first assistant record to its last, which leaves out the
 spawn before the first response and the handover after the last.
+
+## Where usage went
+
+The measurement above answers what one dispatch cost. The `usage-report` skill (`forge-kit-devops`,
+#566) answers the question that arrives with a usage warning: over the last N days, which project, model,
+session or day took the usage, and why. `python3 <skill>/scripts/usage-report.py [--days N] [--until
+YYYY-MM-DD] [--json]` reads every transcript under `~/.claude/projects/` and prints context re-sent per
+turn, split into uncached, cache-write and cache-read tokens with the output apart, grouped by project,
+by model with main and subagent rows separate, by session with each session's growth from its first main
+turn to its last, and by UTC day. It applies the same counting rule as the dispatch measurement (one
+`message.id` is one turn, its usage the last line, `<synthetic>` is nothing) and adds the rules a whole
+root needs: subagent files are read first so a response present in both files is the subagent's, a
+missing usage key counts 0, and a truncated line is one warning rather than a crash. On every machine
+measured so far the output was under one percent of everything sent; the rest is context re-sent by
+sessions never cleared and by subagents on the premium model, which is what the two tables that split
+by kind and by session make visible. It reports and never judges, and a report is never committed.

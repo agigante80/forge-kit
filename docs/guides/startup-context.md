@@ -5,7 +5,9 @@ into every session, every subagent that inherits them and every compaction, befo
 One downstream repository reached about 258 KB that way (roughly 65k tokens a session), and nothing
 in its loop said so (#297). This page carries the rules that keep that set small and the recipe for
 pruning it. The one rule a script can check, R1, is enforced by the `context-budget` skill in
-`forge-kit-devops`; the rest are judgment and live here.
+`forge-kit-devops`; the rest are judgment and live here. What that always-loaded context costs over a
+week, by project, model, session and day, is what the `usage-report` skill in the same group prints
+from the transcripts (`docs/guides/model-tiers.md`, "Where usage went").
 
 The prior-art survey and the CLI probe behind every number on this page are recorded on the ticket:
 [Prior art and CLI probe, 2026-10-01](https://github.com/agigante80/forge-kit/issues/297#issuecomment-5939915005).
