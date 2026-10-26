@@ -115,7 +115,7 @@ case "$cerr" in *"one valid JSON object"*) ok "and says so on stderr" ;; *) bad 
 P=$(mk i "$BOTH"); mv "$(SJ "$P")" "$T/real.json"; ln -s "$T/real.json" "$(SJ "$P")"; before=$(cat "$T/real.json")
 cap block-dashes --project "$P"
 [ "$crc" = 1 ] && [ "$(cat "$T/real.json")" = "$before" ] && ok "a symlinked settings.json: exit 1, target unchanged" || bad "symlink: rc=$crc"
-ls "$T/i/.claude" | grep -q '^\.settings\.' && bad "no temp file left behind (symlink)" || ok "no temp file left behind (symlink)"
+grep -q '^\.settings\.' <<< "$(ls "$T/i/.claude")" && bad "no temp file left behind (symlink)" || ok "no temp file left behind (symlink)"
 P=$(mk ld "$BOTH"); mkdir -p "$T/elsewhere"; cp "$(SJ "$P")" "$T/elsewhere/settings.json"; rm -rf "$P/.claude"; ln -s "$T/elsewhere" "$P/.claude"
 before=$(cat "$T/elsewhere/settings.json"); ls -a "$T/elsewhere" > "$T/ld.before"
 cap block-dashes --project "$P"
