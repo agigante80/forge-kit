@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 22 -->
+<!-- doc-rules-version: 23 -->
 
 # Ticket standards (canonical)
 
@@ -38,6 +38,10 @@ A ready work ticket must satisfy every rule below whose scope the ticket actuall
 Applicability is decided by the gate from the ticket type and the packages it affects; a rule a
 ticket does not touch is marked N/A with a one-line justification, never failed. A rule that
 *does* apply and is absent fails the gate.
+
+The gate cites these sections by title, so a project's adapted copy
+must keep each section title verbatim and put its own framing in a trailing parenthetical,
+for example `### 3. E2E test specs (integration / subprocess)`; renumbering is harmless.
 
 ### 1. GWT scenarios (Given / When / Then)
 

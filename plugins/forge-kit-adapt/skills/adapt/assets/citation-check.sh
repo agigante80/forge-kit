@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# citation-check-version: 2
+# citation-check-version: 3
 # citation-check.sh: find the ticket-standards section titles the gate cites that the project's own
 # doc does not have (#519).
 #
@@ -12,8 +12,9 @@
 # Usage: citation-check.sh [--kit <forge-kit dir>] [--project <dir>] [--doc <ticket-standards.md>]
 #
 #   --kit      the forge-kit checkout, the LAST resort for a citing file (forge-adapt passes
-#              $FORGE_KIT_DIR). Default: the checkout this script sits in, when it has a plugins/
-#              directory; otherwise there is no kit fallback.
+#              $FORGE_KIT_DIR), and the home of the kit's own docs/guides/ticket-standards.md,
+#              read for rename candidates only. Default: the checkout this script sits in, when
+#              it has a plugins/ directory; otherwise there is no kit fallback.
 #   --project  the project to check. Default: the current directory.
 #   --doc      the doc to read the headings and markers from. Default:
 #              <project>/docs/guides/ticket-standards.md.
@@ -60,6 +61,7 @@
 #
 # OUTPUT, stdout, tab separated, in this order:
 #   citation-missing         "<Title>"                 a cited title the doc has no heading, alias or acknowledgement for
+#   citation-rename-candidate "<Title>" "<Heading>"  a GUESS for a missing title, in kit order (below)
 #   citation-marker-invalid  "<Title>"  "<Heading>"    a cited title's alias to a missing heading, or a conflicting later alias
 #   citation-marker-invalid  line <N>                  a marker with no closing --> (N: 1-based doc line)
 #   citation-aliased         "<Title>"  "<Heading>"    an applied alias
@@ -71,6 +73,14 @@
 #   summary                  <titles checked>  <missing>  <not-scanned>          (always last)
 # Each marker group prints in marker line order. An aliased or acknowledged title counts as checked
 # and not missing.
+# RENAME CANDIDATES (#544), only when the kit's doc exists: order alone, never a section number.
+# Anchors are the doc start and end, each kit heading whose title the project doc has, and each
+# alias whose target it has; an acknowledged title leaves the kit side first. If the anchors are in
+# another order in the project doc, nothing is offered. Between two anchors the unmatched kit and
+# project headings of one level pair in order only when their counts are equal, and a pair is a row
+# only when its kit title is cited and missing. A heading holding a double quote or a control
+# character is never offered (an alias line cannot name it). The row is a guess the user confirms
+# by adding a citation-alias line; it changes neither the summary nor the exit code.
 # EXIT 0 nothing missing or invalid and everything scanned (a skipped doc is clean); 1 at least one
 # citation-missing or citation-marker-invalid row (invalid is the second exit-1 cause, since #547);
 # 3 nothing missing or invalid but something was not scanned (incomplete is never clean); 2 usage
@@ -188,7 +198,7 @@ for label, group, rel, shared in CITING:
             titles.append(t)
 
 # The doc.
-headings, skipped, markers = None, False, []
+headings, skipped, markers, hlist = None, False, [], []
 if os.path.islink(doc_path) and not os.path.exists(doc_path):
     not_scanned("docs/guides/ticket-standards.md" if not doc_arg else doc_arg, "dangling symlink")
 elif not os.path.exists(doc_path):
@@ -213,6 +223,7 @@ else:
             h = HEADING.match(line)
             if h:
                 headings.add(re.sub(r'\s+', ' ', PAREN.sub('', h.group(1))).strip())
+                hlist.append((len(line) - len(line.lstrip("#")), re.sub(r'\s+', ' ', PAREN.sub('', h.group(1))).strip()))
                 continue
             a, k = ALIAS.match(line), ACKNOWLEDGED.match(line)
             if a and norm_marker(a.group(1)) and norm_marker(a.group(2)):
@@ -268,16 +279,72 @@ elif headings is not None:
             missing += 1
             rows.append(f'citation-missing\t"{t}"')
 invalid = sum(1 for o in outcome if o[0] == "invalid")
+
+# Rename candidates (#544): a cited, missing title the kit's own doc places in the same stretch as an
+# unmatched project heading. Order only, never a section number. Anchors are the doc start and end,
+# every kit heading whose title the project doc has, and every alias whose target it has; an
+# acknowledged title leaves the kit side first. Anchors out of order in the project doc: no candidate
+# anywhere. Between two anchors, the unmatched kit and project headings of one level pair in order
+# only when their counts are equal. A heading holding a double quote or a control character is never
+# offered: the alias line cannot name it. A guess the user confirms; it changes no count or exit code.
+def kit_heading_list(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return []
+    out, fenced = [], None
+    for line in text.split("\n"):
+        fm = re.match(r'^\s*(```+|~~~+)', line)
+        if fm:
+            fence = fm.group(1)[0]
+            fenced = None if fenced == fence else (fenced or fence)
+            continue
+        h = None if fenced else HEADING.match(line)
+        if h:
+            out.append((len(line) - len(line.lstrip("#")), re.sub(r'\s+', ' ', PAREN.sub('', h.group(1))).strip()))
+    return out
+candidate_rows = []
+missing_titles = {r.split("\t", 1)[1][1:-1] for r in rows if r.startswith("citation-missing\t")}
+if missing_titles and kit and os.path.isfile(os.path.join(kit, "docs", "guides", "ticket-standards.md")):
+    proj = hlist
+    pos = {}
+    for j, (lv, t) in enumerate(proj):
+        pos.setdefault(t, j)
+    alias_to = {t: g for t, g in first_alias.items() if g in pos}
+    acked = {t for kind, t, target, n in markers if kind == "ack"}
+    kitl = [(lv, t) for lv, t in kit_heading_list(os.path.join(kit, "docs", "guides", "ticket-standards.md"))
+            if not (t in acked and t not in pos and t not in alias_to)]
+    anchors, used = [], set()
+    for i, (lv, t) in enumerate(kitl):
+        j = pos.get(t, pos.get(alias_to.get(t)))
+        if j is not None and j not in used:
+            anchors.append((i, j))
+            used.add(j)
+    if [j for i, j in anchors] == sorted(j for i, j in anchors):
+        bounds = [(-1, -1)] + anchors + [(len(kitl), len(proj))]
+        for (i0, j0), (i1, j1) in zip(bounds, bounds[1:]):
+            ku = [(i, lv, t) for i, (lv, t) in enumerate(kitl[i0 + 1:i1], i0 + 1)]
+            pu = [(lv, t) for j, (lv, t) in enumerate(proj[j0 + 1:j1], j0 + 1) if j not in used]
+            for level in sorted({lv for i, lv, t in ku}):
+                K = [(i, t) for i, lv, t in ku if lv == level]
+                Pl = [t for lv, t in pu if lv == level]
+                if len(K) != len(Pl):
+                    continue
+                for (i, k), h in zip(K, Pl):
+                    if k in missing_titles and k != h and '"' not in h and not re.search(r'[\x00-\x1f\x7f]', h):
+                        candidate_rows.append((i, f'citation-rename-candidate\t"{k}"\t"{h}"'))
+candidate_rows = [r for i, r in sorted(candidate_rows)]
 if unscanned:                         # the titles an unscanned file cites are unknown: never call a marker stale
     outcome = [o for o in outcome if o[0] != "stale"]
 ORDER = ("invalid", "aliased", "acknowledged", "stale")
 outcome.sort(key=lambda o: (ORDER.index(o[0]), o[1]))
 marker_rows = [f"citation-marker-{o[0]}\t{o[2]}" if o[0] in ("invalid", "stale") else f"citation-{o[0]}\t{o[2]}" for o in outcome]
 
-# citation-missing rows first, then the marker rows, then the rest, summary last.
+# citation-missing rows first, then the rename candidates, the marker rows, the rest, summary last.
 rows.sort(key=lambda r: 0 if r.startswith("citation-missing") else 1)
 nmiss = sum(1 for r in rows if r.startswith("citation-missing"))
-rows[nmiss:nmiss] = marker_rows
+rows[nmiss:nmiss] = candidate_rows + marker_rows
 for r in rows:
     print(r)
 print(f"summary\t{checked}\t{missing}\t{unscanned}")

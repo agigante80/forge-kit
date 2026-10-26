@@ -84,8 +84,15 @@ fill-in, so no plugin or kit copy counts). It prints tab-separated rows:
   purpose, an acknowledgement line. Only for a COPIED gate (`scope: project`, or a bare-clone
   install) may you instead map the citation in the adapted copy. A registered gate is the plugin
   cache's file, replaced on every plugin update: never edit it; the alias line is the remedy there.
-  Say which titles the gate cites that the doc lacks, never which section "replaces" them: the
-  alias target is the user's mapping.
+  Say which titles the gate cites that the doc lacks. Never invent which section "replaces"
+  them: the alias target is the user's mapping, and the only guess you may show is the script's
+  own candidate row below (#544 amended this rule, because that guess is derived by the script
+  from section order alone and is shown report first).
+- `citation-rename-candidate "<Title>" "<Heading>"`: the doc has, in the same stretch of the
+  kit's section order, one renamed heading for the missing title. Show it beside the title's row
+  as a guess the user confirms. On `yes`, write `<!-- citation-alias: "<Title>" = "<Heading>" -->`
+  on its own line of the doc and never rename the heading; before `yes` the doc is untouched. No
+  row means no guess: never pair a title with a heading yourself.
 - `citation-marker-invalid "<Title>" "<Heading>"`: an alias to a heading the doc lacks, or a later
   alias for the same title that conflicts with an applied one. `citation-marker-invalid line <N>`:
   a marker on line N with no closing `-->`. Show the line and ask the user to fix it.
@@ -105,6 +112,12 @@ one is ignored, so a doc can show the form in an example):
 <!-- citation-alias: "Unit test specs" = "Unit tests" -->
 <!-- citation-acknowledged: "E2E test specs" -->
 ```
+
+Keep the kit's section titles when adapting the doc, at install and at refresh: the gate cites
+them by title, so put project framing in a trailing parenthetical (`### 3. E2E test specs
+(integration / subprocess)`). The doc's own `## Required sections` intro says so, which is what
+carries the rule at install time. An alias line written for a doc renamed earlier fixes only the
+citation: other project docs quoting the old title are not updated.
 
 A real heading beats both markers, and an alias beats an acknowledgement. The alias target is
 checked for existence only: nothing checks it is the right section. Exit 0 is clean (a skipped doc

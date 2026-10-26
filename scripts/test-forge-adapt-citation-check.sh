@@ -427,7 +427,130 @@ sc_markers_safe() {
   expect "only the skip row" "skipped${TAB}no ticket-standards doc" "$(body)"
 }
 
-sc_match; sc_source; sc_kit; sc_nodoc; sc_usage; sc_ack; sc_ack_stale; sc_ack_fence; sc_alias; sc_ack_precedence; sc_markers_safe
+# --- #544: rename candidates, by order against the kit's own doc.
+# kitdoc <heading line>...: the kit's docs/guides/ticket-standards.md (the doc helper writes the project's).
+kitdoc() { local h body=""; for h in "$@"; do body="$body$h\n\nbody\n\n"; done; put "$KIT/docs/guides/ticket-standards.md" "# Standards\n\n$body"; }
+K1="### 1. GWT scenarios"; K2="### 2. Unit test specs"; K3="### 3. E2E test specs"; K4="### 4. Personal data handling"
+K5="### 5. Security checklist"; K6="### 6. Required reviews"; K7="### 7. Documentation currency"
+KITSEVEN() { kitdoc "$K1" "$K2" "$K3" "$K4" "$K5" "$K6" "$K7"; }
+CAND() { printf 'citation-rename-candidate\t"%s"\t"%s"' "$1" "$2"; }
+INT="Integration / subprocess test specs"
+
+sc_rename() {
+  echo "== one title and one heading in a gap: a candidate, after the missing row =="
+  fresh; gate "E2E test specs"; KITSEVEN; doc "$K1" "$K2" "### 3. $INT" "$K4" "$K5" "$K6" "$K7"; run
+  expect "missing, then the candidate (no number field)" "citation-missing${TAB}\"E2E test specs\"
+$(CAND "E2E test specs" "$INT")" "$(body)"
+  has "summary${TAB}1${TAB}1${TAB}0" "the summary is unchanged by the candidate"; expect "exit 1" 1 "$rc"; noerr "candidate"
+  rm -f "$KIT/docs/guides/ticket-standards.md"; run
+  expect "no kit doc: the missing row alone" "citation-missing${TAB}\"E2E test specs\"" "$(body)"
+  has "summary${TAB}1${TAB}1${TAB}0" "no kit doc: same summary"; expect "no kit doc: exit 1" 1 "$rc"
+  kitdoc "$K1" "$K2" "$K4" "$K5" "$K6" "$K7"; run
+  expect "a kit doc lacking the title: no candidate" 0 "$(nrows citation-rename-candidate)"
+
+  echo "== the kit's own doc, renamed as the downstream shape did =="
+  fresh; gate "E2E test specs" "Personal data handling"; mkdir -p "$KIT/docs/guides" "$P/docs/guides"
+  cp "$ROOT/docs/guides/ticket-standards.md" "$KIT/docs/guides/ticket-standards.md"
+  sed -e "s|^### 3\. E2E test specs\$|### 3. $INT|" -e 's|^### 4\. Personal data handling$|### 4. Data handling|' \
+    "$ROOT/docs/guides/ticket-standards.md" > "$P/docs/guides/ticket-standards.md"
+  run
+  expect "two missing rows, then the two candidates in kit order" "citation-missing${TAB}\"E2E test specs\"
+citation-missing${TAB}\"Personal data handling\"
+$(CAND "E2E test specs" "$INT")
+$(CAND "Personal data handling" "Data handling")" "$(body)"
+  expect "exit 1" 1 "$rc"
+  cp "$ROOT/docs/guides/ticket-standards.md" "$P/docs/guides/ticket-standards.md"; run
+  expect "the kit doc against itself: nothing missing, no candidate" "" "$(body)"; expect "exit 0" 0 "$rc"
+
+  echo "== a dropped section: unequal counts, no candidate (the named miss) =="
+  fresh; gate "E2E test specs" "Personal data handling"; KITSEVEN; doc "$K1" "$K2" "### 3. Data handling" "### 4. Security checklist" "$K6" "$K7"; run
+  expect "no candidate" 0 "$(nrows citation-rename-candidate)"; expect "both missing" 2 "$(nrows citation-missing)"; expect "exit 1" 1 "$rc"
+
+  echo "== duplicate numbering: order pairs, numbers never do =="
+  fresh; gate "E2E test specs" "Personal data handling"; KITSEVEN; doc "$K1" "$K2" "### 3. $INT" "### 3. Data handling" "$K5" "$K6" "$K7"; run
+  has "$(CAND "E2E test specs" "$INT")" "the first 3. pairs the first title"
+  has "$(CAND "Personal data handling" "Data handling")" "the second 3. pairs the second title"
+  doc "$K1" "$K2" "### 3. $INT" "### 3. Data handling" "### 3. Extra" "$K5" "$K6" "$K7"; run
+  expect "three headings for two titles: no candidate" 0 "$(nrows citation-rename-candidate)"
+
+  echo "== the kit title plus a parenthetical is a match, not a candidate =="
+  fresh; gate "E2E test specs"; KITSEVEN; doc "$K1" "$K2" "### 3. E2E test specs (integration / subprocess)" "$K4" "$K5" "$K6" "$K7"; run
+  expect "nothing printed but the summary" "" "$(body)"; expect "exit 0" 0 "$rc"
+
+  echo "== a fenced heading in the gap is not offered =="
+  fresh; gate "E2E test specs"; KITSEVEN; doc "$K1" "$K2" '```' "### 3. $INT" '```' "$K4" "$K5" "$K6" "$K7"; run
+  expect "no candidate" 0 "$(nrows citation-rename-candidate)"; has "citation-missing${TAB}\"E2E test specs\"" "still missing"
+
+  echo "== a real heading, an alias or an acknowledgement suppresses the candidate =="
+  fresh; gate "E2E test specs"; KITSEVEN; doc "$K1" "$K2" "### 3. $INT" "$(ALIAS "E2E test specs" "$INT")" "$K4" "$K5" "$K6" "$K7"; run
+  expect "aliased: no candidate" "citation-aliased${TAB}\"E2E test specs\"${TAB}\"$INT\"" "$(body)"; expect "aliased: exit 0" 0 "$rc"
+  doc "$K1" "$K2" "### 3. $INT" "$(ACK "E2E test specs")" "$K4" "$K5" "$K6" "$K7"; run
+  expect "acknowledged: no candidate" "citation-acknowledged${TAB}\"E2E test specs\"" "$(body)"; expect "acknowledged: exit 0" 0 "$rc"
+
+  echo "== a renamed uncited neighbour still pairs; only the cited title gets a row =="
+  fresh; gate "Personal data handling"; KITSEVEN; doc "$K1" "$K2" "$K3" "### 4. Data handling" "### 5. Security" "$K6" "$K7"; run
+  expect "one candidate, for the cited title" "citation-missing${TAB}\"Personal data handling\"
+$(CAND "Personal data handling" "Data handling")" "$(body)"
+  expect "exit 1" 1 "$rc"
+  fresh; gate "E2E test specs" "Personal data handling"; KITSEVEN; doc "$K1" "$K2" "### 3. $INT" "### 4. Data handling" "### 5. Security" "$K6" "$K7"; run
+  expect "two cited renames beside an uncited one: two candidates" 2 "$(nrows citation-rename-candidate)"
+  expect "the missing rows come first" "citation-missing" "$(printf '%s\n' "$out" | head -1 | cut -f1)"
+
+  echo "== a partly accepted alias keeps the sibling candidate =="
+  fresh; gate "E2E test specs" "Personal data handling"; KITSEVEN
+  doc "$K1" "$K2" "### 3. Extra notes" "### 3. $INT" "### 4. Data handling" "$(ALIAS "E2E test specs" "$INT")" "$K5" "$K6" "$K7"; run
+  expect "aliased, missing, and the sibling's candidate" "citation-missing${TAB}\"Personal data handling\"
+$(CAND "Personal data handling" "Data handling")
+citation-aliased${TAB}\"E2E test specs\"${TAB}\"$INT\"" "$(body)"
+  expect "exit 1" 1 "$rc"
+
+  echo "== an acknowledged neighbour leaves the kit side =="
+  fresh; gate "E2E test specs" "Personal data handling"; KITSEVEN; doc "$K1" "$K2" "$(ACK "E2E test specs")" "### 4. Data handling" "$K5" "$K6" "$K7"; run
+  expect "the renamed title pairs; the acknowledged one gets no candidate" "citation-missing${TAB}\"Personal data handling\"
+$(CAND "Personal data handling" "Data handling")
+citation-acknowledged${TAB}\"E2E test specs\"" "$(body)"
+
+  echo "== anchors out of order: no candidate anywhere =="
+  fresh; gate "E2E test specs"; KITSEVEN; doc "$K1" "$K5" "$K2" "### 3. $INT" "$K4" "$K6" "$K7"; run
+  expect "no candidate" 0 "$(nrows citation-rename-candidate)"; has "citation-missing${TAB}\"E2E test specs\"" "still missing"; expect "exit 1" 1 "$rc"
+
+  echo "== row order: missing, candidates, invalid markers, summary =="
+  fresh; gate "E2E test specs" "Personal data handling"; KITSEVEN
+  doc "$K1" "$K2" "### 3. $INT" "### 4. Data handling" "$K5" "$K6" "$K7" '<!-- citation-alias: "X" = "Y"'; run
+  expect "the documented order" "citation-missing${TAB}\"E2E test specs\"
+citation-missing${TAB}\"Personal data handling\"
+$(CAND "E2E test specs" "$INT")
+$(CAND "Personal data handling" "Data handling")
+citation-marker-invalid${TAB}line 31" "$(body)"
+  expect "summary last" "summary" "$(printf '%s\n' "$out" | tail -1 | cut -f1)"
+
+  echo "== a hostile heading is data =="
+  fresh; gate "E2E test specs"; KITSEVEN; doc "$K1" "$K2" '### 3. -x\t$(touch x) y `touch x2`' "$K4" "$K5" "$K6" "$K7"
+  before=$(cd "$T" && find p kit cfg -type f | sort | xargs cksum | cksum); run
+  has "$(CAND "E2E test specs" '-x $(touch x) y `touch x2`')" "the tab is one space, the rest is text"
+  expect "exactly three fields" 3 "$(printf '%s\n' "$out" | grep '^citation-rename-candidate' | awk -F'\t' '{print NF}')"
+  expect "nothing was executed" "" "$(cd "$T" && find . -name 'x' -o -name 'x2')"
+  expect "the tree is unchanged" "$before" "$(cd "$T" && find p kit cfg -type f | sort | xargs cksum | cksum)"
+  fresh; gate "Personal data handling"; KITSEVEN; doc "$K1" "$K2" "$K3" '### 4. Data "handling"' "$K5" "$K6" "$K7"; run
+  expect "a double quote in the heading: no candidate" 0 "$(nrows citation-rename-candidate)"
+  doc "$K1" "$K2" "$K3" '### 4. Data \001handling' "$K5" "$K6" "$K7"; run
+  expect "a control character in the heading: no candidate" 0 "$(nrows citation-rename-candidate)"
+  has "citation-missing${TAB}\"Personal data handling\"" "it stays missing"
+
+  echo "== the install-time carrier: the kit doc says to keep the titles =="
+  intro=$(awk '/^## Required sections/{f=1; next} /^### /{f=0} f' "$ROOT/docs/guides/ticket-standards.md")
+  case "$intro" in *"must keep each section title"*) ok "the Required sections intro carries the keep-the-title sentence" ;;
+    *) bad "the Required sections intro lacks the keep-the-title sentence" ;; esac
+}
+
+sc_rename_kitfence() {
+  echo "== a fenced heading in the kit doc is not a kit heading =="
+  fresh; gate "E2E test specs"; kitdoc "$K1" "$K2" '```' "### 3. Fake" '```' "$K3" "$K4" "$K5" "$K6" "$K7"
+  doc "$K1" "$K2" "### 3. $INT" "$K4" "$K5" "$K6" "$K7"; run
+  has "$(CAND "E2E test specs" "$INT")" "the fenced kit heading does not unbalance the gap"
+}
+
+sc_match; sc_source; sc_kit; sc_nodoc; sc_usage; sc_ack; sc_ack_stale; sc_ack_fence; sc_alias; sc_ack_precedence; sc_markers_safe; sc_rename; sc_rename_kitfence
 
 # --- mutants: each breaks ONE invariant in a copy of the script; the guarding scenario must notice.
 mutant() {  # mutant <description> <sed expr> <scenario>
@@ -469,7 +592,7 @@ mutant "a stale marker changes the exit code" 's/sys.exit(1 if missing or invali
 mutant "stale rows print on an incomplete scan" 's/^if unscanned: .*/if False:/' sc_ack_stale
 mutant "a marker inside a fence is read" 's/^            if fenced:$/            if fenced and not line.lstrip().startswith("<!--"):/' sc_ack_fence
 mutant "the acknowledgement grammar loses its closing --> anchor" "s/^\\(ACKNOWLEDGED = .*\\)\\\\s\\*-->\\\\s\\*\\\$')\$/\\1')/" sc_ack_fence
-mutant "marker rows print before the missing rows" 's/^rows\[nmiss:nmiss\] = marker_rows$/rows[0:0] = marker_rows/' sc_ack_fence
+mutant "marker rows print before the missing rows" 's/^rows\[nmiss:nmiss\] = candidate_rows + marker_rows$/rows[0:0] = candidate_rows + marker_rows/' sc_ack_fence
 mutant "an acknowledgement beats an alias" 's/^    elif t in first_alias: .*/    elif False:/' sc_ack_precedence
 mutant "the superseded acknowledgement prints no stale row" "s/^        outcome.append((\"stale\", n, f'\"{t}\"'))\$/        pass/" sc_ack_precedence
 mutant "privacy-regime is read from the registry or the kit again" 's/"skills\/privacy-regime\/SKILL.md", False)/"skills\/privacy-regime\/SKILL.md", True)/' sc_source
@@ -480,6 +603,20 @@ mutant "the last duplicate alias wins" 's/^        first_alias.setdefault(t, tar
 mutant "a later valid alias is promoted over a first that was not applied" 's/^        first_alias.setdefault(t, target)$/        first_alias[t] = target if target in headings or t not in first_alias else first_alias[t]/' sc_alias
 mutant "an invalid marker does not set exit 1" 's/sys.exit(1 if missing or invalid else/sys.exit(1 if missing else/' sc_alias
 
+# #544: rename candidates. A candidate implies a citation-missing row, so the exit code is 1 either
+# way: a mutant letting the candidate move it is equivalent and not listed; the summary one is.
+mutant "the equal-counts guard is dropped" 's/^                if len(K) != len(Pl):$/                if False:/' sc_rename
+mutant "pairing keys on the position, as a section number would" 's/^            pu = \[(lv, t) for j, (lv, t) in enumerate(proj\[j0 + 1:j1\], j0 + 1) if j not in used\]$/            pu = list(proj[i0 + 1:i1])/' sc_rename
+mutant "an uncited title is offered" 's/if k in missing_titles and k != h/if k != h/' sc_rename
+mutant "a gap counts only the cited titles" 's/^                K = \[(i, t) for i, lv, t in ku if lv == level\]$/                K = [(i, t) for i, lv, t in ku if lv == level and t in titles]/' sc_rename
+mutant "anchor order is ignored" 's/^    if \[j for i, j in anchors\] == sorted(j for i, j in anchors):$/    if True:/' sc_rename
+mutant "a candidate is counted in the summary" 's/^print(f"summary\\t{checked}\\t{missing}\\t{unscanned}")$/print(f"summary\\t{checked}\\t{missing + len(candidate_rows)}\\t{unscanned}")/' sc_rename
+mutant "a heading with a double quote is offered" "s/ and '\"' not in h and / and /" sc_rename
+mutant "a heading with a control character is offered" "s/ and not re.search(r'\[\\\\x00-\\\\x1f\\\\x7f\]', h):/:/" sc_rename
+mutant "an acknowledged title stays on the kit side" 's/^            if not (t in acked and t not in pos and t not in alias_to)\]$/            if True]/' sc_rename
+mutant "an alias target is not an anchor" 's/^        j = pos.get(t, pos.get(alias_to.get(t)))$/        j = pos.get(t)/' sc_rename
+mutant "candidates print after the marker rows" 's/^rows\[nmiss:nmiss\] = candidate_rows + marker_rows$/rows[nmiss:nmiss] = marker_rows + candidate_rows/' sc_rename
+mutant "a fenced kit heading counts" 's/^        h = None if fenced else HEADING.match(line)$/        h = HEADING.match(line)/' sc_rename_kitfence
 echo ""
 echo "forge-adapt citation check tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
