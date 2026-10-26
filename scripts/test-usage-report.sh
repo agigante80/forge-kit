@@ -9,7 +9,8 @@
 # real machine hits on the first run (a truncated last line, a non-UTF-8 byte, an empty file and a
 # 3 MB line). The numbers below are hand-computed once from the last line per id and written out
 # beside each record. STREAMS ARE THE CONTRACT: the tables or one JSON object on stdout and exit 0,
-# or nothing on stdout and exit 2; warnings name a root-relative file and a line, never the root.
+# or nothing on stdout and exit 2; warnings name a file by its project name and the rest of its
+# root-relative path, plus the line, never the root and never the slug.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -25,6 +26,7 @@ hasnt() { if grep -qF -- "$2" <<< "$3"; then bad "$1 ('$2' present)"; else ok "$
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
 T=$(cd -P "$(mktemp -d)" && pwd -P); trap 'rm -rf "$T"' EXIT
+[ -n "$T" ] || { echo "mktemp -d failed (TMPDIR=${TMPDIR:-unset})"; exit 1; }
 # A far-from-UTC zone, so a build that buckets by local day changes the day table (the local-day
 # mutant); the report must not depend on it, and one row compares two zones.
 export HOME="$T/home" TZ=Pacific/Kiritimati; mkdir -p "$HOME"
@@ -55,7 +57,9 @@ line() { grep -F -m1 -- "$1" <<< "$out"; }
 #   b2 4440/80   a4 6/4       a5 250000/10 (the 3 MB line)   n1 100/1 (nested subagent)
 #   c1 50000/5   c2 60000/5   d1 10/1   d2 21/1   e1 3/1   e3 6/0 (no output_tokens)   e4 0/0 (usage null)
 #   context 371246 = uncached 104 + cache write 1005 + cache read 370137; output 288
-#   o1 is outside the window, syn1 and syn2 are <synthetic>, s4's mtime is before the window.
+#   o1 is outside the window, c3's LAST line is past the window end though its first is inside,
+#   e5's timestamp is at the calendar's edge, syn1 and syn2 are <synthetic>, s4's mtime is before
+#   the window.
 python3 - "$FX" <<'PY'
 import json, os, sys
 root = sys.argv[1]
@@ -110,6 +114,8 @@ write(f"{A}/{S1}/subagents/workflows/wf_1/agent-nested.jsonl", [
 write(f"{A}/{S2}.jsonl", [
     rec("c1", OPUS, "2026-03-04T23:30:00Z", 0, 0, 50000, 5, split=(0, 0)),
     rec("c2", OPUS, "2026-03-05T00:30:00Z", 0, 0, 60000, 5, split=(0, 0)),
+    rec("c3", OPUS, "2026-03-10T23:59:59Z", 0, 0, 10, 1),
+    rec("c3", OPUS, "2026-03-11T00:00:01Z", 0, 0, 20, 1),
 ])
 write(f"{A}/{S3}.jsonl", [])
 write(f"{A}/{S3}/subagents/agent-only-syn.jsonl", [
@@ -121,6 +127,7 @@ with open(os.path.join(root, f"{A}/{S5}.jsonl"), "wb") as f:
     f.write(json.dumps(rec("d1", HAIKU, "2026-03-07T08:00:00Z", 0, 0, 10, 1)).encode() + b"\n")
     f.write(b'{"type":"assistant","timestamp":"2026-03-07T08:01:00Z","message":{"id":"dx","model":"\xff\xfe"}}\n')
     f.write(json.dumps(rec("d2", HAIKU, "2026-03-07T08:02:00Z", 0, 0, 21, 1)).encode() + b"\n")
+    f.write(b'{"type":"assistant","nested":' + b"[" * 100000 + b"]" * 100000 + b"}\n")  # past the recursion limit
 write(f"{A}/notes.txt", ['{"type":"assistant","timestamp":"2026-03-05T10:00:00Z","message":{"id":"t1","model":"m","usage":{"input_tokens":5}}}'])
 e3 = rec("e3", SONNET, "2026-03-08T11:00:00Z", 2, 2, 2, 0); del e3["message"]["usage"]["output_tokens"]
 e4 = rec("e4", SONNET, "2026-03-08T12:00:00Z", 0, 0, 0, 0); e4["message"]["usage"] = None
@@ -128,6 +135,7 @@ nots = rec("e2", SONNET, "2026-03-08T10:30:00Z", 5, 5, 5, 5); del nots["timestam
 write(f"{B}/{S6}.jsonl", [
     rec("e1", WEIRD, "2026-03-08T12:00:00+02:00", 1, 1, 1, 1),
     nots, e3, e4,
+    rec("e5", SONNET, "0001-01-01T00:00:00+01:00", 9, 9, 9, 9),  # parses, overflows on the way to UTC
 ])
 PY
 S1=s1000000-0000-4000-8000-000000000001; S3=s3000000-0000-4000-8000-000000000003
@@ -162,10 +170,12 @@ core_checks() {
 echo "== the report =="
 core_checks
 expect "exit 0" 0 "$rc"
-expect "--json parses and the two warnings are the only stderr" 2 "$(wc -l <<< "$err" | tr -d ' ')"
-has "a truncated last line is one warning naming file and line" "$S1/subagents/agent-b.jsonl:4: not JSON, skipped" "$err"
-has "a non-UTF-8 line is one warning naming file and line" "s5000000-0000-4000-8000-000000000005.jsonl:2: not UTF-8, skipped" "$err"
+expect "--json parses and the three warnings are the only stderr" 3 "$(wc -l <<< "$err" | tr -d ' ')"
+has "a truncated last line is one warning naming file and line" "demo-alpha/$S1/subagents/agent-b.jsonl:4: not JSON, skipped" "$err"
+has "a non-UTF-8 line is one warning naming file and line" "demo-alpha/s5000000-0000-4000-8000-000000000005.jsonl:2: not UTF-8, skipped" "$err"
+has "a line nested past the recursion limit is one warning, not a traceback" "demo-alpha/s5000000-0000-4000-8000-000000000005.jsonl:4: not JSON, skipped" "$err"
 hasnt "the warnings never name the root" "$FX" "$err"
+hasnt "nor the slug above the project" "work-demo" "$err"
 expect "mean context per turn" 26518 "$(j 'd["summary"]["context_per_turn"]')"
 expect "output as a share of everything" 0.08 "$(j 'd["summary"]["output_share"]')"
 expect "turns at or above 200,000 context: one of 14" "1 7.1 67.3" "$(j 'd["summary"]["big_turns"]') $(j 'd["summary"]["big_turn_share"]') $(j 'd["summary"]["big_context_share"]')"
@@ -220,14 +230,19 @@ for i, slug in enumerate(["-home-alice-proj", "-home-alice", "-Users-bob-src-app
     one["message"]["id"] = "p%d" % i
     with open(os.path.join(root, slug, "s%d000000-0000-4000-8000-00000000000%d.jsonl" % (i, i)), "w") as f:
         f.write(json.dumps(one) + "\n")
+        if i == 0:
+            f.write('{"type":"assistant","message":{"id":"zz')  # the ordinary first run: a truncated last line
 PY
 run --root "$FX2" --days 7 --until 2026-03-10 --json
 expect "exit 0" 0 "$rc"
+has "the truncated line's warning names the project, not the slug" "proj/s0000000-0000-4000-8000-000000000000.jsonl:2: not JSON, skipped" "$err"
+hasnt "so no username reaches stderr either" "alice" "$err"
 expect "each slug prints its project name, a bare - being the root, so ~" 'proj|src-app|srv-evil`$(echo pwn){}%s{0}|x-y|~|~' "$(j '"|".join(sorted(r["project"] for r in d["by_project"]))')"
 hasnt "no username prints" "alice" "$out"; hasnt "in any slug shape" "bob" "$out"; hasnt "even with doubled dashes" "carol" "$out"
 expect "every one-turn session grows 1.0" "1.0 1.0 1.0 1.0 1.0 1.0" "$(j '" ".join(str(r["growth"]) for r in d["by_session"])')"
 run --root "$FX2" --days 7 --until 2026-03-10
 hasnt "the text report prints no username either" "alice" "$out"; hasnt "nor another" "bob" "$out"
+hasnt "and its stderr none" "alice" "$err"
 has "a hostile slug prints verbatim" 'srv-evil`$(echo pwn){}%s{0}' "$out"
 expect "and a one-turn session shows 1.00x" "1.00x" "$(awk '{print $NF}' <<< "$(line "s0000000")")"
 
@@ -258,6 +273,11 @@ run --root "$FX" --days x
 expect "--days x exits 2" 2 "$rc"; expect "with nothing on stdout" "" "$out"
 run --root "$FX" --until 2026-13-01
 expect "a bad --until exits 2" 2 "$rc"; expect "with nothing on stdout" "" "$out"
+run --root "$FX" --days 1000000 --until 2026-03-10
+expect "a window starting before the calendar exits 2" 2 "$rc"; expect "with nothing on stdout" "" "$out"
+has "with the usage error" "--days and --until must describe a window inside the calendar" "$err"
+run --root "$FX" --until 9999-12-31
+expect "a window ending past the calendar exits 2" 2 "$rc"; expect "with nothing on stdout" "" "$out"
 run --root "$FX" --top 0
 expect "--top 0 exits 2" 2 "$rc"
 run --root "$FX" --bogus
@@ -271,9 +291,13 @@ mkdir -p "$HOME/.claude/projects/-srv-work-demo-gamma"
 now=$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
 printf '{"type":"assistant","timestamp":"%s","message":{"id":"g1","model":"claude-opus-5-5","usage":{"input_tokens":1,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}}\n' "$now" \
   > "$HOME/.claude/projects/-srv-work-demo-gamma/s7000000-0000-4000-8000-000000000007.jsonl"
-run --json
+tomorrow() { python3 -c 'from datetime import datetime, timezone, timedelta; print((datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z"))'; }
+before=$(tomorrow); run --json; after=$(tomorrow)
 expect "the default root is ~/.claude/projects and the default window 7 days" "1 6 7" "$(j 'd["summary"]["turns"]') $(j 'd["summary"]["context"]') $(j 'd["summary"]["days"]')"
-expect "the default window ends at the end of today, UTC" "$(python3 -c 'from datetime import datetime, timezone, timedelta; print((datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z"))')" "$(j 'd["summary"]["window_end"]')"
+# Read before and after the run, so a run that straddles UTC midnight matches one of the two.
+got=$(j 'd["summary"]["window_end"]')
+if [ "$got" = "$before" ] || [ "$got" = "$after" ]; then ok "the default window ends at the end of today, UTC"
+else bad "the default window ends at the end of today, UTC (expected '$before' or '$after', got '$got')"; fi
 
 echo "== mutants: each wrong accounting method loses an assertion =="
 . "$HERE/mutant-crash.sh"
@@ -320,8 +344,13 @@ mutant zero-for-missing-tier \
   'if cc else None,' \
   'if cc else (0, 0),'
 mutant ignore-the-window \
-  'if t is None or not (start <= t < end):' \
-  'if t is None:'
+  'if start <= t["time"] < end}' \
+  'if True}'
+mutant window-per-line \
+  '                if t is None:
+                    continue' \
+  '                if t is None or not (start <= t < end):
+                    continue'
 mutant open-every-file \
   'if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < start:' \
   'if False:'

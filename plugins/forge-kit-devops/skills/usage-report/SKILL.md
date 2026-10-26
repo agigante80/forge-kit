@@ -3,7 +3,7 @@ name: usage-report
 description: Report where Claude Code usage went over the last N days, read from the transcripts it already writes under ~/.claude/projects, as context re-sent per turn split by cache tier and grouped by project, by model with main and subagent rows apart, by session with its growth, and by day. Use when the user asks "where did my Claude usage go", "why is my usage so high", "which project or model is eating my quota", "which sessions grew the most", or wants the figure behind a usage warning without a dashboard or an API key.
 ---
 
-<!-- usage-report-version: 1 -->
+<!-- usage-report-version: 2 -->
 
 # Usage report
 
@@ -36,12 +36,14 @@ ending with it. `--top N` sizes the session table (default 15).
 |---|---|---|
 | at least one turn in the window | the summary line and four tables, or one JSON object | 0 |
 | the root is not a directory, or no turn falls in the window | nothing; stderr names the root and the window | 2 |
-| a bad option (`--days 0`, an unknown flag, a positional) | nothing; stderr holds the usage error | 2 |
+| a bad option (`--days 0`, an unknown flag, a positional, a window outside the calendar) | nothing; stderr holds the usage error | 2 |
 
-A line that is not UTF-8 or not JSON is skipped with one stderr warning naming the file relative
-to the root and the line, and the report is otherwise normal: a transcript still being written
-ends in a truncated line, and that must never be a crash. A file whose mtime is before the window
-start is not opened at all, so a long history costs nothing.
+A line that is not UTF-8, not JSON or nested past the interpreter's recursion limit is skipped
+with one stderr warning naming the file and the line, and the report is otherwise normal: a
+transcript still being written ends in a truncated line, and that must never be a crash. The
+warning names the file by its project name and the rest of its root-relative path, never by the
+slug, so stderr shows no more of the home path than stdout does. A file whose mtime is before the
+window start is not opened at all, so a long history costs nothing.
 
 ## What it prints
 
@@ -77,8 +79,10 @@ suffix dropped); `--json` keeps the raw name.
   response present in both a subagent file and its parent is the subagent's.
 - Context per turn is `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`: every
   token the model was given. A missing or non-integer usage key counts 0.
-- Every non-assistant record, every record without a usable timestamp and every record outside the
-  window is ignored, and days bucket by the UTC date of the record's own timestamp.
+- Every non-assistant record and every record without a usable timestamp is ignored. The window is
+  applied to the turn after its last line is chosen, on that line's timestamp, so a response whose
+  lines straddle midnight belongs to one day's report and never to two or to none; days bucket by
+  the UTC date of that same timestamp.
 - A session's growth is its last main turn's context over its first main turn's, `-` when it has
   no main turn or that first context is 0.
 

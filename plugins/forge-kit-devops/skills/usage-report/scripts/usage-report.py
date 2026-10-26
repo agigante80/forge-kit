@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# usage-report-version: 1
+# usage-report-version: 2
 """usage-report.py: where Claude Code usage went, read from the transcripts it already writes (#566).
 
 Usage: usage-report.py [--days N] [--until YYYY-MM-DD] [--root DIR] [--top N] [--json]
@@ -32,8 +32,10 @@ The accounting rule; each wrong method is a mutant in the contract test:
     holding only those is listed with zeros, never an error;
   - subagent files are read FIRST, and a file never replaces an id another file already holds, so
     a response present in both a subagent file and its parent is the subagent's;
-  - every non-assistant record, every record without a usable timestamp, and every record outside
-    the window is ignored; a missing or non-integer usage key counts 0;
+  - every non-assistant record and every record without a usable timestamp is ignored; a missing
+    or non-integer usage key counts 0;
+  - the window is applied to the turn AFTER the last line is chosen, on that line's timestamp, so
+    a response whose lines straddle midnight belongs to one day's report, never to two or none;
   - context per turn is input_tokens + cache_creation_input_tokens + cache_read_input_tokens,
     everything the model was given; the three tiers and the output are shown apart everywhere a
     total is, so a reader never mistakes a total for a bill. The 5-minute and 1-hour cache-write
@@ -42,12 +44,15 @@ The accounting rule; each wrong method is a mutant in the contract test:
     has no main turn or that first context is 0.
 
 The window is the N whole UTC days ending with --until (inclusive; default today, UTC). A file
-whose mtime is before the window start is not opened; every record is then selected by its own
-timestamp, and days bucket by the UTC date of that timestamp. A line that is not UTF-8 or not JSON
-is skipped with one stderr warning naming the file (relative to the root) and the line, because a
-transcript still being written ends in a truncated line. Exit 2 with NOTHING on stdout when the
-root is not a directory, when no turn falls inside the window, or on a usage error. Standard
-library only, Python 3.9+.
+whose mtime is before the window start is not opened; every turn is then selected by its own
+timestamp, and days bucket by the UTC date of that timestamp. A line that is not UTF-8, not JSON
+or nested past the interpreter's recursion limit is skipped with one stderr warning naming the
+file and the line, because a transcript still being written ends in a truncated line; the file is
+named by its project name and the rest of its root-relative path, so the slug's `home-<user>`
+reaches stderr no more than stdout. Exit 2 with NOTHING on stdout when the root is not a
+directory, when no turn falls inside the window (a root holding only <synthetic> records has
+nothing to report, and the message names the window), or on a usage error, a window outside the
+calendar included. Standard library only, Python 3.9+.
 """
 import argparse
 import json
@@ -92,8 +97,11 @@ def parse_args(argv):
         except ValueError:
             p.error("--until must be YYYY-MM-DD")
     a.until = until.strftime("%Y-%m-%d")
-    a.end = until + timedelta(days=1)
-    a.start = a.end - timedelta(days=a.days)
+    try:
+        a.end = until + timedelta(days=1)
+        a.start = a.end - timedelta(days=a.days)
+    except OverflowError:
+        p.error("--days and --until must describe a window inside the calendar")
     a.root = os.path.expanduser(a.root or os.path.join("~", ".claude", "projects"))
     return a
 
@@ -101,11 +109,11 @@ def parse_args(argv):
 def stamp(ts):
     try:
         t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (AttributeError, TypeError, ValueError):
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return t.astimezone(timezone.utc)  # OverflowError at the calendar's edge, e.g. year 1 at +01:00
+    except (AttributeError, TypeError, ValueError, OverflowError):
         return None
-    if t.tzinfo is None:
-        t = t.replace(tzinfo=timezone.utc)
-    return t.astimezone(timezone.utc)
 
 
 def count(v):
@@ -136,19 +144,20 @@ def locate(rel):
 
 
 def read_turns(root, start, end):
-    """turns: message.id -> turn; opened: [(slug, session, kind)] for every transcript opened."""
+    """turns: message.id -> turn inside the window; opened: [(slug, session, kind)] per transcript opened."""
     turns, opened = {}, []
     for rel in transcripts(root):
         where = locate(rel)
         if where is None:
             continue
         path = os.path.join(root, rel)
+        shown = os.path.join(project_name(where[0]), *rel.split(os.sep)[1:])  # never the slug
         try:
             if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < start:
                 continue
             fh = open(path, "rb")
         except OSError as e:
-            warn(f"{rel}: cannot read ({e.strerror}), skipped")
+            warn(f"{shown}: cannot read ({e.strerror}), skipped")
             continue
         opened.append(where)
         with fh:
@@ -158,10 +167,10 @@ def read_turns(root, start, end):
                 try:
                     r = json.loads(raw.decode("utf-8"))
                 except UnicodeDecodeError:
-                    warn(f"{rel}:{n}: not UTF-8, skipped")
+                    warn(f"{shown}:{n}: not UTF-8, skipped")
                     continue
-                except ValueError:
-                    warn(f"{rel}:{n}: not JSON, skipped")
+                except (ValueError, RecursionError):
+                    warn(f"{shown}:{n}: not JSON, skipped")
                     continue
                 if not isinstance(r, dict) or r.get("type") != "assistant":
                     continue
@@ -171,7 +180,7 @@ def read_turns(root, start, end):
                 if m.get("model") == SYNTHETIC:
                     continue
                 t = stamp(r.get("timestamp"))
-                if t is None or not (start <= t < end):
+                if t is None:
                     continue
                 mid = m["id"]
                 if mid in turns and turns[mid]["file"] != rel:
@@ -187,7 +196,9 @@ def read_turns(root, start, end):
                     "output": count(u.get("output_tokens")),
                     "split": tuple(count(cc.get(k)) for k in SPLIT) if cc else None,
                 }
-    return turns, opened
+    # The window is applied to the chosen line, not to every line: a response whose first line
+    # is inside and whose last line is past midnight belongs to the next day's report.
+    return {k: t for k, t in turns.items() if start <= t["time"] < end}, opened
 
 
 def context(t):
