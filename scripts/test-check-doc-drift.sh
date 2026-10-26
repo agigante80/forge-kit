@@ -86,7 +86,7 @@
 #      if (bn[lk] == 1) path = bfirst[lk]
 #      7 failures: meta-subst's two rows, meta-glob-literal's column 4, meta-glob-absent's two, and
 #      the live-range forge-lib.sh column-4 pins of ranges f15dd74e and 9416a77b. The last two read
-#      HEAD's README, so the count can move with it. The earlier figure of 6 did not reproduce.
+#      the README pinned at HIST_PIN (they read HEAD's until 2026-10-26). The earlier figure of 6 did not reproduce.
 #
 # #308 ADDED THREE (so forty-one in all), run by hand on 2026-10-01 in a scratch copy, shown to
 # fail this suite: the path-split guard removed, leaving `_rest="${_rest#* }"` unguarded, so a
@@ -830,14 +830,23 @@ echo "== #258: this repository's own three ranges, asserted on TEXT and never on
 # else, so a script that printed nothing at all scored ok on every assertion. A review mutant that
 # broke the script outright kept six of nine green. An absence assertion with no matching presence
 # assertion beside it is not a test.
+# The script blames HEAD's README, so these assertions used to read whatever README the checkout
+# had: a later rewrite of a line that cites forge-lib.sh moved its blame out of every range below and
+# six rows failed (2026-10-26, the dependency paragraph rewritten for #551 and #562). The ranges are
+# history, so the README they read is pinned too: a clone of this repository checked out at a fixed
+# commit that postdates all three ranges. The script under test is still the working copy's.
+HIST_PIN=494555a5a6d9efc87ea512d85c249d4c34cbfa68
+HIST="$T/hist"
+git clone -q --no-checkout "$ROOT" "$HIST" && git -C "$HIST" checkout -q "$HIST_PIN" \
+  || { echo "cannot check out the pinned history commit $HIST_PIN" >&2; exit 1; }
 ranges_expect() {  # ranges_expect <range> <expected-row-count> <claim-anchor-that-must-survive>
   local r="$1" n="$2" keep="$3" out rc txt ln
-  out="$(cd "$ROOT" && bash "$SUT" --range "$r" --docs README.md 2>/dev/null)"; rc=$?
+  out="$(cd "$HIST" && bash "$SUT" --range "$r" --docs README.md 2>/dev/null)"; rc=$?
   expect "range ${r%%..*} exits 0" 0 "$rc"
   expect "range ${r%%..*} reports exactly $n row(s)" "$n" "$(printf '%s' "$out" | grep -c .)"
   txt=""
   for ln in $(printf '%s' "$out" | cut -f2); do
-    txt="$txt$(git -C "$ROOT" show HEAD:README.md | sed -n "${ln}p")"
+    txt="$txt$(git -C "$HIST" show HEAD:README.md | sed -n "${ln}p")"
   done
   case "$txt" in *"$keep"*) ok "range ${r%%..*} still reports the claim '$keep'" ;;
                  *) bad "range ${r%%..*} lost the claim '$keep'" ;; esac
