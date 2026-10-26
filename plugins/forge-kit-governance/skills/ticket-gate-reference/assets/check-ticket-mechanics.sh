@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 47
+# check-ticket-mechanics-version: 48
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -86,6 +86,7 @@
 #   check-ticket-mechanics.sh --body FILE --template FILE \
 #     --tpl-version N --current-tpl-version N --labels "a,b" \
 #     [--labels-doc docs/guides/labels.md] [--area-labels "..."] [--type-labels "..."]
+#     [--standards-doc docs/guides/ticket-standards.md]
 #   check-ticket-mechanics.sh --roles --template FILE   (no --body; see --roles below)
 #
 # THE AREA SET IS THE PROJECT'S OWN, WHEN IT HAS ONE (#204). `--labels-doc` names the project's
@@ -97,6 +98,20 @@
 # then REFERRED rather than failed, because without the doc the checker cannot tell a project's
 # own area from a priority or host label; only type labels alone, or none, still fail. So a
 # missing doc loosens check 2 to a referral, never to a pass.
+#
+# A CITED SECTION FOLLOWS THE PROJECT'S ALIAS (#557). Four referred rows cite a section of the
+# project's ticket-standards doc by its kit title. When that doc renames one and says so with a
+# `<!-- citation-alias: "<Title>" = "<Heading>" -->` line, the row names the project's heading
+# followed by `(the kit's "<Title>")`, so an author can find the section. `--standards-doc` names
+# the doc, default docs/guides/ticket-standards.md in the working directory (the project root, as
+# for --labels-doc), and an empty value turns it off. The doc is read with citation-check.sh's
+# grammar and rules, which forge-kit-adapt ships and which a parity test pins: the whole line is the
+# marker, a fence is a line opening with ``` or ~~~ after any indent and the same character closes
+# it, a heading is `#` to `######` with a leading `N. ` and a trailing parenthetical dropped, an
+# alias applies only when its target is a heading of the doc and its title is not, and the first
+# alias for a title wins. Acknowledgement lines are not read. Only the FIRST citation in a row is
+# rewritten, the kit's own, never a quotation in the author text after it, and it is spliced as
+# literal text. A missing, unreadable or marker-free doc leaves every row byte for byte as before.
 #
 # Emits TSV to stdout: <check>\t<outcome>\t<evidence>, outcome in pass|fail|warn|na|referred.
 # Exit 0 whenever the checks ran, so a FAIL is data, and so is a version it cannot parse. Exit
@@ -187,7 +202,7 @@
 #
 set -uo pipefail
 
-TAG_ROUND=""; BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
+STANDARDS_DOC="docs/guides/ticket-standards.md"; TAG_ROUND=""; BODY=""; TEMPLATE=""; TPL_VERSION=""; CURRENT_TPL_VERSION=""; LABELS=""; DUMP_FIELDS=0; ROLES=0; CLASSES=0; SKELETON=0; HEADINGS=0; LABELS_DOC=""; AREA_EXPLICIT=0
 # The canonical taxonomy is docs/guides/labels.md, and scripts/check-label-taxonomy.sh fails the
 # build when this default disagrees with it (#188). `infrastructure` and `design` are TYPE labels
 # there, not areas, and `frontend` is not a declared label at all. The last three are for a
@@ -271,6 +286,7 @@ while [ $# -gt 0 ]; do
     --area-labels)         need_value $# "$1"; AREA_LABELS="$2"; AREA_EXPLICIT=1; shift 2 ;;
     --labels-doc)          need_value $# "$1"; LABELS_DOC="$2"; shift 2 ;;
     --type-labels)         need_value $# "$1"; TYPE_LABELS="$2"; shift 2 ;;
+    --standards-doc)       need_value $# "$1"; STANDARDS_DOC="$2"; shift 2 ;;
     --dump-fields)         DUMP_FIELDS=1; shift ;;
     --roles)               ROLES=1; shift ;;
     --tag-blocks)          need_value $# "$1"; TAG_ROUND="$2"; shift 2 ;;
@@ -348,6 +364,50 @@ if [ "$AREA_EXPLICIT" -eq 0 ] && [ -n "$LABELS_DOC" ] && [ -f "$LABELS_DOC" ]; t
   if [ -n "$doc_areas" ]; then AREA_LABELS="$doc_areas"; else DOC_NO_TABLE=1; fi
 fi
 
+# The project's applied aliases, one `<title>\t<heading>` line each (#557, see the header). The doc
+# comes in on stdin, never as an operand or through -v; a failed read leaves the list empty.
+STD_AWK='
+function sp(s) { gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
+function ttl(s) { sub(/[ \t]*\([^)]*\)[ \t]*$/, "", s); return sp(s) }
+function mk(s) { s = ttl(sp(s)); sub(/^[0-9]+\.[ \t]+/, "", s); return sp(s) }
+  { l = $0; sub(/\r$/, "", l) }
+  match(l, /^[ \t]*(```|~~~)/) { c = substr(l, RSTART + RLENGTH - 1, 1); fc = (fc == "") ? c : (fc == c ? "" : fc); next }
+  fc != "" { next }
+  match(l, /^#+[ \t]/) && RLENGTH <= 7 {
+    t = substr(l, RLENGTH + 1); sub(/^[ \t]+/, "", t); sub(/^[0-9]+\.[ \t]+/, "", t)
+    sub(/[ \t]*#*[ \t]*$/, "", t); t = ttl(t); if (t != "") H[t] = 1; next
+  }
+  l ~ /^[ \t]*<!--[ \t]*citation-alias:[ \t]*"[^"]+"[ \t]*=[ \t]*"[^"]+"[ \t]*-->[ \t]*$/ {
+    split(l, q, "\""); t = mk(q[2]); g = mk(q[4])
+    if (t != "" && g != "" && !(t in first)) { first[t] = g; order[++n] = t }
+  }
+  END {
+    for (i = 1; i <= n; i++) { t = order[i]
+      if (!(t in H) && (first[t] in H)) print t "\t" first[t]
+    }
+  }'
+ALIASES=""
+if [ -n "$STANDARDS_DOC" ] && [ -f "$STANDARDS_DOC" ]; then
+  ALIASES="$( { awk "$STD_AWK" < "$STANDARDS_DOC"; } 2>/dev/null)"
+fi
+# The row's first citation, renamed when its title has an applied alias. Plain concatenation, never
+# a ${//} substitution, whose replacement treats & and a backslash as syntax in bash 5.2.
+alias_ev() {
+  local ev="$1" sw=section op pre rest title t g
+  op="$sw \""
+  case "$ev" in *"$op"*) ;; *) printf '%s' "$ev"; return ;; esac
+  pre=${ev%%"$op"*}; rest=${ev#*"$op"}
+  title=${rest%%\"*}
+  while IFS="$(printf '\t')" read -r t g; do
+    if [ "$t" = "$title" ]; then
+      ev="$pre$op$g\" (the kit's \"$title\")${rest#*\"}"; break
+    fi
+  done <<EOF
+$ALIASES
+EOF
+  printf '%s' "$ev"
+}
+
 is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
 # Evidence is untrusted body text. A newline in it would emit a phantom row and a tab would
@@ -358,6 +418,7 @@ is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 row() {
   local ev
   ev="$(printf '%s' "$3" | tr -d '\r' | tr '\n\t' '  ' | cut -c1-1000)"
+  [ -z "$ALIASES" ] || ev="$(alias_ev "$ev" | cut -c1-1000)"   # the bound holds after a rename too
   printf '%s\t%s\t%s\n' "$1" "$2" "$ev"
 }
 

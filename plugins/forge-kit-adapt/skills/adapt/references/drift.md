@@ -115,6 +115,10 @@ one is ignored, so a doc can show the form in an example):
 <!-- citation-acknowledged: "E2E test specs" -->
 ```
 
+The gate's mechanical checker reads the same alias lines (never the acknowledgements), so an
+applied alias also renames the section its evidence cites: `section "Unit tests" (the kit's "Unit
+test specs")`.
+
 Keep the kit's section titles when adapting the doc, at install and at refresh: the gate cites
 them by title, so put project framing in a trailing parenthetical (`### 3. E2E test specs
 (integration / subprocess)`). The doc's own `## Required sections` intro says so, which is what

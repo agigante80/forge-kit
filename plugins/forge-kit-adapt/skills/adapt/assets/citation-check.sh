@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# citation-check-version: 4
+# citation-check-version: 5
 # citation-check.sh: find the ticket-standards section titles the gate cites that the project's own
 # doc does not have (#519).
 #
@@ -61,6 +61,9 @@
 # title with a real heading, a superseded marker) is stale. The alias target check is EXISTENCE
 # ONLY, by design: the target is a real heading of the doc, nothing checks it is the right section.
 # A skipped doc reads no markers. Line numbers count "\n" only (CRLF and CR are read as "\n").
+# A SECOND READER (#557): forge-kit-governance's check-ticket-mechanics.sh reads the alias lines
+# alone, under these same rules, to name the project's heading in its evidence. Change a rule here
+# and change it there; scripts/test-check-ticket-mechanics.sh runs both and fails if they disagree.
 #
 # OUTPUT, stdout, tab separated, in this order:
 #   citation-missing         "<Title>"                 a cited title the doc has no heading, alias or acknowledgement for
