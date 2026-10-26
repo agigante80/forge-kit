@@ -33,8 +33,10 @@ Rows on stdout, tab separated:
   caller, line and form are `-`.
 - `caller-unscanned <path> <file> <line>`: one per non-comment line of a non-workflow caller file that
   names the path, after that path's `retired` rows (#540). The files are `package.json`, `Makefile`,
-  `makefile`, `GNUmakefile`, `justfile`, `Justfile`, `.justfile` and every regular file directly inside
-  `.githooks/` and `.husky/` (not `_`). The match is the BASENAME at a token boundary, so
+  `makefile`, `GNUmakefile`, `justfile`, `Justfile`, `.justfile`, `.claude/settings.json`,
+  `.claude/settings.local.json` and every regular file directly inside `.githooks/` and `.husky/`
+  (not `_`). The two settings files make a still-wired hook a caller (#564): unwire it with
+  `hook-unwire.sh` before the file goes. The match is the BASENAME at a token boundary, so
   `cd scripts && ./x.sh` counts; a line whose first non-blank character is `#` does not. The scan exit
   stays 1 and the summary columns are unchanged.
 - `not-scanned <path> <symlink|unreadable>`: a symlink (never followed: the project may be untrusted)

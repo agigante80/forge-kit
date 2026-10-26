@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# retired-paths-version: 2
+# retired-paths-version: 3
 # retired-paths.sh: find a file forge-kit RETIRED and an earlier install left behind, and remove it
 # together with the ONE workflow step that still runs it (#521).
 #
@@ -28,7 +28,9 @@
 #   - the workflow files directly inside .github/workflows, .forgejo/workflows and .gitea/workflows
 #     (*.yml, *.yaml), read as steps (the form below);
 #   - the other callers: package.json, Makefile, makefile, GNUmakefile, justfile, Justfile, .justfile,
-#     and every regular file directly inside .githooks/ and .husky/ (the directory `_` is skipped).
+#     and every regular file directly inside .githooks/ and .husky/ (the directory `_` is skipped),
+#     plus .claude/settings.json and .claude/settings.local.json (#564): a hook still wired there is a
+#     caller, so a hook file cannot be removed before `hook-unwire.sh` has unwired it.
 #     A line there counts as a caller when the BASENAME of the path stands at a token boundary (so
 #     `cd scripts && ./x.sh` matches), unless the line starts with `#` (a tab or space first is fine).
 # It does NOT scan a pre-commit config, lefthook, a Taskfile, a core.hooksPath directory other than
@@ -245,7 +247,7 @@ add_cand() {
   [ -r "$PROJECT/$rel" ] || { printf '%s\tunreadable\n' "$rel" >> "$WORK/wfblock"; return 0; }
   printf '%s\n' "$rel" >> "$CANDS"
 }
-for n in package.json Makefile makefile GNUmakefile justfile Justfile .justfile; do add_cand "$n"; done
+for n in package.json Makefile makefile GNUmakefile justfile Justfile .justfile .claude/settings.json .claude/settings.local.json; do add_cand "$n"; done
 for d in .githooks .husky; do
   [ -e "$PROJECT/$d" ] || [ -L "$PROJECT/$d" ] || continue
   if has_link "$d"; then printf '%s\tsymlink\n' "$d" >> "$WORK/wfblock"; continue; fi

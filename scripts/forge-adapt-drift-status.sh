@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # forge-adapt-drift-status.sh: one word describing one component's install state (#167).
 #
-#   forge-adapt-drift-status.sh --local <N|none|absent> --catalogue <N|none> [--group-enabled [--kept]]
+#   forge-adapt-drift-status.sh --local <N|none|absent> --catalogue <N|none> [--group-enabled | --hook-live] [--kept]
 #
 # N may carry one leading `v` (`v3` reads as 3), the form the catalogue prints. Anything else that is
 # not a number, and a number over nine digits, exits 2 naming the original token (#504).
@@ -16,7 +16,12 @@
 #                twice, so it is neither compared nor refreshed; the caller offers retire or keep
 #   kept         the same, and the user already chose to keep the local copy (--kept)
 #
-# SHADOWED AND KEPT NEED --group-enabled AND A LOCAL COPY. With the group enabled, a local copy
+# --hook-live (#564) is --group-enabled for a HOOK: the caller has already worked out that the plugin
+# wires this hook live in this project (group live, hooks.json entry present, every sentinel file there),
+# which is a different test from "the group is enabled", so it is a different flag. It reads the same
+# words, needs a local copy, and refuses to be combined with --group-enabled: one component is one kind.
+#
+# SHADOWED AND KEPT NEED --group-enabled (OR --hook-live) AND A LOCAL COPY. With the group enabled, a local copy
 # (a number or `none`) is `kept` under --kept and `shadowed` otherwise, whatever the markers say,
 # `--catalogue none` included: the marker comparison no longer applies once the plugin provides the
 # component. Without --group-enabled nothing changes and --kept is ignored. `--local absent` stays
@@ -37,13 +42,14 @@
 # that predates markers (#64), and reporting it as missing would hide it.
 set -uo pipefail
 
-LOCAL=""; CATALOGUE=""; ENABLED=0; KEPT=0
+LOCAL=""; CATALOGUE=""; ENABLED=0; KEPT=0; HOOKLIVE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --local)          shift; [ $# -gt 0 ] || { echo "drift-status: --local needs a value" >&2; exit 2; }; LOCAL="$1" ;;
     --catalogue)      shift; [ $# -gt 0 ] || { echo "drift-status: --catalogue needs a value" >&2; exit 2; }; CATALOGUE="$1" ;;
     --group-enabled)  ENABLED=1 ;;
     --kept)           KEPT=1 ;;
+    --hook-live)      HOOKLIVE=1 ;;
     *)                echo "drift-status: unexpected argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -72,14 +78,16 @@ case "$CATALOGUE" in none|absent) ;; *) CATALOGUE=$(norm "$CATALOGUE") || exit 2
 # treating it as such would hide a broken catalogue behind a per-component verdict.
 [ "$CATALOGUE" = absent ] && { echo "drift-status: --catalogue cannot be 'absent'" >&2; exit 2; }
 
+[ "$HOOKLIVE" -eq 1 ] && [ "$ENABLED" -eq 1 ] && { echo "drift-status: --hook-live and --group-enabled cannot be combined" >&2; exit 2; }
 if [ "$LOCAL" = absent ]; then
+  [ "$HOOKLIVE" -eq 1 ] && { echo "drift-status: --hook-live needs a local copy, and --local is absent" >&2; exit 2; }
   [ "$KEPT" -eq 1 ] && { echo "drift-status: --kept needs a local copy, and --local is absent" >&2; exit 2; }
   [ "$ENABLED" -eq 1 ] && { echo registered; exit 0; }
   echo missing; exit 0
 fi
 
 # A local copy under a live group is a duplicate, whatever its marker says (#550).
-if [ "$ENABLED" -eq 1 ]; then
+if [ "$ENABLED" -eq 1 ] || [ "$HOOKLIVE" -eq 1 ]; then
   [ "$KEPT" -eq 1 ] && echo kept || echo shadowed
   exit 0
 fi

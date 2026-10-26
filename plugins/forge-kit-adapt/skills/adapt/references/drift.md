@@ -41,8 +41,8 @@ once the user chose to keep it.
 **Scope.** Only subagent, skill and command rows with a local copy get `--group-enabled` (and
 `--kept`). A shell asset keeps its marker words, because CI and hooks run the project's copy. A
 component whose frontmatter says `scope: project` never gets the flag. A row with no local copy keeps
-`--group-enabled` as before, so it still reads `registered`. A hook copy is not offered for retirement
-here.
+`--group-enabled` as before, so it still reads `registered`. A hook copy follows its own rules,
+under "A hook copy" below.
 
 **Untouched or edited.** Take the baseline from the installed marker, never from the plugin's current
 file, since an old unedited copy always differs from that:
@@ -68,6 +68,45 @@ default; an edited copy shows the diff against its baseline and offers `keep` as
 - `keep` appends `<!-- adapt-kept: shadows-plugin -->` to the copy (to `SKILL.md` for a skill). The next
   drift passes `--kept` and prints `kept`.
 - `refresh` never merges a `shadowed` copy. On a `kept` row it runs the usual comparison and merge.
+
+### A hook copy (#564)
+
+A hook is shadowed only when the plugin really runs it here, which `--group-enabled` does not say: the
+plugin's `hooks/hooks.json` wraps each hook in a sentinel test, so a live group with no sentinel file runs
+nothing. Liveness is its own flag, `--hook-live`, passed instead of `--group-enabled` for a hook row that has
+a local copy. It is true only when all of these hold:
+
+1. `forge-adapt-plugin-active.sh <group>@forge-kit` prints `yes`.
+2. The group's `hooks/hooks.json` has an entry whose last argument ends in `/hooks/<name>.py`.
+3. Every sentinel path that entry tests exists in the project. Read them from that entry's `args[1]` with
+   `grep -oP '\[ -f "\$CLAUDE_PROJECT_DIR/\K[^"]+(?=" \])'`. The number of `[ -f` occurrences must equal the
+   number of paths read, otherwise the hook is not live (an unparseable string fails safe). An entry with no
+   `[ -f` is live on the group alone.
+
+`<name>` is the extensionless catalogue name and must match `^[a-z0-9][a-z0-9-]*$`. Its local copy is
+`.claude/hooks/<name>.py` or `.claude/hooks/<name>.sh`: exactly one must exist as a regular file, no glob.
+
+Drift prints `shadowed` for any live-shadowed hook copy, and nothing else about it. `refresh <name>` narrows
+that: a copy that fails the untouched check above, or whose baseline is `unavailable`, reads `kept`. The hook
+baseline is the `# <name>-version: N` marker through `forge-adapt-marker-delta.sh`. Refresh never merges a hook
+copy and there is no adapt-kept marker for one. Whatever the word, the project runs the hook twice.
+
+- `shadowed` (untouched): the user chooses removal.
+- `kept` (edited or unknown baseline): report the double fire, print the two commands below in this order, and
+  take no action.
+
+Removal is always two steps in one order. Unwire first, then delete:
+
+```bash
+bash "${FORGE_KIT_DIR:?}"/plugins/forge-kit-adapt/skills/adapt/assets/hook-unwire.sh <name>
+rm .claude/hooks/<name>.py
+```
+
+A wired hook whose file is gone exits 2 on every matching call, which denies it, so deleting first would also
+deny the Bash call that tries to repair it. `hook-unwire.sh` applies the name rule above, edits only
+`.claude/settings.json`, keeps any other hook in a shared matcher group, and prints `no wiring found for <name>`
+when nothing was wired. `retired-paths.sh --remove` also refuses a file that `.claude/settings.json` or
+`.claude/settings.local.json` still names, so it cannot do the delete first either.
 
 ## An unmarked copy of a kit asset (#522)
 

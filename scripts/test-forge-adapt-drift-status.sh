@@ -119,6 +119,23 @@ for w in shadowed kept; do
   [ "$out" = "$w" ] && [ "$(printf '%s' "$out" | wc -w | tr -d ' ')" = 1 ] && ok "$w is one bare word" || bad "$w is one bare word: '$out'"
 done
 
+echo "== --hook-live: a hook copy under a hook the live plugin runs (#564) =="
+[ "$(bash "$S" --local 2 --catalogue 3 --hook-live)" = shadowed ] && ok "--hook-live with a numbered copy reads shadowed" || bad "--hook-live with a numbered copy reads shadowed"
+[ "$(bash "$S" --local 2 --catalogue 3)" = behind ] && ok "the same copy reads behind without the flag" || bad "the same copy reads behind without the flag"
+[ "$(bash "$S" --local none --catalogue 3 --hook-live)" = shadowed ] && ok "--hook-live with an unmarked copy reads shadowed" || bad "--hook-live with an unmarked copy reads shadowed"
+[ "$(bash "$S" --local 5 --catalogue 3 --hook-live)" = shadowed ] && ok "--hook-live with a copy ahead of the catalogue reads shadowed" || bad "--hook-live ahead reads shadowed"
+[ "$(bash "$S" --local 2 --catalogue none --hook-live)" = shadowed ] && ok "--hook-live with --catalogue none reads shadowed" || bad "--hook-live with --catalogue none reads shadowed"
+[ "$(bash "$S" --local 2 --catalogue 3 --hook-live --kept)" = kept ] && ok "--hook-live --kept reads kept" || bad "--hook-live --kept reads kept"
+[ "$(bash "$S" --local v2 --catalogue v3 --hook-live)" = shadowed ] && ok "--hook-live accepts the v form" || bad "--hook-live accepts the v form"
+cap --local absent --catalogue 3 --hook-live
+[ "$crc" = 2 ] && [ -z "$cout" ] && ok "--hook-live --local absent exits 2 with nothing on stdout" || bad "--hook-live --local absent exits 2 (got $crc, '$cout')"
+case "$cerr" in *"--hook-live needs a local copy"*) ok "and says --hook-live needs a local copy" ;; *) bad "and says --hook-live needs a local copy: '$cerr'" ;; esac
+cap --local 2 --catalogue 3 --hook-live --group-enabled
+[ "$crc" = 2 ] && [ -z "$cout" ] && ok "--hook-live with --group-enabled exits 2 with nothing on stdout" || bad "--hook-live with --group-enabled exits 2 (got $crc, '$cout')"
+case "$cerr" in *"--hook-live and --group-enabled"*) ok "and names the two flags" ;; *) bad "and names the two flags: '$cerr'" ;; esac
+cap --local absent --catalogue 3 --hook-live --kept
+[ "$crc" = 2 ] && ok "--hook-live --kept --local absent exits 2" || bad "--hook-live --kept --local absent exits 2 (got $crc)"
+
 echo ""
 echo "drift-status tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

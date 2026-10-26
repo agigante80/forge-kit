@@ -325,6 +325,56 @@ grep -qF 'A `shadowed` row never merges: follow `references/drift.md`.' "$SKILL"
   && ok "#550: SKILL.md points a shadowed row at the reference" || bad "#550: SKILL.md has no shadowed pointer"
 grep -qF 'A shell asset keeps its marker words' "$RF" \
   && ok "#550: the scope sentence keeps asset rows on their marker words" || bad "#550: the scope sentence lost the asset rule"
+# #564: a hook copy is shadowed only when the plugin really runs the hook here. The rules are prose in
+# drift.md, so the order and the extraction pattern are pinned, and the pattern is APPLIED to every shipped
+# hooks.json entry so the sentinel table in the prose cannot drift from the wiring.
+grep -q '^### A hook copy (#564)$' "$RF" \
+  && ok "#564: drift.md has the hook-copy section" || bad "#564: drift.md lacks the hook-copy section"
+grep -qF 'A hook copy follows its own rules,' "$RF" \
+  && ok "#564: the #550 scope sentence now hands hooks to their own section" || bad "#564: the scope sentence still says a hook copy is not offered"
+grep -qF 'A hook copy is not offered for retirement' "$RF" \
+  && bad "#564: the retired scope sentence is back" || ok "#564: the retired scope sentence is gone"
+HU=$(grep -n 'assets/hook-unwire.sh>\? <name>$' "$RF" | head -1 | cut -d: -f1); HR=$(grep -n '^rm .claude/hooks/<name>.py$' "$RF" | head -1 | cut -d: -f1)
+[ -n "$HU" ] && [ -n "$HR" ] && [ "$HU" -lt "$HR" ] \
+  && ok "#564: drift.md prints the unwire command before the rm" || bad "#564: unwire/rm order in drift.md ('$HU' '$HR')"
+grep -qF 'Unwire first, then delete' "$RF" \
+  && ok "#564: drift.md says unwire first, then delete" || bad "#564: drift.md lacks the unwire-first sentence"
+grep -qF 'reads `kept`' "$RF" && grep -qF 'Refresh never merges a hook' "$RF" \
+  && ok "#564: drift.md states the kept rule and that refresh never merges a hook" || bad "#564: drift.md lacks the kept rule"
+grep -qF "grep -oP '\\[ -f \"\\\$CLAUDE_PROJECT_DIR/\\K[^\"]+(?=\" \\])'" "$RF" \
+  && ok "#564: drift.md carries the sentinel extraction pattern" || bad "#564: drift.md lacks the sentinel extraction pattern"
+grep -qF 'assets/hook-unwire.sh <name>' "$SKILL" \
+  && ok "#564: SKILL.md points the superseded-hook cleanup at hook-unwire.sh" || bad "#564: SKILL.md lacks the hook-unwire pointer"
+grep -qF 'rm -f .claude/hooks/block-dashes.py' "$SKILL" \
+  && bad "#564: SKILL.md still deletes the hook file before any unwire" || ok "#564: SKILL.md no longer carries the delete-first block"
+HOOKROWS=0
+for hj in "$ROOT"/plugins/*/hooks/hooks.json; do
+  [ -f "$hj" ] || continue
+  while IFS=$'\t' read -r hname hcmd; do
+    [ -n "$hname" ] || continue
+    HOOKROWS=$((HOOKROWS + 1))
+    case "$hname" in
+      block-dashes)          want=".claude/no-dashes" ;;
+      no-poll-loops)         want=".claude/no-poll-loops" ;;
+      masked-exit-advisory)  want=".claude/masked-exit" ;;
+      scan-forge-writes)     want=".claude/scan-forge-writes" ;;
+      forge-write-consent)   want=".claude/forge-write-consent" ;;
+      overnight-guard)       want=".claude/overnight/active.md .claude/no-destructive" ;;
+      overnight-continue)    want="" ;;
+      *)                     want="UNLISTED" ;;
+    esac
+    got=$(printf '%s\n' "$hcmd" | grep -oP '\[ -f "\$CLAUDE_PROJECT_DIR/\K[^"]+(?=" \])' | tr '\n' ' ' | sed 's/ $//')
+    nf=$(printf '%s\n' "$hcmd" | grep -o '\[ -f' | wc -l | tr -d ' ')
+    ng=$(printf '%s\n' "$got" | wc -w | tr -d ' ')
+    [ "$want" = UNLISTED ] && { bad "#564: hooks.json wires $hname, which the sentinel table does not list"; continue; }
+    expect "#564: $hname sentinels extract as the table says" "$want" "$got"
+    [ "$nf" = "$ng" ] && ok "#564: $hname has no [ -f the pattern missed" || bad "#564: $hname has $nf [ -f but the pattern read $ng"
+  done < <(jq -r '.hooks[][]?.hooks[]? | select((.args // []) | length > 0) | [(.args[-1] | split("/") | last | sub("\\.(py|sh)$"; "")), (.args[1] // "-")] | @tsv' "$hj")
+done
+[ "$HOOKROWS" -ge 8 ] && ok "#564: at least the eight shipped hooks.json entries were checked ($HOOKROWS)" || bad "#564: only $HOOKROWS hooks.json entries were found"
+unparse='[ -n "$CLAUDE_PROJECT_DIR" ] && [ -f "$CLAUDE_PROJECT_DIR/.claude/a" ] && [ -f $X/b ] || exit 0'
+nf=$(printf '%s\n' "$unparse" | grep -o '\[ -f' | wc -l | tr -d ' '); ng=$(printf '%s\n' "$unparse" | grep -oP '\[ -f "\$CLAUDE_PROJECT_DIR/\K[^"]+(?=" \])' | grep -c .)
+[ "$nf" != "$ng" ] && ok "#564: an unparseable [ -f makes the counts differ, so the hook is not live" || bad "#564: the count check misses an unparseable [ -f"
 HL=$(lib); mkdir -p "$HL/plugins/forge-kit-x"
 case "$(bash "$ROOT/scripts/forge-adapt-catalogue.sh" "$HL" 2>/dev/null)" in *"=== forge-kit-x ==="*) ok "#504: the catalogue header is the full plugin name" ;; *) bad "#504: the catalogue header is not the directory name" ;; esac
 # Contributions: a library shipping ticket-gate, a project holding it and my-local.

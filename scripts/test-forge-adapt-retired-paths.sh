@@ -166,6 +166,25 @@ d=$(proj hu); mkdir -p "$d/.husky/_"; printf '#!/usr/bin/env sh\n. "$(dirname --
 run "$d"; expect ".husky: exactly one caller row, .husky/_ is not scanned" "$(row .husky/pre-push 3)" "$(callers)"
 refused ".husky" "$d" .husky/pre-push:3
 
+# #564: a hook still wired in .claude/settings.json (or settings.local.json) is a caller too, so a removal
+# of its file refuses until `hook-unwire.sh` has run. The rules file lists the hook path for this case only.
+HP=.claude/hooks/block-dashes.py
+HRULES="$T/hrules.tsv"; printf '%s\t564\t2026-10-26\tnote\n' "$HP" > "$HRULES"
+hproj() { local d="$T/$1"; mkdir -p "$d/.claude/hooks"; echo x > "$d/$HP"; echo "$d"; }
+hrun() { local d="$1"; shift; out=$(bash "$SCRIPT" --project "$d" --rules "$HRULES" "$@" 2>"$T/err"); rc=$?; err=$(cat "$T/err"); }
+d=$(hproj hs); printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"python3","args":["${CLAUDE_PROJECT_DIR}/.claude/hooks/block-dashes.py"]}]}]}}\n' > "$d/.claude/settings.json"
+hrun "$d"; expect "settings.json: a wired hook is a caller row, line 1" "caller-unscanned${TAB}$HP${TAB}.claude/settings.json${TAB}1" "$(printf '%s\n' "$out" | grep '^caller-unscanned')"
+hrun "$d" --remove "$HP"; expect "settings.json: the removal refuses and names the file and line" "1|not removed: .claude/settings.json:1 names $HP outside a workflow; delete it by hand, then remove $HP" "$rc|$(printf '%s' "$err" | head -n 1)"
+[ -f "$d/$HP" ] && ok "settings.json: the hook file is kept" || bad "settings.json: the hook file was removed"
+d=$(hproj hl); printf '{\n  "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 .claude/hooks/block-dashes.py"}]}]}\n}\n' > "$d/.claude/settings.local.json"
+hrun "$d"; expect "settings.local.json is a caller too" "caller-unscanned${TAB}$HP${TAB}.claude/settings.local.json${TAB}2" "$(printf '%s\n' "$out" | grep '^caller-unscanned')"
+hrun "$d" --remove "$HP"; expect "settings.local.json: the removal refuses" 1 "$rc"
+d=$(hproj hn); printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"python3 .claude/hooks/my-block-dashes.py"}]}]}}\n' > "$d/.claude/settings.json"
+hrun "$d" --remove "$HP"; expect "an unwired hook (only a longer name remains) is removed" "removed $HP|0" "$out|$rc"
+d=$(hproj hu); printf '{"permissions":{}}\n' > "$d/.claude/settings.json"; hrun "$d" --remove "$HP"; expect "a settings.json with no hooks does not block" "removed $HP|0" "$out|$rc"
+d=$(hproj hk); mkdir -p "$T/realset"; echo '{}' > "$T/realset/s.json"; ln -s "$T/realset/s.json" "$d/.claude/settings.json"
+hrun "$d" --remove "$HP"; expect "a symlinked settings.json blocks the removal as not scanned" 1 "$rc"
+
 d=$(proj base); printf 'guard:\n\tcd scripts && ./test-template-lockstep.sh\n' > "$d/Makefile"
 run "$d"; expect "a basename-only mention is a caller" "$(row Makefile 2)" "$(callers)"
 refused "basename-only" "$d" Makefile:2
