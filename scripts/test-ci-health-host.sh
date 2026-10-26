@@ -83,6 +83,8 @@ refuse() {
     lib) mkdir -p "$d/scripts"; printf 'forge_url_check() { return 0; }\nforge_host() { echo forgejo; }\n' > "$d/scripts/forge-lib.sh" ;;
     libpin)   # review round 1 (codex): a branch's FORGE_HOST must hit the pin, not choose the gh path
       mkdir -p "$d/scripts"; printf 'forge_url_check() { echo "forge-lib: refusing: pin" >&2; return 2; }\nforge_host() { echo github; }\n' > "$d/scripts/forge-lib.sh" ;;
+    libold)   # review round 2: a library older than forge_url_check names the update, not a bash error
+      mkdir -p "$d/scripts"; printf 'forge_host() { echo github; }\n' > "$d/scripts/forge-lib.sh" ;;
   esac
   out=$( cd "$d" && PATH="$T/bin:$PATH" bash -c "forge_host() { echo x >> '$T/fh.log'; echo github; }"$'\n'"$b"$'\n''echo "HOST=$HOST"' 2>&1 ); rc=$?
   printf 'rc=%s|%s|gh=%s|fh=%s' "$rc" "$out" "$(wc -l < "$T/gh.log" | tr -d ' ')" "$(wc -l < "$T/fh.log" | tr -d ' ')"
@@ -107,7 +109,9 @@ dedupe() {
 
 # branch <file> [<origin HEAD target>]: the file's own BRANCH= line run in a fixture repo whose
 # refs/remotes/origin/HEAD points at the target, or is absent with no target (review round 1: the
-# command printed the branch but never assigned BRANCH, so every later "$BRANCH" was empty).
+# command printed the branch but never assigned BRANCH, so every later "$BRANCH" was empty). A third
+# argument "shadow" also makes a LOCAL branch named origin/<target> (review round 2: --short turns
+# ambiguous then and prints remotes/origin/<target>).
 branch() {
   local l d; l=$(one "$1" '^[[:space:]]*BRANCH=')
   [ "$l" = no-extract ] && { printf 'no-extract'; return; }
@@ -116,6 +120,7 @@ branch() {
     git -C "$d" -c user.name=t -c user.email=t@t.invalid commit -q --allow-empty -m x
     git -C "$d" update-ref "refs/remotes/origin/$2" HEAD
     git -C "$d" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$2"
+    [ "${3:-}" = shadow ] && git -C "$d" branch -q "origin/$2"
   fi
   ( cd "$d" && BRANCH=stale bash -c "$l"$'\n''printf "%s" "$BRANCH"' 2>&1 )
 }
@@ -203,6 +208,7 @@ verdicts() {
   [ "$(refuse "$f" 'git@github.com:o/r.git')" = "rc=0|HOST=github|gh=0|fh=0" ] || echo "a GitHub origin without the adapter is refused"
   [ "$(refuse "$f" 'https://forge.example/o/r' lib)" = "rc=0|HOST=forgejo|gh=0|fh=0" ] || echo "the adapter is not sourced when present"
   [ "$(refuse "$f" 'https://github.com/o/r' libpin)" = "rc=1|forge-lib: refusing: pin|gh=0|fh=0" ] || echo "a pin refusal does not stop Phase 0"
+  [ "$(refuse "$f" 'https://github.com/o/r' libold)" = "rc=1|ci-health: scripts/forge-lib.sh has no forge_url_check; update it (forge-adapt refresh)|gh=0|fh=0" ] || echo "an old library fails without naming the update"
   for o in "https://user:$TOKEN@forge.example/o/r" 'git@forge.example:o/r' "ssh://git:$TOKEN@forge.example:2222/o/r" 'HTTPS://Forge.Example/o/r'; do
     r=$(host "$f" "$o")
     case "$r" in *"$TOKEN"*) echo "token reaches the refusal" ;; forge.example) ;; *) echo "origin host misread: $o -> $r" ;; esac
@@ -212,6 +218,7 @@ verdicts() {
   # the default branch is ASSIGNED, from origin/HEAD, else main
   [ "$(branch "$f" develop)" = develop ] || echo "BRANCH is not assigned from origin/HEAD"
   [ "$(branch "$f")" = main ] || echo "BRANCH is empty without origin/HEAD"
+  [ "$(branch "$f" develop shadow)" = develop ] || echo "a local origin/<branch> skews BRANCH"
 
   # forge-adapt's trigger
   r=$(grep -F '`/ci-health`' "$c" | grep '^|' | head -1)
@@ -242,6 +249,9 @@ r=$(refuse "$CIH" 'https://github.com/o/r')
 [ "$(wfdir "$CIH" github)" = .github/workflows ] && ok "a GitHub host reads .github/workflows whatever forge_workflow_dir says" || bad "github wfdir"
 [ "$(branch "$CIH" develop)" = develop ] && ok "BRANCH is assigned from refs/remotes/origin/HEAD (develop)" || bad "BRANCH from origin/HEAD"
 [ "$(branch "$CIH")" = main ] && ok "BRANCH falls back to main with no origin/HEAD" || bad "BRANCH fallback"
+[ "$(branch "$CIH" develop shadow)" = develop ] && ok "a local branch named origin/develop does not skew BRANCH" || bad "BRANCH with a shadowing local branch"
+[ "$(refuse "$CIH" 'https://github.com/o/r' libold)" = "rc=1|ci-health: scripts/forge-lib.sh has no forge_url_check; update it (forge-adapt refresh)|gh=0|fh=0" ] \
+  && ok "a library without forge_url_check is refused naming the update, no gh" || bad "old library in Phase 0"
 
 # --- the mutant ledger: each edit is applied to a scratch copy, asserted to have applied, and must
 # make verdicts print the named message.
@@ -314,19 +324,23 @@ mut 'the userinfo strip dropped' cih "origin host misread" "s#/.*##; s#^.*@##; s
 mut 'the port strip dropped' cih "ssh.github.com:443 is not GitHub" "s#^.*@##; s#:.*##'" "s#^.*@##'"
 mut 'the existence check moved below the source line' cih "refusal depends on the library it tests for" \
   'if [ -f scripts/forge-lib.sh ]; then
-  . scripts/forge-lib.sh && forge_url_check && HOST=$(forge_host) || exit 1' '. scripts/forge-lib.sh 2>/dev/null
+  . scripts/forge-lib.sh || exit 1' '. scripts/forge-lib.sh 2>/dev/null
 if [ -f scripts/forge-lib.sh ]; then
-  forge_url_check && HOST=$(forge_host) || exit 1'
+  true || exit 1'
 mut 'forge_host called in the refusal branch' cih "refusal depends on the library it tests for" \
   '*) echo "ci-health needs scripts/forge-lib.sh' '*) forge_host >/dev/null 2>&1; echo "ci-health needs scripts/forge-lib.sh'
 mut 'ssh.github.com no longer GitHub' cih "a GitHub origin without the adapter is refused" '    github.com|ssh.github.com) HOST=github ;;' '    ssh.github.com) HOST=github ;;'
-mut 'the adapter-present branch skips the source' cih "the adapter is not sourced when present" '  . scripts/forge-lib.sh && forge_url_check && HOST=$(forge_host) || exit 1' '  HOST=github'
-mut 'the pin check dropped from Phase 0' cih "a pin refusal does not stop Phase 0" ' && forge_url_check && HOST=$(forge_host)' ' && HOST=$(forge_host)'
+mut 'the adapter-present branch skips the source' cih "the adapter is not sourced when present" '  . scripts/forge-lib.sh || exit 1' '  HOST=github; exit 0'
+mut 'the pin check dropped from Phase 0' cih "a pin refusal does not stop Phase 0" '  forge_url_check && HOST=$(forge_host) || exit 1' '  HOST=$(forge_host) || exit 1'
+mut 'the old-library guard dropped' cih "an old library fails without naming the update" '  declare -F forge_url_check >/dev/null || { echo' '  : || { echo'
 mut 'the pre-fix print-only branch line restored' cih "BRANCH is not assigned from origin/HEAD" \
-  'BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); BRANCH=${BRANCH#origin/}; BRANCH=${BRANCH:-main}' \
+  'BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); BRANCH=${BRANCH#refs/remotes/origin/}; BRANCH=${BRANCH:-main}' \
   "git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo \"main\""
 mut 'the main fallback dropped' cih "BRANCH is empty without origin/HEAD" '; BRANCH=${BRANCH:-main}' ''
-mut 'the origin/ prefix kept' cih "BRANCH is not assigned from origin/HEAD" '; BRANCH=${BRANCH#origin/}' ''
+mut 'the ref prefix kept' cih "BRANCH is not assigned from origin/HEAD" '; BRANCH=${BRANCH#refs/remotes/origin/}' ''
+mut 'the --short form restored' cih "a local origin/<branch> skews BRANCH" \
+  'BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); BRANCH=${BRANCH#refs/remotes/origin/}; BRANCH=${BRANCH:-main}' \
+  'BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); BRANCH=${BRANCH#origin/}; BRANCH=${BRANCH:-main}'
 mut 'the pre-fix forge-adapt row restored' cmds "forge-adapt recommends /ci-health on .github/workflows only" \
   "$(grep -F '`/ci-health`' "$CMDS" | grep '^|' | head -1)" '| `.github/workflows/` present | `/ci-health` | devops | scan CI, ticket failures, auto-fix safe | `ticket-gate` |'
 

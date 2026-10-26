@@ -115,8 +115,9 @@ sends its stdout, byte for byte, as the body. A wrapper function around `forge_i
 do the same job: kit components often run in a fresh shell that never sources the wrapper, while an
 exported variable reaches them all.
 
-- **Order:** the `.forge.conf` default-branch pin runs first (a branch that sets, changes or deletes
-  a pinned key, `FORGE_TOKEN_ENV` included, is refused with 2 before the filter starts); then the
+- **Order:** the `.forge.conf` default-branch pin runs first (a branch that sets or changes a pinned
+  key, or deletes `FORGE_TOKEN_ENV`, is refused with 2 before the filter starts; a deleted
+  `FORGE_REPO` or `FORGE_NO_GIT_CREDENTIALS` is caught later, at the write itself); then the
   filter; then the #539 leak scan, so the scan sees the body that is sent, and a leak the filter adds
   is refused with 110.
 - **Return code 111** means the filter refused and nothing was sent: a relative or bare name, a path

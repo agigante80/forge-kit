@@ -2,7 +2,7 @@
 description: "Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate each ticket, and auto-fix safe failures on GitHub."
 ---
 
-<!-- ci-health-version: 11 -->
+<!-- ci-health-version: 12 -->
 
 # CI Health Monitor
 
@@ -22,7 +22,9 @@ Test for the adapter BEFORE sourcing it; without it, read the origin host with n
 
 ```bash
 if [ -f scripts/forge-lib.sh ]; then
-  . scripts/forge-lib.sh && forge_url_check && HOST=$(forge_host) || exit 1
+  . scripts/forge-lib.sh || exit 1
+  declare -F forge_url_check >/dev/null || { echo "ci-health: scripts/forge-lib.sh has no forge_url_check; update it (forge-adapt refresh)"; exit 1; }
+  forge_url_check && HOST=$(forge_host) || exit 1
 else
   ORIGIN_HOST=$(git remote get-url origin 2>/dev/null | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#/.*##; s#^.*@##; s#:.*##' | tr '[:upper:]' '[:lower:]')
   case "$ORIGIN_HOST" in
@@ -33,7 +35,8 @@ fi
 ```
 
 A refusal stops the command: no `gh` call, no ticket. `forge_url_check` runs the `.forge.conf`
-default-branch pin first, so a branch that edits `FORGE_HOST` cannot choose the `gh` path. Known limitation: a Forgejo remote with
+default-branch pin first, so a branch that edits `FORGE_HOST` cannot choose the `gh` path; a
+library too old to have it is refused with a request to update it. Known limitation: a Forgejo remote with
 `FORGE_API_URL` unset is read as `github` by `forge_host`, so it takes the GitHub path.
 
 ### Phase 1: Discover and assess workflows
@@ -49,11 +52,11 @@ if [ "$HOST" = github ]; then WF_DIR=.github/workflows; else WF_DIR=$(forge_work
 
 If that lists nothing, report "No workflows found (no workflows in <WF_DIR>; searched .forgejo/workflows, .gitea/workflows, .github/workflows)" and stop without querying the host. It is neither a pass nor a refusal.
 
-Detect the default branch into `BRANCH`, which every later step reads (no `origin/HEAD` means
-`main`; run `git remote set-head origin -a` if that is wrong):
+Detect the default branch into `BRANCH`, which every later step reads (the full ref, because
+`--short` turns ambiguous when a local branch is named `origin/...`; no `origin/HEAD` means `main`; run `git remote set-head origin -a` if that is wrong):
 
 ```bash
-BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); BRANCH=${BRANCH#origin/}; BRANCH=${BRANCH:-main}
+BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null); BRANCH=${BRANCH#refs/remotes/origin/}; BRANCH=${BRANCH:-main}
 ```
 
 **On GitHub**, check the latest run of each workflow on that branch, then the failed jobs and logs:
