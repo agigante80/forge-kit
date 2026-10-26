@@ -21,7 +21,11 @@ hasnt() { if grep -qF -- "$2" <<< "$3"; then bad "$1 ('$2' present)"; else ok "$
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
-T=$(cd -P "$(mktemp -d)" && pwd -P); trap 'rm -rf "$T"' EXIT
+# mktemp's result is checked BEFORE the cd: with CDPATH set, `cd -P ""` succeeds into a CDPATH
+# entry (the repository, for a leading colon), and the EXIT trap would then remove it.
+D=$(mktemp -d) || { echo "mktemp -d failed (TMPDIR=${TMPDIR:-unset})"; exit 1; }
+T=$(cd -P "$D" && pwd -P); trap 'rm -rf "$T"' EXIT
+[ -n "$T" ] || { echo "cannot resolve $D"; exit 1; }
 export HOME="$T/home"; unset CLAUDE_CONFIG_DIR; mkdir -p "$HOME"
 # The fixtures may sit inside this repository's own tmp/; stop git from finding it.
 export GIT_CEILING_DIRECTORIES="$T"
@@ -227,7 +231,9 @@ for spec in big:90000 mid:45000 small:10000; do
 done
 file "$R/none/README.md" 10; file "$R/nested/CLAUDE.md" 5; file "$R/nested/sub/CLAUDE.md" 5
 file "$R/x/node_modules/y/CLAUDE.md" 5; file "$R/x/.git/z/CLAUDE.md" 5
-before=$(cd "$R" && find . -exec ls -ld --time-style=+%s {} + 2>/dev/null | md5sum)
+# The listing itself is compared (no md5sum, absent on macOS); an empty one would compare equal, so it is checked.
+before=$(cd "$R" && find . -exec ls -ld --time-style=+%s {} + 2>/dev/null)
+[ -n "$before" ] || bad "the root listing before the sweep is empty (GNU ls --time-style needed)"
 run --sweep "$R"
 expect "rows in descending total" "$(printf '%s\n' 90000 45000 10000 5)" "$(grep -E '^[0-9]' <<< "$out" | cut -f1)"
 has "levels per row" "90000	FAIL	$R/big" "$out"
@@ -236,7 +242,7 @@ expect "a CLAUDE.md directory's subtree is not searched" 1 "$(grep -c "$R/nested
 hasnt "node_modules is skipped" "node_modules" "$out"; hasnt ".git is skipped" "/.git" "$out"
 expect "the sweep exits 0 with a FAIL row" 0 "$rc"
 hasnt "no file text in a sweep" "SENTINEL_BODY" "$out$err"
-after=$(cd "$R" && find . -exec ls -ld --time-style=+%s {} + 2>/dev/null | md5sum)
+after=$(cd "$R" && find . -exec ls -ld --time-style=+%s {} + 2>/dev/null)
 expect "nothing under the root is modified" "$before" "$after"
 expect "no stray file appears" "" "$(find "$R" -newer "$T/err" -type f 2>/dev/null)"
 ln -s "$R" "$T/rootlink"; run --sweep "$T/rootlink"

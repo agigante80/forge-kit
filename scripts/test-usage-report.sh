@@ -258,10 +258,10 @@ md=$(python3 "$ROOT/scripts/measure-dispatch-cost.py" "$FX/-srv-work-demo-alpha/
 expect "measure-dispatch-cost.py agrees on agent-b: turns, context, output" "2 7770 150" "$md"
 
 echo "== the root is only read =="
-before=$(find "$FX" -type f | sort | md5sum)
+before=$(find "$FX" -type f | sort)
 stamp="$T/stamp"; touch "$stamp"
 run "${WIN[@]}"; run "${WIN[@]}" --json
-expect "no file under the root is added or removed" "$before" "$(find "$FX" -type f | sort | md5sum)"
+expect "no file under the root is added or removed" "$before" "$(find "$FX" -type f | sort)"
 expect "no file under the root is written" "" "$(find "$FX" -newer "$stamp" -type f)"
 
 echo "== refusals: exit 2 and nothing on stdout =="
