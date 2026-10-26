@@ -29,6 +29,13 @@ personal-data judgment is the critic's alone; the lens confines itself to this c
 - Data exposure: does the response leak sensitive fields?
 - OWASP Top 10: injection, XSS, CSRF, broken access control addressed?
 - Rate limiting: is the endpoint rate-limited or does it need to be?
+Resolve the agent by trying `forge-kit-security:security-auditor` first, then the bare
+`security-auditor`, and dispatch it in the foreground. If neither resolves, stop with
+`BLOCKED - RUN_FAILED: security lens agent unavailable: neither `forge-kit-security:security-auditor`
+nor `security-auditor` resolves; install the `forge-kit-security` plugin and re-run`, and post no
+review comment. Never substitute another agent or review the lens in the critic's own context. A lens
+result that is an error, is empty, or lacks a `verdict` of PASS or NEEDS-WORK is the same RUN_FAILED.
+(This rule lives here and not in `ticket-gate.md` because that agent is size-ratcheted.)
 Returns `{verdict, blocking, advisory}`: the critic's shape minus `sections` (that key is
 the critic's prose contract), with `class` on each blocking item (fundamental /
 significant; the lens judges its own items). Step 3C's dispatch carries this contract
