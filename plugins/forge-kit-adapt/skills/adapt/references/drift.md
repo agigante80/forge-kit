@@ -54,6 +54,12 @@ reports the templates). The script prints nothing when the project has no such d
 doc as `none | v<N> | unversioned`, and exits 2 when the kit copy is missing or unmarked: report that
 and keep the rest of the table. The comparison word comes from `forge-adapt-drift-status.sh`.
 
+A local adaptation never moves `doc-rules-version`: it tracks the kit revision the project's copy
+has fully absorbed, and nothing else. A marker bumped for a local edit reads `current` once the kit
+ships that number, although the doc lacks the kit's change: a false current. Record a local change
+in a separate comment line; never edit the marker comment, because text inside it stops it parsing
+and the row reads `none | v<N> | unversioned`.
+
 ## Gate citations the project's doc lacks (#519)
 
 Since #510 the gate cites `docs/guides/ticket-standards.md` sections by title, as `section "Unit

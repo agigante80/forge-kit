@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 21 -->
+<!-- doc-rules-version: 22 -->
 
 # Ticket standards (canonical)
 
@@ -16,6 +16,8 @@ open ticket. `doc-rules-version` says *which revision the rules text below is at
 the rules that does not change the form fields bumps **only** `doc-rules-version`, costs nothing
 downstream, and triggers no synthesis. See `docs/guides/template-versioning.md` for the full
 rule and why the two were separated.
+
+A local adaptation never moves `doc-rules-version`: it tracks the kit revision your copy has fully absorbed, and nothing else. Record a local change in a separate comment line; never edit the marker comment, because text inside it stops it parsing and the drift row reads `unversioned`.
 
 Read this alongside `docs/guides/template-versioning.md`, which describes the version marker and
 the gate's auto-synthesis of missing sections. The two are complementary: this doc says *what a
