@@ -323,6 +323,45 @@ contains "skills/fk/SKILL.md dispatches agent 'scout', owned by forge-kit-beta" 
 plugin forge-kit-alpha "$DEP"; run
 expect "and passes once the owner is declared" 0 "$rc"
 
+echo "== a plugin-qualified dispatch is read as the agent, never as the plugin (#551) =="
+# `forge-kit-beta:scout` names the agent `scout` in group beta. Read as its prefix it would be the
+# plugin name, which no agent carries, and check 5 would fail a correct dispatch with a message about
+# an agent nobody wrote.
+QUSE='Use agent type: `forge-kit-beta:scout`.'
+QSUB='Dispatch with subagent_type: "forge-kit-beta:scout".'
+tree; plugin forge-kit-alpha "$DEP"; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$QUSE"; cmd_in "$A" run "$QSUB"
+run
+expect "a declared qualified dispatch in both spellings passes" 0 "$rc"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$QUSE"
+run
+expect "an undeclared qualified 'Use agent type:' dispatch fails" 1 "$rc"
+contains "dispatches agent 'scout', owned by forge-kit-beta" "$out" "naming the agent, not the qualifier"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; agent_in "$B" scout; cmd_in "$A" run "$QSUB"
+run
+expect "an undeclared qualified subagent_type dispatch fails" 1 "$rc"
+contains "dispatches agent 'scout', owned by forge-kit-beta" "$out" "likewise"
+
+echo "== the declaration must name the owner, in this marketplace (#551) =="
+# A substring or prefix match would accept either of these as declaring forge-kit-beta.
+tree; plugin forge-kit-alpha '"dependencies": ["forge-kit-beta@elsewhere"]'; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$USE"
+run
+expect "a dependency on the owner in a foreign marketplace does not count" 1 "$rc"
+contains "does not declare forge-kit-beta@forge-kit in dependencies" "$out" "and the message names the declaration it wanted"
+
+tree; plugin forge-kit-alpha '"dependencies": ["forge-kit-beta-extra@forge-kit"]'; plugin forge-kit-beta; plugin forge-kit-beta-extra
+cat > "$T/tree/.claude-plugin/marketplace.json" <<'M'
+{ "name": "forge-kit", "owner": { "name": "probe" },
+  "plugins": [
+    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "a" },
+    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "b" },
+    { "name": "forge-kit-beta-extra", "source": "./plugins/forge-kit-beta-extra", "description": "c" } ] }
+M
+agent_in "$B" scout; ref_in "$A" "$USE"
+run
+expect "a dependency on a longer-named neighbour does not count" 1 "$rc"
+
 echo "== a scripts/ copy of a shipped asset fails (#231) =="
 # The leak guard was installed into this repository the way it is installed into any other, as a
 # scripts/ copy, in the one tree that ships the same file as an asset. The copy drifted the first

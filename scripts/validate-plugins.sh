@@ -144,13 +144,15 @@ agents=$(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/a
 # Two prose spellings of a dispatch are read: `subagent_type: x` and, since #551, the reference
 # files' ``Use agent type: `x` `` form (the backtick sits between the colon and the name, so the
 # first pattern's class cannot see it; ticket-gate's security lens is written that way).
-SUBTYPE_RE='subagent_type[\":[:space:]=]+\K[a-z][a-z0-9-]*'
-USETYPE_RE='Use agent type:[[:space:]]*`?\K[a-z][a-z0-9-]*'
+# An optional `<plugin>:` qualifier is skipped, so `forge-kit-security:security-auditor` reads as
+# `security-auditor` (the way a frontmatter `agent:` is read), never as the plugin name.
+SUBTYPE_RE='subagent_type[\":[:space:]=]+(?:[a-z][a-z0-9-]*:)?\K[a-z][a-z0-9-]*'
+USETYPE_RE='Use agent type:[[:space:]]*`?(?:[a-z][a-z0-9-]*:)?\K[a-z][a-z0-9-]*'
 while IFS= read -r target; do
   [ -n "$target" ] || continue
   [ "$target" = general-purpose ] && continue
   grep -qxF "$target" <<< "$agents" || {
-    where=$(grep -rlP "(subagent_type[\":[:space:]=]+|Use agent type:[[:space:]]*\`?)$target\\b" plugins/ 2>/dev/null | head -1)
+    where=$(grep -rlP "(subagent_type[\":[:space:]=]+|Use agent type:[[:space:]]*\`?)(?:[a-z][a-z0-9-]*:)?$target\\b" plugins/ 2>/dev/null | head -1)
     fail "${where:-plugins/} dispatches subagent_type '$target', which no agent in this tree provides (it would fail silently at runtime)"
   }
 done < <({ grep -rhoP "$SUBTYPE_RE" plugins/; grep -rhoP "$USETYPE_RE" plugins/; } 2>/dev/null | sort -u)

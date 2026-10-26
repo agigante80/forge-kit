@@ -3,7 +3,7 @@ name: owasp-api-security
 description: OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for REST APIs. Use when writing security tests, reviewing API endpoints for vulnerabilities, or auditing input validation.
 ---
 
-<!-- owasp-api-security-version: 2 -->
+<!-- owasp-api-security-version: 3 -->
 
 # OWASP API Security Testing
 
@@ -298,7 +298,7 @@ describe('ENDPOINT security', () => {
   })
 
   describe('error response format', () => {
-    it('returns the project's error shape without stack traces', async () => {
+    it('returns the project error shape without stack traces', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/path',
