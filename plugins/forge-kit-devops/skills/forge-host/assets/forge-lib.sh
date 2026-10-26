@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 58
+# forge-lib-version: 59
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -258,6 +258,15 @@
 #       path that is not an executable file, a non-zero exit, a 10 s timeout or empty output for
 #       a non-empty body returns 111 with nothing sent, in a dry run too (which therefore runs
 #       the filter). Environment only: .forge.conf cannot set it. Unset or empty changes nothing.
+#   v59 SECURITY (#546). The default-branch pin of v50 now covers every key .forge.conf can set:
+#       FORGE_TOKEN_ENV is refused on any difference in its EFFECTIVE value (a missing key means
+#       FORGEJO_TOKEN), FORGE_NO_GIT_CREDENTIALS only on a weakening (the default branch says 1,
+#       the working copy anything else). A working copy that DELETES either key is caught by a
+#       lazy check right before the token variable is chosen or git's credential helper is
+#       asked, and forge_token_available returns rc 2 with that refusal on its own stderr. The
+#       refusal and the fail-open note keep their wording except that they no longer say
+#       "routing"; a deletion reads "leaves <KEY> unset". A run that reads a Forgejo token with
+#       FORGE_TOKEN_ENV unset now makes one default-branch read per call.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -391,13 +400,20 @@ _forge_load_conf() {
   done < "$f"
 }
 
-# _forge_pin_check: pin the ROUTING keys .forge.conf set (FORGE_HOST, FORGE_API_URL, FORGE_REPO,
-# FORGE_REMOTE) to the file's copy on the default branch (#517). rc 0, or rc 2 with ONE message
-# before any request, `gh` call or token read. WHY: a checked-out pull request branch can edit the
-# file, and the file chooses where the token goes (the server, the repository, the host); no code
-# from the branch needs to run. Renovate and pull_request_target take configuration from the
-# default branch for the same reason. Exported values are the user's own and are never compared
-# (env wins); only a key the LOADER took from the file is.
+# _forge_pin_check: pin every key .forge.conf set (FORGE_HOST, FORGE_API_URL, FORGE_REPO,
+# FORGE_REMOTE, FORGE_TOKEN_ENV, FORGE_NO_GIT_CREDENTIALS) to the file's copy on the default branch
+# (#517, #546). rc 0, or rc 2 with ONE message before any request, `gh` call or token read. WHY: a
+# checked-out pull request branch can edit the file, and the file chooses where the token goes (the
+# server, the repository, the host), which token variable is read, and whether git's credential
+# helper is asked; no code from the branch needs to run. Renovate and pull_request_target take
+# configuration from the default branch for the same reason. Exported values are the user's own and
+# are never compared (env wins); only a key the LOADER took from the file is.
+#   - Values are compared by EFFECTIVE value (_forge_pin_same): FORGE_TOKEN_ENV refuses any
+#     difference, a missing key meaning FORGEJO_TOKEN; FORGE_NO_GIT_CREDENTIALS refuses only a
+#     weakening (default branch 1, working copy anything else); the routing keys refuse any
+#     difference. A key the working copy DELETES is not file-sourced, so this loop cannot see it:
+#     _forge_cred_pin_check catches that for the two token keys, and no deletion residual is
+#     accepted (#546).
 #   - It loads the file itself, in ITS OWN shell: forge_api, forge_url_check and _forge_dry_url_check
 #     otherwise load only inside $(forge_host), so _FORGE_FROM_FILE would be empty here and a literal
 #     reading of "return at once unless a key is file-sourced" would never fire.
@@ -405,20 +421,10 @@ _forge_load_conf() {
 #     wins), NEVER a re-parse of the file: a duplicate key (evil line, then a matching one) would
 #     show the pin one value and the sender another. The default-branch side is scanned by the
 #     same _forge_conf_line with the same first-non-empty rule. Parsed values, not bytes.
-#   - The comparison remote <R> is an EXPORTED FORGE_REMOTE, else the repository's ONLY remote when
-#     exactly one is configured, else origin; never the working copy's FORGE_REMOTE, which would let a
-#     checked-out branch name a remote that vouches for its own file (#542). A second remote turns the
-#     sole-remote fallback off: once two exist, nothing local says which one is the project's own, so
-#     origin is kept and a fork can never be picked. The listing runs only after a key is found
-#     file-sourced, so the zero-git-calls rule below still holds. One
-#     `git for-each-ref` picks refs/remotes/<R>/HEAD, else main, else master; `git cat-file` reads
-#     the blob with GIT_NO_LAZY_FETCH=1 so a partial clone never goes to the network; a failed
-#     read asks `git ls-tree` once: the file absent from the tree means "no keys" (first adoption),
-#     listed but not local fails open. No usable ref (shallow CI clone, no origin/HEAD, refs but
-#     none of the three names) also fails open with one note per load: the attacker controls the
-#     working copy, not the remote-tracking refs, so refusing there bought nothing (#517).
-#   - Zero git calls unless a routing key is file-sourced. A pass is memoized until the
-#     next reload of .forge.conf, which unsets it, so a pass in repo A is never carried to repo B. A refusal is not memoized.
+#   - The ref, the read and the fail-open note are _forge_pin_read's, shared with the lazy check.
+#   - Zero git calls unless a key is file-sourced (the lazy check makes its own read, see there). A
+#     pass is memoized until the next reload of .forge.conf, which unsets it, so a pass in repo A is
+#     never carried to repo B. A refusal is not memoized.
 #   - NEVER call it from forge_host, forge_api_base or _forge_load_conf: the adapt Step 1 probe
 #     passes the sentinel FORGE_API_URL=x and `detect` runs them before the file is merged.
 # The message names the keys and the ref, never a value, and ends with the agent-stop sentence: it
@@ -429,15 +435,64 @@ _forge_pin_check() {
   _forge_load_conf || true
   local IFS=$' \t\n'                         # a strict-mode caller's IFS must not glue the key list
   [ -z "${_FORGE_PIN_PWD-}" ] || return 0   # set by a pass, cleared by every reload of the file
-  local k was keys="" remote=origin exported=0 names dv diff="" ref="" refs want blob="" listed cur lrc line
-  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE; do
-    case " ${_FORGE_FROM_FILE-} " in *" $k "*) ;; *) continue ;; esac
-    eval "was=\${_FORGE_FILEVAL_$k-}"
-    [ "${!k-}" = "$was" ] || continue          # the caller changed it after the load: theirs
+  local k was keys="" remote="" ref="" blob="" dv diff="" cur
+  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE FORGE_TOKEN_ENV FORGE_NO_GIT_CREDENTIALS; do
+    _forge_file_key "$k" || continue          # not from the file, or changed by the caller after the load: theirs
     keys="$keys $k"
   done
   [ -n "$keys" ] || return 0
-  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac
+  _forge_pin_read || { _forge_pin_memo; return 0; }   # failed open; the note is printed
+  _forge_pin_base $keys
+  for k in $keys; do
+    eval "was=\${_FORGE_FILEVAL_$k-}"
+    dv="_forge_dv_$k"; cur="${!dv-}"
+    unset "$dv"
+    _forge_pin_same "$k" "$was" "$cur" || diff="${diff:+$diff, }$k"
+  done
+  if [ -n "$diff" ]; then
+    _forge_pin_refuse "sets $diff" "$ref" "$remote"
+    return 2
+  fi
+  _forge_pin_memo
+}
+
+# _forge_file_key <KEY>: rc 0 when the loader took KEY from .forge.conf and the caller has not changed
+# it since (the value still equals what the file wrote).
+_forge_file_key() {
+  local was
+  case " ${_FORGE_FROM_FILE-} " in *" $1 "*) ;; *) return 1 ;; esac
+  eval "was=\${_FORGE_FILEVAL_$1-}"
+  [ "${!1-}" = "$was" ]
+}
+
+# _forge_pin_same <KEY> <working-copy value> <default-branch value>: rc 0 when the working copy's
+# effective value may stand (#546). An empty value is a missing key, which means the default.
+_forge_pin_same() {
+  case "$1" in
+    FORGE_TOKEN_ENV) [ "${2:-FORGEJO_TOKEN}" = "${3:-FORGEJO_TOKEN}" ] ;;   # any difference in the name read
+    FORGE_NO_GIT_CREDENTIALS) [ "$3" != 1 ] || [ "$2" = 1 ] ;;          # only a weakening of a committed 1
+    *) [ "$2" = "$3" ] ;;
+  esac
+}
+
+# _forge_pin_read: the default-branch read shared by _forge_pin_check and _forge_cred_pin_check. It
+# sets the CALLER's locals remote, ref and blob; rc 0 with blob holding the file (empty when the tree
+# has none: first adoption, no keys), rc 1 after printing the fail-open note.
+#   - The comparison remote is an EXPORTED FORGE_REMOTE, else the repository's ONLY remote when
+#     exactly one is configured, else origin; never the working copy's FORGE_REMOTE, which would let
+#     a checked-out branch name a remote that vouches for its own file (#542). A second remote turns
+#     the sole-remote fallback off: once two exist, nothing local says which one is the project's
+#     own, so origin is kept and a fork can never be picked.
+#   - One `git for-each-ref` picks refs/remotes/<R>/HEAD, else main, else master; `git cat-file`
+#     reads the blob with GIT_NO_LAZY_FETCH=1 so a partial clone never goes to the network; a failed
+#     read asks `git ls-tree` once: the file absent from the tree means "no keys" (first adoption),
+#     listed but not local fails open. No usable ref (shallow CI clone, no origin/HEAD, refs but
+#     none of the three names) also fails open with the note: the attacker controls the working
+#     copy, not the remote-tracking refs, so refusing there bought nothing (#517).
+_forge_pin_read() {
+  local exported=0 names refs want listed lrc
+  remote=origin; ref=""; blob=""
+  _forge_file_key FORGE_REMOTE || { [ -z "${FORGE_REMOTE-}" ] || exported=1; }
   # #542: an explicit export always wins (origin included); otherwise exactly one remote is the baseline
   if [ "$exported" = 1 ]; then remote="$FORGE_REMOTE"
   else
@@ -458,39 +513,72 @@ refs/remotes/$remote/$want
     done
   fi
   if [ -z "$ref" ]; then
-    _forge_pin_note "${remote:-?}"; _forge_pin_memo; return 0
+    _forge_pin_note "${remote:-?}"; return 1
   fi
   if ! blob="$(GIT_NO_LAZY_FETCH=1 git cat-file blob "$ref:.forge.conf" 2>/dev/null)"; then
     blob=""
     listed="$(GIT_NO_LAZY_FETCH=1 git ls-tree --full-tree "$ref" .forge.conf 2>/dev/null)"; lrc=$?
     if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then   # listed but not local, or unreadable: fail open
-      _forge_pin_note "$remote"; _forge_pin_memo; return 0
+      _forge_pin_note "$remote"; return 1
     fi                                              # absent from the tree: no keys
   fi
-  for k in $keys; do unset "_forge_dv_$k"; done
+  return 0
+}
+
+# _forge_pin_base <KEY>...: one default-branch value per KEY, parsed from the caller's blob by the
+# SAME parse as the loader and the same first-non-empty rule, in a global named after the KEY. The
+# caller unsets each one once it has read it.
+_forge_pin_base() {
+  local k dv line
+  for k in "$@"; do unset "_forge_dv_$k"; done
   while IFS= read -r line || [ -n "$line" ]; do
     _forge_conf_line "$line" || continue            # the SAME parse as the loader
-    case " $keys " in *" $_FORGE_LK "*) ;; *) continue ;; esac
+    case " $* " in *" $_FORGE_LK "*) ;; *) continue ;; esac
     dv="_forge_dv_$_FORGE_LK"
     [ -n "${!dv-}" ] || printf -v "$dv" '%s' "$_FORGE_LV"   # first non-empty wins, like the loader
   done <<< "$blob"
-  for k in $keys; do
-    eval "was=\${_FORGE_FILEVAL_$k-}"
-    dv="_forge_dv_$k"; cur="${!dv-}"
-    [ "$was" = "$cur" ] || diff="${diff:+$diff, }$k"
-    unset "$dv"
-  done
-  if [ -n "$diff" ]; then
-    echo "forge-lib: refusing: .forge.conf sets $diff, which differs from the copy at $ref (the default branch), so a checked-out branch could aim your token at another server or repository. If the ref is stale or missing, run 'git fetch $remote' (or 'git remote set-head $remote -a'); if your remote is not origin and you have more than one remote, export FORGE_REMOTE=<name>; if you committed this change but have not pushed it, push it; export a key only if you authored this change, otherwise do not run forge commands on this checkout. An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed." >&2
-    return 2
-  fi
-  _forge_pin_memo
 }
 
-# The fail-open note of _forge_pin_check: fixed text, the remote's NAME only (an exported value, the
+# _forge_pin_refuse <"sets K1, K2" | "leaves K unset"> <ref> <remote>: the one refusal text.
+_forge_pin_refuse() {
+  echo "forge-lib: refusing: .forge.conf $1, which differs from the copy at $2 (the default branch), so a checked-out branch could aim your token at another server or repository, or choose which token or credential is sent. If the ref is stale or missing, run 'git fetch $3' (or 'git remote set-head $3 -a'); if your remote is not origin and you have more than one remote, export FORGE_REMOTE=<name>; if you committed this change but have not pushed it, push it; export a key only if you authored this change, otherwise do not run forge commands on this checkout. An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed." >&2
+}
+
+# _forge_cred_pin_check <FORGE_TOKEN_ENV|FORGE_NO_GIT_CREDENTIALS>: the DELETION half of the pin for
+# the two keys that choose which token or credential is sent (#546). A key the working copy deletes
+# is not file-sourced, so _forge_pin_check never sees it, yet its default (FORGEJO_TOKEN; the
+# credential fallback on) can differ from, or be weaker than, what the default branch commits.
+#   - Skipped when the key is set AND non-empty (the loader's own rule): exported, it is the user's
+#     own; file-sourced, the pin loop compared it. An empty export does not skip it.
+#   - Lazy: _forge_token_impl calls it for FORGE_TOKEN_ENV right before the token variable is chosen,
+#     and for FORGE_NO_GIT_CREDENTIALS right before `git credential fill` (so never when a token was
+#     found in the environment). forge_token_available ALSO calls both DIRECTLY, outside its
+#     `2>/dev/null` on _forge_token_impl, so health-check sees the refusal and rc 2 rather than an
+#     empty token. Its environment-token branch still answers before any check, so it can report a
+#     token present while forge_api refuses a FORGE_TOKEN_ENV deletion.
+#   - Cost: it runs inside $(_forge_token), a subshell, so nothing it learns survives the call. Each
+#     call that needs it makes its own for-each-ref and cat-file through _forge_pin_read (same remote
+#     rule, same ref, GIT_NO_LAZY_FETCH=1) and, with no usable ref, prints the note once per call.
+#   - Dry run: FORGE_DRY_RUN=1 returns before any token read, so a dry run passes a deletion that the
+#     real run refuses. That errs on the safe side (nothing is read or sent) and is accepted.
+#   - rc 0, or rc 2 with the refusal ("leaves <KEY> unset") naming the key and the ref, never a value.
+_forge_cred_pin_check() {
+  _forge_load_conf || true
+  local IFS=$' \t\n' k="$1" remote="" ref="" blob="" dv cur
+  [ -z "${!k:-}" ] || return 0
+  _forge_pin_read || return 0
+  _forge_pin_base "$k"
+  dv="_forge_dv_$k"; cur="${!dv-}"
+  unset "$dv"
+  _forge_pin_same "$k" "" "$cur" && return 0
+  _forge_pin_refuse "leaves $k unset" "$ref" "$remote"
+  return 2
+}
+
+# The fail-open note of _forge_pin_read: fixed text, the remote's NAME only (an exported value, the
 # sole configured remote, or origin), never a value read from the working copy.
 _forge_pin_note() {
-  echo "forge-lib: default-branch check skipped (no readable .forge.conf reference for remote $1); routing keys from .forge.conf are not verified" >&2
+  echo "forge-lib: default-branch check skipped (no readable .forge.conf reference for remote $1); keys from .forge.conf are not verified" >&2
 }
 
 # Record a pass for this load. Valid until the next reload of .forge.conf, which unsets it.
@@ -673,7 +761,7 @@ forge_token_present() {
 # `git's credential helper` when only the helper holds one; rc as forge_token_present (#454). The
 # helper is asked through _forge_token_impl itself, so this probe and the request path cannot
 # disagree, and only after the name is validated and forge_url_check accepts the URL, as in
-# forge_api. The helper read is bounded at _FORGE_CRED_SECS (default 10) where `timeout` exists, so
+# forge_api. A #546 deletion refusal is printed by the direct _forge_cred_pin_check calls, rc 2. The helper read is bounded at _FORGE_CRED_SECS (default 10) where `timeout` exists, so
 # a helper that waits on an unlock dialog or a browser sign-in cannot stall a health check; stock
 # macOS has no `timeout` and stays unbounded (#454 review). On a refused URL it still reports the environment token, so a caller can print both
 # problems. Its own guard is the ONLY xtrace guard on the helper read: the token sits in a local
@@ -683,7 +771,9 @@ forge_token_available() {
   local _FORGE_CRED_SECS="${_FORGE_CRED_SECS:-10}"
   if ! var="$(_forge_token_var)"; then rc=2
   elif [ -n "${!var:-}" ]; then printf '%s\n' "$var"
-  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then
+  elif ! forge_url_check >/dev/null 2>&1; then printf '%s\n' "$var"; rc=1
+  elif ! _forge_cred_pin_check FORGE_TOKEN_ENV || { [ -n "${FORGE_API_URL:-}" ] && ! _forge_cred_pin_check FORGE_NO_GIT_CREDENTIALS; }; then rc=2   # #546: visible here
+  elif tok="$(_forge_token_impl 2>/dev/null)"; then
     printf '%s\n' "git's credential helper"
   else printf '%s\n' "$var"; rc=1; fi
   tok=""
@@ -740,6 +830,7 @@ _forge_token() {
 _forge_token_impl() {
   _forge_load_conf
   local var tok=""
+  _forge_cred_pin_check FORGE_TOKEN_ENV || return 2   # #546: before the token variable is chosen
   var="$(_forge_token_var)" || return 2
   if [ -n "${!var:-}" ]; then tok="${!var}"; fi
   # Fallback: ask git's credential helper for this instance (the mise pattern,
@@ -759,6 +850,7 @@ _forge_token_impl() {
   case "${_FORGE_CRED_SECS:-}" in ''|*[!0123456789]*) ;; *) command -v timeout >/dev/null 2>&1 && _secs="$_FORGE_CRED_SECS" ;; esac
   url="${FORGE_API_URL:-}"
   if [ -z "$tok" ] && [ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}" != 1 ]; then
+    _forge_cred_pin_check FORGE_NO_GIT_CREDENTIALS || return 2   # #546: before git credential fill
     proto="${url%%://*}"; [ "$proto" = "$url" ] && proto=https
     # The same authority rule as forge_host, port kept (#212): the old cut at `/` alone let
     # `https://evil.internal#@github.com` hand github.com's credential to evil.internal.
@@ -787,7 +879,7 @@ _forge_token_impl() {
 # Every URL must be https, or http with FORGE_ALLOW_HTTP=1 exported (the file cannot set it, since
 # it is not a key _forge_load_conf reads). A URL from .forge.conf is trusted like an exported one
 # (#468): the host allowlist #442 added here was dropped by the maintainer. Do not reintroduce a
-# per-machine trust file. What narrows that decision is #517: the routing keys the FILE set must
+# per-machine trust file. What narrows that decision is #517: the keys the FILE set must
 # match the file on the default branch (_forge_pin_check), so a checked-out pull request branch
 # cannot redirect the token; a hostile repository whose default branch is hostile too remains the
 # accepted risk. The URL reaches curl only behind --url and only the token goes in the -K

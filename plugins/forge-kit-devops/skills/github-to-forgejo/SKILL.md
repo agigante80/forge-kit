@@ -6,7 +6,7 @@ description: >
   push-mirror back to GitHub. Use when moving one or more repos to your own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 13 -->
+<!-- github-to-forgejo-version: 14 -->
 
 # github-to-forgejo
 
@@ -61,9 +61,9 @@ below (esp. Phases 3 to 4) are the ones that actually bit.
   FORGE_REMOTE=forgejo
   ```
 - **Trust model** (forge-lib v40, #468; v50, #517): the token goes to the committed URL with no
-  per-machine step (run forge-kit commands only in repositories you trust). The four routing keys
-  above are also compared with this file on the default branch, which does not hold it until it is
-  pushed there; until then the human exports them. An http-only instance needs
+  per-machine step (run forge-kit commands only in repositories you trust). Every key this file
+  sets (#546) is also compared with this file on the default branch, which does not hold it until it
+  is pushed there; until then the human exports them. An http-only instance needs
   `FORGE_ALLOW_HTTP=1` exported in your environment, never in `.forge.conf`. A token variable
   other than `FORGEJO_TOKEN` or `FORGE_TOKEN` must be named by an exported `FORGE_TOKEN_ENV`.
 

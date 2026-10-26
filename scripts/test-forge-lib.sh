@@ -2580,8 +2580,8 @@ row553_http() { d553 "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=http://f
 row553_unset() { d553 "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGEJO_TOKEN=tok
   [ "$D553OUT" = 'host=forgejo  repo=o/r  api=  ci=not_configured' ] && [ -n "$D553ERR" ] && ! grep -qv 'FORGE_API_URL must be set in .forge.conf' "$D553/err" \
     && [ "$(grep -c 'must be set' "$D553/all")" = "$(grep -c . "$D553/err")" ] && [ "$(tail -1 "$D553/all")" = 'host=forgejo  repo=o/r  api=  ci=not_configured' ]; }
-NOTE553='forge-lib: default-branch check skipped (no readable .forge.conf reference for remote origin); routing keys from .forge.conf are not verified'
-row553_skip() { d553 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://f.invalid' FORGEJO_TOKEN=tok
+NOTE553='forge-lib: default-branch check skipped (no readable .forge.conf reference for remote origin); keys from .forge.conf are not verified'
+row553_skip() { d553 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://f.invalid' FORGEJO_TOKEN=tok FORGE_TOKEN_ENV=FORGEJO_TOKEN
   [ "$D553OUT" = 'host=forgejo  repo=o/r  api=https://f.invalid/api/v1  ci=success' ] && grep -qxF "$NOTE553" "$D553/err" \
     && ! grep -qv -xF "$NOTE553" "$D553/err" && [ "$(tail -1 "$D553/all")" = "$D553OUT" ] && [ -s "$D553/curl.log" ]; }
 row553_http && ok "#553: http FORGE_API_URL: stdout is the one intact line, stderr the one refusal line, and the merged view puts the note first" \
@@ -2591,7 +2591,7 @@ row553_unset && ok "#553: unset FORGE_API_URL: stdout is 'api=  ci=not_configure
   || bad "#553: unset api detect (rc $D553RC) out=[$D553OUT] all=[$D553ALL]"
 row553_skip && ok "#553: the default-branch skip note is a whole stderr line and the detect line stays intact" \
   || bad "#553: skip-note detect (rc $D553RC) out=[$D553OUT] all=[$D553ALL]"
-d553 "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=http://f.invalid FORGEJO_TOKEN=tok FORGE_ALLOW_HTTP=1
+d553 "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=http://f.invalid FORGEJO_TOKEN=tok FORGE_ALLOW_HTTP=1 FORGE_TOKEN_ENV=FORGEJO_TOKEN
 [ "$D553RC" = 0 ] && [ -z "$D553ERR" ] && [ "$D553OUT" = 'host=forgejo  repo=o/r  api=http://f.invalid/api/v1  ci=success' ] && [ -s "$D553/curl.log" ] \
   && ok "#553: with FORGE_ALLOW_HTTP=1 exported detect still asks the forge" || bad "#553: allow-http detect (rc $D553RC) out=[$D553OUT] err=[$D553ERR]"
 d553 "" FORGE_HOST=github FORGE_REPO=o/r
@@ -3568,9 +3568,9 @@ m442 "#454 opt-out ignored" '[ -n "$url" ] && [ "${FORGE_NO_GIT_CREDENTIALS:-0}"
 m442 "#454 xtrace left on in the probe" 'forge_token_available() {
   local _fx=0 var rc=0 tok=""; case $- in *x*) _fx=1; set +x ;; esac' 'forge_token_available() {
   local _fx=0 var rc=0 tok=""' c454_xtrace
-m442 "#454 helper asked before the URL check" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif tok="$(_forge_token_impl 2>/dev/null)" && forge_url_check >/dev/null 2>&1; then' c454_url
-m442 "#454 refused URL skips the env report" '  elif forge_url_check >/dev/null 2>&1 && tok="$(_forge_token_impl 2>/dev/null)"; then' '  elif ! forge_url_check >/dev/null 2>&1; then return 0
-  elif tok="$(_forge_token_impl 2>/dev/null)"; then' c454_both
+m442 "#454 helper asked without the URL check" "  elif ! forge_url_check >/dev/null 2>&1; then printf '%s\n' \"\$var\"; rc=1
+" '' c454_url
+m442 "#454 refused URL skips the env report" "  elif ! forge_url_check >/dev/null 2>&1; then printf '%s\n' \"\$var\"; rc=1" '  elif ! forge_url_check >/dev/null 2>&1; then return 0' c454_both
 command -v timeout >/dev/null 2>&1 && m442 "#454 helper read not bounded" 'timeout "$_secs" git credential fill' 'git credential fill' c454_slow
 [ -x "$K/tbin/timeout" ] && m442 "#454 probe sets no default bound" '  local _FORGE_CRED_SECS="${_FORGE_CRED_SECS:-10}"
 ' '' c454_default
@@ -4501,19 +4501,19 @@ r517_refused && ! grep -q 'refs/remotes/fork' "$K/gitlog" \
   || bad "#517: file FORGE_REMOTE (rc $K442RC: $(cat "$K/err") / $(cat "$K/gitlog"))"
 
 # no usable reference: fail open, one fixed note per load, nothing from the working copy in it
-NOTE517='forge-lib: default-branch check skipped (no readable .forge.conf reference for remote origin); routing keys from .forge.conf are not verified'
-p517 "$E517" NONE -- $GET1
+NOTE517='forge-lib: default-branch check skipped (no readable .forge.conf reference for remote origin); keys from .forge.conf are not verified'
+p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- $GET1
 [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && [ -s "$K/calls" ] \
   && ok "#517: no remote-tracking ref: the request goes ahead with exactly the fixed note, which carries no working-copy value" \
   || bad "#517: no-ref note (rc $K442RC: $(cat "$K/err"))"
 two517() { forge_api GET /repos/o/r/issues/1; forge_api GET /repos/o/r/issues/2; }
-p517 "$E517" NONE -- two517
+p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- two517
 [ "$K442RC" = 0 ] && [ "$(grep -c 'default-branch check skipped' "$K/err")" = 1 ] \
   && ok "#517: the skip note prints once per load, not once per call" || bad "#517: note count (rc $K442RC: $(cat "$K/err"))"
 mkdir -p "$K/pbin"
 printf '#!/bin/sh\nn=$(cat "$PAGEC" 2>/dev/null||echo 0);n=$((n+1));echo $n>"$PAGEC"\nif [ $n -le 5 ]; then printf "[{\\"id\\":$n}]\\n200"; else printf "[]\\n200"; fi\n' > "$K/pbin/curl"; chmod +x "$K/pbin/curl"
 pag517() { PAGEC="$K/pagec" PATH="$K/pbin:$PATH"; export PAGEC PATH; : > "$PAGEC"; forge_api_paginate /repos/o/r/labels >/dev/null; }
-p517 "$E517" NONE -- pag517
+p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- pag517
 [ "$K442RC" = 0 ] && [ "$(cat "$K/pagec")" = 6 ] && [ "$(grep -c 'default-branch check skipped' "$K/err")" = 1 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ] \
   && ok "#517: a shallow clone with no ref walks 6 stub pages with exactly one note and one for-each-ref" \
   || bad "#517: paginate with no ref (rc $K442RC pages $(cat "$K/pagec"): $(cat "$K/err") / $(cat "$K/gitlog"))"
@@ -4544,20 +4544,20 @@ sole517() {  # sole517 <baseline-text|ABSENT|NONE> <name>...
 FR542=$'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://forge.example.com\nFORGE_REMOTE='
 row_sole_pass() { p517 "$G517" NONE -- sole517 "$G517" forgejo; r517_pass && grep -q 'refs/remotes/forgejo/' "$K/gitlog" && ! grep -q 'refs/remotes/origin' "$K/gitlog"; }
 row_sole_refuse() { p517 "$E517" NONE -- sole517 "$G517" forgejo; r517_refused && k_err "refs/remotes/forgejo/HEAD" && k_err FORGE_API_URL; }
-row_two_remotes() { p517 "$E517" NONE -- sole517 "$G517" forgejo fork; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && [ -s "$K/calls" ] \
+row_two_remotes() { p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- sole517 "$G517" forgejo fork; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && [ -s "$K/calls" ] \
   && grep -q 'refs/remotes/origin/' "$K/gitlog" && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog" && ! grep -q 'refs/remotes/fork/' "$K/gitlog"; }
-row_fork_vouch() { K442BASEREMOTE=fork p517 "$E517" NONE -- sole517 "$E517" forgejo fork; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && ! grep -q 'refs/remotes/fork' "$K/gitlog"; }
+row_fork_vouch() { K442BASEREMOTE=fork p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- sole517 "$E517" forgejo fork; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && ! grep -q 'refs/remotes/fork' "$K/gitlog"; }
 row_origin_plus() { K442REMOTE=1 K442BASEREMOTE=origin p517 "$G517" NONE -- sole517 "$G517" forgejo; r517_pass && grep -q 'refs/remotes/origin/' "$K/gitlog" && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
 row_export_wins() { p517 "$G517" NONE FORGE_REMOTE=forgejo -- sole517 "$G517" forgejo; r517_pass && grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
-row_export_noref() { p517 "$E517" NONE FORGE_REMOTE=nowhere -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote nowhere}" ] && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
-row_export_origin() { p517 "$E517" NONE FORGE_REMOTE=origin -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
+row_export_noref() { p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN FORGE_REMOTE=nowhere -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote nowhere}" ] && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
+row_export_origin() { p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN FORGE_REMOTE=origin -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
 row_export_empty() { p517 "$E517" NONE FORGE_REMOTE= -- sole517 "$G517" forgejo; r517_refused && k_err "refs/remotes/forgejo/HEAD"; }
-row_sole_noref() { p517 "$E517" NONE -- sole517 NONE forgejo; [ "$K442RC" = 0 ] && [ -s "$K/calls" ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote forgejo}" ]; }
+row_sole_noref() { p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- sole517 NONE forgejo; [ "$K442RC" = 0 ] && [ -s "$K/calls" ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote forgejo}" ]; }
 row_sole_absent() { p517 "$G517" NONE -- sole517 ABSENT forgejo; r517_refused && k_err "refs/remotes/forgejo/HEAD" && k_err "$STOP517"; }
-row_sole_slash() { p517 "$G517" NONE -- sole517 "$G517" a/b; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote ?}" ]; }
+row_sole_slash() { p517 "$G517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- sole517 "$G517" a/b; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote ?}" ]; }
 row_file_remote() { p517 "${FR542}fork" NONE -- sole517 "${FR542}forgejo" forgejo; [ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_REMOTE && k_err "refs/remotes/forgejo/HEAD" && k_err "$STOP517" && ! grep -q 'refs/remotes/fork' "$K/gitlog"; }
 row_file_remote_same() { p517 "${FR542}forgejo" NONE -- sole517 "${FR542}forgejo" forgejo; r517_pass && grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
-row_space_name() { p517 "$E517" NONE "FORGE_REMOTE=a b" -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote ?}" ]; }
+row_space_name() { p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN "FORGE_REMOTE=a b" -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote ?}" ]; }
 for r542 in \
   "row_sole_pass|#542: a sole remote forgejo whose default branch matches is the baseline: pass, origin never read" \
   "row_sole_refuse|#542: a sole remote forgejo whose default branch differs refuses with rc 2, naming refs/remotes/forgejo/HEAD" \
@@ -4617,7 +4617,7 @@ p517 "$E517" "$G517" -- rewrite517
 
 # memo: a pass is reused in the same repo, never carried to another
 three517() { forge_api GET /repos/o/r/issues/1; forge_api GET /repos/o/r/issues/2; forge_api GET /repos/o/r/issues/3; }
-p517 "$G517" "$G517" -- three517
+p517 "$G517" "$G517" FORGE_TOKEN_ENV=FORGEJO_TOKEN -- three517
 [ "$K442RC" = 0 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ] && [ "$(grep -c 'cat-file' "$K/gitlog")" = 1 ] \
   && ok "#517: three calls in one repo make one for-each-ref and one cat-file: the pass is memoized" || bad "#517: memo reuse (rc $K442RC: $(cat "$K/gitlog"))"
 repob517() {
@@ -4650,7 +4650,7 @@ p517 "$E517" ABSENT -- pkg517
   && ok "#517: run from pkg/ against a default branch holding only pkg/.forge.conf: refused as absent, not skipped" || bad "#517: ls-tree from a subdirectory (rc $K442RC: $(cat "$K/err"))"
 
 # zero git calls when nothing is file-sourced
-row_zero_git() { p517 "" "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com -- $GET1; r517_pass && ! grep -qE 'for-each-ref|cat-file|ls-tree|^remote$' "$K/gitlog"; }
+row_zero_git() { p517 "" "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com FORGE_TOKEN_ENV=FORGEJO_TOKEN -- $GET1; r517_pass && ! grep -qE 'for-each-ref|cat-file|ls-tree|^remote$' "$K/gitlog"; }
 row_zero_git && ok "#517: with every key exported (nothing file-sourced) the pin makes no git call, not even the #542 remote listing" || bad "#517: zero git calls (rc $K442RC: $(cat "$K/gitlog"))"
 
 # the other entry points
@@ -4664,6 +4664,82 @@ p517 "$E517" "$G517" -- forge_host
 [ "$K442RC" = 0 ] && ok "#517: forge_host itself is never pinned (the adapt probe and detect run it first)" || bad "#517: forge_host pinned (rc $K442RC: $(cat "$K/err"))"
 p517 "$E517" "$G517" -- forge_api_base
 [ "$K442RC" = 0 ] && ok "#517: forge_api_base itself is never pinned" || bad "#517: forge_api_base pinned (rc $K442RC: $(cat "$K/err"))"
+
+# --- #546: FORGE_TOKEN_ENV and FORGE_NO_GIT_CREDENTIALS are pinned too, deletions included --------
+# By EFFECTIVE value: FORGE_TOKEN_ENV refuses any difference (missing means FORGEJO_TOKEN),
+# FORGE_NO_GIT_CREDENTIALS only a weakening of a committed 1. A key the working copy deletes is caught
+# by the lazy check before the token variable is chosen or git's credential helper is asked. p517
+# exports FORGEJO_TOKEN=tok and k442 FORGE_NO_GIT_CREDENTIALS=1, so a row that must reach the
+# credential read or have the opt-out file-sourced unsets them. Token rows use canaries, never `tok`.
+N546="$G517"$'\nFORGE_NO_GIT_CREDENTIALS=1'
+Z546="$G517"$'\nFORGE_NO_GIT_CREDENTIALS=0'
+TF546="$G517"$'\nFORGE_TOKEN_ENV=FORGEJO_TOKEN'
+TT546="$G517"$'\nFORGE_TOKEN_ENV=FORGE_TOKEN'
+CAN546='FORGEJO_TOKEN=canaryA FORGE_TOKEN=canaryB'
+nocred546() { ! grep -q '^credential' "$K/gitlog"; }
+nocanary546() { ! grep -q 'canary[AB]' "$K/args" "$K/kcfg" "$K/err"; }
+row546_weaken() { p517 "$Z546" "$N546" -FORGE_NO_GIT_CREDENTIALS -FORGEJO_TOKEN -- $GET1; [ "$K442RC" = 2 ] && k_nocurl && [ ! -s "$K/ghlog" ] && nocred546 \
+  && k_err FORGE_NO_GIT_CREDENTIALS && k_err "differs from the copy at" && k_err refs/remotes/origin/HEAD && ! k_err FORGE_API_URL && ! k_err 'FORGE_NO_GIT_CREDENTIALS=0' && k_err "$STOP517"; }
+row546_delete() { p517 "$G517" "$N546" -FORGE_NO_GIT_CREDENTIALS -FORGEJO_TOKEN -- $GET1; [ "$K442RC" = 2 ] && k_nocurl && nocred546 \
+  && k_err 'leaves FORGE_NO_GIT_CREDENTIALS unset, which differs from the copy at refs/remotes/origin/HEAD' && ! k_err 'FORGE_NO_GIT_CREDENTIALS=1' && k_err "$STOP517"; }
+row546_delete_noref() { p517 "$G517" NONE -FORGE_NO_GIT_CREDENTIALS -FORGEJO_TOKEN -- $GET1; ! k_err refusing && [ "$(grep -c 'default-branch check skipped' "$K/err")" -ge 1 ]; }
+row546_lazy_cost() { p517 "" "$N546" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com FORGE_TOKEN_ENV=FORGEJO_TOKEN -FORGE_NO_GIT_CREDENTIALS -- $GET1; r517_pass && ! grep -qE 'for-each-ref|cat-file' "$K/gitlog"; }
+row546_shared() { p517 "$G517" "$G517" FORGE_TOKEN_ENV=FORGEJO_TOKEN -FORGE_NO_GIT_CREDENTIALS -- three517; r517_pass && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ] && [ "$(grep -c 'cat-file' "$K/gitlog")" = 1 ]; }
+row546_percall() { p517 "" "$G517" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com -- three517; r517_pass && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 3 ] && [ "$(grep -c 'cat-file' "$K/gitlog")" = 3 ]; }
+row546_percall_noref() { p517 "" NONE FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com -- three517; [ "$K442RC" = 0 ] && [ "$(wc -l < "$K/calls")" = 3 ] \
+  && [ "$(grep -c 'default-branch check skipped' "$K/err")" = 3 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 3 ] && ! grep -q 'cat-file' "$K/gitlog"; }
+remote546() { K442BASEREMOTE=other k442_base "$G517"$'\nFORGE_REMOTE=other' "$K/r"; forge_api GET /repos/o/r/issues/1; }
+row546_remote() { p517 "$G517"$'\nFORGE_REMOTE=other' "$G517"$'\nFORGE_REMOTE=other\nFORGE_NO_GIT_CREDENTIALS=1' -FORGEJO_TOKEN -FORGE_NO_GIT_CREDENTIALS -- remote546
+  [ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_NO_GIT_CREDENTIALS && k_err refs/remotes/origin/ && nocred546 && ! grep -q 'refs/remotes/other' "$K/gitlog"; }
+row546_empty() {
+  p517 "$G517" "$N546" FORGE_NO_GIT_CREDENTIALS= -FORGEJO_TOKEN -- $GET1
+  [ "$K442RC" = 2 ] && k_nocurl && k_err 'leaves FORGE_NO_GIT_CREDENTIALS unset' && nocred546 || return 1
+  p517 "$G517" "$TT546" FORGE_TOKEN_ENV= $CAN546 -- $GET1
+  [ "$K442RC" = 2 ] && k_nocurl && k_err 'leaves FORGE_TOKEN_ENV unset' && nocanary546; }
+row546_tighten() { p517 "$N546" "$G517" -FORGE_NO_GIT_CREDENTIALS -- $GET1; r517_pass; }
+row546_noop() { p517 "$Z546" "$G517" -FORGE_NO_GIT_CREDENTIALS -- $GET1; r517_pass || return 1; p517 "$G517" "$G517" -FORGE_NO_GIT_CREDENTIALS -- $GET1; r517_pass; }
+row546_same() { p517 "$N546" "$N546" -FORGE_NO_GIT_CREDENTIALS -- $GET1; r517_pass; }
+row546_kept() { p517 "$N546" "$N546" -FORGE_NO_GIT_CREDENTIALS -FORGEJO_TOKEN -- $GET1; [ "$K442RC" = 2 ] && nocred546 && k_err "token env 'FORGEJO_TOKEN' is empty" && ! k_err refusing; }
+row546_exported() { p517 "$Z546" "$N546" FORGE_NO_GIT_CREDENTIALS=0 -- $GET1; r517_pass; }
+row546_visible() { p517 "$G517" "$N546" -FORGE_NO_GIT_CREDENTIALS -FORGEJO_TOKEN -- forge_token_available; [ "$K442RC" = 2 ] \
+  && k_err 'leaves FORGE_NO_GIT_CREDENTIALS unset, which differs from the copy at refs/remotes/origin/HEAD' && nocred546; }
+twice546() { forge_api GET /repos/o/r/issues/1; forge_api GET /repos/o/r/issues/2; }
+row546_twice() { p517 "$G517" "$TF546"$'\nFORGE_NO_GIT_CREDENTIALS=1' -FORGEJO_TOKEN -FORGE_NO_GIT_CREDENTIALS -- twice546; [ "$K442RC" = 2 ] && k_nocurl && nocred546 \
+  && [ "$(grep -c 'leaves FORGE_NO_GIT_CREDENTIALS unset' "$K/err")" = 2 ]; }
+row546_tdiffers() { p517 "$TT546" "$TF546" $CAN546 -- $GET1; [ "$K442RC" = 2 ] && k_nocurl && k_err 'sets FORGE_TOKEN_ENV, which differs from the copy at refs/remotes/origin/HEAD' && nocanary546; }
+row546_tdelete() { p517 "$G517" "$TT546" $CAN546 -- $GET1; [ "$K442RC" = 2 ] && k_nocurl && k_err 'leaves FORGE_TOKEN_ENV unset, which differs from the copy at refs/remotes/origin/HEAD' && nocanary546; }
+row546_tadded() { p517 "$TT546" "$G517" $CAN546 -- $GET1; [ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_TOKEN_ENV && nocanary546; }
+row546_tadded_same() { p517 "$TF546" "$G517" FORGEJO_TOKEN=canaryA -- $GET1; r517_pass && k_cfg canaryA; }
+row546_tsame() { p517 "$TT546" "$TT546" FORGE_TOKEN=canaryB -- $GET1; r517_pass && k_cfg canaryB; }
+row546_texported() { p517 "$TT546" "$TF546" FORGE_TOKEN_ENV=FORGE_TOKEN FORGE_TOKEN=canaryB -- $GET1; r517_pass && k_cfg canaryB; }
+row546_launder() { p517 "$G517"$'\nFORGE_TOKEN_ENV=FORGE_TOKEN\nFORGE_NO_GIT_CREDENTIALS=0' "$G517"$'\nFORGE_TOKEN_ENV=FORGEJO_TOKEN\nFORGE_NO_GIT_CREDENTIALS=1' FORGE_NO_GIT_CREDENTIALS=0 $CAN546 -- $GET1
+  [ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_TOKEN_ENV && ! k_err FORGE_NO_GIT_CREDENTIALS && nocanary546; }
+for r546 in \
+  "row546_weaken|#546: a branch that sets FORGE_NO_GIT_CREDENTIALS=0 over a committed 1 is refused, no credential read, the value never printed" \
+  "row546_delete|#546: a branch that deletes a committed FORGE_NO_GIT_CREDENTIALS=1 is refused before git credential fill (leaves ... unset)" \
+  "row546_delete_noref|#546: the deletion check fails open with the note when no default-branch ref exists" \
+  "row546_lazy_cost|#546: nothing file-sourced, FORGE_TOKEN_ENV exported, a token in the environment: no for-each-ref or cat-file at all" \
+  "row546_shared|#546: routing keys file-sourced and FORGE_TOKEN_ENV exported: three calls still make one for-each-ref and one cat-file" \
+  "row546_percall|#546: FORGE_TOKEN_ENV unexported and nothing file-sourced: the lazy check reads once per call (three each)" \
+  "row546_percall_noref|#546: the same with no ref: three notes, three for-each-ref, no cat-file, every request sent" \
+  "row546_remote|#546: a file FORGE_REMOTE=other cannot steer the deletion check: origin is compared, other never read" \
+  "row546_empty|#546: an EMPTY export of either key does not skip its deletion check" \
+  "row546_tighten|#546: a branch that adds FORGE_NO_GIT_CREDENTIALS=1 (a tightening) passes" \
+  "row546_noop|#546: a file =0 or no key over a base without the key passes" \
+  "row546_same|#546: the same FORGE_NO_GIT_CREDENTIALS=1 on both sides passes in silence" \
+  "row546_kept|#546: a kept opt-out with no token fails with the ordinary missing-token message, no credential read" \
+  "row546_exported|#546: an exported FORGE_NO_GIT_CREDENTIALS=0 is the user's own and is never compared" \
+  "row546_visible|#546: forge_token_available reports the deletion refusal with rc 2 on its own stderr, not an empty token" \
+  "row546_twice|#546: a passed FORGE_TOKEN_ENV check never skips the opt-out check: two calls, two refusals" \
+  "row546_tdiffers|#546: a branch that switches FORGE_TOKEN_ENV is refused, neither canary sent or printed" \
+  "row546_tdelete|#546: a branch that deletes a committed FORGE_TOKEN_ENV=FORGE_TOKEN is refused before the variable is chosen" \
+  "row546_tadded|#546: a branch that adds FORGE_TOKEN_ENV=FORGE_TOKEN over no key is refused (effective FORGEJO_TOKEN differs)" \
+  "row546_tadded_same|#546: a branch that adds FORGE_TOKEN_ENV=FORGEJO_TOKEN over no key passes (equal to the default)" \
+  "row546_tsame|#546: the same FORGE_TOKEN_ENV=FORGE_TOKEN on both sides passes and sends canaryB" \
+  "row546_texported|#546: an exported FORGE_TOKEN_ENV wins over a differing file and is never compared" \
+  "row546_launder|#546: exporting the opt-out does not launder FORGE_TOKEN_ENV: only FORGE_TOKEN_ENV is named"; do
+  if ${r546%%|*}; then ok "${r546#*|}"; else bad "${r546#*|} (rc $K442RC: $(cat "$K/err") / $(tr '\n' ' ' < "$K/gitlog"))"; fi
+done
 
 # mutants of the lib, each run against the row that must catch it
 m517() {  # m517 <label> <python-expr on s> ; writes $T/lib517 and sets K442LIB
@@ -4683,7 +4759,7 @@ row_diff_url() { p517 "$E517" "$G517" -- $GET1; r517_refused; }
 row_diff_url_dry() { p517 "$E517" "$G517" FORGE_DRY_RUN=1 -- $GET1; r517_refused; }
 row_url_check() { p517 "$E517" "$G517" -- forge_url_check; [ "$K442RC" = 2 ]; }
 row_dry_check() { p517 "$E517" "$G517" -- _forge_dry_url_check; [ "$K442RC" = 2 ]; }
-row_paginate() { p517 "$E517" NONE -- pag517; [ "$(grep -c 'default-branch check skipped' "$K/err")" = 1 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ]; }
+row_paginate() { p517 "$E517" NONE FORGE_TOKEN_ENV=FORGEJO_TOKEN -- pag517; [ "$(grep -c 'default-branch check skipped' "$K/err")" = 1 ] && [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ]; }
 row_gh_paginate() { g517 "$EGH517" "$GH517" -- forge_api_paginate /repos/o/r/issues; [ "$K442RC" = 2 ] && [ ! -s "$K/ghlog" ]; }
 row_remote_exported() { K442BASEREMOTE=forgejo p517 "$G517" "$G517" FORGE_REMOTE=forgejo -- $GET1; r517_pass && ! grep -q 'refs/remotes/origin' "$K/gitlog"; }
 row_fork() { p517 $'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://evil.example\nFORGE_REMOTE=fork' "$G517" -- fork517; r517_refused && ! grep -q 'refs/remotes/fork' "$K/gitlog"; }
@@ -4695,11 +4771,11 @@ row_lazy() { p517 "$G517" "$G517" -- $GET1; [ -s "$K/lazylog" ] && ! grep -qv '^
 row_repob() { p517 "$G517" "$G517" -- repob517; [ "$K442RC" = 2 ]; }
 row_back() { p517 "$G517" "$G517" -- back517; [ "$K442RC" = 2 ]; }
 row_pkg() { p517 "$E517" ABSENT -- pkg517; [ "$K442RC" = 2 ]; }
-row_memo_reuse() { p517 "$G517" "$G517" -- three517; [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ]; }
+row_memo_reuse() { p517 "$G517" "$G517" FORGE_TOKEN_ENV=FORGEJO_TOKEN -- three517; [ "$(grep -c 'for-each-ref' "$K/gitlog")" = 1 ]; }
 row_absent() { p517 "$E517" ABSENT -- $GET1; [ "$K442RC" = 2 ]; }
 PIN='  _forge_pin_check || return 2'
-mut517 'comparison removed (every key passes)' '    [ "$was" = "$cur" ] || diff="${diff:+$diff, }$k"' '    :' row_diff_url
-mut517 'FORGE_REMOTE read from the working copy' '  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac' '  [ -z "${FORGE_REMOTE-}" ] || exported=1' row_fork
+mut517 'comparison removed (every key passes)' '    _forge_pin_same "$k" "$was" "$cur" || diff="${diff:+$diff, }$k"' '    :' row_diff_url
+mut517 'FORGE_REMOTE read from the working copy' '  _forge_file_key FORGE_REMOTE || { [ -z "${FORGE_REMOTE-}" ] || exported=1; }' '  [ -z "${FORGE_REMOTE-}" ] || exported=1' row_fork
 mut517 'default branch scan keeps the LAST duplicate' '    [ -n "${!dv-}" ] || printf -v "$dv" '"'%s'"' "$_FORGE_LV"   # first non-empty wins, like the loader' '    printf -v "$dv" '"'%s'"' "$_FORGE_LV"' row_dup_agree
 mut517 'working copy side re-parsed, last value wins' '    eval "was=\${_FORGE_FILEVAL_$k-}"
     dv="_forge_dv_$k"; cur="${!dv-}"' '    was="$(sed -n "s/^$k=//p" .forge.conf | tail -1)"
@@ -4711,13 +4787,13 @@ mut517 'memo not cleared by a reload, seen from repo B' '  _FORGE_CONF_PWD="${PW
 mut517 'ls-tree reads the path relative to the current directory' 'git ls-tree --full-tree "$ref"' 'git ls-tree "$ref"' row_pkg
 mut517 'memo removed (every call re-checks)' '  [ -z "${_FORGE_PIN_PWD-}" ] || return 0' '  :' row_memo_reuse
 mut517 'absent file treated as skip, not as no keys' '    if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then' '    if true; then' row_absent
-mut517 'working-copy exported remote ignored (always origin)' '*) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac' '*) ;; esac' row_remote_exported
+mut517 'working-copy exported remote ignored (always origin)' '|| { [ -z "${FORGE_REMOTE-}" ] || exported=1; }' '|| { :; }' row_remote_exported
 # #542: the sole-remote fallback
 SOLE542="    case \"\$names\" in ''|*\$'\\n'*) ;; *) remote=\"\$names\" ;; esac"
 mut517 'two remotes accepted as sole (the first is taken)' "$SOLE542" "    case \"\$names\" in '') ;; *) remote=\"\${names%%\$'\\n'*}\" ;; esac" row_two_remotes
 mut517 'sole remote branch removed' "$SOLE542" '    :' row_sole_refuse
 mut517 'the fallback overrides an exported value' '  if [ "$exported" = 1 ]; then remote="$FORGE_REMOTE"' '  [ "$exported" = 1 ] && remote="$FORGE_REMOTE"; if false; then :' row_export_noref
-mut517 'the fallback overrides an exported FORGE_REMOTE=origin' '*) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac' '*) [ -z "${FORGE_REMOTE-}" ] || [ "$FORGE_REMOTE" = origin ] || exported=1 ;; esac' row_export_origin
+mut517 'the fallback overrides an exported FORGE_REMOTE=origin' '|| { [ -z "${FORGE_REMOTE-}" ] || exported=1; }' '|| { [ -z "${FORGE_REMOTE-}" ] || [ "$FORGE_REMOTE" = origin ] || exported=1; }' row_export_origin
 mut517 'a file FORGE_REMOTE selects the remote' '  if [ "$exported" = 1 ]; then remote="$FORGE_REMOTE"' '  if [ -n "${FORGE_REMOTE-}" ]; then remote="$FORGE_REMOTE"' row_file_remote
 mut517 'remotes listed above the keys guard' '  [ -n "$keys" ] || return 0' '  names="$(git remote 2>/dev/null)"; [ -n "$keys" ] || return 0' row_zero_git
 # each call site removed in turn (the Nth pin line in file order)
@@ -4729,6 +4805,25 @@ for site in 1 2 3 4; do
 done
 awk '$0=="  _forge_pin_check || return 2" || index($0,"  _forge_pin_check || return 2 ")==1 {c++; if (c==4) next} 1' "$LIB" > "$T/lib517"
 if K442LIB="$T/lib517" row_gh_paginate; then bad "#517 MUTANT SURVIVED: the pin call dropped from forge_api_paginate (GitHub arm)"; else ok "#517 mutant 'pin call dropped from forge_api_paginate' dies on the GitHub arm too"; fi
+
+# #546 mutants
+mut517 'FORGE_NO_GIT_CREDENTIALS dropped from the pin loop' '  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE FORGE_TOKEN_ENV FORGE_NO_GIT_CREDENTIALS; do
+    _forge_file_key' '  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE FORGE_TOKEN_ENV; do
+    _forge_file_key' row546_weaken
+mut517 'FORGE_TOKEN_ENV dropped from the pin loop' '  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE FORGE_TOKEN_ENV FORGE_NO_GIT_CREDENTIALS; do
+    _forge_file_key' '  for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE FORGE_NO_GIT_CREDENTIALS; do
+    _forge_file_key' row546_tdiffers
+mut517 'credential deletion check removed' '    _forge_cred_pin_check FORGE_NO_GIT_CREDENTIALS || return 2   # #546: before git credential fill
+' '' row546_delete
+mut517 'token variable deletion check removed' '  _forge_cred_pin_check FORGE_TOKEN_ENV || return 2   # #546: before the token variable is chosen
+' '' row546_tdelete
+mut517 'lazy check takes the remote from the file' '  _forge_pin_read || return 0
+  _forge_pin_base "$k"' '  local _FORGE_FROM_FILE=""; _forge_pin_read || return 0
+  _forge_pin_base "$k"' row546_remote
+mut517 'exported tested with ${VAR+x} instead of set and non-empty' '  [ -z "${!k:-}" ] || return 0' '  [ -z "${!k+x}" ] || return 0' row546_empty
+mut517 'opt-out compared as a raw string' '    FORGE_NO_GIT_CREDENTIALS) [ "$3" != 1 ] || [ "$2" = 1 ] ;;' '    FORGE_NO_GIT_CREDENTIALS) [ "$2" = "$3" ] ;;' row546_tighten
+mut517 'token name compared raw, not by effective value' '    FORGE_TOKEN_ENV) [ "${2:-FORGEJO_TOKEN}" = "${3:-FORGEJO_TOKEN}" ] ;;' '    FORGE_TOKEN_ENV) [ "$2" = "$3" ] ;;' row546_tadded_same
+mut517 'forge_token_available call removed' '  elif ! _forge_cred_pin_check FORGE_TOKEN_ENV || { [ -n "${FORGE_API_URL:-}" ] && ! _forge_cred_pin_check FORGE_NO_GIT_CREDENTIALS; }; then rc=2' '  elif false; then rc=2' row546_visible
 
 # --- #539: the leak scan of caller-supplied text before the seven public writers send it -------------
 # forge_issue_comment, forge_issue_edit, forge_issue_create, forge_release_create, forge_body_region_set,

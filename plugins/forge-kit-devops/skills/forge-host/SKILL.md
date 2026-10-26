@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 52 -->
+<!-- forge-host-version: 53 -->
 
 # forge-host: host-aware forge operations
 
@@ -40,7 +40,7 @@ match GitHub's REST, so callers' `jq` parsing stays identical across hosts.
 The committed `.forge.conf` is the canonical answer for a repo that has **both** remotes during
 migration: detection must not "ask" in automation. A GitHub-only repo needs no config.
 
-**The default-branch pin (v50, #517).** `FORGE_HOST`, `FORGE_API_URL`, `FORGE_REPO` and `FORGE_REMOTE` choose where the token goes, and a checked-out pull request branch can edit the file. So each of those four that comes FROM `.forge.conf` must equal the file on the default branch (`refs/remotes/<remote>/HEAD`, else `main`, else `master`; the remote is an EXPORTED `FORGE_REMOTE`, else the only remote when exactly one exists, else `origin`, never the file's own, #542). A difference is refused, rc 2, before any request, `gh` call or token read, on either host and under `FORGE_DRY_RUN=1`, in `forge_api`, `forge_api_paginate`, `forge_url_check` and `_forge_dry_url_check` (not in `forge_host`, so the adapt probe and `detect` still run). An exported value is yours and is never compared, so exporting is the override: do it only if you wrote the change. If no reference is readable (a shallow CI clone) the check is skipped with one note, and the unverified keys stay unverified. **An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed.** A first adoption with no `.forge.conf` on the default branch needs the human to export all four keys.
+**The default-branch pin (v50, #517).** `FORGE_HOST`, `FORGE_API_URL`, `FORGE_REPO` and `FORGE_REMOTE` choose where the token goes, and a checked-out pull request branch can edit the file. Since v59 (#546) `FORGE_TOKEN_ENV` and `FORGE_NO_GIT_CREDENTIALS` join them, as they choose which token or credential is sent. So each of those six that comes FROM `.forge.conf` must equal the file on the default branch (`refs/remotes/<remote>/HEAD`, else `main`, else `master`; the remote is an EXPORTED `FORGE_REMOTE`, else the only remote when exactly one exists, else `origin`, never the file's own, #542). A difference is refused, rc 2, before any request, `gh` call or token read, on either host and under `FORGE_DRY_RUN=1`, in `forge_api`, `forge_api_paginate`, `forge_url_check` and `_forge_dry_url_check` (not in `forge_host`, so the adapt probe and `detect` still run). An exported value is yours and is never compared, so exporting is the override: do it only if you wrote the change. If no reference is readable (a shallow CI clone) the check is skipped with one note, and the unverified keys stay unverified. **An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed.** Values compare as effective values (an unset `FORGE_TOKEN_ENV` is `FORGEJO_TOKEN`; dropping an opt-out the default branch sets is refused, adding one is not), and deleting the token keys from the working copy is refused too, lazily, just before the token or `git credential` is read. A first adoption with no `.forge.conf` on the default branch needs the human to export the keys it sets.
 
 ## The adapter (`assets/forge-lib.sh`)
 
@@ -62,7 +62,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
 | `forge_issue_milestone_list` | EVERY open issue as `{number, milestone}`, the milestone being its title or `null`; it takes no argument, so filter by title yourself. PRs excluded on both hosts (Forgejo sends `"pull_request": null` on a plain issue, #446) |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
-| `forge_url_check` | silent rc 0 if the file-sourced routing keys match the default branch (the pin, below) and `FORGE_API_URL` would be accepted (https), else the refusal and rc 2. On GitHub only the pin runs, so it is not a no-op there. Reads no token (v38, #449; pin v50, #517) |
+| `forge_url_check` | silent rc 0 if the file-sourced keys match the default branch (the pin, below) and `FORGE_API_URL` would be accepted (https), else the refusal and rc 2. On GitHub only the pin runs, so it is not a no-op there. Reads no token (v38, #449; pin v50, #517) |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags; `forge_tag_exists` shows `forge_api`'s stderr (a refusal says why, v48, #452) and on GitHub asks `git/ref/tags/<tag>` |
 | `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask; an invalid `FORGE_HOST` also answers `not_configured` with rc 0, after the one host line on stderr (v29); on Forgejo, `forge_api`'s stderr passes through untouched (v37, #450), so a refusal such as an unlisted host says why instead of a bare `not_configured` (stdout is still one word, rc 0; a real HTTP failure prints its line, and `FORGE_DRY_RUN=1` its `[dry-run]` line) |
 
@@ -159,7 +159,7 @@ does NOT reflect Actions (those are Checks), so the github path stays on `gh run
 `.forge.conf` is trusted exactly like one you export: there is no host allowlist and no per-machine
 file (v36 to v39 had one; a stale `forge/hosts` is never read). The residual risk is accepted: a
 cloned repository's `.forge.conf` can name the server that receives your token, so run forge-kit
-commands only in repositories you trust. Since v50 (#517) the routing keys a pull request branch
+commands only in repositories you trust. Since v50 (#517, widened by #546) the keys a pull request branch
 changes are refused until they match the default branch (see the pin above), so the accepted risk
 narrows to a repository whose default branch is itself hostile. The URL must be https unless YOU export `FORGE_ALLOW_HTTP=1` (the file
 cannot), redirects are never followed, and the token reaches curl through `-K`, never argv. In
