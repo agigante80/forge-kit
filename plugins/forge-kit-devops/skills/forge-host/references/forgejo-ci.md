@@ -81,4 +81,4 @@ command and run it on Forgejo. Runner-free; do it any time.
    `pending` then `success`, and the function returned `success` for both SHA and branch refs.
 3. Mirror the auto-release lane(s) into `.forgejo/workflows/` with the token/notes/trigger
    differences; verify a real dependency merge produces a tag + release.
-4. Then `ci-health`'s Forgejo path (needs run logs), only if the API exposes them.
+4. DONE (#552): `ci-health`'s Forgejo path, detect-and-ticket only, because the API exposes no run logs.

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 54 -->
+<!-- forge-host-version: 55 -->
 
 # forge-host: host-aware forge operations
 
@@ -64,6 +64,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
 | `forge_url_check` | silent rc 0 if the file-sourced keys match the default branch (the pin, below) and `FORGE_API_URL` would be accepted (https), else the refusal and rc 2. On GitHub only the pin runs, so it is not a no-op there. Reads no token (v38, #449; pin v50, #517) |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags; `forge_tag_exists` shows `forge_api`'s stderr (a refusal says why, v48, #452) and on GitHub asks `git/ref/tags/<tag>` |
+| `forge_workflow_dir` | the workflow directory the host's runner reads, relative to the current directory: on Forgejo the first existing of `.forgejo/workflows`, `.gitea/workflows`, `.github/workflows`; on GitHub `.github/workflows` only. None is rc 1 and no output; an invalid `FORGE_HOST` is `forge_host`'s line and rc (v61, #552) |
 | `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask; an invalid `FORGE_HOST` also answers `not_configured` with rc 0, after the one host line on stderr (v29); on Forgejo, `forge_api`'s stderr passes through untouched (v37, #450), so a refusal such as an unlisted host says why instead of a bare `not_configured` (stdout is still one word, rc 0; a real HTTP failure prints its line, and `FORGE_DRY_RUN=1` its `[dry-run]` line) |
 
 **Leak scan of caller-supplied text (v53, #539; rc 110).** `forge_issue_comment`, `forge_issue_edit`, `forge_issue_create`, `forge_release_create`, `forge_body_region_set`, `forge_body_compose_preserving` and `forge_body_section_append` run the leak-guard scanners over the text they are given, before any dry-run guard, when the project opted in (`.claude/scan-forge-writes` in the working copy or on the default branch, #558) or `FORGE_LEAK_SCAN=1`; the allowlist is the default branch's; a finding returns 110 and sends nothing. An agent that sees 110 stops and reports it, and never sets `FORGE_LEAK_SCAN=0` itself. Everything else fails open with one stderr note. Discovery, notes and the known gaps are in `references/adopting-forge-lib.md` and leak-guard's `references/forge-writes.md`.

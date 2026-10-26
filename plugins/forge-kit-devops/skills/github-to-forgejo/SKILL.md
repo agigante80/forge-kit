@@ -6,7 +6,7 @@ description: >
   push-mirror back to GitHub. Use when moving one or more repos to your own Forgejo.
 ---
 
-<!-- github-to-forgejo-version: 14 -->
+<!-- github-to-forgejo-version: 15 -->
 
 # github-to-forgejo
 
@@ -203,7 +203,7 @@ host and recommends exactly these.
 | `release` | skill | host-aware ship: tags/releases/ticket-close via `forge_*`; CI gate degrades to local `make test` until a runner exists |
 | `ticket-gate` / `gate-ticket` | agent/command | issue governance over the Forgejo API instead of `gh` |
 | `dep-auditor`, `health-check` | agents | host-aware auditing; health-check verifies the forge token/env wiring |
-| `ci-health` | command | works, with a Forgejo caveat: job logs are not API-reachable, so it detects and tickets failures but cannot auto-fix from logs |
+| `ci-health` | command | works, with a Forgejo caveat: it reads the workflow directory `forge_workflow_dir` names, and job logs are not API-reachable, so it detects and tickets failures but cannot auto-fix from logs |
 | `release-automation` | skill | the CI lanes need the Forgejo port (no `workflow_run`, PAT secret instead of App token): `forge-host references/forgejo-ci.md`; runner required |
 
 ## Rules

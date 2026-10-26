@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 60
+# forge-lib-version: 61
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -2344,6 +2344,26 @@ forge_ci_status() {
         *)             echo "${state:-unknown}" ;;
       esac ;;
   esac
+}
+
+# forge_workflow_dir: the workflow directory the host's runner reads, relative to the current
+# directory (callers run from the project root), one line, rc 0 (#552). Forgejo reads
+# .forgejo/workflows, then .gitea/workflows, then .github/workflows, and the first that EXISTS as a
+# directory is the one it runs, so a stale .github/ copy beside a .forgejo/ one is never judged.
+# GitHub reads .github/workflows only: a .forgejo/ mirror in a GitHub repo is not its CI. No such
+# directory is rc 1 and no output, which a caller reports as "no workflows", never as green. An
+# invalid host is forge_host's one stderr line and its rc, with no output.
+forge_workflow_dir() {
+  local host d
+  host="$(forge_host)" || return   # an invalid host: its one line, its rc, no output
+  case "$host" in
+    github)  set -- .github/workflows ;;
+    forgejo) set -- .forgejo/workflows .gitea/workflows .github/workflows ;;
+  esac
+  for d in "$@"; do
+    [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
+  done
+  return 1    # no workflow directory for this host
 }
 
 # _forge_ci_failure_kind_from_status <combined-status-json> -> failure | cancelled

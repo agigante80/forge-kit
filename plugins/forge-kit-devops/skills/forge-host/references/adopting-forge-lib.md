@@ -7,7 +7,7 @@ verified against the live catalogue (a `grep` for `gh `, `api.github.com`, `{{GI
 
 | Component | Coupling | Adopt by |
 |---|---|---|
-| `ci-health` (command) | `gh run list`, `gh issue` | `forge_ci_status`, `forge_issue_*`. **CI-dependent**: blocked on a Forgejo runner |
+| `ci-health` (command) | `gh run list`, `gh issue` | `forge_workflow_dir`, `forge_ci_status`, `forge_issue_*`, `forge_body_region_set`. Detect and ticket on Forgejo (#552); no auto-fix there, because job logs are not API-reachable |
 | `release-automation` (lanes) | `actions/create-github-app-token`, `secrets.RELEASE_APP_*`, `gh release`, `GITHUB_TOKEN` | **Hardest.** No Forgejo App-token equivalent; needs a Forgejo Actions backend. **CI-dependent** |
 | `release` (skill) | "pipeline green" check, tag/release/close | `forge_ci_status` + `forge_release_create` + `forge_issue_close` |
 | `ticket-gate` (agent) | `gh issue`, `{{GITHUB_REPO}}`, posts the review | `forge_issue_*`; replace `{{GITHUB_REPO}}` with `forge_repo` |
@@ -48,8 +48,8 @@ not have. Re-order by what works on a runner-less Forgejo **today**:
 2. **Issues-API components** (`gate-ticket`/`ticket-gate`, `dep-auditor`, and `release`'s
    tag/release/issue-close steps): deliver immediately, no runner needed.
 3. **forge-adapt**: host detection in analysis + `templates`-mode target dir; fix `health-check`.
-4. **CI/Actions backend** (`ci-health`, `release`'s pipeline check, the `release-automation`
-   lanes): **gated on a Forgejo runner existing**, and on confirming the Forgejo Actions API
+4. **CI/Actions backend** (`release`'s pipeline check, the `release-automation`
+   lanes; `ci-health` landed detect-and-ticket in #552): **gated on a Forgejo runner existing**, and on confirming the Forgejo Actions API
    exposes run conclusion + logs.
 
 Keep every change additive: GitHub-only repos (no `.forge.conf`) must behave exactly as before.

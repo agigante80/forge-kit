@@ -182,6 +182,12 @@ jobs:
       - name: forge-lib CI-status contract tests
         run: bash scripts/test-forge-ci-status.sh
 
+      # /ci-health is prose, so this suite pins its host contract (#552): workflows discovered from
+      # forge_workflow_dir, a Phase 0 refusal that never needs the library it tests for, gh only on
+      # the GitHub path, dedupe by branch, the open ticket updated in its body, and a label filter.
+      - name: ci-health host contract tests
+        run: bash scripts/test-ci-health-host.sh
+
       # check-ticket-mechanics.sh is a shipped executable: ticket-gate Step 3A, which was prose
       # until #149. Its refer paths are the point of the suite, since a naive implementation
       # fails outright where the script must defer to the critic.

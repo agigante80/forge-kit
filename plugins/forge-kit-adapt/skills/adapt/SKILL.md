@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 95 -->
+<!-- forge-adapt-version: 96 -->
 
 # forge-adapt
 
@@ -231,7 +231,7 @@ echo "dep-automation:"; ls .github/dependabot.yml renovate.json .renovaterc* 2>/
 | Public API surface | routes/, controllers, OpenAPI | api-security-tester, owasp-api-security |
 | Dependency depth | lockfiles, package count | dep-auditor |
 | Tests present | tests/, *_test, *.spec | mutation-sweep |
-| GitHub Actions | .github/workflows/ | /ci-health command |
+| CI workflows | {.github,.forgejo,.gitea}/workflows/ | /ci-health command |
 | Forge host: GitHub vs Forgejo | origin remote (github.com vs other) | forge-host adapter (required by ticket-gate/gate-ticket/dep-auditor/ci-health/release on a non-GitHub host) |
 | Ships releases (version + tags) | VERSION, package.json/pyproject version, git tags | release skill; release-automation gate |
 | Dependabot / Renovate present | .github/dependabot.yml, renovate.json | release-automation Lane B (auto-release dep updates) |

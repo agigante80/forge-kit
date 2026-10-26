@@ -1646,6 +1646,52 @@ expect "a scheme URL with no path" 'host' "$(uh 'ssh://host:2222')"
 expect "a password containing @ : the last @ ends the userinfo" 'host' "$(uh 'ssh://user:p@ss@host/o/r')"
 expect "ssh.github.com is GitHub" github "$(hostof 'ssh://git@ssh.github.com:443/o/r' https://forge.example | head -1)"
 
+# --- #552: forge_workflow_dir, the directory the host's runner reads ----------------------------
+# Forgejo reads .forgejo/workflows, then .gitea/workflows, then .github/workflows; GitHub reads
+# .github/workflows only, so a GitHub repo carrying a .forgejo/ mirror is never judged by it. The
+# first EXISTING directory wins (a file of that name does not count); none is rc 1 and no output,
+# and an invalid host is forge_host's rc with no output. /ci-health discovers from this answer.
+echo "== forge_workflow_dir: the host's own workflow directory (#552) =="
+wfd552() {  # wfd552 <lib> <FORGE_HOST> [dir...]: stdout then rc; a name ending in = is made a FILE
+  local lib="$1" h="$2" d x; shift 2; d="$(mktemp -d "$T/wfd.XXXXXX")"
+  ( cd "$d" && git init -q . && for x in "$@"; do case "$x" in *=) mkdir -p "$(dirname "${x%=}")"; : > "${x%=}" ;; *) mkdir -p "$x" ;; esac; done
+    . "$lib" && FORGE_HOST="$h" forge_workflow_dir 2>/dev/null; echo "rc=$?" )
+}
+row552_fj_all()   { [ "$(wfd552 "$1" forgejo .github/workflows .gitea/workflows .forgejo/workflows)" = "$(printf '.forgejo/workflows\nrc=0')" ]; }
+row552_fj_gitea() { [ "$(wfd552 "$1" forgejo .github/workflows .gitea/workflows)" = "$(printf '.gitea/workflows\nrc=0')" ]; }
+row552_fj_gh()    { [ "$(wfd552 "$1" forgejo .github/workflows)" = "$(printf '.github/workflows\nrc=0')" ]; }
+row552_fj_none()  { [ "$(wfd552 "$1" forgejo .forgejo)" = "rc=1" ]; }
+row552_fj_file()  { [ "$(wfd552 "$1" forgejo .forgejo/workflows= .github/workflows)" = "$(printf '.github/workflows\nrc=0')" ]; }
+row552_gh_only()  { [ "$(wfd552 "$1" github .forgejo/workflows .gitea/workflows .github/workflows)" = "$(printf '.github/workflows\nrc=0')" ]; }
+row552_gh_none()  { [ "$(wfd552 "$1" github .forgejo/workflows .gitea/workflows)" = "rc=1" ]; }
+row552_bad_host() { [ "$(wfd552 "$1" gitlab .github/workflows)" = "rc=2" ]; }
+row552_fj_all "$LIB"   && ok "Forgejo prefers .forgejo/workflows over .gitea and .github" || bad "Forgejo order: $(wfd552 "$LIB" forgejo .github/workflows .gitea/workflows .forgejo/workflows | tr '\n' ' ')"
+row552_fj_gitea "$LIB" && ok "Forgejo falls back to .gitea/workflows before .github" || bad "Forgejo gitea fallback: $(wfd552 "$LIB" forgejo .github/workflows .gitea/workflows | tr '\n' ' ')"
+row552_fj_gh "$LIB"    && ok "Forgejo falls back to .github/workflows last" || bad "Forgejo github fallback"
+row552_fj_none "$LIB"  && ok "Forgejo with no workflow directory: rc 1 and no output" || bad "Forgejo none: $(wfd552 "$LIB" forgejo .forgejo | tr '\n' ' ')"
+row552_fj_file "$LIB"  && ok "a FILE named .forgejo/workflows is not a workflow directory" || bad "file counted as a directory"
+row552_gh_only "$LIB"  && ok "GitHub reads .github/workflows whatever else exists" || bad "GitHub order: $(wfd552 "$LIB" github .forgejo/workflows .gitea/workflows .github/workflows | tr '\n' ' ')"
+row552_gh_none "$LIB"  && ok "GitHub with only .forgejo and .gitea directories: rc 1 and no output" || bad "GitHub none: $(wfd552 "$LIB" github .forgejo/workflows .gitea/workflows | tr '\n' ' ')"
+row552_bad_host "$LIB" && ok "an invalid FORGE_HOST: forge_host's rc 2 and no output" || bad "bad host: $(wfd552 "$LIB" gitlab .github/workflows | tr '\n' ' ')"
+mut552() {  # mut552 <label> <old> <new> <row-fn>: the row must FAIL on the mutated lib
+  if ! python3 - "$LIB" "$T/lib552" "$2" "$3" 2> "$T/m552err" <<'PY'
+import sys
+s=open(sys.argv[1]).read(); old,new=sys.argv[3],sys.argv[4]; n=s.count(old)
+if n!=1: sys.exit("anchor count %d for %r"%(n,old))
+open(sys.argv[2],'w').write(s.replace(old,new))
+PY
+  then bad "#552 mutant '$1' did not apply: $(cat "$T/m552err")"; return; fi
+  if $4 "$T/lib552"; then bad "#552 MUTANT SURVIVED: $1"; else ok "#552 mutant '$1' dies"; fi
+}
+FJ552='    forgejo) set -- .forgejo/workflows .gitea/workflows .github/workflows ;;'
+mut552 'Forgejo order changed (.github first)' "$FJ552" '    forgejo) set -- .github/workflows .forgejo/workflows .gitea/workflows ;;' row552_fj_all
+mut552 '.gitea dropped from the Forgejo order' "$FJ552" '    forgejo) set -- .forgejo/workflows .github/workflows ;;' row552_fj_gitea
+mut552 'the Forgejo order used on GitHub' '    github)  set -- .github/workflows ;;' '    github)  set -- .forgejo/workflows .gitea/workflows .github/workflows ;;' row552_gh_only
+mut552 'a missing directory not skipped' '    [ -d "$d" ] && { printf '"'"'%s\n'"'"' "$d"; return 0; }' '    printf '"'"'%s\n'"'"' "$d"; return 0' row552_fj_gitea
+mut552 'existence instead of a directory' '    [ -d "$d" ] && {' '    [ -e "$d" ] && {' row552_fj_file
+mut552 'none answers 0' '  return 1    # no workflow directory for this host' '  return 0' row552_fj_none
+mut552 'an invalid host falls through to GitHub' '  host="$(forge_host)" || return   # an invalid host: its one line, its rc, no output' '  host="$(forge_host 2>/dev/null || echo github)"' row552_bad_host
+
 # --- #216: forge_repo cuts the slug after the SAME authority _forge_url_host isolates ---------
 # v16 kept a second parser (`*://*/*` and `*:*/*` globs) that disagreed with the host helper on
 # the shapes #212 was written for: `git@[::1]:o/r` printed `:1]:o/r`. Now one authority
