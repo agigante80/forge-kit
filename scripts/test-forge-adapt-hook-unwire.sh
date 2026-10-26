@@ -75,6 +75,12 @@ P=$(mk i "$BOTH"); mv "$(SJ "$P")" "$T/real.json"; ln -s "$T/real.json" "$(SJ "$
 cap block-dashes --project "$P"
 [ "$crc" = 1 ] && [ "$(cat "$T/real.json")" = "$before" ] && ok "a symlinked settings.json: exit 1, target unchanged" || bad "symlink: rc=$crc"
 ls "$T/i/.claude" | grep -q '^\.settings\.' && bad "no temp file left behind (symlink)" || ok "no temp file left behind (symlink)"
+P=$(mk ld "$BOTH"); mkdir -p "$T/elsewhere"; cp "$(SJ "$P")" "$T/elsewhere/settings.json"; rm -rf "$P/.claude"; ln -s "$T/elsewhere" "$P/.claude"
+before=$(cat "$T/elsewhere/settings.json"); ls -a "$T/elsewhere" > "$T/ld.before"
+cap block-dashes --project "$P"
+[ "$crc" = 1 ] && [ "$(cat "$T/elsewhere/settings.json")" = "$before" ] && ok "a symlinked .claude directory: exit 1, target settings.json unchanged" || bad "symlinked .claude: rc=$crc"
+ls -a "$T/elsewhere" > "$T/ld.after"; cmp -s "$T/ld.before" "$T/ld.after" && ok "and nothing was created in the symlink target" || bad "files created through the .claude symlink"
+case "$cerr" in *"is a symlink"*) ok "and says so on stderr" ;; *) bad "symlinked .claude message: '$cerr'" ;; esac
 P=$(mk j "$BOTH"); ls -a "$P/.claude" > "$T/j.before"; cap block-dashes --project "$P"; ls -a "$P/.claude" > "$T/j.after"
 cmp -s "$T/j.before" "$T/j.after" && ok "a successful run leaves no temp file in .claude" || bad "temp file left behind"
 

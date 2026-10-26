@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hook-unwire-version: 1
+# hook-unwire-version: 2
 # hook-unwire.sh: remove one hook's wiring from a project's .claude/settings.json (#564).
 #
 #   hook-unwire.sh <name> [--project <dir>]
@@ -27,7 +27,7 @@
 # merely a duplicate. Callers print or run `hook-unwire.sh <name>` BEFORE any `rm`.
 #
 # Exit 0: removed, or nothing wired (`no wiring found for <name>`: no file, no .hooks, or no match).
-# Exit 1: settings.json cannot be edited safely (not valid JSON, a symlink, jq missing); left unchanged.
+# Exit 1: settings.json cannot be edited safely (not valid JSON, a symlink or a symlinked .claude, jq missing); left unchanged.
 # Exit 2: usage or a name outside the guard.
 set -uo pipefail
 
@@ -45,6 +45,9 @@ case "$NAME" in
   *[!a-z0-9-]*|-*) echo "hook-unwire: '$NAME' is not a hook name (extensionless, lower-case letters, digits and hyphens, no leading hyphen)" >&2; exit 2 ;;
 esac
 
+# A symlinked .claude directory would send the temp file and the replace outside the project (the project
+# may be untrusted), so it is refused before anything is read or written, the same as a symlinked file.
+if [ -L "$PROJECT/.claude" ]; then echo "hook-unwire: $PROJECT/.claude is a symlink; left unchanged" >&2; exit 1; fi
 S="$PROJECT/.claude/settings.json"
 if [ ! -e "$S" ] && [ ! -L "$S" ]; then echo "no wiring found for $NAME"; exit 0; fi
 command -v jq >/dev/null 2>&1 || { echo "hook-unwire: jq is required; settings.json left unchanged" >&2; exit 1; }
