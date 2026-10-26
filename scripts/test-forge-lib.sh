@@ -5127,9 +5127,12 @@ c539_inject() {   # shell metacharacters and a leading dash reach the scanner by
   [ "$R539RC" = 0 ] && [ "$(cat "$T/copy539.private")" = "$inj" ] && [ ! -e "$T/PWNED539" ] && [ ! -e "$T/PWNED539b" ] \
     && ! grep -q 'etc/passwd' "$T/stub539.log"
 }
-c539_concurrent() {
-  r539 "$RS539" "$L539" 'forge_issue_comment 5 a & forge_issue_comment 6 b & wait' "$G539" STUBMODE=slow
-  [ "$R539RC" = 0 ] && [ "$(grep '^FILE private ' "$T/stub539.log" | sort -u | wc -l)" = 2 ]
+c539_concurrent() {   # each call's own rc (a bare `wait` always returns 0); on failure the stub counts go to stderr
+  r539 "$RS539" "$L539" 'forge_issue_comment 5 a & p1=$!; forge_issue_comment 6 b & p2=$!; wait "$p1" || exit 41; wait "$p2" || exit 42' "$G539" STUBMODE=slow
+  [ "$R539RC" = 0 ] && [ "$(grep '^FILE private ' "$T/stub539.log" | sort -u | wc -l)" = 2 ] && return 0
+  printf 'runs private %s public %s, distinct private files %s, posts %s\n' "$(grep -c '^RUN private' "$T/stub539.log")" \
+    "$(grep -c '^RUN public' "$T/stub539.log")" "$(grep '^FILE private ' "$T/stub539.log" | sort -u | wc -l)" "$(reqs539 POST)" >> "$T/e539"
+  return 1
 }
 c539_rel_cd() {   # load by a relative path in A, cd into B (sentinel + marked stubs in scripts/): B's stubs never run
   local a="$T/relA539" b="$T/relB539"; mkdir -p "$a/scripts"; cp "$L539" "$a/scripts/forge-lib.sh"
