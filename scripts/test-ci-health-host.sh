@@ -98,12 +98,15 @@ wfdir() {
 }
 
 # dedupe <file> <titles...>: the file's own EXISTING= line over a stubbed forge_issue_list that
-# returns one open issue per title, numbered from 1.
+# returns one open issue per title, numbered from 1. Each body carries ci-health's status region,
+# except for a title prefixed `foreign:`, which stands for an issue someone else opened by hand.
 dedupe() {
   local f="$1" l json; shift
   l=$(one "$f" '^[[:space:]]*EXISTING=')
   [ "$l" = no-extract ] && { printf 'no-extract'; return; }
-  json=$(printf '%s\n' "$@" | jq -R . | jq -s 'to_entries | map({number: (.key + 1), title: .value})')
+  json=$(printf '%s\n' "$@" | jq -R . | jq -s 'to_entries | map({number: (.key + 1),
+    title: (.value | ltrimstr("foreign:")),
+    body: (if (.value | startswith("foreign:")) then "CI failure seen by hand" else "x\n<!-- ci-health-status:start -->\nfailure at abc\n<!-- ci-health-status:end -->" end)})')
   BRANCH=main J="$json" bash -c 'forge_issue_list() { printf "%s" "$J"; }'$'\n'"$l"$'\n''printf "%s" "$EXISTING"' 2>&1
 }
 
@@ -182,8 +185,11 @@ verdicts() {
   [ "$(dedupe "$f" 'CI failure: main (.forgejo/workflows)')" = 1 ] || echo "duplicate ticket on a red branch"
   [ "$(dedupe "$f" 'CI failure: main-old (.forgejo/workflows)')" = "" ] || echo "main-old matches main"
   [ "$(dedupe "$f" 'CI failure: main-old (.forgejo/workflows)' 'CI failure: main (.gitea/workflows)')" = 2 ] || echo "duplicate ticket on a red branch"
+  [ "$(dedupe "$f" 'foreign:CI failure: main (.forgejo/workflows)')" = "" ] || echo "a foreign issue is taken over"
+  [ "$(dedupe "$f" 'foreign:CI failure: main (.forgejo/workflows)' 'CI failure: main (.forgejo/workflows)')" = 2 ] || echo "a foreign issue is taken over"
   r=$(printf '%s\n' "$p2" | grep -F 'forge_body_region_set' | head -1)
   a=$(printf '%s\n' "$p2" | tr '\n' ' ')
+  case "$a" in *'`<!-- ci-health-status:start -->`'*) ;; *) echo "a created ticket lacks the status region" ;; esac
   case "$a" in *"never a comment and never a second ticket"*'`forge_issue_create` is not called'*) ;; *) echo "an open ticket gets a second ticket" ;; esac
   [ -n "$r" ] || echo "an open ticket gets a second ticket"
   r=$(grep 'run URL' <<< "$p2"); [ -n "$r" ] && grep -vq 'no run URL' <<< "$r" && echo "a run URL reaches the Forgejo ticket"
@@ -243,6 +249,7 @@ r=$(refuse "$CIH" 'https://github.com/o/r')
 [ "$r" = "rc=0|HOST=github|gh=0|fh=0" ] && ok "no adapter, GitHub origin: proceeds on the GitHub path" || bad "github origin: $r"
 [ "$(dedupe "$CIH" 'CI failure: main-old (.forgejo/workflows)')" = "" ] && ok "an open main-old ticket is not a duplicate of main" || bad "main-old dedupe"
 [ "$(dedupe "$CIH" 'CI failure: main (.forgejo/workflows)')" = 1 ] && ok "an open main ticket is found by the prefix key" || bad "main dedupe"
+[ "$(dedupe "$CIH" 'foreign:CI failure: main (.forgejo/workflows)')" = "" ] && ok "an open main issue without ci-health's status region is not taken over" || bad "foreign dedupe"
 [ "$(labels "$CIH" bug)" = "USE=bug|SKIP=infrastructure" ] && ok "a missing label is skipped, the existing one kept" || bad "label filter"
 [ "$(refuse "$CIH" 'https://github.com/o/r' libpin)" = "rc=1|forge-lib: refusing: pin|gh=0|fh=0" ] \
   && ok "with the adapter, a pin refusal (a branch's FORGE_HOST) stops Phase 0 before forge_host and gh" || bad "pin refusal in Phase 0"
@@ -305,7 +312,9 @@ version-gate classification is done on Forgejo too'
 mut 'the sha from HEAD' cih "the sha shown is not the one judged" 'SHA=$(git rev-parse --verify "$BRANCH" 2>/dev/null)' 'SHA=$(git rev-parse HEAD)'
 mut 'the Phase 4 Forgejo skip deleted' cih "Phase 4 does not skip on Forgejo" 'On Forgejo, skip this phase: job logs are not reachable on Forgejo, so there is nothing safe to fix from.
 ' ''
-mut 'the dedupe removed (always create)' cih "duplicate ticket on a red branch" '[.[] | select(.title | startswith($k))][0].number // empty' 'empty'
+mut 'the dedupe removed (always create)' cih "duplicate ticket on a red branch" '[.[] | select((.title | startswith($k)) and ((.body // "") | contains("<!-- ci-health-status:start -->")))][0].number // empty' 'empty'
+mut 'the status-region check dropped from the dedupe' cih "a foreign issue is taken over" ' and ((.body // "") | contains("<!-- ci-health-status:start -->"))' ''
+mut 'the created body without the status region' cih "a created ticket lacks the status region" 'the sha inside a `<!-- ci-health-status:start -->`' 'the sha inside a status'
 mut 'the ( dropped from the dedupe key' cih "main-old matches main" '"CI failure: $BRANCH ("' '"CI failure: $BRANCH"'
 mut 'the old fix(ci) title form restored' cih "title is not the branch form" 'titled `CI failure: <branch> (<WF_DIR>)`' 'titled `fix(ci): main failing (<WF_DIR>)`'
 mut 'a per-workflow-file title' cih "title is not the branch form" 'titled `CI failure: <branch> (<WF_DIR>)`' 'titled `CI failure: <workflow file name>`'

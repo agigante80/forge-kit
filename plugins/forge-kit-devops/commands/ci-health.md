@@ -2,7 +2,7 @@
 description: "Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate each ticket, and auto-fix safe failures on GitHub."
 ---
 
-<!-- ci-health-version: 12 -->
+<!-- ci-health-version: 13 -->
 
 # CI Health Monitor
 
@@ -142,17 +142,20 @@ gh issue edit <N> --body-file <updated-body>
 
 **On Forgejo**, one ticket per red BRANCH, titled `CI failure: <branch> (<WF_DIR>)`, for example
 `CI failure: main (.forgejo/workflows)`. The dedupe key is the prefix `CI failure: <branch> (`,
-`(` included so `main-old` never matches `main`, matched locally over `forge_issue_list` output:
+`(` included so `main-old` never matches `main`, plus ci-health's own status region in the body, so
+an issue someone opened by hand under that title is never taken over; matched locally over
+`forge_issue_list` output:
 
 ```bash
-EXISTING=$(forge_issue_list open | jq -r --arg k "CI failure: $BRANCH (" '[.[] | select(.title | startswith($k))][0].number // empty')
+EXISTING=$(forge_issue_list open | jq -r --arg k "CI failure: $BRANCH (" '[.[] | select((.title | startswith($k)) and ((.body // "") | contains("<!-- ci-health-status:start -->")))][0].number // empty')
 ```
 
 - **An open match is updated in its BODY, never a comment and never a second ticket:**
   `forge_body_region_set "$EXISTING" ci-health ci-health-status "<verdict word> at <sha>"`, with
   no run URL and no logs, and `forge_issue_create` is not called. Print "existing ticket #<N> updated".
 - **No match:** `forge_issue_create` with the title above and a body naming the branch, `$WF_DIR`,
-  the verdict word and the sha (no log excerpt; the stamp and sections as on GitHub), then label it.
+  the verdict word and the sha inside a `<!-- ci-health-status:start -->` / `<!-- ci-health-status:end -->`
+  region (no log excerpt; the stamp and sections as on GitHub), then label it.
   `forge_issue_label` refuses the whole call on one unknown name, so read the repo's labels first
   and pass only those that exist; report every skipped name in the summary:
 
