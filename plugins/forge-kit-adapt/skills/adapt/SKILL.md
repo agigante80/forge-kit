@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 94 -->
+<!-- forge-adapt-version: 95 -->
 
 # forge-adapt
 
@@ -606,7 +606,7 @@ a contribution candidate, not an adaptation (decided in issue #64).
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
 The only full content diff, and it must NEVER blind-overwrite adaptation. Steps:
 
-1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy.
+1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy. A `shadowed` row never merges: follow `references/drift.md`.
 2. **Classify every difference:**
    - **Adaptation (keep):** project-specific stack/domain customisation, and `<!-- adapt-dropped: <name> -->`
      tombstones (a deliberately dropped conditional paragraph; never re-offer the clause).

@@ -6,8 +6,10 @@
 # `refresh <name>` wants what changed upstream between the version the project installed and the one
 # the library now carries. The library is a depth-1 marketplace checkout, so that history is usually
 # not there. This finds the commit that set `<name>-version: <N>` in the component file and prints
-# `git diff <that commit> HEAD -- <path>`, DISPLAY ONLY: it is never a merge base, and the two-way
-# classification in `refresh <name>` is unchanged.
+# `git diff <that commit> HEAD -- <path>`. The diff is DISPLAY ONLY: it is never a merge base, and the
+# two-way classification in `refresh <name>` is unchanged. The commit id in the first line is also a
+# baseline pointer (#550): forge-adapt reads the installed copy's files at that commit to tell an
+# untouched copy from an edited one before it offers to retire a copy the plugin now provides.
 #
 # stdout (always one of):
 #   marker-delta: <name> v<N> set in <sha>; delta v<N> to HEAD follows     then the diff     exit 0

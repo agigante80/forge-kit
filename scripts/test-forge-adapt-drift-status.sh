@@ -59,9 +59,40 @@ say unversioned "and an unmarked CATALOGUE entry cannot be compared either" --lo
 say missing     "no copy and nothing providing it is missing" --local absent --catalogue 3
 say registered  "no copy but the group provides it is REGISTERED" --local absent --catalogue 3 --group-enabled
 
-echo "== an enabled group does not rewrite a copy that exists =="
-say behind      "a local copy is still compared even when the group is enabled" --local 2 --catalogue 3 --group-enabled
-say unversioned "and an unmarked local copy is still unversioned" --local none --catalogue 3 --group-enabled
+echo "== an enabled group shadows a copy that exists (#550) =="
+# #550 reverses the old rule. A local copy of a component the live plugin group already provides runs
+# TWICE, so it is not compared and refreshed: it is `shadowed`, or `kept` once the user said keep.
+say shadowed    "a local copy under an enabled group is shadowed, not behind" --local 2 --catalogue 3 --group-enabled
+say shadowed    "and an unmarked local copy is shadowed, not unversioned" --local none --catalogue 3 --group-enabled
+say shadowed    "a current local copy is shadowed too" --local 3 --catalogue 3 --group-enabled
+say shadowed    "a local copy ahead of the catalogue is shadowed" --local 5 --catalogue 3 --group-enabled
+say shadowed    "an unmarked catalogue entry does not hide a shadow" --local 2 --catalogue none --group-enabled
+say shadowed    "v-prefixed markers are shadowed as well" --local v2 --catalogue v3 --group-enabled
+say shadowed    "the table cell vnone is shadowed as well" --local vnone --catalogue v3 --group-enabled
+say kept        "--kept turns a shadow into kept" --local 2 --catalogue 3 --group-enabled --kept
+say kept        "--kept with an unmarked local copy" --local none --catalogue 3 --group-enabled --kept
+say kept        "--kept overrides an unmarked catalogue too" --local 2 --catalogue none --group-enabled --kept
+say kept        "--kept before --group-enabled is the same" --local 2 --catalogue 3 --kept --group-enabled
+say behind      "without --group-enabled nothing changes: behind" --local 2 --catalogue 3
+say unversioned "without --group-enabled nothing changes: unversioned" --local none --catalogue 3
+say current     "--kept without --group-enabled is ignored: current" --local 3 --catalogue 3 --kept
+say behind      "--kept without --group-enabled is ignored: behind" --local 2 --catalogue 3 --kept
+say registered  "--local absent with the group enabled stays registered" --local absent --catalogue 3 --group-enabled
+say missing     "--local absent without the group stays missing" --local absent --catalogue 3
+
+echo "== --kept needs a local copy (#550) =="
+cap() { # cap <args...>: sets cout, cerr, crc from one run, so stdout and stderr stay apart
+  local e; e=$(mktemp); cout=$(bash "$S" "$@" 2>"$e"); crc=$?; cerr=$(cat "$e"); rm -f "$e"
+}
+for extra in "" "--group-enabled"; do
+  cap --local absent --catalogue 3 --kept $extra
+  [ "$crc" = 2 ] && ok "--kept --local absent $extra exits 2" || bad "--kept --local absent $extra exits 2 (got $crc)"
+  case "$cerr" in *"--kept needs a local copy"*) ok "and says --kept needs a local copy ($extra)" ;; *) bad "and says --kept needs a local copy ($extra): '$cerr'" ;; esac
+  [ -z "$cout" ] && ok "and prints nothing on stdout ($extra)" || bad "and prints nothing on stdout ($extra): '$cout'"
+done
+cap --local 2 --catalogue 3 --group-enabled --kept
+[ -z "$cerr" ] && ok "a valid kept run prints nothing on stderr" || bad "a valid kept run prints nothing on stderr: '$cerr'"
+[ "$crc" = 0 ] && ok "and exits 0" || bad "and exits 0 (got $crc)"
 
 echo "== it refuses rather than guessing =="
 [ "$(rcof --local 1)" = 2 ] && ok "a missing --catalogue refuses" || bad "a missing --catalogue refuses"
@@ -83,6 +114,10 @@ say "drift-status: 'vv1' is not a version, 'none' or 'absent'" "a doubled v is r
 echo "== the output is exactly one bare word a caller can print =="
 out=$(bash "$S" --local absent --catalogue 3 --group-enabled)
 [ "$(printf '%s' "$out" | wc -w | tr -d ' ')" = 1 ] && ok "one word, no punctuation" || bad "one word, no punctuation"
+for w in shadowed kept; do
+  out=$(bash "$S" --local 2 --catalogue 3 --group-enabled $([ "$w" = kept ] && echo --kept))
+  [ "$out" = "$w" ] && [ "$(printf '%s' "$out" | wc -w | tr -d ' ')" = 1 ] && ok "$w is one bare word" || bad "$w is one bare word: '$out'"
+done
 
 echo ""
 echo "drift-status tests: $pass passed, $fail failed"

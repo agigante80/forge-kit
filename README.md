@@ -55,7 +55,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.12.31 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.12.32 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.25.1 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.36.4 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
 | `forge-kit-review` | 0.7.5 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
@@ -120,7 +120,7 @@ document, because it is canonical rather than a summary,
 **Given** groups installed some weeks ago,
 **when** you run `forge-adapt drift`,
 **then** each installed component is compared against the library by version marker, a stale
-marketplace checkout is reported, every place still carrying a retired rule (an adapted copy, your
+marketplace checkout is reported, a local copy of an agent, skill or command the live plugin now provides is reported as shadowed (or kept) instead of refreshed, every place still carrying a retired rule (an adapted copy, your
 instruction files, memory) is listed by file and line, an http forge URL lists the workflow steps that need
 `FORGE_ALLOW_HTTP`, and nothing is written,
 **and** acting on it means `marketplace update` then `update` per group, because registration tracks
@@ -239,7 +239,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v94 | 7126 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | skill | `adapt` | v95 | 7133 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-adapt` | shell asset | `check-template-lockstep` | v2 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
 | `forge-kit-adapt` | shell asset | `citation-check` | v1 |  | citation-check.sh: find the ticket-standards section titles the gate cites that the project's own |
 | `forge-kit-adapt` | shell asset | `retired-paths` | v2 |  | retired-paths.sh: find a file forge-kit RETIRED and an earlier install left behind, and remove it |

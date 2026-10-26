@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # forge-adapt-drift-status.sh: one word describing one component's install state (#167).
 #
-#   forge-adapt-drift-status.sh --local <N|none|absent> --catalogue <N|none> [--group-enabled]
+#   forge-adapt-drift-status.sh --local <N|none|absent> --catalogue <N|none> [--group-enabled [--kept]]
 #
 # N may carry one leading `v` (`v3` reads as 3), the form the catalogue prints. Anything else that is
 # not a number, and a number over nine digits, exits 2 naming the original token (#504).
@@ -12,6 +12,16 @@
 #   unversioned  a local copy exists but carries no marker; cannot be compared, deep-compare it
 #   registered   no local copy, and none is wanted: the plugin group provides it (#166)
 #   missing      no local copy, and nothing provides it
+#   shadowed     a local copy exists AND the live plugin group provides the component (#550): it runs
+#                twice, so it is neither compared nor refreshed; the caller offers retire or keep
+#   kept         the same, and the user already chose to keep the local copy (--kept)
+#
+# SHADOWED AND KEPT NEED --group-enabled AND A LOCAL COPY. With the group enabled, a local copy
+# (a number or `none`) is `kept` under --kept and `shadowed` otherwise, whatever the markers say,
+# `--catalogue none` included: the marker comparison no longer applies once the plugin provides the
+# component. Without --group-enabled nothing changes and --kept is ignored. `--local absent` stays
+# `registered` or `missing`; --kept with it exits 2, because there is no copy to keep. The caller
+# decides which components may be shadowed (scope, #550); this script takes values, never paths.
 #
 # WHY `registered` EXISTS. #166 stopped forge-adapt copying a user-scoped component, so a correctly
 # installed component now has NO local copy. Reported as `missing`, a clean install would show a
@@ -27,12 +37,13 @@
 # that predates markers (#64), and reporting it as missing would hide it.
 set -uo pipefail
 
-LOCAL=""; CATALOGUE=""; ENABLED=0
+LOCAL=""; CATALOGUE=""; ENABLED=0; KEPT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --local)          shift; [ $# -gt 0 ] || { echo "drift-status: --local needs a value" >&2; exit 2; }; LOCAL="$1" ;;
     --catalogue)      shift; [ $# -gt 0 ] || { echo "drift-status: --catalogue needs a value" >&2; exit 2; }; CATALOGUE="$1" ;;
     --group-enabled)  ENABLED=1 ;;
+    --kept)           KEPT=1 ;;
     *)                echo "drift-status: unexpected argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -62,8 +73,15 @@ case "$CATALOGUE" in none|absent) ;; *) CATALOGUE=$(norm "$CATALOGUE") || exit 2
 [ "$CATALOGUE" = absent ] && { echo "drift-status: --catalogue cannot be 'absent'" >&2; exit 2; }
 
 if [ "$LOCAL" = absent ]; then
+  [ "$KEPT" -eq 1 ] && { echo "drift-status: --kept needs a local copy, and --local is absent" >&2; exit 2; }
   [ "$ENABLED" -eq 1 ] && { echo registered; exit 0; }
   echo missing; exit 0
+fi
+
+# A local copy under a live group is a duplicate, whatever its marker says (#550).
+if [ "$ENABLED" -eq 1 ]; then
+  [ "$KEPT" -eq 1 ] && echo kept || echo shadowed
+  exit 0
 fi
 
 # A present copy with no marker cannot be compared. It is NOT behind: every install predating the
