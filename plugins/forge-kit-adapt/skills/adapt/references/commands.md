@@ -8,10 +8,10 @@ entry points that delegate to agents, so recommend the command alongside the age
 |---|---|---|---|---|
 | Uses GitHub issues for work intake | `/gate-ticket` | governance | run the readiness gate on an issue | `ticket-gate` |
 | Pre-merge / release / periodic audits | `/full-review` | review | multi-lens audit; per-task uses code-reviewer | review agents, `security-auditor`, `review-lows` skill |
-| `.github/workflows/` present | `/ci-health` | devops | scan CI, ticket failures, auto-fix safe | `ticket-gate` |
+| `.forgejo/workflows/`, `.gitea/workflows/` or `.github/workflows/` | `/ci-health` | devops | scan CI, ticket failures, auto-fix safe | `ticket-gate`, `forge-lib.sh` off GitHub |
 
-Recommend `/gate-ticket` whenever `ticket-gate` is recommended: they are a pair. `/ci-health`
-only when GitHub Actions workflows actually exist.
+Recommend `/gate-ticket` with `ticket-gate`: they are a pair. `/ci-health`
+only when workflows exist.
 
 **Sensitive-path offer (#448).** Whenever `/full-review` is recommended or already installed
 (a plugin-registered one counts) and `.full-review-sensitive` is absent at the project root, add

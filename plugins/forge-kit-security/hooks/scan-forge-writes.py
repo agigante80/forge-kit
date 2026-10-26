@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scan-forge-writes-version: 3
+# scan-forge-writes-version: 4
 """PreToolUse Bash guard: scan an issue or PR body and title for leaks before gh publishes them (#536).
 
 The leak guard scans files (pre-commit, pre-push, CI). Text typed straight into
@@ -29,7 +29,12 @@ process group; past the deadline the hook allows with `leak-guard: scan timed ou
 sets timeout 10 for the whole hook.
 
 Opt-in: sentinel `.claude/scan-forge-writes` (hooks.json gates on it in the shell; the check here
-is defence in depth). Ships plugin-only: the scanners are resolved from this plugin's own
+is defence in depth). A checked-out branch cannot weaken it (#558): the sentinel counts when the
+working copy OR the default branch's tree lists it, and the allowlist is the default branch's blob
+only, the same rule forge-lib.sh applies (_forge_default_ref: an exported FORGE_REMOTE, else the sole
+remote, else origin; then HEAD, main, master). No remote at all, not a git repository, or a project
+directory that is not git's toplevel: the working copy, silently. A remote without a readable default
+ref, or a listed allowlist blob that is not local: no allowlist and one note. Ships plugin-only: the scanners are resolved from this plugin's own
 skills/leak-guard/assets/, so a project-local copy would lose them.
 
 Self-test: `python3 scan-forge-writes.py --self-test` runs a verdict matrix against stub scanners.
@@ -72,6 +77,12 @@ NOTE_DID_NOT_RUN = "leak-guard: scan did not run"
 NOTE_TIMED_OUT = "leak-guard: scan timed out"
 NOTE_OVER_CAP = "leak-guard: body over %d bytes not scanned" % CAP
 NOTE_BINARY = "leak-guard: binary body not scanned"
+NOTE_ALLOW_DIFFERS = ("leak-guard: .leak-guard-allow in the working copy differs from the default "
+                      "branch; only the default branch's list applies")
+NOTE_NO_DEFAULT = "leak-guard: default branch not readable; no allowlist used"
+SENTINEL_GIT = ".claude/scan-forge-writes"
+ALLOW_GIT = ".leak-guard-allow"
+REMOTE_OK = re.compile(r"[A-Za-z0-9._-]+")
 
 WRITE_SUBS = ("create", "edit", "comment")
 WRAPPERS = ("command", "exec", "time", "nohup", "env", "builtin")
@@ -525,10 +536,13 @@ def run_scanner(script, args, cwd, clock):
     budget = min(PER_SCAN, clock.remaining())
     if budget <= 0:
         return None, "timeout"
+    # An inherited ALLOW_FILE would hand the private scanner a list the default branch never had,
+    # or a missing path that stops it (#558); the allowlist reaches a scanner only as --allow-file.
+    env = {k: v for k, v in os.environ.items() if k != "ALLOW_FILE"}
     try:
         p = subprocess.Popen(["bash", script] + args, cwd=cwd, stdin=subprocess.DEVNULL,
                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+                             start_new_session=True, env=env)
     except OSError:
         return None, "missing"
     try:
@@ -559,17 +573,15 @@ def parse_finding(out, tmp):
     return "?", None
 
 
-def scan_data(data, label, k, cwd, project, clock, notes):
+def scan_data(data, label, k, cwd, allow, clock, notes):
     """Scan one body or title. Returns a deny reason or None; appends fail-open notes."""
     fd, tmp = tempfile.mkstemp(prefix="fgw", suffix=".txt")
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data if data.endswith(b"\n") or not data else data + b"\n")
         base = os.path.join(assets_dir())
-        allow = os.path.join(project, ".leak-guard-allow") if project else ""
         runs = [("check-private-leaks.sh", []),
-                ("check-public-leaks.sh",
-                 ["--allow-file", allow] if allow and os.path.isfile(allow) else [])]
+                ("check-public-leaks.sh", ["--allow-file", allow] if allow else [])]
         for name, extra in runs:
             rc, out = run_scanner(os.path.join(base, name), extra + ["--", tmp], cwd, clock)
             if rc is None:
@@ -603,6 +615,92 @@ def repo_root(cwd, clock):
     except (OSError, subprocess.SubprocessError):
         pass
     return cwd
+
+
+# --- the default branch (#558) -----------------------------------------------------------------
+
+def git(project, args, clock, out=None):
+    """(rc, stdout bytes); rc None when git cannot run or the time is up. No lazy fetch, ever."""
+    budget = min(2.0, clock.remaining())
+    if budget <= 0:
+        return None, b""
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="1")
+    try:
+        r = subprocess.run(["git", "-C", project] + args, stdin=subprocess.DEVNULL,
+                           stdout=out if out is not None else subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, env=env, timeout=budget)
+    except (OSError, subprocess.SubprocessError):
+        return None, b""
+    return r.returncode, r.stdout or b""
+
+
+def default_branch(project, clock):
+    """(ref, kind): kind 'ref', 'noref' (a remote, or a failed `git remote`, but no usable ref),
+    'noremote' (none at all, or not a git repository) or 'nottop' (project is not git's toplevel)."""
+    rc, out = git(project, ["rev-parse", "--show-toplevel"], clock)
+    top = out.decode("utf-8", "replace").strip() if rc == 0 else ""
+    if not top:
+        return None, "noremote"
+    if os.path.realpath(top) != os.path.realpath(project):
+        return None, "nottop"
+    remote, names = os.environ.get("FORGE_REMOTE") or "", None
+    if not remote:
+        rc, out = git(project, ["remote"], clock)
+        names = out.decode("utf-8", "replace").splitlines() if rc == 0 else None
+        remote = "origin"
+        if names:
+            remote = names[0] if len(names) == 1 else "origin"
+    if REMOTE_OK.fullmatch(remote):
+        rc, out = git(project, ["for-each-ref", "--format=%(refname)", "refs/remotes/%s/" % remote], clock)
+        refs = out.decode("utf-8", "replace").splitlines() if rc == 0 else []
+        for want in ("HEAD", "main", "master"):
+            ref = "refs/remotes/%s/%s" % (remote, want)
+            if ref in refs:
+                return ref, "ref"
+        if names == []:
+            return None, "noremote"
+    return None, "noref"
+
+
+def listed(project, ref, path, clock):
+    """The default branch's TREE lists path (ls-tree, never cat-file -e: a partial clone lacks the
+    blob). A failed or timed-out ls-tree counts as listed, so the sentinel fails closed."""
+    rc, out = git(project, ["ls-tree", "--full-tree", "--name-only", ref, path], clock)
+    return rc != 0 or bool(out.strip())
+
+
+def same_bytes(a, b):
+    try:
+        with open(a, "rb") as x, open(b, "rb") as y:
+            return x.read() == y.read()
+    except OSError:
+        return False
+
+
+def resolve_allow(project, info, clock):
+    """(allow path or "", temp file to remove or None, [notes]), resolved once per judgement."""
+    if not project:
+        return "", None, []
+    wc = os.path.join(project, ".leak-guard-allow")
+    own = os.path.isfile(wc) and not os.path.islink(wc)
+    ref, kind = info or default_branch(project, clock)
+    if kind in ("nottop", "noremote"):
+        return (wc if os.path.isfile(wc) else ""), None, []
+    notes = []
+    if kind == "ref":
+        fd, tmp = tempfile.mkstemp(prefix="fga")
+        with os.fdopen(fd, "wb") as fh:
+            rc, _ = git(project, ["cat-file", "blob", "%s:%s" % (ref, ALLOW_GIT)], clock, out=fh)
+        if rc == 0:
+            if own and not same_bytes(wc, tmp):
+                notes.append(NOTE_ALLOW_DIFFERS)
+            return tmp, tmp, notes
+        os.unlink(tmp)
+        if not listed(project, ref, ALLOW_GIT, clock):   # first adoption: no list yet
+            if own:
+                notes.append(NOTE_ALLOW_DIFFERS)
+            return "", None, notes
+    return "", None, [NOTE_NO_DEFAULT]
 
 
 # --- the judgement -----------------------------------------------------------------------------
@@ -641,10 +739,10 @@ def gather(command, notes, depth, outer=()):
     return found
 
 
-def judge(command, cwd, project):
+def judge(command, cwd, project, info=None, clock=None):
     """Returns (deny_reason or None, [notes])."""
     notes = []
-    clock = Clock()
+    clock = clock or Clock()
     command = command.replace("\x00", "")
     try:
         writes = gather(command, notes, 0)
@@ -655,6 +753,18 @@ def judge(command, cwd, project):
     if not writes:
         return None, notes
     root = repo_root(cwd, clock)
+    allow, atmp, anotes = resolve_allow(project, info, clock)
+    try:
+        return judge_writes(writes, cwd, root, allow, clock, notes + anotes)
+    finally:
+        if atmp:
+            try:
+                os.unlink(atmp)
+            except OSError:
+                pass
+
+
+def judge_writes(writes, cwd, root, allow, clock, notes):
     k = 0
     for idx, seg, segs, hds, outer in writes:
         k += 1
@@ -722,7 +832,7 @@ def judge(command, cwd, project):
                 continue
             if not data:
                 continue
-            reason = scan_data(data, label, k, root, project, clock, notes)
+            reason = scan_data(data, label, k, root, allow, clock, notes)
             if reason:
                 return reason, notes
     return None, notes
@@ -746,8 +856,16 @@ def main():
     if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
         return 0
     project = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd")
-    if not isinstance(project, str) or not project or \
-            not os.path.exists(os.path.join(project, SENTINEL)):
+    if not isinstance(project, str) or not project:
+        return 0
+    clock, info = Clock(), None
+    on = os.path.exists(os.path.join(project, SENTINEL))
+    if not on:   # #558: the default branch's tree counts too (union), so a branch cannot delete it
+        info = default_branch(project, clock)
+        ref, kind = info
+    if not on and kind == "ref" and listed(project, ref, SENTINEL_GIT, clock):
+        on = True
+    if not on:
         return 0
     tin = payload.get("tool_input")
     command = tin.get("command") if isinstance(tin, dict) else None
@@ -757,7 +875,9 @@ def main():
     cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not os.path.isdir(cwd):
         cwd = os.getcwd()
-    reason, notes = judge(command, cwd, os.environ.get("CLAUDE_PROJECT_DIR") or "")
+    allow_project = os.environ.get("CLAUDE_PROJECT_DIR") or ""
+    reason, notes = judge(command, cwd, allow_project,
+                          info if allow_project == project else None, clock)
     if reason:
         return deny(reason)
     say(notes)

@@ -55,12 +55,12 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.13.3 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.26.2 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
+| `forge-kit-adapt` | 0.13.4 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-devops` | 0.26.5 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.36.8 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
 | `forge-kit-review` | 0.7.5 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
-| `forge-kit-security` | 0.18.6 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
+| `forge-kit-security` | 0.18.7 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
 
@@ -244,7 +244,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v97 | 7082 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | skill | `adapt` | v98 | 7082 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-adapt` | shell asset | `check-template-lockstep` | v2 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
 | `forge-kit-adapt` | shell asset | `citation-check` | v1 |  | citation-check.sh: find the ticket-standards section titles the gate cites that the project's own |
 | `forge-kit-adapt` | shell asset | `hook-unwire` | v4 |  | hook-unwire.sh: remove one hook's wiring from a project's .claude/settings.json (#564). |
@@ -252,18 +252,18 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-adapt` | shell asset | `stale-rules` | v4 |  | stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495). |
 | `forge-kit-devops` | agent | `dep-auditor` | v14 | 1397 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |
 | `forge-kit-devops` | agent | `health-check` | v14 | 1387 | Environment health check - is the development environment correctly set up on this machine, and what exactly is missing. |
-| `forge-kit-devops` | command | `ci-health` | v9 | 795 | Check all GitHub Actions workflows for failures, create P0 tickets, gate each ticket, and auto-fix safe failures. |
+| `forge-kit-devops` | command | `ci-health` | v12 | 1586 | Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate ea… |
 | `forge-kit-devops` | skill | `context-budget` | v1 | 585 | Measure, in characters, how much a project's next Claude Code session loads before the first prompt (CLAUDE.md, its tra… |
 | `forge-kit-devops` | skill | `find-dead-code` | v3 | 1123 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
-| `forge-kit-devops` | skill | `forge-host` | v50 | 3110 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
-| `forge-kit-devops` | skill | `github-to-forgejo` | v12 | 1874 | Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the forge-host adapter, CI ported to .for… |
+| `forge-kit-devops` | skill | `forge-host` | v57 | 3269 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
+| `forge-kit-devops` | skill | `github-to-forgejo` | v15 | 1897 | Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the forge-host adapter, CI ported to .for… |
 | `forge-kit-devops` | skill | `release` | v7 | 1411 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v15 | 2066 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
 | `forge-kit-devops` | skill | `usage-report` | v3 | 1270 | Report where Claude Code usage went over the last N days, read from the transcripts it already writes under ~/.claude/p… |
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
 | `forge-kit-devops` | shell asset | `close-shipped` | v6 |  | close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496). |
 | `forge-kit-devops` | shell asset | `context-budget` | v5 |  | context-budget.sh: how many characters a project's next session loads before the first prompt (#297). |
-| `forge-kit-devops` | shell asset | `forge-lib` | v55 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
+| `forge-kit-devops` | shell asset | `forge-lib` | v62 |  | forge-lib.sh: host-aware forge operations (GitHub \| Forgejo). |
 | `forge-kit-devops` | shell asset | `release-run` | v5 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v15 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
@@ -304,10 +304,10 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v12 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
 | `forge-kit-security` | agent | `api-security-tester` | v3 | 746 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `security-auditor` | v7 | 1348 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
-| `forge-kit-security` | skill | `leak-guard` | v35 | 3458 | Stop the developer's own machine leaking into a repository that is about to be made public. |
+| `forge-kit-security` | skill | `leak-guard` | v36 | 3478 | Stop the developer's own machine leaking into a repository that is about to be made public. |
 | `forge-kit-security` | skill | `owasp-api-security` | v3 | 1089 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v3 | 776 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
-| `forge-kit-security` | hook | `scan-forge-writes` | v3 |  | PreToolUse Bash guard: scan an issue or PR body and title for leaks before gh publishes them (#536). |
+| `forge-kit-security` | hook | `scan-forge-writes` | v4 |  | PreToolUse Bash guard: scan an issue or PR body and title for leaks before gh publishes them (#536). |
 | `forge-kit-security` | shell asset | `check-private-leaks` | v30 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
 | `forge-kit-security` | shell asset | `check-public-leaks` | v38 |  | The public half of the leak guard: home paths, unlisted "~/" roots and reachable addresses. |
 | `forge-kit-security` | shell asset | `leak-lib` | v1 |  | The history reader and object selection, defined once and sourced by both leak scanners (#206). |
@@ -323,7 +323,7 @@ Hand-written on purpose: this is sequencing guidance, not inventory.
 | Before writing code for a ticket | `/gate-ticket <N>` | A ticket that fails the gate costs a rewrite; one that passes carries its own GWT scenarios and test specs. |
 | While implementing | `code-reviewer` | The per-task reviewer, under the bounded iteration contract. Not `/full-review`. |
 | Before merging, or periodically | `/full-review` | Multi-lens audit. Findings are fixed in-loop, ticketed or dropped. |
-| When CI is red | `/ci-health` | Files P0 tickets for failures and auto-fixes the safe classes. |
+| When CI is red | `/ci-health` | Files P0 tickets for failures (GitHub or Forgejo) and auto-fixes the safe classes on GitHub. |
 | Periodically | "audit dependencies", "health check" | `dep-auditor` and `health-check` are agents, not slash commands: mention them in conversation. |
 | Before a session ends | `closing-sessions` | Persists durable facts and resume state; without it the next session starts cold. |
 | When a ticket is stalled on a decision | `decision-brief` | Re-gates it, costs the options, and rewrites the body so the decision can be made from it. |

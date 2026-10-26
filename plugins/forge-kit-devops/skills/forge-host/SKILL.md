@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 50 -->
+<!-- forge-host-version: 57 -->
 
 # forge-host: host-aware forge operations
 
@@ -33,14 +33,14 @@ match GitHub's REST, so callers' `jq` parsing stays identical across hosts.
 
 1. `$FORGE_HOST` env var: explicit override (e.g. in CI).
 2. A committed **`.forge.conf`** at the repo root (`assets/forge.conf.example`).
-3. The git remote URL: an authority host of `github.com` (or `ssh.github.com`) → github, decided
+3. The git remote URL (`FORGE_REMOTE`, else `origin`, else the only remote when exactly one exists, #560): an authority host of `github.com` (or `ssh.github.com`) → github, decided
    by URL form and never by a glob (#212); otherwise forgejo **iff** a Forgejo API URL is
    configured, else github.
 
 The committed `.forge.conf` is the canonical answer for a repo that has **both** remotes during
 migration: detection must not "ask" in automation. A GitHub-only repo needs no config.
 
-**The default-branch pin (v50, #517).** `FORGE_HOST`, `FORGE_API_URL`, `FORGE_REPO` and `FORGE_REMOTE` choose where the token goes, and a checked-out pull request branch can edit the file. So each of those four that comes FROM `.forge.conf` must equal the file on the default branch (`refs/remotes/<remote>/HEAD`, else `main`, else `master`; the remote is an EXPORTED `FORGE_REMOTE`, else `origin`, never the file's own). A difference is refused, rc 2, before any request, `gh` call or token read, on either host and under `FORGE_DRY_RUN=1`, in `forge_api`, `forge_api_paginate`, `forge_url_check` and `_forge_dry_url_check` (not in `forge_host`, so the adapt probe and `detect` still run). An exported value is yours and is never compared, so exporting is the override: do it only if you wrote the change. If no reference is readable (a shallow CI clone) the check is skipped with one note, and the unverified keys stay unverified. **An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed.** A first adoption with no `.forge.conf` on the default branch needs the human to export all four keys.
+**The default-branch pin (v50, #517).** `FORGE_HOST`, `FORGE_API_URL`, `FORGE_REPO` and `FORGE_REMOTE` choose where the token goes, and a checked-out pull request branch can edit the file. Since v59 (#546) `FORGE_TOKEN_ENV` and `FORGE_NO_GIT_CREDENTIALS` join them, as they choose which token or credential is sent. So each of those six that comes FROM `.forge.conf` must equal the file on the default branch (`refs/remotes/<remote>/HEAD`, else `main`, else `master`; the remote is an EXPORTED `FORGE_REMOTE`, else the only remote when exactly one exists, else `origin`, never the file's own, #542). A difference is refused, rc 2, before any request, `gh` call or token read, on either host and under `FORGE_DRY_RUN=1`, in `forge_api`, `forge_api_paginate`, `forge_url_check` and `_forge_dry_url_check` (not in `forge_host`, so the adapt probe and `detect` still run). An exported value is yours and is never compared, so exporting is the override: do it only if you wrote the change. If no reference is readable (a shallow CI clone) the check is skipped with one note, and the unverified keys stay unverified. **An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed.** Values compare as effective values (an unset `FORGE_TOKEN_ENV` is `FORGEJO_TOKEN`; dropping an opt-out the default branch sets is refused, adding one is not), and deleting the token keys from the working copy is refused too, lazily, just before the token or `git credential` is read. A first adoption with no `.forge.conf` on the default branch needs the human to export the keys it sets.
 
 ## The adapter (`assets/forge-lib.sh`)
 
@@ -52,7 +52,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_api <METHOD> <path> [body]` | authenticated REST call (the low-level primitive) |
 | `forge_issue_view <n>` / `forge_issue_list [state]` | read issues |
 | `forge_issue_comment <n> <body>` / `forge_issue_close <n>` / `forge_issue_edit <n> <body>` | act on issues (edit REPLACES the body and refuses an empty one). A body of any size travels on stdin, never as one argument (#409), and a body that cannot be built returns 2, dry run included. Silent on success; on a Forgejo 404 each prints one stderr line naming the function and the issue and returns 44 (#229; on GitHub `gh` prints its own line and the code is `gh`'s), so check the exit code, never the silence |
-| `forge_issue_create <title> <body>` | open an issue (labels omitted, added with the next op) |
+| `forge_issue_create <title> <body>` | open an issue (labels omitted, added with the next op; an exported `FORGE_BODY_FILTER` rewrites the body first, rc 111 on refusal, #541) |
 | `forge_issue_label <n> <name…>` | add labels by name (Forgejo: resolves names→IDs against repo AND org labels, all pages; REFUSE-ALL contract: any unresolvable name fails the whole call non-zero and applies nothing, so check the exit and create missing labels first) |
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination, and a stop on a page whose ids repeat the last page's, since Gitea's per-issue comments endpoint ignores `page`, #228). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
 | `forge_body_region_get <n> <region>` | the current content of one marker-delimited region of an issue body, empty and rc 0 when absent. NO prefix check: reading another component's region is not a write |
@@ -62,11 +62,12 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
 | `forge_issue_milestone_list` | EVERY open issue as `{number, milestone}`, the milestone being its title or `null`; it takes no argument, so filter by title yourself. PRs excluded on both hosts (Forgejo sends `"pull_request": null` on a plain issue, #446) |
 | `forge_issue_milestone <n> <title\|"">` | put a ticket in a milestone, or take it out (#245). Refuses an unresolvable title rather than clearing the field. The CLEAR form is host-specific and the wrong one is SILENT: GitHub takes `null`, Forgejo takes the literal `0` and treats a `null` as "no change" while returning success |
-| `forge_url_check` | silent rc 0 if the file-sourced routing keys match the default branch (the pin, below) and `FORGE_API_URL` would be accepted (https), else the refusal and rc 2. On GitHub only the pin runs, so it is not a no-op there. Reads no token (v38, #449; pin v50, #517) |
+| `forge_url_check` | silent rc 0 if the file-sourced keys match the default branch (the pin, below) and `FORGE_API_URL` would be accepted (https), else the refusal and rc 2. On GitHub only the pin runs, so it is not a no-op there. Reads no token (v38, #449; pin v50, #517) |
 | `forge_tag_exists <tag>` / `forge_release_create <tag> [title] [notes]` | releases/tags; `forge_tag_exists` shows `forge_api`'s stderr (a refusal says why, v48, #452) and on GitHub asks `git/ref/tags/<tag>` |
+| `forge_workflow_dir` | the workflow directory the host's runner reads, relative to the current directory: on Forgejo the first existing of `.forgejo/workflows`, `.gitea/workflows`, `.github/workflows`; on GitHub `.github/workflows` only. None is rc 1 and no output; an invalid `FORGE_HOST` is `forge_host`'s line and rc (v61, #552) |
 | `forge_ci_status <branch>` | `success\|failure\|cancelled\|pending\|none\|not_configured` on either host (Forgejo via the combined commit-status API; github via `gh run list`, also passing other raw GH conclusions like `timed_out` through). `cancelled` = superseded, not broken; `none` = asked, no run; `not_configured` = could not ask; an invalid `FORGE_HOST` also answers `not_configured` with rc 0, after the one host line on stderr (v29); on Forgejo, `forge_api`'s stderr passes through untouched (v37, #450), so a refusal such as an unlisted host says why instead of a bare `not_configured` (stdout is still one word, rc 0; a real HTTP failure prints its line, and `FORGE_DRY_RUN=1` its `[dry-run]` line) |
 
-**Leak scan of caller-supplied text (v53, #539; rc 110).** `forge_issue_comment`, `forge_issue_edit`, `forge_issue_create`, `forge_release_create`, `forge_body_region_set`, `forge_body_compose_preserving` and `forge_body_section_append` run the leak-guard scanners over the text they are given, before any dry-run guard, when the project opted in (`.claude/scan-forge-writes`) or `FORGE_LEAK_SCAN=1`; a finding returns 110 and sends nothing. An agent that sees 110 stops and reports it, and never sets `FORGE_LEAK_SCAN=0` itself. Everything else fails open with one stderr note. Discovery, notes and the known gaps are in `references/adopting-forge-lib.md` and leak-guard's `references/forge-writes.md`.
+**Leak scan of caller-supplied text (v53, #539; rc 110).** `forge_issue_comment`, `forge_issue_edit`, `forge_issue_create`, `forge_release_create`, `forge_body_region_set`, `forge_body_compose_preserving` and `forge_body_section_append` run the leak-guard scanners over the text they are given, before any dry-run guard, when the project opted in (`.claude/scan-forge-writes` in the working copy or on the default branch, #558) or `FORGE_LEAK_SCAN=1`; the allowlist is the default branch's; a finding returns 110 and sends nothing. An agent that sees 110 stops and reports it, and never sets `FORGE_LEAK_SCAN=0` itself. Everything else fails open with one stderr note. Discovery, notes and the known gaps are in `references/adopting-forge-lib.md` and leak-guard's `references/forge-writes.md`.
 
 **`forge_api` on an invalid host (v29, either host):** returns 2 with the one `forge_host` line on stderr and sends nothing, under `FORGE_DRY_RUN=1` too. Every writer and reader that goes through it inherits this; `forge_tag_exists` returns 2 then, meaning *could not ask*, not *tag absent*.
 
@@ -159,7 +160,7 @@ does NOT reflect Actions (those are Checks), so the github path stays on `gh run
 `.forge.conf` is trusted exactly like one you export: there is no host allowlist and no per-machine
 file (v36 to v39 had one; a stale `forge/hosts` is never read). The residual risk is accepted: a
 cloned repository's `.forge.conf` can name the server that receives your token, so run forge-kit
-commands only in repositories you trust. Since v50 (#517) the routing keys a pull request branch
+commands only in repositories you trust. Since v50 (#517, widened by #546) the keys a pull request branch
 changes are refused until they match the default branch (see the pin above), so the accepted risk
 narrows to a repository whose default branch is itself hostile. The URL must be https unless YOU export `FORGE_ALLOW_HTTP=1` (the file
 cannot), redirects are never followed, and the token reaches curl through `-K`, never argv. In

@@ -2984,6 +2984,368 @@ with tempfile.TemporaryDirectory() as td:
     p = invoke_sfw(f.proot, None, leaking, f.home, f.tmp)
     chk("sfw registered, no CLAUDE_PROJECT_DIR: allowed (fail open)", (p.returncode, p.stdout) == (0, ""))
 
+# --- #558: a branch cannot weaken the scan (the default branch's sentinel and allowlist) -------
+# The sentinel counts when the working copy OR the default branch's tree lists it; the allowlist is
+# the default branch's blob only. The remote and ref rule is forge-lib's _forge_default_ref: an
+# exported FORGE_REMOTE, else the sole remote, else origin; then HEAD, main, master. No remote at all,
+# not a git repository, or a project directory that is not git's toplevel: the working copy, silently.
+print("\n  -- scan-forge-writes: the default branch (#558) --")
+N_DIFF = ("leak-guard: .leak-guard-allow in the working copy differs from the default branch; "
+          "only the default branch's list applies")
+N_NOREF = "leak-guard: default branch not readable; no allowlist used"
+HOMEBODY = "clone to ~/forge-kit" + NL
+ALLOWHOME = "root ~/forge-kit" + NL
+FLIB = ROOT / "plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh"
+
+
+def git558(d, *a, inp="", idx=None):
+    e = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    e.pop("GIT_INDEX_FILE", None)
+    if idx:
+        e["GIT_INDEX_FILE"] = str(idx)
+    return subprocess.run(["git", "-C", str(d)] + list(a), input=inp, capture_output=True,
+                          text=True, env=e, check=True).stdout.strip()
+
+
+def repo558(d, remotes=("origin",)):
+    git558(d, "init", "-q")
+    for rm in remotes:
+        git558(d, "remote", "add", rm, "https://example.invalid/r.git")
+
+
+def defref558(d, ref="refs/remotes/origin/main", sentinel=None, allow=None, path=""):
+    """A commit at <ref> built by plumbing: sentinel None|'present'|'missing' (listed, blob absent),
+    allow None|<text>|'MISSING'. path prefixes both entries (a repository whose project is a subdir)."""
+    idx = pathlib.Path(d) / ".git/idx558"
+    idx.unlink(missing_ok=True)
+
+    def add(name, text=None, missing=None):
+        blob = missing or git558(d, "hash-object", "-w", "--stdin", inp=text)
+        extra = ["--info-only"] if missing else []
+        git558(d, "update-index", "--add", *extra, "--cacheinfo", "100644,%s,%s" % (blob, name), idx=idx)
+
+    add("README", "base\n")
+    if sentinel == "present":
+        add(path + ".claude/scan-forge-writes", "")
+    elif sentinel == "missing":
+        add(path + ".claude/scan-forge-writes", missing="2" * 40)
+    if allow == "MISSING":
+        add(path + ".leak-guard-allow", missing="3" * 40)
+    elif allow is not None:
+        add(path + ".leak-guard-allow", allow)
+    tree = git558(d, "write-tree", "--missing-ok", idx=idx)
+    idx.unlink(missing_ok=True)
+    c = git558(d, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit-tree", tree, inp="base\n")
+    git558(d, "update-ref", ref, c)
+    if ref.endswith("/main"):
+        git558(d, "symbolic-ref", ref[:-len("main")] + "HEAD", ref)
+
+
+def fx558(td, hook=SFW, *, remotes=("origin",), wc_sentinel=False, wc_allow=None, **dref):
+    """An Sfw whose project is a git repository; dref (when given) builds the default ref."""
+    f = Sfw(td, hook=hook)
+    if not wc_sentinel:
+        (f.proj / ".claude/scan-forge-writes").unlink()
+    if wc_allow is not None:
+        (f.proj / ".leak-guard-allow").write_text(wc_allow)
+    if remotes is not None:
+        repo558(f.proj, remotes)
+    if dref:
+        defref558(f.proj, **dref)
+    f.put("home.md", HOMEBODY)
+    f.put("clean.md", "fine" + NL)
+    f.put("leak3.md", "one\ntwo\nsee %s-social\n" % NAME)
+    return f
+
+
+def run558(f, body="home.md", **kw):
+    return f.run("gh issue comment 5 --body-file " + body, sentinel=True, **kw)
+
+
+DENY_HOME = sfw_reason(1, "home-root")
+
+
+def row558_branch_allow(hook, td):        # a branch-added allow entry cannot silence a home path
+    f = fx558(td, hook, wc_sentinel=True, wc_allow=ALLOWHOME, sentinel="present")
+    return sfw_denies(run558(f), DENY_HOME) and sfw_note(run558(f, "clean.md"), N_DIFF)
+
+
+def row558_deleted_sentinel(hook, td):    # the default branch commits the sentinel, the branch deleted it
+    f = fx558(td, hook, sentinel="present")
+    return sfw_denies(run558(f), DENY_HOME)
+
+
+def row558_missing_sentinel(hook, td):    # listed on the default branch, its blob not local
+    f = fx558(td, hook, sentinel="missing")
+    return sfw_denies(run558(f), DENY_HOME)
+
+
+def row558_pr_noref(hook, td):            # a remote without a default ref: no allowlist, one note
+    f = fx558(td, hook, wc_sentinel=True, wc_allow=ALLOWHOME)
+    return sfw_denies(run558(f), DENY_HOME) and sfw_note(run558(f, "clean.md"), N_NOREF)
+
+
+def row558_missing_allow(hook, td):       # the allowlist is listed but its blob is not local
+    f = fx558(td, hook, wc_allow=ALLOWHOME, sentinel="present", allow="MISSING")
+    return sfw_denies(run558(f), DENY_HOME) and sfw_note(run558(f, "clean.md"), N_NOREF)
+
+
+def row558_default_allow(hook, td):       # the default branch's list applies, read from git
+    f = fx558(td, hook, sentinel="present", allow=ALLOWHOME)
+    defref558(f.proj, ref="refs/remotes/origin/master")
+    return sfw_silent(run558(f))
+
+
+def row558_allow_differs(hook, td):       # a differing working list: one note; a symlink is not compared
+    f = fx558(td, hook, wc_allow="root ~/forge-kit/x" + NL, sentinel="present", allow=ALLOWHOME)
+    a = sfw_note(run558(f), N_DIFF)
+    (f.proj / ".leak-guard-allow").unlink()
+    os.symlink(os.devnull, f.proj / ".leak-guard-allow")
+    return a and sfw_silent(run558(f))
+
+
+def row558_noremote(hook, td):            # no remote at all: the working copy, silently
+    f = fx558(td, hook, remotes=(), wc_sentinel=True, wc_allow=ALLOWHOME)
+    return sfw_silent(run558(f))
+
+
+def row558_nottop(hook, td):              # a project directory below git's toplevel keeps the working copy
+    td = pathlib.Path(td).resolve()
+    repo558(td)
+    defref558(td, allow="root ~/data" + NL)
+    f = fx558(td / "inner", hook, remotes=None, wc_sentinel=True, wc_allow=ALLOWHOME)
+    return sfw_silent(run558(f))
+
+
+def row558_file_remote(hook, td):         # several remotes and no export: origin; an export wins
+    f = fx558(td, hook, remotes=("evil", "origin"), sentinel="present")
+    defref558(f.proj, ref="refs/remotes/evil/main")
+    (f.proj / ".forge.conf").write_text("FORGE_REMOTE=evil\n")
+    return (sfw_denies(run558(f), DENY_HOME)
+            and sfw_silent(run558(f, env_extra={"FORGE_REMOTE": "evil"})))
+
+
+def row558_sole_remote(hook, td):         # one remote, not named origin, is the baseline (#542)
+    f = fx558(td, hook, remotes=("upstream",), ref="refs/remotes/upstream/main", sentinel="present")
+    return sfw_denies(run558(f), DENY_HOME)
+
+
+def row558_ref_order(hook, td):           # HEAD, then main, then master
+    f = fx558(td, hook, sentinel="present")
+    defref558(f.proj, ref="refs/remotes/origin/master")
+    return sfw_denies(run558(f), DENY_HOME)
+
+
+def row558_allow_file_env(hook, td):      # an inherited ALLOW_FILE cannot stop the private scanner
+    f = Sfw(td, hook=hook)
+    f.put("leak3.md", "one\ntwo\nsee %s-social\n" % NAME)
+    r = f.run("gh issue comment 5 --body-file leak3.md", env_extra={"ALLOW_FILE": str(f.td / "nope")})
+    return sfw_denies(r, sfw_reason(3, "private-name"))
+
+
+def row558_bad_ref_tree(hook, td):        # an ls-tree that fails counts as listed (fails closed)
+    f = fx558(td, hook)
+    blob = git558(f.proj, "hash-object", "-w", "--stdin", inp="x\n")
+    git558(f.proj, "update-ref", "refs/remotes/origin/main", blob)
+    return sfw_denies(run558(f), DENY_HOME)
+
+
+ROWS558 = [
+    ("a branch-added allow entry cannot silence a home path", row558_branch_allow),
+    ("a sentinel the branch deleted still arms the scan", row558_deleted_sentinel),
+    ("a listed sentinel whose blob is not local arms the scan", row558_missing_sentinel),
+    ("a remote without a default ref: no allowlist, one note", row558_pr_noref),
+    ("a listed allowlist blob that is not local: no allowlist, one note", row558_missing_allow),
+    ("the default branch's allowlist applies", row558_default_allow),
+    ("a differing working allowlist: one note; a symlink is not compared", row558_allow_differs),
+    ("no remote at all: the working copy, silently", row558_noremote),
+    ("a project below git's toplevel keeps the working copy", row558_nottop),
+    ("several remotes: origin, a .forge.conf value ignored, an export wins", row558_file_remote),
+    ("a sole remote not named origin is the baseline", row558_sole_remote),
+    ("HEAD, then main, then master", row558_ref_order),
+    ("an inherited ALLOW_FILE cannot stop the private scanner", row558_allow_file_env),
+    ("a default ref whose tree cannot be listed fails closed", row558_bad_ref_tree),
+]
+for label, row in ROWS558:
+    with tempfile.TemporaryDirectory() as td:
+        chk("sfw #558: " + label, row(SFW, td))
+
+MUTANTS558 = [
+    ("the default branch never arms it", row558_deleted_sentinel,
+     "    if not on and kind == \"ref\" and listed(", "    if False and kind == \"ref\" and listed("),
+    ("the working allowlist on a readable ref", row558_allow_differs,
+     "        return tmp, tmp, notes", "        return (wc if os.path.isfile(wc) else \"\"), None, []"),
+    ("the working allowlist at first adoption", row558_branch_allow,
+     '            return "", None, notes', '            return (wc if own else ""), None, notes'),
+    ("ref order reversed", row558_ref_order,
+     'for want in ("HEAD", "main", "master"):', 'for want in ("master", "main", "HEAD"):'),
+    ("ALLOW_FILE inherited", row558_allow_file_env,
+     '    env = {k: v for k, v in os.environ.items() if k != "ALLOW_FILE"}', "    env = dict(os.environ)"),
+    ("several remotes take the first", row558_file_remote,
+     "        remote = names[0] if len(names) == 1 else \"origin\"", "        remote = names[0]"),
+    ("no remote treated as no ref", row558_noremote,
+     '            return None, "noremote"', '            return None, "noref"'),
+    ("the toplevel rule dropped", row558_nottop,
+     '        return None, "nottop"', '        pass'),
+    ("an unreadable listed allowlist read as absent", row558_missing_allow,
+     "        if not listed(project, ref, ALLOW_GIT, clock):", "        if True:"),
+    ("the differs note dropped", row558_allow_differs,
+     "            if own and not same_bytes(wc, tmp):", "            if False:"),
+    ("a symlinked working list compared", row558_allow_differs,
+     "    own = os.path.isfile(wc) and not os.path.islink(wc)", "    own = os.path.exists(wc)"),
+    ("a failed ls-tree counts as absent", row558_bad_ref_tree,
+     "    return rc != 0 or bool(out.strip())", "    return rc == 0 and bool(out.strip())"),
+    ("no ref keeps the working allowlist", row558_pr_noref,
+     "    return \"\", None, [NOTE_NO_DEFAULT]", "    return (wc if os.path.isfile(wc) else \"\"), None, []"),
+]
+for label, row, old, new in MUTANTS558:
+    with tempfile.TemporaryDirectory() as t0:
+        if SFW_SRC.count(old) != 1:
+            check("sfw #558 mutant applies once: " + label, SFW_SRC.count(old), 1)
+            continue
+        mut = sfw_mutant(t0, old, new)
+        with tempfile.TemporaryDirectory() as t2:
+            ok_mut = row(mut, t2)
+    check("sfw #558 mutant killed: " + label, ok_mut, False)
+
+# The shell gate implements the same rule, so a branch that deletes the committed sentinel still
+# reaches the script; a project with no sentinel anywhere still spawns no python.
+POISON_SRC = ("import json\n"
+              'print(json.dumps({"hookSpecificOutput":'
+              '{"hookEventName":"PreToolUse","permissionDecision":"deny",'
+              '"permissionDecisionReason":"POISON: interpreter was spawned"}}))\n')
+GATE558 = sfw_reg["args"][1]
+
+
+def gate558(f, gate=None, env_extra=None, project=None):
+    (f.proot / "hooks/scan-forge-writes.py").write_text(POISON_SRC)
+    args = [a.replace("${CLAUDE_PLUGIN_ROOT}", str(f.proot)) for a in sfw_reg["args"]]
+    if gate is not None:
+        args[1] = gate
+    env = dict(os.environ)
+    for k in ("CLAUDE_PROJECT_DIR", "FORGE_REMOTE"):
+        env.pop(k, None)
+    env.update(HOME=str(f.home), TMPDIR=str(f.tmp), CLAUDE_PROJECT_DIR=str(project or f.proj))
+    env.update(env_extra or {})
+    p = subprocess.run([sfw_reg["command"]] + args, input=json.dumps(
+        {"tool_name": "Bash", "cwd": str(f.proj), "tool_input": {"command": "gh issue comment 5 -F home.md"}}),
+        capture_output=True, text=True, env=env, cwd="/")
+    return "POISON" in p.stdout
+
+
+def g558_deleted(td, gate=None):
+    return gate558(fx558(td, sentinel="present"), gate)
+
+
+def g558_missing(td, gate=None):
+    return gate558(fx558(td, sentinel="missing"), gate)
+
+
+def g558_bad_tree(td, gate=None):
+    f = fx558(td)
+    git558(f.proj, "update-ref", "refs/remotes/origin/main", git558(f.proj, "hash-object", "-w", "--stdin", inp="x\n"))
+    return gate558(f, gate)
+
+
+def g558_sole(td, gate=None):
+    return gate558(fx558(td, remotes=("upstream",), ref="refs/remotes/upstream/main", sentinel="present"), gate)
+
+
+def g558_master(td, gate=None):
+    f = fx558(td, sentinel="present")
+    defref558(f.proj, ref="refs/remotes/origin/master")
+    return gate558(f, gate)
+
+
+def g558_export(td, gate=None):
+    f = fx558(td, remotes=("evil", "origin"), sentinel="present")
+    defref558(f.proj, ref="refs/remotes/evil/main")
+    return gate558(f, gate) and not gate558(f, gate, {"FORGE_REMOTE": "evil"})
+
+
+def g558_off(td, gate=None):      # no sentinel anywhere: no python
+    return not gate558(fx558(td, sentinel=None, allow=ALLOWHOME), gate)
+
+
+def g558_noref(td, gate=None):
+    return not gate558(fx558(td), gate)
+
+
+def g558_nottop(td, gate=None):   # a subdirectory (or an untracked folder) of a repository: working copy only
+    td = pathlib.Path(td).resolve()
+    repo558(td)
+    defref558(td, sentinel="present")
+    return not gate558(fx558(td / "inner", remotes=None), gate)
+
+
+def g558_wc(td, gate=None):
+    return gate558(fx558(td, remotes=(), wc_sentinel=True), gate)
+
+
+GATES558 = [
+    ("a sentinel the branch deleted reaches the script", g558_deleted),
+    ("a listed sentinel whose blob is not local reaches the script", g558_missing),
+    ("a default tree that cannot be listed reaches the script", g558_bad_tree),
+    ("a sole remote not named origin is the baseline", g558_sole),
+    ("HEAD, then main, then master", g558_master),
+    ("several remotes: origin; an export wins", g558_export),
+    ("no sentinel anywhere spawns no python", g558_off),
+    ("a remote without a default ref spawns no python", g558_noref),
+    ("a project below git's toplevel spawns no python", g558_nottop),
+    ("the working-copy sentinel still reaches the script", g558_wc),
+]
+for label, g in GATES558:
+    with tempfile.TemporaryDirectory() as td:
+        chk("sfw gate #558: " + label, g(td))
+for label, g, old, new in [
+    ("the gate never reads the default branch", g558_deleted, '[ -n "$o" ] && exec', '[ -n "$o" ] && exit 0; exec'),
+    ("a failed ls-tree fails open", g558_bad_tree, '2>/dev/null) || exec python3', '2>/dev/null) || exit 0; exec python3'),
+    ("the gate takes the first of several remotes", g558_export, 'r=origin', 'r=evil'),
+    ("the gate's ref order reversed", g558_master, 'for w in HEAD main master', 'for w in master main HEAD'),
+    ("the gate ignores the toplevel rule", g558_nottop, '[ "$(cd -P "$t"', '[ "$(cd -P "$P"'),
+]:
+    if GATE558.count(old) != 1:
+        check("sfw gate #558 mutant applies once: " + label, GATE558.count(old), 1)
+        continue
+    with tempfile.TemporaryDirectory() as td:
+        check("sfw gate #558 mutant killed: " + label, g(td, GATE558.replace(old, new)), False)
+
+
+# Parity: forge-lib and the hook judge one matrix the same way. The library refuses with 110 and
+# sends nothing (forge_api is stubbed); the hook denies. A home path is the probe in every row.
+def lib558(f):
+    env = dict(os.environ)
+    for k in ("FORGE_LEAK_SCAN", "FORGE_REMOTE", "FORGE_TOKEN_ENV", "GH_TOKEN", "GITHUB_TOKEN", "FORGEJO_TOKEN",
+              "ALLOW_FILE", "CLAUDE_PROJECT_DIR"):
+        env.pop(k, None)
+    env.update(HOME=str(f.home), TMPDIR=str(f.tmp), FORGE_HOST="github", FORGE_REPO="o/r",
+               FORGE_LEAK_GUARD_DIR=str(SFW_ASSETS), GIT_NO_LAZY_FETCH="1",
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    p = subprocess.run(["bash", "-c", '. "$1"; forge_api() { return 0; }; forge_issue_comment 5 "$2"',
+                        "_", str(FLIB), HOMEBODY], capture_output=True, text=True, env=env, cwd=str(f.proj))
+    return {0: "allow", 110: "refuse"}.get(p.returncode, "rc%d" % p.returncode)
+
+
+def hook558(f):
+    return "refuse" if run558(f).decision == DENY else "allow"
+
+
+PARITY558 = [
+    ("sentinel on the default branch only", "refuse", dict(sentinel="present")),
+    ("sentinel in the working copy only", "refuse", dict(wc_sentinel=True, sentinel=None)),
+    ("an allow entry the branch added", "refuse", dict(wc_sentinel=True, wc_allow=ALLOWHOME, sentinel="present")),
+    ("a remote with no default ref", "refuse", dict(wc_sentinel=True, wc_allow=ALLOWHOME)),
+    ("a listed allowlist blob that is not local", "refuse",
+     dict(wc_allow=ALLOWHOME, sentinel="present", allow="MISSING")),
+    ("no remote at all", "allow", dict(remotes=(), wc_sentinel=True, wc_allow=ALLOWHOME)),
+    ("the default branch's allowlist", "allow", dict(sentinel="present", allow=ALLOWHOME)),
+    ("no sentinel anywhere", "allow", dict(wc_allow=ALLOWHOME, sentinel=None)),
+]
+for label, want, kw in PARITY558:
+    with tempfile.TemporaryDirectory() as td:
+        f = fx558(td, **kw)
+        check("sfw #558 parity (forge-lib, hook): " + label, (lib558(f), hook558(f)), (want, want))
+
 # forge-adapt hooks.md: the scan-forge-writes row and install detail
 sfw_row = [l for l in HOOKS_MD.splitlines() if "| `scan-forge-writes.py` |" in l]
 check("hooks.md has one scan-forge-writes signal row", len(sfw_row), 1)
