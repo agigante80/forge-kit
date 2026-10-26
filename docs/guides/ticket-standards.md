@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 21 -->
+<!-- doc-rules-version: 22 -->
 
 # Ticket standards (canonical)
 
@@ -45,10 +45,10 @@ of the description do not count.
 
 **Scope:** any ticket with an observable behaviour change. The gate derives this from the
 ticket type and the areas it affects; the author never self-declares it. N/A is permitted only
-where no behaviour delta exists (a pure wireframe, a research spike), and the gate scores that
+where no behaviour delta exists (a pure wireframe, a research spike), and the gate judges that
 N/A claim like any other.
 
-**Quality bar** (each point scorable by the gate):
+**Quality bar** (each point checkable by the gate):
 
 - exactly ONE `When` per scenario; multiple When/Then pairs mean multiple behaviours, split them
 - declarative, not click-by-click imperative
@@ -130,7 +130,7 @@ the ticket author's acknowledgement of the gate, not a substitute for it.
 The ticket names the documentation it affects, in the project's documentation tree and its root
 README, or states none with a reason. **Scope is deliberately every work ticket**: this is the
 one rule where always-asked is the point. It stays passable because "none, no user-visible
-surface" is a legitimate answer, and the gate scores that claim like any other N/A, judged
+surface" is a legitimate answer, and the gate reviews that claim like any other N/A, judged
 against the ticket's own file list.
 
 ### 8. Implementation and dependency concreteness
