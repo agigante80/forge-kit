@@ -32,7 +32,8 @@ components; do not reinvent them.
 3. **Tests first (TDD).** Derive cases from the ticket's GWT and test specs. Write
    the failing test, then the implementation (superpowers:test-driven-development).
 4. **Security.** Run the security-auditor over the change. For anything touching
-   auth, input handling, or data exposure, treat findings as blocking.
+   auth, input handling, or data exposure, treat findings as blocking. If `security-auditor` is
+   not available, see `## When a review group is absent` below.
 5. **Verify.** Drive the real behavior (superpowers:verification-before-completion),
    not just the test suite. Unattended work over-verifies.
 6. **Land.** Commit on a branch in the item's worktree, open a PR whose body links
@@ -43,7 +44,7 @@ non-pass parks it with the gate's review (verdict + required changes).
 
 For an investigation, run the relevant review: full-review in its unattended mode
 (every prompt auto-resolves), or a security-auditor pass for security investigations (no
-checkpoint machinery). An investigation implements nothing, so nothing is fixed: every
+checkpoint machinery). If either is not available, see `## When a review group is absent` below. An investigation implements nothing, so nothing is fixed: every
 Critical, High and Medium finding is ticketed, and each Low gets a ticket or a drop by the
 `forge-kit-review:review-lows` skill <!-- rule: review-lows v2 -->; a Low that skill would fix is
 ticketed instead. When that skill is not installed, file no Low and list every Low untriaged in the
@@ -54,6 +55,16 @@ and over-cap tickets are listed unfiled in the report. When the project has
 so every ticket that would have been filed is listed unfiled in the report, in the same severity
 order, and the maintainer grants the ones worth filing in the morning. Write the findings down,
 then let a later cycle gate and implement the tickets.
+
+## When a review group is absent
+
+The review and security steps use agents and a command from two other groups: `code-reviewer` and
+`full-review` (`forge-kit-review`), and `security-auditor` (`forge-kit-security`). A marketplace install
+of governance declares both groups; a bare clone may lack one, and an update can leave one unresolved.
+When the agent or command a step needs is not available, do not skip the step and do not substitute
+another reviewer: park the item (the reason, naming the missing group, into `decisions.md`, and an entry
+in the report's deferred-decisions section), open no PR for it, and continue with the next item.
+`review-lows` is the one that does not park: its absence has its own rule above.
 
 ## Repeated reviews: chain the rounds, and stop where the contract says stop
 

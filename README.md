@@ -31,7 +31,7 @@ not you use anything else.
 
 ```bash
 claude plugin marketplace add agigante80/forge-kit
-claude plugin install forge-kit-governance@forge-kit    # brings forge-kit-devops with it
+claude plugin install forge-kit-governance@forge-kit    # brings forge-kit-devops, -review and -security with it
 ```
 
 Restart Claude Code, then gate your first ticket with `/gate-ticket <N>`.
@@ -57,10 +57,10 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 |---|---|---|---|
 | `forge-kit-adapt` | 0.13.3 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.25.1 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.36.4 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
-| `forge-kit-review` | 0.7.5 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
+| `forge-kit-governance` | 0.36.8 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
+| `forge-kit-review` | 0.7.5 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
-| `forge-kit-security` | 0.18.4 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
+| `forge-kit-security` | 0.18.6 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
 
@@ -73,9 +73,14 @@ gate themselves on something the project owns: `roadmap-phases` does nothing wit
 and the overnight guard arms only when a run's manifest exists. Installing a group is not a
 commitment to using it everywhere.
 
-**Two groups declare a dependency.** `forge-kit-governance` and `forge-kit-roadmap` both need
-`forge-lib.sh` from `forge-kit-devops`, and both declare it, so a fresh install pulls it in and says
-so. If you are UPDATING a group you already had, see the upgrade note under
+**Three groups declare a dependency.** `forge-kit-governance` and `forge-kit-roadmap` both need
+`forge-lib.sh` from `forge-kit-devops`. `forge-kit-governance` also declares `forge-kit-security`,
+because the ticket gate's security lens dispatches `security-auditor`, and `forge-kit-review`,
+because `working-overnight` dispatches `code-reviewer` and `full-review`. `forge-kit-review`
+declares `forge-kit-security` too, because `/full-review` dispatches `security-auditor`. A fresh
+install pulls each in and says so. Governance reads as not live in a project where
+`forge-kit-review` is absent, because the plugin-active check requires every declared dependency
+to be installed and enabled. If you are UPDATING a group you already had, see the upgrade note under
 [Keeping up to date](#keeping-up-to-date).
 
 ## Scenarios
@@ -120,7 +125,7 @@ document, because it is canonical rather than a summary,
 **Given** groups installed some weeks ago,
 **when** you run `forge-adapt drift`,
 **then** each installed component is compared against the library by version marker, a stale
-marketplace checkout is reported, a local copy of an agent, skill or command the live plugin now provides is reported as shadowed (or kept) instead of refreshed, every place still carrying a retired rule (an adapted copy, your
+marketplace checkout is reported, every place still carrying a retired rule (an adapted copy, your
 instruction files, memory) is listed by file and line, an http forge URL lists the workflow steps that need
 `FORGE_ALLOW_HTTP`, and nothing is written,
 **and** acting on it means `marketplace update` then `update` per group, because registration tracks
@@ -261,13 +266,13 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | shell asset | `release-run` | v5 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v15 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v87 | 5118 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
+| `forge-kit-governance` | agent | `ticket-gate` | v88 | 5118 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v10 | 306 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo). |
 | `forge-kit-governance` | skill | `closing-sessions` | v9 | 1191 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |
 | `forge-kit-governance` | skill | `decision-brief` | v6 | 1479 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
-| `forge-kit-governance` | skill | `ticket-gate-reference` | v14 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
-| `forge-kit-governance` | skill | `working-overnight` | v15 | 756 | Run governed, unattended overnight work. |
+| `forge-kit-governance` | skill | `ticket-gate-reference` | v16 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
+| `forge-kit-governance` | skill | `working-overnight` | v16 | 816 | Run governed, unattended overnight work. |
 | `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
 | `forge-kit-governance` | hook | `forge-write-consent` | v4 |  | Deny forge comments and new tickets unless the user's own prompt granted them (#565). |
 | `forge-kit-governance` | hook | `masked-exit-advisory` | v3 |  | PostToolUse Bash advisory: a check's exit code is masked by the filter it is piped into (#420). |
@@ -284,7 +289,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | agent | `code-reviewer` | v16 | 1730 | Elite code review expert for security vulnerabilities, correctness bugs, performance, and maintainability. |
 | `forge-kit-review` | agent | `code-simplifier` | v4 | 459 | Simplifies and refines recently modified code for clarity, consistency, and maintainability while preserving all functi… |
 | `forge-kit-review` | agent | `coding-standards-auditor` | v5 | 1312 | Consolidates coding standards that are scattered across CLAUDE.md, CONTRIBUTING.md, STYLE_GUIDE.md or docs/ into one ca… |
-| `forge-kit-review` | command | `full-review` | v15 | 3980 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings are fixed in… |
+| `forge-kit-review` | command | `full-review` | v16 | 3985 | Pre-merge or periodic multi-lens audit (architecture, security, performance, testing, standards); findings are fixed in… |
 | `forge-kit-review` | skill | `review-lows` | v1 | 261 | Canonical rule for review findings below Medium: fix, ticket or drop, in the same batch. |
 | `forge-kit-review` | skill | `review-sizing` | v2 | 889 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |
@@ -296,10 +301,10 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-roadmap` | shell asset | `review-mechanics` | v1 |  | The mechanical half of /phase review steps 1 to 4, runnable without the agent harness (#272). |
 | `forge-kit-roadmap` | shell asset | `roadmap-lib` | v13 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v12 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
-| `forge-kit-security` | agent | `api-security-tester` | v3 | 675 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
+| `forge-kit-security` | agent | `api-security-tester` | v3 | 746 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |
 | `forge-kit-security` | agent | `security-auditor` | v7 | 1348 | Expert security auditor specializing in DevSecOps, comprehensive cybersecurity, and compliance frameworks. |
 | `forge-kit-security` | skill | `leak-guard` | v35 | 3458 | Stop the developer's own machine leaking into a repository that is about to be made public. |
-| `forge-kit-security` | skill | `owasp-api-security` | v1 | 1012 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
+| `forge-kit-security` | skill | `owasp-api-security` | v3 | 1089 | OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for R… |
 | `forge-kit-security` | skill | `privacy-regime` | v3 | 776 | Name this project's privacy regime and its concrete obligations, so the ticket gate asks the RIGHT compliance questions… |
 | `forge-kit-security` | hook | `scan-forge-writes` | v3 |  | PreToolUse Bash guard: scan an issue or PR body and title for leaks before gh publishes them (#536). |
 | `forge-kit-security` | shell asset | `check-private-leaks` | v30 |  | The private half of the leak guard: project and folder NAMES that must not become public. |
@@ -342,16 +347,23 @@ claude plugin update forge-kit-governance     # move an installed group onto it
 `claude plugin update` takes one group at a time, so repeat it for each group you have. Restart
 Claude Code afterwards; the CLI says so on each update.
 
-**Upgrade note for `forge-kit-governance` and `forge-kit-roadmap`.** Both declare a dependency on
-`forge-kit-devops`, and a dependency is resolved when a plugin is INSTALLED, never when it is
-updated. If you already had one of them and you update it, it will report `failed to load` until you
-run this once:
+**Upgrade note for `forge-kit-governance`, `forge-kit-review` and `forge-kit-roadmap`.** Governance
+declares `forge-kit-devops`, `forge-kit-review` and `forge-kit-security`; review declares
+`forge-kit-security`; roadmap declares `forge-kit-devops`. `claude plugin update` alone does NOT
+install a dependency a group newly declared. Measured on Claude Code 2.1.310, the updated plugin
+reported `failed to load: Dependency ... is not installed`, and merely starting a session did not
+fix it. Running `/reload-plugins` in an open session resolves and installs the missing
+dependencies, or you can install each one yourself:
 
 ```bash
 claude plugin install forge-kit-devops@forge-kit
+claude plugin install forge-kit-review@forge-kit
+claude plugin install forge-kit-security@forge-kit
 ```
 
-The error names that command, so you will not have to remember it.
+The error names the missing plugin. Claude Code's plugin-dependency documentation says marketplace
+auto-update and re-running `claude plugin install` resolve them as well. The measurement used an
+in-place directory marketplace and `-p` mode, and did not cover auto-update.
 
 **On a manual install**, `git -C ~/forge-kit pull` is the equivalent. Clone with
 `git clone https://github.com/agigante80/forge-kit ~/forge-kit`, then run forge-adapt from your

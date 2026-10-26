@@ -41,6 +41,13 @@ expect "and is REGISTERED" "register" "$(verdict)"
 expect "and the group comes from the path" "forge-kit-governance" "$(group)"
 contains "owns no user config" "$out" "and the reason is stated for the user"
 
+# #549/#559: the stack-neutral security agent and skill are shipped as REGISTER entries, never
+# copied into a project (they carry no per-project value any more).
+for c in agents/api-security-tester.md skills/owasp-api-security/SKILL.md; do
+  run "$ROOT/plugins/forge-kit-security/$c" --group forge-kit-security
+  expect "the real $c is REGISTERED" "register" "$(verdict)"
+done
+
 run "$D/a.md" --group other-group
 expect "an explicit --group wins over the path" "other-group" "$(group)"
 

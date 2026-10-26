@@ -54,7 +54,7 @@ P3' has a one-request black-box witness: ben's valid token reads `/admin/users` 
 
 Pre-registered reading of one outcome: if an Opus run misses P3' after the reference test has proven
 its witness, it is recorded as a possible tester-agent gap
-(`plugins/forge-kit-security/agents/api-security-tester.md` lines 36 to 38) and a follow-up is filed;
+(`plugins/forge-kit-security/agents/api-security-tester.md`, the Authorization categories 2 and 3) and a follow-up is filed;
 no role moves either way.
 
 ## The run matrix

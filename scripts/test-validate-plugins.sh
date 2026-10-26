@@ -235,6 +235,133 @@ sed -i '/^| sk |/d' "$T/tree/docs/guides/model-tiers.md"; row sk knowledge; run
 expect "the same keys on a knowledge row fail" 1 "$rc"
 contains "sk: model 'sonnet' outside role 'knowledge'" "$out" "and name the component and its range"
 
+echo "== a cross-group dispatch needs a declared dependency (#551, #555) =="
+# Check 5 proved a dispatched agent exists somewhere in the tree and never asked which group ships
+# it. `/full-review` and the ticket gate's security lens each dispatched an agent from another group
+# with that group undeclared, so on a marketplace install of the dispatcher alone the agent is
+# absent. Each case builds the pair from scratch: beta owns the agent `scout`, alpha dispatches it.
+A="$T/tree/plugins/forge-kit-alpha"; B="$T/tree/plugins/forge-kit-beta"; G="$T/tree/plugins/forge-kit-gamma"
+agent_in() {  # agent_in <group-dir> <name>
+  mkdir -p "$1/agents"
+  printf -- '---\nname: %s\ndescription: d\nmodel: inherit\n---\n<!-- %s-version: 1 -->\n' "$2" "$2" > "$1/agents/$2.md"
+  row "$2" judgment
+}
+cmd_in() {  # cmd_in <group-dir> <name> <body>
+  mkdir -p "$1/commands"
+  printf -- '<!-- %s-version: 1 -->\n%s\n' "$2" "$3" > "$1/commands/$2.md"
+  row "$2" knowledge
+}
+ref_in() {  # ref_in <group-dir> <body>: a reference file, which carries no marker
+  mkdir -p "$1/skills/sk/references"
+  printf -- '%s\n' "$2" > "$1/skills/sk/references/lens.md"
+}
+DEP='"dependencies": ["forge-kit-beta@forge-kit"]'
+USE='Use agent type: `scout`. Runs after the critic.'
+DISP='Dispatch with subagent_type: "scout".'
+
+tree; plugin forge-kit-alpha "$DEP"; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$USE"
+run
+expect "a declared cross-group 'Use agent type:' dispatch passes" 0 "$rc"
+
+tree; plugin forge-kit-alpha '"dependencies": []'; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$USE"
+run
+expect "an undeclared cross-group 'Use agent type:' dispatch fails" 1 "$rc"
+contains "dispatches agent 'scout', owned by forge-kit-beta, but forge-kit-alpha does not declare forge-kit-beta@forge-kit in dependencies" "$out" "naming the dispatcher's group, the agent, the owner and the missing declaration"
+contains "skills/sk/references/lens.md" "$out" "and the file that dispatches"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; agent_in "$B" scout; cmd_in "$A" run "$DISP"
+run
+expect "an undeclared subagent_type dispatch in a command fails" 1 "$rc"
+contains "commands/run.md dispatches agent 'scout', owned by forge-kit-beta" "$out" "and names the command"
+
+tree; plugin forge-kit-alpha "$DEP"; plugin forge-kit-beta; agent_in "$B" scout; cmd_in "$A" run "$DISP"; ref_in "$A" "$USE"
+run
+expect "both spellings declared pass together" 0 "$rc"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; agent_in "$A" scout; ref_in "$A" "$USE"; cmd_in "$A" run2 "$DISP"
+run
+expect "a same-group dispatch needs no self-dependency" 0 "$rc"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; ref_in "$A" 'Use agent type: `ghost`.'
+run
+expect "a 'Use agent type:' naming an agent no group ships fails" 1 "$rc"
+contains "dispatches subagent_type 'ghost', which no agent in this tree provides" "$out" "with check 5's message, now also for that spelling"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; ref_in "$A" 'Use agent type: general-purpose.'
+run
+expect "general-purpose stays exempt in the 'Use agent type:' spelling" 0 "$rc"
+
+echo "== an agent two groups ship is reported, not silently resolved (#551) =="
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; plugin forge-kit-gamma "$DEP"
+agent_in "$A" scout; agent_in "$B" scout; cmd_in "$G" run "$DISP"
+run
+expect "a dispatch of an agent two groups ship fails" 1 "$rc"
+contains "agent 'scout' is provided by more than one group (forge-kit-alpha, forge-kit-beta)" "$out" "naming both owners"
+
+echo "== the owner is matched whole, never as a name prefix (#551) =="
+# beta ships `scout-lite`, gamma ships `scout`; alpha dispatches `scout` and declares only gamma.
+# A prefix match would name beta as the owner and demand a dependency alpha rightly does not have.
+tree; plugin forge-kit-alpha '"dependencies": ["forge-kit-gamma@forge-kit"]'; plugin forge-kit-beta; plugin forge-kit-gamma
+agent_in "$B" scout-lite; agent_in "$G" scout; ref_in "$A" "$USE"
+cat > "$T/tree/.claude-plugin/marketplace.json" <<'M'
+{ "name": "forge-kit", "owner": { "name": "probe" },
+  "plugins": [
+    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "a" },
+    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "b" },
+    { "name": "forge-kit-gamma", "source": "./plugins/forge-kit-gamma", "description": "c" } ] }
+M
+run
+expect "a prefix-named neighbour resolves to the right owner" 0 "$rc"
+
+echo "== a frontmatter agent: is a dispatch for the dependency check too (#279, #551) =="
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; agent_in "$B" scout
+mkdir -p "$A/skills/fk"; row fk knowledge
+printf -- '---\nname: fk\ndescription: d\ncontext: fork\nagent: scout\n---\n<!-- fk-version: 1 -->\n' > "$A/skills/fk/SKILL.md"
+run
+expect "an undeclared frontmatter agent: from another group fails" 1 "$rc"
+contains "skills/fk/SKILL.md dispatches agent 'scout', owned by forge-kit-beta" "$out" "and names the skill"
+plugin forge-kit-alpha "$DEP"; run
+expect "and passes once the owner is declared" 0 "$rc"
+
+echo "== a plugin-qualified dispatch is read as the agent, never as the plugin (#551) =="
+# `forge-kit-beta:scout` names the agent `scout` in group beta. Read as its prefix it would be the
+# plugin name, which no agent carries, and check 5 would fail a correct dispatch with a message about
+# an agent nobody wrote.
+QUSE='Use agent type: `forge-kit-beta:scout`.'
+QSUB='Dispatch with subagent_type: "forge-kit-beta:scout".'
+tree; plugin forge-kit-alpha "$DEP"; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$QUSE"; cmd_in "$A" run "$QSUB"
+run
+expect "a declared qualified dispatch in both spellings passes" 0 "$rc"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$QUSE"
+run
+expect "an undeclared qualified 'Use agent type:' dispatch fails" 1 "$rc"
+contains "dispatches agent 'scout', owned by forge-kit-beta" "$out" "naming the agent, not the qualifier"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta; agent_in "$B" scout; cmd_in "$A" run "$QSUB"
+run
+expect "an undeclared qualified subagent_type dispatch fails" 1 "$rc"
+contains "dispatches agent 'scout', owned by forge-kit-beta" "$out" "likewise"
+
+echo "== the declaration must name the owner, in this marketplace (#551) =="
+# A substring or prefix match would accept either of these as declaring forge-kit-beta.
+tree; plugin forge-kit-alpha '"dependencies": ["forge-kit-beta@elsewhere"]'; plugin forge-kit-beta; agent_in "$B" scout; ref_in "$A" "$USE"
+run
+expect "a dependency on the owner in a foreign marketplace does not count" 1 "$rc"
+contains "does not declare forge-kit-beta@forge-kit in dependencies" "$out" "and the message names the declaration it wanted"
+
+tree; plugin forge-kit-alpha '"dependencies": ["forge-kit-beta-extra@forge-kit"]'; plugin forge-kit-beta; plugin forge-kit-beta-extra
+cat > "$T/tree/.claude-plugin/marketplace.json" <<'M'
+{ "name": "forge-kit", "owner": { "name": "probe" },
+  "plugins": [
+    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "a" },
+    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "b" },
+    { "name": "forge-kit-beta-extra", "source": "./plugins/forge-kit-beta-extra", "description": "c" } ] }
+M
+agent_in "$B" scout; ref_in "$A" "$USE"
+run
+expect "a dependency on a longer-named neighbour does not count" 1 "$rc"
+
 echo "== a scripts/ copy of a shipped asset fails (#231) =="
 # The leak guard was installed into this repository the way it is installed into any other, as a
 # scripts/ copy, in the one tree that ships the same file as an asset. The copy drifted the first

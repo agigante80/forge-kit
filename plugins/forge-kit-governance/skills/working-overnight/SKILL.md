@@ -3,7 +3,7 @@ name: working-overnight
 description: Run governed, unattended overnight work. Pulls from a defined work source (gated tickets, tickets to gate, or investigations like full/security reviews that create tickets), implements safe work as branch-plus-PR without ever merging, defers you-only decisions instead of guessing, and writes a morning report. Use when the user says to work overnight, run unattended, keep going while they are away, or asks to set up autonomous overnight work. Driven by /loop; not a single unbounded session.
 ---
 
-<!-- working-overnight-version: 15 -->
+<!-- working-overnight-version: 16 -->
 
 # Working overnight
 
@@ -16,6 +16,11 @@ cycle from halting on a question; it is not the engine.
 Read `references/safety.md` (the tier model and the never-list) and
 `references/pipeline.md` (the per-task governance pipeline) before the first cycle.
 They are binding.
+
+**Depends on `forge-kit-review`, for `code-reviewer` and `full-review`.**
+**Depends on `forge-kit-security`, for `security-auditor`.**
+Install both alongside on a bare clone; a marketplace install resolves them from governance's declared
+dependencies. When one is absent mid-run, follow `## When a review group is absent` in `references/pipeline.md`.
 
 ## Two modes, told apart by the manifest
 
@@ -70,7 +75,7 @@ Do this with the user present. Never start autonomous work until they confirm.
 Delegate the heavy work to subagents so their tool output does not fill this cycle's
 context, and name each one's model, since an omitted one inherits this session's: a
 `general-purpose` implementer takes `model: sonnet`, and review goes to `code-reviewer`,
-whose own frontmatter sets its model.
+whose own frontmatter sets its model. If `code-reviewer` is not available, park the item (`## When a review group is absent` in `references/pipeline.md`).
 
 ## Wind-down
 

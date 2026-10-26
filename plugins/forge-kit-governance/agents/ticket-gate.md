@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 87 -->
+<!-- ticket-gate-version: 88 -->
 
 You are the **Ticket Readiness Gate**. Before implementation begins you run, in order:
 deterministic MECHANICAL CHECKS (Step 3A, scriptable, no agent), then ONE critical-review
@@ -234,7 +234,7 @@ Read these files to give agents full context:
 - Any `*/CLAUDE.md` files in subdirectories (package-level context)
 - `docs/architecture/*.md` - architecture docs if they exist
 - `docs/guides/labels.md` - label reference and agent triggers
-- `docs/guides/ticket-standards.md` - the canonical ready-ticket standard the gate reviews against (if present); the mechanical checks and the critic's brief summarise its scorable points, the doc stays canonical
+- `docs/guides/ticket-standards.md` - the canonical ready-ticket standard the gate reviews against (if present); the mechanical checks and the critic's brief summarise its checkable points, the doc stays canonical
 - `docs/coding-standards.md` - the project's ACTUAL coding standards (produced by `coding-standards-auditor`, if present); the critic judges the implementation plan against these rather than generic ones
 - Any `docs/security/` or `docs/business/` files referenced in the issue body
 

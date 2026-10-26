@@ -2375,6 +2375,22 @@ gate_pin "$ROLES_PHRASE" "$WORK/gate-roles-mut.md" && bad "#213: MUTANT survived
 sed 's/is `BLOCKED - RUN_FAILED` before any write/is ignored/' "$GATE" > "$WORK/gate-stop-mut.md"
 cmp -s "$GATE" "$WORK/gate-stop-mut.md" && bad "#213: the stop mutant did not apply"
 gate_pin "$STOP_PHRASE" "$WORK/gate-stop-mut.md" && bad "#213: MUTANT survived: the stop pin passes with the clause gone" || ok "#213: MUTANT: dropping the stop clause fails the pin"
+# #563: the security lens must not be skipped silently. The rule is prose in lens-definitions.md (the
+# ratcheted ticket-gate.md cannot carry it), so each clause is pinned and mutated. gate_pin squeezes
+# whitespace, so a re-wrapped line does not break a pin.
+LENS="$ROOT/plugins/forge-kit-governance/skills/ticket-gate-reference/references/lens-definitions.md"
+lens_clause() {  # lens_clause <label> <phrase> <sed expr>
+  gate_pin "$2" "$LENS" && ok "#563: lens-definitions.md pins: $1" || bad "#563: lens-definitions.md lost: $1"
+  sed "$3" "$LENS" > "$WORK/lens-mut.md"
+  cmp -s "$LENS" "$WORK/lens-mut.md" && bad "#563: the '$1' mutant did not apply"
+  gate_pin "$2" "$WORK/lens-mut.md" && bad "#563: MUTANT survived: '$1' pin passes with the clause changed" || ok "#563: MUTANT: changing '$1' fails its pin"
+}
+lens_clause "qualified name tried first" 'trying `forge-kit-security:security-auditor` first, then the bare `security-auditor`' 's/trying `forge-kit-security:security-auditor` first/trying `security-auditor` first/'
+lens_clause "foreground dispatch" 'and dispatch it in the foreground' 's/and dispatch it in the foreground/and dispatch it in the background/'
+lens_clause "BLOCKED RUN_FAILED when neither resolves" 'BLOCKED - RUN_FAILED: security lens agent unavailable: neither `forge-kit-security:security-auditor` nor `security-auditor` resolves; install the `forge-kit-security` plugin and re-run' 's/security lens agent unavailable/security lens skipped/'
+lens_clause "no review comment on the stop" 'and post no review comment. Never' 's/^review comment\. Never/review comment optional. Never/'
+lens_clause "no stand-in agent or self-review" "Never substitute another agent or review the lens in the critic's own context" 's/Never substitute another agent/Substitute another agent if needed/'
+lens_clause "bad lens result is RUN_FAILED" 'is an error, is empty, or lacks a `verdict` of PASS or NEEDS-WORK is the same RUN_FAILED' 's/lacks a `verdict` of PASS or NEEDS-WORK is the same RUN_FAILED/lacks a verdict is advisory/'
 # The mechanics are resolved before 0c runs: the preamble sits in Step 0, ahead of Step 0c.
 pre="$(grep -nF '> "$D/mech"' "$GATE" | head -1 | cut -d: -f1)"; zc="$(grep -n '^#### 0c\.' "$GATE" | head -1 | cut -d: -f1)"
 [ -n "$pre" ] && [ -n "$zc" ] && [ "$pre" -lt "$zc" ] && ok "#213: \$MECH is resolved before Step 0c" || bad "#213: Step 0c comes before the \$MECH preamble ($pre, $zc)"

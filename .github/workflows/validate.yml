@@ -478,6 +478,14 @@ jobs:
       - name: No retired rule in the tracked tree
         run: bash scripts/check-retired-rules.sh
 
+      - name: Agent stack-term guard tests
+        run: bash scripts/test-check-agent-stack-terms.sh
+
+      # Issue #549: a shipped agent is a prompt that runs verbatim in any project, so it must not
+      # name one project's stack. Skills are excluded on purpose: they may carry translated examples.
+      - name: No stack term in a shipped agent
+        run: bash scripts/check-agent-stack-terms.sh
+
       - name: Review-rule guard tests
         run: bash scripts/test-check-review-rule.sh
 

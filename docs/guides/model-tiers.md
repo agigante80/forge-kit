@@ -369,6 +369,9 @@ fail on both servers and decide nothing.
   (one high, one medium) that do not exist. The pair was re-run on the correct range, which is the one in
   the table, but the observation stands: the stronger tier recovered from a malformed input and the weaker
   one did not.
+- **The `api-security-tester` measurements predate its stack-neutral wording (#549).** Every run above
+  used the earlier text, which named one framework, validator and test runner. The role's categories are
+  unchanged, but no run has measured the rewritten prompt, so read those rows as the old wording's result.
 - Headless sessions only, and one repository.
 
 ## Measuring a dispatch

@@ -3,11 +3,15 @@ name: owasp-api-security
 description: OWASP API Security Top 10 testing patterns, injection payloads, auth bypass vectors, and security test generation for REST APIs. Use when writing security tests, reviewing API endpoints for vulnerabilities, or auditing input validation.
 ---
 
-<!-- owasp-api-security-version: 1 -->
+<!-- owasp-api-security-version: 3 -->
 
 # OWASP API Security Testing
 
 Comprehensive security testing knowledge base for REST APIs, aligned with OWASP API Security Top 10:2023 and OWASP ASVS 5.0.
+
+The code examples below are TypeScript illustrations (Fastify-style `app.inject`, Vitest). Translate them
+to the project's own framework, validator and test runner; the endpoints, field names and codes are
+placeholders.
 
 ## When to Use This Skill
 
@@ -29,7 +33,7 @@ Comprehensive security testing knowledge base for REST APIs, aligned with OWASP 
 // Access another user's resource
 const res = await app.inject({
   method: 'GET',
-  url: '/members/OTHER_USER_ID',
+  url: '/users/OTHER_USER_ID',
   headers: { cookie: userASession },
 })
 expect(res.statusCode).toBe(403) // or 404 - never 200
@@ -37,7 +41,7 @@ expect(res.statusCode).toBe(403) // or 404 - never 200
 // Modify another user's resource
 const res = await app.inject({
   method: 'PUT',
-  url: '/zones/OTHER_USER_ZONE_ID',
+  url: '/resources/OTHER_USER_RESOURCE_ID',
   headers: { cookie: userASession },
   payload: { name: 'hijacked' },
 })
@@ -54,21 +58,21 @@ expect(res.statusCode).toBe(403)
 **Test patterns:**
 ```typescript
 // No auth header
-const res = await app.inject({ method: 'GET', url: '/members/me' })
+const res = await app.inject({ method: 'GET', url: '/users/me' })
 expect(res.statusCode).toBe(401)
 
 // Expired/invalid session
 const res = await app.inject({
   method: 'GET',
-  url: '/members/me',
-  headers: { cookie: 'better-auth.session_token=expired123' },
+  url: '/users/me',
+  headers: { cookie: 'session_token=expired123' },
 })
 expect(res.statusCode).toBe(401)
 
 // Malformed auth header
 const res = await app.inject({
   method: 'GET',
-  url: '/members/me',
+  url: '/users/me',
   headers: { authorization: 'Bearer <script>alert(1)</script>' },
 })
 expect(res.statusCode).toBe(401)
@@ -77,14 +81,14 @@ expect(res.statusCode).toBe(401)
 ### API3 - Broken Object Property Level Authorization
 
 **Test patterns:**
-- Mass assignment: send extra fields not in Zod schema → must be stripped
+- Mass assignment: send extra fields not in the request schema → must be stripped
 - Response filtering: sensitive fields (passwordHash, tokens) never in response
 ```typescript
 const res = await app.inject({
   method: 'PUT',
-  url: '/members/me',
+  url: '/users/me',
   headers: { cookie: session },
-  payload: { subscriptionTier: 'PREMIUM_PLUS', role: 'admin' },
+  payload: { tier: 'premium', role: 'admin' },
 })
 // Verify tier/role unchanged in DB
 ```
@@ -99,9 +103,9 @@ const res = await app.inject({
 // Oversized payload
 const res = await app.inject({
   method: 'POST',
-  url: '/heartbeat',
+  url: '/items',
   headers: { cookie: session },
-  payload: { appVersion: 'x'.repeat(1_000_000) },
+  payload: { name: 'x'.repeat(1_000_000) },
 })
 expect(res.statusCode).toBe(400) // or 413
 ```
@@ -109,29 +113,29 @@ expect(res.statusCode).toBe(400) // or 413
 ### API5 - Broken Function Level Authorization
 
 **Test patterns:**
-- Free-tier user accessing premium endpoints
+- A caller without the required plan or role accessing a gated endpoint
 - Regular user accessing admin endpoints
 ```typescript
 const res = await app.inject({
   method: 'POST',
-  url: '/health-events',
-  headers: { cookie: freeUserSession },
-  payload: validHealthEvent,
+  url: '/gated-items',
+  headers: { cookie: unprivilegedSession },
+  payload: validPayload,
 })
 expect(res.statusCode).toBe(403)
-expect(res.json().code).toBe('SUBSCRIPTION_REQUIRED')
+expect(res.json().code).toBe('PLAN_REQUIRED') // the project's own code
 ```
 
 ### API6 - Unrestricted Access to Sensitive Business Flows
 
-- SOS alert creation rate limiting
-- Test alert rate limiting (3/hour)
-- Guardian invitation spam prevention
+- Rate limiting on flows that trigger notifications, invitations or other costly side effects
+- Per-user caps on actions that are cheap to script and expensive to absorb (signups, invites, exports)
+- Abuse prevention on any flow whose automated use would harm the business or other users
 
 ### API7 - Server-Side Request Forgery (SSRF)
 
-- Webhook URLs not user-controlled in this architecture
-- Validate no URL parameters accepted that trigger server-side fetches
+- SSRF applies whenever users supply URLs (webhooks, avatars, imports, link previews)
+- Validate any user-supplied URL against an allowlist and block private and link-local address ranges
 
 ### API8 - Security Misconfiguration
 
@@ -146,10 +150,9 @@ const res = await app.inject({
 })
 expect(res.json()).not.toHaveProperty('stack')
 expect(res.json()).toHaveProperty('error')
-expect(res.json()).toHaveProperty('code')
 
 // HTTP methods: reject unsupported methods
-const res = await app.inject({ method: 'TRACE', url: '/heartbeat' })
+const res = await app.inject({ method: 'TRACE', url: '/items' })
 expect([404, 405]).toContain(res.statusCode)
 ```
 
@@ -161,12 +164,12 @@ expect([404, 405]).toContain(res.statusCode)
 
 ### API10 - Unsafe Consumption of APIs
 
-- Webhook signature verification (Stripe, Apple, Google)
+- Webhook signature verification (payment, identity and platform providers)
 - External API response validation before processing
 
 ## Injection Payload Library
 
-### SQL Injection (via Zod bypass attempts)
+### SQL Injection (via validation-bypass attempts)
 ```typescript
 const sqlPayloads = [
   "' OR '1'='1",
@@ -237,7 +240,7 @@ describe('ENDPOINT security', () => {
   let otherUser: TestUser
 
   beforeAll(async () => {
-    app = await buildApp({ enableEmailPassword: true })
+    app = await buildApp()
     user = await createTestUser(app)
     otherUser = await createTestUser(app)
   })
@@ -254,7 +257,7 @@ describe('ENDPOINT security', () => {
       const res = await app.inject({
         method: 'METHOD',
         url: '/path',
-        headers: { cookie: 'better-auth.session_token=invalid' },
+        headers: { cookie: 'session_token=invalid' },
       })
       expect(res.statusCode).toBe(401)
     })
@@ -295,7 +298,7 @@ describe('ENDPOINT security', () => {
   })
 
   describe('error response format', () => {
-    it('returns { error, code } without stack traces', async () => {
+    it('returns the project error shape without stack traces', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/path',
@@ -305,7 +308,6 @@ describe('ENDPOINT security', () => {
       if (res.statusCode >= 400) {
         const body = res.json()
         expect(body).toHaveProperty('error')
-        expect(body).toHaveProperty('code')
         expect(body).not.toHaveProperty('stack')
         expect(body).not.toHaveProperty('stackTrace')
       }
