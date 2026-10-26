@@ -3039,6 +3039,34 @@ for d in "$S557"/*.md; do
 done
 [ "$par557" = 0 ] && [ "$npar557" -ge 15 ] && ok "#557: the renamed titles match citation-check's citation-aliased rows on $npar557 docs"
 
+# Review round 2: every crow site is reached. A template with no role labels sends all four rows to
+# their "no section matched" form, and a one-line scenario body to the GWT one-line form; each of
+# those five sites reverting to plain row must be noticed.
+printf '%s\n' 'name: Plain' 'description: no role labels' 'body:' '  - type: markdown' '    attributes:' \
+  '      value: "<!-- template-version: 6 -->"' '  - type: textarea' '    attributes:' '      label: Summary' > "$WORK/plain557.yml"
+nr557() { # nr557 <script> <body> <template> -> the TSV, reading DOC557
+  bash "$1" --body "$2" --template "$3" --tpl-version 6 --current-tpl-version 6 --labels "backend,feature" --standards-doc "$DOC557" 2>/dev/null
+}
+R="$(nr557 "$SCRIPT" "$NOSEC557" "$WORK/plain557.yml")"
+for c in gwt unit_tests e2e_tests docs_impact; do
+  has557 "the no-section-matched $c row is renamed" "$(evid "$R" "$c")" "no section matched"
+  has557 "and carries the kit title note" "$(evid "$R" "$c")" "$KS557"
+done
+has557 "the one-line scenario gwt row is renamed" "$(evid "$(nr557 "$SCRIPT" "$O1" "$TPLDIR/feature.yml")" gwt)" "one-line scenario form; the critic must judge section \"GWT cases\" $KS557"
+for t in 'gwt referred "no section matched|gwt|NOSEC|plain' 'gwt referred "one-line scenario|gwt|O1|feature' \
+         'unit_tests referred "no section matched|unit_tests|NOSEC|plain' 'e2e_tests referred "no section matched|e2e_tests|NOSEC|plain' \
+         'docs_impact referred "no section matched|docs_impact|NOSEC|plain'; do
+  IFS='|' read -r pat c b tp <<< "$t"
+  sed -e "s/^\( *\)crow $pat/\1row $pat/" "$SCRIPT" > "$WORK/mut557r.sh"
+  if cmp -s "$SCRIPT" "$WORK/mut557r.sh"; then bad "#557: crow-site mutant did not apply: $pat"; continue; fi
+  [ "$b" = NOSEC ] && b="$NOSEC557" || b="$O1"
+  [ "$tp" = plain ] && tp="$WORK/plain557.yml" || tp="$TPLDIR/feature.yml"
+  case "$(evid "$(nr557 "$WORK/mut557r.sh" "$b" "$tp")" "$c")" in
+    *"$KS557"*) bad "#557: mutant SURVIVED: the crow site '$pat' reverts to row" ;;
+    *) ok "#557: mutant killed: the crow site '$pat' reverts to row" ;;
+  esac
+done
+
 # #557 mutants: each breaks ONE rule in a copy of the script; a row above must notice.
 mut557() { # mut557 <description> <sed expr> <body> <doc> <check> <substring the real output has>
   sed -e "$2" "$SCRIPT" > "$WORK/mut557.sh"
