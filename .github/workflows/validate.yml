@@ -439,6 +439,11 @@ jobs:
       - name: Dispatch-cost measurement tests
         run: bash scripts/test-measure-dispatch-cost.sh
 
+      # Issue #566: usage-report.py reads every transcript under ~/.claude/projects, so a truncated
+      # line, a non-UTF-8 byte or a doubled count is what a real machine hits on the first run.
+      - name: Usage-report tests
+        run: bash scripts/test-usage-report.sh
+
       # Issue #281: refresh copies this script's lines into its report verbatim, so the line shape,
       # the key order and an empty stdout on refusal are a contract.
       - name: Tier-diff tests
