@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# usage-report-version: 2
+# usage-report-version: 3
 """usage-report.py: where Claude Code usage went, read from the transcripts it already writes (#566).
 
 Usage: usage-report.py [--days N] [--until YYYY-MM-DD] [--root DIR] [--top N] [--json]
@@ -52,7 +52,9 @@ named by its project name and the rest of its root-relative path, so the slug's 
 reaches stderr no more than stdout. Exit 2 with NOTHING on stdout when the root is not a
 directory, when no turn falls inside the window (a root holding only <synthetic> records has
 nothing to report, and the message names the window), or on a usage error, a window outside the
-calendar included. Standard library only, Python 3.9+.
+calendar included. A refusal names the root as it was typed (`~/.claude/projects` by default),
+never expanded, so the home path is on stderr only when the user typed it. Standard library only,
+Python 3.9+.
 """
 import argparse
 import json
@@ -102,7 +104,8 @@ def parse_args(argv):
         a.start = a.end - timedelta(days=a.days)
     except OverflowError:
         p.error("--days and --until must describe a window inside the calendar")
-    a.root = os.path.expanduser(a.root or os.path.join("~", ".claude", "projects"))
+    a.shown_root = a.root or os.path.join("~", ".claude", "projects")  # as typed, for messages
+    a.root = os.path.expanduser(a.shown_root)
     return a
 
 
@@ -270,7 +273,7 @@ def group(turns, key, make):
 def report(turns, opened, args):
     ts = list(turns.values())
     if not ts:
-        raise Refuse(f"no turn in the {args.days}-day window ending {args.until} under {args.root}")
+        raise Refuse(f"no turn in the {args.days}-day window ending {args.until} under {args.shown_root}")
     total_context = sum(context(t) for t in ts)
     total_output = sum(t["output"] for t in ts)
     big = [t for t in ts if context(t) >= BIG_TURN]
@@ -374,7 +377,7 @@ def main(argv):
     try:
         args = parse_args(argv)
         if not os.path.isdir(args.root):
-            raise Refuse(f"{args.root} is not a directory")
+            raise Refuse(f"{args.shown_root} is not a directory")
         turns, opened = read_turns(args.root, args.start, args.end)
         rep = report(turns, opened, args)
     except Refuse as e:

@@ -25,8 +25,11 @@ hasnt() { if grep -qF -- "$2" <<< "$3"; then bad "$1 ('$2' present)"; else ok "$
 
 [ -f "$SRC" ] || { echo "missing script: $SRC"; exit 1; }
 
-T=$(cd -P "$(mktemp -d)" && pwd -P); trap 'rm -rf "$T"' EXIT
-[ -n "$T" ] || { echo "mktemp -d failed (TMPDIR=${TMPDIR:-unset})"; exit 1; }
+# mktemp's result is checked BEFORE the cd: with CDPATH set, `cd -P ""` succeeds into a CDPATH
+# entry (the repository, for a leading colon), and the EXIT trap would then remove it.
+D=$(mktemp -d) || { echo "mktemp -d failed (TMPDIR=${TMPDIR:-unset})"; exit 1; }
+T=$(cd -P "$D" && pwd -P); trap 'rm -rf "$T"' EXIT
+[ -n "$T" ] || { echo "cannot resolve $D"; exit 1; }
 # A far-from-UTC zone, so a build that buckets by local day changes the day table (the local-day
 # mutant); the report must not depend on it, and one row compares two zones.
 export HOME="$T/home" TZ=Pacific/Kiritimati; mkdir -p "$HOME"
@@ -217,6 +220,10 @@ expect "the report is the same in every local timezone" "$kiri" "$out"
 run "${WIN[@]}" --top 2
 expect "--top cuts the session table" "by session (top 2)" "$(line "by session")"
 expect "to two rows" 2 "$(awk '/^by session/{f=1; next} f && /^s[0-9]/' <<< "$out" | wc -l | tr -d ' ')"
+# The other half of the straddling rule: c3 is in the NEXT day's window, with its last line's usage.
+run --root "$FX" --days 1 --until 2026-03-11 --json
+expect "a turn whose last line is past midnight is the next day's, counted once" "1 20 2026-03-11" \
+  "$(j 'd["summary"]["turns"]') $(j 'd["summary"]["context"]') $(j '" ".join(r["day"] for r in d["by_day"])')"
 
 echo "== the project name rule: nothing above the project, never a username =="
 FX2="$T/root2"
@@ -298,6 +305,9 @@ expect "the default root is ~/.claude/projects and the default window 7 days" "1
 got=$(j 'd["summary"]["window_end"]')
 if [ "$got" = "$before" ] || [ "$got" = "$after" ]; then ok "the default window ends at the end of today, UTC"
 else bad "the default window ends at the end of today, UTC (expected '$before' or '$after', got '$got')"; fi
+run --days 1 --until 2026-03-01
+expect "a refusal under the default root exits 2" 2 "$rc"
+has "naming the root as typed" "under ~/.claude/projects" "$err"; hasnt "never expanded" "$HOME" "$err"
 
 echo "== mutants: each wrong accounting method loses an assertion =="
 . "$HERE/mutant-crash.sh"

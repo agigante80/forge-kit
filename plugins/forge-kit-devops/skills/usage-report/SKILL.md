@@ -3,7 +3,7 @@ name: usage-report
 description: Report where Claude Code usage went over the last N days, read from the transcripts it already writes under ~/.claude/projects, as context re-sent per turn split by cache tier and grouped by project, by model with main and subagent rows apart, by session with its growth, and by day. Use when the user asks "where did my Claude usage go", "why is my usage so high", "which project or model is eating my quota", "which sessions grew the most", or wants the figure behind a usage warning without a dashboard or an API key.
 ---
 
-<!-- usage-report-version: 2 -->
+<!-- usage-report-version: 3 -->
 
 # Usage report
 
@@ -35,15 +35,16 @@ ending with it. `--top N` sizes the session table (default 15).
 | Outcome | Stdout | Exit |
 |---|---|---|
 | at least one turn in the window | the summary line and four tables, or one JSON object | 0 |
-| the root is not a directory, or no turn falls in the window | nothing; stderr names the root and the window | 2 |
+| the root is not a directory, or no turn falls in the window | nothing; stderr names the root as typed (`~/.claude/projects` by default) and the window | 2 |
 | a bad option (`--days 0`, an unknown flag, a positional, a window outside the calendar) | nothing; stderr holds the usage error | 2 |
 
 A line that is not UTF-8, not JSON or nested past the interpreter's recursion limit is skipped
 with one stderr warning naming the file and the line, and the report is otherwise normal: a
 transcript still being written ends in a truncated line, and that must never be a crash. The
 warning names the file by its project name and the rest of its root-relative path, never by the
-slug, so stderr shows no more of the home path than stdout does. A file whose mtime is before the
-window start is not opened at all, so a long history costs nothing.
+slug, and a refusal names the root as it was typed rather than expanded, so the home path is on
+stderr only when the user typed it. A file whose mtime is before the window start is not opened
+at all, so a long history costs nothing.
 
 ## What it prints
 

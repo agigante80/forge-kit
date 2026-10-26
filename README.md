@@ -56,7 +56,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
 | `forge-kit-adapt` | 0.12.30 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.26.1 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
+| `forge-kit-devops` | 0.26.2 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.36.4 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
 | `forge-kit-review` | 0.7.4 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
@@ -253,7 +253,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | skill | `github-to-forgejo` | v12 | 1874 | Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the forge-host adapter, CI ported to .for… |
 | `forge-kit-devops` | skill | `release` | v7 | 1411 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v15 | 2066 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
-| `forge-kit-devops` | skill | `usage-report` | v2 | 1251 | Report where Claude Code usage went over the last N days, read from the transcripts it already writes under ~/.claude/p… |
+| `forge-kit-devops` | skill | `usage-report` | v3 | 1270 | Report where Claude Code usage went over the last N days, read from the transcripts it already writes under ~/.claude/p… |
 | `forge-kit-devops` | hook | `block-legacy-host-push` | v3 |  | forge-kit PreToolUse hook: deny `git push` to an archived legacy host after a forge migration (e.g. GitHub to self-host… |
 | `forge-kit-devops` | shell asset | `close-shipped` | v6 |  | close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496). |
 | `forge-kit-devops` | shell asset | `context-budget` | v5 |  | context-budget.sh: how many characters a project's next session loads before the first prompt (#297). |
