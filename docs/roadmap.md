@@ -291,6 +291,12 @@ plan: docs/plans/what-the-last-phase-turned-up.md
 
 Closed 2026-10-13, unattended, **re-shaped** (#478, #479, #480, #485, #489, #486, #487, #488, #490, #491, #493, #492). The three planned bugs it could finish landed, and fixing the gate's own scripts turned up ten more, most of one family: a checker reading a fenced example, a CRLF file or a quoted YAML label as something it is not. #492 was filed by another session and taken in. The remainder went to the backlog, each parked on the review loop's trip wire: #484 (needs an interactive probe) and #494 (the gate's author-section insert splices at an inline heading substring).
 
+## Phase: Twenty-six open tickets
+state: open
+plan: docs/plans/twenty-six-open-tickets.md
+
+Opened 2026-10-26, unattended, on a brief to implement everything. One session filed #540 to #564 on 2026-10-16 while reviewing downstream installs, all gated and none in a phase; #566 came later. Four worktree streams take them in by family.
+
 ## Phase: Backlog
 state: backlog
 
