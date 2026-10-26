@@ -2960,6 +2960,18 @@ AUTH557="$(mkbody feature "e557au.md" "" "" "" 'None, see section "Documentation
 E="$(ev557 "$AUTH557" "$ONE557" docs_impact)"
 has557 "only the first citation, the kit's, is renamed" "$E" "section \"Documentation impact\" $KS557 \"Documentation currency\") applies"
 has557 "a citation quoted in the author text is left as written" "$E" 'see section "Documentation currency" there'
+# Review round 1: a row that is NOT one of the nine kit citations keeps the author's text, even when
+# that text quotes a kit title as `section "..."`; an unterminated quote is no exception.
+UP557="$(mkbody feature "e557up.md" "" 'Per section "Unit test specs": `tests/foo.test.ts` covers parse()')"
+DP557="$(mkbody feature "e557dp.md" "" "" "" 'Updates `README.md`, as section "Documentation currency" requires')"
+UF557="$(mkbody feature "e557uf.md" "" 'see section "Unit test specs')"
+for t in "$UP557|unit_tests" "$DP557|docs_impact" "$UF557|unit_tests"; do
+  IFS='|' read -r b c <<< "$t"
+  E="$(ev557 "$b" "$DOC557" "$c")"
+  case "$E" in *'section "'*) ;; *) bad "#557: fixture sanity, the $c author text quotes no section ($E)"; continue ;; esac
+  [ "$E" = "$(ev557 "$b" "" "$c")" ] && ok "#557: author text quoting a kit title in the $(outcome "$(run "$b" feature --standards-doc "")" "$c") $c row is not rewritten" \
+    || bad "#557: author text in the $c row was rewritten ($E)"
+done
 CR557="$(sd557 crlf.md "### Documentation impact\r\n$AL557\r\n")"
 has557 "a CRLF doc is read as its LF copy" "$(ev557 "$D510" "$CR557" docs_impact)" "section \"Documentation impact\" $KS557"
 HOST557="$(sd557 hostile.md '### Docs & \\\\1 $(id) `x`\n<!-- citation-alias: "Documentation currency" = "Docs & \\\\1 $(id) `x`" -->\n')"
@@ -3036,7 +3048,8 @@ mut557() { # mut557 <description> <sed expr> <body> <doc> <check> <substring the
   case "$got" in *"$6"*) bad "#557: mutant SURVIVED: $1" ;; *) ok "#557: mutant killed: $1" ;; esac
 }
 DCUR557="section \"Documentation currency\" applies"
-mut557 "the aliases are never applied" '/^  \[ -z "\$ALIASES" \] || ev=/d' "$D510" "$DOC557" docs_impact "$KS557"
+mut557 "the aliases are never applied" '/^  \[ -z "\$ALIASES" \] || ev="\$(alias_ev "\$ev")"$/d' "$D510" "$DOC557" docs_impact "$KS557"
+mut557 "every row is renamed, not only the nine" 's/^  printf .%s\\t%s\\t%s\\n. "\$1" "\$2" "\$ev"$/  [ -z "$ALIASES" ] || ev="$(alias_ev "$ev")"; &/' "$UP557" "$DOC557" unit_tests 'Per section "Unit test specs"'
 mut557 "the doc is never read" 's/^if \[ -n "\$STANDARDS_DOC" \] && \[ -f "\$STANDARDS_DOC" \]; then$/if false; then/' "$D510" "$DOC557" docs_impact "$KS557"
 mut557 "a real heading no longer wins" 's/^      if (!(t in H) \&\& (first\[t\] in H))/      if (first[t] in H)/' "$D510" "$S557/real.md" docs_impact "$DCUR557"
 mut557 "the target need not exist" 's/^      if (!(t in H) \&\& (first\[t\] in H))/      if (!(t in H))/' "$D510" "$S557/notarget.md" docs_impact "$DCUR557"

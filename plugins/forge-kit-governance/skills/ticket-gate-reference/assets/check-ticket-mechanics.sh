@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ticket-mechanics-version: 48
+# check-ticket-mechanics-version: 49
 #
 # Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149).
 #
@@ -109,9 +109,11 @@
 # marker, a fence is a line opening with ``` or ~~~ after any indent and the same character closes
 # it, a heading is `#` to `######` with a leading `N. ` and a trailing parenthetical dropped, an
 # alias applies only when its target is a heading of the doc and its title is not, and the first
-# alias for a title wins. Acknowledgement lines are not read. Only the FIRST citation in a row is
-# rewritten, the kit's own, never a quotation in the author text after it, and it is spliced as
-# literal text. A missing, unreadable or marker-free doc leaves every row byte for byte as before.
+# alias for a title wins. Acknowledgement lines are not read. Only the nine rows written with
+# `crow` are renamed, and only their FIRST citation, the kit's own: author text is never rewritten,
+# not after that citation and not in any other row, whatever it quotes (review round 1 found a pass
+# row rewriting a section title the author had quoted). The rename is spliced as literal text. A
+# missing, unreadable or marker-free doc leaves every row byte for byte as before.
 #
 # Emits TSV to stdout: <check>\t<outcome>\t<evidence>, outcome in pass|fail|warn|na|referred.
 # Exit 0 whenever the checks ran, so a FAIL is data, and so is a version it cannot parse. Exit
@@ -418,8 +420,14 @@ is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 row() {
   local ev
   ev="$(printf '%s' "$3" | tr -d '\r' | tr '\n\t' '  ' | cut -c1-1000)"
-  [ -z "$ALIASES" ] || ev="$(alias_ev "$ev" | cut -c1-1000)"   # the bound holds after a rename too
   printf '%s\t%s\t%s\n' "$1" "$2" "$ev"
+}
+# A row whose evidence OPENS with the kit's own literal citation of a section title (#557). Only these
+# nine rows are renamed: any other row's evidence may quote author text, which is never rewritten.
+crow() {
+  local ev="$3"
+  [ -z "$ALIASES" ] || ev="$(alias_ev "$ev")"
+  row "$1" "$2" "$ev"
 }
 
 # Everything under a `## <label>` or `### <label>` heading, up to the next heading at the same
@@ -885,7 +893,7 @@ without_oneliner_headers() {
 }
 ONE_LINE='^[[:space:]]*([-*][[:space:]]+)?([*][*]|__|[*]|_)?(Positive|Negative)([*][*]|__|[*]|_)?[.:].*(^|[^A-Za-z])Given([^A-Za-z]|$).*(^|[^A-Za-z])When([^A-Za-z]|$).*(^|[^A-Za-z])Then([^A-Za-z]|$)'
 if [ -z "$SCENARIOS_LABEL" ]; then
-  row gwt referred "no section matched Given/When/Then; the critic must judge section \"GWT scenarios\" unaided"
+  crow gwt referred "no section matched Given/When/Then; the critic must judge section \"GWT scenarios\" unaided"
 else
   SCENARIOS="$(section_of "$SCENARIOS_LABEL")"
   if ! has_content "$SCENARIOS"; then
@@ -950,7 +958,7 @@ else
     # behind the refer, since both outcomes are `referred`.
     if [ "$pos_count" -eq 0 ] && [ "$neg_count" -eq 0 ] && [ -z "$one_line" ] && looks_na "$SCENARIOS"; then
       if long_enough "$SCENARIOS"; then
-        row gwt referred "scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $(first_line "$SCENARIOS")"
+        crow gwt referred "scenarios claim N/A; legitimate only where section \"GWT scenarios\" finds no behaviour delta: $(first_line "$SCENARIOS")"
       else
         row gwt fail "scenarios claim a bare N/A with no reason: $(first_line "$SCENARIOS")"
       fi
@@ -962,7 +970,7 @@ else
       elif missing_then="$(then_missing "$judged")"; [ "$missing_then" -gt 0 ]; then
         row gwt fail "a Negative block has no Then line$(then_note "$missing_then")"
       else
-        row gwt referred "one-line scenario form; the critic must judge section \"GWT scenarios\" unaided: $(first_line "$one_line")"
+        crow gwt referred "one-line scenario form; the critic must judge section \"GWT scenarios\" unaided: $(first_line "$one_line")"
       fi
     elif [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
       row gwt fail "needs at least one Positive and one Negative block (found $pos_count positive, $neg_count negative)"
@@ -1004,7 +1012,7 @@ fi
 # claim read as a named path and PASSED a check that must refer it. So did prose like "and/or".
 
 if [ -z "$UNIT_LABEL" ]; then
-  row unit_tests referred "no section matched unit tests; the critic must judge section \"Unit test specs\" unaided"
+  crow unit_tests referred "no section matched unit tests; the critic must judge section \"Unit test specs\" unaided"
 else
   UNIT="$(section_of "$UNIT_LABEL")"
   # N/A is tested BEFORE a path, here and in the E2E branch below, so the two cannot disagree:
@@ -1012,7 +1020,7 @@ else
   if ! has_content "$UNIT"; then
     row unit_tests "$(empty_outcome "$UNIT_LABEL")" "no content in $UNIT_LABEL"
   elif looks_na "$UNIT"; then
-    row unit_tests referred "unit tests claim N/A; legitimate only where section \"Unit test specs\" is out of scope: $(first_line "$UNIT")"
+    crow unit_tests referred "unit tests claim N/A; legitimate only where section \"Unit test specs\" is out of scope: $(first_line "$UNIT")"
   elif names_path "$UNIT"; then
     row unit_tests pass "$(first_line "$UNIT")"
   else
@@ -1021,7 +1029,7 @@ else
 fi
 
 if [ -z "$E2E_LABEL" ]; then
-  row e2e_tests referred "no section matched E2E; the critic must judge section \"E2E test specs\" unaided"
+  crow e2e_tests referred "no section matched E2E; the critic must judge section \"E2E test specs\" unaided"
 else
   E2E="$(section_of "$E2E_LABEL")"
   if ! has_content "$E2E"; then
@@ -1030,7 +1038,7 @@ else
     # Whether the ticket touches UI at all (section "E2E test specs"), is Step 3B's call, so a reasoned N/A is
     # referred rather than passed, and an unreasoned one fails.
     if long_enough "$E2E"; then
-      row e2e_tests referred "E2E N/A with a reason; section \"E2E test specs\" says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
+      crow e2e_tests referred "E2E N/A with a reason; section \"E2E test specs\" says a UI-touching ticket cannot claim it: $(first_line "$E2E")"
     else
       row e2e_tests fail "E2E N/A with no reason given"
     fi
@@ -1044,7 +1052,7 @@ fi
 # --- check 6: documentation impact present ----------------------------------------------
 # Presence only. Whether a "none" reason HOLDS is section "Documentation currency", judged by the critic.
 if [ -z "$DOCS_LABEL" ]; then
-  row docs_impact referred "no section matched documentation impact; section \"Documentation currency\" is the critic's"
+  crow docs_impact referred "no section matched documentation impact; section \"Documentation currency\" is the critic's"
 else
   DOCS="$(section_of "$DOCS_LABEL")"
   if ! has_content "$DOCS"; then
@@ -1053,7 +1061,7 @@ else
     row docs_impact pass "$(first_line "$DOCS")"
   elif grep -qiE 'none|no doc' <<< "$DOCS"; then
     if long_enough "$DOCS"; then
-      row docs_impact referred "claims no docs needed; section \"Documentation currency\" applies to every work ticket: $(first_line "$DOCS")"
+      crow docs_impact referred "claims no docs needed; section \"Documentation currency\" applies to every work ticket: $(first_line "$DOCS")"
     else
       row docs_impact fail "claims no docs needed with no reason given"
     fi
