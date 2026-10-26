@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# citation-check-version: 3
+# citation-check-version: 4
 # citation-check.sh: find the ticket-standards section titles the gate cites that the project's own
 # doc does not have (#519).
 #
@@ -20,6 +20,9 @@
 #              <project>/docs/guides/ticket-standards.md.
 #
 # WHICH COPY OF A CITING FILE IS READ, first that exists:
+#   0. for check-ticket-mechanics only, the project's scripts/check-ticket-mechanics.sh, where the
+#      installer copies it and the copy the project runs (#556); a symlink there, or a symlinked
+#      scripts/ directory, is ignored;
 #   1. the project's own copy under .claude/ (same path below agents/ or skills/); a symlink there is
 #      ignored, the project may be untrusted;
 #   2. the live plugin copy: an entry of <config dir>/plugins/installed_plugins.json for the file's
@@ -147,7 +150,18 @@ def registry_roots(group):
                 out.append(e["installPath"])
     return out
 
-def candidates(group, rel, shared):
+# The citers a project runs from its own scripts/ directory: the installer copies
+# check-ticket-mechanics.sh verbatim to scripts/check-ticket-mechanics.sh (#556).
+PROJECT_SCRIPT = {"check-ticket-mechanics"}
+
+def candidates(label, group, rel, shared):
+    if label in PROJECT_SCRIPT:
+        sp = os.path.join(project, "scripts", os.path.basename(rel))
+        # A symlinked copy, or one below a symlinked scripts/ directory, is skipped although the
+        # gate's own `[ -f ]` test would follow the link and run it: the project tree is untrusted
+        # and a link may point outside it, so the next candidate is read instead.
+        if not os.path.islink(sp) and not os.path.islink(os.path.dirname(sp)):
+            yield sp
     if rel.startswith(("agents/", "skills/")):
         p = os.path.join(project, ".claude", rel)
         if not os.path.islink(p):
@@ -181,7 +195,7 @@ ACKNOWLEDGED = re.compile(r'^\s*<!--\s*citation-acknowledged:\s*"([^"]+)"\s*-->\
 UNTERMINATED = re.compile(r'^\s*<!--\s*citation-(?:alias|acknowledged):(?!.*-->)')
 titles = []
 for label, group, rel, shared in CITING:
-    found = next((p for p in candidates(group, rel, shared) if os.path.isfile(p)), None)
+    found = next((p for p in candidates(label, group, rel, shared) if os.path.isfile(p)), None)
     if found is None:
         if label == "ticket-gate":
             not_scanned("ticket-gate", "not installed")

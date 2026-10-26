@@ -55,7 +55,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.12.33 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.12.34 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.25.0 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.36.4 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
 | `forge-kit-review` | 0.7.4 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review, which adds the bounded iteration contract (round accounting, trip wire, bad-fix injection) that… |
@@ -241,7 +241,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 |---|---|---|---|---:|---|
 | `forge-kit-adapt` | skill | `adapt` | v94 | 7126 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-adapt` | shell asset | `check-template-lockstep` | v2 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
-| `forge-kit-adapt` | shell asset | `citation-check` | v3 |  | citation-check.sh: find the ticket-standards section titles the gate cites that the project's own |
+| `forge-kit-adapt` | shell asset | `citation-check` | v4 |  | citation-check.sh: find the ticket-standards section titles the gate cites that the project's own |
 | `forge-kit-adapt` | shell asset | `retired-paths` | v1 |  | retired-paths.sh: find a file forge-kit RETIRED and an earlier install left behind, and remove it |
 | `forge-kit-adapt` | shell asset | `stale-rules` | v4 |  | stale-rules.sh: find a RETIRED forge-kit rule where earlier installs and sessions left it (#495). |
 | `forge-kit-devops` | agent | `dep-auditor` | v13 | 1388 | Dependency health auditor - unused dependencies, redundant transitive duplicates, unmaintained upstream libraries, and… |

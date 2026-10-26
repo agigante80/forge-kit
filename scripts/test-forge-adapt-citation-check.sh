@@ -550,7 +550,66 @@ sc_rename_kitfence() {
   has "$(CAND "E2E test specs" "$INT")" "the fenced kit heading does not unbalance the gap"
 }
 
-sc_match; sc_source; sc_kit; sc_nodoc; sc_usage; sc_ack; sc_ack_stale; sc_ack_fence; sc_alias; sc_ack_precedence; sc_markers_safe; sc_rename; sc_rename_kitfence
+sc_mech_copy() {
+  local SP="$P/scripts/check-ticket-mechanics.sh"
+  echo "== the project's scripts/ copy of check-ticket-mechanics is read first (#556) =="
+  fresh; gate "GWT scenarios"; put "$SP" 'x "section \\"Zebra rules\\""\n'; doc "### 1. GWT scenarios"; run
+  has "citation-missing${TAB}\"Zebra rules\"" "a title only the scripts/ copy cites is reported"
+  has "summary${TAB}2${TAB}1${TAB}0" "and counted with the gate's title"; expect "exit 1" 1 "$rc"
+  fresh; gate "GWT scenarios"; put "$SP" 'x "section \\"GWT scenarios\\""\n'; doc "### 1. GWT scenarios"; run
+  expect "a scripts/ copy citing a present title adds no row" 0 "$(nrows citation-missing)"
+  has "summary${TAB}1${TAB}0${TAB}0" "and the title is counted once"; expect "exit 0" 0 "$rc"
+
+  echo "== it ranks ahead of the registry and the kit =="
+  fresh; gate "GWT scenarios"; put "$SP" 'x "section \\"Project title\\""\n'
+  put "$KIT/$MECH_REL" 'x "section \\"Kit title\\""\n'
+  put "$T/cache/gov/skills/ticket-gate-reference/assets/check-ticket-mechanics.sh" 'x "section \\"Plugin title\\""\n'
+  put "$CFG/plugins/installed_plugins.json" "{\"plugins\":{\"forge-kit-governance@forge-kit\":[{\"scope\":\"user\",\"installPath\":\"$T/cache/gov\"}]}}"
+  doc "### 1. GWT scenarios" "### 2. Project title"; run
+  expect "titles only the registry and kit copies cite are not reported" 0 "$(nrows citation-missing)"
+  has "summary${TAB}2${TAB}0${TAB}0" "only the scripts/ copy's title is checked"; expect "exit 0" 0 "$rc"
+  doc "### 1. GWT scenarios" "### 2. Kit title" "### 3. Plugin title"; run
+  has "citation-missing${TAB}\"Project title\"" "the scripts/ copy's title is the one checked"
+  expect "and only that one" 1 "$(nrows citation-missing)"; expect "exit 1" 1 "$rc"
+
+  echo "== a symlink, a symlinked scripts/ directory or a directory is not the project's copy =="
+  fresh; gate "GWT scenarios"; put "$T/elsewhere.sh" 'x "section \\"Linked title\\""\n'
+  mkdir -p "$P/scripts"; ln -s "$T/elsewhere.sh" "$SP"
+  put "$KIT/$MECH_REL" 'x "section \\"Kit title\\""\n'; doc "### 1. GWT scenarios" "### 2. Kit title"; run
+  expect "a symlinked scripts/ copy is ignored" 0 "$(nrows citation-missing)"
+  has "summary${TAB}2${TAB}0${TAB}0" "and the kit's title is checked instead"
+  fresh; gate "GWT scenarios"; put "$T/outside/check-ticket-mechanics.sh" 'x "section \\"Linked title\\""\n'
+  ln -s "$T/outside" "$P/scripts"
+  put "$KIT/$MECH_REL" 'x "section \\"Kit title\\""\n'; doc "### 1. GWT scenarios" "### 2. Kit title"; run
+  expect "a file below a symlinked scripts/ directory is ignored" 0 "$(nrows citation-missing)"
+  has "summary${TAB}2${TAB}0${TAB}0" "and the kit's title is checked instead"
+  fresh; gate "GWT scenarios"; mkdir -p "$SP"
+  put "$KIT/$MECH_REL" 'x "section \\"Kit title\\""\n'; doc "### 1. GWT scenarios"; run
+  has "citation-missing${TAB}\"Kit title\"" "a directory at the path falls through to the kit"
+  expect "nothing on stderr" "" "$err"; expect "exit 1" 1 "$rc"
+
+  echo "== an empty or unreadable scripts/ copy =="
+  fresh; gate "GWT scenarios"; put "$SP" ''; put "$KIT/$MECH_REL" 'x "section \\"Kit title\\""\n'
+  doc "### 1. GWT scenarios"; run
+  expect "an empty scripts/ copy adds no title" 0 "$(nrows citation-missing)"
+  has "summary${TAB}1${TAB}0${TAB}0" "and still wins over the kit"; expect "exit 0" 0 "$rc"
+  if [ "$(id -u)" != 0 ]; then
+    fresh; gate "GWT scenarios"; put "$SP" 'x "section \\"Zebra rules\\""\n'; chmod 000 "$SP"
+    doc "### 1. GWT scenarios"; run; chmod 644 "$SP"
+    has "not-scanned${TAB}check-ticket-mechanics${TAB}unreadable" "an unreadable scripts/ copy is named"
+    has "summary${TAB}1${TAB}0${TAB}1" "and counted as unscanned"; expect "exit 3" 3 "$rc"
+  fi
+
+  echo "== only check-ticket-mechanics has a scripts/ copy =="
+  fresh; gate "GWT scenarios"
+  put "$P/scripts/ticket-gate.md" 'section "Planted gate title"\n'
+  put "$P/scripts/SKILL.md" 'section "Planted privacy title"\n'
+  doc "### 1. GWT scenarios"; run
+  expect "scripts/ticket-gate.md and scripts/SKILL.md are never read" 0 "$(nrows citation-missing)"
+  has "summary${TAB}1${TAB}0${TAB}0" "only the gate's title is checked"
+}
+
+sc_match; sc_source; sc_kit; sc_nodoc; sc_usage; sc_ack; sc_ack_stale; sc_ack_fence; sc_alias; sc_ack_precedence; sc_markers_safe; sc_rename; sc_rename_kitfence; sc_mech_copy
 
 # --- mutants: each breaks ONE invariant in a copy of the script; the guarding scenario must notice.
 mutant() {  # mutant <description> <sed expr> <scenario>
@@ -617,6 +676,11 @@ mutant "an acknowledged title stays on the kit side" 's/^            if not (t i
 mutant "an alias target is not an anchor" 's/^        j = pos.get(t, pos.get(alias_to.get(t)))$/        j = pos.get(t)/' sc_rename
 mutant "candidates print after the marker rows" 's/^rows\[nmiss:nmiss\] = candidate_rows + marker_rows$/rows[nmiss:nmiss] = marker_rows + candidate_rows/' sc_rename
 mutant "a fenced kit heading counts" 's/^        h = None if fenced else HEADING.match(line)$/        h = HEADING.match(line)/' sc_rename_kitfence
+mutant "the project's scripts/ copy is ignored" 's/^        if not os.path.islink(sp) and not os.path.islink(os.path.dirname(sp)):$/        if False:/' sc_mech_copy
+mutant "a symlinked scripts/ copy is read" 's/^        if not os.path.islink(sp) and not os.path.islink(os.path.dirname(sp)):$/        if True:/' sc_mech_copy
+mutant "a file below a symlinked scripts/ directory is read" 's/^        if not os.path.islink(sp) and not os.path.islink(os.path.dirname(sp)):$/        if not os.path.islink(sp):/' sc_mech_copy
+mutant "the scripts/ copy ranks after the registry and the kit" '/^            yield sp$/d;s/^        yield os.path.join(kit, "plugins", group, rel)$/&\n    if label in PROJECT_SCRIPT: yield os.path.join(project, "scripts", os.path.basename(rel))/' sc_mech_copy
+mutant "the scripts/ copy is read for every citer" 's/^    if label in PROJECT_SCRIPT:$/    if True:/' sc_mech_copy
 echo ""
 echo "forge-adapt citation check tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

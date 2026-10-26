@@ -73,7 +73,9 @@ only, writes nothing):
 ```
 
 It reads the citing files from the project's own copy, else the live plugin copy the registry
-names, else the kit. The citers are the gate and `check-ticket-mechanics.sh`, plus privacy-regime
+names, else the kit. For `check-ticket-mechanics.sh` the project's own copy is
+`scripts/check-ticket-mechanics.sh`, where the installer puts it, read first (a symlink there or a
+symlinked `scripts/` is skipped); its `.claude/` path stays second. The citers are the gate and `check-ticket-mechanics.sh`, plus privacy-regime
 read from the project's own `.claude/skills/privacy-regime/SKILL.md` only (it is a per-project
 fill-in, so no plugin or kit copy counts). It prints tab-separated rows:
 
