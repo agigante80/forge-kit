@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 55
+# forge-lib-version: 56
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -245,6 +245,13 @@
 #       caller that treats every non-zero as fatal (ticket-gate's `|| exit 2`, gate-status's
 #       mark) already does the right thing; one that retries on non-zero must not retry a 110.
 #       With neither switch on nothing changes: no scanner, no note, no new stderr.
+#   v56 THE ONLY REMOTE COUNTS (#542, #560). With nothing exported, a repository with exactly one
+#       remote now uses it: the default-branch pin compares refs/remotes/<that remote>/ instead of
+#       skipping with the note, and forge_host and forge_repo read its URL when origin is absent.
+#       A repository whose only remote is not origin therefore gets an ENFORCED check: an unpushed
+#       or first-adoption .forge.conf now refuses with rc 2 where it used to pass with the note.
+#       Two or more remotes, an exported FORGE_REMOTE, or a named one in .forge.conf behave as
+#       before; the pin still never takes the remote from the file.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -392,8 +399,12 @@ _forge_load_conf() {
 #     wins), NEVER a re-parse of the file: a duplicate key (evil line, then a matching one) would
 #     show the pin one value and the sender another. The default-branch side is scanned by the
 #     same _forge_conf_line with the same first-non-empty rule. Parsed values, not bytes.
-#   - The comparison remote <R> is an EXPORTED FORGE_REMOTE, else origin; never the working copy's
-#     (a fork remote added by `gh pr checkout` would otherwise vouch for its own file). One
+#   - The comparison remote <R> is an EXPORTED FORGE_REMOTE, else the repository's ONLY remote when
+#     exactly one is configured, else origin; never the working copy's FORGE_REMOTE, which would let a
+#     checked-out branch name a remote that vouches for its own file (#542). A second remote turns the
+#     sole-remote fallback off: once two exist, nothing local says which one is the project's own, so
+#     origin is kept and a fork can never be picked. The listing runs only after a key is found
+#     file-sourced, so the zero-git-calls rule below still holds. One
 #     `git for-each-ref` picks refs/remotes/<R>/HEAD, else main, else master; `git cat-file` reads
 #     the blob with GIT_NO_LAZY_FETCH=1 so a partial clone never goes to the network; a failed
 #     read asks `git ls-tree` once: the file absent from the tree means "no keys" (first adoption),
@@ -412,7 +423,7 @@ _forge_pin_check() {
   _forge_load_conf || true
   local IFS=$' \t\n'                         # a strict-mode caller's IFS must not glue the key list
   [ -z "${_FORGE_PIN_PWD-}" ] || return 0   # set by a pass, cleared by every reload of the file
-  local k was keys="" remote=origin dv diff="" ref="" refs want blob="" listed cur lrc line
+  local k was keys="" remote=origin exported=0 names dv diff="" ref="" refs want blob="" listed cur lrc line
   for k in FORGE_HOST FORGE_API_URL FORGE_REPO FORGE_REMOTE; do
     case " ${_FORGE_FROM_FILE-} " in *" $k "*) ;; *) continue ;; esac
     eval "was=\${_FORGE_FILEVAL_$k-}"
@@ -420,7 +431,13 @@ _forge_pin_check() {
     keys="$keys $k"
   done
   [ -n "$keys" ] || return 0
-  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE" ;; esac
+  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac
+  # #542: an explicit export always wins (origin included); otherwise exactly one remote is the baseline
+  if [ "$exported" = 1 ]; then remote="$FORGE_REMOTE"
+  else
+    names="$(git remote 2>/dev/null)" || names=""
+    case "$names" in ''|*$'\n'*) ;; *) remote="$names" ;; esac
+  fi
   case "$remote" in
     *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*) remote="" ;;
   esac
@@ -458,14 +475,14 @@ refs/remotes/$remote/$want
     unset "$dv"
   done
   if [ -n "$diff" ]; then
-    echo "forge-lib: refusing: .forge.conf sets $diff, which differs from the copy at $ref (the default branch), so a checked-out branch could aim your token at another server or repository. If the ref is stale or missing, run 'git fetch $remote' (or 'git remote set-head $remote -a'); if your remote is not origin, export FORGE_REMOTE=<name>; if you committed this change but have not pushed it, push it; export a key only if you authored this change, otherwise do not run forge commands on this checkout. An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed." >&2
+    echo "forge-lib: refusing: .forge.conf sets $diff, which differs from the copy at $ref (the default branch), so a checked-out branch could aim your token at another server or repository. If the ref is stale or missing, run 'git fetch $remote' (or 'git remote set-head $remote -a'); if your remote is not origin and you have more than one remote, export FORGE_REMOTE=<name>; if you committed this change but have not pushed it, push it; export a key only if you authored this change, otherwise do not run forge commands on this checkout. An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed." >&2
     return 2
   fi
   _forge_pin_memo
 }
 
-# The fail-open note of _forge_pin_check: fixed text, the remote's NAME only (an exported value or
-# origin), never a value read from the working copy.
+# The fail-open note of _forge_pin_check: fixed text, the remote's NAME only (an exported value, the
+# sole configured remote, or origin), never a value read from the working copy.
 _forge_pin_note() {
   echo "forge-lib: default-branch check skipped (no readable .forge.conf reference for remote $1); routing keys from .forge.conf are not verified" >&2
 }
@@ -513,13 +530,29 @@ _forge_url_host() {
   printf '%s\n' "$host"
 }
 
+# _forge_remote_url: the URL host detection reads (#560). `git remote get-url` of FORGE_REMOTE,
+# else origin, exactly as before; only when that is empty AND FORGE_REMOTE is empty (from any
+# source, the file included) does it list the remotes, and then exactly one listed remote supplies
+# the URL. A NAMED FORGE_REMOTE is never replaced: a typo there must still fail closed. This is NOT
+# the pin's choice of remote (_forge_pin_check), which deliberately ignores the file's FORGE_REMOTE;
+# the two answer different questions (where to send, and what vouches for that) and stay separate.
+_forge_remote_url() {
+  local url names
+  url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"
+  if [ -z "$url" ] && [ -z "${FORGE_REMOTE-}" ]; then
+    names="$(git remote 2>/dev/null || true)"
+    case "$names" in ''|*$'\n'*) ;; *) url="$(git remote get-url -- "$names" 2>/dev/null || true)" ;; esac
+  fi
+  printf '%s' "$url"
+}
+
 forge_host() {
   _forge_load_conf
   if [ -n "${FORGE_HOST:-}" ]; then
     case "$FORGE_HOST" in github|forgejo) printf '%s\n' "$FORGE_HOST"; return 0 ;;
       *) echo "forge-lib: FORGE_HOST='$FORGE_HOST' is invalid (use github|forgejo)" >&2; return 2 ;; esac
   fi
-  local url; url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"
+  local url; url="$(_forge_remote_url)"
   [ -n "$url" ] || { echo github; return 0; }        # no remote -> assume github
   case "$(_forge_url_host "$url" | tr '[:upper:]' '[:lower:]')" in
     github.com|ssh.github.com) echo github ;;           # github.com in the HOST slot only (#212); ssh.github.com is GitHub's documented SSH-over-443 host
@@ -543,7 +576,7 @@ forge_host() {
 forge_repo() {
   _forge_load_conf
   if [ -n "${FORGE_REPO:-}" ]; then printf '%s\n' "$FORGE_REPO"; return 0; fi
-  local url host path shown; url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"
+  local url host path shown; url="$(_forge_remote_url)"
   # Redact at the LAST @ of the AUTHORITY, the same cut _forge_url_host makes: a password may
   # contain @ (review: the first-@ form printed the tail of `p@ss`), and an @ in the path is not
   # userinfo at all.

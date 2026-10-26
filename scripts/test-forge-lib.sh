@@ -1689,6 +1689,82 @@ cmp -s "$LIB" "$MUT216" && bad "mutant ledger (#216): the sed did not apply" || 
 d="$(mktemp -d "$T/fr.XXXXXX")"; r="$( cd "$d" && git init -q . && git remote add origin 'git@[::1]:o/r' && . "$MUT216" && forge_repo 2>/dev/null )"
 [ "$r" = ':1]:o/r' ] && ok "mutant (#216): a first-colon cut prints :1]:o/r, so the bracket case can fail" || bad "mutant (#216) did not misbehave (got '$r')"
 
+# --- #560: host detection reads the ONLY remote when the named one (origin by default) is absent --
+# forge_host and forge_repo read `git remote get-url "${FORGE_REMOTE:-origin}"` as before; only when
+# that is empty AND FORGE_REMOTE is empty (from any source) do they list the remotes, and exactly
+# one listed remote supplies the URL. A named FORGE_REMOTE, exported or from .forge.conf, is never
+# replaced. rem560 builds a fresh repo with the given remotes (name=url words) and an optional
+# .forge.conf, exports the VAR=value words, and prints stdout, rc=N, then stderr. L560 is the
+# library under test, so the mutants below rerun the same rows against a damaged copy.
+echo "== #560: host detection reads the only remote =="
+L560="$LIB"
+FU560='ssh://git@forge.example.com:2222/o/r.git'
+API560='FORGE_API_URL=https://forge.example.com'
+MSG560="forge-lib: cannot parse owner/repo from remote '' (a local path has no host); set FORGE_REPO in .forge.conf"
+mkdir -p "$T/g560bin"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "$GITLOG560"\nexec %s "$@"\n' "$(command -v git)" > "$T/g560bin/git"; chmod +x "$T/g560bin/git"
+rem560() {  # rem560 <conf-text|""> <"name=url ..."> [VAR=value ...] -- <command words>
+  local conf="$1" spec="$2" d s; shift 2
+  d="$(mktemp -d "$T/r560.XXXXXX")"
+  ( cd "$d" && git init -q . || exit 99
+    for s in $spec; do git remote add "${s%%=*}" "${s#*=}" || exit 99; done
+    [ -z "$conf" ] || printf '%s\n' "$conf" > .forge.conf
+    while [ "$1" != -- ]; do export "$1"; shift; done; shift
+    . "$L560" || exit 98
+    "$@" 2> "$d/err"; echo "rc=$?"; cat "$d/err" )
+}
+cnt560() { forge_host >/dev/null; : > "$GITLOG560"; forge_host >/dev/null; printf '%s %s\n' "$(wc -l < "$GITLOG560" | tr -d ' ')" "$(grep -cx remote "$GITLOG560")"; }
+c560() {  # c560 <conf-text|""> <spec> [VAR=value ...]: "<git calls> <git remote listings>" of a WARM forge_host
+  local conf="$1" spec="$2"; shift 2
+  : > "$T/gitlog560"
+  rem560 "$conf" "$spec" PATH="$T/g560bin:$PATH" GITLOG560="$T/gitlog560" "$@" -- cnt560 | head -1; }
+row560_sole_host() { [ "$(rem560 "$API560" "forgejo=$FU560" -- forge_host)" = "$(printf 'forgejo\nrc=0')" ]; }
+row560_sole_repo() { [ "$(rem560 "$API560" "forgejo=$FU560" -- forge_repo)" = "$(printf 'o/r\nrc=0')" ]; }
+row560_named_missing() { [ "$(rem560 "" "forgejo=$FU560" FORGE_REMOTE=nosuch -- forge_repo)" = "$(printf 'rc=2\n%s' "$MSG560")" ]; }
+row560_file_missing() { [ "$(rem560 "FORGE_REMOTE=nosuch" "forgejo=$FU560" -- forge_repo)" = "$(printf 'rc=2\n%s' "$MSG560")" ]; }
+row560_file_beats_origin() { [ "$(rem560 $'FORGE_REMOTE=forgejo\n'"$API560" "origin=ssh://git@github.com/a/b.git forgejo=$FU560" -- forge_host)" = "$(printf 'forgejo\nrc=0')" ]; }
+row560_count_origin() { [ "$(c560 "$API560" "origin=$FU560")" = "1 0" ]; }
+row560_count_sole() { [ "$(c560 "$API560" "forgejo=$FU560")" = "3 1" ]; }
+row560_sole_host && ok "#560: a sole remote forgejo with a .forge.conf FORGE_API_URL is detected as forgejo, nothing exported" || bad "#560: sole remote forge_host: $(rem560 "$API560" "forgejo=$FU560" -- forge_host)"
+row560_sole_repo && ok "#560: the same repo's forge_repo prints o/r with an empty stderr" || bad "#560: sole remote forge_repo: $(rem560 "$API560" "forgejo=$FU560" -- forge_repo)"
+expect "#560: zero remotes: forge_host is github, as before" "$(printf 'github\nrc=0')" "$(rem560 "$API560" "" -- forge_host)"
+expect "#560: zero remotes: forge_repo refuses with the exact message, as before" "$(printf 'rc=2\n%s' "$MSG560")" "$(rem560 "$API560" "" -- forge_repo)"
+expect "#560: two remotes without origin: forge_host is github, as before" "$(printf 'github\nrc=0')" "$(rem560 "$API560" "forgejo=$FU560 backup=ssh://git@backup.example.com/p/q.git" -- forge_host)"
+expect "#560: two remotes without origin: forge_repo refuses with the exact message, as before" "$(printf 'rc=2\n%s' "$MSG560")" "$(rem560 "$API560" "forgejo=$FU560 backup=ssh://git@backup.example.com/p/q.git" -- forge_repo)"
+expect "#560: an exported FORGE_REMOTE=forgejo selects it among two remotes" "$(printf 'o/r\nrc=0')" "$(rem560 "" "forgejo=$FU560 backup=ssh://git@github.com/x/y.git" FORGE_REMOTE=forgejo -- forge_repo)"
+row560_named_missing && ok "#560: an exported FORGE_REMOTE=nosuch is not replaced by the sole remote: rc 2, the exact message" || bad "#560: exported nosuch: $(rem560 "" "forgejo=$FU560" FORGE_REMOTE=nosuch -- forge_repo)"
+expect "#560: a .forge.conf FORGE_REMOTE=backup still selects that remote" "$(printf 'p/q\nrc=0')" "$(rem560 "FORGE_REMOTE=backup" "forgejo=$FU560 backup=ssh://git@backup.example.com/p/q.git" -- forge_repo)"
+row560_file_missing && ok "#560: a .forge.conf FORGE_REMOTE=nosuch is not replaced by the sole remote: rc 2, the exact message" || bad "#560: file nosuch: $(rem560 "FORGE_REMOTE=nosuch" "forgejo=$FU560" -- forge_repo)"
+expect "#560: origin plus backup: origin's slug, as before" "$(printf 'o/r\nrc=0')" "$(rem560 "" "origin=$FU560 backup=ssh://git@backup.example.com/p/q.git" -- forge_repo)"
+expect "#560: a github origin plus a forge backup: origin's slug a/b" "$(printf 'a/b\nrc=0')" "$(rem560 "" "origin=ssh://git@github.com/a/b.git backup=$FU560" -- forge_repo)"
+expect "#560: a sole remote that is a local path is refused naming that path" "$(printf "rc=2\nforge-lib: cannot parse owner/repo from remote '/srv/git/o/r' (a local path has no host); set FORGE_REPO in .forge.conf")" "$(rem560 "" "forgejo=/srv/git/o/r" -- forge_repo)"
+row560_file_beats_origin && ok "#560: a .forge.conf FORGE_REMOTE=forgejo beats a listed github origin in forge_host" || bad "#560: file FORGE_REMOTE over origin (forge_host): $(rem560 $'FORGE_REMOTE=forgejo\n'"$API560" "origin=ssh://git@github.com/a/b.git forgejo=$FU560" -- forge_host)"
+expect "#560: a .forge.conf FORGE_REMOTE=forgejo beats a listed github origin in forge_repo" "$(printf 'o/r\nrc=0')" "$(rem560 $'FORGE_REMOTE=forgejo\n'"$API560" "origin=ssh://git@github.com/a/b.git forgejo=$FU560" -- forge_repo)"
+row560_count_origin && ok "#560: warm forge_host with origin makes one git call and no git remote listing" || bad "#560: origin count: $(c560 "$API560" "origin=$FU560")"
+row560_count_sole && ok "#560: warm forge_host with a sole forgejo remote makes three git calls with one listing" || bad "#560: sole count: $(c560 "$API560" "forgejo=$FU560")"
+expect "#560: an exported FORGE_REMOTE (even a missing one) never lists the remotes" "0" "$(c560 "$API560" "forgejo=$FU560" FORGE_REMOTE=nosuch | cut -d' ' -f2)"
+expect "#560: a .forge.conf FORGE_REMOTE (even a missing one) never lists the remotes" "0" "$(c560 $'FORGE_REMOTE=nosuch\n'"$API560" "forgejo=$FU560" | cut -d' ' -f2)"
+mut560() {  # mut560 <label> <old> <new> <row-fn>: the row must FAIL on the mutated lib
+  local label="$1"
+  if ! python3 - "$LIB" "$T/lib560" "$2" "$3" 2> "$T/m560err" <<'PY'
+import sys
+s=open(sys.argv[1]).read(); old,new=sys.argv[3],sys.argv[4]; n=s.count(old)
+if n!=1: sys.exit("anchor count %d for %r"%(n,old))
+open(sys.argv[2],'w').write(s.replace(old,new))
+PY
+  then bad "#560 mutant '$label' did not apply: $(cat "$T/m560err")"; return; fi
+  if L560="$T/lib560" $4; then bad "#560 MUTANT SURVIVED: $label"; else ok "#560 mutant '$label' dies"; fi
+}
+GU560='  url="$(git remote get-url "${FORGE_REMOTE:-origin}" 2>/dev/null || true)"'
+mut560 'sole-remote fallback dropped (forge_host)' '  if [ -z "$url" ] && [ -z "${FORGE_REMOTE-}" ]; then' '  if false; then' row560_sole_host
+mut560 'sole-remote fallback dropped (forge_repo)' '  if [ -z "$url" ] && [ -z "${FORGE_REMOTE-}" ]; then' '  if false; then' row560_sole_repo
+mut560 'the fallback replaces a named but missing FORGE_REMOTE' '  if [ -z "$url" ] && [ -z "${FORGE_REMOTE-}" ]; then' '  if [ -z "$url" ]; then' row560_named_missing
+mut560 'the fallback replaces a named but missing file FORGE_REMOTE' '  if [ -z "$url" ] && [ -z "${FORGE_REMOTE-}" ]; then' '  if [ -z "$url" ]; then' row560_file_missing
+mut560 'sole-remote rule tested before origin' "$GU560" '  url=""; [ -n "$(git remote)" ] || :'$'\n'"$GU560" row560_count_origin
+mut560 'remotes listed on the origin path' '  if [ -z "$url" ] && [ -z "${FORGE_REMOTE-}" ]; then' '  if [ -z "${FORGE_REMOTE-}" ]; then' row560_count_origin
+mut560 'a file-sourced FORGE_REMOTE ignored (exported-only)' "$GU560" '  case " ${_FORGE_FROM_FILE-} " in *" FORGE_REMOTE "*) url="$(git remote get-url origin 2>/dev/null || true)" ;; *)'$'\n'"$GU560"' ;; esac' row560_file_beats_origin
+mut560 'the sole remote is not read (three calls asserted)' '*) url="$(git remote get-url -- "$names" 2>/dev/null || true)" ;; esac' '*) ;; esac' row560_count_sole
+
 # --- #235: an scp remote whose PATH carries an @ is refused, never printed as a slug ----------
 # git reads `x-access-token:TOKEN@host:o/r` as host x-access-token and path TOKEN@host:o/r, so no
 # slug forge-lib could print names a clonable repository, and the string a user pasted as a token
@@ -4391,6 +4467,53 @@ r517_refused && k_err "refs/remotes/origin/main" \
 K442BASEHEAD=0 p517 "$G517" "$G517" -- $GET1
 r517_pass && ok "#517: the origin/main fallback passes a matching file in silence" || bad "#517: main fallback positive (rc $K442RC: $(cat "$K/err"))"
 
+# #542: with nothing exported, the ONLY configured remote is the comparison remote; a second remote
+# turns that fallback off (the skip note naming origin stands), and an exported FORGE_REMOTE wins,
+# origin included. The existing `p517 "$E517" NONE -- $GET1` no-ref row above is also the
+# zero-remote case: no remote is configured there, so origin is kept and its note printed.
+# sole517 registers each named remote (via $K442GIT, so the git log does not see it, never
+# fetching), plants the baseline on K442BASEREMOTE or the first name unless it is NONE, then sends.
+sole517() {  # sole517 <baseline-text|ABSENT|NONE> <name>...
+  local base="$1" first="$2" n; shift
+  for n in "$@"; do "$K442GIT" remote add "$n" https://forge.invalid/o/r.git || return 97; done
+  [ "$base" = NONE ] || K442BASEREMOTE="${K442BASEREMOTE:-$first}" k442_base "$base" "$K/r"
+  forge_api GET /repos/o/r/issues/1; }
+FR542=$'FORGE_HOST=forgejo\nFORGE_REPO=o/r\nFORGE_API_URL=https://forge.example.com\nFORGE_REMOTE='
+row_sole_pass() { p517 "$G517" NONE -- sole517 "$G517" forgejo; r517_pass && grep -q 'refs/remotes/forgejo/' "$K/gitlog" && ! grep -q 'refs/remotes/origin' "$K/gitlog"; }
+row_sole_refuse() { p517 "$E517" NONE -- sole517 "$G517" forgejo; r517_refused && k_err "refs/remotes/forgejo/HEAD" && k_err FORGE_API_URL; }
+row_two_remotes() { p517 "$E517" NONE -- sole517 "$G517" forgejo fork; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && [ -s "$K/calls" ] \
+  && grep -q 'refs/remotes/origin/' "$K/gitlog" && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog" && ! grep -q 'refs/remotes/fork/' "$K/gitlog"; }
+row_fork_vouch() { K442BASEREMOTE=fork p517 "$E517" NONE -- sole517 "$E517" forgejo fork; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && ! grep -q 'refs/remotes/fork' "$K/gitlog"; }
+row_origin_plus() { K442REMOTE=1 K442BASEREMOTE=origin p517 "$G517" NONE -- sole517 "$G517" forgejo; r517_pass && grep -q 'refs/remotes/origin/' "$K/gitlog" && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
+row_export_wins() { p517 "$G517" NONE FORGE_REMOTE=forgejo -- sole517 "$G517" forgejo; r517_pass && grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
+row_export_noref() { p517 "$E517" NONE FORGE_REMOTE=nowhere -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote nowhere}" ] && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
+row_export_origin() { p517 "$E517" NONE FORGE_REMOTE=origin -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "$NOTE517" ] && ! grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
+row_export_empty() { p517 "$E517" NONE FORGE_REMOTE= -- sole517 "$G517" forgejo; r517_refused && k_err "refs/remotes/forgejo/HEAD"; }
+row_sole_noref() { p517 "$E517" NONE -- sole517 NONE forgejo; [ "$K442RC" = 0 ] && [ -s "$K/calls" ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote forgejo}" ]; }
+row_sole_absent() { p517 "$G517" NONE -- sole517 ABSENT forgejo; r517_refused && k_err "refs/remotes/forgejo/HEAD" && k_err "$STOP517"; }
+row_sole_slash() { p517 "$G517" NONE -- sole517 "$G517" a/b; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote ?}" ]; }
+row_file_remote() { p517 "${FR542}fork" NONE -- sole517 "${FR542}forgejo" forgejo; [ "$K442RC" = 2 ] && k_nocurl && k_err FORGE_REMOTE && k_err "refs/remotes/forgejo/HEAD" && k_err "$STOP517" && ! grep -q 'refs/remotes/fork' "$K/gitlog"; }
+row_file_remote_same() { p517 "${FR542}forgejo" NONE -- sole517 "${FR542}forgejo" forgejo; r517_pass && grep -q 'refs/remotes/forgejo/' "$K/gitlog"; }
+row_space_name() { p517 "$E517" NONE "FORGE_REMOTE=a b" -- sole517 "$G517" forgejo; [ "$K442RC" = 0 ] && [ "$(cat "$K/err")" = "${NOTE517/remote origin/remote ?}" ]; }
+for r542 in \
+  "row_sole_pass|#542: a sole remote forgejo whose default branch matches is the baseline: pass, origin never read" \
+  "row_sole_refuse|#542: a sole remote forgejo whose default branch differs refuses with rc 2, naming refs/remotes/forgejo/HEAD" \
+  "row_two_remotes|#542: two remotes and no origin keep origin: the fixed skip note, neither remote read" \
+  "row_fork_vouch|#542: a second remote carrying the hostile file cannot vouch for it: skip note, fork never read" \
+  "row_origin_plus|#542: origin plus another remote compares origin, never the other" \
+  "row_export_wins|#542: an exported FORGE_REMOTE=forgejo selects refs/remotes/forgejo/" \
+  "row_export_noref|#542: an exported FORGE_REMOTE=nowhere is not replaced by the sole remote: the note names nowhere" \
+  "row_export_origin|#542: an exported FORGE_REMOTE=origin wins over the sole remote (an explicit flag, not a name comparison)" \
+  "row_export_empty|#542: an exported EMPTY FORGE_REMOTE is no export: the sole remote is compared and the differing file refused" \
+  "row_sole_noref|#542: a sole remote with no usable ref fails open with the note naming remote forgejo" \
+  "row_sole_absent|#542: a sole remote whose default branch has no .forge.conf refuses, with the agent-stop sentence" \
+  "row_sole_slash|#542: a sole remote named a/b fails name validation and the note names ?" \
+  "row_file_remote|#542: a file FORGE_REMOTE=fork never selects the remote: the sole remote's copy refuses it, fork never read" \
+  "row_file_remote_same|#542: a file FORGE_REMOTE equal to the sole remote's copy passes against refs/remotes/forgejo/" \
+  "row_space_name|#542: an exported FORGE_REMOTE='a b' still fails name validation, the note names ?"; do
+  if ${r542%%|*}; then ok "${r542#*|}"; else bad "${r542#*|} (rc $K442RC: $(cat "$K/err") / $(tr '\n' ' ' < "$K/gitlog"))"; fi
+done
+
 # partial clones: the blob is read without any lazy fetch
 p517 "$G517" "$G517" -- $GET1
 [ -s "$K/lazylog" ] && ! grep -qv '^lazy=1 ' "$K/lazylog" \
@@ -4464,9 +4587,8 @@ p517 "$E517" ABSENT -- pkg517
   && ok "#517: run from pkg/ against a default branch holding only pkg/.forge.conf: refused as absent, not skipped" || bad "#517: ls-tree from a subdirectory (rc $K442RC: $(cat "$K/err"))"
 
 # zero git calls when nothing is file-sourced
-p517 "" "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com -- $GET1
-r517_pass && ! grep -qE 'for-each-ref|cat-file|ls-tree' "$K/gitlog" \
-  && ok "#517: with every key exported (nothing file-sourced) the pin makes no git call" || bad "#517: zero git calls (rc $K442RC: $(cat "$K/gitlog"))"
+row_zero_git() { p517 "" "" FORGE_HOST=forgejo FORGE_REPO=o/r FORGE_API_URL=https://forge.example.com -- $GET1; r517_pass && ! grep -qE 'for-each-ref|cat-file|ls-tree|^remote$' "$K/gitlog"; }
+row_zero_git && ok "#517: with every key exported (nothing file-sourced) the pin makes no git call, not even the #542 remote listing" || bad "#517: zero git calls (rc $K442RC: $(cat "$K/gitlog"))"
 
 # the other entry points
 p517 "$E517" "$G517" -- forge_url_check
@@ -4514,7 +4636,7 @@ row_memo_reuse() { p517 "$G517" "$G517" -- three517; [ "$(grep -c 'for-each-ref'
 row_absent() { p517 "$E517" ABSENT -- $GET1; [ "$K442RC" = 2 ]; }
 PIN='  _forge_pin_check || return 2'
 mut517 'comparison removed (every key passes)' '    [ "$was" = "$cur" ] || diff="${diff:+$diff, }$k"' '    :' row_diff_url
-mut517 'FORGE_REMOTE read from the working copy' '  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE" ;; esac' '  [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE"' row_fork
+mut517 'FORGE_REMOTE read from the working copy' '  case " $keys " in *" FORGE_REMOTE "*) ;; *) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac' '  [ -z "${FORGE_REMOTE-}" ] || exported=1' row_fork
 mut517 'default branch scan keeps the LAST duplicate' '    [ -n "${!dv-}" ] || printf -v "$dv" '"'%s'"' "$_FORGE_LV"   # first non-empty wins, like the loader' '    printf -v "$dv" '"'%s'"' "$_FORGE_LV"' row_dup_agree
 mut517 'working copy side re-parsed, last value wins' '    eval "was=\${_FORGE_FILEVAL_$k-}"
     dv="_forge_dv_$k"; cur="${!dv-}"' '    was="$(sed -n "s/^$k=//p" .forge.conf | tail -1)"
@@ -4526,7 +4648,15 @@ mut517 'memo not cleared by a reload, seen from repo B' '  _FORGE_CONF_PWD="${PW
 mut517 'ls-tree reads the path relative to the current directory' 'git ls-tree --full-tree "$ref"' 'git ls-tree "$ref"' row_pkg
 mut517 'memo removed (every call re-checks)' '  [ -z "${_FORGE_PIN_PWD-}" ] || return 0' '  :' row_memo_reuse
 mut517 'absent file treated as skip, not as no keys' '    if [ "$lrc" -ne 0 ] || [ -n "$listed" ]; then' '    if true; then' row_absent
-mut517 'working-copy exported remote ignored (always origin)' '*) [ -z "${FORGE_REMOTE-}" ] || remote="$FORGE_REMOTE" ;; esac' '*) ;; esac' row_remote_exported
+mut517 'working-copy exported remote ignored (always origin)' '*) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac' '*) ;; esac' row_remote_exported
+# #542: the sole-remote fallback
+SOLE542="    case \"\$names\" in ''|*\$'\\n'*) ;; *) remote=\"\$names\" ;; esac"
+mut517 'two remotes accepted as sole (the first is taken)' "$SOLE542" "    case \"\$names\" in '') ;; *) remote=\"\${names%%\$'\\n'*}\" ;; esac" row_two_remotes
+mut517 'sole remote branch removed' "$SOLE542" '    :' row_sole_refuse
+mut517 'the fallback overrides an exported value' '  if [ "$exported" = 1 ]; then remote="$FORGE_REMOTE"' '  [ "$exported" = 1 ] && remote="$FORGE_REMOTE"; if false; then :' row_export_noref
+mut517 'the fallback overrides an exported FORGE_REMOTE=origin' '*) [ -z "${FORGE_REMOTE-}" ] || exported=1 ;; esac' '*) [ -z "${FORGE_REMOTE-}" ] || [ "$FORGE_REMOTE" = origin ] || exported=1 ;; esac' row_export_origin
+mut517 'a file FORGE_REMOTE selects the remote' '  if [ "$exported" = 1 ]; then remote="$FORGE_REMOTE"' '  if [ -n "${FORGE_REMOTE-}" ]; then remote="$FORGE_REMOTE"' row_file_remote
+mut517 'remotes listed above the keys guard' '  [ -n "$keys" ] || return 0' '  names="$(git remote 2>/dev/null)"; [ -n "$keys" ] || return 0' row_zero_git
 # each call site removed in turn (the Nth pin line in file order)
 for site in 1 2 3 4; do
   awk -v n="$site" '$0=="  _forge_pin_check || return 2" || index($0,"  _forge_pin_check || return 2 ")==1 {c++; if (c==n) next} 1' "$LIB" > "$T/lib517"

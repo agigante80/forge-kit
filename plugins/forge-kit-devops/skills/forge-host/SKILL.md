@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 50 -->
+<!-- forge-host-version: 51 -->
 
 # forge-host: host-aware forge operations
 
@@ -33,14 +33,14 @@ match GitHub's REST, so callers' `jq` parsing stays identical across hosts.
 
 1. `$FORGE_HOST` env var: explicit override (e.g. in CI).
 2. A committed **`.forge.conf`** at the repo root (`assets/forge.conf.example`).
-3. The git remote URL: an authority host of `github.com` (or `ssh.github.com`) → github, decided
+3. The git remote URL (`FORGE_REMOTE`, else `origin`, else the only remote when exactly one exists, #560): an authority host of `github.com` (or `ssh.github.com`) → github, decided
    by URL form and never by a glob (#212); otherwise forgejo **iff** a Forgejo API URL is
    configured, else github.
 
 The committed `.forge.conf` is the canonical answer for a repo that has **both** remotes during
 migration: detection must not "ask" in automation. A GitHub-only repo needs no config.
 
-**The default-branch pin (v50, #517).** `FORGE_HOST`, `FORGE_API_URL`, `FORGE_REPO` and `FORGE_REMOTE` choose where the token goes, and a checked-out pull request branch can edit the file. So each of those four that comes FROM `.forge.conf` must equal the file on the default branch (`refs/remotes/<remote>/HEAD`, else `main`, else `master`; the remote is an EXPORTED `FORGE_REMOTE`, else `origin`, never the file's own). A difference is refused, rc 2, before any request, `gh` call or token read, on either host and under `FORGE_DRY_RUN=1`, in `forge_api`, `forge_api_paginate`, `forge_url_check` and `_forge_dry_url_check` (not in `forge_host`, so the adapt probe and `detect` still run). An exported value is yours and is never compared, so exporting is the override: do it only if you wrote the change. If no reference is readable (a shallow CI clone) the check is skipped with one note, and the unverified keys stay unverified. **An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed.** A first adoption with no `.forge.conf` on the default branch needs the human to export all four keys.
+**The default-branch pin (v50, #517).** `FORGE_HOST`, `FORGE_API_URL`, `FORGE_REPO` and `FORGE_REMOTE` choose where the token goes, and a checked-out pull request branch can edit the file. So each of those four that comes FROM `.forge.conf` must equal the file on the default branch (`refs/remotes/<remote>/HEAD`, else `main`, else `master`; the remote is an EXPORTED `FORGE_REMOTE`, else the only remote when exactly one exists, else `origin`, never the file's own, #542). A difference is refused, rc 2, before any request, `gh` call or token read, on either host and under `FORGE_DRY_RUN=1`, in `forge_api`, `forge_api_paginate`, `forge_url_check` and `_forge_dry_url_check` (not in `forge_host`, so the adapt probe and `detect` still run). An exported value is yours and is never compared, so exporting is the override: do it only if you wrote the change. If no reference is readable (a shallow CI clone) the check is skipped with one note, and the unverified keys stay unverified. **An automated agent must stop and report this; never export a key or FORGE_REMOTE to proceed.** A first adoption with no `.forge.conf` on the default branch needs the human to export all four keys.
 
 ## The adapter (`assets/forge-lib.sh`)
 
