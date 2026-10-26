@@ -9,7 +9,8 @@ VALUES, not paths (#504). Passing the installed or catalogue file makes it exit 
 |---|---|
 | `--local <installed>` | the local copy's marker number; `none` when the copy has no marker; `absent` when there is no local copy. `none` and `absent` are different things: `none` is the install base that predates markers, `absent` is a component the plugin provides. |
 | `--catalogue <catalogue>` | the number from the S3 catalogue row (`v3` is accepted as 3), or `none` when the catalogue entry carries no marker. Never `absent`. |
-| `--group-enabled` | append it when the component's plugin group is live in this project. Without it every registered component reads `missing`, the false report the flag exists to stop (#167). |
+| `--group-enabled` | append it when the component's plugin group is live in this project. Without it every registered component reads `missing`, the false report the flag exists to stop (#167). WITH a local copy it also means the copy duplicates the plugin, so the word is `shadowed` or `kept` whatever the markers say (#550): append it to a row with a local copy only for the rows in "A local copy the live plugin provides" below. |
+| `--kept` | append it, together with `--group-enabled`, when the local copy carries `<!-- adapt-kept: shadows-plugin -->` (a skill: in its `SKILL.md`). It turns `shadowed` into `kept`. Ignored without `--group-enabled`; with `--local absent` it exits 2 (`--kept needs a local copy`). |
 
 ## The group answer
 
@@ -26,9 +27,89 @@ others.
 
 ## What comes back
 
-One bare word: `current`, `behind`, `unversioned`, `registered` or `missing`. A marker over nine
+One bare word: `current`, `behind`, `unversioned`, `registered`, `missing`, `shadowed` or `kept`. A marker over nine
 digits is refused (exit 2, `is too large to compare`) instead of being called `current`; STOP and
 report that row, since a marker that long is a typo in the component.
+
+## A local copy the live plugin provides (#550)
+
+When the group is live the plugin already supplies the component, so a copy under `.claude/` runs
+twice: both the plugin's agent, skill or command and the local one are listed. `refresh` used to
+compare and update the copy, which kept the duplicate alive. The word is now `shadowed`, or `kept`
+once the user chose to keep it.
+
+**Scope.** Only subagent, skill and command rows with a local copy get `--group-enabled` (and
+`--kept`). A shell asset keeps its marker words, because CI and hooks run the project's copy. A
+component whose frontmatter says `scope: project` never gets the flag. A row with no local copy keeps
+`--group-enabled` as before, so it still reads `registered`. A hook copy follows its own rules,
+under "A hook copy" below.
+
+**Untouched or edited.** Take the baseline from the installed marker, never from the plugin's current
+file, since an old unedited copy always differs from that:
+
+1. Run `forge-adapt-marker-delta.sh` on the component's marker file, passing the bare installed number.
+2. On `set in <sha>`, read each file of the copy as `git -C <library> show <sha>:<path>`. A skill's
+   file list comes from the LOCAL directory, and the `SKILL.md` sha is used for every file in it.
+3. On `is current`, the baseline is the catalogue copy.
+4. A copy is untouched when every file matches its baseline once the version-marker line and any
+   `adapt-kept` line are ignored. A missing file, exit 2 from the helper, a failing `show`,
+   `unavailable`, or `--local none` count as edited. A `SKILL.md` sha that is stale for a sibling file
+   fails safe the same way: it reads edited, and the user keeps the copy.
+
+The commit id is a baseline pointer here, and the diff the helper prints stays display only.
+
+**Actions, shown per row, never taken on a plain `drift`.** An untouched copy offers `retire` as the
+default; an edited copy shows the diff against its baseline and offers `keep` as the default.
+
+- `retire` runs only under `refresh <name>` and only on a typed `yes`. The name must be non-empty with
+  no `/`, no `..` and no leading `-`, and resolve to exactly `.claude/agents/<name>.md`,
+  `.claude/commands/<name>.md` or the directory `.claude/skills/<name>/`, which must exist (no glob).
+  Print the path and warn that the project's repository may track it, then delete it.
+- `keep` appends `<!-- adapt-kept: shadows-plugin -->` to the copy (to `SKILL.md` for a skill). The next
+  drift passes `--kept` and prints `kept`.
+- `refresh` never merges a `shadowed` copy. On a `kept` row it runs the usual comparison and merge.
+
+### A hook copy (#564)
+
+A hook is shadowed only when the plugin really runs it here, which `--group-enabled` does not say: the
+plugin's `hooks/hooks.json` wraps each hook in a sentinel test, so a live group with no sentinel file runs
+nothing. Liveness is its own flag, `--hook-live`, passed instead of `--group-enabled` for a hook row that has
+a local copy. It is true only when all of these hold:
+
+1. `forge-adapt-plugin-active.sh <group>@forge-kit` prints `yes`.
+2. The group's `hooks/hooks.json` has an entry whose last argument ends in `/hooks/<name>.py`.
+3. Every sentinel path that entry tests exists in the project. Read them from that entry's `args[1]` with
+   `grep -oP '\[ -f "\$CLAUDE_PROJECT_DIR/\K[^"]+(?=" \])'`. The number of `[ -f` occurrences must equal the
+   number of paths read, otherwise the hook is not live (an unparseable string fails safe). An entry with no
+   `[ -f` is live on the group alone.
+
+`<name>` is the extensionless catalogue name and must match `^[a-z0-9][a-z0-9-]*$`. Its local copy is
+`.claude/hooks/<name>.py` or `.claude/hooks/<name>.sh`: exactly one must exist as a regular file, no glob.
+
+Drift prints `shadowed` for any live-shadowed hook copy, and nothing else about it. `refresh <name>` narrows
+that: a copy that fails the untouched check above, or whose baseline is `unavailable`, reads `kept`. The hook
+baseline is the `# <name>-version: N` marker through `forge-adapt-marker-delta.sh`. Refresh never merges a hook
+copy and there is no adapt-kept marker for one. Whatever the word, the project runs the hook twice.
+
+- `shadowed` (untouched): the user chooses removal.
+- `kept` (edited or unknown baseline): report the double fire, print the two commands below in this order, and
+  take no action.
+
+Removal is always two steps in one order, chained so the delete cannot run after a failed unwire. Unwire
+first, then delete (`<ext>` is the copy's own extension, `py` or `sh`):
+
+```bash
+bash "${FORGE_KIT_DIR:?}"/plugins/forge-kit-adapt/skills/adapt/assets/hook-unwire.sh <name> \
+  && rm .claude/hooks/<name>.<ext>
+```
+
+A wired hook whose file is gone exits 2 on every matching call, which denies it, so deleting first would also
+deny the Bash call that tries to repair it. `hook-unwire.sh` applies the name rule above, edits only
+`.claude/settings.json`, keeps any other hook in a shared matcher group, and prints `no wiring found for <name>`
+when nothing was wired. It exits 1, so the chain stops, when the hook is wired in `.claude/settings.local.json`
+(which it never edits: unwire it there by hand) or when either settings file is a symlink or not one valid JSON
+object. `retired-paths.sh --remove` is a separate route for a RETIRED file and also refuses a file those two
+settings files still name; this chain does not go through it.
 
 ## An unmarked copy of a kit asset (#522)
 
@@ -123,4 +204,6 @@ else one `--deepen`) when that commit is missing, and prints the diff from that 
 the one file. It skips deepening while `.git/shallow.lock` exists, and `forge-adapt-refresh.sh`
 re-shallows the library later, which is accepted. Exit 1 prints `marker-delta: unavailable
 (<reason>)`: show that line and carry on with the content diff. It never fails the refresh. The delta
-is display only and never a 3-way merge base; the two-way classification is unchanged.
+is display only and never a 3-way merge base; the two-way classification is unchanged. The commit id
+it prints is also the baseline pointer for the untouched test under "A local copy the live plugin
+provides" (#550).

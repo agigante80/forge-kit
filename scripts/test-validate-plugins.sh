@@ -420,6 +420,50 @@ run
 expect "a model line inside the prompt text is prompt content, so the block names no model" 1 "$rc"
 contains "commands/runner.md:4: general-purpose dispatch names no model" "$out" "and names the Task line"
 
+echo "== check 8: a Tier: body line names no model and no effort (#548) =="
+# forge-adapt keeps a project's local model and effort, so a body line stating the shipped values
+# contradicts the frontmatter after a refresh. Each case writes one agent whose body is the line under
+# test, in a tree that otherwise passes, so only check 8 can fail.
+tieragent() {  # tieragent <body-line>
+  base7; row alpha judgment
+  mkdir -p "$A/agents"
+  printf -- '---\nname: alpha\ndescription: d\nmodel: sonnet\n---\n<!-- alpha-version: 1 -->\n%s\n' "$1" > "$A/agents/alpha.md"
+  run
+}
+tieragent "Tier: a judgment role; its model and effort are in the frontmatter (see docs/guides/model-tiers.md)."
+expect "a Tier line that points at the frontmatter passes" 0 "$rc"
+tieragent "Tier: a judgment role, so it runs at high effort."
+expect "an effort level in a Tier line fails" 1 "$rc"
+contains "agents/alpha.md:7: Tier: line names a model or effort ('high effort'); the values live in the frontmatter only (docs/guides/model-tiers.md)" "$out" "and names the file, line and match"
+tieragent "Tier: a judgment role at X-HIGH effort."
+expect "the effort match is case-insensitive" 1 "$rc"
+tieragent "Tier: a mechanical role with xhigh-effort review."
+expect "a hyphen between the level and effort matches" 1 "$rc"
+tieragent "Tier: a mechanical role with max effort."
+expect "max effort fails" 1 "$rc"
+tieragent "Tier: a mechanical role, so Sonnet at low effort."
+expect "a model choice fails" 1 "$rc"
+contains "('Sonnet at')" "$out" "and reports the model match, the first on the line"
+tieragent "Tier: a role that takes the session's model."
+expect "the session's model fails" 1 "$rc"
+contains "('session's model')" "$out" "and reports that match"
+tieragent "Tier: a role that runs on haiku at scale."
+expect "Haiku at fails" 1 "$rc"
+tieragent "Tier: a role that runs on Opus at scale."
+expect "Opus at fails" 1 "$rc"
+tieragent "Tier: a bounded role, because Sonnet missed findings a stronger tier rated high in measurement."
+expect "near miss: 'Sonnet missed' and 'rated high' pass" 0 "$rc"
+tieragent "Tier: the tier forge-kit ships reported every finding rated medium or above while Haiku missed two of three."
+expect "near miss: 'medium or above' and 'Haiku missed' pass" 0 "$rc"
+tieragent "  Tier: a judgment role at high effort."
+expect "an indented Tier line is out of scope, so it is not read" 0 "$rc"
+tieragent "Sonnet at medium effort was measured."
+expect "a sentence that does not start with Tier: is not scanned" 0 "$rc"
+tieragent "Tier: first
+Tier: second, at high effort."
+expect "every Tier line is read, not only the first" 1 "$rc"
+contains "agents/alpha.md:8:" "$out" "and the second line is the one named"
+
 echo "== this repository's own manifests satisfy every rule above =="
 # The regression test that keeps the eight real manifests honest, and the one case that would have
 # caught the drift this ticket describes had it existed.

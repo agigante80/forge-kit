@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 94 -->
+<!-- forge-adapt-version: 97 -->
 
 # forge-adapt
 
@@ -467,18 +467,9 @@ project until it sees the sentinel, so opting in is the whole install:
 mkdir -p .claude && touch .claude/no-dashes
 ```
 
-Then clean up any copy an older forge-adapt left behind, or the project will run the hook twice
-(two identical block messages per denial, two interpreter startups per tool call):
-
-```bash
-if [ -f .claude/hooks/block-dashes.py ]; then
-  echo "forge-adapt: removing the project-local copy now superseded by the plugin."
-  rm -f .claude/hooks/block-dashes.py
-  tmp=$(mktemp)
-  jq 'if .hooks.PreToolUse then .hooks.PreToolUse |= (map(.hooks |= map(select(((.command? // "") + " " + ((.args? // []) | map(tostring) | join(" "))) | test("block-dashes\\.py") | not))) | map(select(.hooks | length > 0))) else . end' \
-    .claude/settings.json > "$tmp" && mv "$tmp" .claude/settings.json || rm -f "$tmp"
-fi
-```
+Then deal with any project-local copy an older forge-adapt left behind, or the hook runs twice:
+unwire first with `assets/hook-unwire.sh <name>`, delete the file only if that exits 0 (`&& rm`), and
+never in the other order (a wired hook with no file denies every call). Rules: `references/drift.md`, "A hook copy".
 
 Confirm: `✓ block-dashes (hook) - already active via the plugin; opted this project in`.
 To opt out later, delete `.claude/no-dashes`. Nothing else to undo.
@@ -606,7 +597,7 @@ a contribution candidate, not an adaptation (decided in issue #64).
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
 The only full content diff, and it must NEVER blind-overwrite adaptation. Steps:
 
-1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy.
+1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy. A `shadowed` row never merges: follow `references/drift.md`.
 2. **Classify every difference:**
    - **Adaptation (keep):** project-specific stack/domain customisation, and `<!-- adapt-dropped: <name> -->`
      tombstones (a deliberately dropped conditional paragraph; never re-offer the clause).

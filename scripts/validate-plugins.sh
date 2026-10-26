@@ -10,6 +10,7 @@
 #   6. no scripts/*.sh carries the marker name of a shipped shell asset (a second copy, #231)
 #   7. each component's model and effort, and each dispatch's model, sit inside its role's range
 #      in docs/guides/model-tiers.md (#253; its blind spots are listed at the check)
+#   8. no agent's `Tier:` body line names a model or an effort level (#548)
 # Exit 1 on any violation, with every violation on stderr. This is the forge-kit analogue of
 # `claude plugin validate`, and check 4 is the half that analogue does NOT cover (see below).
 # Contract test: scripts/test-validate-plugins.sh.
@@ -356,6 +357,27 @@ else
       END { flush(); task_end() }
     ')
 fi
+
+# 8. a `Tier:` body line names no model and no effort (#548)
+#
+# WHY. An agent's frontmatter carries its model and effort, and forge-adapt KEEPS a project's local
+# values on refresh. A body line stating the shipped values then contradicts the frontmatter it sits
+# under, so the line says which role class the agent is and why, and points at the frontmatter for
+# the values. Outside check 7's branch on purpose: it needs no tiers doc.
+#
+# SCOPE, stated. Only a line that STARTS with `Tier:` at column 1 is read, case-insensitively for the
+# patterns. A wrapped or indented continuation line escapes (all eight are single-line today), and a
+# paraphrase the patterns do not list ("runs on sonnet") escapes too: a phrasing guard, not a parser.
+TIER_PATTERN="(low|medium|high|xhigh|max)[ -]effort|session's model|(sonnet|haiku|opus) at"
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    m=$(printf '%s\n' "${hit#*:}" | grep -Eio "$TIER_PATTERN" | head -1)
+    [ -n "$m" ] || continue
+    fail "$f:${hit%%:*}: Tier: line names a model or effort ('$m'); the values live in the frontmatter only (docs/guides/model-tiers.md)"
+  done < <(grep -n '^Tier:' "$f")
+done < <(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/agents/[^/]+\.md$' | sort)
 
 if [ "$err" -ne 0 ]; then echo ""; echo "forge-kit: plugin validation FAILED."; exit 1; fi
 echo "forge-kit: plugin validation passed."

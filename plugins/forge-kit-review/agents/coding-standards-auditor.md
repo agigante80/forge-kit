@@ -11,9 +11,9 @@ effort: medium
 tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob"]
 ---
 
-<!-- coding-standards-auditor-version: 4 -->
+<!-- coding-standards-auditor-version: 5 -->
 
-Tier: a bounded-analysis role that takes the session's model at medium effort, because Sonnet missed findings a stronger tier rated high in measurement.
+Tier: a bounded-analysis role; its model and effort are in the frontmatter (see docs/guides/model-tiers.md), because Sonnet missed findings a stronger tier rated high in measurement.
 
 You are a coding standards specialist. Your job is to detect all existing
 standards in the project, consolidate them into a single canonical file at
