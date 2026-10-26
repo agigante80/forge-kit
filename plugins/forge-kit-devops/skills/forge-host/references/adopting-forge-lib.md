@@ -115,14 +115,18 @@ sends its stdout, byte for byte, as the body. A wrapper function around `forge_i
 do the same job: kit components often run in a fresh shell that never sources the wrapper, while an
 exported variable reaches them all.
 
-- **Order:** the filter runs before the #539 leak scan, so the scan sees the body that is sent, and a
-  leak the filter adds is refused with 110.
+- **Order:** the `.forge.conf` default-branch pin runs first (a branch that sets, changes or deletes
+  a pinned key, `FORGE_TOKEN_ENV` included, is refused with 2 before the filter starts); then the
+  filter; then the #539 leak scan, so the scan sees the body that is sent, and a leak the filter adds
+  is refused with 110.
 - **Return code 111** means the filter refused and nothing was sent: a relative or bare name, a path
-  that is not an executable file, a non-zero exit, a 10 s timeout (when `timeout` exists; without it
-  the filter runs unbounded after one warning), or empty output for a non-empty body. Whitespace-only
+  that is not an executable file, a path containing `=` (`env` would read it as an assignment and
+  print the environment), a non-zero exit, a 10 s timeout (a filter that ignores TERM is
+  killed 5 s later; without a `timeout` command the filter runs unbounded after one warning), or empty output for a non-empty body. Whitespace-only
   output is sent as it is.
 - **Environment only:** `.forge.conf` cannot set it, so a cloned branch cannot make the library run
-  code. The filter runs without the forge token variables, and its stderr reaches the caller.
+  code. The filter runs without the forge token variables, including the one `FORGE_TOKEN_ENV` names in
+  `.forge.conf`, and its stderr reaches the caller.
 - **Side effects:** a `FORGE_DRY_RUN=1` call runs the filter too, so a filter must only print.
 - **Scope:** `forge_issue_create` only. The title is never filtered, and a later `forge_issue_edit`
   or comment is not filtered either.

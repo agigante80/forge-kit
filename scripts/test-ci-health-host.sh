@@ -79,9 +79,11 @@ refuse() {
   local b d out rc
   b=$(block0 "$1"); [ -n "$b" ] || { printf 'no-extract'; return; }
   d=$(mkorigin r "$2"); : > "$T/gh.log"; : > "$T/fh.log"
-  if [ "${3:-}" = lib ]; then
-    mkdir -p "$d/scripts"; printf 'forge_host() { echo forgejo; }\n' > "$d/scripts/forge-lib.sh"
-  fi
+  case "${3:-}" in
+    lib) mkdir -p "$d/scripts"; printf 'forge_url_check() { return 0; }\nforge_host() { echo forgejo; }\n' > "$d/scripts/forge-lib.sh" ;;
+    libpin)   # review round 1 (codex): a branch's FORGE_HOST must hit the pin, not choose the gh path
+      mkdir -p "$d/scripts"; printf 'forge_url_check() { echo "forge-lib: refusing: pin" >&2; return 2; }\nforge_host() { echo github; }\n' > "$d/scripts/forge-lib.sh" ;;
+  esac
   out=$( cd "$d" && PATH="$T/bin:$PATH" bash -c "forge_host() { echo x >> '$T/fh.log'; echo github; }"$'\n'"$b"$'\n''echo "HOST=$HOST"' 2>&1 ); rc=$?
   printf 'rc=%s|%s|gh=%s|fh=%s' "$rc" "$out" "$(wc -l < "$T/gh.log" | tr -d ' ')" "$(wc -l < "$T/fh.log" | tr -d ' ')"
 }
@@ -103,6 +105,21 @@ dedupe() {
   BRANCH=main J="$json" bash -c 'forge_issue_list() { printf "%s" "$J"; }'$'\n'"$l"$'\n''printf "%s" "$EXISTING"' 2>&1
 }
 
+# branch <file> [<origin HEAD target>]: the file's own BRANCH= line run in a fixture repo whose
+# refs/remotes/origin/HEAD points at the target, or is absent with no target (review round 1: the
+# command printed the branch but never assigned BRANCH, so every later "$BRANCH" was empty).
+branch() {
+  local l d; l=$(one "$1" '^[[:space:]]*BRANCH=')
+  [ "$l" = no-extract ] && { printf 'no-extract'; return; }
+  d=$(mkorigin b 'https://forge.example/o/r')
+  if [ -n "${2:-}" ]; then
+    git -C "$d" -c user.name=t -c user.email=t@t.invalid commit -q --allow-empty -m x
+    git -C "$d" update-ref "refs/remotes/origin/$2" HEAD
+    git -C "$d" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$2"
+  fi
+  ( cd "$d" && BRANCH=stale bash -c "$l"$'\n''printf "%s" "$BRANCH"' 2>&1 )
+}
+
 # labels <file> <have...>: the file's own `for l in` label filter line; prints "USE=..|SKIP=..".
 labels() {
   local f="$1" l; shift
@@ -118,7 +135,7 @@ verdicts() {
   p0=$(sect "$f" 'Phase 0'); p1=$(sect "$f" 'Phase 1'); p2=$(sect "$f" 'Phase 2'); p4=$(sect "$f" 'Phase 4')
 
   # discovery
-  if ! printf '%s\n' "$p1" | grep -q 'forge_workflow_dir' || printf '%s\n' "$p1" | grep -qF 'ls .github/workflows/*.yml'; then
+  if ! grep -q 'forge_workflow_dir' <<< "$p1" || grep -qF 'ls .github/workflows/*.yml' <<< "$p1"; then
     echo "discovers only .github/workflows"; fi
   [ "$(wfdir "$f" github)" = .github/workflows ] || echo "GitHub host takes the Forgejo order"
   [ "$(wfdir "$f" forgejo)" = .forgejo/workflows ] || echo "Forgejo host ignores forge_workflow_dir"
@@ -138,7 +155,7 @@ verdicts() {
   for n in forge_ci_status forge_issue_list forge_issue_create forge_issue_label forge_body_region_set forge_api_paginate; do
     grep -q "$n" "$f" || { echo "no host branch"; break; }
   done
-  printf '%s\n' "$p2" | grep -F -- '- **No match:**' | grep -q 'forge_issue_create' || echo "no host branch"
+  grep -q 'forge_issue_create' <<< "$(grep -F -- '- **No match:**' <<< "$p2")" || echo "no host branch"
   grep -q 'forge_issue_comment' "$f" && echo "a status update posted as a comment (#565)"
 
   # status words
@@ -150,13 +167,13 @@ verdicts() {
   case "$(row '`pending`')" in *"not green"*"| not ticketed |") ;; *) echo "pending would be ticketed" ;; esac
   case "$(row '`not_configured`')" in *"CI status unavailable (not_configured)"*stderr*"| not ticketed |") ;; *) echo "not_configured would be ticketed" ;; esac
   case "$(row 'any other word')" in *'`unknown status <word>`'*"not green"*"| not ticketed |") ;; *) echo "unknown status would be ticketed" ;; esac
-  printf '%s\n' "$p1" | tr '\n' ' ' | grep -q 'release or *[0-9]*:* *version-gate classification is not done on Forgejo' \
+  grep -q 'release or *[0-9]*:* *version-gate classification is not done on Forgejo' <<< "${p1//$'\n'/ }" \
     || echo "release-gate classification claimed on Forgejo"
   [ "$(one "$f" '^[[:space:]]*SHA=')" = 'SHA=$(git rev-parse --verify "$BRANCH" 2>/dev/null)' ] || echo "the sha shown is not the one judged"
 
   # Phase 2 on Forgejo
-  printf '%s\n' "$p2" | grep -qF '`CI failure: <branch> (<WF_DIR>)`' || echo "title is not the branch form"
-  printf '%s\n' "$p2" | grep -q 'fix(ci): .* failing (' && echo "title is not the branch form"
+  grep -qF '`CI failure: <branch> (<WF_DIR>)`' <<< "$p2" || echo "title is not the branch form"
+  grep -q 'fix(ci): .* failing (' <<< "$p2" && echo "title is not the branch form"
   [ "$(dedupe "$f" 'CI failure: main (.forgejo/workflows)')" = 1 ] || echo "duplicate ticket on a red branch"
   [ "$(dedupe "$f" 'CI failure: main-old (.forgejo/workflows)')" = "" ] || echo "main-old matches main"
   [ "$(dedupe "$f" 'CI failure: main-old (.forgejo/workflows)' 'CI failure: main (.gitea/workflows)')" = 2 ] || echo "duplicate ticket on a red branch"
@@ -164,7 +181,7 @@ verdicts() {
   a=$(printf '%s\n' "$p2" | tr '\n' ' ')
   case "$a" in *"never a comment and never a second ticket"*'`forge_issue_create` is not called'*) ;; *) echo "an open ticket gets a second ticket" ;; esac
   [ -n "$r" ] || echo "an open ticket gets a second ticket"
-  printf '%s\n' "$p2" | grep 'run URL' | grep -vq 'no run URL' && echo "a run URL reaches the Forgejo ticket"
+  r=$(grep 'run URL' <<< "$p2"); [ -n "$r" ] && grep -vq 'no run URL' <<< "$r" && echo "a run URL reaches the Forgejo ticket"
   [ "$(labels "$f" bug)" = "USE=bug|SKIP=infrastructure" ] || echo "one unknown label drops the call"
   [ "$(labels "$f")" = "USE=|SKIP=bug infrastructure" ] || echo "one unknown label drops the call"
   case "$a" in *"report every skipped name"*) ;; *) echo "skipped labels not reported" ;; esac
@@ -172,7 +189,7 @@ verdicts() {
   case "$a" in *"created but labels were refused: <stderr line>"*) ;; *) echo "a label refusal is hidden" ;; esac
 
   # Phase 4
-  printf '%s\n' "$p4" | grep 'Forgejo' | grep -i 'skip' | grep -q 'job logs are not reachable on Forgejo' \
+  grep -q 'job logs are not reachable on Forgejo' <<< "$(grep 'Forgejo' <<< "$p4" | grep -i 'skip')" \
     || echo "Phase 4 does not skip on Forgejo"
 
   # Phase 0: the refusal never depends on the library it tests for
@@ -185,11 +202,16 @@ verdicts() {
     *"$TOKEN"*) echo "token reaches the refusal" ;; *) echo "a non-GitHub origin without the adapter is not refused" ;; esac
   [ "$(refuse "$f" 'git@github.com:o/r.git')" = "rc=0|HOST=github|gh=0|fh=0" ] || echo "a GitHub origin without the adapter is refused"
   [ "$(refuse "$f" 'https://forge.example/o/r' lib)" = "rc=0|HOST=forgejo|gh=0|fh=0" ] || echo "the adapter is not sourced when present"
+  [ "$(refuse "$f" 'https://github.com/o/r' libpin)" = "rc=1|forge-lib: refusing: pin|gh=0|fh=0" ] || echo "a pin refusal does not stop Phase 0"
   for o in "https://user:$TOKEN@forge.example/o/r" 'git@forge.example:o/r' "ssh://git:$TOKEN@forge.example:2222/o/r" 'HTTPS://Forge.Example/o/r'; do
     r=$(host "$f" "$o")
     case "$r" in *"$TOKEN"*) echo "token reaches the refusal" ;; forge.example) ;; *) echo "origin host misread: $o -> $r" ;; esac
   done
   [ "$(host "$f" 'ssh://git@ssh.github.com:443/owner/repo.git')" = ssh.github.com ] || echo "ssh.github.com:443 is not GitHub"
+
+  # the default branch is ASSIGNED, from origin/HEAD, else main
+  [ "$(branch "$f" develop)" = develop ] || echo "BRANCH is not assigned from origin/HEAD"
+  [ "$(branch "$f")" = main ] || echo "BRANCH is empty without origin/HEAD"
 
   # forge-adapt's trigger
   r=$(grep -F '`/ci-health`' "$c" | grep '^|' | head -1)
@@ -215,7 +237,11 @@ r=$(refuse "$CIH" 'https://github.com/o/r')
 [ "$(dedupe "$CIH" 'CI failure: main-old (.forgejo/workflows)')" = "" ] && ok "an open main-old ticket is not a duplicate of main" || bad "main-old dedupe"
 [ "$(dedupe "$CIH" 'CI failure: main (.forgejo/workflows)')" = 1 ] && ok "an open main ticket is found by the prefix key" || bad "main dedupe"
 [ "$(labels "$CIH" bug)" = "USE=bug|SKIP=infrastructure" ] && ok "a missing label is skipped, the existing one kept" || bad "label filter"
+[ "$(refuse "$CIH" 'https://github.com/o/r' libpin)" = "rc=1|forge-lib: refusing: pin|gh=0|fh=0" ] \
+  && ok "with the adapter, a pin refusal (a branch's FORGE_HOST) stops Phase 0 before forge_host and gh" || bad "pin refusal in Phase 0"
 [ "$(wfdir "$CIH" github)" = .github/workflows ] && ok "a GitHub host reads .github/workflows whatever forge_workflow_dir says" || bad "github wfdir"
+[ "$(branch "$CIH" develop)" = develop ] && ok "BRANCH is assigned from refs/remotes/origin/HEAD (develop)" || bad "BRANCH from origin/HEAD"
+[ "$(branch "$CIH")" = main ] && ok "BRANCH falls back to main with no origin/HEAD" || bad "BRANCH fallback"
 
 # --- the mutant ledger: each edit is applied to a scratch copy, asserted to have applied, and must
 # make verdicts print the named message.
@@ -235,7 +261,7 @@ for old, new in zip(pairs[0::2], pairs[1::2]):
 open(p, "w").write(s)
 PY
   out=$(verdicts "$fc" "$cc")
-  if printf '%s\n' "$out" | grep -qF -- "$msg"; then ok "mutant '$label' dies: $msg"
+  if grep -qF -- "$msg" <<< "$out"; then ok "mutant '$label' dies: $msg"
   else bad "MUTANT SURVIVED: $label (wanted '$msg', got: $(printf '%s' "$out" | tr '\n' ';'))"; fi
 }
 WFL='if [ "$HOST" = github ]; then WF_DIR=.github/workflows; else WF_DIR=$(forge_workflow_dir) || WF_DIR=""; fi
@@ -288,13 +314,19 @@ mut 'the userinfo strip dropped' cih "origin host misread" "s#/.*##; s#^.*@##; s
 mut 'the port strip dropped' cih "ssh.github.com:443 is not GitHub" "s#^.*@##; s#:.*##'" "s#^.*@##'"
 mut 'the existence check moved below the source line' cih "refusal depends on the library it tests for" \
   'if [ -f scripts/forge-lib.sh ]; then
-  . scripts/forge-lib.sh && HOST=$(forge_host) || exit 1' '. scripts/forge-lib.sh 2>/dev/null
+  . scripts/forge-lib.sh && forge_url_check && HOST=$(forge_host) || exit 1' '. scripts/forge-lib.sh 2>/dev/null
 if [ -f scripts/forge-lib.sh ]; then
-  HOST=$(forge_host) || exit 1'
+  forge_url_check && HOST=$(forge_host) || exit 1'
 mut 'forge_host called in the refusal branch' cih "refusal depends on the library it tests for" \
   '*) echo "ci-health needs scripts/forge-lib.sh' '*) forge_host >/dev/null 2>&1; echo "ci-health needs scripts/forge-lib.sh'
 mut 'ssh.github.com no longer GitHub' cih "a GitHub origin without the adapter is refused" '    github.com|ssh.github.com) HOST=github ;;' '    ssh.github.com) HOST=github ;;'
-mut 'the adapter-present branch skips the source' cih "the adapter is not sourced when present" '  . scripts/forge-lib.sh && HOST=$(forge_host) || exit 1' '  HOST=github'
+mut 'the adapter-present branch skips the source' cih "the adapter is not sourced when present" '  . scripts/forge-lib.sh && forge_url_check && HOST=$(forge_host) || exit 1' '  HOST=github'
+mut 'the pin check dropped from Phase 0' cih "a pin refusal does not stop Phase 0" ' && forge_url_check && HOST=$(forge_host)' ' && HOST=$(forge_host)'
+mut 'the pre-fix print-only branch line restored' cih "BRANCH is not assigned from origin/HEAD" \
+  'BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); BRANCH=${BRANCH#origin/}; BRANCH=${BRANCH:-main}' \
+  "git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo \"main\""
+mut 'the main fallback dropped' cih "BRANCH is empty without origin/HEAD" '; BRANCH=${BRANCH:-main}' ''
+mut 'the origin/ prefix kept' cih "BRANCH is not assigned from origin/HEAD" '; BRANCH=${BRANCH#origin/}' ''
 mut 'the pre-fix forge-adapt row restored' cmds "forge-adapt recommends /ci-health on .github/workflows only" \
   "$(grep -F '`/ci-health`' "$CMDS" | grep '^|' | head -1)" '| `.github/workflows/` present | `/ci-health` | devops | scan CI, ticket failures, auto-fix safe | `ticket-gate` |'
 

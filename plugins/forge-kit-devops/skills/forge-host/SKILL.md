@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 55 -->
+<!-- forge-host-version: 56 -->
 
 # forge-host: host-aware forge operations
 

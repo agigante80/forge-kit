@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 61
+# forge-lib-version: 62
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -2013,28 +2013,39 @@ forge_issue_list() {
 # _forge_body_filter <writer> <body>  (#541): run the operator's FORGE_BODY_FILTER over <body> and
 # leave its stdout, byte for byte, in _FORGE_BODY_OUT. Called only when that variable is non-empty.
 # The filter comes from the environment alone (.forge.conf accepts six other keys), must be an
-# absolute path to an executable file (no PATH lookup), reads the body on stdin with no added
-# newline, and runs without the forge token variables (the leak scan's env -u set) under
-# `timeout 10` when that command exists. Its stderr passes through. 111 with one line and nothing
-# sent for a bad path, any non-zero exit (124 reads as the timeout) or empty output for a non-empty
-# body. The capture appends a \037 sentinel and the exit code, so trailing newlines survive that a
+# absolute path to an executable file with no "=" in it (no PATH lookup), reads the body on stdin
+# with no added newline, and runs after the default-branch pin, without the forge token variables
+# (the leak scan's env -u set), under `timeout -k 5 10` when that command exists. Its stderr passes
+# through. 2 for a pin refusal; 111 with one line and nothing sent for a bad path, any non-zero exit
+# (124, or 137 from the kill, reads as the timeout) or empty output for a non-empty body. The capture appends a \037 sentinel and the exit code, so trailing newlines survive that a
 # plain $( ) would strip; a NUL cannot survive bash and is dropped.
 _forge_body_filter() {
   local w="$1" body="$2" f="$FORGE_BODY_FILTER" out rc envu=() tc=()
   _FORGE_BODY_OUT=""
+  # A path with "=" is refused before env sees it: env reads such an operand as an assignment, runs
+  # no command and prints the whole environment, which would be sent as the body (review round 1).
   case "$f" in
+    *=*) echo "forge-lib: $w: FORGE_BODY_FILTER must not contain \"=\"; not sent" >&2; return 111 ;;
     /*) ;;
     *) echo "forge-lib: $w: FORGE_BODY_FILTER must be an absolute path; not sent" >&2; return 111 ;;
   esac
   if [ ! -f "$f" ] || [ ! -x "$f" ]; then
     echo "forge-lib: $w: FORGE_BODY_FILTER=$(_forge_leak_clean "$f") is not an executable file; not sent" >&2; return 111
   fi
+  # Pin BEFORE the filter runs, in this shell (review round 1): the load sets FORGE_TOKEN_ENV from
+  # .forge.conf so the strip below covers a custom token variable, and a branch that changes or
+  # deletes that key is refused (2) before the filter could read the token it names. The deletion
+  # check's fail-open note is held back here; the token read prints it if it still applies.
+  local pe
+  _forge_pin_check || return $?
+  pe="$(_forge_cred_pin_check FORGE_TOKEN_ENV 2>&1 >/dev/null)" || { printf '%s\n' "$pe" >&2; return 2; }
   _forge_token_envu
-  if command -v timeout >/dev/null 2>&1; then tc=(timeout 10)
+  # -k 5: a filter that ignores TERM is killed 5 s later (137), so the call cannot hang (round 1).
+  if command -v timeout >/dev/null 2>&1; then tc=(timeout -k 5 10)
   else echo "forge-lib: $w: no timeout command; the body filter is not time-bounded" >&2; fi
   out="$("${tc[@]+"${tc[@]}"}" env "${envu[@]}" "$f" < <(printf '%s' "$body"); printf '\037%s' "$?")"
   rc="${out##*$'\037'}"; out="${out%$'\037'*}"
-  if [ "$rc" = 124 ]; then echo "forge-lib: $w: body filter timed out after 10s; not sent" >&2; return 111; fi
+  if [ "$rc" = 124 ] || { [ "$rc" = 137 ] && [ "${#tc[@]}" -gt 0 ]; }; then echo "forge-lib: $w: body filter timed out after 10s; not sent" >&2; return 111; fi
   if [ "$rc" != 0 ]; then echo "forge-lib: $w: body filter failed (exit $rc); not sent" >&2; return 111; fi
   if [ -z "$out" ] && [ -n "$body" ]; then echo "forge-lib: $w: body filter produced no output; not sent" >&2; return 111; fi
   _FORGE_BODY_OUT="$out"

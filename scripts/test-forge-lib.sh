@@ -5435,6 +5435,38 @@ c541_relative() { f541 FORGE_BODY_FILTER=./addition.sh
 c541_bare() { f541 FORGE_BODY_FILTER=addition.sh "PATH=$W541:$PATH"
   [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ ! -e "$RAN541" ] \
     && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: FORGE_BODY_FILTER must be an absolute path; not sent' ]; }
+# review round 1: GNU env reads an operand with "=" as an assignment, so env -u ... /x/a=b/f.sh
+# would print the environment and exit 0, sending it as the body. The path is refused first.
+mkdir -p "$F541/a=b"; printf '#!/bin/sh\ntouch "$RAN541"; cat\n' > "$F541/a=b/f.sh"; chmod +x "$F541/a=b/f.sh"
+c541_equals() { f541 "FORGE_BODY_FILTER=$F541/a=b/f.sh" SECRET541=envdump541
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ ! -e "$RAN541" ] && ! grep -q envdump541 "$T/e539" "$T/req539.log" \
+    && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: FORGE_BODY_FILTER must not contain "="; not sent' ]; }
+# review round 1 (codex): the loader ran only inside $(forge_repo), so a FORGE_TOKEN_ENV that
+# .forge.conf names was not stripped from the filter's environment, and a branch could change or
+# delete that key before the filter ran. The filter now runs after the pin, in the caller's shell.
+c541_conf_token() {
+  rm -f "$T/cap541"; printf 'FORGE_TOKEN_ENV=MYTOK\n' > "$W541/.forge.conf"
+  f541 "FORGE_BODY_FILTER=$F541/tok" "CAP541=$T/cap541" MYTOK=s4; rm -f "$W541/.forge.conf"
+  [ "$R539RC" = 0 ] && body541 'Body text' && grep -qx CAP541 "$T/cap541" && ! grep -qx MYTOK "$T/cap541"; }
+P541="$T/p541"; mkdir -p "$P541"; git init -q "$P541"; git -C "$P541" remote add origin https://forge.example/o/r
+printf 'FORGE_TOKEN_ENV=MYTOK\n' > "$P541/.forge.conf"; git -C "$P541" add .forge.conf
+git -C "$P541" -c user.name=t -c user.email=t@example.invalid commit -q -m conf; git -C "$P541" update-ref refs/remotes/origin/main HEAD
+c541_pin_change() {   # the working copy names another token variable: refused 2 before the filter runs
+  printf 'FORGE_TOKEN_ENV=OTHER\n' > "$P541/.forge.conf"; rm -f "$RAN541"
+  r539 "$P541" "$L539" "$C541" "RAN541=$RAN541" "FORGE_BODY_FILTER=$F541/marker" MYTOK=s4
+  git -C "$P541" checkout -q -- .forge.conf
+  [ "$R539RC" = 2 ] && [ ! -e "$RAN541" ] && [ "$(writes539)" = 0 ] && grep -q 'sets FORGE_TOKEN_ENV, which differs' "$T/e539"; }
+c541_pin_delete() {   # the working copy deletes the key: refused 2 before the filter runs
+  rm -f "$P541/.forge.conf" "$RAN541"
+  r539 "$P541" "$L539" "$C541" "RAN541=$RAN541" "FORGE_BODY_FILTER=$F541/marker" MYTOK=s4
+  git -C "$P541" checkout -q -- .forge.conf
+  [ "$R539RC" = 2 ] && [ ! -e "$RAN541" ] && [ "$(writes539)" = 0 ] && grep -q 'leaves FORGE_TOKEN_ENV unset' "$T/e539"; }
+# a filter that ignores TERM is killed 5 s after the 10 s timeout; it gives up by itself after 25 s,
+# so a regression fails this row on time instead of hanging the suite
+mkf541 noterm 'trap "" TERM; cat; i=0; while [ $i -lt 25 ]; do sleep 1; i=$((i + 1)); done'
+c541_noterm() { local t0=$SECONDS; f541 "FORGE_BODY_FILTER=$F541/noterm"
+  [ "$R539RC" = 111 ] && [ "$((SECONDS - t0))" -le 19 ] && [ "$(writes539)" = 0 ] \
+    && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: body filter timed out after 10s; not sent' ]; }
 c541_hang() { local t0=$SECONDS; f541 "FORGE_BODY_FILTER=$F541/hang"
   [ "$R539RC" = 111 ] && [ "$((SECONDS - t0))" -le 13 ] && [ "$(writes539)" = 0 ] \
     && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: body filter timed out after 10s; not sent' ]; }
@@ -5478,6 +5510,10 @@ row539 "#541: a dry run refuses what the real run refuses, before any dry-run li
 row539 "#541: a .forge.conf naming a filter never runs it" c541_conf
 row539 "#541: a relative filter path is refused 111 and never run" c541_relative
 row539 "#541: a bare filter name is refused 111 and never looked up on PATH" c541_bare
+row539 "#541: a filter path containing = is refused 111, never handed to env" c541_equals
+row539 "#541: a token variable .forge.conf names is stripped from the filter too" c541_conf_token
+row539 "#541: a branch naming another token variable is refused 2 before the filter runs" c541_pin_change
+row539 "#541: a branch deleting the token variable key is refused 2 before the filter runs" c541_pin_delete
 row539 "#541: the filter runs without any forge token variable" c541_tokens
 row539 "#541: a trailing newline from the filter is sent byte for byte" c541_trailing
 row539 "#541: the filter receives the body on stdin with no added newline" c541_stdin
@@ -5487,6 +5523,7 @@ row539 "#541: a NUL in the filter output is dropped, the rest is sent" c541_nul
 row539 "#541: with no timeout command the filter runs, with one warning" c541_notimeout
 if command -v timeout >/dev/null 2>&1; then
   row539 "#541: a hanging filter is cut off after 10 s and refused 111" c541_hang
+  row539 "#541: a filter ignoring TERM is killed 5 s later and refused 111" c541_noterm
 else
   ok "#541: a hanging filter is cut off after 10 s and refused 111 (skipped: no timeout command)"
 fi
@@ -5521,16 +5558,24 @@ mut541 'the shared token strip emptied' c541_tokens '  envu=(-u GH_TOKEN -u GITH
 mut541 'the absolute-path check skipped' c541_relative '    /*) ;;
     *) echo "forge-lib: $w: FORGE_BODY_FILTER must be an absolute path' '    *) ;;
     /*) echo "forge-lib: $w: FORGE_BODY_FILTER must be an absolute path'
+mut541 'the pin skipped before the filter' c541_pin_change '  _forge_pin_check || return $?
+  pe=' '  pe='
+mut541 'the pin skipped before the filter (token strip)' c541_conf_token '  _forge_pin_check || return $?
+  pe=' '  pe='
+mut541 'the deletion check skipped before the filter' c541_pin_delete 'pe="$(_forge_cred_pin_check FORGE_TOKEN_ENV 2>&1 >/dev/null)" ||' 'pe="" ||'
+mut541 'the = refusal removed' c541_equals '    *=*) echo "forge-lib: $w: FORGE_BODY_FILTER must not contain' '    *=*) ;; *=NEVER*) echo "forge-lib: $w: FORGE_BODY_FILTER must not contain'
 mut541 'the executable-file check skipped' c541_noexec '  if [ ! -f "$f" ] || [ ! -x "$f" ]; then' '  if false; then'
 mut541 'plain command substitution' c541_trailing "out=\"\${out%\$'\\037'*}\"" "out=\"\$(printf '%s' \"\${out%\$'\\037'*}\")\""
 mut541 'the body fed with a trailing newline' c541_stdin "< <(printf '%s' \"\$body\")" "<<< \"\$body\""
 mut541 'the filter stderr suppressed' c541_stderr "\"\$f\" < <(printf" "\"\$f\" 2>/dev/null < <(printf"
 mut541 'a missing timeout warns nothing' c541_notimeout '  else echo "forge-lib: $w: no timeout command; the body filter is not time-bounded" >&2; fi' '  fi'
 if command -v timeout >/dev/null 2>&1; then
-  mut541 'the filter not time-bounded' c541_hang 'then tc=(timeout 10)' 'then tc=()'
+  mut541 'the filter not time-bounded' c541_hang 'then tc=(timeout -k 5 10)' 'then tc=()'
+  mut541 'no kill after the timeout' c541_noterm 'then tc=(timeout -k 5 10)' 'then tc=(timeout 10)'
+  mut541 'the kill exit not read as the timeout' c541_noterm ' || { [ "$rc" = 137 ] && [ "${#tc[@]}" -gt 0 ]; }' ''
 fi
 expect "#541: the filter helper is not counted as a scan call site" 7 "$(grep -cE '_forge_leak_scan (forge_|"forge_body_region_)' "$LIB")"
-rm -rf "$T/m541" "$F541" "$W541" "$NT541"
+rm -rf "$T/m541" "$F541" "$W541" "$NT541" "$P541"
 
 # --- #558: the leak scan reads the sentinel (union) and the allowlist from the default branch --------
 # A checked-out branch must not weaken the scan. mkrepo558 makes a repository with remote origin (or
