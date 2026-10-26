@@ -334,10 +334,10 @@ grep -qF 'A hook copy follows its own rules,' "$RF" \
   && ok "#564: the #550 scope sentence now hands hooks to their own section" || bad "#564: the scope sentence still says a hook copy is not offered"
 grep -qF 'A hook copy is not offered for retirement' "$RF" \
   && bad "#564: the retired scope sentence is back" || ok "#564: the retired scope sentence is gone"
-HU=$(grep -n 'assets/hook-unwire.sh>\? <name>$' "$RF" | head -1 | cut -d: -f1); HR=$(grep -n '^rm .claude/hooks/<name>.py$' "$RF" | head -1 | cut -d: -f1)
+HU=$(grep -n 'assets/hook-unwire.sh <name> \\$' "$RF" | head -1 | cut -d: -f1); HR=$(grep -n '^  && rm .claude/hooks/<name>.<ext>$' "$RF" | head -1 | cut -d: -f1)
 [ -n "$HU" ] && [ -n "$HR" ] && [ "$HU" -lt "$HR" ] \
   && ok "#564: drift.md prints the unwire command before the rm" || bad "#564: unwire/rm order in drift.md ('$HU' '$HR')"
-grep -qF 'Unwire first, then delete' "$RF" \
+grep -qF 'chained so the delete cannot run after a failed unwire' "$RF" \
   && ok "#564: drift.md says unwire first, then delete" || bad "#564: drift.md lacks the unwire-first sentence"
 grep -qF 'reads `kept`' "$RF" && grep -qF 'Refresh never merges a hook' "$RF" \
   && ok "#564: drift.md states the kept rule and that refresh never merges a hook" || bad "#564: drift.md lacks the kept rule"

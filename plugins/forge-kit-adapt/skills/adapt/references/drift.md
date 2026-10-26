@@ -95,18 +95,21 @@ copy and there is no adapt-kept marker for one. Whatever the word, the project r
 - `kept` (edited or unknown baseline): report the double fire, print the two commands below in this order, and
   take no action.
 
-Removal is always two steps in one order. Unwire first, then delete:
+Removal is always two steps in one order, chained so the delete cannot run after a failed unwire. Unwire
+first, then delete (`<ext>` is the copy's own extension, `py` or `sh`):
 
 ```bash
-bash "${FORGE_KIT_DIR:?}"/plugins/forge-kit-adapt/skills/adapt/assets/hook-unwire.sh <name>
-rm .claude/hooks/<name>.py
+bash "${FORGE_KIT_DIR:?}"/plugins/forge-kit-adapt/skills/adapt/assets/hook-unwire.sh <name> \
+  && rm .claude/hooks/<name>.<ext>
 ```
 
 A wired hook whose file is gone exits 2 on every matching call, which denies it, so deleting first would also
 deny the Bash call that tries to repair it. `hook-unwire.sh` applies the name rule above, edits only
 `.claude/settings.json`, keeps any other hook in a shared matcher group, and prints `no wiring found for <name>`
-when nothing was wired. `retired-paths.sh --remove` also refuses a file that `.claude/settings.json` or
-`.claude/settings.local.json` still names, so it cannot do the delete first either.
+when nothing was wired. It exits 1, so the chain stops, when the hook is wired in `.claude/settings.local.json`
+(which it never edits: unwire it there by hand) or when either settings file is a symlink or not one valid JSON
+object. `retired-paths.sh --remove` is a separate route for a RETIRED file and also refuses a file those two
+settings files still name; this chain does not go through it.
 
 ## An unmarked copy of a kit asset (#522)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hook-unwire-version: 2
+# hook-unwire-version: 3
 # hook-unwire.sh: remove one hook's wiring from a project's .claude/settings.json (#564).
 #
 #   hook-unwire.sh <name> [--project <dir>]
@@ -10,14 +10,18 @@
 # or written. --project defaults to the current directory.
 #
 # WHAT IT DOES. Removes every hook entry whose command line names `<name>.py` or `<name>.sh` from
-# EVERY event in .claude/settings.json (PreToolUse, PostToolUse, Stop, any other), matching on a PATH
-# BOUNDARY: the file name must start the command text or follow a `/` or a space, and end it or precede a
-# space or quote, so `my-block-dashes.py` is never touched when `block-dashes` is unwired. A matcher
+# EVERY event in .claude/settings.json (PreToolUse, PostToolUse, Stop, any other), matching on a WORD
+# BOUNDARY: the character before `<name>.py` and the one after it must each be absent or outside
+# [A-Za-z0-9_.-] (the same class retired-paths.sh uses), so a quote, `;`, `&&`, `|`, `)`, a tab or a
+# newline all end a match, while `my-block-dashes.py` and `block-dashes.pyu` are never touched. (jq's
+# regex does not read `\u0027` inside a class as a quote, which is why the boundary is a complement.) A matcher
 # group that still holds another hook keeps it; only a group this removal emptied is dropped. A group
 # it did not touch is kept as it was, even when it was already empty.
 #
 # WHAT IT DOES NOT DO. It never deletes the hook file, never edits settings.local.json, and never
-# touches the plugin's own hooks.json. It rewrites the file with jq (two-space indent), through a temp
+# touches the plugin's own hooks.json. A hook still wired in settings.local.json is REFUSED (exit 1,
+# naming the file), as is a settings.local.json it cannot read safely, so the delete that follows an
+# exit-0 unwire can never leave a wired hook without its file. Callers chain: `hook-unwire.sh <n> && rm`. It rewrites the file with jq (two-space indent), through a temp
 # file in the same directory that replaces the original only when jq succeeded, mode kept.
 #
 # WHY IT EXISTS AND WHY THE ORDER MATTERS. Retiring a project-local copy of a hook the plugin now
@@ -27,7 +31,8 @@
 # merely a duplicate. Callers print or run `hook-unwire.sh <name>` BEFORE any `rm`.
 #
 # Exit 0: removed, or nothing wired (`no wiring found for <name>`: no file, no .hooks, or no match).
-# Exit 1: settings.json cannot be edited safely (not valid JSON, a symlink or a symlinked .claude, jq missing); left unchanged.
+# Exit 1: nothing may be deleted after this: settings.json cannot be edited safely (not one valid JSON object, a
+# symlink or a symlinked .claude, jq missing), or settings.local.json still wires the hook; left unchanged.
 # Exit 2: usage or a name outside the guard.
 set -uo pipefail
 
@@ -48,24 +53,36 @@ esac
 # A symlinked .claude directory would send the temp file and the replace outside the project (the project
 # may be untrusted), so it is refused before anything is read or written, the same as a symlinked file.
 if [ -L "$PROJECT/.claude" ]; then echo "hook-unwire: $PROJECT/.claude is a symlink; left unchanged" >&2; exit 1; fi
-S="$PROJECT/.claude/settings.json"
-if [ ! -e "$S" ] && [ ! -L "$S" ]; then echo "no wiring found for $NAME"; exit 0; fi
-command -v jq >/dev/null 2>&1 || { echo "hook-unwire: jq is required; settings.json left unchanged" >&2; exit 1; }
-[ -L "$S" ] && { echo "hook-unwire: $S is a symlink; left unchanged" >&2; exit 1; }
-[ -f "$S" ] || { echo "hook-unwire: $S is not a regular file; left unchanged" >&2; exit 1; }
-jq -e . "$S" >/dev/null 2>&1 || { echo "hook-unwire: $S is not valid JSON; left unchanged" >&2; exit 1; }
+S="$PROJECT/.claude/settings.json"; L="$PROJECT/.claude/settings.local.json"
+have_s=1; if [ ! -e "$S" ] && [ ! -L "$S" ]; then have_s=0; fi
+have_l=1; if [ ! -e "$L" ] && [ ! -L "$L" ]; then have_l=0; fi
+if [ "$have_s" -eq 0 ] && [ "$have_l" -eq 0 ]; then echo "no wiring found for $NAME"; exit 0; fi
+command -v jq >/dev/null 2>&1 || { echo "hook-unwire: jq is required; settings left unchanged" >&2; exit 1; }
+# one_object <file>: a regular, non-symlink file holding exactly one JSON object (a concatenation is not one)
+one_object() { [ ! -L "$1" ] && [ -f "$1" ] && [ "$(jq -s 'length' "$1" 2>/dev/null)" = 1 ] && jq -e 'type == "object"' "$1" >/dev/null 2>&1; }
 
 DEFS='
-def is_it: ((.command? // "") + " " + ((.args? // []) | map(tostring) | join(" ")))
-  | test("(^|[/ ])" + $n + "\\.(py|sh)($|[ \"\\u0027])");
+def is_it: ((if (.command? | type) == "string" then .command else "" end) + " "
+    + (if (.args? | type) == "array" then (.args | map(tostring) | join(" ")) else "" end))
+  | test("(^|[^A-Za-z0-9_.-])" + $n + "\\.(py|sh)($|[^A-Za-z0-9_.-])");
 def groups: if type == "object" and (.hooks | type) == "object" then [.hooks[] | select(type == "array") | .[] | select(type == "object" and (.hooks | type) == "array") | .hooks[] | select(type == "object")] else [] end;
 '
-count=$(jq --arg n "$NAME" "$DEFS"' [groups[] | select(is_it)] | length' "$S" 2>/dev/null) || count=""
+COUNT_JQ="$DEFS"' [groups[] | select(is_it)] | length'
+# settings.local.json is never edited, so a hook wired there blocks the delete: refuse, naming the file.
+if [ "$have_l" -eq 1 ]; then
+  one_object "$L" || { echo "hook-unwire: $L is a symlink or not one valid JSON object; cannot tell whether it wires $NAME; left unchanged" >&2; exit 1; }
+  lc=$(jq --arg n "$NAME" "$COUNT_JQ" "$L" 2>/dev/null) || lc=""
+  [ -n "$lc" ] || { echo "hook-unwire: could not read $L; left unchanged" >&2; exit 1; }
+  [ "$lc" -eq 0 ] || { echo "hook-unwire: $NAME is wired in .claude/settings.local.json, which this script never edits; unwire it there by hand, then delete the file" >&2; exit 1; }
+fi
+if [ "$have_s" -eq 0 ]; then echo "no wiring found for $NAME"; exit 0; fi
+one_object "$S" || { echo "hook-unwire: $S is a symlink, not a regular file, or not one valid JSON object; left unchanged" >&2; exit 1; }
+count=$(jq --arg n "$NAME" "$COUNT_JQ" "$S" 2>/dev/null) || count=""
 [ -n "$count" ] || { echo "hook-unwire: could not read $S; left unchanged" >&2; exit 1; }
 if [ "$count" -eq 0 ]; then echo "no wiring found for $NAME"; exit 0; fi
+mode=$(stat -c %a "$S" 2>/dev/null || stat -f %Lp "$S" 2>/dev/null)
 
 tmp=$(mktemp "$PROJECT/.claude/.settings.XXXXXX") || { echo "hook-unwire: cannot make a temp file; left unchanged" >&2; exit 1; }
-cp -p "$S" "$tmp" 2>/dev/null
 if jq --arg n "$NAME" "$DEFS"'
   .hooks |= with_entries(.value |= (
     if type == "array" then
@@ -75,7 +92,7 @@ if jq --arg n "$NAME" "$DEFS"'
           | (.hooks |= map(select((type == "object" and is_it) | not)))
           | select($before == (.hooks | length) or (.hooks | length) > 0)
         else . end ]
-    else . end))' "$S" > "$tmp" 2>/dev/null; then
+    else . end))' "$S" > "$tmp" 2>/dev/null && { [ -z "$mode" ] || chmod "$mode" "$tmp"; }; then
   mv "$tmp" "$S" || { rm -f "$tmp"; echo "hook-unwire: could not replace $S; left unchanged" >&2; exit 1; }
   echo "hook-unwire: removed $count wiring entries for $NAME from .claude/settings.json"
 else

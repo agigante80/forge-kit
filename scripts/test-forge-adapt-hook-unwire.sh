@@ -48,6 +48,47 @@ P=$(mk bd '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"python3 /h/b
 cap block-dashes --project "$P"
 [ "$cout" = "no wiring found for block-dashes" ] && [ "$(cat "$(SJ "$P")")" = "$before" ] && ok "block-dashes.python and block-dashes.shx are not block-dashes" || bad "end boundary: '$cout'"
 
+echo "== every shell terminator and quote ends a match (#564 review) =="
+i=0
+for cmd in "python3 '.claude/hooks/x.py'" 'python3 .claude/hooks/x.py;' 'python3 .claude/hooks/x.py&&true' 'python3 .claude/hooks/x.py|cat' '(python3 .claude/hooks/x.py)' 'python3 "x.py"' 'python3 .claude/hooks/x.py
+' 'x.py' 'python3 .claude/hooks/x.py	--flag'; do
+  i=$((i + 1)); P=$(mk "tm$i" "$(jq -cn --arg c "$cmd" '{hooks:{Stop:[{hooks:[{type:"command",command:$c}]}]}}')")
+  cap x --project "$P"
+  [ "$(jq -c '.hooks.Stop' "$(SJ "$P")")" = "[]" ] && ok "wiring form $i is unwired" || bad "wiring form $i stayed wired: $(printf '%s' "$cmd" | head -c 40)"
+done
+for cmd in 'python3 /a/x.pyu' 'python3 /a/x.py0' 'python3 /a/my-x.py' 'python3 /a/x.py.bak' 'python3 /a/xx.py'; do
+  i=$((i + 1)); P=$(mk "tm$i" "$(jq -cn --arg c "$cmd" '{hooks:{Stop:[{hooks:[{type:"command",command:$c}]}]}}')"); before=$(cat "$(SJ "$P")")
+  cap x --project "$P"
+  [ "$cout" = "no wiring found for x" ] && [ "$(cat "$(SJ "$P")")" = "$before" ] && ok "'$cmd' is not hook x" || bad "'$cmd' matched: '$cout'"
+done
+
+echo "== settings.local.json: never edited, and a wired hook there blocks the delete =="
+P=$(mk lw '{"hooks":{}}'); echo '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"python3 .claude/hooks/x.py"}]}]}}' > "$P/.claude/settings.local.json"
+before=$(cat "$P/.claude/settings.local.json"); cap x --project "$P"
+[ "$crc" = 1 ] && [ -z "$cout" ] && [ "$(cat "$P/.claude/settings.local.json")" = "$before" ] && ok "wired in settings.local.json: exit 1, file untouched, nothing on stdout" || bad "local wired: rc=$crc '$cout'"
+case "$cerr" in *settings.local.json*"by hand"*) ok "and names the file and says to unwire by hand" ;; *) bad "local message: '$cerr'" ;; esac
+P=$(mk lo '{"hooks":{}}'); mkdir -p "$P/.claude"; echo '{"permissions":{}}' > "$P/.claude/settings.local.json"; cap x --project "$P"
+[ "$crc" = 0 ] && [ "$cout" = "no wiring found for x" ] && ok "a settings.local.json that does not wire it is no blocker" || bad "local clean: rc=$crc '$cout'"
+P=$(mk lx "$BOTH"); echo '{bad' > "$P/.claude/settings.local.json"; cap block-dashes --project "$P"
+[ "$crc" = 1 ] && ok "an unreadable settings.local.json refuses even when settings.json wires the hook" || bad "local invalid: rc=$crc"
+mkdir -p "$T/ly/.claude"; echo '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"python3 .claude/hooks/x.py"}]}]}}' > "$T/ly/.claude/settings.local.json"
+cap x --project "$T/ly"
+[ "$crc" = 1 ] && ok "a hook wired only in settings.local.json (no settings.json) refuses" || bad "local only: rc=$crc '$cout'"
+
+echo "== odd JSON shapes =="
+P=$(mk cj '{"a":1}{"b":2}'); before=$(cat "$(SJ "$P")"); cap x --project "$P"
+[ "$crc" = 1 ] && [ "$(cat "$(SJ "$P")")" = "$before" ] && ok "two concatenated JSON objects: exit 1, unchanged" || bad "concatenated: rc=$crc"
+P=$(mk cw '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"python3 .claude/hooks/x.py"}]}]}}{"hooks":{}}'); before=$(cat "$(SJ "$P")"); cap x --project "$P"
+[ "$crc" = 1 ] && [ "$(cat "$(SJ "$P")")" = "$before" ] && ok "concatenated objects with a wired hook in the first: exit 1, unchanged" || bad "concat wired: rc=$crc"
+P=$(mk ls '{"hooks":{}}'); echo '{"permissions":{}}' > "$P/.claude/real-local.json"; ln -s real-local.json "$P/.claude/settings.local.json"; cap x --project "$P"
+[ "$crc" = 1 ] && ok "a symlinked settings.local.json with clean content still refuses" || bad "local symlink: rc=$crc '$cout'"
+P=$(mk ar '[1,2]'); before=$(cat "$(SJ "$P")"); cap x --project "$P"
+[ "$crc" = 1 ] && [ "$(cat "$(SJ "$P")")" = "$before" ] && ok "a top-level array: exit 1, unchanged" || bad "array: rc=$crc"
+P=$(mk nt '{"hooks":{"Stop":[{"hooks":[{"command":123},{"command":"python3","args":"foo"},{"command":"python3 /h/x.py"}]}]}}'); cap x --project "$P"
+[ "$crc" = 0 ] && [ "$(jq -c '.hooks.Stop[0].hooks | length' "$(SJ "$P")")" = 2 ] && ok "a non-string command and a non-array args are skipped, the real wiring still goes" || bad "non-string fields: rc=$crc '$cerr'"
+P=$(mk ro "$BOTH"); chmod 444 "$(SJ "$P")"; cap block-dashes --project "$P"
+[ "$crc" = 0 ] && [ "$(stat -c %a "$(SJ "$P")" 2>/dev/null || stat -f %Lp "$(SJ "$P")")" = 444 ] && ok "a read-only settings.json is edited and stays 444" || bad "read-only: rc=$crc '$cerr'"
+
 echo "== the .sh form and the command-only form =="
 P=$(mk c '{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"/p/hooks/masked-exit-advisory.sh"}]}]}}')
 cap masked-exit-advisory --project "$P"
@@ -70,7 +111,7 @@ echo "== a settings.json that cannot be edited safely is left alone =="
 P=$(mk h '{not json'); before=$(cat "$(SJ "$P")")
 cap block-dashes --project "$P"
 [ "$crc" = 1 ] && [ "$(cat "$(SJ "$P")")" = "$before" ] && ok "invalid JSON: exit 1, file unchanged" || bad "invalid JSON: rc=$crc"
-case "$cerr" in *"not valid JSON"*) ok "and says so on stderr" ;; *) bad "says so: '$cerr'" ;; esac
+case "$cerr" in *"one valid JSON object"*) ok "and says so on stderr" ;; *) bad "says so: '$cerr'" ;; esac
 P=$(mk i "$BOTH"); mv "$(SJ "$P")" "$T/real.json"; ln -s "$T/real.json" "$(SJ "$P")"; before=$(cat "$T/real.json")
 cap block-dashes --project "$P"
 [ "$crc" = 1 ] && [ "$(cat "$T/real.json")" = "$before" ] && ok "a symlinked settings.json: exit 1, target unchanged" || bad "symlink: rc=$crc"

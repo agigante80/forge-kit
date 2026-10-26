@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 96 -->
+<!-- forge-adapt-version: 97 -->
 
 # forge-adapt
 
@@ -468,8 +468,8 @@ mkdir -p .claude && touch .claude/no-dashes
 ```
 
 Then deal with any project-local copy an older forge-adapt left behind, or the hook runs twice:
-unwire first with `assets/hook-unwire.sh <name>`, delete the file only after that, and never in the
-other order (a wired hook with no file denies every call). Rules: `references/drift.md`, "A hook copy".
+unwire first with `assets/hook-unwire.sh <name>`, delete the file only if that exits 0 (`&& rm`), and
+never in the other order (a wired hook with no file denies every call). Rules: `references/drift.md`, "A hook copy".
 
 Confirm: `✓ block-dashes (hook) - already active via the plugin; opted this project in`.
 To opt out later, delete `.claude/no-dashes`. Nothing else to undo.
