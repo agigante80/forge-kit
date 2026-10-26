@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# forge-lib-version: 57
+# forge-lib-version: 58
 # forge-lib.sh: host-aware forge operations (GitHub | Forgejo). Source it; governance components
 # call the forge_* functions instead of `gh` directly, so the same logic works whether a repo lives
 # on GitHub or a self-hosted Forgejo. ADDITIVE: a repo with no Forgejo config defaults to GitHub and
@@ -252,6 +252,12 @@
 #       or first-adoption .forge.conf now refuses with rc 2 where it used to pass with the note.
 #       Two or more remotes, an exported FORGE_REMOTE, or a named one in .forge.conf behave as
 #       before; the pin still never takes the remote from the file.
+#   v58 NEW RETURN CODE 111 (#541). An exported, non-empty FORGE_BODY_FILTER names an executable
+#       that forge_issue_create runs over the body BEFORE the #539 leak scan, so the scan sees the
+#       body that is sent; its stdout becomes the body byte for byte. A relative or bare name, a
+#       path that is not an executable file, a non-zero exit, a 10 s timeout or empty output for
+#       a non-empty body returns 111 with nothing sent, in a dry run too (which therefore runs
+#       the filter). Environment only: .forge.conf cannot set it. Unset or empty changes nothing.
 # Add a line here whenever a change alters what a caller must do, not merely what the library
 # does internally.
 
@@ -1043,6 +1049,14 @@ _forge_tmp_done() {
 # it would otherwise inherit. 4 s per scan and 8 s in all when `timeout` exists. Output is parsed for
 # the first `<file>:<line>: <rule>:` and discarded: check-public-leaks.sh prints evidence unredacted,
 # so the refusal message is built here and carries a rule and a line, never matched text.
+_forge_token_envu() {   # fills the CALLER's local envu with env -u for every forge token variable (#539, #541)
+  envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN)
+  local tv="${FORGE_TOKEN_ENV-}"
+  if [[ "$tv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    case "$tv" in GH_TOKEN|GITHUB_TOKEN|FORGEJO_TOKEN) ;; *) envu+=(-u "$tv") ;; esac
+  fi
+}
+
 _forge_leak_note() {   # <memo key, no spaces> <text>: once per shell until the config reloads
   case " ${_FORGE_LEAK_NOTED-} " in *" $1 "*) return 0 ;; esac
   _FORGE_LEAK_NOTED="${_FORGE_LEAK_NOTED:+$_FORGE_LEAK_NOTED }$1"
@@ -1144,10 +1158,7 @@ _forge_leak_scan() {
     case "$f" in *.txt) ;; *) norun=1; continue ;; esac
     { printf '%s\n' "$ftext" >| "$f"; } 2>/dev/null || norun=1   # >|: mktemp made the file, so a caller's noclobber would refuse >
   done
-  local envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN) tv="${FORGE_TOKEN_ENV-}" allow="" start="$SECONDS"
-  if [[ "$tv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-    case "$tv" in GH_TOKEN|GITHUB_TOKEN|FORGEJO_TOKEN) ;; *) envu+=(-u "$tv") ;; esac
-  fi
+  local envu=() allow="" start="$SECONDS"; _forge_token_envu
   [ -n "$root" ] && [ -f "$root/.leak-guard-allow" ] && allow="$root/.leak-guard-allow"
   local tool script out rc budget l r line rule re='^([0-9]+): ([a-z][a-z0-9-]*)(:|$)' tc=() xu=() xa=()
   for ((i = 0; i < ${#files[@]}; i++)); do
@@ -1828,11 +1839,46 @@ forge_issue_list() {
   esac
 }
 
+# _forge_body_filter <writer> <body>  (#541): run the operator's FORGE_BODY_FILTER over <body> and
+# leave its stdout, byte for byte, in _FORGE_BODY_OUT. Called only when that variable is non-empty.
+# The filter comes from the environment alone (.forge.conf accepts six other keys), must be an
+# absolute path to an executable file (no PATH lookup), reads the body on stdin with no added
+# newline, and runs without the forge token variables (the leak scan's env -u set) under
+# `timeout 10` when that command exists. Its stderr passes through. 111 with one line and nothing
+# sent for a bad path, any non-zero exit (124 reads as the timeout) or empty output for a non-empty
+# body. The capture appends a \037 sentinel and the exit code, so trailing newlines survive that a
+# plain $( ) would strip; a NUL cannot survive bash and is dropped.
+_forge_body_filter() {
+  local w="$1" body="$2" f="$FORGE_BODY_FILTER" out rc envu=() tc=()
+  _FORGE_BODY_OUT=""
+  case "$f" in
+    /*) ;;
+    *) echo "forge-lib: $w: FORGE_BODY_FILTER must be an absolute path; not sent" >&2; return 111 ;;
+  esac
+  if [ ! -f "$f" ] || [ ! -x "$f" ]; then
+    echo "forge-lib: $w: FORGE_BODY_FILTER=$(_forge_leak_clean "$f") is not an executable file; not sent" >&2; return 111
+  fi
+  _forge_token_envu
+  if command -v timeout >/dev/null 2>&1; then tc=(timeout 10)
+  else echo "forge-lib: $w: no timeout command; the body filter is not time-bounded" >&2; fi
+  out="$("${tc[@]+"${tc[@]}"}" env "${envu[@]}" "$f" < <(printf '%s' "$body"); printf '\037%s' "$?")"
+  rc="${out##*$'\037'}"; out="${out%$'\037'*}"
+  if [ "$rc" = 124 ]; then echo "forge-lib: $w: body filter timed out after 10s; not sent" >&2; return 111; fi
+  if [ "$rc" != 0 ]; then echo "forge-lib: $w: body filter failed (exit $rc); not sent" >&2; return 111; fi
+  if [ -z "$out" ] && [ -n "$body" ]; then echo "forge-lib: $w: body filter produced no output; not sent" >&2; return 111; fi
+  _FORGE_BODY_OUT="$out"
+}
+
 # forge_issue_create <title> <body>  -> JSON of the created issue (number, html_url, ...)
 # Labels are intentionally omitted: GitHub's create takes label NAMES, Forgejo's takes label IDs, so
 # add them in a follow-up host-specific step rather than risk a cross-host mismatch here.
+# With FORGE_BODY_FILTER exported the body is first rewritten by that filter (#541, rc 111 above).
 forge_issue_create() {
   local repo payload; repo="$(forge_repo)" || return 2
+  if [ -n "${FORGE_BODY_FILTER-}" ]; then   # #541: the filter runs first, so the scan sees the body that is sent
+    _forge_body_filter forge_issue_create "${2-}" || return $?
+    set -- "${1-}" "$_FORGE_BODY_OUT"
+  fi
   _forge_leak_scan forge_issue_create "title=${1-}" "body=${2-}" || return $?   # #539: before the payload
   payload="$(printf '%s' "$2" | _forge_payload forge_issue_create '{title:$t, body:$b}' --arg t "$1")" || return 2   # forge-lib: payload (create)
   forge_api POST "/repos/$repo/issues" "$payload"

@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 51 -->
+<!-- forge-host-version: 52 -->
 
 # forge-host: host-aware forge operations
 
@@ -52,7 +52,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_api <METHOD> <path> [body]` | authenticated REST call (the low-level primitive) |
 | `forge_issue_view <n>` / `forge_issue_list [state]` | read issues |
 | `forge_issue_comment <n> <body>` / `forge_issue_close <n>` / `forge_issue_edit <n> <body>` | act on issues (edit REPLACES the body and refuses an empty one). A body of any size travels on stdin, never as one argument (#409), and a body that cannot be built returns 2, dry run included. Silent on success; on a Forgejo 404 each prints one stderr line naming the function and the issue and returns 44 (#229; on GitHub `gh` prints its own line and the code is `gh`'s), so check the exit code, never the silence |
-| `forge_issue_create <title> <body>` | open an issue (labels omitted, added with the next op) |
+| `forge_issue_create <title> <body>` | open an issue (labels omitted, added with the next op; an exported `FORGE_BODY_FILTER` rewrites the body first, rc 111 on refusal, #541) |
 | `forge_issue_label <n> <name…>` | add labels by name (Forgejo: resolves names→IDs against repo AND org labels, all pages; REFUSE-ALL contract: any unresolvable name fails the whole call non-zero and applies nothing, so check the exit and create missing labels first) |
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination, and a stop on a page whose ids repeat the last page's, since Gitea's per-issue comments endpoint ignores `page`, #228). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
 | `forge_body_region_get <n> <region>` | the current content of one marker-delimited region of an issue body, empty and rc 0 when absent. NO prefix check: reading another component's region is not a write |

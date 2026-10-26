@@ -95,3 +95,24 @@ in an issue body therefore never blocks the write that removes it.
 - **Not scanned (known gaps):** `forge_api` direct writes, `forge_milestone_create`,
   `forge_issue_milestone`, label writes and `sync-labels.sh` descriptions, anything run with
   `FORGE_LEAK_SCAN=0` or a custom `FORGE_LEAK_GUARD_DIR`, a field over 1 MiB, and every fail-open case.
+
+## A project's own issue-body addition (forge-lib v58, #541)
+
+`forge-lib.sh` is copied verbatim, and a refresh never merges a local edit into it. A project that
+appends its own block to every new issue therefore keeps that block in its own script and exports
+`FORGE_BODY_FILTER=/absolute/path/to/that/script`. `forge_issue_create` pipes the body into it and
+sends its stdout, byte for byte, as the body. A wrapper function around `forge_issue_create` would not
+do the same job: kit components often run in a fresh shell that never sources the wrapper, while an
+exported variable reaches them all.
+
+- **Order:** the filter runs before the #539 leak scan, so the scan sees the body that is sent, and a
+  leak the filter adds is refused with 110.
+- **Return code 111** means the filter refused and nothing was sent: a relative or bare name, a path
+  that is not an executable file, a non-zero exit, a 10 s timeout (when `timeout` exists; without it
+  the filter runs unbounded after one warning), or empty output for a non-empty body. Whitespace-only
+  output is sent as it is.
+- **Environment only:** `.forge.conf` cannot set it, so a cloned branch cannot make the library run
+  code. The filter runs without the forge token variables, and its stderr reaches the caller.
+- **Side effects:** a `FORGE_DRY_RUN=1` call runs the filter too, so a filter must only print.
+- **Scope:** `forge_issue_create` only. The title is never filtered, and a later `forge_issue_edit`
+  or comment is not filtered either.

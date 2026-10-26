@@ -39,7 +39,7 @@ set -uo pipefail
 # because forge-lib.sh unsets them each time it is sourced; the _FORGE_FILEVAL_* memo it does not,
 # so it is cleared here. FORGE_LIB_UNDER_TEST is read just below on purpose and never unset. The
 # "unset line covers forge-lib's names" row near the top keeps this line complete.
-unset FORGE_API_URL FORGE_ALLOW_HTTP FORGE_DEBUG FORGE_DRY_RUN FORGE_HOST FORGE_LEAK_GUARD_DIR FORGE_LEAK_SCAN FORGE_NO_GIT_CREDENTIALS FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE FORGE_REPO FORGE_TOKEN FORGE_TOKEN_ENV FORGEJO_TOKEN MC_LIB
+unset FORGE_API_URL FORGE_ALLOW_HTTP FORGE_BODY_FILTER FORGE_DEBUG FORGE_DRY_RUN FORGE_HOST FORGE_LEAK_GUARD_DIR FORGE_LEAK_SCAN FORGE_NO_GIT_CREDENTIALS FORGE_PAGINATE_MAX_PAGES FORGE_REMOTE FORGE_REPO FORGE_TOKEN FORGE_TOKEN_ENV FORGEJO_TOKEN MC_LIB
 unset "${!_FORGE_FILEVAL_@}"
 # #539: the opt-in leak scan is off for every row that is not about it, so a sentinel in the invoker's own repo cannot start a scanner under an existing row. The #539 section opts in per row.
 export FORGE_LEAK_SCAN=0
@@ -4784,16 +4784,17 @@ printf '%s\n' 'root ~/data' > "$RA539/.leak-guard-allow"
 D539GET_DEFAULT='{"body":"intro\n\n<!-- gate-verdict:start -->\nold PRIVNAME\n<!-- gate-verdict:end -->\n\n## Decision\n\ntext"}'
 # r539 <workdir> <lib> <script> [VAR=val | -u:VAR]...: source <lib> in <workdir> (relative load with
 # R539LOAD, an eval load with R539EVAL), stub forge_api unless D539REAL is set, run <script>.
-# Sets R539RC; stdout in $T/o539, stderr in $T/e539, requests in $T/req539.log, stub runs in $T/stub539.log.
+# Sets R539RC; stdout in $T/o539, stderr in $T/e539, requests in $T/req539.log (the last payload in
+# $T/req539.log.pay, #541), stub runs in $T/stub539.log.
 r539() {
   local wd="$1" lib="$2" body="$3"; shift 3
   local -a ea=(-u FORGE_LEAK_SCAN -u FORGE_LEAK_GUARD_DIR FORGE_HOST=github FORGE_REPO=o/r "STUBLOG=$T/stub539.log" "D539LOG=$T/req539.log" "D539GET=$D539GET_DEFAULT")
   local a; for a in "$@"; do case "$a" in -u:*) ea+=(-u "${a#-u:}") ;; *) ea+=("$a") ;; esac; done
-  : > "$T/stub539.log"; : > "$T/req539.log"
+  : > "$T/stub539.log"; : > "$T/req539.log"; rm -f "$T/req539.log.pay"
   ( cd "$wd" && env "${ea[@]}" bash -c '
       if [ -n "${R539EVAL-}" ]; then eval "$(cat "$1")"; else . "${R539LOAD:-$1}"; fi
       if [ -z "${D539REAL-}" ]; then
-        forge_api() { printf "%s %s\n" "$1" "$2" >> "$D539LOG"; [ "$1" != GET ] || printf "%s" "$D539GET"; return 0; }
+        forge_api() { printf "%s %s\n" "$1" "$2" >> "$D539LOG"; [ -z "${3-}" ] || printf "%s" "$3" > "$D539LOG.pay"; [ "$1" != GET ] || printf "%s" "$D539GET"; return 0; }
       fi
       eval "$2"' _ "$lib" "$body" ) > "$T/o539" 2> "$T/e539"
   R539RC=$?
@@ -5155,7 +5156,9 @@ mut539 'the comment scan placed after the send (a dry run has already printed it
 ' '' \
   '  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null || rc=$?' '  forge_api POST "/repos/$(forge_repo)/issues/$1/comments" "$payload" >/dev/null || rc=$?
   _forge_leak_scan forge_issue_comment "body=${2-}" || return $?'
-mut539 'the token strip removed' c539_tokens 'local envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN)' 'local envu=(-u NOPE539)'
+mut539 'the token strip removed' c539_tokens '  envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN)
+' '  envu=(-u NOPE539)
+'
 mut539 'the FORGE_TOKEN_ENV strip removed' c539_tokens '*) envu+=(-u "$tv") ;; esac' '*) ;; esac'
 mut539 'any non-empty FORGE_TOKEN_ENV given to env -u' c539_badname 'if [[ "$tv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then' 'if [ -n "$tv" ]; then'
 mut539 'the private scanner keeps an inherited ALLOW_FILE' c539_tokens 'if [ "$tool" = private ]; then xu=(-u ALLOW_FILE);' 'if [ "$tool" = private ]; then xu=();'
@@ -5217,6 +5220,176 @@ for site in 1 2 3 4 5 6 7; do
 done
 expect "#539: the mutant runs leave no helper temp file behind" "" "$(ls -A "$T/tmp" 2>&1)"
 rm -rf "$T/m539" "$T/iso539" "$T/tree539" "$T/hp539" "$T/hpl539" "$T/relA539" "$T/relB539" "$T/cdp539" "$T/ev539" "$T/one539" "$T/evw539" "$T/ht539" "$T/htl539"
+
+# --- #541: FORGE_BODY_FILTER, the opt-in body filter of forge_issue_create ----------------------------
+# The operator's own executable, named by the environment only, rewrites the body before the #539 scan
+# so the scan sees the text that is sent. Every row runs through r539 (stubbed forge_api, payloads in
+# $T/req539.log.pay) against $L539, so the mutants at the end run the SAME rows on a damaged copy.
+# Body fields are compared with jq equality on the logged payload, never through $( ), which would hide
+# a stripped trailing newline.
+echo "== #541: the opt-in body filter =="
+F541="$T/f541"; W541="$T/w541"; mkdir -p "$F541"; mkrepo539 "$W541" nosentinel
+mkf541() { printf '#!/bin/sh\n%s\n' "$2" > "$F541/$1"; chmod +x "$F541/$1"; }   # <name> <sh body>
+mkf541 app 'cat; printf "\nTracking: PRJ-1"'
+mkf541 pass 'exec cat'
+mkf541 fail3 'printf partial; exit 3'
+mkf541 empty 'exit 0'
+mkf541 leak 'cat; printf "\nsee PRIVNAME"'
+mkf541 nl 'printf "Body text\nTracking: PRJ-1\n"'
+mkf541 cap 'tee "$CAP541"'
+mkf541 ws 'printf "\n"'
+mkf541 tok 'env | cut -d= -f1 > "$CAP541"; cat'
+mkf541 err 'echo "why: missing config" >&2; exit 3'
+mkf541 hang 'exec sleep 15'
+mkf541 nul 'printf "a\000b"'
+mkf541 marker 'touch "$RAN541"; cat'
+printf '#!/bin/sh\ncat\n' > "$F541/noexec"; chmod -x "$F541/noexec"
+printf '#!/bin/sh\ntouch "$RAN541"; cat\n' > "$W541/addition.sh"; chmod +x "$W541/addition.sh"
+C541='forge_issue_create "Add x" "Body text"'
+RAN541="$T/ran541"
+f541() { rm -f "$RAN541" "$T/req539.log.pay"; r539 "$W541" "$L539" "$C541" "RAN541=$RAN541" "$@"; }   # [VAR=val]...: the one call, scan off
+body541() { [ -s "$T/req539.log.pay" ] && jq -e --arg b "$1" '.body == $b' "$T/req539.log.pay" >/dev/null; }   # <exact body>
+title541() { jq -e '.title == "Add x"' "$T/req539.log.pay" >/dev/null; }
+REF541='forge-lib: forge_issue_create: body filter failed (exit 3); not sent'
+c541_append() { f541 "FORGE_BODY_FILTER=$F541/app"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && body541 $'Body text\nTracking: PRJ-1' && title541 && [ ! -s "$T/e539" ]; }
+c541_missing() { f541 "FORGE_BODY_FILTER=$T/nofilter541"
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ "$(cat "$T/e539")" = "forge-lib: forge_issue_create: FORGE_BODY_FILTER=$T/nofilter541 is not an executable file; not sent" ]; }
+c541_noexec() { f541 "FORGE_BODY_FILTER=$F541/noexec"
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ "$(cat "$T/e539")" = "forge-lib: forge_issue_create: FORGE_BODY_FILTER=$F541/noexec is not an executable file; not sent" ]; }
+c541_dir() { f541 "FORGE_BODY_FILTER=$F541"
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && grep -qx 'forge-lib: forge_issue_create: FORGE_BODY_FILTER=.* is not an executable file; not sent' "$T/e539" && [ "$(wc -l < "$T/e539")" = 1 ]; }
+c541_pass() { f541 "FORGE_BODY_FILTER=$F541/pass"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && body541 'Body text' && [ ! -s "$T/e539" ]; }
+c541_fail() { f541 "FORGE_BODY_FILTER=$F541/fail3"
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ "$(cat "$T/e539")" = "$REF541" ] && ! grep -q partial "$T/e539" "$T/req539.log" "$T/o539"; }
+c541_empty() { f541 "FORGE_BODY_FILTER=$F541/empty"
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: body filter produced no output; not sent' ]; }
+c541_scan_sees() {
+  rm -f "$T/copy541".* "$T/req539.log.pay"
+  r539 "$RS539" "$L539" "$C541" "$G539" "FORGE_BODY_FILTER=$F541/app" "STUBCOPY=$T/copy541"
+  printf 'Body text\nTracking: PRJ-1\n' > "$T/want541"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && [ ! -s "$T/e539" ] && cmp -s "$T/want541" "$T/copy541.private" \
+    && cmp -s "$T/want541" "$T/copy541.public" && body541 $'Body text\nTracking: PRJ-1'; }
+c541_scan_leak() {
+  r539 "$RS539" "$L539" "$C541" "$G539" "FORGE_BODY_FILTER=$F541/leak"
+  [ "$R539RC" = 110 ] && [ "$(writes539)" = 0 ] && ! grep -q PRIVNAME "$T/e539" \
+    && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: leak-guard: private-name in body line 2; not sent. Stop and report this to the user; do not set FORGE_LEAK_SCAN=0 yourself.' ]; }
+c541_unset() { f541   # FORGE_BODY_FILTER is on the suite-wide unset line
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && body541 'Body text' && [ ! -s "$T/e539" ] && [ ! -e "$RAN541" ]; }
+c541_empty_var() { f541 FORGE_BODY_FILTER=
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && body541 'Body text' && [ ! -s "$T/e539" ]; }
+c541_dry() { f541 "FORGE_BODY_FILTER=$F541/app" FORGE_DRY_RUN=1 D539REAL=1
+  [ "$R539RC" = 0 ] && [ ! -s "$T/req539.log" ] && [ "$(grep -c '^\[dry-run\] POST ' "$T/e539")" = 1 ] \
+    && grep -q '^\[dry-run\] POST .*  body=.*Body text\\nTracking: PRJ-1' "$T/e539"; }
+c541_dry_fail() { f541 "FORGE_BODY_FILTER=$F541/fail3" FORGE_DRY_RUN=1 D539REAL=1
+  [ "$R539RC" = 111 ] && [ "$(cat "$T/e539")" = "$REF541" ]; }
+c541_conf() {
+  printf 'FORGE_BODY_FILTER=%s\n' "$F541/marker" > "$W541/.forge.conf"
+  f541; rm -f "$W541/.forge.conf"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && body541 'Body text' && [ ! -e "$RAN541" ]; }
+c541_relative() { f541 FORGE_BODY_FILTER=./addition.sh
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ ! -e "$RAN541" ] \
+    && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: FORGE_BODY_FILTER must be an absolute path; not sent' ]; }
+c541_bare() { f541 FORGE_BODY_FILTER=addition.sh "PATH=$W541:$PATH"
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ ! -e "$RAN541" ] \
+    && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: FORGE_BODY_FILTER must be an absolute path; not sent' ]; }
+c541_hang() { local t0=$SECONDS; f541 "FORGE_BODY_FILTER=$F541/hang"
+  [ "$R539RC" = 111 ] && [ "$((SECONDS - t0))" -le 13 ] && [ "$(writes539)" = 0 ] \
+    && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: body filter timed out after 10s; not sent' ]; }
+c541_tokens() {
+  rm -f "$T/cap541"
+  f541 "FORGE_BODY_FILTER=$F541/tok" "CAP541=$T/cap541" GH_TOKEN=s1 GITHUB_TOKEN=s2 FORGEJO_TOKEN=s3 FORGE_TOKEN_ENV=MYTOK MYTOK=s4
+  [ "$R539RC" = 0 ] && body541 'Body text' && grep -qx CAP541 "$T/cap541" \
+    && ! grep -qxE 'GH_TOKEN|GITHUB_TOKEN|FORGEJO_TOKEN|MYTOK' "$T/cap541"; }
+c541_trailing() { f541 "FORGE_BODY_FILTER=$F541/nl"
+  [ "$R539RC" = 0 ] && body541 $'Body text\nTracking: PRJ-1\n'; }
+c541_stdin() {
+  rm -f "$T/cap541"; f541 "FORGE_BODY_FILTER=$F541/cap" "CAP541=$T/cap541"
+  printf 'Body text' > "$T/want541"
+  [ "$R539RC" = 0 ] && cmp -s "$T/want541" "$T/cap541" && body541 'Body text'; }
+c541_ws() { f541 "FORGE_BODY_FILTER=$F541/ws"
+  [ "$R539RC" = 0 ] && [ ! -s "$T/e539" ] && body541 $'\n'; }
+c541_stderr() { f541 "FORGE_BODY_FILTER=$F541/err"
+  [ "$R539RC" = 111 ] && [ "$(writes539)" = 0 ] && [ "$(cat "$T/e539")" = "why: missing config"$'\n'"$REF541" ]; }
+c541_nul() { f541 "FORGE_BODY_FILTER=$F541/nul"   # bash cannot hold a NUL: it is dropped (with bash's own warning)
+  [ "$R539RC" = 0 ] && body541 'ab'; }
+NT541="$T/nt541"; mkdir -p "$NT541"   # a PATH of symlinks with every tool these rows need except timeout
+for t541 in bash sh env jq cat mktemp git sed grep tr cut dirname rm mv tee head tail wc sort find ls touch cp chmod mkdir readlink basename awk sleep; do
+  p541="$(command -v "$t541")" && [ "${p541#/}" != "$p541" ] && ln -sf "$p541" "$NT541/$t541"
+done
+c541_notimeout() { f541 "FORGE_BODY_FILTER=$F541/app" "PATH=$NT541"
+  [ "$R539RC" = 0 ] && [ "$(reqs539 POST)" = 1 ] && body541 $'Body text\nTracking: PRJ-1' \
+    && [ "$(cat "$T/e539")" = 'forge-lib: forge_issue_create: no timeout command; the body filter is not time-bounded' ]; }
+row539 "#541: a filter's output is the body sent, the title unchanged" c541_append
+row539 "#541: a missing filter path is refused 111 with nothing sent" c541_missing
+row539 "#541: a non-executable filter file is refused 111 with nothing sent" c541_noexec
+row539 "#541: a directory named as the filter is refused 111 with nothing sent" c541_dir
+row539 "#541: a pass-through filter sends the body unchanged and silently" c541_pass
+row539 "#541: a filter exiting 3 is refused 111 and its partial output goes nowhere" c541_fail
+row539 "#541: empty output for a non-empty body is refused 111" c541_empty
+row539 "#541: both scanners are handed the filtered body, which is the one sent" c541_scan_sees
+row539 "#541: a leak the filter adds is refused 110 on line 2 without the matched text" c541_scan_leak
+row539 "#541: an unset filter sends the body unchanged and runs nothing" c541_unset
+row539 "#541: an empty FORGE_BODY_FILTER is treated as unset" c541_empty_var
+row539 "#541: a dry run applies the filter and shows the filtered body" c541_dry
+row539 "#541: a dry run refuses what the real run refuses, before any dry-run line" c541_dry_fail
+row539 "#541: a .forge.conf naming a filter never runs it" c541_conf
+row539 "#541: a relative filter path is refused 111 and never run" c541_relative
+row539 "#541: a bare filter name is refused 111 and never looked up on PATH" c541_bare
+row539 "#541: the filter runs without any forge token variable" c541_tokens
+row539 "#541: a trailing newline from the filter is sent byte for byte" c541_trailing
+row539 "#541: the filter receives the body on stdin with no added newline" c541_stdin
+row539 "#541: whitespace-only output is sent unchanged" c541_ws
+row539 "#541: the filter's stderr reaches the caller before the refusal line" c541_stderr
+row539 "#541: a NUL in the filter output is dropped, the rest is sent" c541_nul
+row539 "#541: with no timeout command the filter runs, with one warning" c541_notimeout
+if command -v timeout >/dev/null 2>&1; then
+  row539 "#541: a hanging filter is cut off after 10 s and refused 111" c541_hang
+else
+  ok "#541: a hanging filter is cut off after 10 s and refused 111 (skipped: no timeout command)"
+fi
+mkdir -p "$T/m541"
+mut541() {   # mut541 <label> <row-fn> <old> <new>
+  local label="$1" fn="$2"; shift 2
+  python3 - "$LIB" "$T/m541/forge-lib.sh" "$@" <<'PY' || { bad "#541: mutant '$label' did not apply"; return 0; }
+import sys
+src, dst, old, new = sys.argv[1:]
+s = open(src).read()
+assert s.count(old) == 1, (s.count(old), old[:50])
+open(dst, "w").write(s.replace(old, new))
+PY
+  L539="$T/m541/forge-lib.sh"
+  if "$fn"; then bad "#541 MUTANT SURVIVED: $label"; else ok "#541 mutant '$label' dies"; fi
+  L539="$LIB"
+}
+SCAN541='  _forge_leak_scan forge_issue_create "title=${1-}" "body=${2-}" || return $?   # #539: before the payload
+'
+FILT541='  if [ -n "${FORGE_BODY_FILTER-}" ]; then   # #541: the filter runs first, so the scan sees the body that is sent
+    _forge_body_filter forge_issue_create "${2-}" || return $?
+    set -- "${1-}" "$_FORGE_BODY_OUT"
+  fi
+'
+mut541 'the filter runs after the leak scan' c541_scan_leak "$FILT541$SCAN541" "$SCAN541$FILT541"
+mut541 'the filter exit code ignored' c541_fail '  if [ "$rc" != 0 ]; then echo "forge-lib: $w: body filter failed' '  if false; then echo "forge-lib: $w: body filter failed'
+mut541 'empty output accepted' c541_empty '  if [ -z "$out" ] && [ -n "$body" ]; then' '  if false; then'
+mut541 'the token strip skipped' c541_tokens '"${tc[@]+"${tc[@]}"}" env "${envu[@]}" "$f"' '"${tc[@]+"${tc[@]}"}" env "$f"'
+mut541 'the shared token strip emptied' c541_tokens '  envu=(-u GH_TOKEN -u GITHUB_TOKEN -u FORGEJO_TOKEN)
+' '  envu=(-u NOPE541)
+'
+mut541 'the absolute-path check skipped' c541_relative '    /*) ;;
+    *) echo "forge-lib: $w: FORGE_BODY_FILTER must be an absolute path' '    *) ;;
+    /*) echo "forge-lib: $w: FORGE_BODY_FILTER must be an absolute path'
+mut541 'the executable-file check skipped' c541_noexec '  if [ ! -f "$f" ] || [ ! -x "$f" ]; then' '  if false; then'
+mut541 'plain command substitution' c541_trailing "out=\"\${out%\$'\\037'*}\"" "out=\"\$(printf '%s' \"\${out%\$'\\037'*}\")\""
+mut541 'the body fed with a trailing newline' c541_stdin "< <(printf '%s' \"\$body\")" "<<< \"\$body\""
+mut541 'the filter stderr suppressed' c541_stderr "\"\$f\" < <(printf" "\"\$f\" 2>/dev/null < <(printf"
+mut541 'a missing timeout warns nothing' c541_notimeout '  else echo "forge-lib: $w: no timeout command; the body filter is not time-bounded" >&2; fi' '  fi'
+if command -v timeout >/dev/null 2>&1; then
+  mut541 'the filter not time-bounded' c541_hang 'then tc=(timeout 10)' 'then tc=()'
+fi
+expect "#541: the filter helper is not counted as a scan call site" 7 "$(grep -cE '_forge_leak_scan (forge_|"forge_body_region_)' "$LIB")"
+rm -rf "$T/m541" "$F541" "$W541" "$NT541"
 
 
 UQ_TEXT="no two ok/FAIL rows share a text"
