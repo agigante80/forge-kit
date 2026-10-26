@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# citation-check-version: 1
+# citation-check-version: 2
 # citation-check.sh: find the ticket-standards section titles the gate cites that the project's own
 # doc does not have (#519).
 #
@@ -15,7 +15,8 @@
 #              $FORGE_KIT_DIR). Default: the checkout this script sits in, when it has a plugins/
 #              directory; otherwise there is no kit fallback.
 #   --project  the project to check. Default: the current directory.
-#   --doc      the doc to read the headings from. Default: <project>/docs/guides/ticket-standards.md.
+#   --doc      the doc to read the headings and markers from. Default:
+#              <project>/docs/guides/ticket-standards.md.
 #
 # WHICH COPY OF A CITING FILE IS READ, first that exists:
 #   1. the project's own copy under .claude/ (same path below agents/ or skills/); a symlink there is
@@ -27,7 +28,10 @@
 #   3. the forge-kit checkout.
 # FILES SCANNED (the only components that cite a section; the list is data below, one place):
 #   ticket-gate, check-ticket-mechanics (including its user-facing evidence strings, where the
-#   quotes are escaped), privacy-regime, and adapt's references/skills.md.
+#   quotes are escaped), and privacy-regime FROM THE PROJECT'S OWN COPY ONLY (step 1): it is a
+#   per-project fill-in template and the gate reads no other copy, so a plugin or kit copy is never
+#   a citer and its absence prints no row (#547). adapt's references/skills.md is not a citer: the
+#   project never runs it as a gate.
 #
 # MATCHING. A citation is `section "Title"`, or `section \"Title\"` inside a shell string, and may
 # wrap across lines (a leading `# ` of a wrapped comment is tolerated). A heading of the doc is
@@ -36,16 +40,41 @@
 # a substring ("Unit test specs for the API layer" is not "Unit test specs"), and a heading inside
 # a fenced code block does not count. These are the rules scripts/check-restatements.sh applies to
 # the kit's own gate; that script is repo-only and cannot ship, so the grammar is restated here.
-# If one changes, change the other (scripts/test-check-citations.sh pins this copy).
+# If one changes, change the other (scripts/test-forge-adapt-citation-check.sh pins this copy).
 #
-# OUTPUT, stdout, tab separated:
-#   citation-missing  "<Title>"                      a cited title the doc has no heading for
-#   skipped           no ticket-standards doc        the doc does not exist (one line, however many titles)
-#   not-scanned       <what>  <reason>               ticket-gate/not installed, or an unreadable file or doc
-#   summary           <titles checked>  <missing>  <not-scanned>          (always last)
-# EXIT 0 nothing missing and everything scanned (a skipped doc is clean); 1 at least one
-# citation-missing row; 3 nothing missing but something was not scanned (incomplete is never
-# clean); 2 usage error, nothing on stdout.
+# MARKERS (#543, #547), read from the doc, one per line, outside any fenced block, parsed as data
+# and never evaluated:
+#   <!-- citation-alias: "<Cited title>" = "<Heading>" -->   the project renamed that section
+#   <!-- citation-acknowledged: "<Cited title>" -->           the project has no such section, on purpose
+# Whitespace around the parts is tolerated; the whole line must be the marker, so text before or
+# after it, two on a line, another key or a missing quote or `=` is not a marker and prints nothing.
+# A line opening a marker with no `-->` on it is citation-marker-invalid. Titles and targets are
+# normalised as a heading is (whitespace collapsed, leading `N. ` and trailing parenthetical
+# dropped) and compared exactly, case sensitive. Rules, for one title: a real heading wins over
+# both markers; an alias beats an acknowledgement; the first alias in the doc wins, and a later one
+# to a different target is invalid when the first printed citation-aliased, stale otherwise (never
+# promoted); an identical repeat is one row; a marker that changes no outcome (an uncited title, a
+# title with a real heading, a superseded marker) is stale. The alias target check is EXISTENCE
+# ONLY, by design: the target is a real heading of the doc, nothing checks it is the right section.
+# A skipped doc reads no markers. Line numbers count "\n" only (CRLF and CR are read as "\n").
+#
+# OUTPUT, stdout, tab separated, in this order:
+#   citation-missing         "<Title>"                 a cited title the doc has no heading, alias or acknowledgement for
+#   citation-marker-invalid  "<Title>"  "<Heading>"    a cited title's alias to a missing heading, or a conflicting later alias
+#   citation-marker-invalid  line <N>                  a marker with no closing --> (N: 1-based doc line)
+#   citation-aliased         "<Title>"  "<Heading>"    an applied alias
+#   citation-acknowledged    "<Title>"                 an applied acknowledgement
+#   citation-marker-stale    "<Title>"                 a marker that changes no outcome; suppressed on any
+#                                                      run that prints not-scanned (what it cites is unknown)
+#   skipped                  no ticket-standards doc   the doc does not exist (one line, however many titles)
+#   not-scanned              <what>  <reason>          ticket-gate/not installed, or an unreadable file or doc
+#   summary                  <titles checked>  <missing>  <not-scanned>          (always last)
+# Each marker group prints in marker line order. An aliased or acknowledged title counts as checked
+# and not missing.
+# EXIT 0 nothing missing or invalid and everything scanned (a skipped doc is clean); 1 at least one
+# citation-missing or citation-marker-invalid row (invalid is the second exit-1 cause, since #547);
+# 3 nothing missing or invalid but something was not scanned (incomplete is never clean); 2 usage
+# error, nothing on stdout. aliased, acknowledged and stale rows never change the exit code.
 set -uo pipefail
 export LC_ALL=C
 
@@ -81,11 +110,12 @@ doc_path = doc_arg or os.path.join(project, "docs", "guides", "ticket-standards.
 
 # The citing components: (label, plugin group, path below the group). The first one is the gate
 # itself; when it does not resolve, nothing the project runs can be checked.
+# The last field says whether the plugin registry and the kit may supply the file: privacy-regime is a
+# per-project fill-in template the gate reads only from the project's own copy (#547).
 CITING = [
-    ("ticket-gate", "forge-kit-governance", "agents/ticket-gate.md"),
-    ("check-ticket-mechanics", "forge-kit-governance", "skills/ticket-gate-reference/assets/check-ticket-mechanics.sh"),
-    ("privacy-regime", "forge-kit-security", "skills/privacy-regime/SKILL.md"),
-    ("adapt-skills", "forge-kit-adapt", "skills/adapt/references/skills.md"),
+    ("ticket-gate", "forge-kit-governance", "agents/ticket-gate.md", True),
+    ("check-ticket-mechanics", "forge-kit-governance", "skills/ticket-gate-reference/assets/check-ticket-mechanics.sh", True),
+    ("privacy-regime", "forge-kit-security", "skills/privacy-regime/SKILL.md", False),
 ]
 
 def registry_roots(group):
@@ -107,11 +137,13 @@ def registry_roots(group):
                 out.append(e["installPath"])
     return out
 
-def candidates(group, rel):
+def candidates(group, rel, shared):
     if rel.startswith(("agents/", "skills/")):
         p = os.path.join(project, ".claude", rel)
         if not os.path.islink(p):
             yield p
+    if not shared:
+        return
     for root in registry_roots(group):
         yield os.path.join(root, rel)
     if kit:
@@ -129,9 +161,17 @@ PAREN = re.compile(r'\s*\([^)]*\)\s*$')                 # a heading's trailing p
 HEADING = re.compile(r'^#{1,6}\s+(?:\d+\.\s+)?(.+?)\s*#*\s*$')  # an optional leading "N. " is not part of the title
 def norm_title(t):
     return re.sub(r'\s+', ' ', re.sub(r'\s*\n\s*(?:#\s*)?', ' ', t)).strip()
+def norm_marker(t):
+    """A marker title or alias target, normalised as a heading is (shared marker rules)."""
+    t = PAREN.sub('', norm_title(t))
+    return re.sub(r'\s+', ' ', re.sub(r'^\d+\.\s+', '', t)).strip()
+# The markers (#543, #547): the whole line must be the marker, outside a fence; anything else is not one.
+ALIAS = re.compile(r'^\s*<!--\s*citation-alias:\s*"([^"]+)"\s*=\s*"([^"]+)"\s*-->\s*$')
+ACKNOWLEDGED = re.compile(r'^\s*<!--\s*citation-acknowledged:\s*"([^"]+)"\s*-->\s*$')
+UNTERMINATED = re.compile(r'^\s*<!--\s*citation-(?:alias|acknowledged):(?!.*-->)')
 titles = []
-for label, group, rel in CITING:
-    found = next((p for p in candidates(group, rel) if os.path.isfile(p)), None)
+for label, group, rel, shared in CITING:
+    found = next((p for p in candidates(group, rel, shared) if os.path.isfile(p)), None)
     if found is None:
         if label == "ticket-gate":
             not_scanned("ticket-gate", "not installed")
@@ -148,7 +188,7 @@ for label, group, rel in CITING:
             titles.append(t)
 
 # The doc.
-headings, skipped = None, False
+headings, skipped, markers = None, False, []
 if os.path.islink(doc_path) and not os.path.exists(doc_path):
     not_scanned("docs/guides/ticket-standards.md" if not doc_arg else doc_arg, "dangling symlink")
 elif not os.path.exists(doc_path):
@@ -160,7 +200,9 @@ else:
         with open(doc_path, encoding="utf-8", errors="replace") as f:
             doc = f.read()
         headings, fenced = set(), None
-        for line in doc.splitlines():
+        # Split on "\n" only: the read already turned CRLF and CR into "\n", and a form feed or a
+        # U+2028 inside a line must not move the line number a citation-marker-invalid row reports.
+        for n, line in enumerate(doc.split("\n"), 1):
             fm = re.match(r'^\s*(```+|~~~+)', line)
             if fm:
                 fence = fm.group(1)[0]
@@ -171,8 +213,50 @@ else:
             h = HEADING.match(line)
             if h:
                 headings.add(re.sub(r'\s+', ' ', PAREN.sub('', h.group(1))).strip())
+                continue
+            a, k = ALIAS.match(line), ACKNOWLEDGED.match(line)
+            if a and norm_marker(a.group(1)) and norm_marker(a.group(2)):
+                markers.append(("alias", norm_marker(a.group(1)), norm_marker(a.group(2)), n))
+            elif k and norm_marker(k.group(1)):
+                markers.append(("ack", norm_marker(k.group(1)), None, n))
+            elif UNTERMINATED.match(line):
+                markers.append(("unterminated", None, None, n))
     except OSError:
         not_scanned("docs/guides/ticket-standards.md" if not doc_arg else doc_arg, "unreadable")
+
+# Resolve the markers (the shared marker rules of #543 and #547). Each marker gets one outcome, kept
+# with its line so every group prints in marker line order. An alias is "applied" when it printed
+# citation-aliased; a marker that changes no outcome is stale.
+cited = set(titles)
+first_alias = {}                      # title -> the target of its first alias in the doc
+for kind, t, target, n in markers:
+    if kind == "alias":
+        first_alias.setdefault(t, target)
+outcome, covered, seen = [], set(), set()
+for kind, t, target, n in markers:
+    if kind == "unterminated":        # no title on it can be trusted, so it is reported by line
+        outcome.append(("invalid", n, f"line {n}"))
+        continue
+    if (kind, t, target) in seen:     # a repeat of an identical marker is not a conflict: one row
+        continue
+    seen.add((kind, t, target))
+    if t not in cited or t in headings:
+        outcome.append(("stale", n, f'"{t}"'))                  # nothing cites it, or a heading wins
+    elif kind == "alias" and target != first_alias[t]:
+        if first_alias[t] in headings:                          # conflicts with an applied first alias
+            outcome.append(("invalid", n, f'"{t}"\t"{target}"'))
+        else:                                                   # the first was not applied: never promoted
+            outcome.append(("stale", n, f'"{t}"'))
+    elif kind == "alias" and target in headings:
+        covered.add(t)
+        outcome.append(("aliased", n, f'"{t}"\t"{target}"'))
+    elif kind == "alias":                                       # existence only, by design
+        outcome.append(("invalid", n, f'"{t}"\t"{target}"'))
+    elif t in first_alias:                                      # an alias beats an acknowledgement
+        outcome.append(("stale", n, f'"{t}"'))
+    else:
+        covered.add(t)
+        outcome.append(("acknowledged", n, f'"{t}"'))
 
 checked = missing = 0
 if skipped:
@@ -180,14 +264,22 @@ if skipped:
 elif headings is not None:
     for t in titles:
         checked += 1
-        if t not in headings:
+        if t not in headings and t not in covered:
             missing += 1
             rows.append(f'citation-missing\t"{t}"')
+invalid = sum(1 for o in outcome if o[0] == "invalid")
+if unscanned:                         # the titles an unscanned file cites are unknown: never call a marker stale
+    outcome = [o for o in outcome if o[0] != "stale"]
+ORDER = ("invalid", "aliased", "acknowledged", "stale")
+outcome.sort(key=lambda o: (ORDER.index(o[0]), o[1]))
+marker_rows = [f"citation-marker-{o[0]}\t{o[2]}" if o[0] in ("invalid", "stale") else f"citation-{o[0]}\t{o[2]}" for o in outcome]
 
-# citation-missing rows first, then the rest, summary last.
+# citation-missing rows first, then the marker rows, then the rest, summary last.
 rows.sort(key=lambda r: 0 if r.startswith("citation-missing") else 1)
+nmiss = sum(1 for r in rows if r.startswith("citation-missing"))
+rows[nmiss:nmiss] = marker_rows
 for r in rows:
     print(r)
 print(f"summary\t{checked}\t{missing}\t{unscanned}")
-sys.exit(1 if missing else 3 if unscanned else 0)
+sys.exit(1 if missing or invalid else 3 if unscanned else 0)
 PY

@@ -102,18 +102,36 @@ sc_source() {
   echo "== one title cited by several components is checked once =="
   fresh; gate "Unit test specs"
   put "$KIT/$MECH_REL" 'x "section \\"Unit test specs\\""\n'
-  put "$KIT/plugins/forge-kit-security/skills/privacy-regime/SKILL.md" 'section "Unit test specs"\n'
+  put "$P/.claude/skills/privacy-regime/SKILL.md" 'section "Unit test specs"\n'
   doc "### 2. Verification steps"; run
   expect "one row for the title" 1 "$(nrows citation-missing)"
   has "summary${TAB}1${TAB}1${TAB}0" "the summary counts distinct titles"
 
-  echo "== the privacy-regime and adapt citations are scanned =="
+  echo "== privacy-regime is read from the project's own copy only; adapt's skills.md is not a citer (#547) =="
+  fresh; gate "Unit test specs"
+  put "$P/.claude/skills/privacy-regime/SKILL.md" 'section "Personal data handling"\n'
+  doc "### 1. Unit test specs"; run
+  has "citation-missing${TAB}\"Personal data handling\"" "a project copy of privacy-regime is checked"
+  has "summary${TAB}2${TAB}1${TAB}0" "and counted"; expect "exit 1" 1 "$rc"
   fresh; gate "Unit test specs"
   put "$KIT/plugins/forge-kit-security/skills/privacy-regime/SKILL.md" 'section "Personal data handling"\n'
-  put "$KIT/plugins/forge-kit-adapt/skills/adapt/references/skills.md" 'section "Security checklist"\n'
-  doc "### 2. Unit test specs"; run
-  has "citation-missing${TAB}\"Personal data handling\"" "privacy-regime's citation is checked"
-  has "citation-missing${TAB}\"Security checklist\"" "adapt's citation is checked"
+  put "$T/cache/sec/skills/privacy-regime/SKILL.md" 'section "Personal data handling"\n'
+  put "$CFG/plugins/installed_plugins.json" "{\"plugins\":{\"forge-kit-security@forge-kit\":[{\"scope\":\"user\",\"installPath\":\"$T/cache/sec\"}]}}"
+  doc "### 1. Unit test specs"; run
+  expect "a kit-only or registry-only privacy-regime is not a citer" 0 "$(nrows citation-missing)"
+  has "summary${TAB}1${TAB}0${TAB}0" "only the gate's title is checked"; expect "exit 0" 0 "$rc"
+  fresh; gate "Unit test specs"; put "$T/elsewhere.md" 'section "Personal data handling"\n'
+  mkdir -p "$P/.claude/skills/privacy-regime"; ln -s "$T/elsewhere.md" "$P/.claude/skills/privacy-regime/SKILL.md"
+  doc "### 1. Unit test specs"; run
+  expect "a symlinked project privacy-regime is ignored" 0 "$(nrows citation-missing)"
+  has "summary${TAB}1${TAB}0${TAB}0" "and contributes nothing"
+  fresh; gate "Unit test specs"
+  put "$KIT/plugins/forge-kit-adapt/skills/adapt/references/skills.md" 'section "Personal data handling"\n'
+  doc "### 1. Unit test specs"; run
+  expect "adapt's references/skills.md is not a citer" 0 "$(nrows citation-missing)"; expect "exit 0" 0 "$rc"
+  put "$KIT/$MECH_REL" 'x "section \\"Documentation currency\\""\n'; run
+  has "citation-missing${TAB}\"Documentation currency\"" "the other citers stay in force"
+  expect "and only that one" 1 "$(nrows citation-missing)"; expect "exit 1" 1 "$rc"
 
   echo "== no gate anywhere: incomplete, never clean =="
   fresh; doc "### 2. Unit test specs"; run
@@ -196,7 +214,220 @@ sc_usage() {
   run --doc "$P/docs/guides/ticket-standards.md" --project "$P"; expect "--doc and --project are accepted" 1 "$rc"
 }
 
-sc_match; sc_source; sc_kit; sc_nodoc; sc_usage
+# --- #543 and #547: the acknowledgement and alias markers, one parser (shared marker rules).
+# Every Given has a scanned ticket-gate (the gate helper) citing only the titles it names, unless the
+# case says the gate is absent.
+# sd <printf %b text>: the doc, written raw.
+sd() { put "$P/docs/guides/ticket-standards.md" "$1"; }
+ACK() { printf '<!-- citation-acknowledged: "%s" -->' "$1"; }
+ALIAS() { printf '<!-- citation-alias: "%s" = "%s" -->' "$1" "$2"; }
+# body: every row but the summary, in printed order, one per line.
+body() { printf '%s\n' "$out" | grep -v "^summary${TAB}"; }
+noerr() { expect "$1: nothing on stderr" "" "$err"; }
+
+sc_ack() {
+  echo "== an acknowledged absent title is reported and does not fail the run (#543) =="
+  fresh; gate "E2E test specs"; doc "### 2. Verification steps" "$(ACK "E2E test specs")"; run
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "the acknowledged row is printed"
+  expect "no citation-missing row" 0 "$(nrows citation-missing)"
+  has "summary${TAB}1${TAB}0${TAB}0" "checked, not missing"; expect "exit 0" 0 "$rc"
+  expect "summary is last" "summary" "$(printf '%s\n' "$out" | tail -1 | cut -f1)"
+  fresh; gate "Unit test specs" "E2E test specs"; doc "$(ACK "Unit test specs")" "$(ACK "E2E test specs")"; run
+  expect "two acknowledged rows" 2 "$(nrows citation-acknowledged)"; has "summary${TAB}2${TAB}0${TAB}0" "both checked, none missing"; expect "exit 0" 0 "$rc"
+  fresh; gate "Zebra rules"; doc "$(ACK "Zebra rules")"; run
+  has "citation-acknowledged${TAB}\"Zebra rules\"" "a made-up title is acknowledged (no hardcoded list)"; expect "exit 0" 0 "$rc"
+
+  echo "== --doc names the file the markers are read from =="
+  fresh; gate "E2E test specs"; doc "### 1. Other"; put "$T/other.md" "# S\n\n$(ACK "E2E test specs")\n"; run --doc "$T/other.md"
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "the --doc file's marker is read"; expect "exit 0" 0 "$rc"
+
+  echo "== an acknowledgement never hides another title =="
+  fresh; gate "Unit test specs" "E2E test specs"; doc "$(ACK "E2E test specs")"; run
+  has "citation-missing${TAB}\"Unit test specs\"" "the unacknowledged title is still missing"
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "the other is acknowledged"
+  has "summary${TAB}2${TAB}1${TAB}0" "one missing"; expect "exit 1" 1 "$rc"
+
+  echo "== a real heading wins and the marker is stale =="
+  fresh; gate "E2E test specs"; doc "### 2. E2E test specs" "$(ACK "E2E test specs")"; run
+  expect "no missing row" 0 "$(nrows citation-missing)"; expect "no acknowledged row" 0 "$(nrows citation-acknowledged)"
+  has "citation-marker-stale${TAB}\"E2E test specs\"" "the marker is stale"; expect "exactly one stale row" 1 "$(nrows citation-marker-stale)"; expect "exit 0" 0 "$rc"
+
+  echo "== a marker title is normalised like a heading =="
+  fresh; gate "GWT scenarios" "E2E test specs" "Unit test specs"
+  doc "$(ACK "GWT scenarios (Given / When / Then)")" "$(ACK "E2E  test specs")" "$(ACK "2. Unit test specs")"; run
+  has "citation-acknowledged${TAB}\"GWT scenarios\"" "a trailing parenthetical is dropped"
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "whitespace is collapsed"
+  has "citation-acknowledged${TAB}\"Unit test specs\"" "a leading N. is dropped"
+  expect "no stale row" 0 "$(nrows citation-marker-stale)"; expect "exit 0" 0 "$rc"
+  fresh; gate "E2E test specs"; doc "$(ACK "e2e test specs")"; run
+  has "citation-missing${TAB}\"E2E test specs\"" "the compare is case sensitive"
+
+  echo "== lines are split on newline only (maintainer decision 2, 2026-10-16) =="
+  fresh; gate "E2E test specs"; sd "# Standards\r\n\r\n$(ACK "E2E test specs")\r\n"; run
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "a CRLF doc with a well-formed marker is acknowledged"; expect "exit 0" 0 "$rc"
+  fresh; gate "E2E test specs"; sd "# Standards\n\n<!-- citation-acknowledged: \"E2E test\xe2\x80\xa8specs\" -->\n"; run
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "a U+2028 inside a marker does not split its line"; expect "exit 0" 0 "$rc"
+  fresh; gate "E2E test specs"; sd "# Standards\na\fb\n<!-- citation-acknowledged: \"E2E test specs\"\n"; run
+  has "citation-marker-invalid${TAB}line 3" "a form feed does not start a line"
+}
+
+sc_ack_stale() {
+  echo "== a marker for a title nothing cites is stale and informational (#543) =="
+  fresh; gate "Unit test specs"; doc "### 2. Unit test specs" "$(ACK "Zebra rules")"; run
+  has "citation-marker-stale${TAB}\"Zebra rules\"" "the stale marker is reported"
+  has "summary${TAB}1${TAB}0${TAB}0" "it changes no count"; expect "exit 0" 0 "$rc"
+  fresh; gate "A"; doc "### 1. Other" "$(ACK "Zebra rules")"; run
+  expect "missing first, then stale" "citation-missing${TAB}\"A\"|citation-marker-stale${TAB}\"Zebra rules\"" "$(body | paste -sd'|' -)"
+  expect "summary last" "summary" "$(printf '%s\n' "$out" | tail -1 | cut -f1)"; expect "exit 1, unchanged" 1 "$rc"
+  fresh; gate "E2E test specs"; doc "$(ACK "E2E test specs")"; run
+  expect "an acknowledgement of a cited title is not stale" 0 "$(nrows citation-marker-stale)"; expect "exit 0" 0 "$rc"
+
+  echo "== stale rows are suppressed on an incomplete scan =="
+  fresh; put "$KIT/$MECH_REL" 'x "section \\"Unit test specs\\""\n'; doc "### 1. Unit test specs" "$(ACK "E2E test specs")"; run
+  has "not-scanned${TAB}ticket-gate${TAB}not installed" "the gate is absent"
+  expect "no stale row" 0 "$(nrows citation-marker-stale)"; has "summary${TAB}1${TAB}0${TAB}1" "summary 1 0 1"; expect "exit 3" 3 "$rc"
+  fresh; put "$KIT/$MECH_REL" 'x "section \\"Unit test specs\\""\n'
+  sd "# S\n\n### 1. Unit test specs\n\n$(ACK "E2E test specs")\n\n<!-- citation-acknowledged: \"X\"\n"; run
+  has "citation-marker-invalid${TAB}line 7" "an invalid row is still printed"
+  expect "still no stale row" 0 "$(nrows citation-marker-stale)"; expect "invalid outranks unscanned: exit 1" 1 "$rc"
+}
+
+sc_ack_fence() {
+  echo "== a marker between two closed fences counts; one inside a fence does not =="
+  fresh; gate "E2E test specs"; sd "# S\n\n\`\`\`\na\n\`\`\`\n\n$(ACK "E2E test specs")\n\n~~~\nb\n~~~\n"; run
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "between fences: acknowledged"; expect "exit 0" 0 "$rc"
+  for f in '```' '~~~'; do
+    fresh; gate "E2E test specs"; sd "# S\n\n$f\n$(ACK "E2E test specs")\n$f\n"; run
+    has "citation-missing${TAB}\"E2E test specs\"" "inside $f: still missing"
+    expect "inside $f: no marker row" 0 "$(body | grep -c '^citation-\(acknowledged\|marker\|aliased\)')"
+    has "summary${TAB}1${TAB}1${TAB}0" "inside $f: summary 1 1 0"; expect "inside $f: exit 1" 1 "$rc"
+  done
+  fresh; gate "E2E test specs"; sd "# S\n\n\`\`\`\n<!-- citation-acknowledged: \"E2E test specs\"\n\`\`\`\n"; run
+  expect "an unterminated marker inside a fence is ignored" 0 "$(nrows citation-marker-invalid)"
+
+  echo "== only the strict one-line grammar is a marker; other lines are silent =="
+  for m in '<!-- citation-acknowledged: E2E test specs -->' \
+           '<!-- citation-acknowledged: "E2E test specs" extra -->' \
+           '<!-- citation-acked: "E2E test specs" -->' \
+           '<!-- citation-acknowledged: "E2E test specs" --> after' \
+           'text <!-- citation-acknowledged: "E2E test specs" -->' \
+           '<!-- citation-acknowledged: "E2E test specs" --> <!-- citation-acknowledged: "E2E test specs" -->' \
+           '<!-- citation-acknowledged: " " -->' \
+           '<!-- citation-alias: "E2E test specs" "Other" -->' \
+           '<!-- citation-alias: "E2E test specs" -->'; do
+    fresh; gate "E2E test specs"; doc "### 1. Other" "$m"; run
+    expect "off-grammar [$m]: missing, no marker row" "citation-missing${TAB}\"E2E test specs\"" "$(body)"
+    expect "off-grammar [$m]: exit 1" 1 "$rc"; noerr "off-grammar [$m]"
+  done
+  fresh; gate "E2E test specs"; doc "$(printf '\t<!--\tcitation-acknowledged:\t"E2E test specs"\t-->\t')"; run
+  has "citation-acknowledged${TAB}\"E2E test specs\"" "tabs and spaces around the parts are tolerated"
+
+  echo "== an unterminated marker is invalid, after the missing rows and before the summary =="
+  fresh; gate "E2E test specs"; sd "# S\n\n<!-- citation-acknowledged: \"E2E test specs\"\n"; run
+  expect "missing, then invalid" "citation-missing${TAB}\"E2E test specs\"|citation-marker-invalid${TAB}line 3" "$(body | paste -sd'|' -)"
+  has "summary${TAB}1${TAB}1${TAB}0" "summary 1 1 0"; expect "exit 1" 1 "$rc"; noerr "unterminated"
+  expect "no acknowledged row" 0 "$(nrows citation-acknowledged)"
+  fresh; gate "Unit test specs"; sd "# S\n\n### 1. Unit test specs\n\n<!-- citation-acknowledged: \"E2E test\nspecs\" -->\n"; run
+  has "citation-marker-invalid${TAB}line 5" "a marker split over two lines is invalid"; expect "and alone makes exit 1" 1 "$rc"
+}
+
+sc_alias() {
+  echo "== an alias clears a plugin-sourced citation (#547) =="
+  fresh; gate; put "$KIT/$MECH_REL" 'x "section \\"Documentation currency\\""\n'
+  doc "### 3. Documentation impact" "$(ALIAS "Documentation currency" "Documentation impact")"; run
+  has "citation-aliased${TAB}\"Documentation currency\"${TAB}\"Documentation impact\"" "the aliased row names both"
+  expect "no missing row" 0 "$(nrows citation-missing)"; has "summary${TAB}1${TAB}0${TAB}0" "checked, not missing"; expect "exit 0" 0 "$rc"
+  gate "Unit test specs"; run
+  has "citation-missing${TAB}\"Unit test specs\"" "an alias does not cover a different title"
+  has "citation-aliased${TAB}\"Documentation currency\"${TAB}\"Documentation impact\"" "while the alias still applies"; expect "exit 1" 1 "$rc"
+
+  echo "== whitespace inside the alias comment is tolerated; titles are normalised =="
+  fresh; gate "Documentation currency"
+  doc "### 3. Documentation impact" "$(printf '<!--  citation-alias:\t "Documentation currency"  =\t"Documentation impact"  -->')"; run
+  has "citation-aliased${TAB}\"Documentation currency\"${TAB}\"Documentation impact\"" "extra spaces and tabs"; expect "exit 0" 0 "$rc"
+  fresh; gate "Documentation currency"; doc "### 3. Documentation impact" "$(ALIAS "Documentation currency (x)" "Documentation impact (y)")"; run
+  has "citation-aliased${TAB}\"Documentation currency\"${TAB}\"Documentation impact\"" "both sides are normalised like a heading"
+
+  echo "== stale and invalid aliases =="
+  fresh; gate "Unit test specs"; doc "### 1. Unit test specs" "### 2. Blast radius" "$(ALIAS "Zebra rules" "Blast radius")"; run
+  has "citation-marker-stale${TAB}\"Zebra rules\"" "an alias for an uncited title is stale"; expect "exit 0" 0 "$rc"
+  fresh; gate "Unit test specs"; doc "### 1. Unit test specs" "$(ALIAS "Zebra rules" "Nowhere")"; run
+  has "citation-marker-stale${TAB}\"Zebra rules\"" "uncited with a missing target: stale"
+  expect "not invalid" 0 "$(nrows citation-marker-invalid)"; expect "exit 0" 0 "$rc"
+  fresh; gate "Personal data handling"; doc "### 1. Other" "$(ALIAS "Personal data handling" "Blast radius")"; run
+  expect "cited with a missing target: missing then invalid" "citation-missing${TAB}\"Personal data handling\"|citation-marker-invalid${TAB}\"Personal data handling\"${TAB}\"Blast radius\"" "$(body | paste -sd'|' -)"
+  expect "exit 1" 1 "$rc"
+  fresh; gate "A"; doc "### 1. C" "$(ALIAS "A" "B")" "$(ALIAS "B" "C")"; run
+  has "citation-marker-invalid${TAB}\"A\"${TAB}\"B\"" "an alias chain is not followed"; has "citation-missing${TAB}\"A\"" "A stays missing"
+  has "citation-marker-stale${TAB}\"B\"" "the uncited link is stale"
+
+  echo "== a real heading beats an alias =="
+  fresh; gate "Documentation currency"
+  doc "### 1. Documentation currency" "### 2. Blast radius" "$(ALIAS "Documentation currency" "Blast radius")"; run
+  expect "stale only" "citation-marker-stale${TAB}\"Documentation currency\"" "$(body)"; expect "exit 0" 0 "$rc"
+
+  echo "== duplicates: the first applied alias wins =="
+  fresh; gate "Documentation currency"
+  doc "### 3. Documentation impact" "### 2. Blast radius" "$(ALIAS "Documentation currency" "Documentation impact")" "$(ALIAS "Documentation currency" "Blast radius")"; run
+  expect "the conflicting one invalid, the first aliased" "citation-marker-invalid${TAB}\"Documentation currency\"${TAB}\"Blast radius\"|citation-aliased${TAB}\"Documentation currency\"${TAB}\"Documentation impact\"" "$(body | paste -sd'|' -)"
+  has "summary${TAB}1${TAB}0${TAB}0" "nothing missing"; expect "exit 1 from the marker alone" 1 "$rc"
+  fresh; gate "Documentation currency"
+  doc "### 3. Documentation impact" "$(ALIAS "Documentation currency" "Documentation impact")" "$(ALIAS "Documentation currency" "Documentation impact")"; run
+  expect "an identical duplicate is one aliased row and nothing else" "citation-aliased${TAB}\"Documentation currency\"${TAB}\"Documentation impact\"" "$(body)"; expect "exit 0" 0 "$rc"
+
+  echo "== a first alias that was not applied is never replaced by a later one =="
+  fresh; gate "Documentation currency"
+  doc "### 3. Documentation impact" "$(ALIAS "Documentation currency" "Nowhere")" "$(ALIAS "Documentation currency" "Documentation impact")"; run
+  expect "missing, invalid, stale" "citation-missing${TAB}\"Documentation currency\"|citation-marker-invalid${TAB}\"Documentation currency\"${TAB}\"Nowhere\"|citation-marker-stale${TAB}\"Documentation currency\"" "$(body | paste -sd'|' -)"
+  has "summary${TAB}1${TAB}1${TAB}0" "summary 1 1 0"; expect "exit 1" 1 "$rc"
+  fresh; gate "Unit test specs"; doc "### 1. Unit test specs" "### 2. Foo" "$(ALIAS "Zebra rules" "Nowhere")" "$(ALIAS "Zebra rules" "Foo")"; run
+  expect "uncited: one stale row per marker, nothing else" "citation-marker-stale${TAB}\"Zebra rules\"|citation-marker-stale${TAB}\"Zebra rules\"" "$(body | paste -sd'|' -)"
+  has "summary${TAB}1${TAB}0${TAB}0" "summary 1 0 0"; expect "exit 0" 0 "$rc"
+
+  echo "== an unterminated alias is invalid by line =="
+  fresh; gate "Documentation currency"; sd "# S\n\n### 3. Documentation impact\n\n<!-- citation-alias: \"Documentation currency\" = \"Documentation impact\"\n"; run
+  expect "missing, then the invalid line" "citation-missing${TAB}\"Documentation currency\"|citation-marker-invalid${TAB}line 5" "$(body | paste -sd'|' -)"; expect "exit 1" 1 "$rc"
+
+  echo "== a title is compared as a string, never a pattern =="
+  fresh; gate "AxxB"; doc "### 1. Other" "$(ACK "A.*B")"; run
+  has "citation-missing${TAB}\"AxxB\"" "a regex in a marker matches nothing"; has "citation-marker-stale${TAB}\"A.*B\"" "and is stale"
+}
+
+sc_ack_precedence() {
+  echo "== an alias beats an acknowledgement (#543, #547) =="
+  fresh; gate "E2E test specs"; doc "### 2. Verification steps" "$(ALIAS "E2E test specs" "Verification steps")" "$(ACK "E2E test specs")"; run
+  expect "aliased, then the acknowledgement stale" "citation-aliased${TAB}\"E2E test specs\"${TAB}\"Verification steps\"|citation-marker-stale${TAB}\"E2E test specs\"" "$(body | paste -sd'|' -)"
+  expect "exit 0" 0 "$rc"
+  fresh; gate "E2E test specs"; doc "$(ACK "E2E test specs")" "### 2. Verification steps" "$(ALIAS "E2E test specs" "Verification steps")"; run
+  has "citation-aliased${TAB}\"E2E test specs\"${TAB}\"Verification steps\"" "whichever comes first in the doc"; expect "no acknowledged row" 0 "$(nrows citation-acknowledged)"
+  fresh; gate "E2E test specs"; doc "$(ALIAS "E2E test specs" "Nowhere")" "$(ACK "E2E test specs")"; run
+  expect "an alias with a missing target still beats it (maintainer decision 3)" "citation-missing${TAB}\"E2E test specs\"|citation-marker-invalid${TAB}\"E2E test specs\"${TAB}\"Nowhere\"|citation-marker-stale${TAB}\"E2E test specs\"" "$(body | paste -sd'|' -)"
+  expect "exit 1" 1 "$rc"
+
+  echo "== a repeated acknowledgement is one row =="
+  fresh; gate "E2E test specs"; doc "$(ACK "E2E test specs")" "$(ACK "E2E test specs")"; run
+  expect "one acknowledged row, nothing else" "citation-acknowledged${TAB}\"E2E test specs\"" "$(body)"; expect "exit 0" 0 "$rc"
+
+  echo "== row order: missing, invalid, aliased, acknowledged, stale, each in marker line order =="
+  fresh; gate "M" "V" "W" "K"
+  doc "### 1. Real" "$(ACK "Old")" "$(ACK "K")" "$(ALIAS "W" "Real")" "$(ALIAS "V" "Gone")" "$(ALIAS "W" "Other")" "### 2. Other"; run
+  expect "the full order" "citation-missing${TAB}\"M\"|citation-missing${TAB}\"V\"|citation-marker-invalid${TAB}\"V\"${TAB}\"Gone\"|citation-marker-invalid${TAB}\"W\"${TAB}\"Other\"|citation-aliased${TAB}\"W\"${TAB}\"Real\"|citation-acknowledged${TAB}\"K\"|citation-marker-stale${TAB}\"Old\"" "$(body | paste -sd'|' -)"
+  expect "summary last" "summary${TAB}4${TAB}2${TAB}0" "$(printf '%s\n' "$out" | tail -1)"
+}
+
+sc_markers_safe() {
+  echo "== a marker is data: nothing is evaluated, nothing is written =="
+  fresh; gate "A"; doc "### 1. A" "$(ACK '$(touch pwned) x')" "$(ACK '`touch pwned2`')" "$(ALIAS 'A' '$(touch pwned3)')"
+  before=$(cd "$T" && find p kit cfg -type f | sort | xargs cksum | cksum); run
+  expect "no file was created" "" "$(cd "$T" && find . -name 'pwned*')"
+  expect "the tree is unchanged" "$before" "$(cd "$T" && find p kit cfg -type f | sort | xargs cksum | cksum)"
+  has "citation-marker-stale${TAB}\"\$(touch pwned) x\"" "the title is echoed as text"; expect "exit 0" 0 "$rc"
+  echo "== no doc: one skip line and no marker rows =="
+  fresh; gate "A"; run
+  expect "only the skip row" "skipped${TAB}no ticket-standards doc" "$(body)"
+}
+
+sc_match; sc_source; sc_kit; sc_nodoc; sc_usage; sc_ack; sc_ack_stale; sc_ack_fence; sc_alias; sc_ack_precedence; sc_markers_safe
 
 # --- mutants: each breaks ONE invariant in a copy of the script; the guarding scenario must notice.
 mutant() {  # mutant <description> <sed expr> <scenario>
@@ -208,7 +439,7 @@ mutant() {  # mutant <description> <sed expr> <scenario>
 }
 echo "== mutants =="
 mutant "the title list is hardcoded, not read from the component" 's/^    for m in SECTIONREF.finditer(text):$/    for m in []:/;s/^titles = \[\]$/titles = ["Unit test specs", "E2E test specs", "GWT scenarios", "Personal data handling", "Documentation currency"]/' sc_source
-mutant "a substring heading matches" 's/if t not in headings:/if not any(t in h for h in headings):/' sc_match
+mutant "a substring heading matches" 's/if t not in headings and t not in covered:/if not any(t in h for h in headings) and t not in covered:/' sc_match
 mutant "the numbering prefix is not stripped" "s/^HEADING = .*/HEADING = re.compile(r'^#{1,6}\\\\s+(.+?)\\\\s*#*\\\\s*\$')/" sc_match
 mutant "the parenthetical suffix is not stripped" "s/^PAREN = .*/PAREN = re.compile(r'ZZZNEVERZZZ')/" sc_match
 mutant "a fenced heading counts" 's/^            if fenced:$/            if False:/' sc_match
@@ -216,8 +447,8 @@ mutant "the escaped quote form is not recognised" "s/^SECTIONREF = .*/SECTIONREF
 mutant "a wrapped citation is not joined" "s/re.sub(r'\\\\s\\*\\\\n\\\\s\\*(?:#\\\\s\\*)?', ' ', t)/t/" sc_match
 mutant "a missing doc reads as an empty one" 's/^    skipped = True$/    headings = set()/' sc_nodoc
 mutant "a missing gate is not reported" 's/^            not_scanned("ticket-gate", "not installed")$/            pass/' sc_source
-mutant "an incomplete scan exits 0" 's/sys.exit(1 if missing else 3 if unscanned else 0)/sys.exit(1 if missing else 0)/' sc_nodoc
-mutant "an unscanned file outranks a missing title" 's/sys.exit(1 if missing else 3 if unscanned else 0)/sys.exit(3 if unscanned else 1 if missing else 0)/' sc_nodoc
+mutant "an incomplete scan exits 0" 's/sys.exit(1 if missing or invalid else 3 if unscanned else 0)/sys.exit(1 if missing or invalid else 0)/' sc_nodoc
+mutant "an unscanned file outranks a missing title" 's/sys.exit(1 if missing or invalid else 3 if unscanned else 0)/sys.exit(3 if unscanned else 1 if missing or invalid else 0)/' sc_nodoc
 mutant "the registry is ignored" 's/^    for root in registry_roots(group):$/    for root in []:/' sc_source
 mutant "a project-scoped entry for another project counts" 's/(scope in ("local", "project") and pp and os.path.realpath(pp) == project)/(scope in ("local", "project"))/' sc_source
 mutant "the project copy is ignored" 's/^        if not os.path.islink(p):$/        if False:/' sc_source
@@ -225,6 +456,29 @@ mutant "a symlinked project copy is read" 's/^        if not os.path.islink(p):$
 mutant "a dangling doc link reads as a skip" 's/^if os.path.islink(doc_path) and not os.path.exists(doc_path):$/if False:/' sc_nodoc
 mutant "an unknown flag is ignored" "s/^    \\*) usage \"unknown argument '\$1'\" ;;\$/    *) shift ;;/" sc_usage
 mutant "a missing project directory is ignored" '/^\[ -d "\$PROJECT" \] || usage/d' sc_usage
+
+# #543 and #547: the markers.
+mutant "an acknowledged title still counts as missing" 's/if t not in headings and t not in covered:/if t not in headings:/' sc_ack
+mutant "any acknowledgement silences every absent title" 's/if t not in headings and t not in covered:/if t not in headings and not covered:/' sc_ack
+mutant "an acknowledged title is dropped from the checked count" 's/^        checked += 1$/        checked += t not in covered/' sc_ack
+mutant "a real heading no longer wins over a marker" "s/^    if t not in cited or t in headings:/    if t not in cited:/" sc_ack
+mutant "a real heading no longer wins over an alias" "s/^    if t not in cited or t in headings:/    if t not in cited:/" sc_alias
+mutant "lines are split by splitlines() again" 's/enumerate(doc.split("\\n"), 1)/enumerate(doc.splitlines(), 1)/' sc_ack
+mutant "a stale marker is not reported" "s/^        outcome.append((\"stale\", n, f'\"{t}\"'))                  # nothing cites it, or a heading wins/        pass/" sc_ack_stale
+mutant "a stale marker changes the exit code" 's/sys.exit(1 if missing or invalid else/sys.exit(1 if missing or invalid or any(o[0] == "stale" for o in outcome) else/' sc_ack_stale
+mutant "stale rows print on an incomplete scan" 's/^if unscanned: .*/if False:/' sc_ack_stale
+mutant "a marker inside a fence is read" 's/^            if fenced:$/            if fenced and not line.lstrip().startswith("<!--"):/' sc_ack_fence
+mutant "the acknowledgement grammar loses its closing --> anchor" "s/^\\(ACKNOWLEDGED = .*\\)\\\\s\\*-->\\\\s\\*\\\$')\$/\\1')/" sc_ack_fence
+mutant "marker rows print before the missing rows" 's/^rows\[nmiss:nmiss\] = marker_rows$/rows[0:0] = marker_rows/' sc_ack_fence
+mutant "an acknowledgement beats an alias" 's/^    elif t in first_alias: .*/    elif False:/' sc_ack_precedence
+mutant "the superseded acknowledgement prints no stale row" "s/^        outcome.append((\"stale\", n, f'\"{t}\"'))\$/        pass/" sc_ack_precedence
+mutant "privacy-regime is read from the registry or the kit again" 's/"skills\/privacy-regime\/SKILL.md", False)/"skills\/privacy-regime\/SKILL.md", True)/' sc_source
+mutant "adapt's references/skills.md is a citer again" 's/^    ("privacy-regime", .*$/&\n    ("adapt-skills", "forge-kit-adapt", "skills\/adapt\/references\/skills.md", True),/' sc_source
+mutant "the alias marker is ignored" 's/^            a, k = ALIAS.match(line), ACKNOWLEDGED.match(line)$/            a, k = None, ACKNOWLEDGED.match(line)/' sc_alias
+mutant "an alias is honoured without its target heading" 's/^    elif kind == "alias" and target in headings:$/    elif kind == "alias":/' sc_alias
+mutant "the last duplicate alias wins" 's/^        first_alias.setdefault(t, target)$/        first_alias[t] = target/' sc_alias
+mutant "a later valid alias is promoted over a first that was not applied" 's/^        first_alias.setdefault(t, target)$/        first_alias[t] = target if target in headings or t not in first_alias else first_alias[t]/' sc_alias
+mutant "an invalid marker does not set exit 1" 's/sys.exit(1 if missing or invalid else/sys.exit(1 if missing else/' sc_alias
 
 echo ""
 echo "forge-adapt citation check tests: $pass passed, $fail failed"

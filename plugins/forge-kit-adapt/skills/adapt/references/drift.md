@@ -67,20 +67,43 @@ only, writes nothing):
 ```
 
 It reads the citing files from the project's own copy, else the live plugin copy the registry
-names, else the kit, and prints tab-separated rows:
+names, else the kit. The citers are the gate and `check-ticket-mechanics.sh`, plus privacy-regime
+read from the project's own `.claude/skills/privacy-regime/SKILL.md` only (it is a per-project
+fill-in, so no plugin or kit copy counts). It prints tab-separated rows:
 
-- `citation-missing "<Title>"`: the gate cites a title the doc has no heading for. Print a
-  `Gate citations` table, one row per title, and offer the user two fixes: restore or rename that
-  section in the doc, or, only for a COPIED gate (`scope: project`, or a bare-clone install), map
-  the citation in the adapted copy. A registered gate is the plugin cache's file, replaced on every
-  plugin update: never edit it, restore the doc section instead. Say which section titles the gate
-  cites that the doc lacks, never which section "replaces" them: that is the user's mapping.
+- `citation-missing "<Title>"`: the gate cites a title the doc has no heading, alias or
+  acknowledgement for. Print a `Gate citations` table, one row per title, and offer the user the
+  fixes in this order: restore or rename that section in the doc (preferred); or, for a section the
+  project renamed, add an alias line to the doc; or, for a section the project does not have on
+  purpose, an acknowledgement line. Only for a COPIED gate (`scope: project`, or a bare-clone
+  install) may you instead map the citation in the adapted copy. A registered gate is the plugin
+  cache's file, replaced on every plugin update: never edit it; the alias line is the remedy there.
+  Say which titles the gate cites that the doc lacks, never which section "replaces" them: the
+  alias target is the user's mapping.
+- `citation-marker-invalid "<Title>" "<Heading>"`: an alias to a heading the doc lacks, or a later
+  alias for the same title that conflicts with an applied one. `citation-marker-invalid line <N>`:
+  a marker on line N with no closing `-->`. Show the line and ask the user to fix it.
+- `citation-aliased "<Title>" "<Heading>"` and `citation-acknowledged "<Title>"`: a marker applied.
+  List them under the table so the user sees what is covered by hand.
+- `citation-marker-stale "<Title>"`: a marker that changes nothing (nothing cites the title, a real
+  heading has it, or another marker won). Offer to delete the line. Never printed on a run that
+  also prints `not-scanned`.
 - `skipped no ticket-standards doc`: print one line, nothing per title.
 - `not-scanned <what> <reason>`: print it; the gate was not found or the doc was unreadable.
 - `summary <checked> <missing> <not-scanned>`, always last.
 
-Exit 0 is clean (a skipped doc counts), 1 has a missing title, 3 is incomplete and is never clean,
-2 is a usage error. A heading matches on its whole title, ignoring a leading `N. ` and a trailing
+The two marker lines, each alone on its own line of the doc and outside any code fence (a fenced
+one is ignored, so a doc can show the form in an example):
+
+```markdown
+<!-- citation-alias: "Unit test specs" = "Unit tests" -->
+<!-- citation-acknowledged: "E2E test specs" -->
+```
+
+A real heading beats both markers, and an alias beats an acknowledgement. The alias target is
+checked for existence only: nothing checks it is the right section. Exit 0 is clean (a skipped doc
+counts), 1 has a missing title or an invalid marker, 3 is incomplete and is never clean, 2 is a
+usage error. A heading matches on its whole title, ignoring a leading `N. ` and a trailing
 parenthetical; a title only inside a longer heading, or only inside a code fence, is missing.
 
 ## The http-steps scan (#528)
