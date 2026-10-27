@@ -138,7 +138,9 @@ denies a comment write with no grant. A ticket create with no grant is allowed w
 runaway session stops at the cap, the way Dependabot caps open pull requests. A granted ticket
 costs nothing. The budget is a `ticket-budget: N` line in the sentinel (default 3; 0 restores the
 old rule that every ticket needs `allow-ticket`), counted per session in `<session_id>.tickets`
-beside the grant file. A subagent carries its parent's `session_id`, so the grant and the budget
+beside the grant file. Each ticket write in a command costs one, a ticket write inside a loop
+(`for`, `while`, `until`, `xargs`, `parallel`) needs `allow-ticket` because its cost cannot be
+counted, and the count and spend share a file lock, so racing subagents cannot overspend. A subagent carries its parent's `session_id`, so the grant and the budget
 cover the session's subagents, and an overnight run is one session. The exact shapes, exemptions and known
 limits are in the script's header. The deny reason teaches the rule and names the word to ask
 for.

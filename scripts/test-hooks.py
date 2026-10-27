@@ -3614,7 +3614,7 @@ with tempfile.TemporaryDirectory() as td:
          [("p", "allow-ticket"), ("b", "gh issue comment 5 -b x")], DENY),
         ("release exemption dropped", "and not RELEASE_NOTE.search(raw)", "",
          [("p", "hi"), ("b", 'forge_issue_comment "$N" "Released in v1"')], ALLOW),
-        ("command substitution not judged", "need |= classify(sub)", "pass",
+        ("command substitution not judged", "need += sub_need", "pass",
          [("p", "hi"), ("b", 'URL="$(gh issue create --title "t" --body-file b.md)"')], DENY),
         ("words around a substitution unblanked", "blank(i + 1, min(j, n))", "pass",
          [("p", "hi"), ("b", 'gh issue edit 5 --body "Fixed in $(git rev-parse HEAD): no more gh issue comment"')], ALLOW),
@@ -3690,7 +3690,49 @@ with tempfile.TemporaryDirectory() as td:
     p = m.bash(TK + ' && gh issue comment 5 -b x')
     check("fwc ticket plus ungranted comment: comment reason", "allow-comment" in fwc_reason(p), True)
     check("fwc a denied command spends no budget", m.tickets_file().exists(), False)
-    check("fwc one command counts once", (verdict(m.bash(TK + "; " + TK)), m.tickets_file().read_text()), (ALLOW, "1\n"))
+    check("fwc each ticket write in a command costs one",
+          (verdict(m.bash(TK + "; " + TK)), m.tickets_file().read_text()), (ALLOW, "1\n1\n"))
+    check("fwc budget 2 spent by one two-ticket command", verdict(m.bash(TK)), DENY)
+    o = Fwc(td / "over", content="ticket-budget: 3\n")
+    o.bash(TK)
+    check("fwc a command costing more than is left is denied whole",
+          (verdict(o.bash(TK + " && " + TK + " && " + TK)), o.tickets_file().read_text()), (DENY, "1\n"))
+    check("fwc ...and what is left is still there", verdict(o.bash(TK + "; " + TK)), ALLOW)
+
+    lp = Fwc(td / "loops", content="ticket-budget: 9\n")
+    for cmd in ("for t in a b; do " + TK + "; done", "while read t; do forge_issue_create \"$t\" b; done < l",
+                "printf 'a\\nb' | xargs -I{} gh issue create -t {} -b b", "bash -c 'until false; do " + TK + "; done'"):
+        p = lp.bash(cmd)
+        check(f"fwc a ticket write in a loop needs a grant: {cmd[:30]}",
+              (verdict(p), "in a loop" in fwc_reason(p)), (DENY, True))
+    check("fwc a loop spends no budget", lp.tickets_file().exists(), False)
+    check("fwc a loop word inside a title is not a loop",
+          verdict(lp.bash('gh issue create -t "retry for while" -b b')), ALLOW)
+    check("fwc a loop with no ticket write is untouched", verdict(lp.bash("for f in *; do echo $f; done")), ALLOW)
+    lp.prompt("allow-ticket")
+    check("fwc allow-ticket lets a ticket loop through", verdict(lp.bash("for t in a b; do " + TK + "; done")), ALLOW)
+
+    # A race only shows when the window between count and spend is wide, so widen it with a
+    # sleep, then prove the lock holds and that dropping it lets 8 racers through a budget of 2.
+    widened = FWC.read_text().replace('                return "over"\n',
+                                      '                return "over"\n            time.sleep(0.3)\n')
+    allowed = {}
+    for side, text in (("locked", widened), ("unlocked", widened.replace("fcntl.flock(f, fcntl.LOCK_EX)", "pass"))):
+        script = td / f"race-{side}.py"
+        script.write_text(text)
+        race = Fwc(td / f"race-{side}", content="ticket-budget: 2\n")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(race.proj), CLAUDE_CONFIG_DIR=str(race.cfg))
+        procs = [subprocess.Popen([sys.executable, str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  text=True, env=env, cwd="/") for _ in range(8)]
+        for p in procs:
+            p.stdin.write(json.dumps({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Bash",
+                                      "tool_input": {"command": TK}}))
+            p.stdin.close()
+        allowed[side] = sum('"deny"' not in p.stdout.read() for p in procs)
+        for p in procs:
+            p.wait()
+    check("fwc racing subagents cannot overspend the budget", allowed["locked"], 2)
+    check("fwc ...and the lock is what stops them", allowed["unlocked"] > 2, True, extra=str(allowed))
 
     for label, content in (("empty file", ""), ("other keys only", "comment-budget: 9\n")):
         h = Fwc(td / ("bad-" + label.replace(" ", "-")), content=content)
@@ -3725,10 +3767,10 @@ with tempfile.TemporaryDirectory() as td:
     src = FWC.read_text()
     mut = td / "fwc-budget-mut.py"
     for name, old_s, new_s, n_tickets, want in [
-        ("budget not enforced", "if tickets_filed(payload) >= budget:", "if False:", 2, DENY),
-        ("spend not recorded", 'f.write("1\\n")', "pass", 2, DENY),
+        ("budget not enforced", "if sum(1 for _ in f) + cost > budget:", "if False:", 2, DENY),
+        ("spend not recorded", 'f.write("1\\n" * cost)', "pass", 2, DENY),
         ("budget line ignored", "return int(m.group(1))", "return DEFAULT_TICKET_BUDGET", 2, DENY),
-        ("budget never granted", "        if tickets_filed(payload) >= budget", "        if True", 1, ALLOW),
+        ("budget never granted", "if sum(1 for _ in f) + cost > budget:", "if True:", 1, ALLOW),
     ]:
         if src.count(old_s) != 1:
             check(f"fwc budget mutant '{name}': anchor found once", src.count(old_s), 1)

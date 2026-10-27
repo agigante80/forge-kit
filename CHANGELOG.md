@@ -45,13 +45,14 @@ tracks the repository, so users are already served from the default branch.
 
 ### Changed
 
-- **New tickets get a per-session budget instead of a per-prompt grant** (`forge-write-consent-version` 4 to 5,
+- **New tickets get a per-session budget instead of a per-prompt grant** (`forge-write-consent-version` 4 to 6,
   `ci-health-version` 13 to 14, `dep-auditor-version` 14 to 15, `forge-adapt-version` 98 to 99; governance
-  0.37.0, devops 0.26.7, adapt 0.13.6). An agent may file up to `ticket-budget` tickets per session without
+  0.37.1, devops 0.26.7, adapt 0.13.6). An agent may file up to `ticket-budget` tickets per session without
   asking (default 3, a `ticket-budget: N` line in `.claude/forge-write-consent`, 0 keeps the old rule);
   past it a ticket needs `allow-ticket`, which costs nothing from the budget. Comments still need
   `allow-comment`. Tickets can be filed when needed, and a runaway session stops at the cap, the way
-  Dependabot and gh-aw cap pull requests and issues per run.
+  Dependabot and gh-aw cap pull requests and issues per run. Each ticket write in a command costs one,
+  a ticket write in a loop needs `allow-ticket`, and the count and spend run under one file lock.
 - **Review triage is a severity by related-or-unrelated table, and a fix's own review files only Critical or High** (`review-lows` rule v2 to v3, `review-lows-version` 1 to 2, `code-reviewer-version` 16 to 17, `full-review-version` 16 to 17, `working-overnight-version` 16 to 17, `forge-kit-review` 0.7.5 to 0.7.6, `forge-kit-governance` 0.36.9 to 0.36.10). In one month 252 of 273 tickets came out of reviews, 203 of them P3, 58 bundling several Lows, and about 160 citing an earlier ticket whose fix had been reviewed into the next one. Related means the changed lines or code the change now calls differently. Related Critical, High and Medium are fixed now and a related Low is fixed when easy or dropped; an unrelated Critical or High is ticketed after the failure is reproduced and open tickets are searched, an unrelated Medium is fixed when easy or noted on one "Noticed, not filed" line, and an unrelated Low is dropped unrecorded. An overnight investigation still tickets its Critical, High and Medium findings and now drops its Lows. `/full-review`'s exempt baseline is lowered from 3990 to 3974 words.
 
 - **The ticket-standards doc says a local adaptation never moves `doc-rules-version`, so a project no longer bumps the marker for its own edit and hides a later kit revision behind a false `current`** (`doc-rules-version` 21 to 22, `forge-kit-adapt` 0.12.31 to 0.12.32; #545; `scripts/test-forge-adapt-standards-row.sh`, 6 new rows, 2 mutants killed through `STANDARDS_ROW`). The rule is stated in `docs/guides/ticket-standards.md`, forge-adapt's `references/drift.md` and `docs/guides/template-versioning.md`, whose "Change only the rules text" bullet is now scoped to the kit's own copy. A local change goes in a separate comment line: text inside the marker comment makes the row read `unversioned`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 5
+# forge-write-consent-version: 6
 """Deny forge comments without the user's grant, and new tickets past a per-session budget (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
@@ -28,8 +28,10 @@ gh-aw safe-outputs cap issues per run: tickets can be filed when needed without 
 runaway session stops at the cap. The sentinel file may hold a line `ticket-budget: N` (a
 trailing `# comment` is fine); no such line, or an unreadable file, means DEFAULT_TICKET_BUDGET,
 and 0 restores the old rule (every ticket needs allow-ticket). A `ticket-budget` line whose value
-does not parse means 0: a project that wrote a budget meant to limit something. One command
-counts once, however many tickets it files, and budget is spent when the write is ATTEMPTED, so a
+does not parse means 0: a project that wrote a budget meant to limit something. Each ticket write
+in a command costs one; a command that may repeat one (a for, while or until loop, xargs or
+parallel) has no countable cost and needs allow-ticket. The count and the spend happen under one
+file lock, so subagents racing for the last ticket cannot both win. Budget is spent when the write is ATTEMPTED, so a
 ticket another hook denies, the user refuses, or the forge fails still costs one.
 
 WHAT IS JUDGED. Quoted strings and heredoc bodies are blanked first, so a body that only
@@ -81,6 +83,11 @@ import re
 import sys
 import time
 
+try:
+    import fcntl
+except ImportError:   # Windows: no flock, so a race can overshoot the budget by a ticket
+    fcntl = None
+
 SENTINEL = os.path.join(".claude", "forge-write-consent")
 GRANT_WORDS = {"comment": "allow-comment", "ticket": "allow-ticket"}
 INJECTED = ("<task-notification>", "Another Claude session sent a message:", "[Cross-session")
@@ -108,6 +115,12 @@ REASONS = {
         "user (title, the failure, why it cannot be fixed now) and ask; they grant it by writing "
         "allow-ticket in their next message." + TAIL
     ),
+    "repeat": (
+        "forge-write-consent: this command may file tickets in a loop, which the per-session "
+        "ticket budget cannot count. File them one per command, or list them to the user (title, "
+        "the failure, why it cannot be fixed now) and ask; they grant it by writing allow-ticket "
+        "in their next message." + TAIL
+    ),
     "budget": (
         "forge-write-consent: this session has spent its ticket budget (%d without the user's "
         "go-ahead, set by ticket-budget in .claude/forge-write-consent). Fix what you can now, "
@@ -134,6 +147,7 @@ COMMENT_CMD = re.compile(W + r"(?:gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+comment"
                          r"|gh\s+pr" + GH_FLAGS + r"\s+review\b[^\n]*\s(?:--comment|-c)(?![\w-])"
                          r"|forge_issue_comment|tea\s+comment)\b")
 TICKET_CMD = re.compile(W + r"(?:gh\s+issue" + GH_FLAGS + r"\s+create|forge_issue_create|tea\s+(?:issues?|i)\s+create)\b")
+REPEATS = re.compile(W + r"(?:for|while|until|xargs|parallel)\b")
 HELP = re.compile(r"(?<![\w-])(?:--help|-h)(?![\w-])")
 # Write signals differ per tool: curl's -f is --fail, gh api's -f is a field (#565 round 1).
 API_WRITES = {
@@ -243,28 +257,36 @@ def segments(command):
     return out, subs
 
 
-def classify(command):
-    """The set of grants this command needs: a subset of {"comment", "ticket"}."""
-    need = set()
+def writes(command):
+    """One entry per write the command makes, "comment" or "ticket", and whether it loops."""
+    need, loops = [], False
     pairs, subs = segments(command)
     for sub in subs:
-        need |= classify(sub)
+        sub_need, sub_loops = writes(sub)
+        need += sub_need
+        loops = loops or sub_loops
     for blank, raw in pairs:
+        loops = loops or bool(REPEATS.search(blank))
         if HELP.search(blank):
             continue   # a help request writes nothing
         if COMMENT_CMD.search(blank) and not RELEASE_NOTE.search(raw):
-            need.add("comment")
+            need.append("comment")
         if TICKET_CMD.search(blank):
-            need.add("ticket")
+            need.append("ticket")
         if GRAPHQL.search(blank) and re.search(r"/?graphql\b", raw) and re.search(r"\bmutation\b", raw):
-            need.update(kind for kind, name in GRAPHQL_WRITES if name.search(raw))
-        for tool, writes, reads in API_WRITES.values():
-            if tool.search(blank) and writes.search(raw) and not reads.search(raw):
+            need += [kind for kind, name in GRAPHQL_WRITES if name.search(raw)]
+        for tool, posts, reads in API_WRITES.values():
+            if tool.search(blank) and posts.search(raw) and not reads.search(raw):
                 if COMMENTS_PATH.search(raw):
-                    need.add("comment")
+                    need.append("comment")
                 elif ISSUES_PATH.search(raw):
-                    need.add("ticket")
-    return need
+                    need.append("ticket")
+    return need, loops
+
+
+def classify(command):
+    """The set of grants this command needs: a subset of {"comment", "ticket"}."""
+    return set(writes(command)[0])
 
 
 def grant_dir():
@@ -339,26 +361,23 @@ def tickets_path(payload):
     return None if path is None else path[:-len(".json")] + ".tickets"
 
 
-def tickets_filed(payload):
-    try:
-        with open(tickets_path(payload)) as f:
-            return sum(1 for _ in f)
-    except (OSError, TypeError):
-        return 0
-
-
-def spend_ticket(payload):
-    """Record one ungranted ticket; False when it cannot be recorded, so it is not allowed."""
+def spend_tickets(payload, cost, budget):
+    """Spend `cost` tickets if they fit: "ok", "over", or "error" when nothing can be recorded."""
     path = tickets_path(payload)
     if path is None:
-        return False
+        return "error"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a") as f:   # one short append per ticket: concurrent subagents both land
-            f.write("1\n")
-        return True
+        with open(path, "a+") as f:
+            if fcntl:   # count and spend as one step: racing subagents
+                fcntl.flock(f, fcntl.LOCK_EX)
+            f.seek(0)
+            if sum(1 for _ in f) + cost > budget:
+                return "over"
+            f.write("1\n" * cost)
+        return "ok"
     except OSError:
-        return False
+        return "error"
 
 
 def deny(reason):
@@ -385,17 +404,20 @@ def main():
     command = tin.get("command") if isinstance(tin, dict) else None
     if not isinstance(command, str):
         return 0
-    missing = classify(command) - granted(payload)
+    need, loops = writes(command)
+    missing = set(need) - granted(payload)
     if "ticket" in missing:
-        budget = ticket_budget(payload)
+        budget, cost = ticket_budget(payload), need.count("ticket")
         if budget == 0:
             return deny(REASONS["ticket"])
-        if tickets_filed(payload) >= budget:
-            return deny(REASONS["budget"] % budget)
+        if loops:
+            return deny(REASONS["repeat"])
     if "comment" in missing:
         return deny(REASONS["comment"])
-    if "ticket" in missing and not spend_ticket(payload):
-        return deny(REASONS["ticket"])
+    if "ticket" in missing:
+        spent = spend_tickets(payload, cost, budget)
+        if spent != "ok":
+            return deny(REASONS["budget"] % budget if spent == "over" else REASONS["ticket"])
     return 0
 
 
