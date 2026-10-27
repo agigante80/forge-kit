@@ -3362,20 +3362,23 @@ check("hooks.md detail is plugin-only: no copy shape, branches on the plugin che
 check("hooks.md detail has a confirm line", "Confirm:" in sfw_detail, True)
 
 # --- forge-write-consent (UserPromptSubmit + PreToolUse Bash, #565) ---------------------------
-# Denies a forge comment or a new ticket unless the user's own latest prompt held allow-comment /
-# allow-ticket. The grant is a file per session under CLAUDE_CONFIG_DIR, written on
-# UserPromptSubmit; prompts the harness injects neither grant nor revoke. Own sentinel.
+# Denies a forge comment unless the user's own latest prompt held allow-comment, and a new ticket
+# without allow-ticket once the session's ticket budget is spent. The grant is a file per session
+# under CLAUDE_CONFIG_DIR, written on UserPromptSubmit; prompts the harness injects neither grant
+# nor revoke. Own sentinel, which also carries the budget.
 print("\n  -- forge-write-consent --")
 FWC = ROOT / "plugins/forge-kit-governance/hooks/forge-write-consent.py"
 FWC_PAD = "q"
 
 
 class Fwc:
-    def __init__(self, td, sentinel=True):
+    # The default fixture pins ticket-budget 0, the pre-budget rule, so the deny matrix below
+    # still proves every ticket shape is SEEN; the budget block passes its own content.
+    def __init__(self, td, sentinel=True, content="ticket-budget: 0\n"):
         self.proj = td / "proj"
         (self.proj / ".claude").mkdir(parents=True, exist_ok=True)
         if sentinel:
-            (self.proj / ".claude" / "forge-write-consent").touch()
+            (self.proj / ".claude" / "forge-write-consent").write_text(content)
         self.cfg = td / "cfg"
 
     def run(self, payload, raw=None, script=FWC):
@@ -3393,6 +3396,9 @@ class Fwc:
 
     def grant_file(self, sid="s1"):
         return self.cfg / "forge-write-consent" / (sid + ".json")
+
+    def tickets_file(self, sid="s1"):
+        return self.cfg / "forge-write-consent" / (sid + ".tickets")
 
 
 def fwc_reason(p):
@@ -3619,7 +3625,7 @@ with tempfile.TemporaryDirectory() as td:
          [("p", "hi"), ("b", "gh api graphql -f query='mutation{addComment(input:{subjectId:\"X\",body:\"b\"}){clientMutationId}}'")], DENY),
         ("release note widened", r"\1\s*\Z", "",
          [("p", "hi"), ("b", 'forge_issue_comment 5 "Released in v1.2 and we decided X"')], DENY),
-        ("sentinel gate dropped", "return isinstance(root, str) and root != \"\" and os.path.exists(os.path.join(root, SENTINEL))",
+        ("sentinel gate dropped", "return path is not None and os.path.exists(path)",
          "return True", "NOSENTINEL", ALLOW),
         ("session id check dropped", "if not isinstance(sid, str) or not SESSION_ID.match(sid):", "if not isinstance(sid, str):",
          [("p", "allow-comment", "../escaped"), ("b", "gh issue comment 5 -b x", "../escaped")], DENY),
@@ -3645,6 +3651,97 @@ with tempfile.TemporaryDirectory() as td:
                                                "tool_input": {"command": text}}, script=script))
         check(f"fwc mutant '{name}': real verdict", got["real"], want)
         check(f"fwc mutant '{name}' dies", got["mut"] != got["real"], True, extra=f"(real={got['real']} mutant={got['mut']})")
+
+# Ticket budget: ungranted tickets are allowed up to the sentinel's ticket-budget per session.
+with tempfile.TemporaryDirectory() as td:
+    td = pathlib.Path(td).resolve()
+    TK = 'gh issue create -t t -b b'
+    b = Fwc(td / "default", content="")
+    check("fwc budget default: three tickets allowed",
+          [verdict(b.bash(TK)) for _ in range(3)], [ALLOW, ALLOW, ALLOW])
+    p = b.bash(TK)
+    check("fwc budget default: the fourth is denied", verdict(p), DENY)
+    check("fwc budget reason names the budget and the grant word",
+          ("ticket budget (3 " in fwc_reason(p), "allow-ticket" in fwc_reason(p)), (True, True))
+    check("fwc budget counter holds one line per allowed ticket", b.tickets_file().read_text(), "1\n" * 3)
+    check("fwc budget never covers a comment", verdict(b.bash('gh issue comment 5 -b x')), DENY)
+    check("fwc budget is per session", verdict(b.bash(TK, sid="s2")), ALLOW)
+    check("fwc budget is shared with the session's subagents",
+          verdict(b.bash(TK, agent_id="a1", agent_type="general-purpose")), DENY)
+    check("fwc budget 0 keeps the pre-budget reason",
+          "ticket budget" in fwc_reason(Fwc(td / "zero").bash(TK)), False)
+
+    one = Fwc(td / "one", content="# project settings\nticket-budget: 1\n")
+    check("fwc budget 1: first ticket allowed", verdict(one.bash(TK)), ALLOW)
+    check("fwc budget 1: second denied", verdict(one.bash(TK)), DENY)
+    one.prompt("allow-ticket")
+    check("fwc a granted ticket passes a spent budget", [verdict(one.bash(TK)) for _ in range(2)], [ALLOW, ALLOW])
+    check("fwc a granted ticket spends nothing", one.tickets_file().read_text(), "1\n")
+    one.prompt("thanks")
+    check("fwc a real prompt revokes the grant, not the spent budget", verdict(one.bash(TK)), DENY)
+
+    g = Fwc(td / "grant-first", content="ticket-budget: 1\n")
+    g.prompt("allow-ticket")
+    g.bash(TK)
+    g.prompt("ok")
+    check("fwc budget unspent by granted tickets is still there", verdict(g.bash(TK)), ALLOW)
+
+    m = Fwc(td / "mixed", content="ticket-budget: 2\n")
+    p = m.bash(TK + ' && gh issue comment 5 -b x')
+    check("fwc ticket plus ungranted comment: comment reason", "allow-comment" in fwc_reason(p), True)
+    check("fwc a denied command spends no budget", m.tickets_file().exists(), False)
+    check("fwc one command counts once", (verdict(m.bash(TK + "; " + TK)), m.tickets_file().read_text()), (ALLOW, "1\n"))
+
+    for label, content in (("empty file", ""), ("other keys only", "comment-budget: 9\n")):
+        h = Fwc(td / ("bad-" + label.replace(" ", "-")), content=content)
+        check(f"fwc budget {label} falls back to 3",
+              [verdict(h.bash(TK)) for _ in range(4)], [ALLOW, ALLOW, ALLOW, DENY])
+    for label, content in (("unparseable value", "ticket-budget: lots\n"), ("quoted value", 'ticket-budget: "2"\n')):
+        h = Fwc(td / ("closed-" + label.replace(" ", "-")), content=content)
+        check(f"fwc budget {label} fails closed to 0", verdict(h.bash(TK)), DENY)
+    h = Fwc(td / "inline-comment", content="ticket-budget: 0   # strict, every ticket asks\n")
+    check("fwc budget 0 with a trailing comment is still 0", verdict(h.bash(TK)), DENY)
+    h = Fwc(td / "equals", content="ticket-budget=2\n")
+    check("fwc budget accepts key=value", [verdict(h.bash(TK)) for _ in range(3)], [ALLOW, ALLOW, DENY])
+
+    h = Fwc(td / "badsid", content="")
+    p = h.bash(TK, sid="../x")
+    check("fwc budget: invalid session id is denied, not as a spent budget",
+          (verdict(p), "ticket budget" in fwc_reason(p)), (DENY, False))
+    check("fwc budget: missing session id is denied",
+          verdict(h.run({"tool_name": "Bash", "tool_input": {"command": TK}})), DENY)
+    h = Fwc(td / "unwritable", content="")
+    h.cfg = td / "cfg-file"
+    h.cfg.write_text("x")
+    check("fwc budget: an unrecordable ticket is denied", verdict(h.bash(TK)), DENY)
+
+    st = Fwc(td / "prune", content="")
+    st.bash(TK)
+    os.utime(st.tickets_file(), (time.time() - 8 * 86400,) * 2)
+    st.prompt("hello", sid="other")
+    check("fwc stale budget counters are pruned", st.tickets_file().exists(), False)
+
+    # Mutants: the budget's guards removed must flip a verdict.
+    src = FWC.read_text()
+    mut = td / "fwc-budget-mut.py"
+    for name, old_s, new_s, n_tickets, want in [
+        ("budget not enforced", "if tickets_filed(payload) >= budget:", "if False:", 2, DENY),
+        ("spend not recorded", 'f.write("1\\n")', "pass", 2, DENY),
+        ("budget line ignored", "return int(m.group(1))", "return DEFAULT_TICKET_BUDGET", 2, DENY),
+        ("budget never granted", "        if tickets_filed(payload) >= budget", "        if True", 1, ALLOW),
+    ]:
+        if src.count(old_s) != 1:
+            check(f"fwc budget mutant '{name}': anchor found once", src.count(old_s), 1)
+            continue
+        mut.write_text(src.replace(old_s, new_s))
+        got = {}
+        for side, script in (("real", FWC), ("mut", mut)):
+            h = Fwc(td / f"bm-{side}-{name.replace(' ', '-')}", content="ticket-budget: 1\n")
+            for _ in range(n_tickets):
+                got[side] = verdict(h.run({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Bash",
+                                           "tool_input": {"command": TK}}, script=script))
+        check(f"fwc budget mutant '{name}': real verdict", got["real"], want)
+        check(f"fwc budget mutant '{name}' dies", got["mut"] != got["real"], True, extra=f"(real={got['real']} mutant={got['mut']})")
 
 # forge-write-consent registration: two shell-gated entries, exec form, own sentinel.
 fwc_pre = [e for e in spec["hooks"]["PreToolUse"] if "forge-write-consent" in json.dumps(e)]

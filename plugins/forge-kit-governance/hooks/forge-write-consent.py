@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 4
-"""Deny forge comments and new tickets unless the user's own prompt granted them (#565).
+# forge-write-consent-version: 5
+"""Deny forge comments without the user's grant, and new tickets past a per-session budget (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
 answers and corrections are rewritten into the body, and a comment is only a retraction or a
@@ -17,9 +17,20 @@ ONE SCRIPT, TWO EVENTS.
     background task's completion (`<task-notification>`), a peer session's message and a
     cross-session idle notice. Probed on Claude Code 2.1.301: all three fire this event, and a
     peer message is how one session would otherwise grant another.
-  PreToolUse Bash: denies a comment or ticket write that has no grant. A subagent's payload
-    carries its parent's session_id (probed on 2.1.301), so a grant covers the subagents of the
-    turn it was given in.
+  PreToolUse Bash: denies a comment write that has no grant. A ticket write with no grant is
+    allowed while the session's TICKET BUDGET lasts and denied once it is spent; each allowed
+    one appends a line to <session_id>.tickets beside the grant file. A granted ticket costs
+    nothing. A subagent's payload carries its parent's session_id (probed on 2.1.301), so a
+    grant and the budget cover the subagents of the session.
+
+TICKET BUDGET. A cap on ungranted tickets per session, as Dependabot caps open pull requests and
+gh-aw safe-outputs cap issues per run: tickets can be filed when needed without asking, and a
+runaway session stops at the cap. The sentinel file may hold a line `ticket-budget: N` (a
+trailing `# comment` is fine); no such line, or an unreadable file, means DEFAULT_TICKET_BUDGET,
+and 0 restores the old rule (every ticket needs allow-ticket). A `ticket-budget` line whose value
+does not parse means 0: a project that wrote a budget meant to limit something. One command
+counts once, however many tickets it files, and budget is spent when the write is ATTEMPTED, so a
+ticket another hook denies, the user refuses, or the forge fails still costs one.
 
 WHAT IS JUDGED. Quoted strings and heredoc bodies are blanked first, so a body that only
 MENTIONS `gh issue comment` is not a write; text the shell executes (`bash -c`, `eval`, `| sh`)
@@ -58,8 +69,9 @@ Contract:
   stdout -> PreToolUse deny: hookSpecificOutput.permissionDecision = "deny" ; else nothing
   exit   -> ALWAYS 0. An unparseable payload fails OPEN; a missing or corrupt grant is NO grant.
 
-Opt-in: its own sentinel, `.claude/forge-write-consent`. hooks.json gates on it in the shell;
-the check here is defence in depth and the only gate for a project-local copy.
+Opt-in: its own sentinel, `.claude/forge-write-consent`, which also carries the ticket budget.
+hooks.json gates on it in the shell; the check here is defence in depth and the only gate for a
+project-local copy.
 
 Self-test: `python3 forge-write-consent.py --self-test`; CI runs it via `scripts/test-hooks.py`.
 """
@@ -74,6 +86,9 @@ GRANT_WORDS = {"comment": "allow-comment", "ticket": "allow-ticket"}
 INJECTED = ("<task-notification>", "Another Claude session sent a message:", "[Cross-session")
 SESSION_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")
 PRUNE_SECONDS = 7 * 24 * 3600
+DEFAULT_TICKET_BUDGET = 3
+BUDGET_KEY = re.compile(r"^[ \t]*ticket-budget\b", re.M)
+BUDGET_LINE = re.compile(r"^[ \t]*ticket-budget[ \t]*[:=][ \t]*(\d{1,4})[ \t]*(?:#.*)?$", re.M)
 
 TAIL = " Do not work around this guard."
 REASONS = {
@@ -91,6 +106,13 @@ REASONS = {
         "operator would really hit it, drop it with one line. Search open tickets and extend an "
         "existing body instead of filing a duplicate. Otherwise list each proposed ticket to the "
         "user (title, the failure, why it cannot be fixed now) and ask; they grant it by writing "
+        "allow-ticket in their next message." + TAIL
+    ),
+    "budget": (
+        "forge-write-consent: this session has spent its ticket budget (%d without the user's "
+        "go-ahead, set by ticket-budget in .claude/forge-write-consent). Fix what you can now, "
+        "drop what no user or operator would hit, and list each remaining ticket to the user "
+        "(title, the failure, why it cannot be fixed now); they grant more by writing "
         "allow-ticket in their next message." + TAIL
     ),
 }
@@ -290,9 +312,53 @@ def granted(payload):
         return set()
 
 
-def enabled(payload):
+def sentinel_path(payload):
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd")
-    return isinstance(root, str) and root != "" and os.path.exists(os.path.join(root, SENTINEL))
+    return os.path.join(root, SENTINEL) if isinstance(root, str) and root != "" else None
+
+
+def enabled(payload):
+    path = sentinel_path(payload)
+    return path is not None and os.path.exists(path)
+
+
+def ticket_budget(payload):
+    try:
+        with open(sentinel_path(payload)) as f:
+            text = f.read(4096)
+        m = BUDGET_LINE.search(text)
+    except (OSError, TypeError, ValueError):
+        return DEFAULT_TICKET_BUDGET
+    if m:
+        return int(m.group(1))
+    return 0 if BUDGET_KEY.search(text) else DEFAULT_TICKET_BUDGET
+
+
+def tickets_path(payload):
+    path = grant_path(payload)
+    return None if path is None else path[:-len(".json")] + ".tickets"
+
+
+def tickets_filed(payload):
+    try:
+        with open(tickets_path(payload)) as f:
+            return sum(1 for _ in f)
+    except (OSError, TypeError):
+        return 0
+
+
+def spend_ticket(payload):
+    """Record one ungranted ticket; False when it cannot be recorded, so it is not allowed."""
+    path = tickets_path(payload)
+    if path is None:
+        return False
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as f:   # one short append per ticket: concurrent subagents both land
+            f.write("1\n")
+        return True
+    except OSError:
+        return False
 
 
 def deny(reason):
@@ -320,9 +386,16 @@ def main():
     if not isinstance(command, str):
         return 0
     missing = classify(command) - granted(payload)
-    for kind in ("ticket", "comment"):
-        if kind in missing:
-            return deny(REASONS[kind])
+    if "ticket" in missing:
+        budget = ticket_budget(payload)
+        if budget == 0:
+            return deny(REASONS["ticket"])
+        if tickets_filed(payload) >= budget:
+            return deny(REASONS["budget"] % budget)
+    if "comment" in missing:
+        return deny(REASONS["comment"])
+    if "ticket" in missing and not spend_ticket(payload):
+        return deny(REASONS["ticket"])
     return 0
 
 
@@ -331,7 +404,8 @@ def self_test():
     import tempfile
     with tempfile.TemporaryDirectory(prefix="fwc-test-") as d:
         os.makedirs(os.path.join(d, ".claude"))
-        open(os.path.join(d, SENTINEL), "w").close()
+        with open(os.path.join(d, SENTINEL), "w") as f:
+            f.write("ticket-budget: 1\n")
         env = dict(os.environ, CLAUDE_PROJECT_DIR=d, CLAUDE_CONFIG_DIR=os.path.join(d, "cfg"))
 
         def run(payload):
@@ -348,6 +422,7 @@ def self_test():
 
         steps = [
             (None, "DENY", 'gh issue comment 5 --body "x"'),
+            (None, "ALLOW", 'forge_issue_create "t" "b"'),
             (None, "DENY", 'forge_issue_create "t" "b"'),
             (None, "ALLOW", 'gh issue edit 5 --body "see gh issue comment"'),
             (None, "ALLOW", 'forge_gate_comment 5 "$D/review.md"'),
@@ -355,8 +430,9 @@ def self_test():
             (None, "ALLOW", 'forge_issue_comment 5 "Released in v1.2.3"'),
             ("please allow-comment", "ALLOW", 'gh issue comment 5 --body "x"'),
             (None, "DENY", 'forge_issue_create "t" "b"'),
-            ("<task-notification>done</task-notification>", "ALLOW", "forge_issue_comment 5 x"),
-            ("thanks", "DENY", "forge_issue_comment 5 x"),
+            ("allow-ticket", "ALLOW", 'forge_issue_create "t" "b"'),
+            ("<task-notification>done</task-notification>", "ALLOW", 'forge_issue_create "t" "b"'),
+            ("thanks", "DENY", 'forge_issue_create "t" "b"'),
         ]
         fails = 0
         for p, want, cmd in steps:

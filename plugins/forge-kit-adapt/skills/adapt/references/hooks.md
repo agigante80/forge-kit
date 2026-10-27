@@ -80,8 +80,9 @@ When NOT to recommend: a project that installs none of the components that dispa
 ## Install detail (forge-write-consent.py)
 
 One script, two events: `UserPromptSubmit` records whether the user's own prompt said
-`allow-comment` or `allow-ticket`, and `PreToolUse` `Bash` denies a forge comment or a new ticket
-that has no grant. Its OWN sentinel, `.claude/forge-write-consent`, which forge-adapt creates on
+`allow-comment` or `allow-ticket`, and `PreToolUse` `Bash` denies a forge comment with no grant
+and a new ticket past the session's ticket budget (a `ticket-budget: N` line in the sentinel,
+default 3). Its OWN sentinel, `.claude/forge-write-consent`, which forge-adapt creates on
 every install, in both shapes; without it the script is inert, as `no-poll-loops` is.
 
 Branch on `$GOVERNANCE_PLUGIN_ACTIVE`, as for `block-dashes`:
@@ -98,11 +99,11 @@ mkdir -p .claude && touch .claude/forge-write-consent
 TWO entries into `.claude/settings.json` with the same `jq` merge and exec form as `block-dashes`
 (`"command": "python3"`, `"args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/forge-write-consent.py"]`):
 one under `PreToolUse` with matcher `Bash`, one under `UserPromptSubmit` with no matcher. Missing
-the second leaves every comment and ticket denied, since no grant is ever recorded. Then create
+the second records no grant: every comment is denied, and every ticket past the budget. Then create
 the sentinel with the command above.
 
-Confirm: `✓ forge-write-consent (hook): armed via .claude/forge-write-consent; grant with
-allow-comment / allow-ticket in a prompt`. Tell the user those two words, since a denied agent will
+Confirm: `✓ forge-write-consent (hook): armed via .claude/forge-write-consent; 3 tickets per
+session, grant more with allow-ticket and comments with allow-comment`. Tell the user those two words, since a denied agent will
 ask for them. Opt out by deleting the sentinel. Optionally sanity-run
 `python3 .claude/hooks/forge-write-consent.py --self-test` (project-local shape). What it denies
 and exempts is in the hook's own header and `hooks/README.md`; do not restate it.

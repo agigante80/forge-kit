@@ -45,7 +45,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 | `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
 | `overnight-guard.py` | PreToolUse | 18 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
-| `forge-write-consent.py` | UserPromptSubmit + PreToolUse | 1 | Deny a forge comment or a new ticket in a Bash call unless the user's own latest prompt said `allow-comment` / `allow-ticket`. Body rewrites, closes, reads, the gate's review post and a release note are never denied. Fails open on an unparseable payload; no grant file means no grant. |
+| `forge-write-consent.py` | UserPromptSubmit + PreToolUse | 1 | Deny a forge comment in a Bash call unless the user's own latest prompt said `allow-comment`, and a new ticket once the session's ticket budget (default 3) is spent unless it said `allow-ticket`. Body rewrites, closes, reads, the gate's review post and a release note are never denied. Fails open on an unparseable payload; no grant file means no grant. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
@@ -133,18 +133,24 @@ for the literal word `allow-comment` / `allow-ticket` in that prompt, so a grant
 next real prompt. Prompts the harness injects (a background task's `<task-notification>`, a peer
 session's message, a cross-session idle notice) all fire the same event on Claude Code 2.1.301 and
 neither grant nor revoke, which is what stops one session granting another. `PreToolUse` `Bash`
-denies a comment write or a ticket create with no grant; a subagent carries its parent's
-`session_id`, so the grant covers the turn's subagents. The exact shapes, exemptions and known
+denies a comment write with no grant. A ticket create with no grant is allowed while the session's
+**ticket budget** lasts, then denied: tickets can be filed when needed without asking, and a
+runaway session stops at the cap, the way Dependabot caps open pull requests. A granted ticket
+costs nothing. The budget is a `ticket-budget: N` line in the sentinel (default 3; 0 restores the
+old rule that every ticket needs `allow-ticket`), counted per session in `<session_id>.tickets`
+beside the grant file. A subagent carries its parent's `session_id`, so the grant and the budget
+cover the session's subagents, and an overnight run is one session. The exact shapes, exemptions and known
 limits are in the script's header. The deny reason teaches the rule and names the word to ask
 for.
 
 **Its sentinel is its own file, `.claude/forge-write-consent`**, shell-gated in `hooks.json` on both
 entries, and forge-adapt creates it when it installs the hook. A project-local install needs BOTH
-`settings.json` entries: without the `UserPromptSubmit` one no grant is ever recorded and every
-write is denied. `python3 forge-write-consent.py --self-test` runs a short grant-flow matrix.
+`settings.json` entries: without the `UserPromptSubmit` one no grant is ever recorded, so every
+comment is denied, and every ticket once the budget is spent. `python3 forge-write-consent.py --self-test` runs a short grant-flow matrix.
 
 ```bash
 mkdir -p .claude && touch .claude/forge-write-consent   # opt in (forge-adapt does this)
+echo 'ticket-budget: 5' > .claude/forge-write-consent     # optional: a different budget
 rm .claude/forge-write-consent                          # opt out
 ```
 

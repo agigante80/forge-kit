@@ -22,7 +22,7 @@ effort: medium
 tools: ["Bash", "Read", "Write", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- dep-auditor-version: 14 -->
+<!-- dep-auditor-version: 15 -->
 
 Tier: a bounded-analysis role; its model and effort are in the frontmatter (see docs/guides/model-tiers.md), and the tier forge-kit ships reported every finding a stronger tier rated medium or above in measurement.
 
@@ -197,7 +197,8 @@ Flag packages that are 2+ major versions behind latest.
 ## Ticket drafts and creation
 
 After the report, draft a ticket for every finding. Create them only when the user's request
-asked for tickets (where the `forge-write-consent` hook is armed, a prompt holding `allow-ticket`);
+asked for tickets (where the `forge-write-consent` hook is armed, a prompt holding `allow-ticket`
+lifts its per-session ticket budget);
 otherwise print the drafts and ask which to file. Before creating, search for
 duplicates: `gh issue list --search "<title>" --state open --limit 1`.
 

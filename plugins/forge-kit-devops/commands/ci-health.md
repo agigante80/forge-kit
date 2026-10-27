@@ -2,7 +2,7 @@
 description: "Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate each ticket, and auto-fix safe failures on GitHub."
 ---
 
-<!-- ci-health-version: 13 -->
+<!-- ci-health-version: 14 -->
 
 # CI Health Monitor
 
@@ -105,8 +105,9 @@ name; every red Forgejo branch is ticketed by the one branch rule.
 
 ### Phase 2: Create tickets for failures
 
-With `.claude/forge-write-consent` present (#565), a new ticket needs the user's `allow-ticket` in
-the prompt (`/ci-health allow-ticket`); without it, list the tickets you would file and ask.
+With `.claude/forge-write-consent` present (#565), tickets past the session's ticket budget need
+the user's `allow-ticket` in the prompt (`/ci-health allow-ticket`); on a deny, list the tickets
+you would file and ask.
 
 **On GitHub**, for each failing job:
 
