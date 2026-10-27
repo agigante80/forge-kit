@@ -23,6 +23,11 @@ expect() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$2', got '$
 names() { if grep -qF -- "$1" <<< "$out"; then ok "$2"; else bad "$2 (no '$1' in: $out)"; fi; }
 
 [ -f "$G" ] || { echo "missing script: $G"; exit 1; }
+# the live canonical version, so a rule bump needs no edit here; V1 is the next one up
+V=$(grep -oE '<!-- rule: review-lows v[0-9]+ -->' "$ROOT/$CANON" | sed -E 's/.* v([0-9]+) -->/\1/')
+case "$V" in ''|*[!0-9]*) echo "cannot read the canonical rule version from $CANON"; exit 1 ;; esac
+[ "$V" -ge 2 ] || { echo "the older-version cases need a canonical version of 2 or more"; exit 1; }
+V1=$((V + 1))
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 T=$(CDPATH= cd -P -- "$T" && pwd -P)
@@ -46,13 +51,13 @@ fresh; run
 expect "the real files agree" 0 "$rc"
 
 echo "the canonical home"
-fresh; printf '\n<!-- rule: review-lows v2 -->\n' >> "$R/$CANON"; run
+fresh; printf '\n<!-- rule: review-lows v%s -->\n' "$V" >> "$R/$CANON"; run
 expect "two ids in the canonical skill fail" 1 "$rc"
 names "$CANON" "the canonical file is named"
-fresh; setv "$CANON" 3; run
+fresh; setv "$CANON" "$V1"; run
 expect "a canonical bump without the pointers fails" 1 "$rc"
-names "$CR: rule id review-lows v2, canonical is v3" "each stale pointer is named"
-names "$RL: rule id review-lows v2, canonical is v3" "a docs pointer is named too"
+names "$CR: rule id review-lows v$V, canonical is v$V1" "each stale pointer is named"
+names "$RL: rule id review-lows v$V, canonical is v$V1" "a docs pointer is named too"
 
 fresh; sed -i "s/roughly 15 minutes/about a quarter hour/" "$R/$CANON"; run
 expect "an anchor missing from the canonical file fails" 1 "$rc"
@@ -75,7 +80,7 @@ echo "other carriers"
 fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/docs/x/old.md"; track; run  # retired-rule-quote
 expect "another docs carrier at an older version fails" 1 "$rc"
 names "docs/x/old.md" "the carrier is named"
-fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: review-lows v2 -->\n' > "$R/docs/x/ok.md"; track; run
+fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: review-lows v%s -->\n' "$V" > "$R/docs/x/ok.md"; track; run
 expect "another carrier at the canonical version passes" 0 "$rc"
 fresh; mkdir -p "$R/other"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/other/old.md"; track; run  # retired-rule-quote
 expect "a file outside plugins/ and docs/ is not a carrier" 0 "$rc"
@@ -92,9 +97,9 @@ fresh; mkdir -p "$R/plugins/g"; printf 'Fix it in roughly 15 minutes.\n' > "$R/p
 expect "an untracked file is not checked" 0 "$rc"
 
 echo "the retired-rules data"
-fresh; printf 'review-lows\t2\t2026-10-14\tsome phrase\treplacement\n' >> "$R/$TSV"; run
+fresh; printf 'review-lows\t%s\t2026-10-14\tsome phrase\treplacement\n' "$V" >> "$R/$TSV"; run
 expect "a row retiring the current version fails" 1 "$rc"
-names "$TSV: retires review-lows v2" "the data file is named"
+names "$TSV: retires review-lows v$V" "the data file is named"
 fresh; printf 'review-lows\tx\t2026-10-14\tsome phrase\treplacement\n' >> "$R/$TSV"; run
 expect "a non-numeric version fails" 1 "$rc"
 fresh; printf 'other-rule\t9\t2026-10-14\tsome phrase\treplacement\n' >> "$R/$TSV"; run

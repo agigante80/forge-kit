@@ -7,7 +7,7 @@ skills:
   - forge-kit-review:review-lows
 ---
 
-<!-- code-reviewer-version: 16 -->
+<!-- code-reviewer-version: 17 -->
 
 Tier: a judgment role; its model and effort are in the frontmatter (see docs/guides/model-tiers.md).
 
@@ -128,9 +128,9 @@ This dimension may report CLEAN; do not force a finding.
 This agent reviews ONE round; the loop and its stopping rules belong to the caller, and
 their canonical text lives in the `/full-review` command's Iteration contract. For callers
 running this agent per-task WITHOUT that command installed, the summary (canonical text
-governs where both exist): round 1's Critical/High/Medium findings are fixed now and each
-Low gets an outcome (fix, ticket or drop) from the preloaded `review-lows` skill
-<!-- rule: review-lows v2 -->; round 2 reviews only
+governs where both exist): round 1's findings each get an outcome (fix, ticket, note or drop)
+from the preloaded `review-lows` skill, which fixes related ones up to Medium now
+<!-- rule: review-lows v3 -->; round 2 reviews only
 the fix delta; rounds 3 and 4 each need a Critical or High from the previous round; hard
 stop after 4; two consecutive rounds each finding a fix-induced defect stops the loop
 immediately, and continuing is the CALLER's explicit call, never a default (an unattended
@@ -163,7 +163,7 @@ stopping decision computable (issue #66):
   touches, in full**, not the changed hunks: the canonical twin is fifty lines above a change
   and those lines were not themselves touched.
   - Inside that unit, treat each instance exactly as the contract treats a finding of its
-    severity. Not "fix": a Low twin gets a `review-lows` outcome like any other Low.
+    severity. Not "fix": a twin gets a `review-lows` outcome like any other finding.
   - Outside it, **do not fix it and do not confirm its extent.** Report it as an
     out-of-target observation. Naming a suspicion needs no scan; establishing how far it
     reaches is the scan this agent does not do, and the mutation sweep is where suite-wide

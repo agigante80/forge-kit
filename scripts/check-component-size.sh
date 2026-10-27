@@ -373,6 +373,8 @@ budget_for() {
 # LOWERED 2026-09-24: full-review 3995 to 3990 (#278). Step 2.5 (size the round) was paid for by
 # folding the eight per-dispatch "Write your findings as a structured markdown document." lines into
 # rule 8, which every dispatch prompt already obeys, and the four parallel-dispatch sentences.
+# LOWERED 2026-10-27: full-review 3990 to 3974 (review-lows v3). The Low-only triage wording became
+# one pointer to the skill's severity table, so the handoff and Next Steps say less.
 # LOWERED 2026-09-24 (third): ticket-gate 5719 to 5718 (#250). Its new `effort: high` line (2 words)
 # was paid for by Step 0c-iii's "(no sub-agent spawn)", which restated the word "inline" before it.
 # LOWERED 2026-09-24 (again): ticket-gate 5721 to 5719 (#284). Step 1 gained the unstamp call and
@@ -419,7 +421,7 @@ baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
     ticket-gate) echo 5632 ;;
-    full-review) echo 3990 ;;
+    full-review) echo 3974 ;;
     *)           echo 0 ;;
   esac
 }

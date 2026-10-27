@@ -76,7 +76,7 @@ grep -q 'small-skill' <<< "$out" \
 words 100 "$FIX/plugins/fix-g/skills/small-skill/SKILL.md" small-skill
 
 # --- 5. the exemption RATCHET: an exempt component may not grow --------------------------------
-# full-review's baseline is 3990. Above it must fail even though it is exempt from the budget.
+# full-review's baseline is 3974. Above it must fail even though it is exempt from the budget.
 words 4200 "$FIX/plugins/fix-g/commands/full-review.md" full-review
 out=$(run); rc=$?
 [ "$rc" -ne 0 ] && ok "an exempt component above its baseline fails" \
@@ -89,7 +89,7 @@ words 3000 "$FIX/plugins/fix-g/commands/full-review.md" full-review
 out=$(run); rc=$?
 [ "$rc" -eq 0 ] && ok "an exempt component below its baseline exits 0" \
   || bad "an exempt component below its baseline exits 0 (rc=$rc)"
-grep -q 'below its 3990 baseline' <<< "$out" \
+grep -q 'below its 3974 baseline' <<< "$out" \
   && ok "a shrunk exempt component is reported so the baseline can be lowered" \
   || bad "a shrunk exempt component is reported"
 # ...and it is NOT warned about despite being over the 2000-word command budget.

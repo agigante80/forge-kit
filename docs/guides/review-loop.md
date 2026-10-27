@@ -10,7 +10,7 @@ and this page restates none of it beyond one sentence. Decided on issue #445 (ma
 What happens to each finding below Medium (fix, ticket or drop, decided in the same batch) is a
 separate rule with its own canonical home, the `review-lows` skill
 (`plugins/forge-kit-review/skills/review-lows/SKILL.md`, #495); this page does not restate it.
-<!-- rule: review-lows v2 -->
+<!-- rule: review-lows v3 -->
 
 ## 1. Round 2 always runs
 

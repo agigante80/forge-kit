@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails] [--full]"
 ---
 
-<!-- full-review-version: 16 -->
+<!-- full-review-version: 17 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -20,9 +20,8 @@ audit, re-checking a small fix with the reviewer round 1 used for correctness.
 
 **Where the findings go (the handoff):** the audit run IS round 1 of the Iteration
 contract below (that section is canonical; this paragraph only summarises it). Its
-Critical/High/Medium findings are fixed and verified by a round-2 run (`--since` or the
-verify-fixes pre-flight); each Low gets a `review-lows` outcome (fix, ticket or drop) at
-Completion. <!-- rule: review-lows v2 -->
+findings get `review-lows` outcomes (fix, ticket, note or drop); fixes are verified by a
+round-2 run (`--since` or the verify-fixes pre-flight). <!-- rule: review-lows v3 -->
 
 **Unattended callers** (working-overnight investigations): EVERY interactive prompt in
 this file resolves without asking. Checkpoints auto-select option 1; a pre-flight
@@ -568,7 +567,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Authentication/authorization bypasses
 - Production stability threats
 
-### High Priority (P1 -- Enters the Fix Loop)
+### High Priority (P1 -- Fixed, or Ticketed if Unrelated)
 
 [All High findings from all phases]
 
@@ -577,7 +576,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Architectural anti-patterns causing technical debt
 - Outdated dependencies with known vulnerabilities
 
-### Medium Priority (P2 -- Enters the Fix Loop)
+### Medium Priority (P2 -- Fixed, or Noted if Unrelated)
 
 [All Medium findings from all phases]
 
@@ -586,9 +585,9 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 - Code refactoring opportunities
 - Test quality improvements
 
-### Low Priority (P3 -- Fix, Ticket or Drop)
+### Low Priority (P3 -- Fix or Drop)
 
-[Each Low finding with its `review-lows` outcome and a one-line reason]
+[Each Low with its `review-lows` outcome and a one-line reason]
 
 ## Findings by Category
 
@@ -632,9 +631,9 @@ When this command is re-run to verify fixes from a previous full review, or when
 findings enter a review-fix-review loop, these rules bound the loop (issue #66; the
 reporting half lives in `code-reviewer.md`):
 
-- **Round 1** reviews the change. Fixes go by this command's own severity ladder: Critical,
-  High, and Medium are fixed now; each Low gets its `review-lows` outcome. **A ticket or a
-  drop is a finished outcome for a finding, not a failure to fix it.**
+- **Round 1** reviews the change. Each finding gets its `review-lows` outcome: related
+  ones up to Medium are fixed now. **A ticket, a note or a drop is a finished outcome for a
+  finding, not a failure to fix it.**
 - **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set,
   `previous_ref...HEAD` per rule 7). The target must not grow between rounds.
 - **Rounds 3 and 4 each run only if the PREVIOUS round found a Critical or High.**
@@ -679,14 +678,15 @@ skipped phase's file as produced)
 
 ## Next Steps
 1. Review the full report at .full-review/05-final-report.md
-2. Fix Critical (P0), High (P1), and Medium (P2) findings; verify with a round-2 run
+2. Fix what `review-lows` marks fix; verify with a round-2 run
    (--since <reviewed_ref> or the verify-fixes pre-flight)
-3. Low (P3): one outcome line per Low; fixed [n], ticketed [n] (URLs), dropped [n]
+3. Outcomes: one line per related finding below High; fixed [n], ticketed [n] (URLs),
+   dropped [n]; Noticed, not filed: [list]
 ```
 
-**Low triage (part of Completion, not advice):** load the `review-lows` skill (Skill tool)
-and give each Low its outcome; file only ticket outcomes. If the skill is absent, file
-nothing and report every Low untriaged, naming the missing skill. FIRST search open issues
+**Triage (part of Completion, not advice):** load the `review-lows` skill (Skill tool)
+and give each finding its outcome; file only ticket outcomes. If the skill is absent, file
+nothing and report every finding untriaged, naming the missing skill. FIRST search open issues
 (`forge_issue_list open` or `gh issue list --search`); an already-open ticket counts, note its
 URL. Otherwise create one via the host-aware adapter (`forge_issue_create "<title>" "<body>"`,
 then `forge_issue_label`), falling back to `gh issue create`; body = the finding verbatim
@@ -694,6 +694,6 @@ plus `(source: full-review round <N>, <date>)`; label `enhancement` unless the f
 names a better fit. **Check `forge_issue_label`'s exit**: on Forgejo its contract is
 REFUSE-ALL (an unresolvable name fails the whole call and applies nothing), so create the
 missing label first or drop it, then retry. List every created-or-found URL in Next Steps.
-A Low with no outcome is a Completion failure, EXCEPT ticket outcomes listed as unfiled
+A finding with no outcome is a Completion failure, EXCEPT ticket outcomes listed as unfiled
 under an unattended caller's declared cap (see Unattended callers above); drops never
 count against that cap.

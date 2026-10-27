@@ -1,7 +1,7 @@
 {
   "name": "forge-kit-review",
   "description": "code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security.",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"
