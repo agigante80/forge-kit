@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-template-lockstep-version: 2
+# check-template-lockstep-version: 3
 # Assert every work issue-template - and the canonical ticket-standards doc - share one
 # template-version marker (lockstep).
 #
@@ -7,6 +7,11 @@
 # types (it reads the version and compares every ticket against it), and it lets the
 # canonical rules doc drift apart from the forms that implement it. This is the mechanical
 # anti-drift lock. Templates that carry no marker (e.g. contribution.yml) are exempt.
+#
+# It compares the template-version INTEGERS only, never the text (#568). Wording the templates
+# copy from the doc can diverge while the numbers match, and this guard stays green: a change to a
+# form field's text must bump template-version everywhere (docs/guides/template-versioning.md), and
+# shared hazard or checklist wording is kept in step by hand.
 #
 # Usage: check-template-lockstep.sh [ISSUE_TEMPLATE_DIR] [CANONICAL_DOC]
 #   With no argument, resolves the first existing template dir, HOST-grouped so a live

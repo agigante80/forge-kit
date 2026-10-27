@@ -55,9 +55,9 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.13.6 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.26.7 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.37.2 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
+| `forge-kit-adapt` | 0.13.7 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-devops` | 0.26.8 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
+| `forge-kit-governance` | 0.38.0 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
 | `forge-kit-review` | 0.7.6 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.18.8 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
@@ -245,7 +245,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
 | `forge-kit-adapt` | skill | `adapt` | v99 | 7082 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
-| `forge-kit-adapt` | shell asset | `check-template-lockstep` | v2 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
+| `forge-kit-adapt` | shell asset | `check-template-lockstep` | v3 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
 | `forge-kit-adapt` | shell asset | `citation-check` | v5 |  | citation-check.sh: find the ticket-standards section titles the gate cites that the project's own |
 | `forge-kit-adapt` | shell asset | `hook-unwire` | v4 |  | hook-unwire.sh: remove one hook's wiring from a project's .claude/settings.json (#564). |
 | `forge-kit-adapt` | shell asset | `retired-paths` | v3 |  | retired-paths.sh: find a file forge-kit RETIRED and an earlier install left behind, and remove it |
@@ -255,7 +255,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | command | `ci-health` | v14 | 1630 | Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate ea… |
 | `forge-kit-devops` | skill | `context-budget` | v1 | 585 | Measure, in characters, how much a project's next Claude Code session loads before the first prompt (CLAUDE.md, its tra… |
 | `forge-kit-devops` | skill | `find-dead-code` | v3 | 1123 | Find genuinely dead / unused / unreachable SOURCE code - unused functions, classes, methods, exports, and unreachable b… |
-| `forge-kit-devops` | skill | `forge-host` | v57 | 3269 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
+| `forge-kit-devops` | skill | `forge-host` | v58 | 3342 | Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forg… |
 | `forge-kit-devops` | skill | `github-to-forgejo` | v15 | 1897 | Migrate a repository from GitHub to a self-hosted Forgejo instance: the push, the forge-host adapter, CI ported to .for… |
 | `forge-kit-devops` | skill | `release` | v7 | 1411 | Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verif… |
 | `forge-kit-devops` | skill | `release-automation` | v15 | 2066 | Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version b… |
@@ -269,7 +269,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
 | `forge-kit-governance` | agent | `ticket-gate` | v88 | 5118 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v10 | 306 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo). |
-| `forge-kit-governance` | skill | `closing-sessions` | v9 | 1191 | Persist what mattered from the current conversation before the session ends or context is lost. |
+| `forge-kit-governance` | skill | `closing-sessions` | v10 | 1325 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |
 | `forge-kit-governance` | skill | `decision-brief` | v6 | 1479 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
 | `forge-kit-governance` | skill | `ticket-gate-reference` | v16 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |

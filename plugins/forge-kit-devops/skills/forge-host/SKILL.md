@@ -3,7 +3,7 @@ name: forge-host
 description: Make governance components forge-host-aware (GitHub or self-hosted Forgejo/Gitea) instead of GitHub-only, through `forge-lib.sh` and its host-agnostic `forge_*` operations. Use when a project is migrating repos from GitHub to a self-hosted Forgejo, when a component shells out to `gh` but the repo may be on Forgejo, or when you need deterministic per-repo host detection.
 ---
 
-<!-- forge-host-version: 57 -->
+<!-- forge-host-version: 58 -->
 
 # forge-host: host-aware forge operations
 
@@ -56,7 +56,7 @@ Source it; call `forge_*` instead of `gh` directly:
 | `forge_issue_label <n> <name…>` | add labels by name (Forgejo: resolves names→IDs against repo AND org labels, all pages; REFUSE-ALL contract: any unresolvable name fails the whole call non-zero and applies nothing, so check the exit and create missing labels first) |
 | `forge_api_paginate <path>` | GET every page of a LIST endpoint as one JSON array (github: `gh api --paginate`; forgejo: page/limit loop, clamp-proof empty-page termination, and a stop on a page whose ids repeat the last page's, since Gitea's per-issue comments endpoint ignores `page`, #228). Use it for ANY list endpoint (`/milestones`, `/labels`, ...): a plain `forge_api GET` returns one server page and silently truncates |
 | `forge_body_region_get <n> <region>` | the current content of one marker-delimited region of an issue body, empty and rc 0 when absent. NO prefix check: reading another component's region is not a write |
-| `forge_body_region_set <n> <prefix> <region> <content> [top]` / `forge_body_region_clear <n> <prefix> <region>` | splice exactly one region, preserving every other byte; `top` places or MOVES it to the top of the body, below a first-line template marker (v27). Refuses a region not owned by `<prefix>` (101), a body changed since read (102), and a malformed, unterminated or DUPLICATED marker pair (103). A bottom append below an unclosed fence closes it first, unless the fence holds a marker line: that refuses (103, #486) |
+| `forge_body_region_set <n> <prefix> <region> <content> [top]` / `forge_body_region_clear <n> <prefix> <region>` | splice exactly one region, preserving every other byte; `top` places or MOVES it to the top of the body, below a first-line template marker (v27), and is reserved for `ticket-gate` (below). Refuses a region not owned by `<prefix>` (101), a body changed since read (102), and a malformed, unterminated or DUPLICATED marker pair (103). A bottom append below an unclosed fence closes it first, unless the fence holds a marker line: that refuses (103, #486) |
 | `forge_body_section_append <n> <label> <content>` | append to ONE author section, found by a whole `#` heading line outside fences and regions (v47, #494). Refuses a section holding author text (108; a block whose first line does not end with `(gate-written, round N)` and is not `_No response_`), an absent heading (107), a duplicated one (109), content carrying a marker or heading line, a block whose first line does not end with that label, or an open fence (103) and a moved body (102) |
 | `forge_body_compose_preserving <n> <new-body>` | a WHOLE-body write that re-threads EVERY region, the caller's own included, so an author-section rewrite cannot drop a region anyone wrote. A region restated in the new body is kept once, not duplicated |
 | `forge_milestone_list` / `forge_milestone_create <title> [desc]` / `forge_milestone_close <title>` | milestones, with the host's id normalised: GitHub addresses one by its per-repo NUMBER, Forgejo by its `id`, and the list flattens both into one field so no caller has to know |
@@ -101,6 +101,12 @@ caller declaring a prefix it does not own, which is acceptable because the failu
 full-body overwrite by a buggy component rather than impersonation by a hostile one. And
 last-writer-wins is structural, since GitHub offers no `If-Match` on an issue-body PATCH, so the
 re-read before the write narrows the window and cannot close it.
+
+**`top` belongs to `ticket-gate`** (its `gate-verdict` region, through `gate-status.sh --stamp`), so
+the verdict reads first. Any other writer, a project's own region included, passes `top` at most on
+its first write and refreshes in place without it: two writers that both pass `top` swap places on
+every write, and a region that claims to supersede "anything lower in the body" then misses the
+verdict above it (#567).
 
 `FORGE_DRY_RUN=1` decides BEFORE the fetch, not before the PATCH, and prints the CHARACTER count
 of the argument. That placement is load-bearing: `forge_api` short-circuits every method including GET, so

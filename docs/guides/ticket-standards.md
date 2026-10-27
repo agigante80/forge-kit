@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 24 -->
+<!-- doc-rules-version: 25 -->
 
 # Ticket standards (canonical)
 
@@ -15,7 +15,9 @@ from the forms that implement it, and bumping it is what makes `ticket-gate` re-
 open ticket. `doc-rules-version` says *which revision the rules text below is at*. A change to
 the rules that does not change the form fields bumps **only** `doc-rules-version`, costs nothing
 downstream, and triggers no synthesis. See `docs/guides/template-versioning.md` for the full
-rule and why the two were separated.
+rule and why the two were separated. The lockstep guard compares the two integers, never the
+text: wording a template copies from this doc (a hazard statement, a checklist line) is kept in
+step by hand, and the guard stays green while it drifts (#568).
 
 A local adaptation never moves `doc-rules-version`: it tracks the kit revision your copy has fully absorbed, and nothing else. Record a local change in a separate comment line; never edit the marker comment, because text inside it stops it parsing and the drift row reads `unversioned`.
 

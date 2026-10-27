@@ -1,9 +1,9 @@
 ---
 name: closing-sessions
-description: Persist what mattered from the current conversation before the session ends or context is lost. Writes durable facts (user identity, feedback with rationale, ongoing project constraints, references) to the project's .claude/memory/ store and transient resume state (what was done, what is unfinished, next steps, open questions) to a dated .claude/handoffs/ note. Use when the user says to close the session, wrap up, save what we discussed, or before they step away.
+description: Persist what mattered from the current conversation before the session ends or context is lost. Writes durable facts (user identity, feedback with rationale, ongoing project constraints, references) to the project's .claude/memory/ store (or the Claude Code auto-memory store it loads) and transient resume state (what was done, what is unfinished, next steps, open questions) to a dated .claude/handoffs/ note. Use when the user says to close the session, wrap up, save what we discussed, or before they step away.
 ---
 
-<!-- closing-sessions-version: 9 -->
+<!-- closing-sessions-version: 10 -->
 
 # Closing sessions
 
@@ -72,7 +72,9 @@ file: `memory.py write` replaces a whole file and `memory.py remove` deletes it
 outright, and `.claude/memory/` is usually gitignored, so neither can be undone
 from git. Never choose a slug that already names a file lacking that frontmatter.
 If a topic file looks stale, contradicted or wrong, add a line under the handoff's
-open questions for its owning session instead.
+open questions for its owning session instead. In an auto-memory store the harness writes every
+memory in that same frontmatter, so all of them count as this skill's: update or delete one only
+when this session proved it wrong or a duplicate.
 
 ### Step 4: Write
 
@@ -114,6 +116,15 @@ direct write; report the refused slug under the handoff's open questions.
 When the skill is installed project-locally (under `.claude/skills/`), adjust the
 script path to where it was installed. When run from the project root, the
 `--project-dir` flag can be omitted (it defaults to the current directory).
+
+Write to the store the session actually loads. When the project has no
+`.claude/memory/` and its memory is Claude Code auto memory
+(`~/.claude/projects/<slug>/memory/`), pass that directory as `--memory-dir <path>`
+instead of `--project-dir`, and only when the session's own instructions name it as the store
+they load; never guess the path; `--project-dir` would
+create a second store nobody loads. `--memory-dir` must already exist. `remove`
+exits 3, not 0, when the slug named neither a file nor an index line: treat that as
+a wrong store or a wrong slug, never as removed.
 
 For the handoff note, write one file at
 `.claude/handoffs/<YYYY-MM-DD>-<topic>.md` using this template:

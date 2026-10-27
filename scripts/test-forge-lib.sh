@@ -4510,6 +4510,8 @@ grep -qF -- "$STOP517" "$FH517" && ok "#517: forge-host SKILL.md repeats the age
 grep -qF 'FORGE_REMOTE=forgejo' "$GF517" && grep -q 'ci=not_configured' "$GF517" \
   && ok "#517: github-to-forgejo Phase 2 has the human export FORGE_REMOTE=forgejo and names the not_configured refusal" \
   || bad "#517: github-to-forgejo Phase 2 lacks the FORGE_REMOTE export or the detect behaviour"
+grep -qF '**`top` belongs to `ticket-gate`**' "$FH517" && ok "#567: forge-host SKILL.md reserves top for ticket-gate" \
+  || bad "#567: forge-host SKILL.md lacks the top reservation"
 ! grep -q 'no-op on GitHub' "$FH517" && ok "#517: forge-host SKILL.md no longer calls forge_url_check a no-op on GitHub" \
   || bad "#517: forge-host SKILL.md still says forge_url_check is a no-op on GitHub"
 

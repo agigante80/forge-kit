@@ -178,14 +178,139 @@ class RemoveTests(unittest.TestCase):
                 os.path.join(d, ".claude", "memory", "gone.md")))
             self.assertNotIn("(gone.md)", read(d, "MEMORY.md"))
 
-    def test_remove_missing_slug_is_noop(self):
+    def test_remove_of_a_slug_that_names_nothing_exits_3_and_says_so(self):
+        # #570: a silent exit 0 let a caller pointed at the wrong store read
+        # "nothing happened" as "removed".
         with tempfile.TemporaryDirectory() as d:
             r = run(d, ["remove", "--slug", "never-existed"])
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertIn("nothing to remove", r.stderr)
+            run(d, ["write", "--slug", "other", "--title", "O",
+                    "--type", "user", "--description", "o"], body="b")
+            before = read(d, "MEMORY.md")
+            r = run(d, ["remove", "--slug", "never-existed"])
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertEqual(read(d, "MEMORY.md"), before)
+
+    def test_remove_of_a_stale_index_line_exits_0_and_says_the_file_was_absent(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "stale", "--title", "S",
+                    "--type", "user", "--description", "s"], body="b")
+            os.remove(os.path.join(d, ".claude", "memory", "stale.md"))
+            r = run(d, ["remove", "--slug", "stale"])
             self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("already absent", r.stderr)
+            self.assertNotIn("(stale.md)", read(d, "MEMORY.md"))
+
+    def test_remove_of_a_file_without_an_index_line_exits_0_quietly(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(d, ["write", "--slug", "lone", "--title", "L",
+                    "--type", "user", "--description", "l"], body="b")
+            os.remove(os.path.join(d, ".claude", "memory", "MEMORY.md"))
+            r = run(d, ["remove", "--slug", "lone"])
+            self.assertEqual((r.returncode, r.stderr), (0, ""))
+            self.assertFalse(os.path.exists(
+                os.path.join(d, ".claude", "memory", "lone.md")))
+
+
+class MemoryDirTests(unittest.TestCase):
+    """#569: --memory-dir names the store itself, so a Claude Code auto-memory
+    store (no .claude/memory/ under any project) is reachable."""
+
+    WRITE = ["write", "--slug", "fact", "--title", "Fact", "--type", "user",
+             "--description", "hook"]
+
+    def run_md(self, store, args, body=""):
+        return subprocess.run([sys.executable, SCRIPT, "--memory-dir", store, *args],
+                              input=body, capture_output=True, text=True, timeout=10)
+
+    def test_write_and_remove_land_in_the_named_store_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = os.path.join(d, "projects", "-some-slug", "memory")
+            os.makedirs(store)
+            r = self.run_md(store, self.WRITE, body="b")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(os.path.isfile(os.path.join(store, "fact.md")))
+            with open(os.path.join(store, "MEMORY.md"), encoding="utf-8") as f:
+                self.assertIn("(fact.md)", f.read())
+            self.assertFalse(os.path.exists(os.path.join(store, ".claude")))
+            r = self.run_md(store, ["remove", "--slug", "fact"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(store, "fact.md")))
+
+    def test_a_missing_store_is_refused_and_never_created(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = os.path.join(d, "typo", "memory")
+            r = self.run_md(store, self.WRITE, body="b")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("not an existing directory", r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, "typo")))
+
+    def test_refusals_name_the_store_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "fact.md"), "w") as f:
+                f.write("hand written\n")
+            r = self.run_md(d, self.WRITE, body="b")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn(os.path.join(d, "fact.md"), r.stderr)
+
+    def test_project_dir_and_memory_dir_are_exclusive(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run([sys.executable, SCRIPT, "--project-dir", d,
+                                "--memory-dir", d, "remove", "--slug", "x"],
+                               capture_output=True, text=True, timeout=10)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("not allowed with", r.stderr)
 
 
 class OwnershipTests(unittest.TestCase):
     """memory.py acts only on files it wrote (its generated frontmatter)."""
+
+    def test_harness_reserialised_frontmatter_is_still_owned(self):
+        # #571: the harness writes "metadata: " with a trailing space and adds
+        # keys such as node_type; an exact-line compare refused such a file.
+        harness = ("---\nname: fact \ndescription: d\nmetadata: \n"
+                   "  node_type: memory\n  type: reference\n"
+                   "  originSessionId: 155e8282\n--- \n\nbody\n")
+        for command in ("write", "remove"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as d:
+                mem = os.path.join(d, ".claude", "memory")
+                os.makedirs(mem)
+                with open(os.path.join(mem, "fact.md"), "w", encoding="utf-8") as f:
+                    f.write(harness)
+                argv = (["write", "--slug", "fact", "--title", "F", "--type", "user",
+                         "--description", "d"] if command == "write"
+                        else ["remove", "--slug", "fact"])
+                r = run(d, argv, body="new")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                if command == "remove":
+                    self.assertFalse(os.path.exists(os.path.join(mem, "fact.md")))
+                else:
+                    self.assertIn("new", read(d, "fact.md"))
+
+    def test_crlf_frontmatter_is_still_owned(self):
+        text = "---\r\nname: fact\r\nmetadata:\r\n  type: user\r\n---\r\nbody\r\n"
+        with tempfile.TemporaryDirectory() as d:
+            mem = os.path.join(d, ".claude", "memory")
+            os.makedirs(mem)
+            with open(os.path.join(mem, "fact.md"), "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+            r = run(d, ["remove", "--slug", "fact"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_trailing_space_does_not_widen_ownership(self):
+        # Stripping trailing whitespace must not let through a file without a
+        # two-space metadata.type: none at all, or one indented four spaces.
+        for text in ("---\nname: fact \nmetadata: \n  node_type: memory\n---\n",
+                     "---\nname: fact\nmetadata: \n    type: user\n---\n"):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as d:
+                mem = os.path.join(d, ".claude", "memory")
+                os.makedirs(mem)
+                with open(os.path.join(mem, "fact.md"), "w", encoding="utf-8") as f:
+                    f.write(text)
+                r = run(d, ["remove", "--slug", "fact"])
+                self.assertEqual(r.returncode, 1)
+                self.assertTrue(os.path.exists(os.path.join(mem, "fact.md")))
 
     def _seed(self, d, name, text, index="- [Other](other.md) - x\n"):
         mem = os.path.join(d, ".claude", "memory")
@@ -1069,7 +1194,7 @@ class SwapTests(unittest.TestCase):
                 os.makedirs(os.path.join(d, ".claude", "memory"))
                 make(self.mem(d, "MEMORY.md"))
                 with self.assertRaises(mod._Refusal):
-                    mod.read_index(d)
+                    mod.read_index(mod.memory_dir(d))
 
     # nothing that existed changes when the other leaf is refused
 

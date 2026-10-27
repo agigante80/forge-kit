@@ -48,8 +48,12 @@ always-loaded set.** Verdict, read at `b986518`. Covered: `coding-standards-audi
 `git grep -n '@' b986518 -- plugins/forge-kit-review/agents/coding-standards-auditor.md` exits 1
 with empty output (`coding-standards-auditor-version: 4`), and its Phase 4a adds at most the one
 plain line `Coding standards: see docs/coding-standards.md` (46 characters, not an import) while
-deleting inline standards. `closing-sessions` writes only under `.claude/memory/`, never
-`CLAUDE.md` and never the auto-memory directory R1 counts, and its `SKILL.md` has no `CLAUDE.md`
+deleting inline standards. `closing-sessions` writes under `.claude/memory/` by default and never to
+`CLAUDE.md`. Since #569 it writes to the auto-memory directory R1 counts only through
+`--memory-dir`, and only when the session's own instructions name that directory as the store it
+loads: each close then appends one index line to an always-loaded `MEMORY.md`, which is accepted,
+because the harness's own memory instructions grow the same file the same way, and
+`context-budget.sh` is what surfaces that growth. Its `SKILL.md` has no `CLAUDE.md`
 write or import instruction. Its one growth path was the index line: a title or description with an
 `@` token at the start or after whitespace was written verbatim, so a project that `@`-imports
 `.claude/memory/MEMORY.md` would import a sibling file named in conversation. `memory.py` now wraps

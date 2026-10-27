@@ -22,12 +22,25 @@ def memory_dir(project_dir):
     return os.path.join(project_dir, MEMORY_SUBDIR)
 
 
-def index_path(project_dir):
-    return os.path.join(memory_dir(project_dir), INDEX_NAME)
+# Every function below takes the memory STORE (the directory holding MEMORY.md),
+# not the project: main() resolves it once from --project-dir or --memory-dir,
+# because a Claude Code auto-memory store (~/.claude/projects/<slug>/memory/) has
+# no .claude/memory/ under any project directory (#569).
+def index_path(store):
+    return os.path.join(store, INDEX_NAME)
 
 
-def memory_path(project_dir, slug):
-    return os.path.join(memory_dir(project_dir), slug + ".md")
+def memory_path(store, slug):
+    return os.path.join(store, slug + ".md")
+
+
+def _rel(store, name):
+    """name as a refusal prints it: under .claude/memory/ in the default layout,
+    else under the store's own path."""
+    norm = os.path.normpath(store)
+    if norm == MEMORY_SUBDIR or norm.endswith(os.sep + MEMORY_SUBDIR):
+        return os.path.join(MEMORY_SUBDIR, name)
+    return os.path.join(store, name)
 
 
 # Characters that force a YAML plain scalar to be quoted when they lead it.
@@ -159,15 +172,15 @@ def _overwrite(fd, text):
         data = data[os.write(fd, data):]
 
 
-def read_index(project_dir):
+def read_index(store):
     """Return the index text, None when it is absent, or raise _Refusal.
 
     Opened through _open_leaf, so a link or FIFO swapped in after the ownership
     check is a refusal (os.path.exists said False for a dangling link and let
     the write create its target). Decoded strictly, as check_ownership does.
     """
-    rel = os.path.join(MEMORY_SUBDIR, INDEX_NAME)
-    fd = _open_leaf(index_path(project_dir), rel, os.O_RDONLY)
+    rel = _rel(store, INDEX_NAME)
+    fd = _open_leaf(index_path(store), rel, os.O_RDONLY)
     if fd is None:
         return None
     with os.fdopen(fd, "rb") as f:
@@ -221,8 +234,13 @@ def _refuse(slug, reason):
 
 
 def is_owned(content, slug):
-    """True if content carries the frontmatter render_memory generates."""
-    lines = content.split("\n")
+    """True if content carries the frontmatter render_memory generates.
+
+    Trailing whitespace is ignored on every line: the Claude Code harness
+    re-serialises memory files it touches as "metadata: " with a trailing space
+    and may add keys (node_type, ...), and such a file is still ours (#571).
+    """
+    lines = [ln.rstrip() for ln in content.split("\n")]
     if not lines or lines[0] != "---":
         return False
     try:
@@ -309,7 +327,7 @@ def slug_problem(slug):
     return None
 
 
-def check_ownership(project_dir, slug):
+def check_ownership(store, slug):
     """Return an error message, or None when acting on slug is allowed.
 
     Checks the memory file AND the MEMORY.md index (when present: regular,
@@ -329,15 +347,15 @@ def check_ownership(project_dir, slug):
     err = slug_problem(slug)
     if err:
         return err
-    rel = os.path.join(MEMORY_SUBDIR, slug + ".md")
-    text, problem = _inspect(memory_path(project_dir, slug), rel)
+    rel = _rel(store, slug + ".md")
+    text, problem = _inspect(memory_path(store, slug), rel)
     if problem:
         return problem
-    idx_rel = os.path.join(MEMORY_SUBDIR, INDEX_NAME)
-    idx_text, problem = _inspect(index_path(project_dir), idx_rel, strict=True)
+    idx_rel = _rel(store, INDEX_NAME)
+    idx_text, problem = _inspect(index_path(store), idx_rel, strict=True)
     if problem:
         return problem
-    if idx_text is not None and not _index_writable(index_path(project_dir)):
+    if idx_text is not None and not _index_writable(index_path(store)):
         return f"{idx_rel} is not writable"
     if text is None or is_owned(text, slug):
         return None
@@ -354,7 +372,7 @@ def cmd_write(args):
     if err:
         return _refuse(args.slug, err)
     raw = sys.stdin.buffer.read()
-    err = check_ownership(args.project_dir, args.slug)
+    err = check_ownership(args.store, args.slug)
     if err:
         return _refuse(args.slug, err)
     # Every encode-on-write input is probed BEFORE the first write, so an encode
@@ -380,11 +398,11 @@ def cmd_write(args):
         err = at_token_problem(field, value)
         if err:
             return _refuse(args.slug, err)
-    os.makedirs(memory_dir(args.project_dir), exist_ok=True)
-    mem_rel = os.path.join(MEMORY_SUBDIR, args.slug + ".md")
-    idx_rel = os.path.join(MEMORY_SUBDIR, INDEX_NAME)
-    mem_path = memory_path(args.project_dir, args.slug)
-    idx_path = index_path(args.project_dir)
+    os.makedirs(args.store, exist_ok=True)
+    mem_rel = _rel(args.store, args.slug + ".md")
+    idx_rel = _rel(args.store, INDEX_NAME)
+    mem_path = memory_path(args.store, args.slug)
+    idx_path = index_path(args.store)
     fds = []
     try:
         # Validate every leaf first, then write through these same descriptors:
@@ -394,7 +412,7 @@ def cmd_write(args):
         mem_fd = _open_leaf(mem_path, mem_rel, os.O_WRONLY)
         if mem_fd is not None:
             fds.append(mem_fd)
-        existing = read_index(args.project_dir)
+        existing = read_index(args.store)
         idx_fd = None
         if existing is not None:
             idx_fd = _open_leaf(idx_path, idx_rel, os.O_WRONLY)
@@ -417,40 +435,63 @@ def cmd_write(args):
     return 0
 
 
+# remove's exit when the slug named nothing at all: distinct from a refusal (1)
+# and from argparse's usage error (2), so a caller pointed at the wrong store
+# cannot read "nothing happened" as "removed" (#570).
+NOTHING_REMOVED = 3
+
+
 def cmd_remove(args):
-    err = check_ownership(args.project_dir, args.slug)
+    err = check_ownership(args.store, args.slug)
     if err:
         return _refuse(args.slug, err)
-    idx_rel = os.path.join(MEMORY_SUBDIR, INDEX_NAME)
+    mem_rel = _rel(args.store, args.slug + ".md")
+    idx_rel = _rel(args.store, INDEX_NAME)
     fd = None
     try:
         # The index is acquired and validated BEFORE the memory file is
         # unlinked, so a refused index leaves the file in place.
-        existing = read_index(args.project_dir)
+        existing = read_index(args.store)
         if existing is not None:
-            fd = _open_leaf(index_path(args.project_dir), idx_rel, os.O_WRONLY)
+            fd = _open_leaf(index_path(args.store), idx_rel, os.O_WRONLY)
         try:
-            os.remove(memory_path(args.project_dir, args.slug))
+            os.remove(memory_path(args.store, args.slug))
+            file_removed = True
         except FileNotFoundError:
-            pass
+            file_removed = False
         except OSError as e:
-            raise _Refusal(f"{os.path.join(MEMORY_SUBDIR, args.slug + '.md')} "
-                           f"cannot be removed ({e.strerror})")
+            raise _Refusal(f"{mem_rel} cannot be removed ({e.strerror})")
+        line_removed = False
         if fd is not None:
-            _overwrite(fd, index_without_line(existing, args.slug))
+            kept = index_without_line(existing, args.slug)
+            line_removed = kept != existing
+            _overwrite(fd, kept)
     except _Refusal as e:
         return _refuse(args.slug, str(e))
     finally:
         if fd is not None:
             os.close(fd)
+    # A missing file with a stale index line is still a removal (the line goes),
+    # so it says so and exits 0; only a slug that named nothing exits non-zero.
+    if not file_removed and not line_removed:
+        print(f"memory.py: nothing to remove for slug {ascii(args.slug)}: "
+              f"no {mem_rel} and no index line", file=sys.stderr)
+        return NOTHING_REMOVED
+    if not file_removed:
+        print(f"memory.py: {mem_rel} was already absent; removed its index line",
+              file=sys.stderr)
     return 0
 
 
 def build_parser():
     p = argparse.ArgumentParser(
         description="Write or remove .claude/memory/ files and keep MEMORY.md in sync.")
-    p.add_argument("--project-dir", default=".",
-                   help="Project root containing .claude/ (default: current directory)")
+    where = p.add_mutually_exclusive_group()
+    where.add_argument("--project-dir", default=".",
+                       help="Project root containing .claude/ (default: current directory)")
+    where.add_argument("--memory-dir",
+                       help="The memory store itself, the directory holding MEMORY.md, "
+                            "for example a Claude Code auto-memory store; must exist")
     sub = p.add_subparsers(dest="command", required=True)
 
     w = sub.add_parser("write", help="Create or overwrite a memory file and upsert its index line")
@@ -461,7 +502,8 @@ def build_parser():
     w.add_argument("--description", required=True)
     w.set_defaults(func=cmd_write)
 
-    r = sub.add_parser("remove", help="Delete a memory file and its index line")
+    r = sub.add_parser("remove", help="Delete a memory file and its index line "
+                                      f"(exit {NOTHING_REMOVED} when neither existed)")
     r.add_argument("--slug", required=True)
     r.set_defaults(func=cmd_remove)
 
@@ -470,6 +512,16 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.memory_dir is None:
+        args.store = memory_dir(args.project_dir)
+    elif os.path.isdir(args.memory_dir):
+        args.store = args.memory_dir
+    else:
+        # Never created: a mistyped store would otherwise become a second,
+        # never-loaded store, the failure --memory-dir exists to prevent (#569).
+        print(f"memory.py: --memory-dir {ascii(args.memory_dir)} is not an existing "
+              "directory", file=sys.stderr)
+        return 1
     return args.func(args)
 
 

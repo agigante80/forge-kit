@@ -117,7 +117,8 @@ leaving it.
 Worth knowing precisely, because it changes what a fix costs: **`ticket-gate` never reads this
 doc.** Its `CURRENT_TPL_VER` is computed from the template directory alone. The expensive coupling
 was entirely in `check-template-lockstep.sh`, which requires the templates and this doc to share one
-integer.
+integer. It compares that integer only, never text, so wording a template copies from this doc is
+kept in step by hand (#568).
 
 **The rule.**
 

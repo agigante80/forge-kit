@@ -298,6 +298,19 @@ case "$out" in
 esac
 rm -rf "$st"
 
+# #568: the guard compares integers, never text; that limit is stated where a vendored copy and
+# the rules doc are read, so a downstream editor knows copied wording is kept in step by hand.
+if grep -qF 'compares the template-version INTEGERS only, never the text' "$SCRIPT"; then
+  echo "  ok: the guard header states it never compares text"; pass=$((pass + 1))
+else
+  echo "  FAIL: the guard header lacks the integers-only scope sentence"; fail=$((fail + 1))
+fi
+if grep -qF 'The lockstep guard compares the two integers, never the' "$HERE/../docs/guides/ticket-standards.md"; then
+  echo "  ok: ticket-standards states the guard never compares text"; pass=$((pass + 1))
+else
+  echo "  FAIL: ticket-standards lacks the integers-only sentence"; fail=$((fail + 1))
+fi
+
 echo ""
 echo "template-lockstep tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
