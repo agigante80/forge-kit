@@ -9,6 +9,10 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+## v0.10.0 (2026-10-27)
+
+Since v0.9.1: forge writes are governed. A `forge-write-consent` hook stops an agent posting a comment or filing a ticket the user did not ask for, with a per-session ticket budget (default 3) so needed tickets still get filed while a runaway session stops at the cap, and a `scan-forge-writes` hook plus forge-lib's own scan check every issue, comment and release text for leaks before it is sent. A checked-out branch can no longer redirect the forge token through `.forge.conf`. Review findings are triaged by severity and by whether they relate to the change, and a fix's own review files only Critical or High, which stops review chains. New: the `usage-report` skill, `FORGE_BODY_FILTER`, `close-shipped.sh` so a release closes what it shipped, `review-mechanics.sh` for `/phase review`, and five new forge-adapt drift reports. Last in: closing-sessions' `memory.py` reaches a Claude Code auto-memory store (#569, #570, #571), and two existing contracts are now written down (#567, #568).
+
 ### Security
 
 - forge-host: `FORGE_BODY_FILTER` hardening from review round 1 of #541 (forge-lib 61 to 62, forge-host 55 to 56, forge-kit-devops 0.26.3 to 0.26.4; 5 rows, 6 mutants). A path containing `=` is refused with 111: `env` read it as an assignment, ran no filter and printed the whole environment, which was then sent as the body with rc 0. The default-branch pin now runs before the filter in the caller's shell, so the token variable `.forge.conf` names through `FORGE_TOKEN_ENV` is stripped from the filter too (it was loaded only inside `$(forge_repo)`), and a branch that changes or deletes that key is refused with 2 before the filter starts. The timeout is now `timeout -k 5 10`, so a filter that ignores TERM is killed instead of hanging the call.
