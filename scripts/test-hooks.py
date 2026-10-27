@@ -3701,7 +3701,9 @@ with tempfile.TemporaryDirectory() as td:
 
     lp = Fwc(td / "loops", content="ticket-budget: 9\n")
     for cmd in ("for t in a b; do " + TK + "; done", "while read t; do forge_issue_create \"$t\" b; done < l",
-                "printf 'a\\nb' | xargs -I{} gh issue create -t {} -b b", "bash -c 'until false; do " + TK + "; done'"):
+                "printf 'a\\nb' | xargs -I{} gh issue create -t {} -b b", "bash -c 'until false; do " + TK + "; done'",
+                "find . -name '*.md' -exec " + TK + " \\;", 'eval "' + TK + '"', "watch -n 60 " + TK,
+                "f() { " + TK + "; }; f; f", 'echo "' + TK + '" | sh'):
         p = lp.bash(cmd)
         check(f"fwc a ticket write in a loop needs a grant: {cmd[:30]}",
               (verdict(p), "in a loop" in fwc_reason(p)), (DENY, True))

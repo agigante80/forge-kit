@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 6
+# forge-write-consent-version: 7
 """Deny forge comments without the user's grant, and new tickets past a per-session budget (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
@@ -29,9 +29,10 @@ runaway session stops at the cap. The sentinel file may hold a line `ticket-budg
 trailing `# comment` is fine); no such line, or an unreadable file, means DEFAULT_TICKET_BUDGET,
 and 0 restores the old rule (every ticket needs allow-ticket). A `ticket-budget` line whose value
 does not parse means 0: a project that wrote a budget meant to limit something. Each ticket write
-in a command costs one; a command that may repeat one (a for, while or until loop, xargs or
-parallel) has no countable cost and needs allow-ticket. The count and the spend happen under one
-file lock, so subagents racing for the last ticket cannot both win. Budget is spent when the write is ATTEMPTED, so a
+in a command costs one; a command that may repeat one (a loop, xargs, parallel, find -exec,
+watch, eval, a function or a bare shell reading a pipe) has no countable cost and needs
+allow-ticket. The count and the spend happen under one file lock, so subagents racing for the
+last ticket cannot both win. Budget is spent when the write is ATTEMPTED, so a
 ticket another hook denies, the user refuses, or the forge fails still costs one.
 
 WHAT IS JUDGED. Quoted strings and heredoc bodies are blanked first, so a body that only
@@ -147,7 +148,11 @@ COMMENT_CMD = re.compile(W + r"(?:gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+comment"
                          r"|gh\s+pr" + GH_FLAGS + r"\s+review\b[^\n]*\s(?:--comment|-c)(?![\w-])"
                          r"|forge_issue_comment|tea\s+comment)\b")
 TICKET_CMD = re.compile(W + r"(?:gh\s+issue" + GH_FLAGS + r"\s+create|forge_issue_create|tea\s+(?:issues?|i)\s+create)\b")
-REPEATS = re.compile(W + r"(?:for|while|until|xargs|parallel)\b")
+# Anything that may run a ticket write more than once makes its cost uncountable. The list is a
+# habit guard's, not a sandbox's (see Known limits): a review asking to extend it again should
+# point at a shape an agent actually typed, not one an adversary could.
+REPEATS = re.compile(W + r"(?:for|while|until|select|repeat|xargs|parallel|watch|eval|function"
+                     r"|-exec(?:dir)?|-ok(?:dir)?)\b|\(\)\s*\{|^\s*(?:ba|z|da)?sh\s*$")
 HELP = re.compile(r"(?<![\w-])(?:--help|-h)(?![\w-])")
 # Write signals differ per tool: curl's -f is --fail, gh api's -f is a field (#565 round 1).
 API_WRITES = {
