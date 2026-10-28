@@ -119,6 +119,19 @@ expect "and no unscanned place" 0 "$(nrows not-scanned)"
 expect "and exits 0" 0 "$rc"
 has "summary${TAB}0${TAB}0${TAB}0" "with a zero summary"
 
+echo "== review-lows v2 phrasings (retired 2026-10-27) =="
+for s in 'Critical, High and Medium are fixed. Each Low gets exactly one outcome, in the same batch:' \
+  '- **ticket** only when a user or operator could really hit its failure and it is too big now;' \
+  'A Low with no outcome is a Completion failure, EXCEPT ticket outcomes listed as unfiled' \
+  '### Low Priority (P3 -- Fix, Ticket or Drop)' \
+  'A Low twin outside the swept files included, gets a ticket or a\ndrop by the same test.' \
+  'High and Medium are fixed now and each\nLow gets its `review-lows` outcome.'; do
+  fresh; put "$P/CLAUDE.md" "x\n$s\n"; run
+  has "stale-rule${TAB}prose${TAB}CLAUDE.md${TAB}2${TAB}review-lows" "v2 wording is stale: ${s%%$'\n'*}"
+done
+fresh; cp "$ROOT/plugins/forge-kit-review/skills/review-lows/SKILL.md" "$P/AGENTS.md"; run
+expect "the live v3 rule text matches no retired phrasing" 0 "$(nrows stale-rule)"
+
 echo "== matching is per paragraph, across wraps =="
 fresh
 put "$P/AGENTS.md" '# Review\n\n- Round 1: High and Medium are fixed, and all Low findings are\n  ticketed immediately by the reviewer.\n- Round 2: delta only.\n'
@@ -182,7 +195,7 @@ for phrase in 'ticketed immediately' 'becomes a ticket immediately' 'become a ti
   fresh; put "$P/CLAUDE.md" "$phrase\n"; run
   expect "listed: $phrase" 1 "$(nrows stale-rule)"
 done
-for phrase in 'Each Low gets exactly one outcome: fix, ticket or drop.' 'ticket it only when a user could hit it' \
+for phrase in 'Each finding gets exactly one outcome, in the same batch:' 'ticket it only when a user could hit it' \
   'An out-of-target observation is dropped with one line unless a user could hit it.' 'the ticket was filed immediately' \
   'findings are fixed in-loop, ticketed or dropped' 'enter the bounded loop and become reviewable'; do
   fresh; put "$P/CLAUDE.md" "$phrase\n"; run
