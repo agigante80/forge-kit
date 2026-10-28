@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 99 -->
+<!-- forge-adapt-version: 100 -->
 
 # forge-adapt
 
@@ -578,7 +578,7 @@ forge-adapt drift report - <project>
 ```
 
 Stop after the report; change nothing. For each row run
-`"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-drift-status.sh --local <installed> --catalogue <catalogue>` (inputs and citation check: `references/drift.md`) and print the word it returns.
+`"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-drift-status.sh --local <installed> --catalogue <catalogue>` (inputs and citation check: `references/drift.md`) and print its word.
 
 **Then one line ABOVE the table, from `"${FORGE_KIT_DIR:?}"/scripts/forge-adapt-marketplace-status.sh`** (#172). It is not a
 component row and must never be rendered as one.
@@ -597,7 +597,7 @@ a contribution candidate, not an adaptation (decided in issue #64).
 **`refresh <name>` - deep-compare ONE component, report first, then confirm before writing.**
 The only full content diff, and it must NEVER blind-overwrite adaptation. Steps:
 
-1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy. A `shadowed` row never merges: follow `references/drift.md`.
+1. Read the installed copy (`.claude/.../<name>...`) and the catalogue copy. A `shadowed` or `registrable` row never merges: follow `references/drift.md`.
 2. **Classify every difference:**
    - **Adaptation (keep):** project-specific stack/domain customisation, and `<!-- adapt-dropped: <name> -->`
      tombstones (a deliberately dropped conditional paragraph; never re-offer the clause).

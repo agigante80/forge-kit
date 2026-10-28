@@ -10,7 +10,8 @@ VALUES, not paths (#504). Passing the installed or catalogue file makes it exit 
 | `--local <installed>` | the local copy's marker number; `none` when the copy has no marker; `absent` when there is no local copy. `none` and `absent` are different things: `none` is the install base that predates markers, `absent` is a component the plugin provides. |
 | `--catalogue <catalogue>` | the number from the S3 catalogue row (`v3` is accepted as 3), or `none` when the catalogue entry carries no marker. Never `absent`. |
 | `--group-enabled` | append it when the component's plugin group is live in this project. Without it every registered component reads `missing`, the false report the flag exists to stop (#167). WITH a local copy it also means the copy duplicates the plugin, so the word is `shadowed` or `kept` whatever the markers say (#550): append it to a row with a local copy only for the rows in "A local copy the live plugin provides" below. |
-| `--kept` | append it, together with `--group-enabled`, when the local copy carries `<!-- adapt-kept: shadows-plugin -->` (a skill: in its `SKILL.md`). It turns `shadowed` into `kept`. Ignored without `--group-enabled`; with `--local absent` it exits 2 (`--kept needs a local copy`). |
+| `--registrable` | append it INSTEAD of `--group-enabled` when the group is NOT live, the row is a subagent, skill or command with a local copy, and `forge-adapt-install-plan.sh <catalogue file>` (with `--no-marketplace` when `FORGE_KIT_SRC` is `clone`) prints `register` for it. The word is `registrable`, or `kept` with `--kept`, whatever the markers say (see "A copy the plugin would provide" below). Needs a local copy (`--local absent` exits 2) and exits 2 with `--group-enabled` or `--hook-live`. |
+| `--kept` | append it, together with `--group-enabled` or `--registrable`, when the local copy carries `<!-- adapt-kept: shadows-plugin -->` (a skill: in its `SKILL.md`). It turns `shadowed` into `kept`. Ignored without one of those two; with `--local absent` it exits 2 (`--kept needs a local copy`). |
 
 ## The group answer
 
@@ -27,7 +28,7 @@ others.
 
 ## What comes back
 
-One bare word: `current`, `behind`, `unversioned`, `registered`, `missing`, `shadowed` or `kept`. A marker over nine
+One bare word: `current`, `behind`, `unversioned`, `registered`, `missing`, `shadowed`, `registrable` or `kept`. A marker over nine
 digits is refused (exit 2, `is too large to compare`) instead of being called `current`; STOP and
 report that row, since a marker that long is a typo in the component.
 
@@ -110,6 +111,25 @@ when nothing was wired. It exits 1, so the chain stops, when the hook is wired i
 (which it never edits: unwire it there by hand) or when either settings file is a symlink or not one valid JSON
 object. `retired-paths.sh --remove` is a separate route for a RETIRED file and also refuses a file those two
 settings files still name; this chain does not go through it.
+
+## A copy the plugin would provide (#550 follow-up)
+
+The same duplicate exists before the group is enabled: a copy of an agent, skill or command that the install
+planner would now REGISTER froze its own wording, and `refresh <name>` merging into it keeps it alive for good.
+So with the group off, run the planner on the catalogue file of every such row with a local copy. `register`
+means pass `--registrable` (never for `scope: project`, a shell asset or a hook, which the planner refuses or
+answers `copy`). The row reads `registrable`, or `kept` under `--kept`.
+
+Untouched or edited is decided exactly as in the section above. Actions are shown per row and never taken on a
+plain `drift`:
+
+- Untouched copy, default `register`: enable the group the way Step 3 registers one (tell the user to run
+  `/plugin install <group>@forge-kit`, then `/reload-plugins`), and only after that remove the copy through the
+  `retire` path above (same name and path checks, typed `yes`, same warning that the repository may track it).
+  The next drift sees the live group and reads the row `registered`.
+- Edited copy: show the diff against its baseline, default `keep` (the `adapt-kept` marker above). The next
+  drift passes `--registrable --kept` and the row reads `kept`.
+- `refresh <name>` never merges a `registrable` copy; on a `kept` row it merges as usual.
 
 ## An unmarked copy of a kit asset (#522)
 

@@ -136,6 +136,34 @@ case "$cerr" in *"--hook-live and --group-enabled"*) ok "and names the two flags
 cap --local absent --catalogue 3 --hook-live --kept
 [ "$crc" = 2 ] && ok "--hook-live --kept --local absent exits 2" || bad "--hook-live --kept --local absent exits 2 (got $crc)"
 
+echo "== --registrable: a copy the planner would register, group not enabled =="
+say registrable "a numbered copy reads registrable, not behind" --local 2 --catalogue 3 --registrable
+say registrable "a current copy reads registrable" --local 3 --catalogue 3 --registrable
+say registrable "a copy ahead of the catalogue reads registrable" --local 5 --catalogue 3 --registrable
+say registrable "an unmarked copy reads registrable, not unversioned" --local none --catalogue 3 --registrable
+say registrable "the table cell vnone reads registrable" --local vnone --catalogue v3 --registrable
+say registrable "an unmarked catalogue does not hide it" --local 2 --catalogue none --registrable
+say registrable "the v form is accepted" --local v2 --catalogue v3 --registrable
+say kept        "--kept turns it into kept" --local 2 --catalogue 3 --registrable --kept
+say kept        "--kept before --registrable is the same" --local none --catalogue 3 --kept --registrable
+say behind      "without the flag a copy still reads behind" --local 2 --catalogue 3
+say unversioned "without the flag an unmarked copy still reads unversioned" --local none --catalogue 3
+cap --local absent --catalogue 3 --registrable
+[ "$crc" = 2 ] && [ -z "$cout" ] && ok "--registrable --local absent exits 2 with nothing on stdout" || bad "--registrable --local absent exits 2 (got $crc, '$cout')"
+case "$cerr" in *"--registrable needs a local copy"*) ok "and says --registrable needs a local copy" ;; *) bad "and says --registrable needs a local copy: '$cerr'" ;; esac
+cap --local absent --catalogue 3 --registrable --kept
+[ "$crc" = 2 ] && [ -z "$cout" ] && ok "--registrable --kept --local absent exits 2" || bad "--registrable --kept --local absent exits 2 (got $crc, '$cout')"
+cap --local 2 --catalogue 3 --registrable --group-enabled
+[ "$crc" = 2 ] && [ -z "$cout" ] && ok "--registrable with --group-enabled exits 2 with nothing on stdout" || bad "--registrable with --group-enabled exits 2 (got $crc, '$cout')"
+case "$cerr" in *"--registrable and --group-enabled"*) ok "and names the two flags" ;; *) bad "and names the two flags: '$cerr'" ;; esac
+cap --local 2 --catalogue 3 --registrable --hook-live
+[ "$crc" = 2 ] && [ -z "$cout" ] && ok "--registrable with --hook-live exits 2 with nothing on stdout" || bad "--registrable with --hook-live exits 2 (got $crc, '$cout')"
+case "$cerr" in *"--registrable and --hook-live"*) ok "and names the two flags" ;; *) bad "and names the two flags: '$cerr'" ;; esac
+cap --local absent --catalogue 3 --registrable --group-enabled
+[ "$crc" = 2 ] && ok "all-conflict with absent still exits 2" || bad "absent + both flags exits 2 (got $crc)"
+out=$(bash "$S" --local 2 --catalogue 3 --registrable)
+[ "$(printf '%s' "$out" | wc -w | tr -d ' ')" = 1 ] && ok "registrable is one bare word" || bad "registrable is one bare word: '$out'"
+
 echo ""
 echo "drift-status tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # forge-adapt-drift-status.sh: one word describing one component's install state (#167).
 #
-#   forge-adapt-drift-status.sh --local <N|none|absent> --catalogue <N|none> [--group-enabled | --hook-live] [--kept]
+#   forge-adapt-drift-status.sh --local <N|none|absent> --catalogue <N|none> [--group-enabled | --hook-live | --registrable] [--kept]
 #
 # N may carry one leading `v` (`v3` reads as 3), the form the catalogue prints. Anything else that is
 # not a number, and a number over nine digits, exits 2 naming the original token (#504).
@@ -15,11 +15,21 @@
 #   shadowed     a local copy exists AND the live plugin group provides the component (#550): it runs
 #                twice, so it is neither compared nor refreshed; the caller offers retire or keep
 #   kept         the same, and the user already chose to keep the local copy (--kept)
+#   registrable  a local copy exists, the group is NOT enabled, and the install planner says `register`
+#                for it (--registrable): the copy froze its own wording and refresh would keep it alive
+#                forever, so the caller offers to enable the group and retire the copy, or keep it
 #
 # --hook-live (#564) is --group-enabled for a HOOK: the caller has already worked out that the plugin
 # wires this hook live in this project (group live, hooks.json entry present, every sentinel file there),
 # which is a different test from "the group is enabled", so it is a different flag. It reads the same
 # words, needs a local copy, and refuses to be combined with --group-enabled: one component is one kind.
+#
+# --registrable is the other half of #550: the same duplicate, one step earlier, while the group is
+# still off. The caller passes it for a subagent, skill or command row with a local copy when the group
+# is not live AND `forge-adapt-install-plan.sh` printed `register` for that component (so `scope:
+# project` components, shell assets and hooks never get it). It needs a local copy and refuses
+# --group-enabled and --hook-live: one row is one state, and an enabled group is already `shadowed`.
+# Under it a number or `none` is `kept` with --kept and `registrable` otherwise, whatever the markers say.
 #
 # SHADOWED AND KEPT NEED --group-enabled (OR --hook-live) AND A LOCAL COPY. With the group enabled, a local copy
 # (a number or `none`) is `kept` under --kept and `shadowed` otherwise, whatever the markers say,
@@ -42,7 +52,7 @@
 # that predates markers (#64), and reporting it as missing would hide it.
 set -uo pipefail
 
-LOCAL=""; CATALOGUE=""; ENABLED=0; KEPT=0; HOOKLIVE=0
+LOCAL=""; CATALOGUE=""; ENABLED=0; KEPT=0; HOOKLIVE=0; REGISTRABLE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --local)          shift; [ $# -gt 0 ] || { echo "drift-status: --local needs a value" >&2; exit 2; }; LOCAL="$1" ;;
@@ -50,6 +60,7 @@ while [ $# -gt 0 ]; do
     --group-enabled)  ENABLED=1 ;;
     --kept)           KEPT=1 ;;
     --hook-live)      HOOKLIVE=1 ;;
+    --registrable)    REGISTRABLE=1 ;;
     *)                echo "drift-status: unexpected argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -79,7 +90,10 @@ case "$CATALOGUE" in none|absent) ;; *) CATALOGUE=$(norm "$CATALOGUE") || exit 2
 [ "$CATALOGUE" = absent ] && { echo "drift-status: --catalogue cannot be 'absent'" >&2; exit 2; }
 
 [ "$HOOKLIVE" -eq 1 ] && [ "$ENABLED" -eq 1 ] && { echo "drift-status: --hook-live and --group-enabled cannot be combined" >&2; exit 2; }
+[ "$REGISTRABLE" -eq 1 ] && [ "$ENABLED" -eq 1 ] && { echo "drift-status: --registrable and --group-enabled cannot be combined" >&2; exit 2; }
+[ "$REGISTRABLE" -eq 1 ] && [ "$HOOKLIVE" -eq 1 ] && { echo "drift-status: --registrable and --hook-live cannot be combined" >&2; exit 2; }
 if [ "$LOCAL" = absent ]; then
+  [ "$REGISTRABLE" -eq 1 ] && { echo "drift-status: --registrable needs a local copy, and --local is absent" >&2; exit 2; }
   [ "$HOOKLIVE" -eq 1 ] && { echo "drift-status: --hook-live needs a local copy, and --local is absent" >&2; exit 2; }
   [ "$KEPT" -eq 1 ] && { echo "drift-status: --kept needs a local copy, and --local is absent" >&2; exit 2; }
   [ "$ENABLED" -eq 1 ] && { echo registered; exit 0; }
@@ -89,6 +103,12 @@ fi
 # A local copy under a live group is a duplicate, whatever its marker says (#550).
 if [ "$ENABLED" -eq 1 ] || [ "$HOOKLIVE" -eq 1 ]; then
   [ "$KEPT" -eq 1 ] && echo kept || echo shadowed
+  exit 0
+fi
+
+# A local copy the planner would have registered, with the group still off (the --registrable contract).
+if [ "$REGISTRABLE" -eq 1 ]; then
+  [ "$KEPT" -eq 1 ] && echo kept || echo registrable
   exit 0
 fi
 
