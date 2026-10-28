@@ -311,8 +311,12 @@ grep -q 'forge-kit-<group>' "$RF" && bad "#504: the reference prefixes the group
 # because the rules live in the reference, which the SKILL.md ratchet keeps out of the skill.
 grep -q '^## A local copy the live plugin provides (#550)$' "$RF" \
   && ok "#550: drift.md has the shadowed-copy section" || bad "#550: drift.md lacks the shadowed-copy section"
-grep -q 'One bare word: .*`shadowed` or `kept`' "$RF" \
-  && ok "#550: drift.md lists shadowed and kept among the words" || bad "#550: drift.md omits the two new words"
+grep -q 'One bare word: .*`shadowed`, `registrable` or `kept`' "$RF" \
+  && ok "#550: drift.md lists shadowed, registrable and kept among the words" || bad "#550: drift.md omits the three install-state words"
+grep -q '^## A copy the plugin would provide (#550 follow-up)$' "$RF" \
+  && ok "#550: drift.md has the registrable-copy section" || bad "#550: drift.md lacks the registrable-copy section"
+grep -qF -- '- `refresh <name>` never merges a `registrable` copy' "$RF" \
+  && ok "#550: drift.md says refresh never merges a registrable copy" || bad "#550: drift.md lets refresh merge a registrable copy"
 grep -qF 'The commit id is a baseline pointer here, and the diff the helper prints stays display only.' "$RF" \
   && ok "#550: drift.md says the commit id is a baseline pointer and the diff display only" || bad "#550: drift.md lacks the baseline-pointer sentence"
 grep -qF 'is also the baseline pointer for the untouched test' "$RF" \
@@ -321,7 +325,7 @@ grep -qF 'baseline pointer (#550)' "$ROOT/scripts/forge-adapt-marker-delta.sh" \
   && ok "#550: the marker-delta header names the baseline use" || bad "#550: the marker-delta header lacks the baseline use"
 grep -qF '`<!-- adapt-kept: shadows-plugin -->`' "$RF" \
   && ok "#550: drift.md names the kept marker" || bad "#550: drift.md does not name the kept marker"
-grep -qF 'A `shadowed` row never merges: follow `references/drift.md`.' "$SKILL" \
+grep -qF 'A `shadowed` or `registrable` row never merges: follow `references/drift.md`.' "$SKILL" \
   && ok "#550: SKILL.md points a shadowed row at the reference" || bad "#550: SKILL.md has no shadowed pointer"
 grep -qF 'A shell asset keeps its marker words' "$RF" \
   && ok "#550: the scope sentence keeps asset rows on their marker words" || bad "#550: the scope sentence lost the asset rule"
