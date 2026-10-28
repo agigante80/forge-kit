@@ -44,10 +44,11 @@ non-pass parks it with the gate's review (verdict + required changes).
 
 For an investigation, run the relevant review: full-review in its unattended mode
 (every prompt auto-resolves), or a security-auditor pass for security investigations (no
-checkpoint machinery). If either is not available, see `## When a review group is absent` below. An investigation implements nothing, so nothing is fixed: every
-Critical, High and Medium finding is ticketed (the investigation was commissioned to find
-work, so its Mediums are filed, not noted), and each Low is dropped, as the
-`forge-kit-review:review-lows` skill <!-- rule: review-lows v3 --> rules for an unrelated Low.
+checkpoint machinery). If either is not available, see `## When a review group is absent` below. An investigation implements nothing, so every finding is unrelated to a change and
+takes the `forge-kit-review:review-lows` skill's <!-- rule: review-lows v3 --> unrelated row with
+nothing fixed: each Critical and High is ticketed after its failure is reproduced and open tickets
+are searched, each Medium is one line under "Noticed, not filed" in the report (never a ticket:
+the morning reader decides whether it is worth one), and each Low is dropped.
 When that skill is not installed, file no Low and say so in the report. Every filing, from either review, honours the manifest's investigation-depth cap,
 filing in severity order (Critical first, so the cap is never spent on a Low ahead of a High),
 and over-cap tickets are listed unfiled in the report. When the project has

@@ -3,7 +3,7 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails] [--full]"
 ---
 
-<!-- full-review-version: 17 -->
+<!-- full-review-version: 18 -->
 
 # Comprehensive Code Review Orchestrator
 
@@ -611,7 +611,7 @@ Read all `.full-review/*.md` files. Generate the final consolidated report.
 
 - Review date: [timestamp]
 - Round: [N] (previous ref: [ref or n/a])
-- Stopping reason: [loop continues: fixes pending / clean round / hard stop / trip wire / round-gate not met]
+- Stopping reason: [one from the Iteration contract below]
 - Rounds that found in-prior-fix defects: [count]
 - Phases completed: [list]
 - Phases skipped: [list with reason (early close-out, or `scoped: <reason>`), or none]
@@ -627,8 +627,7 @@ without them a later round has no fix set to diff against.
 
 ## Iteration contract (the loop's stopping rules)
 
-When this command is re-run to verify fixes from a previous full review, or when its
-findings enter a review-fix-review loop, these rules bound the loop (issue #66; the
+These rules bound any review-fix-review loop over this command's findings (issue #66; the
 reporting half lives in `code-reviewer.md`):
 
 - **Round 1** reviews the change. Each finding gets its `review-lows` outcome: related
@@ -637,16 +636,18 @@ reporting half lives in `code-reviewer.md`):
 - **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set,
   `previous_ref...HEAD` per rule 7). The target must not grow between rounds.
 - **Rounds 3 and 4 each run only if the PREVIOUS round found a Critical or High.**
-  **Hard stop after 4 rounds** regardless, even if round 4 found one.
+  **Hard stop after 4 rounds.**
 - **Trip wire:** if two consecutive rounds each find a defect inside the previous round's
-  fix, STOP immediately, whatever the round number. That is bad-fix injection above the
-  cited base rate, and further iteration removes value rather than adding it. Remaining
+  fix, STOP immediately, whatever the round number: bad-fix injection above the cited
+  base rate. Remaining
   findings take the same triage; continuing past the trip wire is the CALLER's explicit call,
   never a default.
-- **Every report states the stopping reason**, from one vocabulary: `loop continues: fixes
-  pending` (non-terminal: blocking findings exist and the loop is expected to go on),
-  `clean round`, `hard stop`, `trip wire`, or `round-gate not met`. Terminal reports also
-  state how many rounds found in-prior-fix defects, so the human decides from data.
+- **Every report states the stopping reason**, one of: `loop continues: fixes pending`
+  (this round applied a fix and the rules above allow a next round; after round 1 that is
+  any fix, a Low included, since no round has reviewed it yet); `clean round` (this round
+  applied no fix, so the next delta is empty); `round-gate not met` (round 2 or 3 applied a
+  fix but found no Critical or High); `hard stop`; `trip wire`. Terminal reports also
+  state how many rounds found in-prior-fix defects.
 - **Each round has no memory of the last.** When a round reverses an earlier decision,
   write the rationale into the code or the ticket, or the next round re-litigates it.
 

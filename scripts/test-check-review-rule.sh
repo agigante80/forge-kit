@@ -118,6 +118,17 @@ expect "a missing root exits 2" 2 "$rc"
 echo "this repository"
 out=$(bash "$G" 2>&1); rc=$?
 expect "forge-kit's review-lows rule has one home" 0 "$rc"
+# The loop's stop reasons are defined, not just listed: a downstream round 1 whose only fixes were
+# Mediums ended as `clean round` and its fixes were never reviewed.
+grep -qF 'applied no fix, so the next delta is empty' "$ROOT/$FR" \
+  && ok "full-review defines clean round as a round that applied no fix" \
+  || bad "full-review defines clean round as a round that applied no fix"
+grep -qF '`round-gate not met` (round 2 or 3 applied a' "$ROOT/$FR" \
+  && ok "full-review defines round-gate not met" || bad "full-review defines round-gate not met"
+# An overnight investigation never tickets a Medium: it is one "Noticed, not filed" line.
+grep -qF 'each Medium is one line under "Noticed, not filed"' "$ROOT/$PL" \
+  && ok "an overnight investigation notes its Mediums instead of ticketing them" \
+  || bad "an overnight investigation notes its Mediums instead of ticketing them"
 
 echo
 echo "check-review-rule: $pass passed, $fail failed"

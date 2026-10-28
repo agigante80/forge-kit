@@ -9,6 +9,10 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+### Fixed
+
+- **`/full-review` defines its stop reasons, and an overnight investigation no longer tickets its Mediums** (`full-review-version` 17 to 18, `working-overnight-version` 17 to 18, `forge-kit-review` 0.7.6 to 0.7.7, `forge-kit-governance` 0.38.0 to 0.38.1; pinned in `scripts/test-check-review-rule.sh`). The contract listed `clean round` without defining it, and a downstream project's round 1 whose only fixes were Mediums ended as `clean round`, so those fixes were never reviewed. Now `loop continues: fixes pending` means this round applied a fix and the rules allow another round (after round 1, any fix, a Low included), `clean round` means the round applied no fix, and `round-gate not met` means round 2 or 3 applied a fix but found no Critical or High. An overnight investigation takes `review-lows`' unrelated row: Critical and High are ticketed, a Medium is one "Noticed, not filed" line in the morning report, a Low is dropped. `/full-review`'s exempt baseline is lowered from 3974 to 3963 words.
+
 ## v0.10.0 (2026-10-27)
 
 Since v0.9.1: forge writes are governed. A `forge-write-consent` hook stops an agent posting a comment or filing a ticket the user did not ask for, with a per-session ticket budget (default 3) so needed tickets still get filed while a runaway session stops at the cap, and a `scan-forge-writes` hook plus forge-lib's own scan check every issue, comment and release text for leaks before it is sent. A checked-out branch can no longer redirect the forge token through `.forge.conf`. Review findings are triaged by severity and by whether they relate to the change, and a fix's own review files only Critical or High, which stops review chains. New: the `usage-report` skill, `FORGE_BODY_FILTER`, `close-shipped.sh` so a release closes what it shipped, `review-mechanics.sh` for `/phase review`, and five new forge-adapt drift reports. Last in: closing-sessions' `memory.py` reaches a Claude Code auto-memory store (#569, #570, #571), and two existing contracts are now written down (#567, #568).
