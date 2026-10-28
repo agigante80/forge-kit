@@ -137,7 +137,7 @@ denies a comment write with no grant. A ticket create with no grant is allowed w
 **ticket budget** lasts, then denied: tickets can be filed when needed without asking, and a
 runaway session stops at the cap, the way Dependabot caps open pull requests. A granted ticket
 costs nothing. The budget is a `ticket-budget: N` line in the sentinel (default 3; 0 restores the
-old rule that every ticket needs `allow-ticket`), counted per session in `<session_id>.tickets`
+old rule that every ticket needs `allow-ticket`; `unlimited` turns the ticket rule off, loops included, while comments still need a grant), counted per session in `<session_id>.tickets`
 beside the grant file. Each ticket write in a command costs one, a ticket write that may repeat
 (a loop, `xargs`, `parallel`, `find -exec`, `watch`, `eval`, a function) needs `allow-ticket` because its cost cannot be
 counted, and the count and spend share a file lock, so racing subagents cannot overspend. A subagent carries its parent's `session_id`, so the grant and the budget
@@ -153,6 +153,7 @@ comment is denied, and every ticket once the budget is spent. `python3 forge-wri
 ```bash
 mkdir -p .claude && touch .claude/forge-write-consent   # opt in (forge-adapt does this)
 echo 'ticket-budget: 5' > .claude/forge-write-consent     # optional: a different budget
+echo 'ticket-budget: unlimited' > .claude/forge-write-consent  # optional: tickets never ask
 rm .claude/forge-write-consent                          # opt out
 ```
 

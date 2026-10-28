@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 7
+# forge-write-consent-version: 8
 """Deny forge comments without the user's grant, and new tickets past a per-session budget (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
@@ -27,8 +27,10 @@ TICKET BUDGET. A cap on ungranted tickets per session, as Dependabot caps open p
 gh-aw safe-outputs cap issues per run: tickets can be filed when needed without asking, and a
 runaway session stops at the cap. The sentinel file may hold a line `ticket-budget: N` (a
 trailing `# comment` is fine); no such line, or an unreadable file, means DEFAULT_TICKET_BUDGET,
-and 0 restores the old rule (every ticket needs allow-ticket). A `ticket-budget` line whose value
-does not parse means 0: a project that wrote a budget meant to limit something. Each ticket write
+0 restores the old rule (every ticket needs allow-ticket), and `ticket-budget: unlimited` turns the
+ticket rule off: no ticket write is judged, counted or denied, loops included, while the comment
+rule still holds (the maintainer's choice for this repository, 2026-10-28). A `ticket-budget` line
+whose value does not parse means 0: a project that wrote a budget meant to limit something. Each ticket write
 in a command costs one; a command that may repeat one (a loop, xargs, parallel, find -exec,
 watch, eval, a function or a bare shell reading a pipe) has no countable cost and needs
 allow-ticket. The count and the spend happen under one file lock, so subagents racing for the
@@ -96,7 +98,7 @@ SESSION_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")
 PRUNE_SECONDS = 7 * 24 * 3600
 DEFAULT_TICKET_BUDGET = 3
 BUDGET_KEY = re.compile(r"^[ \t]*ticket-budget\b", re.M)
-BUDGET_LINE = re.compile(r"^[ \t]*ticket-budget[ \t]*[:=][ \t]*(\d{1,4})[ \t]*(?:#.*)?$", re.M)
+BUDGET_LINE = re.compile(r"^[ \t]*ticket-budget[ \t]*[:=][ \t]*(\d{1,4}|unlimited)[ \t]*(?:#.*)?$", re.M)
 
 TAIL = " Do not work around this guard."
 REASONS = {
@@ -357,7 +359,7 @@ def ticket_budget(payload):
     except (OSError, TypeError, ValueError):
         return DEFAULT_TICKET_BUDGET
     if m:
-        return int(m.group(1))
+        return None if m.group(1) == "unlimited" else int(m.group(1))
     return 0 if BUDGET_KEY.search(text) else DEFAULT_TICKET_BUDGET
 
 
@@ -411,6 +413,8 @@ def main():
         return 0
     need, loops = writes(command)
     missing = set(need) - granted(payload)
+    if "ticket" in missing and ticket_budget(payload) is None:
+        missing.discard("ticket")
     if "ticket" in missing:
         budget, cost = ticket_budget(payload), need.count("ticket")
         if budget == 0:

@@ -3747,6 +3747,15 @@ with tempfile.TemporaryDirectory() as td:
     check("fwc budget 0 with a trailing comment is still 0", verdict(h.bash(TK)), DENY)
     h = Fwc(td / "equals", content="ticket-budget=2\n")
     check("fwc budget accepts key=value", [verdict(h.bash(TK)) for _ in range(3)], [ALLOW, ALLOW, DENY])
+    u = Fwc(td / "unlimited", content="ticket-budget: unlimited   # never ask\n")
+    check("fwc budget unlimited: every ticket allowed", [verdict(u.bash(TK)) for _ in range(5)], [ALLOW] * 5)
+    check("fwc budget unlimited: a loop is allowed", verdict(u.bash("for t in a b; do " + TK + "; done")), ALLOW)
+    check("fwc budget unlimited spends nothing", u.tickets_file().exists(), False)
+    check("fwc budget unlimited still denies a comment", verdict(u.bash('gh issue comment 5 -b x')), DENY)
+    check("fwc budget unlimited still denies a comment beside a ticket",
+          verdict(u.bash(TK + "; gh issue comment 5 -b x")), DENY)
+    h = Fwc(td / "unlimited-case", content="ticket-budget: Unlimited\n")
+    check("fwc budget Unlimited is not the word and fails closed to 0", verdict(h.bash(TK)), DENY)
 
     h = Fwc(td / "badsid", content="")
     p = h.bash(TK, sid="../x")
@@ -3771,7 +3780,7 @@ with tempfile.TemporaryDirectory() as td:
     for name, old_s, new_s, n_tickets, want in [
         ("budget not enforced", "if sum(1 for _ in f) + cost > budget:", "if False:", 2, DENY),
         ("spend not recorded", 'f.write("1\\n" * cost)', "pass", 2, DENY),
-        ("budget line ignored", "return int(m.group(1))", "return DEFAULT_TICKET_BUDGET", 2, DENY),
+        ("budget line ignored", "else int(m.group(1))", "else DEFAULT_TICKET_BUDGET", 2, DENY),
         ("budget never granted", "if sum(1 for _ in f) + cost > budget:", "if True:", 1, ALLOW),
     ]:
         if src.count(old_s) != 1:
