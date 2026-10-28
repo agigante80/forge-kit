@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Contract test for scripts/check-review-rule.sh (#495).
+# Contract test for scripts/check-rules.sh (#495, generalised from check-review-rule.sh).
 #
-# The guard keeps the review-lows rule in one home: one rule id in the canonical skill, the same
-# id in every pointer and every other carrier, the rule's anchor phrases nowhere else under
-# plugins/, and the retired-rules data never retiring the current version. Each case breaks one of
-# those in a fixture copied from this repository and expects exit 1 naming the file.
+# The guard keeps every rule registered in scripts/rules.tsv in one home: one rule id in the home,
+# the same id in every pointer and every other carrier, the rule's anchor phrases nowhere else
+# under plugins/, the retired-rules data never retiring the current version and retiring every
+# older one, and no id comment naming an unregistered rule. Each case breaks one of those in a
+# fixture copied from this repository and expects exit 1 naming the file.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
-G="$ROOT/scripts/check-review-rule.sh"
+G="$ROOT/scripts/check-rules.sh"
+REG="scripts/rules.tsv"
 CANON="plugins/forge-kit-review/skills/review-lows/SKILL.md"
 CR="plugins/forge-kit-review/agents/code-reviewer.md"
 FR="plugins/forge-kit-review/commands/full-review.md"
@@ -35,7 +37,7 @@ T=$(CDPATH= cd -P -- "$T" && pwd -P)
 n=0
 fresh() {
   n=$((n + 1)); R="$T/repo$n"
-  for f in "$CANON" "$CR" "$FR" "$PL" "$RL" "$TSV"; do
+  for f in "$CANON" "$CR" "$FR" "$PL" "$RL" "$TSV" "$REG"; do
     mkdir -p "$R/$(dirname "$f")"; cp "$ROOT/$f" "$R/$f"
   done
   git -C "$R" init -q
@@ -61,7 +63,7 @@ names "$RL: rule id review-lows v$V, canonical is v$V1" "a docs pointer is named
 
 fresh; sed -i "s/roughly 15 minutes/about a quarter hour/" "$R/$CANON"; run
 expect "an anchor missing from the canonical file fails" 1 "$rc"
-names "$CANON: anchor 'roughly 15 minutes' is missing" "the canonical file and the anchor are named"
+names "$CANON: anchor 'roughly 15 minutes' of review-lows is missing" "the canonical file and the anchor are named"
 
 echo "declared pointers"
 fresh; setv "$FR" 1; run
@@ -72,7 +74,7 @@ expect "a pointer that lost its id fails" 1 "$rc"
 names "$PL: declared pointer carries no rule id" "the bare pointer is named"
 fresh; git -C "$R" rm -q -f "$CR"; run
 expect "a missing pointer fails" 1 "$rc"
-names "$CR: declared pointer is missing" "the missing pointer is named"
+names "$CR: declared pointer of review-lows is missing" "the missing pointer is named"
 fresh; printf '\nAgain <!-- rule: review-lows v1 -->\n' >> "$R/$CR"; run  # retired-rule-quote
 expect "a second, older id in a pointer fails" 1 "$rc"
 
@@ -105,9 +107,60 @@ expect "a non-numeric version fails" 1 "$rc"
 fresh; printf 'other-rule\t9\t2026-10-14\tsome phrase\treplacement\n' >> "$R/$TSV"; run
 expect "another rule's rows are not compared" 0 "$rc"
 
+fresh; printf 'review-lows\t2\t2026-10-14\tthe exact phrase could really hit it\treplacement\n' >> "$R/$TSV"; run
+expect "a retired row quoting a live anchor verbatim fails" 1 "$rc"
+names "$TSV: restates 'could really hit'" "the data file and the anchor are named"
+
+echo "every older version is retired"
+fresh; grep -v "^review-lows	2	" "$R/$TSV" > "$R/tsv.new"; mv "$R/tsv.new" "$R/$TSV"; run
+expect "a version below the canonical one with no retired row fails" 1 "$rc"
+names "$TSV: no row retires review-lows v2" "the unretired version is named"
+fresh; for f in "$CANON" "$CR" "$FR" "$PL" "$RL"; do setv "$f" "$V1"; done; run
+expect "a bump of the home and every pointer without retired rows fails" 1 "$rc"
+names "$TSV: no row retires review-lows v$V" "the version the bump replaced is named"
+printf 'review-lows\t%s\t2026-10-14\tsome retired phrase\treplacement\n' "$V" >> "$R/$TSV"; run
+expect "the same bump with its retired rows passes" 0 "$rc"
+
+echo "the registry"
+fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: made-up v1 -->\n' > "$R/docs/x/new.md"; track; run
+expect "an id comment for an unregistered rule fails" 1 "$rc"
+names "docs/x/new.md: rule id 'made-up' is not registered" "the file and the id are named"
+fresh; mkdir -p "$R/other"; printf 'See <!-- rule: made-up v1 -->\n' > "$R/other/new.md"; track; run
+expect "an unregistered id outside plugins/ and docs/ is not checked" 0 "$rc"
+fresh; row=$(grep -v '^#' "$R/$REG"); printf '%s\n' "$row" >> "$R/$REG"; run
+expect "a rule registered twice fails" 1 "$rc"
+names "rule id 'review-lows' is registered twice" "the duplicate is named"
+fresh; printf 'broken\tdocs/x.md\n' >> "$R/$REG"; run
+expect "a registry row without four columns fails" 1 "$rc"
+names "$REG: row 'broken'" "the bad row is named"
+fresh; printf 'gone\tplugins/g/skills/gone/SKILL.md\tdocs/g.md\tsome phrase\n' >> "$R/$REG"; run
+expect "a registered rule whose home is missing fails" 1 "$rc"
+names "plugins/g/skills/gone/SKILL.md: the home of gone is missing" "the missing home is named"
+
+echo "a second rule is one registry row"
+second() {
+  mkdir -p "$R/plugins/g/skills/two" "$R/docs/g"
+  printf '# Two\n<!-- rule: second-rule v1 -->\nAlways measure twice before you cut.\n' > "$R/plugins/g/skills/two/SKILL.md"
+  printf 'See the two skill. <!-- rule: second-rule v1 -->\n' > "$R/docs/g/two.md"
+  printf 'second-rule\tplugins/g/skills/two/SKILL.md\tdocs/g/two.md\tmeasure twice\n' >> "$R/$REG"
+  track
+}
+fresh; second; run
+expect "a second registered rule with its home and pointer passes" 0 "$rc"
+names "review-lows v$V second-rule v1" "both rules are reported"
+fresh; second; setv "$FR" 1; run
+expect "a failing rule still fails when a later rule passes" 1 "$rc"
+fresh; second; sed -i 's/second-rule v1/second-rule v2/' "$R/plugins/g/skills/two/SKILL.md"; run
+expect "the second rule's stale pointer fails" 1 "$rc"
+names "docs/g/two.md: rule id second-rule v1, canonical is v2" "its pointer is named"
+names "no row retires second-rule v1" "its unretired version is named"
+fresh; second; mkdir -p "$R/plugins/g/agents"; printf 'Measure  twice, then cut.\n' > "$R/plugins/g/agents/b.md"; track; run
+expect "the second rule's anchor restated under plugins/ fails" 1 "$rc"
+names "plugins/g/agents/b.md: restates 'measure twice'" "the restating file is named"
+
 echo "errors"
-fresh; rm "$R/$CANON"; run
-expect "a missing canonical skill exits 2" 2 "$rc"
+fresh; rm "$R/$REG"; run
+expect "a missing registry exits 2" 2 "$rc"
 fresh; rm "$R/$TSV"; run
 expect "a missing data file exits 2" 2 "$rc"
 out=$(bash "$G" --bogus 2>&1); rc=$?
@@ -117,7 +170,7 @@ expect "a missing root exits 2" 2 "$rc"
 
 echo "this repository"
 out=$(bash "$G" 2>&1); rc=$?
-expect "forge-kit's review-lows rule has one home" 0 "$rc"
+expect "every forge-kit rule has one home" 0 "$rc"
 # The loop's stop reasons are defined, not just listed: a downstream round 1 whose only fixes were
 # Mediums ended as `clean round` and its fixes were never reviewed.
 grep -qF 'applied no fix, so the next delta is empty' "$ROOT/$FR" \
@@ -131,5 +184,5 @@ grep -qF 'each Medium is one line under "Noticed, not filed"' "$ROOT/$PL" \
   || bad "an overnight investigation notes its Mediums instead of ticketing them"
 
 echo
-echo "check-review-rule: $pass passed, $fail failed"
+echo "check-rules: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

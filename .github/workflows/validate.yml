@@ -499,11 +499,11 @@ jobs:
       - name: No stack term in a shipped agent
         run: bash scripts/check-agent-stack-terms.sh
 
-      - name: Review-rule guard tests
-        run: bash scripts/test-check-review-rule.sh
+      - name: Rule-registry guard tests
+        run: bash scripts/test-check-rules.sh
 
-      - name: The review-lows rule has one home
-        run: bash scripts/check-review-rule.sh
+      - name: Every registered rule has one home and retires its old wording
+        run: bash scripts/check-rules.sh
 
       # Issue #172: a registered component's freshness belongs to the marketplace checkout, which
       # nothing here could see. The guard itself is not run against CI's own machine (there is no

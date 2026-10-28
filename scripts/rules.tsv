@@ -1,0 +1,9 @@
+# rules.tsv: every forge-kit rule that has ONE home, read by scripts/check-rules.sh.
+# Tab separated, four columns:
+#   id       the rule id, as in the `<!-- rule: <id> v<N> -->` comment beside the canonical text
+#   home     the one file holding the rule text (tracked, repo-relative)
+#   pointers space-separated files that must name the rule by its id comment instead of restating it
+#   anchors  `|`-separated phrases of the rule text that may appear under plugins/ only in the home
+# A new rule is one row here plus its id comment in the home: no new guard, no new test suite.
+# An id retired for good (rows in retired-rules.tsv, no home) has no row here.
+review-lows	plugins/forge-kit-review/skills/review-lows/SKILL.md	plugins/forge-kit-review/agents/code-reviewer.md plugins/forge-kit-review/commands/full-review.md plugins/forge-kit-governance/skills/working-overnight/references/pipeline.md docs/guides/review-loop.md	roughly 15 minutes|could really hit
