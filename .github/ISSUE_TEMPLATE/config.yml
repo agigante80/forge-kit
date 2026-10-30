@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/agigante80/forge-kit/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue for it.

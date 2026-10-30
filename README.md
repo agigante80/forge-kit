@@ -409,6 +409,8 @@ the generated, CI-verified index (#96) and the version-bump gate this repo now r
 - `scripts/check-doc-drift.sh`: which documents a range of commits made stale, reported per line and never as a build failure
 - `docs/roadmap.md`: what is being worked on now, and what each closed phase concluded
 - `CHANGELOG.md`: umbrella release history
+- `CONTRIBUTING.md`: how to propose work and open a pull request, and the rules CI enforces
+- `SECURITY.md`: supported versions and how to report a vulnerability privately
 
 ## Sponsor
 

@@ -9,6 +9,10 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+### Added
+
+- **A security policy, a contributing guide and a pull request template** (#575; repository files only, no component changes). `SECURITY.md` names the supported versions (the latest release and `main`), the scope (hooks, shell assets, the leak guard, the forge write paths, the CI workflows and prompt injection through issue or PR text) and the private reporting route, with best effort handling and no promised response time. `CONTRIBUTING.md` is the public contract for outside contributions: issues or pull requests, pull requests against `develop`, the rules CI enforces, where the full check list lives, and a warning to read a branch's hooks before running them. `.github/PULL_REQUEST_TEMPLATE.md` carries the checklist, and the issue chooser now offers the private security route. Private vulnerability reporting is enabled on the repository.
+
 ### Changed
 
 - **forge-write-consent can turn the ticket rule off** (`forge-write-consent-version` 7 to 8, `forge-kit-governance` 0.38.1 to 0.38.2; `scripts/test-hooks.py`). A `ticket-budget: unlimited` line in `.claude/forge-write-consent` means no ticket write is judged, counted or denied, loops included, so a maintainer who wants tickets filed freely no longer writes `allow-ticket` each time. Comments still need `allow-comment`. Any other non-numeric value still fails closed to 0, `Unlimited` included.
