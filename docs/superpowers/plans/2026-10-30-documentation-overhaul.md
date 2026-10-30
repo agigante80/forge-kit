@@ -70,8 +70,7 @@ short form), a docs map of links, license, sponsor.
   `marketplace.json` has a `license` field, so by default all rights are reserved. An adopter's
   legal review cannot approve installing or forking it, GitHub shows "No license", and the README's
   "it is free, it stays free" is a price statement, not a grant.
-- **Decision needed (maintainer):** which license. MIT or Apache-2.0 are the usual choices for a
-  tooling kit; Apache-2.0 adds an explicit patent grant.
+- **Decided (maintainer, 2026-10-30):** MIT.
 - **Files:** `LICENSE`, every `plugins/*/.claude-plugin/plugin.json` (`license` field, plus a semver
   bump per group), `.claude-plugin/marketplace.json` if the schema accepts it, README license line.
 - **Acceptance:** `gh repo view --json licenseInfo` is non-null; `claude plugin validate` passes;
@@ -155,14 +154,13 @@ short form), a docs map of links, license, sponsor.
 - **Files:** `SECURITY.md` (GitHub private vulnerability reporting enabled, scope, response
   expectations), `CONTRIBUTING.md` (branch model, the checks to run, the version-marker and semver
   rules, the dash rule, the gate-before-work rule, how to propose a component via the contribution
-  template), optional `CODE_OF_CONDUCT.md` (Contributor Covenant). Consider adding
-  `.github/PULL_REQUEST_TEMPLATE.md` only if outside PRs are wanted (the maintainer's own flow uses
-  none).
+  template), optional `CODE_OF_CONDUCT.md` (Contributor Covenant), and
+  `.github/PULL_REQUEST_TEMPLATE.md` for outside PRs (the maintainer's own flow still uses none).
 - **Acceptance:** GitHub's community profile shows license, contributing, security and (if chosen)
   code of conduct; `check-contributor-docs.sh` run against this repository passes (dogfooding); the
   file states that agent instructions are deliberately local.
-- **Depends on:** WP1. Decision needed: whether outside contributions are welcome at all, and via
-  issue only or also PR.
+- **Depends on:** WP1. **Decided (maintainer, 2026-10-30):** outside contributions are welcome
+  through issues or pull requests.
 
 ### WP5. Split reference and explanation out of the README into `docs/`
 
@@ -189,8 +187,8 @@ short form), a docs map of links, license, sponsor.
   action required, plus an "Upgrade notes" block when a dependency or behaviour changes. The
   engineering detail is not deleted: either keep it under a collapsed `<details>` per release or
   move it to `docs/changelog-detail/<version>.md`, linked. Add compare links per version.
-- **Decision needed:** keep detail inline-collapsed or in separate files. The plan recommends
-  separate files: the root file then stays scannable and the detail stays greppable.
+- **Decided (maintainer, 2026-10-30):** separate files under `docs/changelog-detail/`, as
+  recommended: the root file then stays scannable and the detail stays greppable.
 - **Files:** `CHANGELOG.md`, new `docs/changelog-detail/`, and the `release` skill's guidance only if
   it prescribes the current shape (check before changing a component).
 - **Acceptance:** the Unreleased plus latest three releases fit in a screen or two each; every
@@ -221,8 +219,8 @@ short form), a docs map of links, license, sponsor.
 - **Shape:** add `docs/plans/README.md` and `docs/superpowers/README.md` explaining what they are,
   with the roadmap as the index; keep the paths (see Constraints). Each index row gives a
   descriptive title, date and status (shipped, superseded, abandoned), because filenames name the
-  occasion rather than the subject (Codex). Option for the maintainer (Copilot): move both under
-  `docs/maintainers/`, at the cost of rewriting the 47 roadmap `plan:` lines. Optionally rename
+  occasion rather than the subject (Codex). **Decided (maintainer, 2026-10-30):** keep
+  `docs/plans/` at the convention path; Copilot's move under `docs/maintainers/` is not taken. Optionally rename
   `docs/superpowers/` to make its purpose obvious, only after checking what references it.
 - **Acceptance:** each directory opens with an explanation on GitHub; `docs/README.md` lists them
   under "Project history".
