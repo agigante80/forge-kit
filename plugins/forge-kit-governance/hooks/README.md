@@ -2,23 +2,23 @@
 
 Canonical, project-agnostic Claude Code hooks.
 
-**Installed as a plugin.** `hooks.json` in this directory registers `block-dashes` with Claude
-Code, anchored to `${CLAUDE_PLUGIN_ROOT}`. No script is copied and no `settings.json` is touched.
+**Installed as a plugin.** `hooks.json` in this directory registers every hook in the table below
+with Claude Code, anchored to `${CLAUDE_PLUGIN_ROOT}`. No script is copied and no `settings.json`
+is touched.
 
-This requires installing **this** plugin, which the quick-start flow does not do:
+A plugin's `hooks.json` is read only when that plugin is enabled. The README quick start installs
+this group; `/plugin install forge-kit-adapt@forge-kit` alone does not, and then nothing here is
+registered and `forge-adapt` installs a project-local copy instead:
 
 ```
 /plugin install forge-kit-governance@forge-kit
 ```
 
-`/plugin install forge-kit-adapt@forge-kit` alone installs only the adapt skill. A plugin's
-`hooks.json` is read only when that plugin is enabled, so without the line above nothing here is
-registered and `forge-adapt` will install a project-local copy instead.
-
 **The opt-in sentinel convention (#165).** A plugin hook is live in *every* project that enables
 the group, so behaviour a project has not asked for is gated on a file the project owns, one file
 per hook (`.claude/no-dashes`, `.claude/no-poll-loops`, `.claude/no-destructive`,
-`.claude/masked-exit`, `.claude/forge-write-consent`). `hooks.json` tests it in the shell and exits before `python3` starts: about
+`.claude/masked-exit`, `.claude/forge-write-consent`; `forge-kit-security` adds `.claude/scan-forge-writes`
+for its one hook, and has no hooks README of its own). `hooks.json` tests it in the shell and exits before `python3` starts: about
 1.8 ms per matched tool call in a project that has not opted in, against about 44 ms if the
 interpreter started first. The gate inside each script is defence in depth and the only gate for a
 project-local copy. A skill or command has no wrapper and can only gate in its own prose.
@@ -42,11 +42,12 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 
 | Hook | Event | Version | Purpose |
 |---|---|---|---|
-| `block-dashes.py` | PreToolUse | 5 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
+| `block-dashes.py` | PreToolUse | 6 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
 | `overnight-guard.py` | PreToolUse | 18 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
 | `forge-write-consent.py` | UserPromptSubmit + PreToolUse | 1 | Deny a forge comment in a Bash call unless the user's own latest prompt said `allow-comment`, and a new ticket once the session's ticket budget (default 3) is spent unless it said `allow-ticket`. Body rewrites, closes, reads, the gate's review post and a release note are never denied. Fails open on an unparseable payload; no grant file means no grant. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
+| `overnight-continue.py` | Stop | 1 | During a `working-overnight` run only (armed by `.claude/overnight/active.md`), keep one cycle from stopping on a question; Claude Code caps a Stop hook at 8 consecutive blocks, so it is a safety net, not the loop. Fails open: any error allows the stop. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy

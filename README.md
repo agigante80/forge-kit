@@ -5,7 +5,7 @@ starts and after it lands, enforced by a build failure rather than a note asking
 
 forge-kit is not a collection of clever agents. It started as one, and the agents turned out to be
 the least distinctive thing in it: the tree today carries more guard scripts and contract test
-suites than prose components, and thirty closed phases of work produced guards, versioning
+suites than prose components, and the closed phases of work on the roadmap produced guards, versioning
 discipline, install scope, measurement and a leak guard rather than new capability. What is left
 that nobody else ships is the outer loop, and that is what this is for.
 
@@ -57,21 +57,33 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 |---|---|---|---|
 | `forge-kit-adapt` | 0.13.10 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.26.8 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.38.2 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
+| `forge-kit-governance` | 0.38.3 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
 | `forge-kit-review` | 0.7.7 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.18.8 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
 | `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
 
-`claude plugin list` shows what you have and at which version;
-`claude plugin uninstall <group>@forge-kit` reverses any of it.
+`claude plugin list` shows what you have and at which version, and
+`claude plugin uninstall <group>@forge-kit` removes a group. Uninstalling does not remove the
+dependencies a group pulled in (run `claude plugin prune` for those), and it does not undo what the
+group already did in a project: components forge-adapt copied into `.claude/`, hook wiring it merged
+into a project's `settings.json`, sentinel files, and comments already posted to the forge.
 
-**A group installed at user level is inert until a project asks for it.** The components that ACT
-gate themselves on something the project owns: `roadmap-phases` does nothing without a
-`docs/roadmap.md`, the `block-dashes` hook stays dormant until a project creates `.claude/no-dashes`, the `no-poll-loops` hook until it creates `.claude/no-poll-loops`, the `masked-exit-advisory` hook until it creates `.claude/masked-exit`, the `forge-write-consent` hook until it creates `.claude/forge-write-consent`,
-and the overnight guard arms only when a run's manifest exists. Installing a group is not a
-commitment to using it everywhere.
+**A group installed at user level loads everywhere but acts only where a project asks.** Its
+skills, agents and commands are available in every session. The components that ACT gate
+themselves on something the project owns:
+
+- `roadmap-phases` does nothing without a `docs/roadmap.md`;
+- each opt-in hook stays dormant until the project creates its sentinel file: `.claude/no-dashes`
+  (`block-dashes`), `.claude/no-poll-loops` (`no-poll-loops`), `.claude/masked-exit`
+  (`masked-exit-advisory`), `.claude/forge-write-consent` (`forge-write-consent`),
+  `.claude/no-destructive` (the daytime arm of `overnight-guard`) and `.claude/scan-forge-writes`
+  (`scan-forge-writes`, in `forge-kit-security`, which also arms when the default branch tracks
+  that file);
+- the overnight guard and the overnight Stop hook arm only while a run's manifest exists.
+
+Installing a group is not a commitment to using it everywhere.
 
 **Three groups declare a dependency.** `forge-kit-governance` and `forge-kit-roadmap` both need
 `forge-lib.sh` from `forge-kit-devops`. `forge-kit-governance` also declares `forge-kit-security`,
@@ -274,7 +286,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | skill | `decision-brief` | v6 | 1479 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
 | `forge-kit-governance` | skill | `ticket-gate-reference` | v16 | 514 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
 | `forge-kit-governance` | skill | `working-overnight` | v18 | 816 | Run governed, unattended overnight work. |
-| `forge-kit-governance` | hook | `block-dashes` | v5 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
+| `forge-kit-governance` | hook | `block-dashes` | v6 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
 | `forge-kit-governance` | hook | `forge-write-consent` | v8 |  | Deny forge comments without the user's grant, and new tickets past a per-session budget (#565). |
 | `forge-kit-governance` | hook | `masked-exit-advisory` | v3 |  | PostToolUse Bash advisory: a check's exit code is masked by the filter it is piped into (#420). |
 | `forge-kit-governance` | hook | `no-poll-loops` | v12 |  | PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263). |
@@ -327,7 +339,7 @@ Hand-written on purpose: this is sequencing guidance, not inventory.
 | Periodically | "audit dependencies", "health check" | `dep-auditor` and `health-check` are agents, not slash commands: mention them in conversation. |
 | Before a session ends | `closing-sessions` | Persists durable facts and resume state; without it the next session starts cold. |
 | When a ticket is stalled on a decision | `decision-brief` | Re-gates it, costs the options, and rewrites the body so the decision can be made from it. |
-| Opening, reviewing or closing a phase | `/phase` | Only with `forge-kit-roadmap` installed. Inert in a project with no roadmap. `/phase review` is the mid-flight alignment check; reassessing the whole roadmap is not shipped yet. |
+| Opening, reviewing or closing a phase | `/phase` | Only with `forge-kit-roadmap` installed. Inert in a project with no roadmap. `/phase review` is the mid-flight alignment check; `/phase reassess` reassesses the whole roadmap. |
 | Every few months | `forge-adapt drift` | Reports what lags forge-kit and whether the marketplace copy itself is stale. Writes nothing. |
 
 Overnight work is its own mode: `working-overnight` runs governed unattended cycles that ship
@@ -335,9 +347,11 @@ branch-plus-PR and never merge, deferring decisions that are yours rather than g
 
 ## Keeping up to date
 
-**Adding the marketplace tracks this repository, but nothing pulls it for you.** There is no
-auto-update and no daemon, so an installed group stays at the version you installed until you say
-otherwise. This repository's own maintainer ran four minor versions behind for weeks while
+**Adding the marketplace tracks this repository, but by default nothing pulls it for you.**
+Claude Code can auto-update a marketplace and its plugins at startup, but auto-update is off by
+default for third-party marketplaces such as this one. Turn it on in `/plugin`, under the
+Marketplaces tab, for `forge-kit`. Until you do, an installed group stays at the version you
+installed. This repository's own maintainer ran four minor versions behind for weeks while
 developing against the tree, which is why it is stated here rather than left implied.
 
 ```bash
@@ -390,6 +404,7 @@ the generated, CI-verified index (#96) and the version-bump gate this repo now r
 - `docs/guides/labels.md`: label taxonomy and agent routing
 - `docs/guides/versioning.md`: the three version levels and which guard enforces each
 - `docs/guides/model-tiers.md`: what each component may run on and how hard it thinks, by role, with the probes and the measurement behind it
+- `docs/guides/startup-context.md`: what a session loads before work begins, and how to keep it small
 - `docs/guides/review-loop.md`: why `/full-review` always runs round 2, the evidence behind it, and how to count round-2 yield
 - `scripts/check-doc-drift.sh`: which documents a range of commits made stale, reported per line and never as a build failure
 - `docs/roadmap.md`: what is being worked on now, and what each closed phase concluded

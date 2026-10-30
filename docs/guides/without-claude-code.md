@@ -1,7 +1,8 @@
 # Using forge-kit without Claude Code
 
-forge-kit is two layers. The automation layer (agents, skills, slash commands, hooks) needs Claude
-Code and cannot be ported: those are Claude Code file formats loaded by Claude Code. The
+forge-kit is two layers. The automation layer (agents, skills, slash commands, hooks) is supported
+and tested only in Claude Code. Its skills follow the open Agent Skills format and may work in other
+agents, but that is unsupported, and the agents, commands and hooks are Claude Code formats. The
 **governance layer** is plain YAML, markdown and POSIX-ish shell, and it works for any team and any
 agent, including none.
 
@@ -9,7 +10,7 @@ This page is for that case. Four questions, in the order you will ask them.
 
 ## 1. What are the rules?
 
-**[`docs/guides/ticket-standards.md`](ticket-standards.md).** One file, about 240 lines, and the
+**[`docs/guides/ticket-standards.md`](ticket-standards.md).** One file, and the
 thing that makes it usable is that it is **canonical rather than a summary**: forge-kit's own ticket
 gate is only permitted to restate it in a short list of enumerated places, and
 `scripts/check-restatements.sh` fails the build if the two ever disagree. So an agent reading that
@@ -23,15 +24,39 @@ older template gets brought forward.
 
 ## 2. What do I install?
 
-Five things, and it is a copy rather than an installer:
+Five things, and it is a copy rather than an installer. Fetch the kit once:
 
 ```bash
 git clone https://github.com/agigante80/forge-kit /tmp/forge-kit
+```
+
+**In a new repository**, with no `.github/` or `docs/guides/` of its own yet:
+
+```bash
+mkdir -p .github docs/guides
 cp -r /tmp/forge-kit/.github/ISSUE_TEMPLATE  .github/
 cp    /tmp/forge-kit/.github/labels.yml      .github/
-mkdir -p docs/guides && cp /tmp/forge-kit/docs/guides/ticket-standards.md docs/guides/
+cp    /tmp/forge-kit/docs/guides/ticket-standards.md docs/guides/
 cp    /tmp/forge-kit/docs/guides/labels.md   docs/guides/
 ```
+
+**In an existing repository**, the same copy replaces any issue template, `labels.yml` or guide of
+the same name. Start from a clean working tree, copy, then read what changed before you commit
+anything:
+
+```bash
+git status --short                 # must print nothing before you start
+mkdir -p .github docs/guides
+cp -r /tmp/forge-kit/.github/ISSUE_TEMPLATE  .github/
+cp    /tmp/forge-kit/.github/labels.yml      .github/
+cp    /tmp/forge-kit/docs/guides/ticket-standards.md docs/guides/
+cp    /tmp/forge-kit/docs/guides/labels.md   docs/guides/
+git status --short                 # new files show as ??, replaced ones as M
+git diff                           # what forge-kit would replace in your own files
+```
+
+Keep what you want, merge your own labels or templates back by hand, and restore the rest with
+`git restore <file>`. Nothing is committed until you commit it.
 
 | What | Why |
 |---|---|
@@ -46,7 +71,9 @@ one more thing to keep working.
 
 ## 3. What can I run?
 
-All of these are shell. None of them invokes an AI, and none needs Claude Code installed.
+All of these are shell. None of them invokes an AI, and none needs Claude Code installed. Each
+`cp` below writes into your `scripts/` directory and replaces a file of the same name, so in an
+existing repository check `git status --short` and `git diff` after copying, as above.
 
 **Put the labels on the host**, so the taxonomy is real rather than declared:
 

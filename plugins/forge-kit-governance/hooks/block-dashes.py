@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# block-dashes-version: 5
+# block-dashes-version: 6
 """
 Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and
 en dash (U+2013) from being written into files or shell commands.
@@ -30,9 +30,9 @@ That keeps pre-existing project installs working unchanged, and it holds whateve
 the working directory is and whichever variables Claude Code happens to export.
 
 Wiring is handled for you, but note that hooks/hooks.json is read only when the
-forge-kit-governance PLUGIN is installed, which the quick-start flow does not do
-(it installs forge-kit-adapt alone). Without it, forge-adapt falls back to a
-project-local copy. See hooks/README.md for both shapes.
+forge-kit-governance PLUGIN is installed and enabled. Installing forge-kit-adapt
+alone does not register it, and forge-adapt then falls back to a project-local
+copy. See hooks/README.md for both shapes.
 
 The correct fix on a hit is to RESTRUCTURE the sentence, never to swap in an
 ASCII hyphen. See the guidance emitted in the block reason.
