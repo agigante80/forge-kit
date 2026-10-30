@@ -5,6 +5,10 @@ phase once it opens). Each work package below is written to become ONE GitHub ti
 goal, the concrete failure it removes, the files it touches, acceptance criteria and its
 dependencies. Nothing here is committed work until the tickets are filed and gated.
 
+**Status (2026-10-30):** WP1, WP2 and WP4 are done. They were filed, gated and shipped before
+the external plan reviews, because each removed real harm whatever the reviews conclude. The
+other work packages wait for those reviews.
+
 ## Goal
 
 A stranger landing on the repository can tell in one screen what forge-kit does, whether it is for
@@ -66,6 +70,11 @@ short form), a docs map of links, license, sponsor.
 
 ### WP1. Add a license (blocker for everything public)
 
+**Done:** [#573](https://github.com/agigante80/forge-kit/issues/573), 2026-10-30. MIT, plus
+`THIRD_PARTY_NOTICES.md` for three files derived from `wshobson/agents`, a `license` field in every
+manifest, and a `validate-plugins.sh` check that fails without it. `marketplace.json` was left
+unchanged.
+
 - **Failure removed:** the repository has never had a `LICENSE` file and no `plugin.json` or
   `marketplace.json` has a `license` field, so by default all rights are reserved. An adopter's
   legal review cannot approve installing or forking it, GitHub shows "No license", and the README's
@@ -78,6 +87,9 @@ short form), a docs map of links, license, sponsor.
 - **Depends on:** nothing. Do first.
 
 ### WP2. Correct the stale facts now (cheap, before the restructure)
+
+**Done:** [#574](https://github.com/agigante80/forge-kit/issues/574), 2026-10-30, with the
+repository description and homepage.
 
 - **Failure removed:** readers act on wrong statements. Verified on 2026-10-30:
   - README "thirty closed phases": the roadmap has 47 `done` phases.
@@ -145,6 +157,11 @@ short form), a docs map of links, license, sponsor.
 - **Depends on:** WP5 (the destinations must exist), WP1 (license line and badge).
 
 ### WP4. Community health files: SECURITY, CONTRIBUTING, Code of Conduct
+
+**Done:** [#575](https://github.com/agigante80/forge-kit/issues/575), 2026-10-30: `SECURITY.md`,
+`CONTRIBUTING.md`, the pull request template, the issue chooser's private security link, and
+private vulnerability reporting enabled. The Code of Conduct was left out: it needs an
+enforcement contact the maintainer has not chosen, and remains optional.
 
 - **Failure removed:** a security researcher who finds a hole in a hook or the leak guard has no
   private route and may file a public issue, in a kit whose subject is security and leak
@@ -267,8 +284,8 @@ From the external reviews, worth a ticket only if the maintainer wants them:
 
 ## Order
 
-WP1 and WP2 first (small, independent, remove real harm). Then WP5, then WP3 (the README rewrite
-needs its destinations), with WP4 and WP6 in parallel. WP7, WP8 and WP9 follow on the final text;
+WP1, WP2 and WP4 are done (2026-10-30). Next WP5, then WP3 (the README rewrite needs its
+destinations), with WP6 in parallel. WP7, WP8 and WP9 follow on the final text;
 WP10 last.
 
 ## Fails if (premortem)
