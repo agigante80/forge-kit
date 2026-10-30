@@ -1,9 +1,10 @@
 {
   "name": "forge-kit-testing",
   "description": "mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships the originals.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"
-  }
+  },
+  "license": "MIT"
 }

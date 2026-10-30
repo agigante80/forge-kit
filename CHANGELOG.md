@@ -11,6 +11,8 @@ tracks the repository, so users are already served from the default branch.
 
 ### Added
 
+- **forge-kit is MIT licensed, and every plugin manifest says so** (#573; every group's `plugin.json` gains `"license": "MIT"` and a patch bump: adapt 0.13.11, devops 0.26.9, governance 0.38.4, review 0.7.8, roadmap 0.15.22, security 0.18.9, testing 0.3.1). The repository had no license, so nobody could legally reuse it. `LICENSE` is the unmodified MIT text. `THIRD_PARTY_NOTICES.md`, at the root and in `forge-kit-review` and `forge-kit-security` (a marketplace install copies only the plugin's folder), carries the MIT notice of `wshobson/agents` for the three files derived from it: `architect-review.md`, `full-review.md` and `security-auditor.md`. `scripts/validate-plugins.sh` now fails a manifest whose `license` is missing, empty or not a string, with cases in `scripts/test-validate-plugins.sh`.
+
 - **A security policy, a contributing guide and a pull request template** (#575; repository files only, no component changes). `SECURITY.md` names the supported versions (the latest release and `main`), the scope (hooks, shell assets, the leak guard, the forge write paths, the CI workflows and prompt injection through issue or PR text) and the private reporting route, with best effort handling and no promised response time. `CONTRIBUTING.md` is the public contract for outside contributions: issues or pull requests, pull requests against `develop`, the rules CI enforces, where the full check list lives, and a warning to read a branch's hooks before running them. `.github/PULL_REQUEST_TEMPLATE.md` carries the checklist, and the issue chooser now offers the private security route. Private vulnerability reporting is enabled on the repository.
 
 ### Changed

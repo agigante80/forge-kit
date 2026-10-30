@@ -1,6 +1,7 @@
 # Contributing to forge-kit
 
-Contributions are welcome, as issues or as pull requests. This file is the public contract for
+Contributions are welcome, as issues or as pull requests. By contributing you agree that your work is released under
+the repository's [MIT License](LICENSE). This file is the public contract for
 both. The repository's agent instructions are deliberately kept local and are not published, so
 everything a contributor needs is here or in the files it links.
 

@@ -55,13 +55,13 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.13.10 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
-| `forge-kit-devops` | 0.26.8 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.38.3 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
-| `forge-kit-review` | 0.7.7 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
-| `forge-kit-roadmap` | 0.15.21 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
-| `forge-kit-security` | 0.18.8 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
-| `forge-kit-testing` | 0.3.0 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
+| `forge-kit-adapt` | 0.13.11 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-devops` | 0.26.9 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
+| `forge-kit-governance` | 0.38.4 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-adviso… |
+| `forge-kit-review` | 0.7.8 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
+| `forge-kit-roadmap` | 0.15.22 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
+| `forge-kit-security` | 0.18.9 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
+| `forge-kit-testing` | 0.3.1 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
 
 `claude plugin list` shows what you have and at which version, and
@@ -420,3 +420,8 @@ way.
 If it saved you some time and you feel like saying thanks, you can do that at
 [github.com/sponsors/agigante80](https://github.com/sponsors/agigante80). Entirely optional, and
 nothing about the project changes either way.
+
+## License
+
+forge-kit is released under the [MIT License](LICENSE). A few files began as copies of another
+MIT-licensed project; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) names them and carries its notice.

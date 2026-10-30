@@ -59,7 +59,7 @@ D
 row() { printf '| %s | %s | r |\n' "$1" "$2" >> "$T/tree/docs/guides/model-tiers.md"; }
 plugin() {  # plugin <group> <extra-json-fields-or-empty>
   mkdir -p "$T/tree/plugins/$1/.claude-plugin"
-  printf '{ "name": "%s", "version": "0.1.0", "description": "d", "author": { "name": "someone" }%s }\n' \
+  printf '{ "name": "%s", "version": "0.1.0", "description": "d", "author": { "name": "someone" }, "license": "MIT"%s }\n' \
     "$1" "${2:+, $2}" > "$T/tree/plugins/$1/.claude-plugin/plugin.json"
 }
 raw() {  # raw <group> <whole-plugin.json-body>: for the cases about the author field itself
@@ -133,7 +133,7 @@ expect "an author object with a name passes" 0 "$rc"
 
 tree; plugin forge-kit-beta
 raw forge-kit-alpha <<'J'
-{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d" }
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "license": "MIT" }
 J
 run
 expect "a manifest with no author fails" 1 "$rc"
@@ -141,7 +141,7 @@ contains "forge-kit-alpha" "$out" "and names the group that is missing it"
 
 tree; plugin forge-kit-beta
 raw forge-kit-alpha <<'J'
-{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": "agigante80" }
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": "agigante80", "license": "MIT" }
 J
 run
 expect "a bare string author fails, as the CLI itself rejects it" 1 "$rc"
@@ -149,7 +149,7 @@ contains "object" "$out" "and says the shape must be an object"
 
 tree; plugin forge-kit-beta
 raw forge-kit-alpha <<'J'
-{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "name": "" } }
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "name": "" }, "license": "MIT" }
 J
 run
 expect "an empty author name fails" 1 "$rc"
@@ -157,10 +157,42 @@ contains "empty" "$out" "and says the name is empty rather than missing"
 
 tree; plugin forge-kit-beta
 raw forge-kit-alpha <<'J'
-{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "url": "https://example.invalid" } }
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "url": "https://example.invalid" }, "license": "MIT" }
 J
 run
 expect "an author object with a url but no name fails" 1 "$rc"
+
+echo "== every manifest declares a license (#573) =="
+tree; plugin forge-kit-beta
+raw forge-kit-alpha <<'J'
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "name": "someone" } }
+J
+run
+expect "a manifest with no license fails" 1 "$rc"
+contains "missing license" "$out" "and says the license is missing"
+contains "forge-kit-alpha" "$out" "and names the group that is missing it"
+
+for bad in 5 '{}'; do
+  tree; plugin forge-kit-beta
+  raw forge-kit-alpha <<J
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "name": "someone" }, "license": $bad }
+J
+  run
+  expect "a license that is not a string ($bad) fails" 1 "$rc"
+  contains "must be a string" "$out" "and says it must be a string ($bad)"
+done
+
+tree; plugin forge-kit-beta
+raw forge-kit-alpha <<'J'
+{ "name": "forge-kit-alpha", "version": "0.1.0", "description": "d", "author": { "name": "someone" }, "license": "" }
+J
+run
+expect "an empty license fails" 1 "$rc"
+contains "license is empty" "$out" "and says it is empty rather than missing"
+
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+run
+expect "a license string passes" 0 "$rc"
 
 echo "== a dispatch to an agent that does not exist fails (#180) =="
 # The failure #178 made live: deleting an agent leaves any component that dispatches it broken at
@@ -592,7 +624,7 @@ expect "every Tier line is read, not only the first" 1 "$rc"
 contains "agents/alpha.md:8:" "$out" "and the second line is the one named"
 
 echo "== this repository's own manifests satisfy every rule above =="
-# The regression test that keeps the eight real manifests honest, and the one case that would have
+# The regression test that keeps the seven real manifests honest, and the one case that would have
 # caught the drift this ticket describes had it existed.
 out=$(cd "$ROOT" && bash "$SCRIPT" 2>&1); rc=$?
 expect "the real tree passes" 0 "$rc"

@@ -2,6 +2,7 @@
 # Structural validation for the forge-kit marketplace. Runs in CI and locally.
 # Checks (current tree, no git diff needed):
 #   1. each plugin.json is valid JSON with name + description + semver version + author
+#      + license
 #   2. marketplace.json is valid JSON and every plugin source resolves to a plugin.json
 #   3. every component (agent/command/skill/hook/shell asset) carries a <name>-version marker
 #   4. every declared `dependencies` entry is well shaped and names a plugin this marketplace has
@@ -46,6 +47,18 @@ for pj in plugins/*/.claude-plugin/plugin.json; do
       [ -n "$(jq -r '.author.name // empty' "$pj")" ] \
         || fail "$pj: author.name is missing or empty. An empty attribution is the same as none, and the CLI rejects it too" ;;
     *) fail "$pj: author is a $atype; it must be an object with a name (the CLI rejects a bare string)" ;;
+  esac
+
+  # A LICENSE IS REQUIRED TOO (#573). A marketplace install copies only the plugin's folder, so the
+  # manifest is where a user of one group learns its terms. The type is tested, as for author,
+  # because `.license // empty` would accept a number or an object.
+  ltype=$(jq -r 'if has("license") then (.license | type) else "missing" end' "$pj")
+  case "$ltype" in
+    missing) fail "$pj: missing license. Add \"license\": \"MIT\" (an SPDX identifier)" ;;
+    string)
+      [ -n "$(jq -r '.license' "$pj")" ] \
+        || fail "$pj: license is empty. Add \"license\": \"MIT\" (an SPDX identifier)" ;;
+    *) fail "$pj: license is a $ltype; it must be a string such as \"MIT\" (an SPDX identifier)" ;;
   esac
 done
 

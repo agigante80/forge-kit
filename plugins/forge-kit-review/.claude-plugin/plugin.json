@@ -1,11 +1,12 @@
 {
   "name": "forge-kit-review",
   "description": "code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security.",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"
   },
+  "license": "MIT",
   "dependencies": [
     "forge-kit-security@forge-kit"
   ]
