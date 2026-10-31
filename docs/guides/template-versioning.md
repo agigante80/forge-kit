@@ -154,7 +154,8 @@ When you add new fields or rules:
 1. Add the field to all relevant templates
 2. Bump `<!-- template-version: N -->` to `N+1` in each work template AND in
    `docs/guides/ticket-standards.md`: the two are version-locked by
-   `scripts/check-template-lockstep.sh`, and CI fails when either lags. Do NOT bump
+   `check-template-lockstep.sh` (in this repository under
+   `plugins/forge-kit-adapt/skills/adapt/assets/`, in a project wherever you copied it), and CI fails when either lags. Do NOT bump
    `doc-rules-version` for this unless the rules TEXT changed too; they are independent
 3. Update `ticket-gate.md` in the same commit: the auto-synthesis target-section list, the
    synthesis table, and the posted-comment section list must know any new section

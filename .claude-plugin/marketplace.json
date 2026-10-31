@@ -11,37 +11,37 @@
     {
       "name": "forge-kit-adapt",
       "source": "./plugins/forge-kit-adapt",
-      "description": "Install this first. forge-adapt analyses your project, suggests the right components, and installs what you choose."
+      "description": "forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you"
     },
     {
       "name": "forge-kit-governance",
       "source": "./plugins/forge-kit-governance",
-      "description": "ticket-gate agent, gate-ticket slash command, and the block-dashes, no-poll-loops, masked-exit-advisory and forge-write-consent hooks."
+      "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-advisory and forge-write-consent hooks"
     },
     {
       "name": "forge-kit-roadmap",
       "source": "./plugins/forge-kit-roadmap",
-      "description": "Rolling wave planning: a roadmap of phases, each planned when it starts, every ticket in exactly one phase. Optional; nothing else depends on it."
+      "description": "Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops."
     },
     {
       "name": "forge-kit-review",
       "source": "./plugins/forge-kit-review",
-      "description": "Code review agents (code-reviewer, code-simplifier, coding-standards-auditor, architect-review, backend-architect) and full-review/pr-enhance commands."
+      "description": "code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security."
     },
     {
       "name": "forge-kit-security",
       "source": "./plugins/forge-kit-security",
-      "description": "Security agents (security-auditor, backend-security-coder, api-security-tester), the OWASP API security checklist skill, the opt-in privacy-regime skill, and an opt-in hook that scans gh issue and PR text for leaks"
+      "description": "security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR text before it posts."
     },
     {
       "name": "forge-kit-testing",
       "source": "./plugins/forge-kit-testing",
-      "description": "Testing agents: tdd-orchestrator, test-automator, performance-engineer."
+      "description": "mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships the originals."
     },
     {
       "name": "forge-kit-devops",
       "source": "./plugins/forge-kit-devops",
-      "description": "dep-auditor, health-check agents, /ci-health command, the block-legacy-host-push hook, and the find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget skills."
+      "description": "dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook"
     }
   ]
 }

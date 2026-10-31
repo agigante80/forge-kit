@@ -30,9 +30,8 @@ against `develop`, never `main`: a pull request merged into `main` breaks that f
   changed component whose marker did not move. A new component ships with a marker at 1.
 - **Plugin semver.** When you change anything in a plugin group under `plugins/<group>/`, bump
   the `version` in that group's `.claude-plugin/plugin.json`.
-- **Generated sections.** The component inventory and the test counts in some documents are
-  generated. Regenerate them with `python3 scripts/update-component-index.py` and
-  `python3 scripts/update-suite-counts.py` instead of editing them by hand.
+- **Generated sections.** The component inventory in `README.md` is generated. Regenerate it
+  with `python3 scripts/update-component-index.py` instead of editing it by hand.
 - **No em or en dashes** anywhere in the repository. Restructure the sentence; do not swap in a
   hyphen.
 - **Issue templates and the ticket standard move together.** The work templates and
@@ -43,17 +42,18 @@ against `develop`, never `main`: a pull request merged into `main` breaks that f
 ## Run the checks
 
 The authoritative list is [`.github/workflows/validate.yml`](.github/workflows/validate.yml):
-every `run:` line in it is a check, and CI runs all of them on your pull request. Run the ones
-your change touches before you push. You need `bash`, `git`, `jq`, GNU grep (for `grep -P`) and
+apart from the steps that install or pin a tool on the CI runner (`apt-get`, `update-alternatives`,
+`pin-awk.sh`), every `run:` line in it is a check, and CI runs all of them on your pull request.
+Run the ones your change touches before you push. You need `bash`, `git`, `jq`, GNU grep (for `grep -P`) and
 `python3`. The most common ones:
 
 ```bash
 bash scripts/validate-plugins.sh
 python3 scripts/update-component-index.py --check
 bash scripts/check-component-size.sh
-git fetch origin main
-bash scripts/check-version-bump.sh origin/main
-bash scripts/check-plugin-version-bump.sh origin/main
+git fetch origin develop
+bash scripts/check-version-bump.sh origin/develop
+bash scripts/check-plugin-version-bump.sh origin/develop
 ```
 
 Every `scripts/test-*` file is a contract test suite. If you change a script or a shipped

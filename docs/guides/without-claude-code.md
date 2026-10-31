@@ -63,12 +63,13 @@ done
 cp    /tmp/forge-kit/.github/labels.yml      .github/
 cp    /tmp/forge-kit/docs/guides/ticket-standards.md docs/guides/
 cp    /tmp/forge-kit/docs/guides/labels.md   docs/guides/
-git status --short                 # new files show as ??, replaced ones as M
+git status --short -uall           # new files show as ??, replaced ones as M
 git diff                           # what forge-kit would replace in your own files
 ```
 
 `git diff` shows only the files it replaced; read each `??` file directly, since a new file has no
-diff. Keep what you want and merge your own labels or templates back by hand. Undo a replaced file
+diff (`-uall` lists each file inside a new directory, so `rm` gets a
+file rather than a directory). Keep what you want and merge your own labels or templates back by hand. Undo a replaced file
 with `git restore <file>` and a new one with `rm <file>`: `git restore` does not touch untracked
 files. Nothing is committed until you commit it.
 
@@ -92,6 +93,7 @@ existing repository check `git status --short` and `git diff` after copying, as 
 **Put the labels on the host**, so the taxonomy is real rather than declared:
 
 ```bash
+mkdir -p scripts
 cp /tmp/forge-kit/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh   scripts/
 cp /tmp/forge-kit/plugins/forge-kit-devops/skills/forge-host/assets/sync-labels.sh scripts/
 bash scripts/sync-labels.sh --check    # report only
@@ -250,5 +252,6 @@ guard runs, and nothing fails a build.
 
 ## Contributing back
 
-If you extend the governance layer, the same repository takes issues. `AGENTS.md` there points an
-agent at the repository's own conventions, which are a different subject from this page.
+If you extend the governance layer, the same repository takes issues and pull requests. Its
+`CONTRIBUTING.md` holds the conventions and the checks to run, which are a different subject from
+this page.
