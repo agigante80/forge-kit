@@ -81,7 +81,9 @@ themselves on something the project owns:
   `.claude/no-destructive` (the daytime arm of `overnight-guard`) and `.claude/scan-forge-writes`
   (`scan-forge-writes`, in `forge-kit-security`, which also arms when the default branch tracks
   that file);
-- the overnight guard and the overnight Stop hook arm only while a run's manifest exists.
+- the overnight arm of `overnight-guard` and the overnight Stop hook arm only while a run's
+  manifest (`.claude/overnight/active.md`) exists; the guard's daytime arm follows
+  `.claude/no-destructive`, so removing the manifest does not switch that arm off.
 
 Installing a group is not a commitment to using it everywhere.
 
@@ -204,7 +206,7 @@ Four artifacts here are portable, and they are the ones that carry the rules:
 
 | Artifact | What it gives you |
 |---|---|
-| `.github/ISSUE_TEMPLATE/` | Six templates carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
+| `.github/ISSUE_TEMPLATE/` | The five work templates (`feature`, `bug`, `security`, `infrastructure`, `design`), carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact. Copy them by name: `config.yml` and `contribution.yml` belong to forge-kit and would send your reporters to it |
 | `.github/labels.yml` | The label taxonomy that routes issues, applied by `sync-labels.sh`, which never deletes a label it does not recognise |
 | `docs/guides/ticket-standards.md` | **The canonical rules**, not a summary. The gate is only allowed to restate it in enumerated places, and `check-restatements.sh` fails the build if the two disagree. Any agent that can read markdown can hold a ticket to it. |
 | The shell assets | Every one bash 3.2 compatible with no package manager, so they run in any CI. The leak guard's `--history` mode is written for macOS (bash 3.2, Apple's awk) and verified against Apple's awk source and bash 3.2 built on Linux, not on a Mac; a report from one is a ticket, not a surprise. `scripts/build-mac-shell-harness.sh` rebuilds that bash and awk from pinned sources on a Linux machine with a compiler, and its `--help` holds the command that runs both leak suites under them |

@@ -7,7 +7,8 @@ dependencies. Nothing here is committed work until the tickets are filed and gat
 
 **Status (2026-10-30):** WP1, WP2 and WP4 are done. They were filed, gated and shipped before
 the external plan reviews, because each removed real harm whatever the reviews conclude. The
-other work packages wait for those reviews.
+other work packages wait for those reviews. Round 1 (Codex, 2026-10-31) is folded in; see the
+Review record at the end.
 
 ## Goal
 
@@ -85,6 +86,11 @@ unchanged.
 - **Acceptance:** `gh repo view --json licenseInfo` is non-null; `claude plugin validate` passes;
   `validate-plugins.sh` passes.
 - **Depends on:** nothing. Do first.
+- **Follow-up (Codex C2, 2026-10-31):** no `plugins/<group>/` folder carries forge-kit's own
+  `LICENSE`, yet installation copies only the plugin folder into the cache, so a redistributed
+  installed plugin carries the MIT identifier without the notice MIT requires. Add a `LICENSE` copy
+  to every group (a semver bump per group), have `validate-plugins.sh` fail when one is missing,
+  and check an installed cache folder. A ticket of its own.
 
 ### WP2. Correct the stale facts now (cheap, before the restructure)
 
@@ -123,6 +129,17 @@ repository description and homepage.
 - **Acceptance:** each bullet is fixed or the sentence is removed; no new hand-written count is
   introduced (WP7 is how counts stay true).
 - **Depends on:** nothing.
+- **Fixed after shipping (Codex round, 2026-10-31):** the portable install copied the whole
+  `.github/ISSUE_TEMPLATE/` directory, so an adopter inherited forge-kit's `config.yml` (security
+  reports routed to forge-kit's advisory form) and `contribution.yml`; both routes in
+  `without-claude-code.md` and the README's portable table now copy the five work templates by
+  name. The existing-repository route now says that `git diff` does not show new files and that
+  `git restore` does not remove them. The README's sentence on what arms the overnight guard no
+  longer contradicts the daytime `.claude/no-destructive` arm.
+- **Follow-up (Codex C13):** the version column of `plugins/forge-kit-governance/hooks/README.md`
+  is stale for four hooks (`no-poll-loops` 5 against 12, `overnight-guard` 18 against 20,
+  `forge-write-consent` 1 against 8, `masked-exit-advisory` 2 against 3). Folded into WP7, which
+  now covers that table.
 
 ### WP3. Rewrite the README as a landing page
 
@@ -149,12 +166,20 @@ repository description and homepage.
   6. Documentation map: links, grouped by audience (use it, without Claude Code, reference,
      contribute, history).
   7. License, sponsor, related project.
-- **Files:** `README.md`; the moved sections land in the WP5 files; generator `REGIONS` change if the
-  component index moves out (it should).
-- **Acceptance:** README at or under 1,200 words; every moved paragraph exists at its new home (no
-  content lost: diff the section list); no bare `#NNN` references; every docs entry a link;
-  `update-component-index.py --check` and `check-doc-drift.sh` pass.
-- **Depends on:** WP5 (the destinations must exist), WP1 (license line and badge).
+- **Files:** `README.md`; the moved sections land in the WP5 files; new `docs/getting-started.md`
+  (the tutorial F5 asks for: working directory, `gh` auth, a usable issue, the comment the gate
+  posts, the expected verdict, and recovery from the common failures); the static excerpt of one
+  real gate verdict that item 2 shows (WP10 adds recordings later, it does not block this). The
+  generator contract is settled in WP5, not here.
+- **Acceptance:** README at or under 1,200 words (a local editorial cap, not a usability
+  threshold); every moved paragraph exists at its new home (no content lost: diff the section
+  list); every old README heading anchor that the repository or a published page links to resolves
+  at its new home or keeps a compatibility anchor (the link inventory, see WP5); no bare `#NNN`
+  references; every docs entry a link; `update-component-index.py --check` passes;
+  `check-doc-drift.sh` is run over the WP3 commit range and each finding it reports is recorded as
+  corrected or explained (it never fails, so its exit code proves nothing).
+- **Depends on:** WP5 (the destinations and the generator contract must exist), WP1 (license line
+  and badge).
 
 ### WP4. Community health files: SECURITY, CONTRIBUTING, Code of Conduct
 
@@ -186,11 +211,22 @@ enforcement contact the maintainer has not chosen, and remains optional.
   paths as code rather than links and omits `startup-context.md`.
 - **Files:** create `docs/README.md` (map), `docs/install-and-upgrade.md`, `docs/plugins.md`,
   `docs/components.md`, `docs/when-to-run-what.md`, `docs/scenarios.md`, `docs/neighbours.md`;
-  move the generated regions (generator `REGIONS` plus its contract test); add a one-line audience
-  header to each existing guide ("For: adopters", "For: maintainers", "Explanation", "Reference").
+  add a one-line audience header to each existing guide ("For: adopters", "For: maintainers",
+  "Explanation", "Reference").
+- **Generator contract (Codex C5):** WP3 keeps a short generated catalogue in the README while this
+  package moves the detail out, so settle the final `REGIONS` table first and change renderers,
+  targets and the contract test in one commit: a new short-catalogue renderer for `README.md`, the
+  detailed catalogue in `docs/plugins.md`, the component index in `docs/components.md`, and the
+  local-only `CLAUDE.md` region unchanged. A missing required public target must make `--check`
+  fail; only the absent local `CLAUDE.md` may be skipped with a notice.
+- **Link inventory (Codex C6):** before moving a section, list every inbound link to it (old
+  README fragments used in the repository, the CHANGELOG and the published plugin descriptions) and
+  its new destination; rebase each moved relative link (a `docs/guides/x.md` link copied into
+  `docs/components.md` must become `guides/x.md`). WP3 and WP6 reuse the same inventory.
 - **Acceptance:** every guide under `docs/guides/` is reachable from `docs/README.md`; the generator
-  check passes on the new targets and the contract test covers them; no section of the old README
-  is lost.
+  check passes on the new targets, the contract test covers them, and deleting a required public
+  target fails `--check`; no section of the old README is lost; every relative link and fragment
+  in the moved files resolves (checked by a link checker, then the rendered pages looked at).
 - **Depends on:** nothing (can land before WP3; the README then links to it).
 
 ### WP6. Make the CHANGELOG readable by a user upgrading
@@ -208,9 +244,20 @@ enforcement contact the maintainer has not chosen, and remains optional.
   recommended: the root file then stays scannable and the detail stays greppable.
 - **Files:** `CHANGELOG.md`, new `docs/changelog-detail/`, and the `release` skill's guidance only if
   it prescribes the current shape (check before changing a component).
-- **Acceptance:** the Unreleased plus latest three releases fit in a screen or two each; every
-  release has a date and a compare link; no information lost.
-- **Depends on:** nothing.
+- **Split (Codex C7):** rewriting 65,136 words and moving them losslessly is two tickets, not one.
+  **WP6a, archival move:** move every release's existing text verbatim to
+  `docs/changelog-detail/<version>.md` against a fixed baseline commit (the shipped text after WP2,
+  not the umbrella's older snapshot), with a mapping of every original release to its destination
+  and compatibility anchors for any old section link in the WP5 inventory. Mechanical, checked by
+  comparing the concatenated detail files with the baseline. **WP6b, user-facing summaries:**
+  Unreleased and the latest three releases first, older releases in bounded batches afterwards.
+- **Acceptance (WP6a):** the concatenated detail files equal the baseline's release sections; every
+  release heading in the baseline has a destination. **Acceptance (WP6b):** each summary bullet is
+  at most two sentences and states impact and any action required; every release has a date and a
+  compare link; each bullet names the plugin groups it affects and the group version that carries
+  the change, because plugins install from the default branch independently of umbrella tags
+  (Codex C8), and a repository-only change says so.
+- **Depends on:** WP6a on nothing; WP6b on WP6a.
 
 ### WP7. Keep the numbers true: generate or delete every count in public prose
 
@@ -223,9 +270,12 @@ enforcement contact the maintainer has not chosen, and remains optional.
   cheap guard is a doc check that flags an undated bare number next to words such as "plugins",
   "phases", "lines" in README and `docs/*.md`; decide whether it is worth a guard or a review
   checklist item.
-- **Files:** README and the moved docs; possibly a new `scripts/check-doc-counts.sh` plus its test
-  and validate step.
-- **Acceptance:** no undated, ungenerated count remains in README or the user-facing docs.
+- **Files:** README and the moved docs; the hand-written version column of
+  `plugins/forge-kit-governance/hooks/README.md` (generate it or delete it; stale for four hooks on
+  2026-10-31, Codex C13; a marker and semver bump); possibly a new `scripts/check-doc-counts.sh`
+  plus its test and validate step.
+- **Acceptance:** no undated, ungenerated count or version remains in README, the user-facing docs
+  or the per-plugin hook tables.
 - **Depends on:** WP3 and WP5 (do it on the final text).
 
 ### WP8. Label the working records for what they are
@@ -254,7 +304,11 @@ enforcement contact the maintainer has not chosen, and remains optional.
   shorten the long `plugin.json` descriptions so the catalogue never truncates; add `homepage`
   and `keywords` to each `plugin.json` if the schema accepts them.
 - **Acceptance:** no truncated description in the generated catalogue; every group's description
-  says what it does in one sentence.
+  says what it does in one sentence; every group in the catalogue links to its `docs/plugins.md`
+  section, and every component name in the index links to its documentation or source; each group
+  section covers prerequisites, first use, activation of its opt-in hooks and removal (Codex C10:
+  without this a user finding `forge-write-consent` has no route to how to switch it on); the
+  per-plugin README decision is recorded before the ticket closes.
 - **Depends on:** WP5.
 
 ### WP10. Show, do not only tell
@@ -264,8 +318,25 @@ enforcement contact the maintainer has not chosen, and remains optional.
 - **Shape:** a short recording or a static excerpt of a real `/gate-ticket` run and its posted
   review (link the live issue), one of `forge-adapt` recommending components, and one of a guard
   failing a build. Store media under `docs/media/`.
-- **Acceptance:** the README's "What it looks like" section links a real example.
+- **Acceptance:** the gate example, the `forge-adapt` recommendation and the failing guard each
+  exist under `docs/media/` or as a linked live example, and the README's "What it looks like"
+  section links them. The minimal static gate excerpt is WP3's, not this package's.
 - **Depends on:** WP3.
+
+### WP11. Walk the install lifecycle against the final docs
+
+- **Failure removed (Codex C9):** the only end-to-end check in the umbrella is a fresh install to a
+  first verdict, so an existing user can still meet a missing dependency after an update, or keep
+  active wiring after uninstall, while that check passes; those are the defects F11 and the
+  dependency upgrade note describe.
+- **Shape:** following only the public docs, run four paths and record what each leaves behind:
+  a fresh install from the GitHub marketplace; an upgrade from a version before a dependency was
+  declared; a guard dormant and then armed by its sentinel; removal of a marketplace install and of
+  a copied, adapted install. A local in-place marketplace is not enough evidence for the cached
+  install.
+- **Acceptance:** each path's expected remaining files and settings are written into
+  `docs/install-and-upgrade.md`, and every place the walk stuck is a doc change in the same ticket.
+- **Depends on:** WP3, WP5 and WP9 (WP9 can still change the shipped manifests).
 
 ### Ideas recorded, not yet packaged
 
@@ -284,9 +355,10 @@ From the external reviews, worth a ticket only if the maintainer wants them:
 
 ## Order
 
-WP1, WP2 and WP4 are done (2026-10-30). Next WP5, then WP3 (the README rewrite needs its
-destinations), with WP6 in parallel. WP7, WP8 and WP9 follow on the final text;
-WP10 last.
+WP1, WP2 and WP4 are done (2026-10-30); WP1's license follow-up (C2) can go any time. Next WP5,
+then WP3 (the README rewrite needs its destinations and the generator contract), with WP6a and
+then WP6b in parallel. WP7, WP8 and WP9 follow on the final text; then WP10, and WP11 last
+because it walks the finished docs.
 
 ## Fails if (premortem)
 
@@ -297,4 +369,51 @@ WP10 last.
   test asserts the new file is present.
 - The CHANGELOG reshape deletes history someone links to. Guard: detail moves, never disappears.
 - New counts creep back into the shortened README. Guard: WP7.
-- The work stalls on the license choice. Guard: WP1 is a one-line decision, asked first.
+- A move keeps every paragraph but breaks the links to it (old README fragments, changelog
+  sections, relative links rebased by the move). Guard: WP5's link inventory, used by WP3 and WP6,
+  and a link and fragment check on the moved files.
+- A copied artifact carries forge-kit's identity into an adopter's repository (the issue chooser's
+  security link did, until 2026-10-31). Guard: every portable copy instruction names its files, and
+  repository-specific files (`config.yml`, `contribution.yml`) are never in the set.
+- A distributed plugin folder lacks the license notice its manifest claims. Guard: WP1's follow-up.
+- A recipe's review step misses part of what it changed (`git diff` hides new files). Guard: each
+  copy recipe says how to review and undo new files and replaced ones separately.
+- The docs pass a fresh install while upgrades and removal stay wrong. Guard: WP11.
+- A drift report is accepted unread because the script never fails. Guard: WP3's acceptance records
+  a disposition for each finding.
+
+## Review record
+
+### Round 1: Codex (gpt-6-astra, ultra, 2026-10-31)
+
+Fourteen findings: two HIGH, ten MEDIUM, two LOW. Each was checked against the repository before
+its outcome was decided; none was dropped.
+
+- C1 HIGH: the portable install copies the whole `.github/ISSUE_TEMPLATE/` directory, so an adopter inherits forge-kit's `config.yml` and its reporters' vulnerability reports go to forge-kit. Outcome: fixed, both routes in `without-claude-code.md` and the README table now copy the five work templates by name; premortem entry added.
+- C2 HIGH: no plugin folder carries forge-kit's own `LICENSE`, and the installed cache holds only the plugin folder. Outcome: noted, recorded as WP1's follow-up (it changes `plugins/`, so it needs semver bumps and a ticket of its own).
+- C3 MEDIUM: the existing-repository recipe's `git diff` hides new files and `git restore` cannot remove them. Outcome: fixed in `without-claude-code.md`.
+- C4 MEDIUM: `docs/getting-started.md` belonged to no work package, and WP3 needed a real example that only WP10, scheduled last, produced. Outcome: fixed, WP3 owns the tutorial and the static gate excerpt; WP10's acceptance covers all three examples.
+- C5 MEDIUM: WP5 moved the generated catalogue out while WP3 kept a generated short one in the README. Outcome: fixed, WP5 settles the generator contract and makes a missing required target fail `--check`.
+- C6 MEDIUM: preserving paragraphs does not preserve links or fragments into them. Outcome: fixed, WP5 link inventory reused by WP3 and WP6, link and fragment check in acceptance, premortem entry.
+- C7 MEDIUM: WP6 was too big for one lossless ticket and "a screen or two" is not checkable. Outcome: fixed, split into WP6a (verbatim archival move) and WP6b (summaries), each with a checkable acceptance.
+- C8 MEDIUM: umbrella release notes do not tell a user which plugin group version carries a change. Outcome: fixed, WP6b acceptance requires the affected groups and their versions.
+- C9 MEDIUM: only a fresh install is exercised, not upgrade, sentinel arming or removal. Outcome: fixed, new WP11 lifecycle walk.
+- C10 MEDIUM: WP9's acceptance passed without any route from a component to its activation instructions. Outcome: fixed, acceptance now requires the links and per-group sections.
+- C11 MEDIUM: "`check-doc-drift.sh` passes" proves nothing because the script never fails. Outcome: fixed, WP3 records a disposition for each reported finding.
+- C12 MEDIUM: the README said the overnight guard arms only while a run manifest exists, contradicting its daytime `.claude/no-destructive` arm. Outcome: fixed in `README.md`.
+- C13 LOW: the hooks README version column is stale for four hooks. Outcome: noted, folded into WP7 (it is under `plugins/`, so it needs a marker and semver bump).
+- C14 LOW: CONTRIBUTING said to bump a marker on a behaviour change while the PR template and `check-version-bump.sh` require it on any change. Outcome: fixed, CONTRIBUTING now states the guard's rule.
+
+Sources Codex cited, all viewed 2026-10-31:
+
+- Claude Code plugin loading: https://code.claude.com/docs/en/plugins/loading
+- Claude Code plugin publishing: https://code.claude.com/docs/en/plugins/publish
+- Claude Code plugin manifest reference: https://code.claude.com/docs/en/plugins-reference
+- Claude Code plugin discovery and updates: https://code.claude.com/docs/en/discover-plugins
+- MIT license text: https://opensource.org/license/mit
+- GitHub on READMEs (anchors, relative links): https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes
+- Diataxis: https://diataxis.fr/start-here/ and https://diataxis.fr/how-to-use-diataxis/
+- Keep a Changelog 1.1.0: https://keepachangelog.com/en/1.1.0/
+- GitHub contributor guidelines: https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/setting-guidelines-for-repository-contributors
+- GitHub security policy: https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/add-security-policy
+- GitHub private reporting: https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/report-privately

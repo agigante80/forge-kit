@@ -30,11 +30,20 @@ Five things, and it is a copy rather than an installer. Fetch the kit once:
 git clone https://github.com/agigante80/forge-kit /tmp/forge-kit
 ```
 
+Copy the five work templates by name, never the whole `ISSUE_TEMPLATE/` directory: forge-kit's
+`config.yml` sends security reports to forge-kit's own private advisory form, and
+`contribution.yml` proposes components to forge-kit, so either one copied into your repository
+misroutes your reporters. If you want a private security link in your issue chooser, write your own
+`config.yml` pointing at your repository.
+
 **In a new repository**, with no `.github/` or `docs/guides/` of its own yet:
 
 ```bash
 mkdir -p .github docs/guides
-cp -r /tmp/forge-kit/.github/ISSUE_TEMPLATE  .github/
+mkdir -p .github/ISSUE_TEMPLATE
+for t in feature bug security infrastructure design; do
+  cp /tmp/forge-kit/.github/ISSUE_TEMPLATE/$t.yml .github/ISSUE_TEMPLATE/
+done
 cp    /tmp/forge-kit/.github/labels.yml      .github/
 cp    /tmp/forge-kit/docs/guides/ticket-standards.md docs/guides/
 cp    /tmp/forge-kit/docs/guides/labels.md   docs/guides/
@@ -47,7 +56,10 @@ anything:
 ```bash
 git status --short                 # must print nothing before you start
 mkdir -p .github docs/guides
-cp -r /tmp/forge-kit/.github/ISSUE_TEMPLATE  .github/
+mkdir -p .github/ISSUE_TEMPLATE
+for t in feature bug security infrastructure design; do
+  cp /tmp/forge-kit/.github/ISSUE_TEMPLATE/$t.yml .github/ISSUE_TEMPLATE/
+done
 cp    /tmp/forge-kit/.github/labels.yml      .github/
 cp    /tmp/forge-kit/docs/guides/ticket-standards.md docs/guides/
 cp    /tmp/forge-kit/docs/guides/labels.md   docs/guides/
@@ -55,12 +67,14 @@ git status --short                 # new files show as ??, replaced ones as M
 git diff                           # what forge-kit would replace in your own files
 ```
 
-Keep what you want, merge your own labels or templates back by hand, and restore the rest with
-`git restore <file>`. Nothing is committed until you commit it.
+`git diff` shows only the files it replaced; read each `??` file directly, since a new file has no
+diff. Keep what you want and merge your own labels or templates back by hand. Undo a replaced file
+with `git restore <file>` and a new one with `rm <file>`: `git restore` does not touch untracked
+files. Nothing is committed until you commit it.
 
 | What | Why |
 |---|---|
-| `.github/ISSUE_TEMPLATE/` | Six issue forms carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
+| `.github/ISSUE_TEMPLATE/` | Five work issue forms carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
 | `.github/labels.yml` | The label taxonomy that routes issues |
 | `docs/guides/labels.md` | The area table the mechanical checks read (`--labels-doc`); edit its rows to declare your own areas, and the gate judges against them rather than forge-kit's nine |
 | `docs/guides/ticket-standards.md` | The rules the templates encode |

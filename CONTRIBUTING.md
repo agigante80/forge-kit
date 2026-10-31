@@ -26,7 +26,8 @@ against `develop`, never `main`: a pull request merged into `main` breaks that f
 
 - **Version markers.** Every agent, skill and command carries a `<!-- <name>-version: N -->`
   comment, and every hook and shell asset a `# <name>-version: N` comment. When you change a
-  component's behaviour, bump its marker. A new component ships with a marker at 1.
+  component file at all, even to fix a typo, bump its marker: `check-version-bump.sh` fails any
+  changed component whose marker did not move. A new component ships with a marker at 1.
 - **Plugin semver.** When you change anything in a plugin group under `plugins/<group>/`, bump
   the `version` in that group's `.claude-plugin/plugin.json`.
 - **Generated sections.** The component inventory and the test counts in some documents are
