@@ -42,7 +42,10 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    # Pinned (2026-11-11): ubuntu-latest moved to 26.04, which ships uutils coreutils; its wc -w
+    # counts a lone non-ASCII token under LC_ALL=C, so test-component-size.sh's bare-wc mutant
+    # survives there. Unpin only with the 26.04 migration ticket done.
+    runs-on: ubuntu-24.04
     # The checks are seconds of work; the slow steps are the advisory npm install and the
     # contributor-docs suite, which runs three times since #406 (about three to four minutes each).
     # A cap well above normal turns a hung runner into a fast failure instead of a six-hour wait.
