@@ -26,7 +26,7 @@
     {
       "name": "forge-kit-review",
       "source": "./plugins/forge-kit-review",
-      "description": "code-reviewer, architect-review, code-simplifier and coding-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security."
+      "description": "code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security."
     },
     {
       "name": "forge-kit-security",

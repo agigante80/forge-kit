@@ -61,6 +61,17 @@ contains "ITERATION CONTRACT" "$(reason full-review)" "and names what ours added
 installed "code-simplifier@claude-plugins-official"
 expect "code-simplifier is a caveat when only the neighbour is present" caveat "$(verdict code-simplifier)"
 
+echo "== architecture-standards-auditor beside the ADR neighbour (#578) =="
+installed "documentation-generation@claude-code-workflows"
+expect "architecture-standards-auditor survives the ADR neighbour" caveat "$(verdict architecture-standards-auditor)"
+contains "architecture-decision-records" "$(reason architecture-standards-auditor)" "and names the neighbour's skill"
+none
+expect "architecture-standards-auditor is recommended with no neighbour" recommend "$(verdict architecture-standards-auditor)"
+case "$(reason architecture-standards-auditor)" in
+  *"no neighbour ships a counterpart"*) bad "architecture-standards-auditor claims no neighbour ships a counterpart" ;;
+  *) ok "architecture-standards-auditor never claims no neighbour ships a counterpart" ;;
+esac
+
 echo "== superpowers wins over a neighbour on the same component =="
 # Both installed: the inner-loop boundary is the stronger claim and must not be silently overridden.
 installed "superpowers@claude-plugins-official" "code-simplifier@claude-plugins-official"

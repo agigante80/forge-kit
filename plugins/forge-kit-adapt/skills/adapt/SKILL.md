@@ -13,7 +13,7 @@ description: >
   Backward-compatible: also triggered by "upgrade-audit".
 ---
 
-<!-- forge-adapt-version: 100 -->
+<!-- forge-adapt-version: 101 -->
 
 # forge-adapt
 
@@ -236,6 +236,7 @@ echo "dep-automation:"; ls .github/dependabot.yml renovate.json .renovaterc* 2>/
 | Ships releases (version + tags) | VERSION, package.json/pyproject version, git tags | release skill; release-automation gate |
 | Dependabot / Renovate present | .github/dependabot.yml, renovate.json | release-automation Lane B (auto-release dep updates) |
 | Coding standards state | CLAUDE.md inline / CONTRIBUTING / STYLE_GUIDE | coding-standards-auditor |
+| Architecture decisions unrecorded | no docs/architecture/ ADR index (no ADRs, or only in docs/adr, doc/adr, .adr-dir, docs/decisions); CLAUDE.md states design choices | architecture-standards-auditor |
 | Writing rules in CLAUDE.md | "no em dash", style rules | block-dashes hook |
 | Versioned issue templates | `template-version` markers in the ISSUE_TEMPLATE dir | template lockstep guard + canonical ticket-standards doc (install via `forge-adapt templates`) |
 

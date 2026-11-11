@@ -12,6 +12,7 @@ not in the live catalogue, skip it.
 | Auth / payments / PII in code | `security-auditor` | security | OWASP + auth + secrets exposure | P0 |
 | Public/REST API surface | `api-security-tester` | security | tests endpoints vs OWASP API Top 10 | P0 |
 | Architecture decisions / large diffs | `architect-review` | review | architectural integrity + boundaries | P1 |
+| No docs/architecture/ ADR index (no ADRs, or only in docs/adr, doc/adr, .adr-dir, docs/decisions); choices stated in docs | `architecture-standards-auditor` | review | ADR index the gate cites; accepted ADRs immutable | P1 |
 | General code quality | `code-reviewer` | review | THE per-task reviewer, rounds bounded | P1 |
 | Frequent edits, churn | `code-simplifier` | review | simplify changed code; request-only w/ superpowers | P2 |
 | Deep / many dependencies | `dep-auditor` | devops | unused, unmaintained, vulnerable deps | P1 |

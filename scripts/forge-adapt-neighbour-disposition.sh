@@ -84,6 +84,11 @@ case "$NAME" in
     have comprehensive-review && say caveat \
       "comprehensive-review@claude-code-workflows shares an ancestor with this command. Ours added the bounded ITERATION CONTRACT (round accounting, the trip wire, bad-fix injection) which theirs has none of. That is the reason to keep ours."
     ;;
+  architecture-standards-auditor)
+    have documentation-generation && say caveat \
+      "documentation-generation@claude-code-workflows ships an architecture-decision-records skill and a docs-architect agent: ADR authoring guidance and long-form docs. Ours owns docs/architecture/, the ADR index ticket-gate reads, and the immutability of accepted ADRs; keep it if you use the gate."
+    say recommend "Outer loop: owns docs/architecture/ and the ADR index ticket-gate cites."
+    ;;
   mutation-sweep|ticket-gate|gate-ticket|working-overnight|decision-brief|leak-guard|privacy-regime|roadmap-phases|phase|release|release-automation|forge-host|github-to-forgejo|dep-auditor|health-check|ci-health|find-dead-code|adapt|coding-standards-auditor|api-security-tester|owasp-api-security|ticket-gate-reference)
     say recommend "Outer loop: no neighbour ships a counterpart."
     ;;

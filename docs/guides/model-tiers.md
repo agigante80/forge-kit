@@ -144,6 +144,7 @@ xhigh < max`.
 | security-auditor | security | Sonnet passed 3/3 on the planted issues and cost more than Opus (#289, below) |
 | api-security-tester | security | #289 could not judge it, since no run of either tier tested the hard-coded secret; #292 re-ran it on a seed with a black-box witness: both tiers passed 3/3, and Sonnet's median output was higher than Opus's (15779 against 13287) though its cache reads were lower, so the cost rule did not move the role |
 | coding-standards-auditor | bounded-analysis | declares `inherit`: Sonnet FAILED its criterion, missing findings Opus rated high |
+| architecture-standards-auditor | bounded-analysis | declares `inherit`, as its twin `coding-standards-auditor` does; not measured |
 | code-simplifier | bounded-analysis | declares `sonnet`: passed, weakly, since neither tier found anything at medium or above |
 | dep-auditor | bounded-analysis | declares `sonnet`: passed, weakly, since the input has no manifests and neither tier found anything |
 | health-check | mechanical | declares `sonnet` at `low` |
