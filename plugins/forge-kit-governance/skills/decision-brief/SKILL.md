@@ -1,9 +1,9 @@
 ---
 name: decision-brief
-description: Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and rewrite the ticket body so the decision can be made from it. Use when a ticket is waiting on a human decision, when asked for a decision brief on an issue, when a ticket has stalled through several nudges, or when someone asks which option to pick on a ticket.
+description: Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and rewrite the ticket body so the decision can be made from it. Use when a ticket is waiting on a human decision, when asked for a decision brief on an issue, when a ticket has stalled through several nudges, or when someone asks which option to pick on a ticket. A free-standing opinion question in conversation, with no ticket behind it, belongs to weighing-options.
 ---
 
-<!-- decision-brief-version: 6 -->
+<!-- decision-brief-version: 7 -->
 
 # Decision brief
 

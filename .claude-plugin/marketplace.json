@@ -16,7 +16,7 @@
     {
       "name": "forge-kit-governance",
       "source": "./plugins/forge-kit-governance",
-      "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight and ticket-gate-reference skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-advisory and forge-write-consent hooks"
+      "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-advisory and forge-write-consent hooks"
     },
     {
       "name": "forge-kit-roadmap",

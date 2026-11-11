@@ -12,7 +12,7 @@ effort: medium
 tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob"]
 ---
 
-<!-- architecture-standards-auditor-version: 1 -->
+<!-- architecture-standards-auditor-version: 2 -->
 
 Tier: a bounded-analysis role; its model and effort are in the frontmatter (see docs/guides/model-tiers.md), matching `coding-standards-auditor`, its twin for code.
 
@@ -92,12 +92,12 @@ Before writing anything in any mode, record the hashes of every existing ADR:
 
 ```bash
 mkdir -p tmp; : > tmp/adr-before.sha256
-set -- <adr-folder>/[0-9][0-9][0-9][0-9]-*.md
-[ -e "$1" ] && sha256sum "$@" > tmp/adr-before.sha256
+find <adr-folder> -maxdepth 1 -name '*.md' ! -name README.md -exec sha256sum {} + > tmp/adr-before.sha256
 ```
 
-After writing, if `tmp/adr-before.sha256` is non-empty, `sha256sum -c tmp/adr-before.sha256` must
-pass for every ADR you were not allowed to change; an empty file means there was nothing to protect. A mismatch is your failure: restore that file from git and report it. Use the project's
+This hashes every ADR whatever its naming (`0001-x.md`, `001-x.md`, `20200925-x.md`). After writing,
+`sha256sum -c tmp/adr-before.sha256` must pass for every ADR you were not allowed to change; an
+empty file is correct only when the folder holds no ADR. A mismatch is your failure: restore that file from git and report it. Use the project's
 `tmp/` (or `$TMPDIR`) for this file and delete it at the end.
 
 ## Bootstrap mode

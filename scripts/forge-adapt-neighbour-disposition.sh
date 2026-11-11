@@ -64,6 +64,11 @@ case "$NAME" in
     have superpowers && say caveat \
       "Recommended alongside superpowers, with the split stated: the project memory store is the shareable canon, the private journal is the personal layer. Do not write the same note into both."
     ;;
+  weighing-options)
+    have superpowers && say caveat \
+      "Recommended alongside superpowers, with the split stated: superpowers:brainstorming owns designing new work (\"let's build X\"); this skill answers an opinion about a choice and records the accepted one."
+    say recommend "Outer loop: records an accepted decision where the gate reads it."
+    ;;
   code-reviewer)
     have superpowers && say caveat \
       "Recommended alongside superpowers, which prefers a fresh subagent with crafted context over session history. Adapt the dispatch shape to match."

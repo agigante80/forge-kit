@@ -72,6 +72,13 @@ case "$(reason architecture-standards-auditor)" in
   *) ok "architecture-standards-auditor never claims no neighbour ships a counterpart" ;;
 esac
 
+echo "== weighing-options beside superpowers (#579) =="
+installed "superpowers@claude-plugins-official"
+expect "weighing-options is a caveat under superpowers" caveat "$(verdict weighing-options)"
+contains "brainstorming" "$(reason weighing-options)" "and names what brainstorming owns"
+none
+expect "weighing-options is recommended with no neighbour" recommend "$(verdict weighing-options)"
+
 echo "== superpowers wins over a neighbour on the same component =="
 # Both installed: the inner-loop boundary is the stronger claim and must not be silently overridden.
 installed "superpowers@claude-plugins-official" "code-simplifier@claude-plugins-official"
