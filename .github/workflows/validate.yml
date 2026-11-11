@@ -378,7 +378,12 @@ jobs:
       # gawk, not mawk, is the runner's preinstalled default). The locale is set explicitly, since the
       # locale-pin mutants run only under BWK in UTF-8 and a run that asked for it refuses otherwise.
       - name: Install BWK awk for the contributor-docs run under macOS's awk
-        run: sudo apt-get install -y -qq original-awk >/dev/null && original-awk --version
+        # Refresh the index first and retry fetches: the image's cached index can point at a
+        # mirror that no longer resolves, which failed this step three times on 2026-11-11.
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y -qq original-awk >/dev/null
+          original-awk --version
 
       - name: Contributor-docs check tests (BWK awk, C.UTF-8)
         env:
