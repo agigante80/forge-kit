@@ -4,20 +4,19 @@
 
 ## Review output template
 
-Step 4 composes this. Never a numeric scorecard.
+Step 4 composes this, Step 5 writes it as the body's `gate-review` region. Never a numeric scorecard.
 
 ```markdown
-## Ticket Readiness Review - #<NUMBER>
+### Gate review (round <ROUND>)
 
 **Issue:** <title>
 **Date:** <today>
-**Round:** <ROUND>
 **Template version:** v<N> (current: v<M>)
 **Review set:** mechanical checks + critic[, Security lens (label: security)]
 
 **Verdict: PASS / NEEDS-WORK** - <one-sentence reason>
 
-### Mechanical checks
+#### Mechanical checks
 | Check | Result | Evidence |
 |---|---|---|
 | Template version current | pass/fail | ... |
@@ -28,36 +27,30 @@ Step 4 composes this. Never a numeric scorecard.
 | Test specs concrete (E2E) | pass/fail | ... |
 | Documentation impact present | pass/fail | ... |
 
-### Critique
+#### Critique
 <per-section pushback>
 
-### GWT review
+#### GWT review
 <judgement against the quality bar, plus improved scenarios where written>
 
-### Pros and cons
+#### Pros and cons
 <of the proposed approach>
 
-### Best practices
+#### Best practices
 <researched, with sources; or the stated reason research was skipped>
 
-### Suggested approach
+#### Suggested approach
 <the concrete way forward>
 
-[### Security lens
+[#### Security lens
 <specialist findings, when the lens ran>]
 
-[### Architecture alternatives
+[#### Architecture alternatives
 <2 to 3 options, each with why it resolves the objection; only on a fundamental verdict>]
 
-
-### Required changes (when NEEDS-WORK)
-<!-- gate-items:start -->
-- [ ] <blocking change, specific>
-<!-- gate-items:end -->
 ```
 
-The `gate-items` pair (#196) is what `count-gate-rounds.sh --memory` reads to restore prior
-blocking items when the `gate-required-changes` body region is absent. Emit it on every round,
-empty on a PASS: `<!-- gate-items:start -->\n<!-- gate-items:end -->` with nothing between. The
-scan is not fence-aware, so never quote a `gate-items` marker line as example text anywhere else
-in the same comment.
+This is the whole `gate-review` region (#581): the heading is the round marker `count-gate-rounds.sh`
+reads, so keep it exactly. The blocking items are NOT repeated here: Step 6 writes them as the
+`gate-required-changes` checklist. The region holds no `<!-- gate-... -->` marker line, because
+markers do not nest, so never quote one in it. The legacy `gate-items` pair is retired.

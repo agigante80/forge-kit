@@ -14,6 +14,6 @@ working one.
 checker's directory, to rebuild what a fresh shell loses and to resolve `forge-lib.sh`.
 
 `assets/count-gate-rounds.sh` travels with it (#192): Step 1 runs it from the same directory to
-count the round from posted review comments, and without it the gate cannot count rounds at all,
+count the round from the body's gate regions (and any legacy review comments), and without it the gate cannot count rounds at all,
 which is the state that let a body edit reset every round to 1. Both need `forge-lib.sh` beside
 them, or `FORGE_LIB` pointing at one.

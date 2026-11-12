@@ -1,49 +1,59 @@
 #!/usr/bin/env bash
-# count-gate-rounds-version: 3
+# count-gate-rounds-version: 4
 # count-gate-rounds.sh <issue-number> [--body FILE]
 # count-gate-rounds.sh <issue-number> --memory [--body FILE]
 #
-# Default mode prints the round number THIS gate run should use: the number of review comments
-# already posted on the issue, plus one. Exit 0 on an answer; exit 2 when the count cannot run,
-# printing NOTHING on stdout, because a count that cannot run must never look like round 1.
+# Default mode prints the round number THIS gate run should use: the rounds already run, plus one.
+# Exit 0 on an answer; exit 2 when the count cannot run, printing NOTHING on stdout, because a
+# count that cannot run must never look like round 1.
 #
-# WHY COMMENTS AND NOT THE BODY (#192). The gate writes a `gate-verdict` region into the issue body
-# carrying the round number, and an ordinary body edit erases it: the author rewriting a ticket in
-# response to the review, or Step 0c rewriting it to synthesise sections, both by design. The gate
-# then read a body with no region and concluded it had never run. That is not slow-but-harmless:
-# the delta rows of the round table never engage, and a caller's trip wire, which stops a loop when
-# two consecutive rounds find defects in the previous fix, cannot fire if the loop cannot count. A
-# stopping rule that cannot fire is worse than one that is absent, because it is believed in.
+# WHERE THE COUNT COMES FROM (v4, #581). The gate posts NO comment: its review lives in the body,
+# in the gate-owned `gate-verdict` and `gate-review` regions, replaced every round (the previous
+# round is in the forge's edit history). Each region's heading carries the round it was written
+# in, `### Gate verdict (round N)` / `### Gate review (round N)`, and that heading is the primary
+# source: rounds run = the highest N found inside those two regions. A second source covers every
+# ticket gated BEFORE this change, whose reviews are comments: the number of comments whose FIRST
+# line is `## Ticket Readiness Review - #<ISSUE>` for THIS issue, exactly (a synthesis-void or
+# clarification comment, a quoted heading on a later line and a sibling ticket's review are not
+# rounds). Rounds run = the MAX of the two, so a migrated ticket needs no conversion. A voided
+# round (Step 0c) still counts: the same run writes its verdict. A clarification stop (Step 1.5)
+# carries no round heading and so is not a round.
 #
-# A posted review comment survives a body edit, so the comments are the source and the body block
-# is a PROJECTION of the count. With --body, a block that disagrees is reported on stderr and
-# ignored; the answer never changes. A deleted review comment therefore lowers the count, and a
-# 0c-voided round still counts, since its comment was posted: the trip wire counts rounds run,
-# not verdicts kept.
+# WHY NOT ONLY THE BODY. #192 moved the count out of the body because an ordinary body edit
+# (the author answering the review, Step 0c rewriting the ticket) can erase the region, and a count
+# that restarts at 1 never reaches a caller's trip wire. #581 moved it back because the maintainer
+# ruled that nothing of the gate may live in a comment. The residual case, stated honestly: an
+# author who deletes the gate regions of a ticket that has NO legacy review comments resets the
+# count to round 1, and nothing in the forge's data can tell this script otherwise. It is not
+# silent: when the body still carries a gate trace (a `Judged body:` stamp, or a gate-verdict,
+# gate-required-changes or gate-alternatives region) but no round heading, and no legacy comment
+# backs a count, one stderr line says the count may have been reset. The trace test costs nothing
+# and the warning is advisory, the answer does not change. The scan reads the region lines
+# themselves and is not fence-aware, so never quote a gate region marker as example text.
 #
-# WHAT COUNTS. A comment whose FIRST line is `## Ticket Readiness Review - #<N>` for THIS issue
-# number, exactly. A synthesis-void or clarification comment has a different first line; a
-# remediation note quoting the heading carries it on a later line; a review pasted from a sibling
-# ticket names a different number. None of those is a round.
+# --body FILE is the body the gate already fetched; without it the body is read with
+# forge_issue_view. A body that cannot be read exits 2, like a comment listing that cannot.
 #
 # It never prints an author. The listing carries `user.login` beside every body, and a failing
 # hook's stderr is exactly the text that gets pasted into the next ticket.
 #
-# --MEMORY MODE (#196). Restores the prior blocking items from the LATEST such comment, when the
-# gate's own `gate-required-changes` body region is absent (an erasure #192 above already explains).
-# The gate is the sole author of that comment, so it wraps the checklist in a `gate-items` marker
-# pair rather than parsing its own prose; Step 6 emits the empty pair on a PASS round. The scan is
-# NOT fence-aware: it matches the marker lines themselves wherever they occur in the comment,
-# including inside a fenced block that merely quotes one as example text, because no regex over a
-# posted comment can tell a line that delimits from a line that is quoted. That is why a comment
-# carrying two `gate-items:start` lines, real or quoted, is refused rather than guessed at.
+# --MEMORY MODE (#196, #581). Restores the prior blocking items, body first:
+#   1. the body's `gate-required-changes` region: its unchecked `- [ ] ` lines. (The old
+#      `gate-items` marker pair cannot live in a body region: markers do not nest, and the
+#      fingerprint refuses a body that nests them.)
+#   2. else a body whose `gate-verdict` region says `**Verdict:** PASS`: nothing to carry forward.
+#   3. else the LATEST legacy review comment, as before: the gate wrapped its checklist in a
+#      `gate-items` marker pair. That scan is NOT fence-aware: it matches the marker lines wherever
+#      they occur, including inside a fenced block that quotes one, because no regex over a posted
+#      comment can tell a line that delimits from a line that is quoted; two start lines are
+#      refused rather than guessed at.
 #
 # | exit | stdout            | meaning                                          |
 # |------|-------------------|---------------------------------------------------|
 # | 0    | one item per line | memory restored                                  |
-# | 0    | nothing           | the latest review was a PASS (empty marker pair) |
+# | 0    | nothing           | the latest review was a PASS                     |
 # | 3    | nothing           | no machine-readable list found                   |
-# | 3    | nothing           | more than one `gate-items` start marker (malformed) |
+# | 3    | nothing           | more than one `gate-items` start marker in a legacy comment (malformed) |
 # | 2    | nothing           | could not run (transport), unchanged             |
 #
 # THE ISSUE NUMBER MUST COME FIRST (`--help`/`-h` excepted). This is what lets an unrecognised
@@ -102,18 +112,52 @@ command -v jq >/dev/null 2>&1 || { echo "count-gate-rounds: jq is required" >&2;
 # Only the exit code and the payload leave this block. The transport's own stderr is let through
 # (it names the failure), but nothing from the comment payload is echoed except what the two modes
 # below deliberately print.
+# The body: --body FILE when the caller has already fetched it, else the forge. A stub library
+# without forge_issue_view yields an empty body, which is the pre-#581 behaviour.
+if [ -n "$BODY" ] && [ -f "$BODY" ]; then
+  bodytext="$(cat -- "$BODY")"
+elif declare -F forge_issue_view >/dev/null 2>&1; then
+  raw="$(forge_issue_view "$ISSUE")" || { echo "count-gate-rounds: forge_issue_view $ISSUE failed; the round cannot be counted." >&2; exit 2; }
+  bodytext="$(printf '%s' "$raw" | jq -er '.body // ""' 2>/dev/null)" || { echo "count-gate-rounds: forge_issue_view $ISSUE returned something that is not an issue." >&2; exit 2; }
+else
+  bodytext=""
+fi
+
+# region_of <name>: the lines between `<!-- <name>:start -->` and `<!-- <name>:end -->`, CR and
+# trailing blanks tolerated on the marker lines (forge-lib's grammar). Not fence-aware, see above.
+region_of() {
+  printf '%s\n' "$bodytext" | awk -v r="$1" '
+    function norm(l) { sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); return l }
+    BEGIN { s = "<!-- " r ":start -->"; e = "<!-- " r ":end -->" }
+    { n = norm($0) }
+    n == s { inside = 1; next }
+    n == e { inside = 0; next }
+    inside { print n }'
+}
+has_region() { [ "$(printf '%s\n' "$bodytext" | tr -d '\r' | grep -c "^<!-- $1:start -->[[:space:]]*\$")" -gt 0 ]; }
+
 listing="$(forge_issue_comments "$ISSUE")" || {
   echo "count-gate-rounds: forge_issue_comments $ISSUE failed; the round cannot be counted." >&2
   exit 2
 }
+H="## Ticket Readiness Review - #$ISSUE"
 
 if [ "$MEMORY" = 1 ]; then
-  latest="$(printf '%s' "$listing" | jq -r --arg h "## Ticket Readiness Review - #$ISSUE" \
+  if has_region gate-required-changes; then
+    region_of gate-required-changes | sed -n 's/^- \[ \] //p'
+    exit 0
+  fi
+  if [ "$(region_of gate-verdict | grep -c '^\*\*Verdict:\*\* *PASS')" -gt 0 ]; then
+    echo "count-gate-rounds: the body's latest verdict is a PASS; nothing to carry forward" >&2
+    exit 0
+  fi
+
+  latest="$(printf '%s' "$listing" | jq -r --arg h "$H" \
     '[.[]? | select(((.body // "") | split("\n")[0] | rtrimstr("\r")) == $h)] | last | .body // ""' 2>/dev/null)"
   [ $? -eq 0 ] || { echo "count-gate-rounds: forge_issue_comments $ISSUE returned something that is not a comment list." >&2; exit 2; }
 
   if [ -z "$latest" ]; then
-    echo "count-gate-rounds: no '## Ticket Readiness Review - #$ISSUE' comment found; no review to restore memory from" >&2
+    echo "count-gate-rounds: no gate-required-changes region in the body and no '$H' comment; no review to restore memory from" >&2
     exit 3
   fi
 
@@ -172,17 +216,30 @@ if [ "$MEMORY" = 1 ]; then
   exit 0
 fi
 
-count="$(printf '%s' "$listing" | jq -r --arg h "## Ticket Readiness Review - #$ISSUE" \
+legacy="$(printf '%s' "$listing" | jq -r --arg h "$H" \
   '[.[]? | select(((.body // "") | split("\n")[0] | rtrimstr("\r")) == $h)] | length' 2>/dev/null)"
-case "$count" in
+case "$legacy" in
   ''|*[!0-9]*) echo "count-gate-rounds: forge_issue_comments $ISSUE returned something that is not a comment list." >&2; exit 2 ;;
 esac
 
-if [ -n "$BODY" ] && [ -f "$BODY" ]; then
-  said="$(grep -m1 -o '^### Gate verdict (round [0-9][0-9]*)' "$BODY" 2>/dev/null | grep -o '[0-9]*' || true)"
-  if [ -n "$said" ] && [ "$said" -ne "$count" ]; then
-    echo "count-gate-rounds: body block says round $said, comments say $count; the comments win." >&2
-  fi
+# The highest round heading inside the two regions that carry one. A heading outside them (an
+# author quoting one) does not count.
+marker=0
+for r in gate-verdict gate-review; do
+  m="$(region_of "$r" | sed -n 's/^### Gate \(verdict\|review\) (round \([0-9][0-9]*\)).*/\2/p' | sort -n | tail -1)"
+  [ -n "$m" ] && [ "$((10#$m))" -gt "$marker" ] && marker=$((10#$m))
+done
+
+done_rounds=$legacy
+[ "$marker" -gt "$done_rounds" ] && done_rounds=$marker
+
+if [ "$done_rounds" -eq 0 ]; then
+  trace=0
+  [ "$(printf '%s\n' "$bodytext" | grep -c '^Judged body: sha256:')" -gt 0 ] && trace=1
+  for r in gate-verdict gate-required-changes gate-alternatives; do
+    has_region "$r" && trace=1
+  done
+  [ "$trace" = 1 ] && echo "count-gate-rounds: the body carries gate output but no round heading and no review comment backs a count; the count may have been reset by an edit that removed the gate regions (reporting round 1)" >&2
 fi
 
-echo $((count + 1))
+echo $((done_rounds + 1))

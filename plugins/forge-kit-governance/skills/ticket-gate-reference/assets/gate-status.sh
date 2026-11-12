@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-status-version: 13
+# gate-status-version: 14
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
 # gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
@@ -47,7 +47,15 @@
 # line after it be read as text. That adds refusals and changes no hash of a body it accepts, so
 # FP_TAG stays fp11: the tag names the hash, and a refused body is never stamped.
 #
-# THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp11). Full review: <url>.` The
+# NO REVIEW LINK (v14, #581). The stamp is `Judged body: sha256:<16 hex> (fp11).` It used to end
+# `Full review: <comment url>`; the gate posts no comment any more (the full review is the body's
+# `gate-review` region, replaced each round), so there is nothing to link and --stamp no longer
+# reads the comments at all. A stamp that still carries the old `Full review: <url>` text (written
+# before v14) is read exactly as before: after the tag only `.` then end of line or a space and
+# text is accepted, so no stamped ticket changes state and FP_TAG stays fp11. The fingerprint
+# algorithm is untouched, and it already excludes every region, `gate-review` included.
+#
+# THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp11).` The
 # `(fp11)` after the hash names the algorithm that produced it: it is the gate-status version that
 # introduced the current fingerprint(), held in FP_TAG below. WHOEVER CHANGES fingerprint() MUST
 # BUMP FP_TAG in the same commit. The contract test pins one golden hash together with the FP_TAG
@@ -78,9 +86,8 @@
 # `stale round <R> <VERDICT>` (an algorithm change adds ` (fingerprint <old>, now <current>)`).
 # Exit 2 with NOTHING on stdout when the body cannot be read, since a
 # state that cannot be computed must never read as `current`.
-# `--stamp` exits 2 the same way when the issue's COMMENTS cannot be read (#452), before it moves
-# anything, so no stamp is written; a successful read with no review comment still stamps
-# "Full review: no review comment found." and exits 0.
+# (Until v13 `--stamp` also exited 2 when the issue's comments could not be read, #452, because it
+# linked the latest review comment. With no comment to link, that read and its refusal are gone.)
 #
 # THE ORDER OF WRITES IS THE CONTRACT. Every gate write is an `issues: edited` event, so the gate
 # must never leave a stamped verdict in place while it changes author text: `--unstamp` at Step 1
@@ -95,7 +102,7 @@
 #
 # THE BLOCK IS A DISPLAY, NEVER AN AUTHORITY. Anyone who can edit the issue can write a block that
 # reads `current ... PASS`, since the fingerprint is a hash of public text and not a signature. No
-# component may treat this script's output as readiness; the review comment is the record.
+# component may treat this script's output as readiness; the body's gate-review region is the record.
 #
 # It writes only `gate-*` regions, with prefix `gate`, through forge-lib.sh's region primitives, so
 # #248's disjointness contract holds. It never prints a comment author.
@@ -196,7 +203,8 @@ write_retry() {  # write_retry <region> <content> [top]
 }
 
 # A bare `Full review:` line is the pre-v60 pointer (#285): a gate agent copying an old block keeps
-# it and the stamp would add a second. Anchored, so an item that MENTIONS it mid-line survives; the
+# it and the stamp would add a second. Since v14 the stamp writes none, so this also cleans the
+# pointer a pre-v14 gate left behind. Anchored, so an item that MENTIONS it mid-line survives; the
 # required-changes and alternatives regions never carry one, so the clause is inert there.
 strip_stamp() {  # verdict content on stdin: drop the Judged, Stale and bare pointer lines and the STALE mark
   awk '/^Judged body: sha256:/ { next } /^\*\*Stale:\*\*/ { next } /^Full review: / { next }
@@ -257,10 +265,6 @@ case "$MODE" in
   --stamp)
     [ -n "$verdict" ] || { echo "gate-status: issue #$ISSUE has no gate-verdict to stamp" >&2; exit 1; }
     FP0="$(printf '%s\n' "$body" | fingerprint)" || exit 2
-    # #452: the comments are read BEFORE any region moves, and a failed read exits 2 with its reason
-    # (forge_issue_comments' own stderr, an http refusal included, passes through). It used to be
-    # swallowed into "no review comment found", stamping a verdict whose review link was a lie.
-    comments="$(forge_issue_comments "$ISSUE")" || { echo "gate-status: could not read the comments of issue #$ISSUE" >&2; exit 2; }
     clean="$(printf '%s\n' "$verdict" | strip_stamp)"
     # Each moved to the top in turn, so they end up verdict, required changes, alternatives.
     for r in gate-alternatives gate-required-changes; do
@@ -272,10 +276,8 @@ case "$MODE" in
     write_retry gate-verdict "$clean" top || { echo "gate-status: could not move gate-verdict of issue #$ISSUE" >&2; exit 1; }
     fp="$(body_of | fingerprint)" || { echo "gate-status: could not re-read issue #$ISSUE" >&2; exit 1; }
     [ "$fp" = "$FP0" ] || { echo "gate-status: issue #$ISSUE: an author section changed during the stamp; leaving the verdict unrecorded" >&2; exit 1; }
-    url="$(printf '%s' "$comments" | jq -r --arg h "## Ticket Readiness Review - #$ISSUE" \
-      '[.[]? | select(((.body // "") | split("\n")[0] | rtrimstr("\r")) == $h)] | last | .html_url // empty' 2>/dev/null)"
     write_retry gate-verdict "$clean
-Judged body: $fp ($FP_TAG). Full review: ${url:-no review comment found}." || {
+Judged body: $fp ($FP_TAG)." || {
       echo "gate-status: could not stamp issue #$ISSUE" >&2; exit 1; }
     exit 0 ;;
 

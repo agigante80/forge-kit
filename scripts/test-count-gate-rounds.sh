@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# Contract test for count-gate-rounds.sh (#192).
+# Contract test for count-gate-rounds.sh (#192, #581).
 #
-# WHAT THE HELPER IS FOR. The gate's round number used to be read from a `gate-verdict` region in
-# the issue body, and an ordinary body edit erases that region. The gate then believed every round
-# was round 1: delta scope never engaged, and a caller's trip wire, which counts rounds, could never
-# fire. A posted review comment is not erased by a body edit, so the count now comes from the
-# comments and the body block is only a projection of it. These cases pin down what counts as a
-# round (a comment whose FIRST line is the review heading for THIS issue), what does not (a
-# synthesis-void comment, a heading quoted on a later line, a sibling ticket's review), and the two
+# WHAT THE HELPER IS FOR. The gate's round number decides whether the delta rows of its round table
+# engage and whether a caller's trip wire, which counts rounds, can fire. #192 moved the count out
+# of the body into posted review comments, because a body edit erased the `gate-verdict` region.
+# #581 (the maintainer: the gate posts NO comment) moved it back: the round is the heading of the
+# gate-verdict / gate-review regions, and the legacy review comments of tickets gated before that
+# change are a second source. Rounds run = the MAX of the two, so a migrated ticket needs no
+# conversion. These cases pin what counts as a round (a marker inside a gate region; a comment whose
+# FIRST line is the review heading for THIS issue), what does not (a synthesis-void or clarification
+# comment, a heading quoted on a later line or in author text, a sibling ticket's review), the
+# honest residual (regions deleted, no legacy comment: round 1 PLUS a stderr warning) and the two
 # refusals: a listing that cannot run must never print `1`.
 #
-# v2 (#196) adds `--memory`, which restores the prior blocking items from the LATEST such comment
-# by reading a `gate-items` marker pair the gate itself wraps the checklist in. These cases pin
-# down the five-row contract (items restored, an empty pair meaning PASS, no marker at all, a
-# malformed pair, transport failure) and that the scan is not fence-aware, plus the argument-order
+# v2 (#196) added `--memory`, which restores the prior blocking items. v4 (#581) reads them from the
+# body's gate-required-changes region first, a PASS verdict second, and only then the legacy
+# `gate-items` pair of the latest review comment. These cases pin the exit rows and the argument-order
 # refusal: the issue number must come first, so a stale caller reaching a stale v1 copy always
 # fails the same way regardless of which script it actually hits.
 #
@@ -46,6 +48,10 @@ forge_host() { echo "github"; }
 forge_issue_comments() {
   [ "${FIXTURE_FAIL:-0}" = 1 ] && { echo "forge_api: transport failure" >&2; return 22; }
   cat "$FIXTURE_COMMENTS"
+}
+forge_issue_view() {
+  [ "${FIXTURE_VIEW_FAIL:-0}" = 1 ] && { echo "forge_api: transport failure" >&2; return 22; }
+  if [ -n "${FIXTURE_BODY_FILE:-}" ] && [ -f "$FIXTURE_BODY_FILE" ]; then jq -Rs '{body:.}' < "$FIXTURE_BODY_FILE"; else echo '{"body":""}'; fi
 }
 LIB
 
@@ -96,29 +102,114 @@ comments "$(review 42)" "$(review 420)"
 run 42
 expect "the issue number must match exactly: #420 is not #42" 2 "$out"
 
-echo "== the body block is a projection of the count, never its source =="
-comments "$(review 42)" "$(review 42)"
-printf '<!-- gate-verdict:start -->\n### Gate verdict (round 2)\n<!-- gate-verdict:end -->\n' > "$T/body-agree.md"
-run 42 --body "$T/body-agree.md"
-expect "block and comments agree: prints 3" 3 "$out"
+# verdictbody <round> [extra]: a body whose gate-verdict region heading carries <round>.
+verdictbody() {
+  printf '## Summary\n\nThe thing.\n\n<!-- gate-verdict:start -->\n### Gate verdict (round %s)\n**Verdict:** NEEDS-WORK\n- significant: fix it\n<!-- gate-verdict:end -->\n%s\n' "$1" "${2-}"
+}
+
+echo "== the round comes from the body's gate regions (#581) =="
+comments
+verdictbody 2 > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a gate-verdict heading says round 2, no comments: this run is round 3" 3 "$out"
 expect "and stderr is empty" "" "$err"
 
-printf '### Gate verdict (round 7)\n' > "$T/body-stale.md"
-run 42 --body "$T/body-stale.md"
-expect "a stale block does not change the answer" 3 "$out"
-expect "and the run still exits 0" 0 "$rc"
-contains "body block says round 7, comments say 2" "$err" "and the disagreement is one visible stderr line"
+printf '## Summary\n\n<!-- gate-review:start -->\n### Gate review (round 4)\nthe review\n<!-- gate-review:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a gate-review heading alone says round 4: this run is round 5" 5 "$out"
+
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round 3): STALE\n<!-- gate-verdict:end -->\n<!-- gate-review:start -->\n### Gate review (round 3)\n<!-- gate-review:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a STALE verdict heading still carries its round; both regions agree" 4 "$out"
+
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round 2)\n<!-- gate-verdict:end -->\n<!-- gate-review:start -->\n### Gate review (round 5)\n<!-- gate-review:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "the regions disagree (a crash between the two writes): the highest wins" 6 "$out"
+
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round 10)\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "round 10 compares as a number, not as text" 11 "$out"
+
+printf '## Summary\n\nAuthor rewrote every section, gate regions untouched.\n\n## Acceptance\n\n1. new text\n<!-- gate-verdict:start -->\n### Gate verdict (round 2)\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a second round after the author rewrote every section reports round 3, not 1" 3 "$out"
+
+printf '## Notes\n\n### Gate verdict (round 9)\n\nan author quoting a heading outside any region\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a round heading outside the gate regions is author text and does not count" 1 "$out"
+expect "and a body with no gate trace warns nothing" "" "$err"
+
+printf '<!-- gate-context:start -->\n### Gate verdict (round 9)\n<!-- gate-context:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a round heading inside another gate region (gate-context) does not count" 1 "$out"
+
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round two)\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a non-integer round in the heading is ignored, not parsed as 0 or 2" 1 "$out"
+
+echo "== legacy review comments are the second source: the MAX of both =="
+verdictbody 2 > "$T/b.md"
+comments "$(review 42)" "$(review 42)" "$(review 42)"
+run 42 --body "$T/b.md"
+expect "marker 2, three legacy comments: 3 rounds run, this is round 4 (max, not sum)" 4 "$out"
+expect "and stderr is empty" "" "$err"
+
+verdictbody 5 > "$T/b.md"
+comments "$(review 42)"
+run 42 --body "$T/b.md"
+expect "marker 5, one legacy comment: this is round 6" 6 "$out"
+
+comments "$(review 42)" "$(review 42)"
+printf '## Summary\n\nno gate regions at all\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "legacy comments alone (a ticket gated before #581): round 3, as before" 3 "$out"
+expect "and no reset warning, the comments back the count" "" "$err"
+
+verdictbody 1 > "$T/b.md"
+comments "$(review 42)" "$(review 42)" "$(review 42)" "$(review 41)" "$(printf '## Synthesis void - #42\n\nx')"
+run 42 --body "$T/b.md"
+expect "a body block behind the comments never lowers the count and raises no disagreement line" 4 "$out"
+expect "  stderr stays empty" "" "$err"
+
+echo "== the residual case: regions deleted, no legacy comment (#581) =="
+comments
+printf '## Summary\n\n<!-- gate-verdict:start -->\n### Gate verdict\n**Verdict:** NEEDS-WORK\nJudged body: sha256:0123456789abcdef (fp11).\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a verdict region whose heading lost its round, no comments: round 1" 1 "$out"
+expect "and the exit is still 0" 0 "$rc"
+contains "the count may have been reset" "$err" "and one stderr line says the count may have been reset"
 lacks "sentinel-author" "$err" "which names no comment author"
 
-printf '### Gate verdict (round two)\n' > "$T/body-junk.md"
-run 42 --body "$T/body-junk.md"
-expect "a non-integer round in the block is ignored, not parsed as 0" 3 "$out"
-lacks "body block says" "$err" "and raises no disagreement"
+printf '## Summary\n\nJudged body: sha256:0123456789abcdef (fp11).\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a Judged stamp left in author text with no region: round 1" 1 "$out"
+contains "the count may have been reset" "$err" "  and it warns"
 
-printf '### Gate verdict (round 1)\n' > "$T/body-edited.md"
-run 42 --body "$T/body-edited.md"
-expect "a body rewritten between rounds reads round 3, never round 1" 3 "$out"
-contains "body block says round 1, comments say 2" "$err" "and says the block is behind"
+printf '## Summary\n\n<!-- gate-required-changes:start -->\n### Required changes\n- [ ] x\n<!-- gate-required-changes:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+contains "the count may have been reset" "$err" "a surviving required-changes region with no round heading also warns"
+
+printf '## Summary\n\n<!-- gate-review:start -->\n### Gate clarification needed\n1. question?\n<!-- gate-review:end -->\n<!-- gate-context:start -->\nctx\n<!-- gate-context:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a clarification stop and a context region are not a round" 1 "$out"
+expect "and are no reason to warn" "" "$err"
+
+printf '## Summary\n\nJudged body: sha256:0123456789abcdef (fp11).\n' > "$T/b.md"
+comments "$(review 42)"
+run 42 --body "$T/b.md"
+expect "the same trace with a legacy comment behind it: round 2" 2 "$out"
+expect "  and no warning" "" "$err"
+
+echo "== without --body the body is read from the forge =="
+comments
+verdictbody 3 > "$T/b.md"; export FIXTURE_BODY_FILE="$T/b.md"
+run 42
+expect "forge_issue_view supplies the body: round 4" 4 "$out"
+FIXTURE_VIEW_FAIL=1 run 42
+expect "an unreadable issue exits 2" 2 "$rc"
+expect "and prints nothing" "" "$out"
+contains "forge_issue_view" "$err" "and names the call"
+unset FIXTURE_VIEW_FAIL FIXTURE_BODY_FILE
 
 echo "== the boundary =="
 set --; i=0; while [ $i -lt 51 ]; do set -- "$@" "$(review 42)"; i=$((i + 1)); done
@@ -186,7 +277,7 @@ comments "$(review 41)"
 run 42 --memory
 expect "no review comment for THIS issue at all: refuses" 3 "$rc"
 expect "and prints nothing" "" "$out"
-contains "no '## Ticket Readiness Review - #42' comment found" "$err" "and stderr names the issue"
+contains "no '## Ticket Readiness Review - #42' comment" "$err" "and stderr names the issue"
 
 comments "$(printf '## Ticket Readiness Review - #42\n\n<!-- gate-items:start -->\n- [ ] a\n<!-- gate-items:start -->\n- [ ] b\n<!-- gate-items:end -->')"
 run 42 --memory
@@ -209,6 +300,50 @@ comments "$(printf '## Ticket Readiness Review - #42\n\n<!-- gate-items:start --
 run 42 --memory
 expect "a fenced quote of the marker is read as a second start (not fence-aware): refuses" 3 "$rc"
 contains "2 gate-items start markers" "$err" "and the quoted line counts exactly like a real one"
+
+echo "== --memory reads the body's regions first (#581) =="
+printf '## Summary\n\n<!-- gate-required-changes:start -->\n### Required changes (round 2)\n- [ ] fix A\n- [x] done B\n- [ ] fix `C` for #248\n<!-- gate-required-changes:end -->\n' > "$T/b.md"
+comments
+run 42 --memory --body "$T/b.md"
+expect "unchecked items of the body region are restored, no comment needed" 0 "$rc"
+expect "  ticked items are not, order and punctuation are kept" 'fix A
+fix `C` for #248' "$out"
+
+comments "$(reviewItems 42 "a stale legacy item")"
+run 42 --memory --body "$T/b.md"
+expect "the body wins over a legacy comment" 'fix A
+fix `C` for #248' "$out"
+
+printf '## Summary\n\n<!-- gate-required-changes:start -->\n### Required changes (round 2)\n- [x] all done\n<!-- gate-required-changes:end -->\n' > "$T/b.md"
+comments "$(reviewItems 42 "a stale legacy item")"
+run 42 --memory --body "$T/b.md"
+expect "a region with every item ticked restores nothing, exit 0 (not the legacy item)" 0 "$rc"
+expect "  and prints nothing" "" "$out"
+
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round 3)\n**Verdict:** PASS\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+comments "$(reviewItems 42 "a stale legacy item")"
+run 42 --memory --body "$T/b.md"
+expect "a PASS verdict in the body with no required-changes region: exit 0" 0 "$rc"
+expect "  nothing to carry, the older legacy comment is not consulted" "" "$out"
+contains "PASS" "$err" "  and stderr says so"
+
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round 3)\n**Verdict:** NEEDS-WORK\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+comments "$(reviewItems 42 "legacy item")"
+run 42 --memory --body "$T/b.md"
+expect "a NEEDS-WORK verdict but no required-changes region falls back to the legacy comment" "legacy item" "$out"
+
+printf '## Summary\n\nnothing of the gate\n' > "$T/b.md"
+comments
+run 42 --memory --body "$T/b.md"
+expect "no body region and no legacy comment: exit 3" 3 "$rc"
+expect "  nothing on stdout" "" "$out"
+
+verdictbody 1 > "$T/b.md"
+printf '<!-- gate-required-changes:start -->\n- [ ] kept\n<!-- gate-required-changes:end -->\n' >> "$T/b.md"
+comments
+export FIXTURE_BODY_FILE="$T/b.md"; run 42 --memory
+expect "without --body the body is read from the forge for memory too" "kept" "$out"
+unset FIXTURE_BODY_FILE
 
 echo "== --memory and the plain count share the same transport failure =="
 comments "$(review 42)" "$(reviewItems 42 "fix A")"

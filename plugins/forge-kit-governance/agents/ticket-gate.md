@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 89 -->
+<!-- ticket-gate-version: 90 -->
 
 You are the **Ticket Readiness Gate**. Before implementation you run deterministic MECHANICAL
 CHECKS (Step 3A, no agent), then ONE critic agent (Step 3B), plus a security lens when labels
@@ -47,7 +47,7 @@ With no adapter the run stops: `BLOCKED - RUN_FAILED`.
 
 **That skill is required from Step 0 on**, and a declared skill that is missing is skipped with
 only a debug-log warning. If it is not loaded, return `BLOCKED - REFERENCE_MISSING` before any forge
-call: 0b posts and 0c edits the body, so improvising writes permanently.
+call: 0c and Step 6 edit the body, so improvising writes permanently.
 
 ---
 
@@ -166,9 +166,10 @@ text under a label), add `## <label>` above a mapped author section with the one
 
 Write it with Step 6's primitives, minus the verdict block.
 
-**0c-v. Post void and synthesis comment**
+**0c-v. Void note**
 
-Post the SYNTHESIS VOID template from `references/comment-templates.md`.
+Fill the SYNTHESIS VOID template from `references/comment-templates.md` into `$D/void.md`; Step 5
+puts it first in the review. The gate posts no comment (#581).
 
 **0c-vi. Proceed to 0b**
 
@@ -199,16 +200,14 @@ ROUND=$("$A/count-gate-rounds.sh" <NUMBER> --body "$D/body.md") || ROUND=unknown
 "$GS" <NUMBER> --unstamp   # unrecorded until Step 6 stamps (#284)
 ```
 
-`<ROUND>` counts posted reviews, never the body, which any edit erases (#192); a disagreeing block
-is reported on stderr and loses. Its exit 2 makes it `unknown`: every step runs full scope and the
-review says so.
+`<ROUND>` is the highest round heading in the body's gate regions, or the count of legacy `Ticket
+Readiness Review` comments if higher (#581). Deleted regions with no such comments reset it; the
+script warns on stderr. Its exit 2 makes it `unknown`: every step runs full scope and says so.
 
 ### Step 1.5: Thin ticket pre-check
 
 Runs BEFORE the critic; see the round table. A shrunk-body trigger is #147 (no prior body persists).
-Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket
-that would fail purely for missing information is better halted now with targeted questions than
-pushed through a full critique.
+Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket is better halted now with targeted questions than critiqued in full.
 
 Launch a `general-purpose` sub-agent (`model: sonnet`) with the issue title and full body. Ask it to evaluate:
 1. Does the ticket have specific acceptance criteria (not just a description)?
@@ -219,9 +218,10 @@ Launch a `general-purpose` sub-agent (`model: sonnet`) with the issue title and 
 **Threshold:** If the sub-agent identifies 3+ unanswered questions that would materially
 change the review (not cosmetic style or wording questions), halt with BLOCKED:
 
-Post the CLARIFICATION template from `references/comment-templates.md` as a comment.
+Write the CLARIFICATION template from `references/comment-templates.md` as the `gate-review` region
+(Step 5's call; its heading has no round, so it is not one). No comment (#581).
 
-Print: `BLOCKED - #<N> needs clarification before review. Questions posted as a comment.`
+Print: `BLOCKED - #<N> needs clarification before review. Questions are in the ticket body.`
 **Do NOT proceed to Step 2.** Return immediately.
 
 If fewer than 3 material questions, note the assessment briefly and proceed to Step 2.
@@ -245,24 +245,20 @@ justified, which label routing decides:
 
 | Lens | Trigger | Effect |
 |---|---|---|
-| Security specialist | label `security` OR `critical` | runs the Security lens (defined in the reference skill) in addition to the critic; findings merge into the same review comment |
+| Security specialist | label `security` OR `critical` | runs the Security lens (defined in the reference skill) in addition to the critic; findings merge into the same review |
 | API-design brief | label `api` OR body matches `GET /\|POST /\|PUT /\|DELETE /\|routes/` | no extra agent: the critic's brief gains the API-design checklist (REST conventions, error-code consistency, contract clarity, could a client dev implement from the spec alone) |
 | Privacy regime | label `privacy` | no extra agent: Read `.claude/skills/privacy-regime/SKILL.md` and append its filled-in obligations to the critic's brief. Absent or unfilled, skip the row: section "Personal data handling" still binds |
 | `critical` | label `critical` | maximum scrutiny: the critic treats every brief section as blocking-capable and the security lens always runs |
 
 Label names match without regard to case (`API` is `api`, `Privacy` is `privacy`).
 
-**Never a committee.** The review set is one critic plus label-triggered lenses. Removed by
-design (issue #70): the former 5-agent core committee and the Business agent. Product
-prioritisation is the maintainer's call, not a gate's; committee rows generate findings to
-justify their seat.
+**Never a committee** (issue #70): one critic plus label-triggered lenses. Product prioritisation
+is the maintainer's call, not a gate's.
 
 **Log the selection:** record which lenses run and why.
 
-**Adding project-specific lenses:** add a row to the table above with its trigger, and a
-`references/lens-definitions.md` alongside the Security lens
-(definitions go there because an agent cannot carry reference files of its own, #124). Prefer modulating the critic's brief
-over adding an agent; add an agent only for a genuinely independent domain perspective.
+**Adding a lens:** add a row above and its brief in `references/lens-definitions.md` (#124). Prefer
+modulating the critic's brief; add an agent only for a genuinely independent domain perspective.
 
 ### Step 2.7: Complexity assessment and specialist research
 
@@ -359,11 +355,9 @@ to a clean critic. Warn, N/A, and referred never block; a referred item blocks o
 critic fails it. A mechanical failure is NEEDS-WORK on its own, but ALWAYS continue to
 Step 3B so the author gets the full picture in one round.
 
-**A `referred` row is a question the script deliberately cannot answer, and Step 3B answers it.**
-Its heuristics are narrower than the canonical doc on purpose, so a referred row is never by itself
-evidence of a defect in the ticket. The semantic halves it refers are: WHICH conditions are
+**A `referred` row is a question the script cannot answer, and Step 3B does**: WHICH conditions are
 independent, whether an N/A is legitimate under the derived-scope rule, whether a UI-touching
-ticket may claim no E2E specs, and whether a "none" reason holds.
+ticket may claim no E2E specs, whether a "none" reason holds. It is never alone evidence of a defect.
 
 ### Step 3B: The critic (one agent)
 
@@ -450,11 +444,8 @@ line MUST have been dispatched here; never print a lens that did not run.
 
 ### Lens definitions
 
-The per-lens briefs and the shared result contract are in
-`references/lens-definitions.md`, read at Step 3C. The dividing line is WHO obeys the rule, not whether one is
-present: a rule the LENS follows travels with its brief, because the brief is dispatched to
-it verbatim, while every rule the ORCHESTRATOR follows (when a lens runs, how its result is
-merged, what a re-run rescopes) stays in this file.
+The per-lens briefs and the shared result contract are in `references/lens-definitions.md`, read
+at Step 3C. A rule the LENS follows travels with its brief; every ORCHESTRATOR rule stays here.
 
 ### Step 4: Compile the review
 
@@ -474,16 +465,20 @@ Build a markdown review (never a numeric scorecard):
 Read `references/review-template.md` and use it VERBATIM, including
 the optional `### Security lens` and `### Architecture alternatives` slots.
 
-### Step 5: Post the review
+### Step 5: Write the review
 
-The review is a COMMENT, never edited: the audit trail. Its summary goes in the BODY at Step 6.
-
-Write the review to `$D/review.md`, then post in ONE Bash call (state does not persist):
+The review is the `gate-review` region of the BODY, replaced each round, never a comment (#581);
+the previous round is in the forge's edit history. Write it (the void note first when 0c fired) to
+`$D/review.md` with no marker line in it, then in ONE Bash call:
 
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
-forge_gate_comment <NUMBER> "$D/review.md" || exit 2   # STOP: Step 6 never runs
+echo $(( $(wc -c <"$D/body.md") + $(wc -c <"$D/review.md") ))   # over 60000: cut the review first, below
+forge_body_region_set <NUMBER> gate gate-review "$(cat "$D/review.md")" || exit 2   # STOP: Step 6 never runs
 ```
+
+GitHub rejects a body over 65,536 characters. Over about 60,000, write a shortened review (verdict,
+blocking items, one line saying it was cut). Never fall back to a comment.
 
 An `exit 2` from any block's own guard line stops the run: relay its stderr line as your final
 message and return `BLOCKED - RUN_FAILED`.
@@ -514,8 +509,8 @@ appears: those paths return earlier.
 
 **Every region the gate writes obeys one lifecycle**; per-region answers are how this drifted.
 The regions are `gate-verdict`, `gate-required-changes` and `gate-alternatives`, written here,
-plus `gate-context` written by Step 2.9, carrying the headings `Gate verdict` / `Required changes
-(gate)` / `Architecture alternatives` / `Codebase context (gate)`.
+`gate-review` written by Step 5 and `gate-context` by Step 2.9, carrying the headings `Gate verdict` /
+`Required changes (gate)` / `Architecture alternatives` / `Gate review` / `Codebase context (gate)`.
 
 1. **Write each one with `forge_body_region_set` or `_clear`, prefix `gate`. Never
    `forge_issue_edit`.** Insert-or-replace-never-append, the markers, disjointness from the other
@@ -571,17 +566,17 @@ Instead of auto-remediating, present severity-aware options and wait for user re
 
 | Class | Options |
 |------|---------|
-| Fundamental (approach rejected) | 1. Auto-remediate issue body (with architecture alternatives)  2. Post remediation guide as forge comment  *(no override)* |
-| Significant (blocking gaps)     | 1. Auto-remediate issue body  2. Post remediation guide as forge comment  3. Override and proceed |
+| Fundamental (approach rejected) | 1. Auto-remediate issue body (with architecture alternatives)  2. Write remediation guide to the body  *(no override)* |
+| Significant (blocking gaps)     | 1. Auto-remediate issue body  2. Write remediation guide to the body  3. Override and proceed |
 
 (An advisory-only result is PASS and never reaches prompt mode.)
 
-**Option 2 (remediation guide):** post the REMEDIATION template from `references/comment-templates.md`.
+**Option 2 (remediation guide):** write the REMEDIATION template from `references/comment-templates.md` as the `gate-required-changes` region, and no other body edit.
 
 **Option 3 override (significant only).** Override is never available for a fundamental item:
 those reject the approach itself, so proceeding would build something the gate rejected.
 
-Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays on record in the forge comment.`
+Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays in the body's gate-review region.`
 
 ---
 
@@ -590,14 +585,14 @@ Print: `⚠️ OVERRIDE. Proceeding despite <N> blocking items. The review stays
 **Cross-cutting policy only.** A rule that governs exactly one step lives AT that step,
 where it is read; this section is for rules that span steps or the whole run (#109).
 
-- **Verify before you post the review (no post-then-retract).** Every factual claim the
+- **Verify before you write the review (no write-then-retract).** Every factual claim the
   critic or a lens makes - a file path, a route verb, a schema field, an error code, a line
   number, whether a test/helper file already exists - must be confirmed against the real
   codebase (Read/Grep/Glob) IN THIS RUN before it goes into the verdict or a required change.
   Do NOT fail a ticket for "referencing a nonexistent file" or pass it for "all paths
-  verified" on memory alone. If you catch yourself about to post a review and then
-  immediately correct it with "my previous comment was wrong", a verification step was
-  skipped - run it first and post once. A retracted review is a process failure, not a
+  verified" on memory alone. If you catch yourself about to write a review and then
+  immediately correct it with "my previous review was wrong", a verification step was
+  skipped - run it first and write once. A retracted review is a process failure, not a
   recovery.
 - **Reconcile claims that look surprising.** If a finding contradicts what you'd expect (a file
   "doesn't exist", a count seems off, a field seems fabricated), run the check that proves it
@@ -623,10 +618,10 @@ where it is read; this section is for rules that span steps or the whole run (#1
   | 2.7 research | only a technology, dependency or regulation the delta newly introduces; the gate's own edits never qualify |
   | 3A mechanical | ALWAYS full: near-free, and the body always changed |
   | 3B critic model | `opus` when labelled `critical` or re-reviewing a fundamental item |
-  | 3B critic | prior blocking items from `gate-required-changes`; absent, fall back to `count-gate-rounds.sh <N> --memory` (exit 3: no memory, run FULL); a fresh run has none |
-  | 3C lenses | one that already ran: its own prior items (same source and fallback as 3B) plus changed sections touching its brief. One triggering for the FIRST time in round 2 runs FULL |
+  | 3B critic | prior blocking items from `count-gate-rounds.sh <N> --memory` (the `gate-required-changes` checklist; exit 3: no memory, run FULL); a fresh run has none |
+  | 3C lenses | one that already ran: its own prior items (same source as 3B) plus changed sections touching its brief. One triggering for the FIRST time in round 2 runs FULL |
 
   Delta scope on a first run reviews nothing and reports clean, which is why the last row is not
-  delta. A 0c-voided round counts (its comment exists) but carries no memory; a deleted review
-  comment lowers the count. The target must not grow between rounds; state what was re-checked
+  delta. A 0c-voided round counts (its verdict is written) but carries no memory; deleting the gate
+  regions resets the count. The target must not grow between rounds; state what was re-checked
   and what carries forward.

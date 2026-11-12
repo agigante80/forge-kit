@@ -169,15 +169,17 @@ cp /tmp/forge-kit/plugins/forge-kit-governance/skills/ticket-gate-reference/asse
 bash scripts/count-gate-rounds.sh 182
 ```
 
-It prints the round the NEXT run would be (posted `## Ticket Readiness Review` comments plus one)
-and never reads the issue body for it, because an ordinary body edit erases what the gate wrote
-there. If the body's block disagrees, one stderr line says so and the comments win. A count that
-cannot run exits 2 and prints nothing, so it can never be mistaken for round 1.
+It prints the round the NEXT run would be: the highest `Gate verdict` or `Gate review` round
+heading in the body's gate regions, or the number of legacy `## Ticket Readiness Review` comments if
+higher, plus one (#581: the gate posts no comment now). An author who deletes the gate regions on a
+ticket with no legacy comments resets the count to round 1; one stderr line warns when the body
+still shows gate output but no round heading. A count that cannot run exits 2 and prints nothing,
+so it can never be mistaken for round 1.
 
-`bash scripts/count-gate-rounds.sh 182 --memory` restores the latest review's blocking items
-instead, for when the gate's own tracking region is gone. It exits 0 with one item per line
-(memory restored, empty stdout on a PASS round) or exits 3 with nothing on stdout when no
-machine-readable checklist can be found.
+`bash scripts/count-gate-rounds.sh 182 --memory` restores the prior blocking items instead: the
+unchecked lines of the body's `gate-required-changes` region, else the latest legacy review comment's
+checklist. It exits 0 with one item per line (empty stdout on a PASS round) or exits 3 with nothing
+on stdout when no machine-readable checklist can be found.
 
 **Ask whether a ticket's gate verdict still describes it** (#284):
 
@@ -189,13 +191,13 @@ bash scripts/gate-status.sh 182
 It prints `ungated`, `unrecorded round <R>`, `current round <R> <VERDICT>` or
 `stale round <R> <VERDICT>`. The gate records a fingerprint of the body outside every marker
 region when it writes its verdict, so an edit to the non-blank text of any author section afterwards
-reads as `stale`. The stamp is `Judged body: sha256:<16 hex> (fp11). Full review: <url>.`; a stamp
+reads as `stale`. The stamp is `Judged body: sha256:<16 hex> (fp11).` (older stamps also end `Full review: <url>.`); a stamp
 whose `(fpN)` tag names another fingerprint algorithm reads `stale round <R> <VERDICT> (fingerprint
 <old>, now <current>)`, and a stamp without a tag (written by an older copy) is compared by its
 hash alone, as before.
 `--mark-stale` writes that into the verdict's heading, which is what this repository's
 `gate-staleness.yml` workflow runs on every issue edit. The block is a display: the fingerprint is
-a hash of public text, not a signature, so treat the review comment as the record.
+a hash of public text, not a signature, so treat the body's `gate-review` region as the record.
 
 **Check that your contributor docs are true for a clone** (#294):
 
