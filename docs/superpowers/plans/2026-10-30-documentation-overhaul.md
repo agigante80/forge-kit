@@ -274,7 +274,16 @@ enforcement contact the maintainer has not chosen, and remains optional.
 baseline `497e5e6`. Eleven files under `docs/changelog-detail/`, byte identical to the released
 sections; `CHANGELOG.md` keeps `## Unreleased`, each release heading and a link line;
 `check-retired-rules.sh` exempts each file by name; `docs/guides/versioning.md` states the release
-flow. The moved text held no relative link, so WP6b inherits an empty link list. WP6b is open.
+flow. The moved text held no relative link, so WP6b inherits an empty link list.
+
+**WP6b done:** [#592](https://github.com/agigante80/forge-kit/issues/592), 2026-11-13. All eleven
+releases in one change, so no batch was left over: each opens with its compare link, the link to
+its detail file, every plugin group's version at the tag, and Keep a Changelog groups led by
+Upgrade notes, every bullet at most two sentences under a bold group and version label. A one-off
+checker held the dates to the tags, each label version to that group's `plugin.json` history and
+the release's notes, and the two-sentence rule; seven mutants were all killed. `## Unreleased`
+stays detail-only and is summarised at release time, as `docs/guides/versioning.md` step 2 now
+says; the `release` skill prescribes no changelog shape and is unchanged.
 
 - **Failure removed:** `CHANGELOG.md` is 65,136 words. A single bullet routinely runs 300+ words of
   implementation detail (marker bumps, mutant counts, review rounds). A user upgrading cannot find
