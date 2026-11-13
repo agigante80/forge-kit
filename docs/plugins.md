@@ -1,6 +1,6 @@
 # Plugin groups
 
-forge-kit ships as seven plugin groups, each installed independently. This page is the
+forge-kit ships as plugin groups, each installed independently. This page is the
 reference for each: its full description, its version, the command that installs it, the groups
 it pulls in, and every component it carries, linked to its source. The README carries the short
 form of the same table. Below it, [Using each group](#using-each-group) says what each group
