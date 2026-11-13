@@ -20,7 +20,7 @@ humans have something to refer to and a changelog has something to hang off.
 `version` field in `marketplace.json`.**
 
 The `release` skill's first rule is that one source is canonical and every other place is a
-mirror kept equal to it. forge-kit has seven independently versioned plugins and no natural
+mirror kept equal to it. forge-kit has independently versioned plugin groups and no natural
 single source, so any file claiming a repo-level version would be a mirror with no other source
 to check against, and nothing in the repo would guard it. An unguarded mirror is a drift surface,
 and this repo's whole argument is mechanical enforcement over remembering. Keeping the tag as the
@@ -39,7 +39,7 @@ formula; do not try to compute it from them.
 ## 2. Plugin semver is the unit of install
 
 `version` in each `plugin.json` is the ecosystem-standard version the marketplace and tooling
-read. It is per plugin **group**, and the seven groups move independently and at very different
+read. It is per plugin **group**, and the groups move independently and at very different
 rates. A group at 0.7.x and a group at 0.1.0 is normal and says nothing about quality; it says
 one has been revised more often.
 
@@ -51,7 +51,7 @@ version did not.
 ### Why there is no per-plugin tag, and why `claude plugin tag` is not in the release lane (#171)
 
 The CLI ships `claude plugin tag [path]`, which creates a `{name}--v{version}` git tag and
-validates "that plugin.json and any enclosing marketplace entry agree". Probed on 2.1.267 against
+validates "that plugin.json and any enclosing marketplace entry agree". Probed on 2.1.267 (2026-09-10) against
 this repository:
 
 ```
@@ -78,7 +78,7 @@ build time, on every push. Its asks whether two copies of a version agree, at ta
 repo keeps only one copy on purpose. Calling it in the release lane as a verification step would
 add a hard dependency on the `claude` CLI to buy a check that cannot fail here.
 
-Second, **nothing would consume the tags**. Eight groups is eight tags per release, which buries
+Second, **nothing would consume the tags**. One tag per group per release buries
 the umbrella tag that people actually refer to. The one real use, "check out
 `forge-kit-governance` as it was at 0.10.0", is served by `git log` on that group's `plugin.json`,
 which needs no tag and no tooling. If a consumer ever appears, that is the moment to revisit this,
@@ -101,7 +101,7 @@ today: `skills/adapt/SKILL.md` is catalogued as `adapt` but carries `forge-adapt
 
 ## 4. `template-version` is not one of these
 
-The `template-version: N` marker on the five work issue templates tracks the ticket standard, not
+The `template-version: N` marker on the work issue templates tracks the ticket standard, not
 a component. `check-template-lockstep.sh` keeps the templates and the canonical
 `docs/guides/ticket-standards.md` on one shared value so they cannot drift apart. The marker
 parsers skip it explicitly.

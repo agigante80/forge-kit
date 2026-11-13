@@ -28,8 +28,8 @@ is recommended with the memory split stated, and outer-loop components are recom
 **Given** a neighbouring marketplace ships an agent with the same name as one of ours,
 **when** forge-adapt decides,
 **then** it says so and explains the difference rather than silently recommending a second copy,
-**but** it does not suppress ours on a name match alone, because three projects ship a
-`code-reviewer` and they are three different agents.
+**but** it does not suppress ours on a name match alone, because several projects ship a
+`code-reviewer` and they are different agents.
 
 **Given** your team uses Cursor, Copilot, or no AI CLI at all,
 **when** you copy the issue templates, `.github/labels.yml` and `docs/guides/ticket-standards.md`,

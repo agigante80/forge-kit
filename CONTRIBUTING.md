@@ -39,6 +39,10 @@ against `develop`, never `main`: a pull request merged into `main` breaks that f
   `docs/guides/ticket-standards.md` share one template version; change both or neither.
 - **Component size.** Prose components have a word budget; `scripts/check-component-size.sh`
   reports the limits.
+- **No undated counts in the docs.** A count of the kit's contents ("seven groups", "five
+  templates") goes stale. Delete it when the sentence works without it, otherwise date it in its
+  section; `scripts/check-doc-counts.sh` fails on an undated one and says how to mark a deliberate
+  exception.
 
 ## Run the checks
 

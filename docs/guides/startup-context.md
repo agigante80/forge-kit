@@ -25,8 +25,8 @@ The field notes from the five prunes that motivated it are in the
 
 **R1. A character budget for always-loaded context.** `context-budget.sh` totals the load set in
 characters, the CLI's own unit. Under 40,000 is `ok`; from 40,000 it warns on stderr and exits 0;
-at or over 80,000 it fails with exit 1. The CLI's own notices sit at about 40,000 characters per
-file and max(120,000, the per-file limit) combined, and are interactive with no exit code; R1
+at or over 80,000 it fails with exit 1. The CLI's own notices (Claude Code 2.1.295, read
+2026-10-09) sit at about 40,000 characters per file and max(120,000, the per-file limit) combined, and are interactive with no exit code; R1
 undercuts the combined one on purpose. A project that genuinely needs more raises its own level
 with one marker, `<!-- context-budget: <N> reason: <text> -->`, N above 80,000 and a reason
 required.
@@ -85,7 +85,7 @@ a tracked one may move to either. `.claude/memory/topic-*.md` is a reasonable ho
 
 ## The prune recipe
 
-Five repositories were pruned this way in one pass each, every one a verbatim move, every suite
+Five repositories were pruned this way on 2026-10-09, in one pass each, every one a verbatim move, every suite
 and pre-push check green afterwards. forge-kit's own local `CLAUDE.md` went from 126,168 bytes to
 34,105.
 
@@ -120,8 +120,8 @@ for the owner, so this is a trade-off, not a default.
 ## What the tool counts, and how it differs from the CLI
 
 Counted: `<repo-dir>/CLAUDE.md`; its `@`-imports, followed four hops with each file once; and the
-loaded portion of the auto-memory `MEMORY.md`, the first 200 lines or 25,000 bytes, whichever is
-less, cut at a character boundary. The whole `MEMORY.md` size prints as a separate, non-counted line.
+loaded portion of the auto-memory `MEMORY.md`, the first 200 lines or 25,000 bytes (the CLI's limit
+as of Claude Code 2.1.295, 2026-10-09), whichever is less, cut at a character boundary. The whole `MEMORY.md` size prints as a separate, non-counted line.
 
 The import grammar mirrors what `/context` showed on Claude Code 2.1.287 and 2.1.295: a token imports
 only at a line start or after whitespace, only when it names an existing file inside the project,

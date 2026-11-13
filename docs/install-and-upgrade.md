@@ -1,7 +1,7 @@
 # Install and upgrade
 
 Installing a group is one command, listed per group in [plugins.md](plugins.md) and in the
-README's catalogue. This page covers what comes after: the four states a group can be in, removing
+README's catalogue. This page covers what comes after: the states a group can be in, removing
 a group, what an installed group does in a project that has not asked for it, the declared
 dependencies, what forge-adapt does when you run it, and staying current.
 
@@ -40,7 +40,7 @@ themselves on something the project owns:
 
 Installing a group is not a commitment to using it everywhere.
 
-**Three groups declare a dependency.** `forge-kit-governance` and `forge-kit-roadmap` both need
+**Some groups declare a dependency.** `forge-kit-governance` and `forge-kit-roadmap` both need
 `forge-lib.sh` from `forge-kit-devops`. `forge-kit-governance` also declares `forge-kit-security`,
 because the ticket gate's security lens dispatches `security-auditor`, and `forge-kit-review`,
 because `working-overnight` dispatches `code-reviewer` and `full-review`. `forge-kit-review`
@@ -75,7 +75,7 @@ adaptation; `forge-adapt contributions` surfaces project-only components worth c
 Claude Code can auto-update a marketplace and its plugins at startup, but auto-update is off by
 default for third-party marketplaces such as this one. Turn it on in `/plugin`, under the
 Marketplaces tab, for `forge-kit`. Until you do, an installed group stays at the version you
-installed. This repository's own maintainer ran four minor versions behind for weeks while
+installed. This repository's own maintainer ran several minor versions behind for weeks while
 developing against the tree, which is why it is stated here rather than left implied.
 
 ```bash
@@ -89,7 +89,7 @@ Claude Code afterwards; the CLI says so on each update.
 **Upgrade note for `forge-kit-governance`, `forge-kit-review` and `forge-kit-roadmap`.** Governance
 declares `forge-kit-devops`, `forge-kit-review` and `forge-kit-security`; review declares
 `forge-kit-security`; roadmap declares `forge-kit-devops`. `claude plugin update` alone does NOT
-install a dependency a group newly declared. Measured on Claude Code 2.1.310, the updated plugin
+install a dependency a group newly declared. Measured on 2026-10-26 with Claude Code 2.1.310, the updated plugin
 reported `failed to load: Dependency ... is not installed`, and merely starting a session did not
 fix it. Running `/reload-plugins` in an open session resolves and installs the missing
 dependencies, or you can install each one yourself:

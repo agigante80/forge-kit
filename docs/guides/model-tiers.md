@@ -253,6 +253,8 @@ while finding less: the turn-count warning from superpowers, observed.
 
 ### The re-measurement (#289)
 
+Measured 2026-09-24.
+
 The security-roles paragraph above the Haiku note ("Why the security roles stay on `inherit` although
 Sonnet passed", #250) ends by naming what would move the security roles. #289 did that: a seed written for
 the question, a criterion fixed before any run, and three runs per cell. The seed is
@@ -308,6 +310,8 @@ faults the seed or the criterion, not the cheaper tier. The cost rule would have
 Sonnet's medians were 30322 output and 1862k cache reads against Opus's 14163 and 614k.
 
 ### The re-measurement (#292)
+
+Measured 2026-10-01.
 
 #289 could not judge `api-security-tester`: its P3 was a hard-coded secret, which has no black-box
 witness, so the criterion failed on Opus and nothing was concluded. #292 re-ran the question on a seed

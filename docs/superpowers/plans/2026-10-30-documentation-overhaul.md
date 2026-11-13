@@ -323,6 +323,12 @@ says; the `release` skill prescribes no changelog shape and is unchanged.
 
 ### WP7. Keep the numbers true: generate or delete every count in public prose
 
+**Done:** [#595](https://github.com/agigante80/forge-kit/issues/595), 2026-11-13. Every flagged count in the
+README, `docs/*.md`, `docs/guides/*.md` and the governance hooks README is deleted or dated in its section; the
+hooks table's Version column is gone in favour of the generated `docs/components.md`. The decision was a guard,
+not a checklist item: `scripts/check-doc-counts.sh` (with `scripts/test-check-doc-counts.sh`, both in
+`validate.yml`) fails on an undated number before an inventory noun, and only an ISO date dates a section.
+
 - **Failure removed:** hand-written counts in public docs rot ("thirty closed phases", "292
   plugins", "six collisions", "103 to 529 lines", "173 lines", "Eleven references", "about 240
   lines", "Claude Code 2.1.310"). This is the exact defect class #96 fixed for the inventory, still
