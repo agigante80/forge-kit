@@ -160,6 +160,13 @@ check "both present: recorded 0" 'grep -q "closed 1, already closed 1, recorded 
 std; region 10 "Released in v1.1.0"; run_cs v1.2.0
 check "a region naming another tag is replaced, one marker pair left" '[ $rc -eq 0 ] && recorded 10 "Released in v1.2.0" && [ "$(state 10)" = closed ]'
 
+# #583 review M1: a closed ticket keeps the release it shipped in.
+std; issue 10 closed; region 10 "Released in v1.1.0"; run_cs v1.2.0
+check "a closed ticket naming another tag is never rewritten" '[ $rc -eq 0 ] && recorded 10 "Released in v1.1.0" && [ "$(bpatch 10)" = 0 ]'
+check "  and counts as already closed, not recorded" 'grep -q "closed 1, already closed 1, recorded 1," <<< "$out"'
+std; issue 10 closed; region 10 "Released in v1.1.0"; run_cs DRY_RUN=1 v1.2.0
+check "DRY_RUN says nothing about a closed ticket naming another tag" '[ $rc -eq 0 ] && ! grep -q "#10" <<< "$out"'
+
 std; run_cs v1.2.0   # a legacy comment could only count if read; the shim has no comment arm
 check "a legacy Released comment is never read: the region is written and the ticket closed" '[ $rc -eq 0 ] && recorded 10 "Released in v1.2.0" && [ "$(state 10)" = closed ] && nocomment'
 

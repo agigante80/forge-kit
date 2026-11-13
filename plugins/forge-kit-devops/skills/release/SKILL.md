@@ -3,7 +3,7 @@ name: release
 description: Cut a versioned release - bump the project's semver across all version sources, keep doc version markers in sync, verify CI is green, tag, and close the tickets the release shipped. Includes a version-check guard (fail if version sources disagree) for CI/pre-commit. Generic skill - forge-adapt tailors the version files, branching model, tag format, and publish pipeline to the project. Use when the user asks to "release", "cut a release", "bump the version", "ship vX.Y.Z", or "tag a release".
 ---
 
-<!-- release-version: 8 -->
+<!-- release-version: 9 -->
 
 # Release
 
@@ -77,7 +77,7 @@ source scripts/forge-lib.sh
 | is CI green? (precondition + step 4) | `forge_ci_status <branch>` → `success` releasable; `pending`/`failure` not; `cancelled` (superseded) → re-dispatch CI and re-check; `none` (no run found) → wait and re-check, or confirm the repo has no CI and use the local gate; **`not_configured`** (the API could not be asked) → see below |
 | does the tag already exist? | `forge_tag_exists <tag>` |
 | create the release | `forge_release_create <tag> [title] [notes]` |
-| close the shipped tickets | `bash scripts/close-shipped.sh <tag>` (release-automation's asset, built on these functions); absent it, `forge_body_region_set <N> release release-shipped "Released in v<ver>"` then `forge_issue_close <N>` per ticket |
+| close the shipped tickets | `bash scripts/close-shipped.sh <tag>` (release-automation's asset, built on these functions); absent it, `forge_body_region_set <N> release release-shipped "Released in v<ver>" && forge_issue_close <N>` per ticket, so a failed record never closes |
 
 **`not_configured` (the forge could not be asked):** there is no answer to read, so the
 "CI green" gate cannot be checked remotely. Fall back to the project's **local** gate
@@ -120,8 +120,8 @@ Neither falls back to the local gate on its own. The
    comment, #583), closes each open issue, skips pull requests and missing numbers, and exits 1 if
    any record or close failed (rerun the same command: an identical region is never rewritten).
    Absent the asset, for each ticket from step 2 run
-   `forge_body_region_set <N> release release-shipped "Released in v<ver>"` then
-   `forge_issue_close <N>`. This is the step most easily forgotten by hand, so
+   `forge_body_region_set <N> release release-shipped "Released in v<ver>" && forge_issue_close <N>`,
+   so a ticket whose record failed is never closed. This is the step most easily forgotten by hand, so
    `close-shipped.sh --report --last 1` afterwards must list no released but open ticket.
 
 ## Output / reporting

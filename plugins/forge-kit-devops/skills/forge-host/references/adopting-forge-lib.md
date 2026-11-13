@@ -32,8 +32,7 @@ gh issue close "$N" --comment "Released in v$VERSION"
 After:
 ```bash
 source scripts/forge-lib.sh
-forge_body_region_set "$N" release release-shipped "Released in v$VERSION"
-forge_issue_close "$N"
+forge_body_region_set "$N" release release-shipped "Released in v$VERSION" && forge_issue_close "$N"
 ```
 
 The note goes in a body region rather than a comment (#583): a rerun replaces the region instead

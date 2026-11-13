@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. The enforced/automated sibling of the invoked `release` skill. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 16 -->
+<!-- release-automation-version: 17 -->
 
 # Release automation
 
@@ -145,7 +145,8 @@ skipped, never written to. A first release closes nothing.
 - **Failure and recovery:** a failed record or close is a warning, every ticket is still tried, and
   the run exits 1 with the tag and release already present. **Never rerun the lane** to recover: it
   re-enters `release-run.sh` from the top, which in file mode cuts a phantom patch release. Run the
-  command it prints, `bash scripts/close-shipped.sh <tag>`, which converges.
+  command it prints, `bash scripts/close-shipped.sh <tag>`, which converges. A record failing with
+  rc 103 is a malformed region marker in that ticket's body: fix the body by hand, then rerun.
 - **Report:** `close-shipped.sh --report --last <N>` lists released but still open tickets and never
   writes (exit 1 when it finds one), so a skipped close is visible. It reads the N newest release
   tags in the repository from any branch, so run `git fetch --tags` first.

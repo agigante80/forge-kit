@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# close-shipped-version: 7
+# close-shipped-version: 8
 # close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496).
 # Closing shipped tickets was a step someone had to remember (the `release` skill's step 5), and on
 # a two branch model the host's own auto close never fires, because the feature PRs target the
@@ -43,7 +43,9 @@
 # it before the release), carries the record in its BODY, never a comment (#583): the region
 # `release-shipped` reading exactly `Released in <tag>`, written by
 # `forge_body_region_set <N> release release-shipped "Released in <tag>"` only when the region does
-# not already say so (another tag's text is replaced). Comments are never read or written. Then an
+# not already say so. Another tag's text is replaced on an OPEN ticket only (a reopened one shipped
+# again); a closed ticket keeps the release it shipped in, so a follow-up commit naming it in a later
+# release, or a backfill run for an older tag, never rewrites that record. Comments are never read or written. Then an
 # open issue is closed; a closed one gets nothing more. So a run that recorded and then failed to
 # close converges on rerun with no second write, and a closed, recorded ticket gets no write at all.
 # A close is never attempted after a failed region read or write (rc 102 is a body that moved since
@@ -51,8 +53,9 @@
 # recorded), kept open, skipped or failed; `recorded` separately counts the region writes made.
 # Every failure prints `::warning::<step> #N failed (rc=R)` and
 # the loop goes on; the run exits 1 at the end if any ticket failed. It runs AFTER the tag, so a
-# red run means: rerun THIS script by hand (`close-shipped.sh <tag>`), which converges. Never rerun
-# the release lane, which would cut another release.
+# red run means: rerun THIS script by hand (`close-shipped.sh <tag>`), which converges. A record
+# failing with rc 103 is a malformed region marker in that ticket's body, which no rerun fixes: repair
+# the body by hand, then rerun. Never rerun the release lane, which would cut another release.
 #
 # The owner/repo is resolved ONCE, before the first host call, and a failure exits 2 with
 # forge-lib's own error: an unresolved repo would otherwise build `repos//issues/N`, which the
@@ -295,15 +298,19 @@ release_one() {   # release_one <tag> <end> <label>: one tag's manifest and acti
     if [ "$rc" -ne 0 ]; then
       cat "$WORK/err" >&2; echo "::warning::region #$n failed (rc=$rc)"; failed=$((failed + 1)); continue
     fi
+    # Write when the text differs, but on a closed ticket only into an empty region: a closed ticket
+    # already names the release it shipped in (#583 review M1).
+    need=0
+    if [ "$got" != "$note" ] && { [ "$V" = open ] || [ -z "$got" ]; }; then need=1; fi
     if [ "$DRY" = 1 ]; then
-      if [ "$got" = "$note" ]; then
+      if [ "$need" = 0 ]; then
         [ "$V" = open ] && echo "[dry-run] would close #$n for $tag (already recorded)"
       elif [ "$V" = open ]; then echo "[dry-run] would record and close #$n for $tag"
       else echo "[dry-run] would record #$n for $tag (already closed)"; fi
       [ "$V" = closed ] && already=$((already + 1))
       continue
     fi
-    if [ "$got" != "$note" ]; then
+    if [ "$need" = 1 ]; then
       rc=0; forge_body_region_set "$n" release release-shipped "$note" || rc=$?
       if [ "$rc" -ne 0 ]; then echo "::warning::record #$n failed (rc=$rc)"; failed=$((failed + 1)); continue; fi
       recorded=$((recorded + 1))
