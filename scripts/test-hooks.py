@@ -3456,6 +3456,21 @@ FWC_COMMENT = [
     "cut -d' ' -f1 ids.txt; gh issue comment 5 -b x",
     'curl -X POST https://h/api/v1/repos/o/r/issues/5/comments -d \'{"body":"graphql mutation notes"}\'',
     'curl -X POST "https://api.github.com/graphql" -d \'{"query":"mutation{addComment(input:{}){x}}"}\'',
+    # #586: no comment is exempt. A release note, a gate review and a closing note go in the body.
+    'forge_issue_comment 5 "Released in v1.2.3"',
+    'forge_issue_comment "$N" "Released in v$VERSION"',
+    'gh issue comment 5 --body "Released in v1.2"',
+    'forge_gate_comment 5 "$D/review.md" || exit 2',
+    'gh issue close 5 --comment "the decision is X"',
+    'gh issue close 5 --comment "Released in v1.2"',
+    'gh issue close 5 -c "x"',
+    "gh issue close 5 --comment=x",
+    'gh issue close 5 --reason "not planned" -c "parked"',
+    "gh issue close 5 --reason completed --comment x",
+    'gh issue -R o/r close 5 -c x',
+    'gh pr close 7 -c "parking the decision: X"',
+    'gh issue reopen 5 --comment "reopened because X"',
+    "gh pr reopen 7 -c x",
 ]
 FWC_TICKET = [
     'gh issue create --title t --body b',
@@ -3479,16 +3494,18 @@ FWC_ALLOW = [
     'gh issue edit 5 --body-file b.md',
     'forge_issue_edit 5 "$(cat b.md)"',
     'forge_body_region_set 5 decisions "$x"',
-    'gh issue close 5 --comment "Released in v1.2"',
+    "gh issue close 5",
+    "gh issue close 5 --reason completed",
     "forge_issue_close 5",
+    "gh pr close 7 --delete-branch",
+    "gh issue reopen 5",
+    'gh issue edit 5 --body "run gh issue close 5 --comment x"',
+    "gh issue close 5 --reason \"not planned\" && echo '-c is the short form'",
     "gh issue view 5 --comments",
     "gh api repos/o/r/issues/5/comments",
     "gh api repos/o/r/issues?state=open",
     'forge_api GET "/repos/$(forge_repo)/issues/5/comments"',
     'forge_api POST "/repos/$(forge_repo)/issues/5/labels" "$p"',
-    'forge_gate_comment 5 "$D/review.md" || exit 2',
-    'forge_issue_comment "$N" "Released in v$VERSION"',
-    'gh issue comment 5 --body "Released in v1.2"',
     'gh issue edit 5 --body "do not run gh issue comment or forge_issue_create here"',
     "git commit -m 'gh issue create is denied by the hook'",
     "cat <<'EOF' > b.md\ngh issue comment 5 -b x\nEOF",
@@ -3526,6 +3543,9 @@ with tempfile.TemporaryDirectory() as td:
     p = f.bash('gh issue comment 5 -b x')
     check("fwc reason says body, not comment", "BODY" in fwc_reason(p), True)
     check("fwc reason ends with do-not-work-around", fwc_reason(p).endswith("Do not work around this guard."), True)
+    check("fwc reason names no gate exemption (#586)", "forge_gate_comment" in fwc_reason(p), False)
+    check("fwc reason puts retractions and release notes in the body (#586)",
+          all(w in fwc_reason(p) for w in ("decisions", "answers", "corrections", "Retractions", "release notes")), True)
     check("fwc deny exit 0", p.returncode, 0)
     p = f.bash('forge_issue_create "t" "b"; gh issue comment 5 -b x')
     check("fwc both needed: the ticket reason wins", "allow-ticket" in fwc_reason(p), True)
@@ -3534,6 +3554,8 @@ with tempfile.TemporaryDirectory() as td:
     f.prompt("go ahead, allow-comment on #5")
     check("fwc grant file written", json.loads(f.grant_file().read_text()), {"comment": True, "ticket": False})
     check("fwc allow-comment allows a comment", verdict(f.bash('gh issue comment 5 -b x')), ALLOW)
+    check("fwc allow-comment allows a close with a comment", verdict(f.bash('gh issue close 5 --comment "x"')), ALLOW)
+    check("fwc allow-comment allows a release note", verdict(f.bash('forge_issue_comment 5 "Released in v1.2.3"')), ALLOW)
     check("fwc allow-comment does not grant a ticket", verdict(f.bash('gh issue create -t t -b b')), DENY)
     check("fwc mixed command needs both", verdict(f.bash('gh issue comment 5 -b x && forge_issue_create t b')), DENY)
     check("fwc grant reaches a subagent of the session",
@@ -3631,8 +3653,18 @@ with tempfile.TemporaryDirectory() as td:
         ("grant ignores the kind", 'if isinstance(g, dict) and g.get(k) is True}',
          'if isinstance(g, dict) and any(v is True for v in g.values())}',
          [("p", "allow-ticket"), ("b", "gh issue comment 5 -b x")], DENY),
-        ("release exemption dropped", "and not RELEASE_NOTE.search(raw)", "",
-         [("p", "hi"), ("b", 'forge_issue_comment "$N" "Released in v1"')], ALLOW),
+        # #586: each removed exemption, put back, must flip an ungranted DENY to ALLOW.
+        ("release exemption restored", "if COMMENT_CMD.search(blank):",
+         "if COMMENT_CMD.search(blank) and not re.search(r\"Released in v?[\\w.${}+-]+[\\\"']\\s*\\Z\", raw):",
+         [("p", "hi"), ("b", 'forge_issue_comment "$N" "Released in v1"')], DENY),
+        ("gate comment exemption restored", "forge_(?:issue|gate)_comment", "forge_issue_comment",
+         [("p", "hi"), ("b", 'forge_gate_comment 5 "$D/review.md"')], DENY),
+        ("close comment not judged",
+         r'''                         r"|gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+(?:close|reopen)\b[^\n]*\s(?:--comment|-c)(?![\w-])"
+''', "",
+         [("p", "hi"), ("b", 'gh issue close 5 -c "parked"')], DENY),
+        ("reopen comment not judged", r"(?:close|reopen)\b[^\n]*", r"close\b[^\n]*",
+         [("p", "hi"), ("b", "gh pr reopen 7 -c x")], DENY),
         ("command substitution not judged", "need += sub_need", "pass",
          [("p", "hi"), ("b", 'URL="$(gh issue create --title "t" --body-file b.md)"')], DENY),
         ("words around a substitution unblanked", "blank(i + 1, min(j, n))", "pass",
@@ -3642,8 +3674,6 @@ with tempfile.TemporaryDirectory() as td:
          [("p", "hi"), ("b", "cut -d' ' -f1 ids.txt; gh issue comment 5 -b x")], DENY),
         ("graphql mutations ignored", 'if GRAPHQL.search(blank) and re.search(r"/?graphql\\b", raw) and re.search(r"\\bmutation\\b", raw):', "if False:",
          [("p", "hi"), ("b", "gh api graphql -f query='mutation{addComment(input:{subjectId:\"X\",body:\"b\"}){clientMutationId}}'")], DENY),
-        ("release note widened", r"\1\s*\Z", "",
-         [("p", "hi"), ("b", 'forge_issue_comment 5 "Released in v1.2 and we decided X"')], DENY),
         ("sentinel gate dropped", "return path is not None and os.path.exists(path)",
          "return True", "NOSENTINEL", ALLOW),
         ("session id check dropped", "if not isinstance(sid, str) or not SESSION_ID.match(sid):", "if not isinstance(sid, str):",

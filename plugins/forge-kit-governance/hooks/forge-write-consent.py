@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 8
+# forge-write-consent-version: 9
 """Deny forge comments without the user's grant, and new tickets past a per-session budget (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
-answers and corrections are rewritten into the body, and a comment is only a retraction or a
-closing note. A finding becomes a ticket only as the review-lows skill (forge-kit-review) rules
+answers, corrections, retractions and release notes are rewritten into the body, and a comment is
+written only when the user asks for one. A finding becomes a ticket only as the review-lows skill (forge-kit-review) rules
 it. One session filed 25 tickets in a day and parked decisions in 12
 comments, so the kit enforces both mechanically.
 
@@ -41,8 +41,10 @@ WHAT IS JUDGED. Quoted strings and heredoc bodies are blanked first, so a body t
 MENTIONS `gh issue comment` is not a write; text the shell executes (`bash -c`, `eval`, `| sh`)
 is judged raw. The blanked view is split into segments on `; & | newline`, and each segment is
 matched against its RAW text (blanking keeps offsets), so a quoted API path still counts.
-  comment: gh issue|pr [flags] comment, gh pr review --comment, forge_issue_comment, tea comment,
-           and a gh api / forge_api / curl write naming a /comments path.
+  comment: gh issue|pr [flags] comment, gh pr review --comment, gh issue|pr close|reopen with
+           --comment or -c (#586), forge_issue_comment, forge_gate_comment (retired by #581, still
+           defined by an older gate-env.sh), tea comment, and a gh api / forge_api /
+           curl write naming a /comments path.
   ticket:  gh issue [flags] create, forge_issue_create, tea issue(s)|i create, and a gh api /
            forge_api / curl write whose path ends in repos/<owner>/<repo>/issues.
   A write is per tool: gh api with -f/-F/--field/--raw-field/--input or -X POST, unless -X GET;
@@ -52,19 +54,14 @@ matched against its RAW text (blanking keeps offsets), so a quoted API path stil
   double quotes is judged as its own command (the text around it stays blanked), and a segment
   asking for --help or -h is not a write.
   never denied: body rewrites (gh issue edit, forge_issue_edit, the body-region primitives),
-           closes (a `gh issue close --comment` is a closing note), reads.
-  exempt:  a release closing note whose whole body is `Released in <version>`, nothing after it
-           (`forge_issue_comment <n> "Released in v1.2.3"`, `gh issue comment <n> --body "..."`).
-  unseen:  writes made inside a function or script, not in the typed text. ticket-gate posts its
-           templates with forge_gate_comment (gate-env.sh), which accepts only a file whose first
-           line is one of the gate's exact headings, so that function holds the line itself;
-           close-shipped.sh posts its release notes the same way.
+           closes and reopens that carry no comment (forge_issue_close included), reads.
+  No comment is exempt (#586): a release note, a gate review and a closing note all go in the
+  body (close-shipped.sh since #583, ticket-gate since #581), so each needs allow-comment.
+  unseen:  writes made inside a function or script, not in the typed text.
 
 Known limits, stated rather than implied: a script written to a file and then run, a body or
-path held in a variable set in an earlier call, a forge_api POST hidden in a function, an inline
-function shadowing forge_gate_comment, any text placed under a gate heading (forge_gate_comment
-checks the first line only), `gh issue close --comment` carrying a whole decision, and
-the model writing the grant file itself. This guards a habit, not an adversary. A user prompt that
+path held in a variable set in an earlier call, a forge_api POST hidden in a function, and the
+model writing the grant file itself. This guards a habit, not an adversary. A user prompt that
 merely quotes the word grants it, `not-allow-comment` included. The hook sees the TYPED prompt, so
 `/ci-health allow-ticket` grants and a command's expanded body never does. It never echoes
 prompt text anywhere.
@@ -106,9 +103,9 @@ REASONS = {
         "forge-write-consent: no forge comment without the user's explicit go-ahead. A ticket is "
         "read by its BODY: decisions, answers and corrections are rewritten into the body "
         "(forge_issue_edit, the body-region primitives or gh issue edit), never added as a "
-        "comment. If a comment is truly needed (a retraction, or a note the user asked for), "
-        "stop and ask the user; they grant it by writing allow-comment in their next message. "
-        "ticket-gate posts its own templates with forge_gate_comment." + TAIL
+        "comment. Retractions and release notes go in the body too, and a close or reopen "
+        "carries no --comment. A comment is written only when the user asks for one: stop and "
+        "ask; they grant it by writing allow-comment in their next message." + TAIL
     ),
     "ticket": (
         "forge-write-consent: no new ticket without the user's explicit go-ahead. If it can be "
@@ -148,7 +145,8 @@ W = r"(?<![\w.-])"   # a command word starts here: not inside another word or pa
 GH_FLAGS = r"(?:\s+-\S+(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|[^-\s\"']\S*))?)*"
 COMMENT_CMD = re.compile(W + r"(?:gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+comment"
                          r"|gh\s+pr" + GH_FLAGS + r"\s+review\b[^\n]*\s(?:--comment|-c)(?![\w-])"
-                         r"|forge_issue_comment|tea\s+comment)\b")
+                         r"|gh\s+(?:issue|pr)" + GH_FLAGS + r"\s+(?:close|reopen)\b[^\n]*\s(?:--comment|-c)(?![\w-])"
+                         r"|forge_(?:issue|gate)_comment|tea\s+comment)\b")
 TICKET_CMD = re.compile(W + r"(?:gh\s+issue" + GH_FLAGS + r"\s+create|forge_issue_create|tea\s+(?:issues?|i)\s+create)\b")
 # Anything that may run a ticket write more than once makes its cost uncountable. The list is a
 # habit guard's, not a sandbox's (see Known limits): a review asking to extend it again should
@@ -171,9 +169,6 @@ ISSUES_PATH = re.compile(r"repos/(?:[^/\s\"']+/){1,2}issues/?(?=[\"'\s?)`]|\Z)")
 GRAPHQL = re.compile(W + r"(?:gh\s+api\s+graphql\b|(?:curl|forge_api\s+POST)\b)")   # curl's URL is often quoted
 GRAPHQL_WRITES = (("comment", re.compile(r"\b(?:addComment|addPullRequestReview\w*|addDiscussionComment)\b")),
                   ("ticket", re.compile(r"\bcreateIssue\b")))
-RELEASE_NOTE = re.compile(
-    W + r"(?:forge_issue_comment\s+\S+\s+|gh\s+issue\s+comment\s+\S+\s+(?:--body|-b)[\s=]+)"
-    r"([\"'])Released in v?[\w.${}+-]+\1\s*\Z")
 
 
 def _blank(m, group=0):
@@ -276,7 +271,7 @@ def writes(command):
         loops = loops or bool(REPEATS.search(blank))
         if HELP.search(blank):
             continue   # a help request writes nothing
-        if COMMENT_CMD.search(blank) and not RELEASE_NOTE.search(raw):
+        if COMMENT_CMD.search(blank):
             need.append("comment")
         if TICKET_CMD.search(blank):
             need.append("ticket")
@@ -456,9 +451,9 @@ def self_test():
             (None, "ALLOW", 'forge_issue_create "t" "b"'),
             (None, "DENY", 'forge_issue_create "t" "b"'),
             (None, "ALLOW", 'gh issue edit 5 --body "see gh issue comment"'),
-            (None, "ALLOW", 'forge_gate_comment 5 "$D/review.md"'),
-            (None, "DENY", 'forge_issue_comment 5 "Released in v1.2 and we dropped X"'),
-            (None, "ALLOW", 'forge_issue_comment 5 "Released in v1.2.3"'),
+            (None, "DENY", 'forge_issue_comment 5 "Released in v1.2.3"'),
+            (None, "DENY", 'gh issue close 5 --comment "the decision is X"'),
+            (None, "ALLOW", 'gh issue close 5 --reason completed'),
             ("please allow-comment", "ALLOW", 'gh issue comment 5 --body "x"'),
             (None, "DENY", 'forge_issue_create "t" "b"'),
             ("allow-ticket", "ALLOW", 'forge_issue_create "t" "b"'),
