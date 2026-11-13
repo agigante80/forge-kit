@@ -114,34 +114,38 @@ When NOT to recommend: a project whose agents never post to the forge.
 
 The hook has two arms behind one script: the overnight arm (armed by a `working-overnight` run's
 own `.claude/overnight/active.md`) and a daytime arm armed by its OWN sentinel,
-`.claude/no-destructive` (one file per hook, same shape as `.claude/no-poll-loops`). **forge-adapt
-creates the daytime sentinel on every install, in both shapes**, so the hook can never be installed
-switched off. The script checks the sentinels itself and has no path-shape logic, so a project-local
-copy is NOT opted in by its location: without the file it is inert by day. The daytime arm denies
-the git discards and `rm -rf` of a dangerous or wildcard target; the patterns are in the hook's own
-header and `hooks/README.md`, so do not restate them. Tell the user the daytime arm exists and how
-to switch it off before creating the file.
+`.claude/no-destructive` (one file per hook, same shape as `.claude/no-poll-loops`). **The daytime
+arm is opt-in (#577, reversing #419's arm-on-install): forge-adapt never creates the sentinel by default, in either shape, and never
+recreates it on a refresh.** An absent sentinel is the user's choice, not drift. The
+script checks the sentinels itself and has no path-shape logic, so a project-local copy is NOT opted
+in by its location: without the file it is inert by day. The daytime arm denies the git discards and
+`rm -rf` of a dangerous or wildcard target, even a command the user asked for; the patterns are in
+the hook's own header and `hooks/README.md`, so do not restate them.
 
 Branch on `$GOVERNANCE_PLUGIN_ACTIVE`, as for `block-dashes`:
 
 `yes`: the plugin's `hooks.json` already registers the hook, shell-gated on both sentinels. Do NOT
-copy the script and do NOT touch `settings.json`. The whole install is:
+copy the script and do NOT touch `settings.json`. The install creates nothing.
+
+`no`: copy `$FORGE_KIT_DIR/plugins/forge-kit-governance/hooks/overnight-guard.py` verbatim to
+`.claude/hooks/overnight-guard.py` (keep the `# overnight-guard-version: N` marker), merge a `Bash`
+entry into `.claude/settings.json` with the same `jq` merge and exec form as `block-dashes`
+(`"command": "python3"`, `"args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/overnight-guard.py"]`).
+
+Then, in both branches, ask once whether to arm the daytime arm, saying what it denies and that
+`rm .claude/no-destructive` switches it off. Only on an explicit yes run:
 
 ```bash
 mkdir -p .claude && touch .claude/no-destructive
 ```
 
-`no`: copy `$FORGE_KIT_DIR/plugins/forge-kit-governance/hooks/overnight-guard.py` verbatim to
-`.claude/hooks/overnight-guard.py` (keep the `# overnight-guard-version: N` marker), merge a `Bash`
-entry into `.claude/settings.json` with the same `jq` merge and exec form as `block-dashes`
-(`"command": "python3"`, `"args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/overnight-guard.py"]`),
-then create the sentinel with the command above.
-
-Confirm: `✓ overnight-guard (hook): daytime arm armed via .claude/no-destructive`. Opt out later by
-deleting the sentinel. An overnight run arms the hook with or without it.
+Confirm: `✓ overnight-guard (hook): installed; daytime arm off (opt in: touch .claude/no-destructive)`,
+or `✓ overnight-guard (hook): installed; daytime arm armed via .claude/no-destructive` after a yes.
+An overnight run arms the hook with or without the sentinel. An install re-run asks again after a
+decline; a refresh or drift run never asks and never touches an absent sentinel.
 
 When NOT to recommend: a project with no `working-overnight` and no CLAUDE.md rule about
-destructive commands, since the daytime arm denies even a command the user asked for.
+destructive commands.
 
 ## Install detail (masked-exit-advisory.py)
 

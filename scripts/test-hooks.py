@@ -1102,12 +1102,31 @@ check("hooks.md has the overnight-guard install detail", og_detail != "", True)
 check("hooks.md detail names the sentinel", ".claude/no-destructive" in og_detail, True)
 check("hooks.md detail branches on GOVERNANCE_PLUGIN_ACTIVE (yes and no)",
       "`yes`" in og_detail and "`no`" in og_detail and "GOVERNANCE_PLUGIN_ACTIVE" in og_detail, True)
-check("hooks.md yes branch: touch the sentinel, no copy",
-      "mkdir -p .claude && touch .claude/no-destructive" in og_detail, True)
+_og_yes = og_detail.split("`yes`:")[-1].split("`no`:")[0]
+_og_no = og_detail.split("`no`:")[-1].split("Then, in both branches")[0]
+_og_ask = og_detail.split("Then, in both branches")[-1]
+_og_touch = "mkdir -p .claude && touch .claude/no-destructive"
+# #577: the daytime arm is opt-in. The one touch is behind an explicit yes, never on the default path.
+check("hooks.md says the daytime arm is opt-in and never created by default (#577)",
+      "opt-in" in og_detail and "never creates the sentinel by default" in " ".join(og_detail.split()), True)
+check("hooks.md no longer says forge-adapt creates the sentinel on every install (#577)",
+      "creates the daytime sentinel on every install" in og_detail or "create the sentinel with" in og_detail, False)
+check("hooks.md yes branch: no copy, no settings edit, creates nothing",
+      "Do NOT\ncopy the script" in _og_yes and "creates nothing" in _og_yes, True)
+check("hooks.md yes branch has no touch of the sentinel (#577)", _og_touch in _og_yes, False)
 check("hooks.md no branch: copy verbatim and wire an exec-form Bash entry",
       ".claude/hooks/overnight-guard.py" in og_detail and '"command": "python3"' in og_detail, True)
-check("hooks.md no branch creates the sentinel",
-      "create the sentinel" in og_detail.split("`no`:")[-1], True)
+check("hooks.md no branch has no touch and no sentinel creation (#577)",
+      _og_touch in _og_no or "create the sentinel" in _og_no, False)
+check("hooks.md asks the opt-in question and touches only on an explicit yes (#577)",
+      "ask once" in _og_ask and "explicit yes" in _og_ask and _og_touch in _og_ask
+      and og_detail.count(_og_touch) == 1 and _og_ask.index("explicit yes") < _og_ask.index(_og_touch), True)
+check("hooks.md never recreates an absent sentinel on a refresh (#577)",
+      "never recreates it on a refresh" in " ".join(og_detail.split())
+      and "never touches an absent sentinel" in " ".join(og_detail.split()), True)
+check("hooks.md confirm line: daytime arm off by default, armed after a yes (#577)",
+      "installed; daytime arm off (opt in: touch .claude/no-destructive)" in og_detail
+      and "installed; daytime arm armed via .claude/no-destructive" in og_detail, True)
 check("hooks.md detail has a confirm line", "Confirm:" in og_detail, True)
 
 # --- no-poll-loops (PreToolUse Bash, #263) ----------------------------------

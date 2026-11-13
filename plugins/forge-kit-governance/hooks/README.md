@@ -233,11 +233,12 @@ right after `<` or `>` (`2>&1`, `>&2`, `<&0`) or right before `>` (`&>x`) stays 
 (`sleep 1 & rm -rf /`, `echo >&2 & git reset --hard`). Both arms drop redirections before judging an `rm`, so
 `rm -rf build > /dev/null`, `2> /dev/null` and `&> /dev/null` stay allowed overnight as they were by day.
 
-**forge-adapt creates the sentinel when it installs the hook, in both install shapes.** The
+**The daytime arm is opt-in (#577): forge-adapt installs the hook in both shapes but creates the
+sentinel only on the user's explicit yes, and never recreates it on a refresh.** The
 `hooks.json` gate runs Python only when either sentinel exists.
 
 ```bash
-mkdir -p .claude && touch .claude/no-destructive   # opt in (forge-adapt does this)
+mkdir -p .claude && touch .claude/no-destructive   # opt in (forge-adapt does this only on your explicit yes)
 rm .claude/no-destructive                          # opt out
 ```
 

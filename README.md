@@ -55,9 +55,9 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.13.13 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.13.14 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.26.9 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.40.2 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
+| `forge-kit-governance` | 0.40.3 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
 | `forge-kit-review` | 0.8.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.22 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.18.9 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
@@ -78,7 +78,8 @@ themselves on something the project owns:
 - each opt-in hook stays dormant until the project creates its sentinel file: `.claude/no-dashes`
   (`block-dashes`), `.claude/no-poll-loops` (`no-poll-loops`), `.claude/masked-exit`
   (`masked-exit-advisory`), `.claude/forge-write-consent` (`forge-write-consent`),
-  `.claude/no-destructive` (the daytime arm of `overnight-guard`) and `.claude/scan-forge-writes`
+  `.claude/no-destructive` (the daytime arm of `overnight-guard`; forge-adapt never creates it
+  unless you say yes, and never recreates it on a refresh) and `.claude/scan-forge-writes`
   (`scan-forge-writes`, in `forge-kit-security`, which also arms when the default branch tracks
   that file);
 - the overnight arm of `overnight-guard` and the overnight Stop hook arm only while a run's
@@ -258,7 +259,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
-| `forge-kit-adapt` | skill | `adapt` | v102 | 7107 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
+| `forge-kit-adapt` | skill | `adapt` | v103 | 7107 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
 | `forge-kit-adapt` | shell asset | `check-template-lockstep` | v3 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
 | `forge-kit-adapt` | shell asset | `citation-check` | v5 |  | citation-check.sh: find the ticket-standards section titles the gate cites that the project's own |
 | `forge-kit-adapt` | shell asset | `hook-unwire` | v4 |  | hook-unwire.sh: remove one hook's wiring from a project's .claude/settings.json (#564). |
