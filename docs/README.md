@@ -38,7 +38,7 @@ newcomer to a first result, a **how-to** gets a task done, a **reference** is lo
 |---|---|---|---|
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | contributors | how-to | How to propose work and open a pull request, and the rules CI enforces |
 | [../SECURITY.md](../SECURITY.md) | everyone | how-to | Supported versions and how to report a vulnerability privately |
-| [../CHANGELOG.md](../CHANGELOG.md) | adopters, maintainers | reference | Release history: one heading per release, each linking its full notes |
+| [../CHANGELOG.md](../CHANGELOG.md) | adopters, maintainers | reference | Release history: per release, a short summary for upgrading (upgrade notes, group versions, compare link) and a link to its full notes |
 | [changelog-detail/](changelog-detail/) | adopters, maintainers | reference | Each release's full notes, one file per version, moved verbatim from the changelog |
 | [roadmap.md](roadmap.md) | contributors | reference | What is being worked on now, and what each closed phase concluded |
 | [../scripts/check-doc-drift.sh](../scripts/check-doc-drift.sh) | contributors | reference | Which documents a range of commits made stale, reported per line and never as a build failure |

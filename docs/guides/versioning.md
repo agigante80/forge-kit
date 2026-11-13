@@ -119,9 +119,17 @@ by matching `template-version:` literally. See `docs/guides/template-versioning.
 2. Write the release's notes. Entries gather under `## Unreleased` in `CHANGELOG.md` as work
    lands; at release, their text becomes the new version's section, thematic rather than a commit
    dump, written to `docs/changelog-detail/vX.Y.Z.md` starting with its `## vX.Y.Z (date)`
-   heading. `CHANGELOG.md` keeps an emptied `## Unreleased`, then that heading and one line
-   linking the file, above the previous release. Add the file's path to `EXEMPT` in
-   `scripts/check-retired-rules.sh`, which scans every other file in that directory.
+   heading. `CHANGELOG.md` keeps an emptied `## Unreleased` (with its compare link moved on to
+   `compare/vX.Y.Z...main`), then, above the previous release, that heading followed by the
+   summary for someone upgrading: a line with the compare link from the previous tag and the
+   link to the detail file, a line of every plugin group's version at the new tag, and Keep a
+   Changelog groups in the order Upgrade notes (only when a dependency or behaviour change needs
+   the user to act), Security, Added, Changed, Deprecated, Removed, Fixed. Each bullet has at
+   most two sentences, the impact and any action required, and opens with a bold label naming
+   each plugin group it touches with the first version carrying the change, or `Repository
+   only`. Unreleased is summarised here rather than as work lands, because parallel work appends
+   to it daily and a running summary would go stale on every merge. Add the file's path to
+   `EXEMPT` in `scripts/check-retired-rules.sh`, which scans every other file in that directory.
 3. Tag `vX.Y.Z` on main and push the tag.
 4. Create the GitHub release from that tag, with `docs/changelog-detail/vX.Y.Z.md` as its body.
 5. Close the tickets the release shipped.
