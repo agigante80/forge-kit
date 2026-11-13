@@ -166,6 +166,17 @@ verdicts() {
   grep -q 'forge_issue_create' <<< "$(grep -F -- '- **No match:**' <<< "$p2")" || echo "no host branch"
   grep -q 'forge_issue_comment' "$f" && echo "a status update posted as a comment (#565)"
 
+  # Phase 4 notes go in the body (#584): no posting command anywhere, one named region, and no
+  # bullet of the DO NOT AUTO-IMPLEMENT list may tell the agent to comment
+  grep -q -E 'forge_issue_comment|gh issue comment|gh pr comment' "$f" && echo "comment instruction remains"
+  grep -q 'forge_body_region_set "<N>" ci-health ci-health-notes' <<< "$p4" || echo "a Phase 4 case has no body region write"
+  grep -q 'second note on the same ticket replaces the region' <<< "${p4//$'\n'/ }" || echo "a repeat note is not said to replace"
+  for n in 'E2E test failures' 'Security scan findings' 'Release / version-gate failures'; do
+    b=$(printf '%s\n' "$p4" | sed -E 's/^[0-9]+://' | awk -v k="- $n" 'index($0, k) == 1 { on = 1; print; next } on && /^[[:space:]]+[^ ]/ { print; next } { on = 0 }')
+    [ -n "$b" ] || { echo "a Phase 4 case is missing: $n"; continue; }
+    grep -q -i 'comment' <<< "$b" && echo "comment instruction remains: $n"
+  done
+
   # status words
   row() { grep -E "^\| $1 \|" "$f" | head -1; }
   case "$(row '`success`')" in *"| not ticketed |") ;; *) echo "success would be ticketed" ;; esac
@@ -298,6 +309,14 @@ mut 'the GitHub path label dropped from a gh block' cih "gh run outside the GitH
 gh run list --workflow <workflow-file> --branch <branch> --limit 1 --json databaseId,status' 'gh run list --workflow <workflow-file> --branch <branch> --limit 1 --json databaseId,status'
 mut 'forge_issue_create removed' cih "no host branch" '- **No match:** `forge_issue_create` with' '- **No match:** create an issue with'
 mut 'the status update made a comment' cih "a status update posted as a comment (#565)" '`forge_body_region_set "$EXISTING" ci-health ci-health-status' '`forge_issue_comment "$EXISTING"'
+mut 'E2E case back to a comment' cih "comment instruction remains: E2E test failures" '- E2E test failures: note "E2E' '- E2E test failures: comment "E2E'
+mut 'security case back to a comment' cih "comment instruction remains: Security scan findings" '- Security scan findings: note the findings' '- Security scan findings: comment with findings'
+mut 'version-gate case back to a comment' cih "comment instruction remains: Release / version-gate failures" 'Note the required action, or skip' 'Comment the required action, or skip'
+mut 'a posting command named in Phase 4' cih "comment instruction remains" 'Note the required action, or skip it entirely per Phase 1.' 'Run gh issue comment <N> with the required action.'
+mut 'the region write dropped' cih "a Phase 4 case has no body region write" 'forge_body_region_set "<N>" ci-health ci-health-notes' 'forge_body_region_set "<N>" ci-health ci-health-status'
+mut 'the replace rule dropped' cih "a repeat note is not said to replace" 'A
+second note on the same ticket replaces the region' 'A
+second note on the same ticket is appended'
 mut 'the cancelled row ticketed' cih "cancelled would be ticketed" '(#193) | not ticketed |' '(#193) | ticketed (Phase 2) |'
 mut 'the none row ticketed' cih "none would be ticketed" '| "no CI run found", not green | not ticketed |' '| "no CI run found", not green | ticketed |'
 mut 'the pending row green' cih "pending would be ticketed" '| "pending", not green | not ticketed |' '| "pending" | not ticketed |'

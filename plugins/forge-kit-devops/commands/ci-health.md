@@ -2,7 +2,7 @@
 description: "Check every CI workflow (GitHub Actions, or Forgejo Actions through forge-lib) for failures, create P0 tickets, gate each ticket, and auto-fix safe failures on GitHub."
 ---
 
-<!-- ci-health-version: 14 -->
+<!-- ci-health-version: 15 -->
 
 # CI Health Monitor
 
@@ -189,12 +189,18 @@ For each gated ticket:
 - Dependency issues
 - Configuration errors
 
-**DO NOT AUTO-IMPLEMENT** (investigate only, leave a comment):
-- E2E test failures: comment "E2E: investigation complete, manual review required before fix"
-- Security scan findings: comment with findings summary, do not auto-fix
+**DO NOT AUTO-IMPLEMENT** (investigate only, note it in the ticket BODY, never a comment):
+
+Write the note with `forge_body_region_set "<N>" ci-health ci-health-notes "<note>"`: a body region
+of its own, because `ci-health-status` is the Forgejo status region and Phase 4 is GitHub only. A
+second note on the same ticket replaces the region, so write one block that names every case below
+that applies.
+
+- E2E test failures: note "E2E: investigation complete, manual review required before fix"
+- Security scan findings: note the findings summary, do not auto-fix
 - Release / version-gate failures: the bump is the PR author's call (patch/minor/major per
   `docs/versioning.md`). Never auto-bump the version to make the gate pass; that defeats the
-  gate's entire purpose. Comment the required action, or skip it entirely per Phase 1.
+  gate's entire purpose. Note the required action, or skip it entirely per Phase 1.
 
 After implementing, run the project's lint and test commands (check CLAUDE.md for the
 exact commands, e.g. `pnpm lint && pnpm typecheck && pnpm test:unit`), then:
