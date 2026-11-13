@@ -212,7 +212,7 @@ cls=$(grep -n '^WRITE PATCH 10 {"state":' "$GHSTUB/log" | cut -d: -f1)
 [ "$rc" -eq 0 ] && git -C "$O" rev-parse -q --verify refs/tags/v1.1.0 >/dev/null && [ -n "$rel" ] && [ -n "$rec" ] && [ -n "$cls" ] && [ "$rel" -lt "$rec" ] && [ "$rec" -lt "$cls" ] \
   && ok "a real run tags, creates the release, records it in the ticket body, then closes the ticket" \
   || bad "a real run tags, releases, records, then closes (rc=$rc rel=$rel rec=$rec cls=$cls: $out)"
-jq -r .body "$GHSTUB/issues/10.json" | grep -qx 'Released in v1.1.0' && ! grep -q comments "$GHSTUB/log" \
+grep -qx 'Released in v1.1.0' <<< "$(jq -r .body "$GHSTUB/issues/10.json")" && ! grep -q comments "$GHSTUB/log" \
   && ok "the release note is in the body region and no comment call is made (#583)" \
   || bad "the release note is in the body, no comment call (body: $(jq -r .body "$GHSTUB/issues/10.json"))"
 
