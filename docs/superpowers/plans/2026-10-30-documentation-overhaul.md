@@ -359,6 +359,13 @@ asset treats the plans directory as a list of phases (checked: they read a plan 
 
 ### WP9. Per-plugin discoverability
 
+**Done:** [#594](https://github.com/agigante80/forge-kit/issues/594), 2026-11-13. Every group
+description is one sentence of at most 120 characters, and the generator now refuses a longer one
+instead of cutting it; both manifests carry the same `description`, `homepage` and `keywords`, held
+equal by a new `validate-plugins.sh` check; `docs/plugins.md` gained a hand-written usage section
+per group, which the generator requires and links. No per-plugin README: the semver cost above, and
+`claude plugin validate --profile directory` takes the root README for a folder without one.
+
 - **Failure removed:** in the `/plugin` panel a user sees only each group's one-line `description`;
   there is no per-plugin README, so nothing tells them what a group acts on, what it needs, or
   how to switch on its opt-in hooks. Two catalogue descriptions are cut mid-word by the generator

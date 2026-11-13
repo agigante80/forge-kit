@@ -19,6 +19,9 @@ Usage:
 
   Either mode exits 1, naming the file, when a REQUIRED target (README.md, docs/plugins.md,
   docs/components.md) is absent; only the local-only CLAUDE.md is skipped with a notice (#588).
+  Either mode also exits 1, naming the group and writing nothing, when a plugin.json description is
+  longer than SHORT_DESC_CAP or than one sentence, or when docs/plugins.md lacks that group's
+  hand-written '### Using <group>' section (#594).
 """
 import argparse
 import ast
@@ -40,8 +43,10 @@ TYPE_LABEL = {
 }
 DESC_CAP = 120
 # The README catalogue is the short form (#588): one line per group that says what it is and links
-# to the group's section in docs/plugins.md, where the description is printed whole. So the cut is
-# at a word boundary, never mid-word as the old 200-character cap cut "masked-exit-adviso...".
+# to the group's section in docs/plugins.md. Since #594 a group description is REFUSED, never cut,
+# when it is longer than this or longer than one sentence: a cut description was the defect (six of
+# seven README rows ended in an ellipsis), and a cap that cuts hides the next overlong one until
+# someone reads the README. The same string is what the /plugin panel shows.
 SHORT_DESC_CAP = 120
 
 _PLUGIN_SEMVERS = {}
@@ -265,14 +270,37 @@ def render_plugin_groups(rows):
     return "\n".join(out)
 
 
+def description_problems():
+    """Each group description that cannot be printed whole in the README catalogue (#594).
+
+    One sentence is what _first_sentence finds, the same detector the component index uses, so a
+    description is one sentence exactly when its first sentence is all of it.
+    """
+    problems = []
+    for group in sorted(_PLUGIN_DESCRIPTIONS):
+        desc = _PLUGIN_DESCRIPTIONS[group]
+        if len(desc) > SHORT_DESC_CAP:
+            problems.append("%s: description is %d characters, over the %d-character cap"
+                            % (group, len(desc), SHORT_DESC_CAP))
+        elif _first_sentence(desc) != desc:
+            problems.append("%s: description is longer than one sentence" % group)
+    return problems
+
+
+def usage_problems(root, groups):
+    """Each group with no hand-written `### Using <group>` section in docs/plugins.md (#594).
+
+    The generated section links to it, so a group without one would publish a dead link.
+    """
+    path = os.path.join(root, "docs", "plugins.md")
+    with open(path, encoding="utf-8") as fh:
+        lines = {line.rstrip() for line in fh}
+    return ["%s: docs/plugins.md has no '### Using %s' section" % (g, g)
+            for g in groups if "### Using %s" % g not in lines]
+
+
 def _short_description(desc):
-    """First sentence, then cut at the last word boundary under SHORT_DESC_CAP."""
-    desc = _first_sentence(desc)
-    if len(desc) > SHORT_DESC_CAP:
-        cut = desc[: SHORT_DESC_CAP - 1]
-        if " " in cut:
-            cut = cut[: cut.rindex(" ")]
-        desc = cut.rstrip(" ,;:") + "\u2026"
+    """The whole description: description_problems() has refused anything that would need a cut."""
     return desc.replace("|", "\\|")
 
 
@@ -290,8 +318,9 @@ def render_plugin_catalogue(rows):
     string that rots (#96), and README's group table did not exist at all until someone tried to
     install a group and found the command written down nowhere.
 
-    Since #588 it is the SHORT form: no version column, a description cut at a word boundary, and
-    each group linked to its section of docs/plugins.md, which carries the detail.
+    Since #588 it is the SHORT form: no version column, and each group linked to its section of
+    docs/plugins.md, which carries the detail. Since #594 the description is printed whole, because
+    one that would not fit is refused before anything renders.
     """
     out = [
         NOTICE,
@@ -318,8 +347,8 @@ def render_plugin_reference(rows):
 
     An overview table, then one section per group. The overview links each group to a heading this
     same function writes, so a group can never link to a section that does not exist, and the
-    README's short catalogue links to the same headings. Descriptions are printed WHOLE here: the
-    README's cut form points at this page for the rest.
+    README's short catalogue links to the same headings. Each group section also links its
+    hand-written `### Using <group>` section below the region (#594), which main() requires.
     """
     groups = sorted({r["group"] for r in rows})
     out = [
@@ -343,6 +372,7 @@ def render_plugin_reference(rows):
             "- **Version:** %s" % plugin_version(group),
             "- **Install:** %s" % _install(group),
             "- **Needs:** %s" % _needs(group),
+            "- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-%s)" % group,
         ]
         for ctype in sorted({m["type"] for m in members}, key=lambda c: TYPE_ORDER.get(c, 9)):
             names = [source_link(m) for m in members if m["type"] == ctype]
@@ -418,6 +448,16 @@ def main():
     if missing:
         print("update-component-index: required target(s) missing: " + ", ".join(missing))
         print("Each is a published page carrying a generated region; restore it with its marker pair.")
+        return 1
+
+    # Refused in BOTH modes, before anything is written (#594): a rewrite that cut a description or
+    # linked a missing usage section would publish the defect this check exists to stop.
+    problems = description_problems() + usage_problems(root, sorted({r["group"] for r in rows}))
+    if problems:
+        for p in problems:
+            print("update-component-index: " + p)
+        print("A group description is one sentence of at most %d characters, and every group has a"
+              " hand-written '### Using <group>' section in docs/plugins.md." % SHORT_DESC_CAP)
         return 1
 
     stale, changed, absent = [], [], []

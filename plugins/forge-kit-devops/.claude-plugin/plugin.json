@@ -1,7 +1,16 @@
 {
   "name": "forge-kit-devops",
-  "description": "dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook",
-  "version": "0.27.3",
+  "description": "Release, CI health, dependency and dead-code audits, usage reports, and the GitHub or Forgejo adapter other groups use.",
+  "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-devops",
+  "keywords": [
+    "release",
+    "ci",
+    "dependencies",
+    "dead-code",
+    "forgejo",
+    "github"
+  ],
+  "version": "0.27.4",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"

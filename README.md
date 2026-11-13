@@ -94,13 +94,13 @@ exist as `/plugin install <group>@forge-kit`.
 
 | Plugin group | Install | What you get |
 |---|---|---|
-| [`forge-kit-adapt`](docs/plugins.md#forge-kit-adapt) | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs… |
-| [`forge-kit-devops`](docs/plugins.md#forge-kit-devops) | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host… |
-| [`forge-kit-governance`](docs/plugins.md#forge-kit-governance) | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference… |
-| [`forge-kit-review`](docs/plugins.md#forge-kit-review) | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents… |
-| [`forge-kit-roadmap`](docs/plugins.md#forge-kit-roadmap) | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four… |
-| [`forge-kit-security`](docs/plugins.md#forge-kit-security) | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the… |
-| [`forge-kit-testing`](docs/plugins.md#forge-kit-testing) | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. |
+| [`forge-kit-adapt`](docs/plugins.md#forge-kit-adapt) | `claude plugin install forge-kit-adapt@forge-kit` | Reads your project, recommends the forge-kit components that fit it, and installs the ones you approve, adapted to it. |
+| [`forge-kit-devops`](docs/plugins.md#forge-kit-devops) | `claude plugin install forge-kit-devops@forge-kit` | Release, CI health, dependency and dead-code audits, usage reports, and the GitHub or Forgejo adapter other groups use. |
+| [`forge-kit-governance`](docs/plugins.md#forge-kit-governance) | `claude plugin install forge-kit-governance@forge-kit` | A ticket readiness gate, governed overnight work, session handoffs, and opt-in hooks that hold sessions to your rules. |
+| [`forge-kit-review`](docs/plugins.md#forge-kit-review) | `claude plugin install forge-kit-review@forge-kit` | Code, architecture and standards reviewers, plus /full-review, a multi-lens audit that fixes or tickets its findings. |
+| [`forge-kit-roadmap`](docs/plugins.md#forge-kit-roadmap) | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md lists the phases, forge milestones hold their tickets, and a guard checks both. |
+| [`forge-kit-security`](docs/plugins.md#forge-kit-security) | `claude plugin install forge-kit-security@forge-kit` | Security and API audits, privacy regime duties, a leak guard for a repo going public, and an opt-in scan of forge posts. |
+| [`forge-kit-testing`](docs/plugins.md#forge-kit-testing) | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep finds covered lines whose tests cannot fail, the defect class that line coverage cannot see. |
 <!-- plugin-catalogue:end -->
 
 ## Documentation

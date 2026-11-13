@@ -1,12 +1,19 @@
 {
   "name": "forge-kit-roadmap",
-  "version": "0.15.24",
+  "version": "0.15.25",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"
   },
   "license": "MIT",
-  "description": "Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops.",
+  "description": "Rolling wave planning: docs/roadmap.md lists the phases, forge milestones hold their tickets, and a guard checks both.",
+  "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-roadmap",
+  "keywords": [
+    "roadmap",
+    "planning",
+    "milestones",
+    "phases"
+  ],
   "dependencies": [
     "forge-kit-devops@forge-kit"
   ]

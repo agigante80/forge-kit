@@ -54,7 +54,9 @@ REF="$FIX/docs/plugins.md"
 mk_docs() {
   printf 'intro\n\n<!-- plugin-catalogue:start -->\n<!-- plugin-catalogue:end -->\n\noutro\n' \
     > "$FIX/README.md"
-  printf 'intro\n\n<!-- plugin-reference:start -->\n<!-- plugin-reference:end -->\n\noutro\n' \
+  # Each group's hand-written usage section sits below the region (#594); the generator refuses a
+  # group without one, so every fixture docs/plugins.md carries both.
+  printf 'intro\n\n<!-- plugin-reference:start -->\n<!-- plugin-reference:end -->\n\n### Using fix-alpha\n\n### Using fix-beta\n' \
     > "$REF"
   printf 'intro\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n\noutro\n' \
     > "$IDX"
@@ -124,6 +126,7 @@ python3 "$GEN" --root "$FIX" >/dev/null 2>&1
 printf 'x\n\n<!-- plugin-catalogue:start -->\n<!-- plugin-catalogue:end -->\n\n<!-- plugin-reference:start -->\n<!-- plugin-reference:end -->\n' \
   > "$FIX/README.md"
 cp "$FIX/README.md" "$REF"
+printf '\n### Using fix-alpha\n\n### Using fix-beta\n' >> "$REF"
 out="$(python3 "$GEN" --check --root "$FIX" 2>/dev/null)"
 grep -q 'STALE region(s): README.md (plugin-catalogue), docs/plugins.md (plugin-reference)$' <<< "$out" \
   && ok "--check lists stale regions across files in REGIONS order" \
@@ -183,44 +186,75 @@ grep -qF '| [`fix-alpha`](docs/plugins.md#fix-alpha) |' <<< "$cat" \
 grep -q 'alpha-agent\|| Words |' "$FIX/README.md" \
   && bad "the README carries no component inventory" || ok "the README carries no component inventory"
 
-# A description longer than the cap is truncated rather than breaking the table across lines.
-python3 - "$FIX" <<'PY2'
+# --- #594: a group description is refused, never cut ------------------------------------------
+# A cut description was the defect (six of seven README rows ended in an ellipsis), so an overlong
+# or multi-sentence one fails BOTH modes, names the group and the rule, and rewrites nothing.
+set_desc() {
+  python3 - "$FIX" "$1" <<'PY2'
 import json, sys, os
 p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
-d = json.load(open(p)); d["description"] = "x" * 400
+d = json.load(open(p)); d["description"] = sys.argv[2]
 json.dump(d, open(p, "w"))
 PY2
-python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+}
+refused() {   # $1 description, $2 label, $3 text the report must carry
+  mk_docs; python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+  set_desc "$1"
+  local before; before=$(cat "$FIX/README.md" "$REF" "$IDX")
+  for mode in --check ""; do
+    out="$(python3 "$GEN" $mode --root "$FIX" 2>&1)"; rc=$?
+    [ "$rc" -eq 1 ] && grep -qF "fix-alpha: $3" <<< "$out" \
+      && ok "$2 fails ${mode:-the rewrite}, naming the group" \
+      || bad "$2 fails ${mode:-the rewrite}, naming the group (rc $rc: $out)"
+  done
+  [ "$(cat "$FIX/README.md" "$REF" "$IDX")" = "$before" ] \
+    && ok "and $2 rewrites no region" || bad "and $2 rewrites no region"
+  grep -q '…' "$FIX/README.md" && bad "and no ellipsis reaches the README" || ok "and no ellipsis reaches the README"
+}
+refused "$(printf 'x%.0s' $(seq 400))" "a 400-character description" "description is 400 characters, over the 120-character cap"
+refused "$(printf 'x%.0s' $(seq 121))" "a 121-character description" "description is 121 characters, over the 120-character cap"
+refused "Short first sentence. A second one." "a two-sentence description" "description is longer than one sentence"
+# At the cap is allowed, and is printed whole in both pages.
+set_desc "$(printf 'y%.0s' $(seq 120))"
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1; rc=$?
 row=$(grep '^| \[`fix-alpha`\]' "$FIX/README.md" | head -1)
-[ -n "$row" ] && [ "${#row}" -lt 400 ] \
-  && ok "an overlong description is truncated in the README, not spilled into the table" \
-  || bad "an overlong description is truncated (row is ${#row} chars, empty means the row vanished)"
-grep -q '…' <<< "$row" && ok "and the truncation is marked" || bad "and the truncation is marked"
-# #588: the reference page is where the whole description lives, so it is never cut there.
-grep -qx 'x\{400\}' "$REF" \
-  && ok "the reference prints the whole description, uncut" \
-  || bad "the reference prints the whole description, uncut"
-# A description of SPACED words is cut at a word boundary, never mid-word (#588 round 1). Every
-# word is eight characters plus a space, so the 119-character cut lands two characters into the
-# fourteenth word: only the boundary rule turns that into a whole word before the ellipsis.
-python3 - "$FIX" <<'PY2'
-import json, sys, os
-p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
-d = json.load(open(p)); d["description"] = " ".join("wordxx%02d" % i for i in range(1, 31))
-json.dump(d, open(p, "w"))
-PY2
+[ "$rc" -eq 0 ] && grep -q "| y\{120\} |$" <<< "$row" && grep -qx 'y\{120\}' "$REF" \
+  && ok "a 120-character description is printed whole in the README and the reference" \
+  || bad "a 120-character description is printed whole (rc $rc, row: $row)"
+# One sentence containing an abbreviation is still one sentence: the detector is _first_sentence.
+set_desc "Reviews code, e.g. diffs, and files tickets."
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1 \
+  && ok "an abbreviation inside one sentence is not a second sentence" \
+  || bad "an abbreviation inside one sentence is not a second sentence"
+set_desc "fixture"
+mk_docs
 python3 "$GEN" --root "$FIX" >/dev/null 2>&1
-row=$(grep '^| \[`fix-alpha`\]' "$FIX/README.md" | head -1)
-last=$(grep -oP '\S+(?=… \|$)' <<< "$row")
-[[ "$last" =~ ^wordxx(0[1-9]|[12][0-9]|30)$ ]] \
-  && ok "a spaced description is cut at a word boundary, a whole word before the ellipsis ($last)" \
-  || bad "a spaced description is cut at a word boundary (token before the ellipsis: '$last'; row: $row)"
-python3 - "$FIX" <<'PY2'
-import json, sys, os
-p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
-d = json.load(open(p)); d["description"] = "fixture"
-json.dump(d, open(p, "w"))
-PY2
+
+# --- #594: each group section links its hand-written usage section, which must exist ------------
+ref=$(sed -n '/plugin-reference:start/,/plugin-reference:end/p' "$REF")
+for g in fix-alpha fix-beta; do
+  sect=$(awk -v h="### $g" '$0 == h {on=1; next} /^### / {on=0} on' <<< "$ref")
+  grep -qF -- "- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-$g)" <<< "$sect" \
+    && ok "the $g section links its usage section" \
+    || bad "the $g section links its usage section"
+done
+sed -i '/^### Using fix-beta$/d' "$REF"
+before=$(cat "$FIX/README.md" "$REF" "$IDX")
+for mode in --check ""; do
+  out="$(python3 "$GEN" $mode --root "$FIX" 2>&1)"; rc=$?
+  [ "$rc" -eq 1 ] && grep -qF "fix-beta: docs/plugins.md has no '### Using fix-beta' section" <<< "$out" \
+    && ! grep -q 'fix-alpha: docs/plugins.md' <<< "$out" \
+    && ok "a missing usage section fails ${mode:-the rewrite}, naming only that group" \
+    || bad "a missing usage section fails ${mode:-the rewrite}, naming only that group (rc $rc: $out)"
+done
+[ "$(cat "$FIX/README.md" "$REF" "$IDX")" = "$before" ] \
+  && ok "and a missing usage section rewrites no region" || bad "and a missing usage section rewrites no region"
+# The heading must be the whole line: a mention in prose is not the section.
+printf 'See ### Using fix-beta for details.\n' >> "$REF"
+python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1 \
+  && bad "a mention of the heading inside a line does not count as the section" \
+  || ok "a mention of the heading inside a line does not count as the section"
+mk_docs
 python3 "$GEN" --root "$FIX" >/dev/null 2>&1
 
 # --- #588: the reference page, the links and the required targets ------------------------------
