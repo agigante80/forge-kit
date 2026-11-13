@@ -39,4 +39,4 @@ done, a **reference** is looked up, an **explanation** says why.
 | [../CHANGELOG.md](../CHANGELOG.md) | adopters, maintainers | reference | Release history |
 | [roadmap.md](roadmap.md) | contributors | reference | What is being worked on now, and what each closed phase concluded |
 | [../scripts/check-doc-drift.sh](../scripts/check-doc-drift.sh) | contributors | reference | Which documents a range of commits made stale, reported per line and never as a build failure |
-| Project history: [plans/](plans/) and [superpowers/](superpowers/) | contributors | explanation | Each phase's plan and close record, and the design specs and implementation plans behind shipped components |
+| Project history: [plans/](plans/README.md) and [superpowers/](superpowers/README.md) | contributors | explanation | Each phase's plan and close record (indexed by the roadmap), and an index of the design specs and implementation plans behind shipped components, with what shipped |

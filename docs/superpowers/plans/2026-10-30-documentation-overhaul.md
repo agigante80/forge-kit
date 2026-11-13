@@ -322,6 +322,12 @@ enforcement contact the maintainer has not chosen, and remains optional.
 
 ### WP8. Label the working records for what they are
 
+**Done:** [#591](https://github.com/agigante80/forge-kit/issues/591), 2026-11-13: `docs/plans/README.md`
+(points at the roadmap, copies no table), `docs/superpowers/README.md` (11 index rows, each status checked
+against the history and the tree), and `docs/README.md`'s "Project history" row linking both. No roadmap
+asset treats the plans directory as a list of phases (checked: they read a plan only by the roadmap's
+`plan:` path), so no exclusion or semver bump was needed; `scripts/test-check-phases.sh` pins it.
+
 - **Failure removed:** `docs/plans/` (46 files, about 50,000 words) and `docs/superpowers/` (10
   files) sit beside the user guides with names like `the-sentence-that-matters-more.md`. A visitor
   browsing `docs/` cannot tell they are the project's own history, not instructions.
