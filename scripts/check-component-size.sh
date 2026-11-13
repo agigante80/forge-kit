@@ -239,6 +239,7 @@ budget_for() {
 # which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
 #
 # LOWERED 2026-11-13: ticket-gate 5625 to 5624 (#581 round 2). 0c then 1.5 appends to the review (net -1).
+# LOWERED 2026-11-13: ticket-gate 5624 to 5620 (#581 live runs). Round 0 void heading; context example drops marker lines.
 #
 # LOWERED 2026-11-13: ticket-gate 5628 to 5625 (#581 round 1). The round count is kept across Step 0c and
 # gate_write_review replaces the Step 5 size prose (net -3).
@@ -432,7 +433,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
-    ticket-gate) echo 5624 ;;
+    ticket-gate) echo 5620 ;;
     full-review) echo 3963 ;;
     *)           echo 0 ;;
   esac

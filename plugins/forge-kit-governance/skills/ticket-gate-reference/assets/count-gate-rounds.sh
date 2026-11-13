@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# count-gate-rounds-version: 6
+# count-gate-rounds-version: 7
 # count-gate-rounds.sh <issue-number> [--body FILE]
 # count-gate-rounds.sh <issue-number> --memory [--body FILE]
 #
@@ -177,8 +177,10 @@ esac
 # The highest round heading inside the two regions that carry one. A heading outside them (an
 # author quoting one) does not count.
 body_round=0
+heading_seen=0
 for r in gate-verdict gate-review; do
   m="$(region_of "$r" | sed -n -e 's/^### Gate verdict (round \([0-9][0-9]*\)).*/\1/p' -e 's/^### Gate review (round \([0-9][0-9]*\)).*/\1/p' | sort -n | tail -1)"
+  [ -n "$m" ] && heading_seen=1
   [ -n "$m" ] && [ "$((10#$m))" -gt "$body_round" ] && body_round=$((10#$m))
 done
 
@@ -267,7 +269,8 @@ fi
 done_rounds=$legacy_count
 [ "$body_round" -gt "$done_rounds" ] && done_rounds=$body_round
 
-if [ "$done_rounds" -eq 0 ]; then
+# A `(round 0)` heading is 0c-v's void note on a first run: a heading, so not a reset (#581 live runs).
+if [ "$done_rounds" -eq 0 ] && [ "$heading_seen" = 0 ]; then
   trace=0
   [ "$(printf '%s\n' "$bodytext" | grep -c '^Judged body: sha256:')" -gt 0 ] && trace=1
   for r in gate-verdict gate-review gate-required-changes gate-alternatives; do

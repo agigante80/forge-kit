@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 92 -->
+<!-- ticket-gate-version: 93 -->
 
 You are the **Ticket Readiness Gate**. Before implementation you run deterministic MECHANICAL
 CHECKS (Step 3A, no agent), then ONE critic agent (Step 3B), plus a security lens when labels
@@ -170,8 +170,8 @@ Write it with Step 6's primitives, minus the verdict block.
 **0c-v. Void note**
 
 Fill the SYNTHESIS VOID template from `references/comment-templates.md` into `$D/void.md`, then at
-once write `$D/review.md` (first line `### Gate review (round P)`, P = `$D/round` minus 1, omitted when
-P is 0; it keeps the count) with the note and run Step 5's call, so an early stop keeps both.
+once write `$D/review.md` (first line `### Gate review (round P)`, P = `$D/round` minus 1, so round 0
+on a first run; it keeps the count) with the note and run Step 5's call, so an early stop keeps both.
 
 **0c-vi. Proceed to 0b**
 
@@ -312,7 +312,6 @@ Ask the sub-agent to use Glob and Grep to locate and summarise:
 under Step 6's lifecycle:
 
 ```markdown
-<!-- gate-context:start -->
 ### Codebase context (gate, <YYYY-MM-DD>)
 **Relevant files:**
 - `<path>`: <one-line summary>
@@ -322,7 +321,6 @@ under Step 6's lifecycle:
 
 **Constraints:**
 - <constraint relevant to implementation choices>
-<!-- gate-context:end -->
 ```
 
 Write it with Step 6's primitives, minus the verdict block.

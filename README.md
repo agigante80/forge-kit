@@ -57,7 +57,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 |---|---|---|---|
 | `forge-kit-adapt` | 0.13.13 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.26.9 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.40.2 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
+| `forge-kit-governance` | 0.40.3 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
 | `forge-kit-review` | 0.8.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.22 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.18.9 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
@@ -281,7 +281,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | shell asset | `release-run` | v5 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v15 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v92 | 5109 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
+| `forge-kit-governance` | agent | `ticket-gate` | v93 | 5105 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v11 | 322 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo). |
 | `forge-kit-governance` | skill | `closing-sessions` | v10 | 1325 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |
@@ -297,7 +297,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-governance` | hook | `overnight-guard` | v20 |  | PreToolUse Bash guard for destructive commands: an overnight arm and a daytime arm. |
 | `forge-kit-governance` | shell asset | `check-contributor-docs` | v27 |  | check-contributor-docs.sh: are a repository's contributor entry points TRUE for everyone who |
 | `forge-kit-governance` | shell asset | `check-ticket-mechanics` | v49 |  | Step 3A's mechanical checks, as a script rather than as prose for the agent to read (#149). |
-| `forge-kit-governance` | shell asset | `count-gate-rounds` | v6 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
+| `forge-kit-governance` | shell asset | `count-gate-rounds` | v7 |  | count-gate-rounds.sh <issue-number> [--body FILE] |
 | `forge-kit-governance` | shell asset | `forge-gate-mechanics` | v10 |  | Run forge-kit's mechanical ticket checks against a live issue, with no agent harness (#182). |
 | `forge-kit-governance` | shell asset | `gate-env` | v6 |  | gate-env.sh: what each ticket-gate Bash call must rebuild, because every call is a fresh shell |
 | `forge-kit-governance` | shell asset | `gate-status` | v14 |  | gate-status.sh <issue-number> is the body's gate verdict current or stale? |

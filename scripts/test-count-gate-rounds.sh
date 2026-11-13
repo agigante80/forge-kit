@@ -195,6 +195,12 @@ expect "a clarification stop and a context region are not a round" 1 "$out"
 contains "the count may have been reset" "$err" "and a gate-review region with no round heading is a trace: the advisory warning fires (round 2 review)"
 
 echo "== 0c then 1.5 in one run keeps the count (round 2 review) =="
+# First run on a hand-filed ticket: 0c-v writes the void note under a round 0 heading. Round 1, no warning.
+printf '## Summary\n\n<!-- gate-review:start -->\n### Gate review (round 0)\n#### Template auto-upgraded to v6\nnote\n<!-- gate-review:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "a round 0 void heading reports round 1" 1 "$out"
+expect "  and it does not warn of a reset" "" "$err"
+
 # Round 2 ticket: 0c clears gate-verdict, 0c-v writes the round-2 heading with the void note, 1.5 APPENDS the clarification.
 printf '## Summary\n\n<!-- gate-review:start -->\n### Gate review (round 2)\n#### Template auto-upgraded to v6\nnote\n\n### Gate clarification (needed before review)\n1. q?\n<!-- gate-review:end -->\n' > "$T/b.md"
 comments
