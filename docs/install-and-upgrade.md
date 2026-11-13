@@ -1,16 +1,26 @@
 # Install and upgrade
 
 Installing a group is one command, listed per group in [plugins.md](plugins.md) and in the
-README's catalogue. This page covers what comes after: removing a group, what an installed group
-does in a project that has not asked for it, the declared dependencies, and staying current.
+README's catalogue. This page covers what comes after: the four states a group can be in, removing
+a group, what an installed group does in a project that has not asked for it, the declared
+dependencies, what forge-adapt does when you run it, and staying current.
 
 ## After you install a group
+
+**Four states, and only the last one fails a build.** A group is **installed** once
+`claude plugin install` has run. It is **enabled** while `claude plugin list` reports its status as
+enabled (`claude plugin disable` and `enable` switch it): its skills, agents and commands are then
+in every session. It is **active** in a project only where that project asks, by running its
+command or creating the sentinel file a hook waits for (the list is below). It is **enforcing** only
+where one of its checks is wired into the project's CI or git hooks, which is a file in the
+repository and never a side effect of the install.
 
 `claude plugin list` shows what you have and at which version, and
 `claude plugin uninstall <group>@forge-kit` removes a group. Uninstalling does not remove the
 dependencies a group pulled in (run `claude plugin prune` for those), and it does not undo what the
 group already did in a project: components forge-adapt copied into `.claude/`, hook wiring it merged
-into a project's `settings.json`, sentinel files, and comments already posted to the forge.
+into a project's `settings.json`, sentinel files, and what was already written to the forge (the
+gate's regions in issue bodies, and any ticket a component filed).
 
 **A group installed at user level loads everywhere but acts only where a project asks.** Its
 skills, agents and commands are available in every session. The components that ACT gate
@@ -39,6 +49,25 @@ install pulls each in and says so. Governance reads as not live in a project whe
 `forge-kit-review` is absent, because the plugin-active check requires every declared dependency
 to be installed and enabled. If you are UPDATING a group you already had, see the upgrade note under
 [Keeping up to date](#keeping-up-to-date).
+
+## What forge-adapt does
+
+1. **Analyses your project:** stack files, CLAUDE.md, source structure, existing `.claude/` contents
+2. **Recommends components:** ranked, with a reason each, and with anything your neighbours already
+   cover suppressed or flagged
+3. **Waits for your approval:** nothing is written until you choose
+4. **Installs what you approved.** Most components are **registered**, by enabling the plugin group
+   they live in: they resolve what they need at runtime, so they own no file in your repository that
+   could drift, duplicate or clobber. A component is **copied and adapted** into `.claude/` only
+   when it must be: when it declares `scope: project`, when you installed from a bare clone with no
+   marketplace, or when it is a hook, which reaches a project by its own route. An adapted copy is
+   rewritten against your profile, so "check for SQL injection" becomes "check for Prisma
+   `$queryRaw` injection in `src/db/`".
+
+Secondary modes: `forge-adapt drift` reports what is behind and writes nothing; `forge-adapt
+refresh <name>` deep-compares one component and merges in what it is missing while preserving your
+adaptation; `forge-adapt contributions` surfaces project-only components worth contributing back;
+`forge-adapt templates` audits issue templates and can install the template governance.
 
 ## Keeping up to date
 

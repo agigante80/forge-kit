@@ -2,20 +2,22 @@
 
 Every document in this repository, who it is for and what kind of page it is. **Adopters** install
 or copy forge-kit into their own project; **maintainers** run a project with it day to day;
-**contributors** change forge-kit itself. The kinds follow the usual split: a **how-to** gets a task
-done, a **reference** is looked up, an **explanation** says why.
+**contributors** change forge-kit itself. The kinds follow the usual split: a **tutorial** walks a
+newcomer to a first result, a **how-to** gets a task done, a **reference** is looked up, an
+**explanation** says why.
 
 ## Using forge-kit
 
 | Document | For | Kind | What it answers |
 |---|---|---|---|
-| [../README.md](../README.md) | adopters | overview | What forge-kit is, what it answers, and how to start |
-| [install-and-upgrade.md](install-and-upgrade.md) | adopters, maintainers | how-to | Removing a group, what an installed group does where a project has not asked, declared dependencies, and staying current |
+| [../README.md](../README.md) | adopters | overview | What forge-kit is, who it is for, how to start, and what is enforced and when |
+| [getting-started.md](getting-started.md) | adopters | tutorial | From installing the governance group to a first gate verdict on your own issue, and what to do when it stops |
+| [install-and-upgrade.md](install-and-upgrade.md) | adopters, maintainers | how-to | The four install states, removing a group, what an installed group does where a project has not asked, declared dependencies, what forge-adapt does, and staying current |
 | [plugins.md](plugins.md) | adopters | reference | Each plugin group: description, version, install command, dependencies and components (generated) |
 | [components.md](components.md) | adopters, maintainers | reference | Every component the kit ships, with its version marker and size (generated) |
 | [when-to-run-what.md](when-to-run-what.md) | maintainers | how-to | Which command or agent to run at each point of the work |
 | [scenarios.md](scenarios.md) | adopters | explanation | What happens in concrete situations, as Given, When, Then |
-| [neighbours.md](neighbours.md) | adopters | explanation | Where forge-kit overlaps neighbouring projects, and what was retired in their favour |
+| [neighbours.md](neighbours.md) | adopters | explanation | Which question forge-kit answers and which its neighbours answer, where they overlap, and what was retired in their favour |
 | [guides/without-claude-code.md](guides/without-claude-code.md) | adopters | how-to | Using the governance layer with another agent or none: what to copy and what you do not get |
 
 ## Guides

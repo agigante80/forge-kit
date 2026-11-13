@@ -1,5 +1,28 @@
 # Where forge-kit overlaps its neighbours
 
+## What forge-kit answers, and what its neighbours answer
+
+Three projects, three different questions. The fastest way to decide what you need is to ask which
+one you have.
+
+| Question | Answered by | For example |
+|---|---|---|
+| **How should this work be done?** | [superpowers](https://github.com/obra/superpowers), installed as `superpowers@claude-plugins-official` | brainstorming, writing-plans, test-driven-development, systematic-debugging, requesting-code-review, verification-before-completion |
+| **What tool does this specific task?** | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official), 292 plugins, and community collections such as [wshobson/agents](https://github.com/wshobson/agents) | code-review, pr-review-toolkit, claude-security, code-simplifier, hookify; tdd-workflows, error-diagnostics, comprehensive-review |
+| **What must be true before work starts, and after it lands?** | **forge-kit** | the ticket gate and its standard, the template lockstep, the version and semver guards, the leak guard, governed overnight runs, release enforcement, host awareness, roadmap phases |
+
+The line forge-kit holds itself to: **superpowers owns the inner loop, forge-kit owns the outer.**
+The inner loop is how work happens. The outer loop is what must be true on either side of it. Where
+the two touch, forge-kit gives way, and since #177 that is a build failure rather than an intention.
+
+forge-kit is not a collection of clever agents. It started as one, and the agents turned out to be
+the least distinctive thing in it: the tree today carries more guard scripts and contract test
+suites than prose components, and the closed phases of work on the roadmap produced guards, versioning
+discipline, install scope, measurement and a leak guard rather than new capability. What is left
+that nobody else ships is the outer loop, and that is what this is for.
+
+## Where the components overlap
+
 Stated here rather than left to be discovered, and measured rather than asserted:
 `scripts/neighbour-manifest.sh --refresh` regenerates `docs/neighbours.tsv` from the marketplaces
 installed on a machine, and `scripts/check-neighbour-overlap.sh` fails the build on a duplicate.

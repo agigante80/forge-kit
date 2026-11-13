@@ -1,54 +1,93 @@
 # forge-kit
 
-**A governance harness for AI-assisted repositories.** Rules about what must be true before work
-starts and after it lands, enforced by a build failure rather than a note asking nicely.
+[![Validate](https://github.com/agigante80/forge-kit/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/agigante80/forge-kit/actions/workflows/validate.yml)
+[![License: MIT](https://img.shields.io/github/license/agigante80/forge-kit)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/agigante80/forge-kit)](https://github.com/agigante80/forge-kit/releases)
 
-forge-kit is not a collection of clever agents. It started as one, and the agents turned out to be
-the least distinctive thing in it: the tree today carries more guard scripts and contract test
-suites than prose components, and the closed phases of work on the roadmap produced guards, versioning
-discipline, install scope, measurement and a leak guard rather than new capability. What is left
-that nobody else ships is the outer loop, and that is what this is for.
+**A ticket gate and build guards for repositories where an AI writes much of the code.** Before work
+starts, the gate tells you whether a ticket is ready and exactly what to change if it is not. After
+work lands, guards you wire into CI fail the build when a rule is broken. It ships as Claude Code
+plugins; the rules themselves are plain markdown and YAML that any agent, or none, can follow.
 
-## What forge-kit answers, and what its neighbours answer
+## What it looks like
 
-Three projects, three different questions. The fastest way to decide what you need is to ask which
-one you have.
+You run `/gate-ticket 576` in Claude Code. The gate checks the ticket against the
+[ticket standard](docs/guides/ticket-standards.md), argues with it, and writes its verdict into the
+issue body. Trimmed from [a real ticket](https://github.com/agigante80/forge-kit/issues/576), as it
+read on 2026-11-13:
 
-| Question | Answered by | For example |
-|---|---|---|
-| **How should this work be done?** | [superpowers](https://github.com/obra/superpowers), installed as `superpowers@claude-plugins-official` | brainstorming, writing-plans, test-driven-development, systematic-debugging, requesting-code-review, verification-before-completion |
-| **What tool does this specific task?** | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official), 292 plugins, and community collections such as [wshobson/agents](https://github.com/wshobson/agents) | code-review, pr-review-toolkit, claude-security, code-simplifier, hookify; tdd-workflows, error-diagnostics, comprehensive-review |
-| **What must be true before work starts, and after it lands?** | **forge-kit** | the ticket gate and its standard, the template lockstep, the version and semver guards, the leak guard, governed overnight runs, release enforcement, host awareness, roadmap phases |
+> **Gate verdict (round 2)**
+> **Verdict:** NEEDS-WORK
+> - significant: Documentation impact names no doc path (mechanical check fails)
+> - significant: no-arg (CI) mode is promised but has no scenario or unit case
+> - advisory: the repro writes `scratch/` into the repo root; use the ignored scratch folder `tmp/`
+>
+> **Required changes (gate)**
+> - [ ] No-arg (CI) mode: the ticket promises it fails "in explicit and no-arg mode alike" but has
+>   no scenario or test for it. Add one negative scenario [...] and one unit case in
+>   `scripts/test-template-lockstep.sh` [...]
 
-The line forge-kit holds itself to: **superpowers owns the inner loop, forge-kit owns the outer.**
-The inner loop is how work happens. The outer loop is what must be true on either side of it. Where
-the two touch, forge-kit gives way, and since #177 that is a build failure rather than an intention.
+Fix the body, run it again, and it returns PASS when nothing blocks.
+
+## Who it is for
+
+- **For** a maintainer who has an AI agent writing code and wants tickets that are ready before work
+  starts, and rules that fail a build rather than rely on the agent remembering them.
+- **Not for** you if you want more coding skills or agents. That is the inner loop: how work gets
+  done.
+- **Alongside [superpowers](https://github.com/obra/superpowers):** superpowers owns the inner loop,
+  forge-kit owns the outer loop, what must be true before and after. Where they touch, forge-kit gives
+  way. [docs/neighbours.md](docs/neighbours.md) has the full comparison.
 
 ## Start here
 
-Install the outer loop first. It is the part with no counterpart anywhere, and it works whether or
-not you use anything else.
+You need Claude Code, `git`, `jq`, and a clone of a GitHub repository with `gh` signed in and
+allowed to edit its issues (a Forgejo host works too, with a token). Then:
 
 ```bash
 claude plugin marketplace add agigante80/forge-kit
 claude plugin install forge-kit-governance@forge-kit    # brings forge-kit-devops, -review and -security with it
 ```
 
-Restart Claude Code, then gate your first ticket with `/gate-ticket <N>`.
+Restart Claude Code in your repository and run `/gate-ticket <N>` on an issue. The gate needs the
+work issue templates in the repository and an area label on the issue; without them it stops with
+`BLOCKED - NO_TEMPLATES` or `BLOCKED - LABELS_REQUIRED` and names the fix. **You should see** the
+issue body gain a `Gate verdict (round 1)` block reading PASS or NEEDS-WORK, plus the review under
+it. The gate edits the body and posts no comment.
 
-Everything else is optional and can be added one group at a time. If you would rather be told what
-fits your project than choose from a list, install the recommender instead and run it:
+[docs/getting-started.md](docs/getting-started.md) walks through it step by step, with what to do
+when it stops. To be told which groups fit your project instead, install `forge-kit-adapt@forge-kit`
+and say "run forge-adapt".
 
-```bash
-claude plugin install forge-kit-adapt@forge-kit
-```
+## What is enforced, and when
 
-Then say "run forge-adapt" in your project, or invoke `/forge-kit-adapt:adapt`.
+Installing a plugin enforces nothing by itself. A group is **installed** once `claude plugin install`
+has run, and **enabled** while `claude plugin list` reports it enabled: its skills, agents and commands are
+then in every session. It is **active** in a project only where that project asks: you run its
+command, or you create the sentinel file a hook waits for. It is **enforcing** only where a check is
+wired into your CI or git hooks, which is a file in your repository, never a side effect of the
+install.
+
+| Rule | What triggers it | What your project needs |
+|---|---|---|
+| A ticket meets the standard | You run `/gate-ticket <N>` | The work issue templates and an area label; the result is a verdict, not a build failure |
+| Templates and the standard stay on one version | CI, every push | `forge-adapt templates` copies the guard and writes the workflow |
+| A release bumps the version | CI, every pull request to the production branch | The `release-automation` skill's release gate |
+| No home paths or emails reach a public repository | CI and git hooks | The `leak-guard` skill, set up in the project |
+| Session rules: no dashes, no destructive commands, consent before forge writes | A tool call in a Claude Code session | The hook's sentinel file in `.claude/`, listed in [docs/install-and-upgrade.md](docs/install-and-upgrade.md) |
+
+forge-kit's own guards (version markers, plugin semver, the size budget and the rest of its
+`Validate` workflow) run in this repository only; [CONTRIBUTING.md](CONTRIBUTING.md) lists them.
+
+`claude plugin uninstall` removes a group but not what it already did in a project: copies
+forge-adapt adapted into `.claude/`, hook wiring merged into `settings.json`, sentinel files, and the
+regions and tickets it wrote to your forge. [docs/install-and-upgrade.md](docs/install-and-upgrade.md)
+covers removal and upgrades.
 
 ## Plugin groups
 
-Seven groups, each installed independently, at user level by default so they are available in every
-project. Inside Claude Code the same commands exist as `/plugin install <group>@forge-kit`.
+Each group installs independently, at user level by default. Inside Claude Code the same commands
+exist as `/plugin install <group>@forge-kit`.
 
 <!-- plugin-catalogue:start -->
 <!-- Generated by scripts/update-component-index.py from the plugins/ tree. Do not hand-edit: run the script. CI fails on a stale region. -->
@@ -64,100 +103,33 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | [`forge-kit-testing`](docs/plugins.md#forge-kit-testing) | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. |
 <!-- plugin-catalogue:end -->
 
-Removing a group, what an installed group does in a project that has not asked for it, and the
-dependencies three groups declare: [docs/install-and-upgrade.md](docs/install-and-upgrade.md).
-Each group's full reference: [docs/plugins.md](docs/plugins.md).
+## Documentation
 
-## Scenarios
+- **Use it:** [getting started](docs/getting-started.md), [install and upgrade](docs/install-and-upgrade.md),
+  [when to run what](docs/when-to-run-what.md), [scenarios](docs/scenarios.md).
+- **Without Claude Code:** [the portable governance layer](docs/guides/without-claude-code.md).
+- **Reference:** [plugin groups](docs/plugins.md), [every component](docs/components.md),
+  [the ticket standard](docs/guides/ticket-standards.md), [labels](docs/guides/labels.md),
+  [neighbouring projects](docs/neighbours.md).
+- **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
+  [CHANGELOG.md](CHANGELOG.md).
+- **History:** [the roadmap](docs/roadmap.md), the phase plans in [docs/plans/](docs/plans/) and the
+  designs in [docs/superpowers/](docs/superpowers/).
 
-Moved to [docs/scenarios.md](docs/scenarios.md).
-
-## Where forge-kit overlaps its neighbours
-
-Moved to [docs/neighbours.md](docs/neighbours.md).
-
-## The governance layer without Claude Code
-
-Four artifacts here are portable, and they are the ones that carry the rules:
-
-| Artifact | What it gives you |
-|---|---|
-| `.github/ISSUE_TEMPLATE/` | The five work templates (`feature`, `bug`, `security`, `infrastructure`, `design`), carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact. Copy them by name: `config.yml` and `contribution.yml` belong to forge-kit and would send your reporters to it |
-| `.github/labels.yml` | The label taxonomy that routes issues, applied by `sync-labels.sh`, which never deletes a label it does not recognise |
-| `docs/guides/ticket-standards.md` | **The canonical rules**, not a summary. The gate is only allowed to restate it in enumerated places, and `check-restatements.sh` fails the build if the two disagree. Any agent that can read markdown can hold a ticket to it. |
-| The shell assets | Every one bash 3.2 compatible with no package manager, so they run in any CI. The leak guard's `--history` mode is written for macOS (bash 3.2, Apple's awk) and verified against Apple's awk source and bash 3.2 built on Linux, not on a Mac; a report from one is a ticket, not a surprise. `scripts/build-mac-shell-harness.sh` rebuilds that bash and awk from pinned sources on a Linux machine with a compiler, and its `--help` holds the command that runs both leak suites under them |
-
-Copy those into your project and any AI, or none, can work to the same standard.
-**[docs/guides/without-claude-code.md](docs/guides/without-claude-code.md) is the entry point**: what
-to copy, what you can run, real output from the mechanical gate, and what you do not get.
-
-**Be clear about what you do not get.** Nothing enforces any of it for you. The gate, the hooks, the
-size budget and the drift detection are Claude Code components, and there is no adapter for another
-CLI. "AI-agnostic at the governance layer" means the YAML and the markdown are not Claude-specific,
-which is a property of file formats rather than a feature. The governance layer takes no dependency
-on the `claude` CLI, deliberately and by rule, which is what keeps that door open.
-
-Instructions for an agent working ON this repository are deliberately NOT published: `CLAUDE.md`
-and a root `AGENTS.md` are local working state on a maintainer's machine, not project content
-(2026-09-16). What a consumer needs is here and in `docs/`, and `docs/guides/without-claude-code.md`
-is the entry point for using this governance with another agent or none.
-
-## What forge-adapt does
-
-1. **Analyses your project:** stack files, CLAUDE.md, source structure, existing `.claude/` contents
-2. **Recommends components:** ranked, with a reason each, and with anything your neighbours already
-   cover suppressed or flagged
-3. **Waits for your approval:** nothing is written until you choose
-4. **Installs what you approved.** Most components are **registered**, by enabling the plugin group
-   they live in: they resolve what they need at runtime, so they own no file in your repository that
-   could drift, duplicate or clobber. A component is **copied and adapted** into `.claude/` only
-   when it must be: when it declares `scope: project`, when you installed from a bare clone with no
-   marketplace, or when it is a hook, which reaches a project by its own route. An adapted copy is
-   rewritten against your profile, so "check for SQL injection" becomes "check for Prisma
-   `$queryRaw` injection in `src/db/`".
-
-Secondary modes: `forge-adapt drift` reports what is behind and writes nothing; `forge-adapt
-refresh <name>` deep-compares one component and merges in what it is missing while preserving your
-adaptation; `forge-adapt contributions` surfaces project-only components worth contributing back;
-`forge-adapt templates` audits issue templates and can install the template governance.
-
-## The component library
-
-Moved to [docs/components.md](docs/components.md): every component the kit ships, generated from
-the `plugins/` tree, each linked to its source.
-
-## When to run what
-
-Moved to [docs/when-to-run-what.md](docs/when-to-run-what.md).
-
-## Keeping up to date
-
-Moved to [docs/install-and-upgrade.md](docs/install-and-upgrade.md#keeping-up-to-date).
+Every document, who it is for and what it answers: [docs/README.md](docs/README.md).
 
 ## Related project
 
 [**vibe-coding-prompts**](https://github.com/agigante80/vibe-coding-prompts) is the same author's
-other answer to the same problem, from the opposite end. It is 14 versioned, platform-agnostic
-meta-prompts you paste into any assistant (Claude, ChatGPT, Gemini, Copilot Chat), where forge-kit
-is components installed into a project. Neither depends on the other and they overlap in subject
-rather than in mechanism.
-
-Take that one if you have no AI CLI, or several, and want the knowledge without the plumbing. Take
-this one if you want rules that fail a build. Two mechanisms here were borrowed from it outright:
-the generated, CI-verified index (#96) and the version-bump gate this repo now runs on every push.
-
-## Docs
-
-Every document, who it is for and what it answers: [docs/README.md](docs/README.md).
+other answer to the same problem, from the opposite end: versioned, platform-agnostic meta-prompts
+you paste into any assistant, where forge-kit is components installed into a project. Take that one
+if you want the knowledge without the plumbing; take this one if you want rules that fail a build.
 
 ## Sponsor
 
 I build and maintain this in my own time. It is free, it stays free, and it gets maintained either
-way.
-
-If it saved you some time and you feel like saying thanks, you can do that at
-[github.com/sponsors/agigante80](https://github.com/sponsors/agigante80). Entirely optional, and
-nothing about the project changes either way.
+way. If it saved you some time, you can say thanks at
+[github.com/sponsors/agigante80](https://github.com/sponsors/agigante80). Entirely optional.
 
 ## License
 
