@@ -9,6 +9,10 @@ tracks the repository, so users are already served from the default branch.
 
 ## Unreleased
 
+### Fixed
+
+- **`/ci-health` writes its investigate-only notes in the ticket body, never a comment** (#584; `ci-health-version` 14 to 15, `forge-kit-devops` 0.26.9 to 0.26.10; `scripts/test-ci-health-host.sh` 62 to 68 tests). Phase 4's DO NOT AUTO-IMPLEMENT list still said "comment" for E2E failures, security scan findings and Release / version-gate failures, so a finding sat where the next agent does not read. The three cases now call `forge_body_region_set "<N>" ci-health ci-health-notes`, a region of its own (`ci-health-status` stays the Forgejo status region), and a second note on the same ticket replaces the region. The suite fails when any posting command appears in the file, when a case lacks the region write, or when a bullet says comment again, each with a mutant.
+
 ### Added
 
 - **`check-template-lockstep.sh` fails on a canonical doc with no `template-version` marker** (#576; `check-template-lockstep-version` 3 to 4, `forge-kit-adapt` 0.13.13 to 0.13.14; `scripts/test-template-lockstep.sh`). A present doc without a marker was skipped silently and the guard reported the templates as locked. It now exits 1 naming the doc; marker-less templates stay exempt and an absent doc is still skipped.
