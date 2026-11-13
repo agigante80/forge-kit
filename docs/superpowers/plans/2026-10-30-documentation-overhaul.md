@@ -382,6 +382,10 @@ asset treats the plans directory as a list of phases (checked: they read a plan 
 
 ### WP10. Show, do not only tell
 
+**Done:** [#593](https://github.com/agigante80/forge-kit/issues/593), 2026-11-13: `docs/media/` holds a real
+`forge-adapt` recommendation and a real failing guard (static, dated, leak-scanned), and the README links both
+beside the live gate verdict from WP3.
+
 - **Failure removed:** nowhere in the public docs can a visitor see what forge-kit produces before
   installing it.
 - **Shape:** a short recording or a static excerpt of a real `/gate-ticket` run and its posted
