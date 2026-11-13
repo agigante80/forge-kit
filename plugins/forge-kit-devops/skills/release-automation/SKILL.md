@@ -3,7 +3,7 @@ name: release-automation
 description: Enforce and automate releases in CI so a promotion to the production branch can never silently ship without a version bump. The enforced/automated sibling of the invoked `release` skill. Use when the user asks to "enforce version bumps", "block merge without a release", "auto release on merge", "auto-release dependency updates", or "stop forgetting to tag releases".
 ---
 
-<!-- release-automation-version: 15 -->
+<!-- release-automation-version: 16 -->
 
 # Release automation
 
@@ -122,8 +122,9 @@ auto closes only for a PR merged into the DEFAULT branch, and feature PRs target
 branch. `assets/close-shipped.sh <tag>` makes it mechanical (#496). It reads the trailing `(#N)`
 groups of the commit SUBJECTS since the previous release tag reachable from the tag (a body
 is read only for the `This reverts commit <sha>` line of a revert, never for ticket numbers),
-and for each open issue posts `Released in <tag>` (once: it never reposts an existing one) and
-closes it. It decides issue versus pull request from the host, so a PR number in a subject is
+and for each issue, closed ones included, records `Released in <tag>` in its `release-shipped`
+body region (never a comment, #583; an identical region is never rewritten), then closes the open
+ones. It decides issue versus pull request from the host, so a PR number in a subject is
 skipped, never written to. A first release closes nothing.
 
 - **Opt-out:** end a subject with `(refs #N)` instead of `(#N)` for a ticket the commit ships only
@@ -141,7 +142,7 @@ skipped, never written to. A first release closes nothing.
   keep the ticket numbers in the subjects.
 - **Token:** the App behind `GH_TOKEN` needs **Issues: Read and write** (see
   `references/github-token-gotcha.md`); the lanes also declare `issues: write`.
-- **Failure and recovery:** a failed comment or close is a warning, every ticket is still tried, and
+- **Failure and recovery:** a failed record or close is a warning, every ticket is still tried, and
   the run exits 1 with the tag and release already present. **Never rerun the lane** to recover: it
   re-enters `release-run.sh` from the top, which in file mode cuts a phantom patch release. Run the
   command it prints, `bash scripts/close-shipped.sh <tag>`, which converges.

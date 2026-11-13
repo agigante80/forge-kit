@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# release-run-version: 5
+# release-run-version: 6
 # release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). It
 # single-sources the release MECHANICS so a fix lands once, not copy-pasted per lane. `version-lib.sh`
 # (sourced) decides the version<->tag verdict; this applies the lane policy: recursion guard, an
@@ -14,8 +14,8 @@
 #   BUMP_SUBJECT      (reserved commit subject for our own bump: recursion guard AND commit msg)
 #   REQUIRE_DEP_SCOPE ("1" to require a bot-authored, dependency-only change on lane B; else "0")
 #   BOT_LOGINS DEP_PATHS ACTOR  (used only when REQUIRE_DEP_SCOPE=1)
-#   GH_TOKEN          (for `gh release create`, and for close-shipped.sh's issue comments and closes,
-#                     so a GitHub App token needs Issues: Read and write as well as Contents: write)
+#   GH_TOKEN          (for `gh release create`, and for close-shipped.sh's issue body records and
+#                     closes, so a GitHub App token needs Issues: Read and write as well as Contents: write)
 #   DRY_RUN           ("1" prints would-be actions instead of pushing/tagging/releasing; testable)
 set -euo pipefail
 HERE="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -121,8 +121,9 @@ fi
 tag="${TAG_PREFIX}${version}"
 
 # --- Close what the release shipped (#496) ---
-# close-shipped.sh comments "Released in <tag>" on, then closes, every open issue cited as a
-# trailing (#N) in the release range's commit subjects. It runs AFTER the tag, and whether or not
+# close-shipped.sh records "Released in <tag>" in the release-shipped body region of every issue
+# cited as a trailing (#N) in the release range's commit subjects, closed ones included, then closes
+# the open ones; never a comment (#583). It runs AFTER the tag, and whether or not
 # the tag or release already existed; a failure makes this run exit 1 after every ticket was tried.
 # RECOVERY IS MANUAL, never a lane rerun (#496 gate round 2): the lanes check out the released
 # head_sha, so a rerun starts from the top, where file mode now reads `equal` and cuts a phantom
