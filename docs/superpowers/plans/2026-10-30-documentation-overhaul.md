@@ -237,6 +237,10 @@ enforcement contact the maintainer has not chosen, and remains optional.
 
 ### WP5. Split reference and explanation out of the README into `docs/`
 
+**Done:** [#588](https://github.com/agigante80/forge-kit/issues/588), 2026-11-13: reference and
+explanation moved out of the README into `docs/`, with the docs map and the generator contract the
+later WPs build on.
+
 - **Failure removed:** reference material in the README is only reachable by scrolling, cannot be
   linked per plugin, and pushes the quick start below the fold. The README "Docs" list renders
   paths as code rather than links and omits `startup-context.md`.
