@@ -1,4 +1,4 @@
-# gate-env-version: 5
+# gate-env-version: 6
 # gate-env.sh: what each ticket-gate Bash call must rebuild, because every call is a fresh shell
 # (#347). SOURCED, never run: Step 0 sources it right after writing $D/mech, and Steps 3A, 5 and 6
 # each open with
@@ -57,7 +57,7 @@ unset _ge_lib
 # Never a comment. Needs $D, forge_issue_view and forge_body_region_set (forge-lib). rc 2 on bad
 # input or a read failure; otherwise forge_body_region_set's rc.
 gate_write_review() {
-  local n=${1-} cur body rest review room=52000
+  local n=${1-} cur body rest review cut room=52000
   [[ $n =~ ^[0-9]+$ ]] && [ -n "${D-}" ] && [ -s "$D/review.md" ] || { echo "gate_write_review: needs an issue number and a non-empty \$D/review.md" >&2; return 2; }
   cur=$(forge_issue_view "$n") || return 2
   body=$(printf '%s' "$cur" | jq -r '.body // ""') || return 2
@@ -68,10 +68,12 @@ gate_write_review() {
     !skip')
   review=$(cat "$D/review.md")
   if [ $(( ${#rest} + ${#review} )) -gt "$room" ]; then
-    review=$(printf '%s\n' "$review" | awk '/^#### Mechanical checks/ { exit } { print }')
-    review="$review
+    cut=$(printf '%s\n' "$review" | awk '/^#### Mechanical checks/ { exit } { print }')
+    if [ "${#cut}" -lt "${#review}" ]; then
+      review="$cut
 
 Cut: the full review would pass the forge's body size cap. The verdict and the required changes are in the regions below."
+    fi
   fi
   forge_body_region_set "$n" gate gate-review "$review"
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# count-gate-rounds-version: 5
+# count-gate-rounds-version: 6
 # count-gate-rounds.sh <issue-number> [--body FILE]
 # count-gate-rounds.sh <issue-number> --memory [--body FILE]
 #
@@ -25,11 +25,11 @@
 # ruled that nothing of the gate may live in a comment. Step 0c-iv DOES clear both round regions, so
 # ticket-gate.md records this script's answer in $D/round just before clearing and 0c-v writes a
 # `### Gate review (round <rounds run>)` heading back with the void note: a run that stops after 0c
-# (labels, clarification) keeps the count. The residual case, stated honestly: an
+# (labels, or clarification: 1.5 appends to the review 0c-v wrote) keeps the count. The residual case, stated honestly: an
 # author who deletes the gate regions of a ticket that has NO legacy review comments resets the
 # count to round 1, and nothing in the forge's data can tell this script otherwise. It is not
 # silent: when the body still carries a gate trace (a `Judged body:` stamp, or a gate-verdict,
-# gate-required-changes or gate-alternatives region) but no round heading, and no legacy comment
+# gate-review, gate-required-changes or gate-alternatives region) but no round heading, and no legacy comment
 # backs a count, one stderr line says the count may have been reset. The trace test costs nothing
 # and the warning is advisory, the answer does not change. The scan is fence-aware: a marker or
 # round heading quoted in an author's fenced code block is text, not a region.
@@ -270,7 +270,7 @@ done_rounds=$legacy_count
 if [ "$done_rounds" -eq 0 ]; then
   trace=0
   [ "$(printf '%s\n' "$bodytext" | grep -c '^Judged body: sha256:')" -gt 0 ] && trace=1
-  for r in gate-verdict gate-required-changes gate-alternatives; do
+  for r in gate-verdict gate-review gate-required-changes gate-alternatives; do
     has_region "$r" && trace=1
   done
   [ "$trace" = 1 ] && echo "count-gate-rounds: the body carries gate output but no round heading and no review comment backs a count; the count may have been reset by an edit that removed the gate regions (reporting round 1)" >&2

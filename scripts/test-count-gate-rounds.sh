@@ -192,7 +192,20 @@ contains "the count may have been reset" "$err" "a surviving required-changes re
 printf '## Summary\n\n<!-- gate-review:start -->\n### Gate clarification needed\n1. question?\n<!-- gate-review:end -->\n<!-- gate-context:start -->\nctx\n<!-- gate-context:end -->\n' > "$T/b.md"
 run 42 --body "$T/b.md"
 expect "a clarification stop and a context region are not a round" 1 "$out"
-expect "and are no reason to warn" "" "$err"
+contains "the count may have been reset" "$err" "and a gate-review region with no round heading is a trace: the advisory warning fires (round 2 review)"
+
+echo "== 0c then 1.5 in one run keeps the count (round 2 review) =="
+# Round 2 ticket: 0c clears gate-verdict, 0c-v writes the round-2 heading with the void note, 1.5 APPENDS the clarification.
+printf '## Summary\n\n<!-- gate-review:start -->\n### Gate review (round 2)\n#### Template auto-upgraded to v6\nnote\n\n### Gate clarification (needed before review)\n1. q?\n<!-- gate-review:end -->\n' > "$T/b.md"
+comments
+run 42 --body "$T/b.md"
+expect "after 0c-v and 1.5 appended: round 3, not 1" 3 "$out"
+expect "  and no warning" "" "$err"
+# The broken sequence (1.5 overwrote the heading) can only reset, and now says so.
+printf '## Summary\n\n<!-- gate-review:start -->\n### Gate clarification (needed before review)\n1. q?\n<!-- gate-review:end -->\n' > "$T/b.md"
+run 42 --body "$T/b.md"
+expect "1.5 overwriting the heading resets to round 1" 1 "$out"
+contains "the count may have been reset" "$err" "  but the reset is no longer silent"
 
 printf '## Summary\n\nJudged body: sha256:0123456789abcdef (fp11).\n' > "$T/b.md"
 comments "$(review 42)"

@@ -27,8 +27,8 @@ Any previous gate verdict is void. Re-reviewing now against the enriched body.
 Review the synthesised content and re-run /gate-ticket <N> if corrections are needed.
 ```
 
-**Clarification (Step 1.5, thin ticket).** The whole `gate-review` region. Its heading carries no
-"(round N)", so `count-gate-rounds.sh` does not count a clarification stop as a round.
+**Clarification (Step 1.5, thin ticket).** The `gate-review` region, appended after 0c-v's
+review (void note and round heading) when 0c fired. Its own heading carries no "(round N)", so it is no round.
 
 ```markdown
 ### Gate clarification (needed before review)

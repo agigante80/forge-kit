@@ -123,7 +123,7 @@ m_ge "\$D/mech guard removed" 'if [ -z "${D:-}" ] || [ ! -s "$D/mech" ]; then' '
 # stay out of the total.
 crash_ok=1; crashed=0
 for x in 'exit 127' 'fi fi'; do
-  cap=$(m_ge crash-control '# gate-env-version: 5' "# gate-env-version: 5
+  cap=$(m_ge crash-control '# gate-env-version: 6' "# gate-env-version: 5
 $x" chk_strict)
   cmp -s "$W/mut.sh" "$ASSET" && crash_ok=0
   case "$cap" in *" dies"*|*" survived"*) crash_ok=0 ;; *"FAIL: mutant 'crash-control' crashed ("*) crashed=$((crashed + 1)) ;; esac
@@ -153,6 +153,9 @@ awk 'BEGIN { for (i = 0; i < 530; i++) print "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 o=$(gwr "$ASSET" "$W/g-big" "$W/g-rev")
 [ "$(field "$o" rc)" = 0 ] && [ "$(grep -c 'Mechanical checks' "$W/set.out")" = 0 ] && [ "$(grep -c '^Cut: ' "$W/set.out")" = 1 ] && [ "$(grep -c 'Gate review (round 2)' "$W/set.out")" = 1 ] \
   && ok "a body near the cap: the review is cut at Mechanical checks, keeps its heading, says it was cut" || bad "the over-size cut did not apply: $o $(cat "$W/set.out")"
+printf '### Gate clarification (needed before review)\nq?\n' > "$W/g-clar"
+o=$(gwr "$ASSET" "$W/g-big" "$W/g-clar")
+[ "$(field "$o" rc)" = 0 ] && [ "$(grep -c '^Cut: ' "$W/set.out")" = 0 ] && ok "over the room but with no Mechanical checks heading: nothing was cut, so no Cut line" || bad "a Cut line was written though nothing was cut: $o"
 { printf '<!-- gate-review:start -->\n'; cat "$W/g-big"; printf '<!-- gate-review:end -->\n'; } > "$W/g-oldbig"
 o=$(gwr "$ASSET" "$W/g-oldbig" "$W/g-rev")
 [ "$(grep -c 'Mechanical checks' "$W/set.out")" = 1 ] && ok "the region being replaced is not counted against the room" || bad "the old region was counted: $o"

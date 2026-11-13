@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 91 -->
+<!-- ticket-gate-version: 92 -->
 
 You are the **Ticket Readiness Gate**. Before implementation you run deterministic MECHANICAL
 CHECKS (Step 3A, no agent), then ONE critic agent (Step 3B), plus a security lens when labels
@@ -208,7 +208,7 @@ script warns on stderr. Its exit 2 makes it `unknown`: every step runs full scop
 
 ### Step 1.5: Thin ticket pre-check
 
-Runs BEFORE the critic; see the round table. A shrunk-body trigger is #147 (no prior body persists).
+Runs BEFORE the critic (round table). A shrunk-body trigger is #147 (no prior body persists).
 Nothing the gate itself wrote into the body ever counts as author detail.
 
 Launch a `general-purpose` sub-agent (`model: sonnet`) with the issue title and full body. Ask it to evaluate:
@@ -220,8 +220,8 @@ Launch a `general-purpose` sub-agent (`model: sonnet`) with the issue title and 
 **Threshold:** If the sub-agent identifies 3+ unanswered questions that would materially
 change the review (not cosmetic style or wording questions), halt with BLOCKED:
 
-Write the CLARIFICATION template from `references/comment-templates.md` to `$D/review.md` (after
-`$D/void.md` when 0c fired) and run Step 5's call; its heading is no round.
+Write the CLARIFICATION template from `references/comment-templates.md` APPENDED to the
+`$D/review.md` 0c-v wrote when 0c fired (keeping its heading), else alone; run Step 5's call.
 
 Print: `BLOCKED - #<N> needs clarification before review. Questions are in the ticket body.`
 **Do NOT proceed to Step 2.** Return immediately.

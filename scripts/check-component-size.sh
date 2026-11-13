@@ -238,6 +238,8 @@ budget_for() {
 # LOWERED 2026-10-09: adapt 7144 to 7143 (#442). Step 3 item 4 stops asking for the token-env name,
 # which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
 #
+# LOWERED 2026-11-13: ticket-gate 5625 to 5624 (#581 round 2). 0c then 1.5 appends to the review (net -1).
+#
 # LOWERED 2026-11-13: ticket-gate 5628 to 5625 (#581 round 1). The round count is kept across Step 0c and
 # gate_write_review replaces the Step 5 size prose (net -3).
 #
@@ -430,7 +432,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
-    ticket-gate) echo 5625 ;;
+    ticket-gate) echo 5624 ;;
     full-review) echo 3963 ;;
     *)           echo 0 ;;
   esac
