@@ -92,6 +92,7 @@ unchanged.
   to every group (a semver bump per group), have `validate-plugins.sh` fail when one is missing
   or differs from the root `LICENSE` (compare bytes, so a later edit to the root file cannot leave
   seven stale copies; Gemini G10), and check an installed cache folder. A ticket of its own.
+  **Done:** [#587](https://github.com/agigante80/forge-kit/issues/587), 2026-11-13.
 
 ### WP2. Correct the stale facts now (cheap, before the restructure)
 
@@ -404,7 +405,7 @@ From the external reviews, worth a ticket only if the maintainer wants them:
 
 ## Order
 
-WP1, WP2 and WP4 are done (2026-10-30); WP1's license follow-up (C2) can go any time. Next WP5,
+WP1, WP2 and WP4 are done (2026-10-30); WP1's license follow-up (C2) is done (#587, 2026-11-13). Next WP5,
 then WP3 (the README rewrite needs its destinations and the generator contract), with WP6a and
 then WP6b in parallel. WP7, WP8 and WP9 follow on the final text (WP9's generator links ship
 inside WP5's generator commit, so WP3 measures the README once); then WP10, and WP11 last
@@ -425,7 +426,7 @@ because it walks the finished docs. The WP4 dogfooding decision (G3) can be take
 - A copied artifact carries forge-kit's identity into an adopter's repository (the issue chooser's
   security link did, until 2026-10-31). Guard: every portable copy instruction names its files, and
   repository-specific files (`config.yml`, `contribution.yml`) are never in the set.
-- A distributed plugin folder lacks the license notice its manifest claims. Guard: WP1's follow-up.
+- A distributed plugin folder lacks the license notice its manifest claims. Guard: WP1's follow-up (done, #587).
 - A recipe's review step misses part of what it changed (`git diff` hides new files). Guard: each
   copy recipe says how to review and undo new files and replaced ones separately.
 - The docs pass a fresh install while upgrades and removal stay wrong. Guard: WP11.

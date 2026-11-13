@@ -30,6 +30,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 # One tree per case, built from scratch so no case can inherit another's state.
 tree() {
   rm -rf "$T/tree"; mkdir -p "$T/tree/.claude-plugin"
+  printf 'MIT License\n\nCopyright (c) fixture\n' > "$T/tree/LICENSE"   # the root text (#587)
   cat > "$T/tree/.claude-plugin/marketplace.json" <<'M'
 { "name": "forge-kit", "owner": { "name": "probe" },
   "plugins": [
@@ -59,11 +60,13 @@ D
 row() { printf '| %s | %s | r |\n' "$1" "$2" >> "$T/tree/docs/guides/model-tiers.md"; }
 plugin() {  # plugin <group> <extra-json-fields-or-empty>
   mkdir -p "$T/tree/plugins/$1/.claude-plugin"
+  cp "$T/tree/LICENSE" "$T/tree/plugins/$1/LICENSE"   # a group ships the root text (#587)
   printf '{ "name": "%s", "version": "0.1.0", "description": "d", "author": { "name": "someone" }, "license": "MIT"%s }\n' \
     "$1" "${2:+, $2}" > "$T/tree/plugins/$1/.claude-plugin/plugin.json"
 }
 raw() {  # raw <group> <whole-plugin.json-body>: for the cases about the author field itself
   mkdir -p "$T/tree/plugins/$1/.claude-plugin"
+  cp "$T/tree/LICENSE" "$T/tree/plugins/$1/LICENSE"
   cat > "$T/tree/plugins/$1/.claude-plugin/plugin.json"
 }
 out=""; rc=0
@@ -193,6 +196,41 @@ contains "license is empty" "$out" "and says it is empty rather than missing"
 tree; plugin forge-kit-alpha; plugin forge-kit-beta
 run
 expect "a license string passes" 0 "$rc"
+
+echo "== every group ships the root LICENSE, byte for byte (#587) =="
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+run
+expect "groups whose LICENSE equals the root pass" 0 "$rc"
+rm "$T/tree/plugins/forge-kit-alpha/LICENSE"
+run
+expect "a group with no LICENSE fails" 1 "$rc"
+contains "plugins/forge-kit-alpha/LICENSE: missing" "$out" "and names the group's missing file"
+lacks "forge-kit-beta/LICENSE" "$out" "and leaves the group that has one alone"
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+printf 'MIT License\n\nCopyright (c) someone else\n' > "$T/tree/plugins/forge-kit-beta/LICENSE"
+run
+expect "a group LICENSE with other text fails" 1 "$rc"
+contains "plugins/forge-kit-beta/LICENSE: differs from the root LICENSE" "$out" "and says it differs"
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+rm "$T/tree/plugins/forge-kit-beta/LICENSE"; ln -s ../../LICENSE "$T/tree/plugins/forge-kit-beta/LICENSE"
+run
+expect "a symlinked group LICENSE fails (the cache needs a file)" 1 "$rc"
+contains "forge-kit-beta/LICENSE: is a symlink" "$out" "and says it is a symlink"
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+printf '\n' >> "$T/tree/plugins/forge-kit-alpha/LICENSE"
+run
+expect "one extra trailing newline fails (bytes, not lines)" 1 "$rc"
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+printf 'MIT License\n\nCopyright (c) edited\n' > "$T/tree/LICENSE"
+run
+expect "an edited root LICENSE leaves stale group copies failing" 1 "$rc"
+contains "forge-kit-alpha/LICENSE: differs" "$out" "and flags the first stale copy"
+contains "forge-kit-beta/LICENSE: differs" "$out" "and the second"
+tree; plugin forge-kit-alpha; plugin forge-kit-beta
+rm "$T/tree/LICENSE"
+run
+expect "a missing root LICENSE fails" 1 "$rc"
+contains "LICENSE: missing at the repository root" "$out" "and says the root file is the one missing"
 
 echo "== a dispatch to an agent that does not exist fails (#180) =="
 # The failure #178 made live: deleting an agent leaves any component that dispatches it broken at
