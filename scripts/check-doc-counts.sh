@@ -24,7 +24,10 @@
 # than an inventory) or a digit run (`5`, `292`, `1,200`). The digit run must stand alone: `#178`,
 # `2.1.310`, `v6` and `2-put` are not numbers here, and neither is a number that ends its clause
 # (`75,` or `1.`). A word ending in a comma, period, colon or semicolon ends the look-ahead, so
-# "#74 and #75, where component markers" is not read as a count of markers.
+# "#74 and #75, where component markers" is not read as a count of markers. The look-ahead crosses
+# a hard wrap: the last three words of a prose line lead the next one, so "the five\nwork
+# templates" is a hit, reported at the number's line. A blank line, heading, table row, fence,
+# generated region or exempted line ends the paragraph and carries nothing.
 #   nouns after any number:  plugin group phase component agent skill command hook asset template
 #                            suite test guard collision label area ticket release (and plurals)
 #   nouns after digits only: line word reference (and plurals); "two lines of an anchor" is a rule,
@@ -71,14 +74,15 @@ function core(t) {  # strip markdown wrapping around a token
   gsub(/^[(*_`\[|"]+/, "", t); gsub(/[)*_`\]|"]+$/, "", t)
   return t
 }
-FNR == 1 { if (NR > 1) flush(); fence = 0; region = 0; prev = ""; nh = 0; dated = 0 }
+FNR == 1 { if (NR > 1) flush(); fence = 0; region = 0; prev = ""; nh = 0; dated = 0; nc = 0 }
 {
   line = $0
-  if (line ~ /^[ \t]*(```|~~~)/) { fence = !fence; prev = line; next }
+  if (line ~ /^[ \t]*(```|~~~)/) { fence = !fence; prev = line; nc = 0; next }
   if (fence) { prev = line; next }
-  if (line ~ /^[ \t]*<!-- *[A-Za-z0-9_-]+:start *-->/) { region = 1; prev = line; next }
+  if (line ~ /^[ \t]*<!-- *[A-Za-z0-9_-]+:start *-->/) { region = 1; prev = line; nc = 0; next }
   if (region) { if (line ~ /:end *-->/) region = 0; prev = line; next }
-  if (line ~ /^#+ /) flush()
+  if (line ~ /^#+ /) { flush(); nc = 0 }
+  if (line ~ /^[ \t]*(\||$)/) nc = 0
   if (line ~ /[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]/) dated = 1
 
   exempt = 0
@@ -90,10 +94,16 @@ FNR == 1 { if (NR > 1) flush(); fence = 0; region = 0; prev = ""; nh = 0; dated 
     }
   }
   prev = line
-  if (exempt) next
+  if (exempt) { nc = 0; next }
 
-  nt = split(line, tok, /[ \t]+/)
+  # tok[1..nc] are the last words of the previous prose line (line cfnr), then this line from nc+1.
+  for (i = 1; i <= nc; i++) tok[i] = carry[i]
+  nl = split(line, ltok, /[ \t]+/)
+  nt = nc
+  for (i = 1; i <= nl; i++) if (ltok[i] != "") tok[++nt] = ltok[i]
   for (i = 1; i <= nt; i++) {
+    # A number in the carried words was already read up to its line end; only a noun on
+    # this line can complete it now.
     t = core(tok[i]); lt = tolower(t)
     isdig = (t ~ /^[0-9]+$/ || t ~ /^[0-9][0-9]?[0-9]?(,[0-9][0-9][0-9])+$/)
     if (t ~ /^[0-9]/ && !isdig) continue
@@ -104,14 +114,19 @@ FNR == 1 { if (NR > 1) flush(); fence = 0; region = 0; prev = ""; nh = 0; dated 
       w = tolower(core(tok[j])); text = text " " core(tok[j])
       gsub(/[^a-z-]/, "", w)
       if ((w in noun) || (isdig && (w in dnoun))) {
+        if (i <= nc && j <= nc) break
         sub(/[,.;:]+$/, "", text)
-        hit[++nh] = FILENAME ":" FNR ": " text
+        hit[++nh] = FILENAME ":" (i <= nc ? cfnr : FNR) ": " text
         i = j
         break
       }
       if (tok[j] ~ /[,.;:]$/) break
     }
   }
+  # Carry the last three words of this line. One that ends a clause needs no cut here: the
+  # look-ahead above already stops at it.
+  nc = 0; cfnr = FNR; k = nt - 2; if (k < 1) k = 1
+  for (i = k; i <= nt; i++) carry[++nc] = tok[i]
 }
 END { flush() }
 ' "${files[@]}")

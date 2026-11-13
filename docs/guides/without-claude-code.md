@@ -237,7 +237,7 @@ using another agent can hold every ticket to one written standard and check the 
 part of it automatically, which is most of the value and not all of it.
 
 **One thing you will not find in a clone, and should not go looking for.** This repository's own
-assistant instructions (`CLAUDE.md`) are local working state and are not published, so two of its
+assistant instructions (`CLAUDE.md`) are local working state and are not published, so these
 guards have nothing to check here: `scripts/update-suite-counts.py`, which verifies the test counts
 that file states, and the `plugin-groups` region of `scripts/update-component-index.py`. Both skip
 with a notice rather than failing, and `.githooks/pre-push` runs them where a copy exists. Nothing

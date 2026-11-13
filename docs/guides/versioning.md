@@ -93,8 +93,8 @@ rewrites it for that stack; divorced from its plugin, that loose file needs its 
 adaptation deliberately does not change the marker so staleness stays detectable.
 
 This is what `forge-adapt drift` and `forge-adapt refresh <name>` compare. See CLAUDE.md for the
-enforced path set and the positional parsing rule, both of which are duplicated across three
-guards and must be changed together.
+enforced path set and the positional parsing rule, both of which are duplicated across the
+guards that enforce them and must be changed together.
 
 **A component's marker name is not required to equal its component name.** Exactly one diverges
 today: `skills/adapt/SKILL.md` is catalogued as `adapt` but carries `forge-adapt-version`.

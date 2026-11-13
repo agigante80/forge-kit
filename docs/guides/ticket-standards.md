@@ -9,7 +9,7 @@ fields that collect this content; this document holds the **rules and the ration
 `ticket-gate` agent enforces the rules.
 
 **This doc carries two markers, and they answer different questions (issue #94).**
-`template-version` says *which form this doc describes*: it is version-locked to the five work
+`template-version` says *which form this doc describes*: it is version-locked to the work
 templates by `scripts/check-template-lockstep.sh`, so the standard cannot silently drift apart
 from the forms that implement it, and bumping it is what makes `ticket-gate` re-synthesise every
 open ticket. `doc-rules-version` says *which revision the rules text below is at*. A change to

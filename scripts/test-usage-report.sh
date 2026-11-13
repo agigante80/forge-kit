@@ -186,10 +186,10 @@ expect "exit 0" 0 "$rc"
 expect "--json parses and the warnings are the only stderr" $((2 + nest_warn)) "$(wc -l <<< "$err" | tr -d ' ')"
 has "a truncated last line is one warning naming file and line" "demo-alpha/$S1/subagents/agent-b.jsonl:4: not JSON, skipped" "$err"
 has "a non-UTF-8 line is one warning naming file and line" "demo-alpha/s5000000-0000-4000-8000-000000000005.jsonl:2: not UTF-8, skipped" "$err"
+# Where this Python parses the line, the stderr line count above is the whole check: one extra
+# line, a warning or a traceback, fails it.
 if [ "$nest_warn" = 1 ]; then
   has "a line nested past the recursion limit is one warning, not a traceback" "demo-alpha/s5000000-0000-4000-8000-000000000005.jsonl:4: not JSON, skipped" "$err"
-else
-  hasnt "a line this Python can parse is no warning and no traceback" "Traceback" "$err"
 fi
 hasnt "the warnings never name the root" "$FX" "$err"
 hasnt "nor the slug above the project" "work-demo" "$err"

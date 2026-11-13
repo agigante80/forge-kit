@@ -126,6 +126,37 @@ run
 expect "exit 1" 1 "$rc"
 contains "README.md:3: doc-count exception has no reason" "$out" "an empty reason is named"
 
+echo "== a count wrapped across a hard line break fails, named at the number's line =="
+fresh "# x" "" "It is version-locked to the five work" "templates by the lockstep guard." \
+  "Duplicated across three" "guards and changed together."
+run
+expect "exit 1" 1 "$rc"
+contains "README.md:3: five work templates" "$out" "number and noun split one word in"
+contains "README.md:5: three guards" "$out" "number last on its line, noun first on the next"
+
+echo "== a count found on its own line is reported once, not again from the carry =="
+fresh "# x" "" "There are seven plugin groups" "in this kit."
+run
+expect "one hit" 1 "$(grep -c 'seven plugin' <<< "$out")"
+
+echo "== a blank line, a heading or a table row ends the carry =="
+fresh "# x" "" "We read three" "" "guards in a new paragraph." "Then two" "## Hooks" "Also four" "| hooks | x |"
+run
+expect "exit 0" 0 "$rc"
+
+echo "== a clause break before the wrap ends the carry =="
+fresh "# x" "" "We counted three." "Guards are listed elsewhere."
+run
+expect "exit 0" 0 "$rc"
+
+echo "== an exempted line carries nothing into the next =="
+fresh "# x" "" "Pick the three <!-- doc-count: a rule, not an inventory -->" "guards that apply."
+run
+expect "exit 0" 0 "$rc"
+fresh "# x" "" "Pick the three" "Text <!-- doc-count: a rule, not an inventory -->" "covered by it." "guards that apply."
+run
+expect "a carry does not jump the exempted lines" 0 "$rc"
+
 echo "== a missing root exits 2 =="
 out=$(bash "$SCRIPT" "$T/nope" 2>&1 </dev/null); rc=$?
 expect "exit 2" 2 "$rc"
