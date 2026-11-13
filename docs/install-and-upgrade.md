@@ -186,9 +186,13 @@ Nothing registers a copy with Claude Code, so nothing uninstalls it. Do these in
 1. **Unwire a hook before you delete it.** A hook still wired in `settings.json` whose file is gone
    runs `python3 <missing file>`, which exits 2, and Claude Code reads exit 2 from a `PreToolUse`
    hook as a deny. Every matching tool call is then refused, including the shell call you would use
-   to repair it. With forge-kit-adapt installed, `hook-unwire.sh <name>` (under the plugin's
-   `skills/adapt/assets/`, and in a clone of this repository) removes only that hook's entries, and
-   exits 0 before you delete the file. Or edit the `hooks` entry out of `settings.json` by hand.
+   to repair it. With forge-kit-adapt installed, `hook-unwire.sh <name>` removes only that hook's
+   entries and exits 0; it needs `jq`. It sits under the plugin's `skills/adapt/assets/` in the
+   plugin cache (`~/.claude/plugins/cache/forge-kit/forge-kit-adapt/<version>/`) and in a clone of
+   this repository. Delete the file only after it exits 0, as in `hook-unwire.sh <name> && rm
+   <file>`: any other exit (jq missing, a `settings.json` it cannot rewrite safely, or the hook
+   still wired in `settings.local.json`) leaves the wiring in place. Or edit the `hooks` entry out
+   of `settings.json` by hand.
 2. Delete the hook copy, then the copied agents and skills.
 3. Expect to keep what is not yours to delete: the now empty `"PreToolUse": []` in `settings.json`,
    empty `.claude/hooks/`, `.claude/agents/` and `.claude/skills/` directories, and everything the

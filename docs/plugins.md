@@ -152,8 +152,9 @@ anything already written to the forge (issue bodies, tickets) stays there. The f
   refused.
 - **Removal:** uninstall it after the groups that need it (`forge-kit-governance`,
   `forge-kit-roadmap`), which read `forge-lib.sh` from it. To drop the push hook, remove its entry
-  from the project's `settings.json` first (or run `hook-unwire.sh block-legacy-host-push`), then
-  delete its copy under `.claude/hooks/`: a wired hook whose file is gone is refused as a deny.
+  from the project's `settings.json` first (or run `hook-unwire.sh block-legacy-host-push` and
+  continue only if it exits 0), then delete its copy under `.claude/hooks/`: a wired hook whose
+  file is gone is refused as a deny.
 
 ### Using forge-kit-governance
 
