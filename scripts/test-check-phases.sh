@@ -660,6 +660,58 @@ expect "the backslash-free control exits 3" 3 "$rc"
 expect "and its first line is unchanged" 'check-phases: rtmap.md: phase "A": unknown state "bogus"' "$(printf '%s\n' "$out" | head -1)"
 rm -f "$T/r\\tmap.md" "$T/rtmap.md"
 
+echo "== #591: a README.md beside the plans is not a phase =="
+# docs/plans/README.md explains the directory. The guard reads a plan only by the path a roadmap entry
+# names, so the README must change no verdict: it is never counted as a plan, and never accepted as a
+# stand-in for a missing one. The mutant below widens the existence test to any README in the plan's
+# directory; the second case must turn red against it.
+rm -f "$T"/docs/plans/*.md
+printf '# Phase plans\n\nAn index of the directory, with no premortem.\n' > "$T/docs/plans/README.md"
+goodplan A > "$T/docs/plans/a.md"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/a.md
+
+why A exists
+MD
+run --offline
+expect "#591: a README.md beside a complete plan leaves the offline verdict at 0" 0 "$rc"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/gone.md
+
+why A exists
+MD
+run --offline
+expect "#591: a missing plan still exits 1 with a README.md in its directory" 1 "$rc"
+contains 'docs/plans/gone.md, which does not exist' "$out" "#591: and the diagnostic names the missing plan, not the README"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/README.md
+
+why A exists
+MD
+run --offline
+expect "#591: naming the README as a plan is judged like any plan file: no Fails if, exit 1" 1 "$rc"
+contains 'has no "Fails if" section' "$out" "#591: and says why"
+cat > "$T/docs/roadmap.md" <<'MD'
+## Phase: A
+state: done
+plan: docs/plans/gone.md
+
+why A exists
+MD
+cp "$T/check-phases.sh" "$T/cp-keep.sh"
+sed 's|if \[ ! -f "\$plan" \]; then|if [ ! -f "$plan" ] \&\& [ ! -f "$(dirname "$plan")/README.md" ]; then|' "$T/cp-keep.sh" > "$T/check-phases.sh"
+run --offline
+if cmp -s "$T/cp-keep.sh" "$T/check-phases.sh"; then bad "#591: mutant: the widened existence test was not applied"
+elif [ "$rc" = 0 ] || ! grep -qF 'does not exist' <<< "$out"; then ok "#591: mutant: accepting a README as a stand-in plan is caught by the missing-plan case"
+else bad "#591: mutant: the widened existence test still reported the missing plan"; fi
+cp "$T/cp-keep.sh" "$T/check-phases.sh"; rm -f "$T/cp-keep.sh" "$T/docs/plans/README.md" "$T/docs/plans/a.md"
+
 echo ""
 echo "check-phases tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
