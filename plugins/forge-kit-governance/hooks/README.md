@@ -45,7 +45,7 @@ Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 | `block-dashes.py` | PreToolUse | 6 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
 | `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
 | `overnight-guard.py` | PreToolUse | 18 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
-| `forge-write-consent.py` | UserPromptSubmit + PreToolUse | 1 | Deny a forge comment in a Bash call unless the user's own latest prompt said `allow-comment`, and a new ticket once the session's ticket budget (default 3) is spent unless it said `allow-ticket`. Body rewrites, closes, reads, the gate's review post and a release note are never denied. Fails open on an unparseable payload; no grant file means no grant. |
+| `forge-write-consent.py` | UserPromptSubmit + PreToolUse | 1 | Deny a forge comment in a Bash call unless the user's own latest prompt said `allow-comment`, and a new ticket once the session's ticket budget (default 3) is spent unless it said `allow-ticket`. Body rewrites, closes and reopens with no `--comment`, and reads are never denied; no comment is exempt, a release note and a closing comment included (#586). Fails open on an unparseable payload; no grant file means no grant. |
 | `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
 | `overnight-continue.py` | Stop | 1 | During a `working-overnight` run only (armed by `.claude/overnight/active.md`), keep one cycle from stopping on a question; Claude Code caps a Stop hook at 8 consecutive blocks, so it is a safety net, not the loop. Fails open: any error allows the stop. |
 
@@ -122,8 +122,9 @@ rm .claude/no-poll-loops                          # opt out
 
 ## forge-write-consent.py
 
-Two written rules held mechanically (#565): a ticket is read by its BODY, so decisions and
-corrections are rewritten into it and a comment is only a retraction or a closing note; and a
+Two written rules held mechanically (#565): a ticket is read by its BODY, so decisions,
+corrections, retractions and release notes are rewritten into it and a comment is written only
+when the user asks for one; and a
 finding becomes a ticket only when someone would really hit it and it is too big to fix now. One
 session broke both in a day (25 tickets, 12 decision comments), which is the evidence that prose
 alone does not hold them.
@@ -142,7 +143,7 @@ old rule that every ticket needs `allow-ticket`; `unlimited` turns the ticket ru
 beside the grant file. Each ticket write in a command costs one, a ticket write that may repeat
 (a loop, `xargs`, `parallel`, `find -exec`, `watch`, `eval`, a function) needs `allow-ticket` because its cost cannot be
 counted, and the count and spend share a file lock, so racing subagents cannot overspend. A subagent carries its parent's `session_id`, so the grant and the budget
-cover the session's subagents, and an overnight run is one session. The exact shapes, exemptions and known
+cover the session's subagents, and an overnight run is one session. The exact shapes and known
 limits are in the script's header. The deny reason teaches the rule and names the word to ask
 for.
 
