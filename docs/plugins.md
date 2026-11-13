@@ -14,7 +14,7 @@ each opt-in hook, and how to upgrade are in [install-and-upgrade.md](install-and
 | Plugin group | Version | Install | Needs |
 |---|---|---|---|
 | [`forge-kit-adapt`](#forge-kit-adapt) | 0.13.17 | `claude plugin install forge-kit-adapt@forge-kit` | nothing |
-| [`forge-kit-devops`](#forge-kit-devops) | 0.27.2 | `claude plugin install forge-kit-devops@forge-kit` | nothing |
+| [`forge-kit-devops`](#forge-kit-devops) | 0.27.3 | `claude plugin install forge-kit-devops@forge-kit` | nothing |
 | [`forge-kit-governance`](#forge-kit-governance) | 0.40.7 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
 | [`forge-kit-review`](#forge-kit-review) | 0.8.2 | `claude plugin install forge-kit-review@forge-kit` | [`forge-kit-security`](#forge-kit-security) |
 | [`forge-kit-roadmap`](#forge-kit-roadmap) | 0.15.24 | `claude plugin install forge-kit-roadmap@forge-kit` | [`forge-kit-devops`](#forge-kit-devops) |
@@ -35,7 +35,7 @@ forge-adapt skill: analyses your project, suggests the right forge-kit component
 
 dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook
 
-- **Version:** 0.27.2
+- **Version:** 0.27.3
 - **Install:** `claude plugin install forge-kit-devops@forge-kit`
 - **Needs:** nothing
 - **Agents:** [`dep-auditor`](../plugins/forge-kit-devops/agents/dep-auditor.md), [`health-check`](../plugins/forge-kit-devops/agents/health-check.md)

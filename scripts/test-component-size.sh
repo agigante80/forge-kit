@@ -184,17 +184,26 @@ locale_agree "$CHECK" && ok "a lone non-ASCII token counts the same under C and 
 . "$ROOT/scripts/mutant-crash.sh"
 # cs_live: the build still warns on loc-agent under C.UTF-8 (#360), so a disagreement is not a crash.
 cs_live() { local o; o=$(LC_ALL=C.UTF-8 bash "$LOC/check.sh" --root "$LOC"); [ "$(printf '%s\n' "$o" | grep -c '^warn .*loc-agent')" -ge 1 ]; }
-cs_mutant() {  # cs_mutant <label> <sed expr>: $LOC/check.sh built from $CHECK must disagree, not crash
+cs_mutant() {  # cs_mutant <label> <sed expr> [equivalent]: $LOC/check.sh built from $CHECK must disagree, not crash
   local why held=0
   sed "$2" "$CHECK" > "$LOC/check.sh"
   if cmp -s "$CHECK" "$LOC/check.sh"; then bad "mutant ($1): nothing to replace"; return; fi
   locale_agree "$LOC/check.sh" && held=1
   why=$(mutant_crash_reason_live "$LOC/check.sh" cs_live)
   if [ -n "$why" ]; then bad "mutant ($1) crashed ($why)"
+  elif [ "${3:-}" = equivalent ] && [ "$held" = 1 ]; then ok "mutant ($1) is equivalent here: this wc -w counts the fixture alike under C and C.UTF-8, so not a kill"
+  elif [ "${3:-}" = equivalent ]; then bad "mutant ($1) disagreed although this wc -w is locale-independent on the fixture"
   elif [ "$held" = 1 ]; then bad "mutant ($1) survived the non-ASCII fixture"
   else ok "mutant ($1) dies on the non-ASCII fixture"; fi
 }
-cs_mutant "bare wc -w restored" 's|words=$(count_words "$path") \|\| exit 2|words=$(wc -w < "$path" \| tr -d " ")|'
+# Premise (#580): the bare `wc -w` mutant is only distinguishable where the platform's own `wc -w`
+# moves with the locale on this fixture. GNU coreutils drops the lone `❌` under C and kills it;
+# uutils (Ubuntu 26.04 on) counts it in both locales, so there the mutant is EQUIVALENT and is
+# reported as such, never as a kill and never as a survival FAIL. A crash is still a crash.
+loc_fixture="$LOC/plugins/l/agents/loc-agent.md"
+cs_premise=
+[ "$(LC_ALL=C wc -w < "$loc_fixture")" = "$(LC_ALL=C.UTF-8 wc -w < "$loc_fixture")" ] && cs_premise=equivalent
+cs_mutant "bare wc -w restored" 's|words=$(count_words "$path") \|\| exit 2|words=$(wc -w < "$path" \| tr -d " ")|' $cs_premise
 # Crash control (#360): a check that exits is never a kill. cs_mutant runs in $( ), so its rows stay
 # out of the total.
 sed '1a\

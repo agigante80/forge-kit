@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   version-bumped:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # unpinned on purpose: its scripts pass under 26.04 uutils too (#580)
     env:
       VERSION_SOURCE: file    # forge-adapt: file | node | python | cargo | cmd
       VERSION_FILE: VERSION   # used when VERSION_SOURCE=file
