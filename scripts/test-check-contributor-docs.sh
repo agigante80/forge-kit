@@ -2535,10 +2535,28 @@ NR == 1 {' 'EXTRACT='\''
     ok "mutant 'make locale pin dropped' needs BWK awk in a UTF-8 locale: skipped"
     ok "mutant 'doc reader locale pin dropped' needs BWK awk in a UTF-8 locale: skipped" ;;
   esac
+  # Premise (#580): only a gawk on which the restored loop is slow can kill it. gawk 5.2.1 (Ubuntu
+  # 24.04) is; the gawk on ubuntu-latest (26.04) ran the restored loop within the bound and the
+  # mutant survived. The probe times the restored loop alone on the case's input: at most half the
+  # bound is equivalent, over the bound must die, and between the two is too close to call.
+  strip_equiv= strip_probe=
+  if [ "$(gawk_gate)" = run ]; then
+    local_t0=$(date +%s%N)
+    if PATH="${AWKDIR:+$AWKDIR:}$PATH" bounded "$HOSTILE_WATCHDOG_SECS" awk 'BEGIN { for (i = 0; i < 192000; i++) s = s "a=b "; s = s "npm run dev"
+        while (s ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", s); print s }' >/dev/null 2>&1; then
+      local_ms=$(( ($(date +%s%N) - local_t0) / 1000000 ))
+      if [ "$local_ms" -le $((HOSTILE_WATCHDOG_SECS * 500)) ]; then
+        strip_equiv="this gawk runs the restored loop in ${local_ms} ms, inside the ${HOSTILE_WATCHDOG_SECS} s bound"
+      else strip_probe="${local_ms} ms"; fi
+    fi
+  fi
   case "$(gawk_gate)" in
   run)
-    mutant "strip loop restored" c_strip_hostile_linear '    if (match(seg, /^([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)+/)) { seg = substr(seg, RLENGTH + 1); env = 1 }' '    while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) { sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", seg); env = 1 }'
-    ;;
+    if [ -n "$strip_probe" ]; then
+      ok "mutant 'strip loop restored' is inconclusive here (restored loop ${strip_probe}, near the ${HOSTILE_WATCHDOG_SECS} s bound), not a kill"
+    else
+    MUTANT_EQUIV="$strip_equiv" mutant "strip loop restored" c_strip_hostile_linear '    if (match(seg, /^([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)+/)) { seg = substr(seg, RLENGTH + 1); env = 1 }' '    while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) { sub(/^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/, "", seg); env = 1 }'
+    fi ;;
   refuse) bad "mutant 'strip loop restored' cannot run: AWK_UNDER_TEST=gawk was requested but the awk under test is not GNU Awk" ;;
   *) ok "mutant 'strip loop restored' needs gawk: skipped" ;;
   esac

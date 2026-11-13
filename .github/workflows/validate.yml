@@ -620,7 +620,7 @@ jobs:
   # platform ships the old wc or mawk any more.
   mutants-on-older-platform:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Pin awk to mawk
@@ -634,7 +634,23 @@ jobs:
             rc=0; bash "scripts/$s" > "$RUNNER_TEMP/m/$s.out" 2>&1 || rc=$?
             tail -1 "$RUNNER_TEMP/m/$s.out"
             [ "$rc" = 0 ] || { cat "$RUNNER_TEMP/m/$s.out"; exit 1; }
-            if grep -n 'equivalent here' "$RUNNER_TEMP/m/$s.out"; then
+            if grep -nE 'equivalent here|inconclusive here' "$RUNNER_TEMP/m/$s.out"; then
               echo "::error::$s reports a mutant equivalent on ubuntu-24.04, where it must die"; exit 1
             fi
           done
+      # The strip-loop mutant needs gawk, and gawk 5.2.1 here is the one on which it dies (#580).
+      - name: Install gawk, keeping mawk as awk
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gawk >/dev/null
+          sudo update-alternatives --set awk "$(command -v mawk)"
+          gawk --version | head -1
+      - name: Contributor-docs suite under gawk, where every mutant must die
+        env:
+          AWK_UNDER_TEST: gawk
+        run: |
+          rc=0; bash scripts/test-check-contributor-docs.sh > "$RUNNER_TEMP/gawk.out" 2>&1 || rc=$?
+          tail -1 "$RUNNER_TEMP/gawk.out"
+          [ "$rc" = 0 ] || { cat "$RUNNER_TEMP/gawk.out"; exit 1; }
+          if grep -nE 'equivalent here|inconclusive here' "$RUNNER_TEMP/gawk.out"; then
+            echo "::error::a mutant is not killed under gawk on ubuntu-24.04"; exit 1
+          fi
