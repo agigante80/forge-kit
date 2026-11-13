@@ -200,6 +200,21 @@ grep -q '…' <<< "$row" && ok "and the truncation is marked" || bad "and the tr
 grep -qx 'x\{400\}' "$REF" \
   && ok "the reference prints the whole description, uncut" \
   || bad "the reference prints the whole description, uncut"
+# A description of SPACED words is cut at a word boundary, never mid-word (#588 round 1). Every
+# word is eight characters plus a space, so the 119-character cut lands two characters into the
+# fourteenth word: only the boundary rule turns that into a whole word before the ellipsis.
+python3 - "$FIX" <<'PY2'
+import json, sys, os
+p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
+d = json.load(open(p)); d["description"] = " ".join("wordxx%02d" % i for i in range(1, 31))
+json.dump(d, open(p, "w"))
+PY2
+python3 "$GEN" --root "$FIX" >/dev/null 2>&1
+row=$(grep '^| \[`fix-alpha`\]' "$FIX/README.md" | head -1)
+last=$(grep -oP '\S+(?=… \|$)' <<< "$row")
+[[ "$last" =~ ^wordxx(0[1-9]|[12][0-9]|30)$ ]] \
+  && ok "a spaced description is cut at a word boundary, a whole word before the ellipsis ($last)" \
+  || bad "a spaced description is cut at a word boundary (token before the ellipsis: '$last'; row: $row)"
 python3 - "$FIX" <<'PY2'
 import json, sys, os
 p = os.path.join(sys.argv[1], "plugins/fix-alpha/.claude-plugin/plugin.json")
@@ -243,7 +258,11 @@ grep -qF "$FIX" "$FIX/README.md" "$REF" "$IDX" \
   && bad "no generated region carries the absolute root path" \
   || ok "no generated region carries the absolute root path"
 # The same holds with a RELATIVE --root, the form a contributor types.
-( cd "$FIX/.." && python3 "$GEN" --root "$(basename "$FIX")" >/dev/null 2>&1 )
+( cd "$FIX/.." && python3 "$GEN" --root "$(basename "$FIX")" >/dev/null 2>&1 ); rc=$?
+[ "$rc" -eq 0 ] && ok "a relative --root run exits 0" || bad "a relative --root run exits 0 (rc $rc)"
+( cd "$FIX/.." && python3 "$GEN" --check --root "$(basename "$FIX")" >/dev/null 2>&1 ); rc=$?
+[ "$rc" -eq 0 ] && ok "and --check with the same relative --root is clean" \
+  || bad "and --check with the same relative --root is clean (rc $rc)"
 python3 "$GEN" --check --root "$FIX" >/dev/null 2>&1 \
   && ok "a relative --root renders the same links as an absolute one" \
   || bad "a relative --root renders the same links as an absolute one"
