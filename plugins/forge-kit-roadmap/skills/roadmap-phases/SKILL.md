@@ -3,7 +3,7 @@ name: roadmap-phases
 description: Rolling wave planning made mechanical. docs/roadmap.md owns which phases exist and their state; the host owns which phase each ticket is in, as the milestone. A phase is planned when it starts, not before, and every ticket belongs to exactly one phase. Use when opening, reviewing, closing, splitting or reordering a phase, when a ticket has no phase, when asked whether the current phase is done, or when check-phases.sh refuses something.
 ---
 
-<!-- roadmap-phases-version: 20 -->
+<!-- roadmap-phases-version: 21 -->
 
 # Roadmap phases
 
@@ -144,23 +144,14 @@ reason. The roadmap and the host keep the standing gates the rest of this skill 
 milestone change is still shown under `--check` first, and the review hands over to `close` rather
 than performing one.
 
-**A rewrite REPLACES the body and destroys nothing, because it posts the previous body as a comment
-first.** What a rewrite may destroy has to be answered by a rule, never by the model's judgement
-of what reads stale. That comment's first line is EXACTLY `## Superseded body (phase review)`, one
-test used both ways: a comment whose first line matches it is what a rewrite posts, and it is
-exactly what Step 2's history read skips, since an unmarked comment, or one that merely quotes the
-marker below its first line, is ordinary history and not a preserved body.
+**A rewrite REPLACES the body and posts no comment.** The forge keeps the body's edit history (GitHub's edit
+history, Forgejo's content history), so the old text is recoverable there and a comment would only duplicate it
+(#582). The review report carries one line per ticket: `#<N>: rewritten: <sections changed, comma separated>; stale
+because <one line>`. A retried rewrite is a plain second replace. Legacy comments whose first line is EXACTLY
+`## Superseded body (phase review)` still exist on old tickets: Step 2's history read skips them, since an unmarked
+comment, or one that merely quotes that string below its first line, is ordinary history.
 
-**A rewrite is a NO-OP when a marked comment already preserves the current body.** Before posting a
-new one, compare the ticket's current body against the text AFTER the first line of every existing
-`## Superseded body (phase review)` comment. A byte-for-byte match means this exact body was already
-preserved: post nothing, and report "previous body already preserved", naming that comment. This is
-what makes a retry idempotent; without it, a rewrite that fails or re-runs posts the same bytes
-again, since the skip rule above hides the first comment from the read that would have noticed. Where
-the body was edited since the last marked comment, post a new one before replacing it, exactly as a
-first rewrite does.
-
-Where the rewrite then refuses, the comment stands and the review says the body is unchanged. A rewrite carries the `template-version` marker and the template's own sections
+Where the rewrite refuses, the report line is `#<N>: body unchanged: "<the guard's message>"`. A rewrite carries the `template-version` marker and the template's own sections
 forward, or the next gate run re-synthesises the whole ticket. A split closes the original naming
 its successors, or the trail is lost.
 
