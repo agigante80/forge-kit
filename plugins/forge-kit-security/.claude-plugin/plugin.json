@@ -1,7 +1,15 @@
 {
   "name": "forge-kit-security",
-  "description": "security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR text before it posts.",
-  "version": "0.18.10",
+  "description": "Security and API audits, privacy regime duties, a leak guard for a repo going public, and an opt-in scan of forge posts.",
+  "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-security",
+  "keywords": [
+    "security",
+    "owasp",
+    "privacy",
+    "leaks",
+    "audit"
+  ],
+  "version": "0.18.11",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"

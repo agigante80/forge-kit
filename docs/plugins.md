@@ -1,9 +1,10 @@
 # Plugin groups
 
-forge-kit ships as plugin groups, each installed independently. This page is the
+forge-kit ships as seven plugin groups, each installed independently. This page is the
 reference for each: its full description, its version, the command that installs it, the groups
 it pulls in, and every component it carries, linked to its source. The README carries the short
-form of the same table.
+form of the same table. Below it, [Using each group](#using-each-group) says what each group
+needs, what to run first, how to switch on its opt-in hooks and how to remove it.
 
 What an installed group does in a project that has not asked for it, which sentinel file arms
 each opt-in hook, and how to upgrade are in [install-and-upgrade.md](install-and-upgrade.md).
@@ -13,31 +14,33 @@ each opt-in hook, and how to upgrade are in [install-and-upgrade.md](install-and
 
 | Plugin group | Version | Install | Needs |
 |---|---|---|---|
-| [`forge-kit-adapt`](#forge-kit-adapt) | 0.13.17 | `claude plugin install forge-kit-adapt@forge-kit` | nothing |
-| [`forge-kit-devops`](#forge-kit-devops) | 0.27.3 | `claude plugin install forge-kit-devops@forge-kit` | nothing |
-| [`forge-kit-governance`](#forge-kit-governance) | 0.40.8 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
-| [`forge-kit-review`](#forge-kit-review) | 0.8.2 | `claude plugin install forge-kit-review@forge-kit` | [`forge-kit-security`](#forge-kit-security) |
-| [`forge-kit-roadmap`](#forge-kit-roadmap) | 0.15.24 | `claude plugin install forge-kit-roadmap@forge-kit` | [`forge-kit-devops`](#forge-kit-devops) |
-| [`forge-kit-security`](#forge-kit-security) | 0.18.10 | `claude plugin install forge-kit-security@forge-kit` | nothing |
-| [`forge-kit-testing`](#forge-kit-testing) | 0.3.2 | `claude plugin install forge-kit-testing@forge-kit` | nothing |
+| [`forge-kit-adapt`](#forge-kit-adapt) | 0.13.18 | `claude plugin install forge-kit-adapt@forge-kit` | nothing |
+| [`forge-kit-devops`](#forge-kit-devops) | 0.27.4 | `claude plugin install forge-kit-devops@forge-kit` | nothing |
+| [`forge-kit-governance`](#forge-kit-governance) | 0.40.9 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
+| [`forge-kit-review`](#forge-kit-review) | 0.8.3 | `claude plugin install forge-kit-review@forge-kit` | [`forge-kit-security`](#forge-kit-security) |
+| [`forge-kit-roadmap`](#forge-kit-roadmap) | 0.15.25 | `claude plugin install forge-kit-roadmap@forge-kit` | [`forge-kit-devops`](#forge-kit-devops) |
+| [`forge-kit-security`](#forge-kit-security) | 0.18.11 | `claude plugin install forge-kit-security@forge-kit` | nothing |
+| [`forge-kit-testing`](#forge-kit-testing) | 0.3.3 | `claude plugin install forge-kit-testing@forge-kit` | nothing |
 
 ### forge-kit-adapt
 
-forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you
+Reads your project, recommends the forge-kit components that fit it, and installs the ones you approve, adapted to it.
 
-- **Version:** 0.13.17
+- **Version:** 0.13.18
 - **Install:** `claude plugin install forge-kit-adapt@forge-kit`
 - **Needs:** nothing
+- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-adapt)
 - **Skill:** [`adapt`](../plugins/forge-kit-adapt/skills/adapt/SKILL.md)
 - **Shell assets:** [`check-template-lockstep`](../plugins/forge-kit-adapt/skills/adapt/assets/check-template-lockstep.sh), [`citation-check`](../plugins/forge-kit-adapt/skills/adapt/assets/citation-check.sh), [`hook-unwire`](../plugins/forge-kit-adapt/skills/adapt/assets/hook-unwire.sh), [`retired-paths`](../plugins/forge-kit-adapt/skills/adapt/assets/retired-paths.sh), [`stale-rules`](../plugins/forge-kit-adapt/skills/adapt/assets/stale-rules.sh)
 
 ### forge-kit-devops
 
-dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook
+Release, CI health, dependency and dead-code audits, usage reports, and the GitHub or Forgejo adapter other groups use.
 
-- **Version:** 0.27.3
+- **Version:** 0.27.4
 - **Install:** `claude plugin install forge-kit-devops@forge-kit`
 - **Needs:** nothing
+- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-devops)
 - **Agents:** [`dep-auditor`](../plugins/forge-kit-devops/agents/dep-auditor.md), [`health-check`](../plugins/forge-kit-devops/agents/health-check.md)
 - **Command:** [`ci-health`](../plugins/forge-kit-devops/commands/ci-health.md)
 - **Skills:** [`context-budget`](../plugins/forge-kit-devops/skills/context-budget/SKILL.md), [`find-dead-code`](../plugins/forge-kit-devops/skills/find-dead-code/SKILL.md), [`forge-host`](../plugins/forge-kit-devops/skills/forge-host/SKILL.md), [`github-to-forgejo`](../plugins/forge-kit-devops/skills/github-to-forgejo/SKILL.md), [`release`](../plugins/forge-kit-devops/skills/release/SKILL.md), [`release-automation`](../plugins/forge-kit-devops/skills/release-automation/SKILL.md), [`usage-report`](../plugins/forge-kit-devops/skills/usage-report/SKILL.md)
@@ -46,11 +49,12 @@ dep-auditor, health-check agents; /ci-health command; find-dead-code, release, r
 
 ### forge-kit-governance
 
-ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-advisory and forge-write-consent hooks
+A ticket readiness gate, governed overnight work, session handoffs, and opt-in hooks that hold sessions to your rules.
 
-- **Version:** 0.40.8
+- **Version:** 0.40.9
 - **Install:** `claude plugin install forge-kit-governance@forge-kit`
 - **Needs:** [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security)
+- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-governance)
 - **Agent:** [`ticket-gate`](../plugins/forge-kit-governance/agents/ticket-gate.md)
 - **Command:** [`gate-ticket`](../plugins/forge-kit-governance/commands/gate-ticket.md)
 - **Skills:** [`closing-sessions`](../plugins/forge-kit-governance/skills/closing-sessions/SKILL.md), [`contributor-docs`](../plugins/forge-kit-governance/skills/contributor-docs/SKILL.md), [`decision-brief`](../plugins/forge-kit-governance/skills/decision-brief/SKILL.md), [`ticket-gate-reference`](../plugins/forge-kit-governance/skills/ticket-gate-reference/SKILL.md), [`weighing-options`](../plugins/forge-kit-governance/skills/weighing-options/SKILL.md), [`working-overnight`](../plugins/forge-kit-governance/skills/working-overnight/SKILL.md)
@@ -59,11 +63,12 @@ ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, wor
 
 ### forge-kit-review
 
-code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security.
+Code, architecture and standards reviewers, plus /full-review, a multi-lens audit that fixes or tickets its findings.
 
-- **Version:** 0.8.2
+- **Version:** 0.8.3
 - **Install:** `claude plugin install forge-kit-review@forge-kit`
 - **Needs:** [`forge-kit-security`](#forge-kit-security)
+- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-review)
 - **Agents:** [`architect-review`](../plugins/forge-kit-review/agents/architect-review.md), [`architecture-standards-auditor`](../plugins/forge-kit-review/agents/architecture-standards-auditor.md), [`code-reviewer`](../plugins/forge-kit-review/agents/code-reviewer.md), [`code-simplifier`](../plugins/forge-kit-review/agents/code-simplifier.md), [`coding-standards-auditor`](../plugins/forge-kit-review/agents/coding-standards-auditor.md)
 - **Command:** [`full-review`](../plugins/forge-kit-review/commands/full-review.md)
 - **Skills:** [`review-lows`](../plugins/forge-kit-review/skills/review-lows/SKILL.md), [`review-sizing`](../plugins/forge-kit-review/skills/review-sizing/SKILL.md)
@@ -71,22 +76,24 @@ code-reviewer, architect-review, code-simplifier, coding-standards-auditor and a
 
 ### forge-kit-roadmap
 
-Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops.
+Rolling wave planning: docs/roadmap.md lists the phases, forge milestones hold their tickets, and a guard checks both.
 
-- **Version:** 0.15.24
+- **Version:** 0.15.25
 - **Install:** `claude plugin install forge-kit-roadmap@forge-kit`
 - **Needs:** [`forge-kit-devops`](#forge-kit-devops)
+- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-roadmap)
 - **Command:** [`phase`](../plugins/forge-kit-roadmap/commands/phase.md)
 - **Skill:** [`roadmap-phases`](../plugins/forge-kit-roadmap/skills/roadmap-phases/SKILL.md)
 - **Shell assets:** [`check-phases`](../plugins/forge-kit-roadmap/skills/roadmap-phases/assets/check-phases.sh), [`phase-env`](../plugins/forge-kit-roadmap/skills/roadmap-phases/assets/phase-env.sh), [`reassess-phases`](../plugins/forge-kit-roadmap/skills/roadmap-phases/assets/reassess-phases.sh), [`review-mechanics`](../plugins/forge-kit-roadmap/skills/roadmap-phases/assets/review-mechanics.sh), [`roadmap-lib`](../plugins/forge-kit-roadmap/skills/roadmap-phases/assets/roadmap-lib.sh), [`sync-phases`](../plugins/forge-kit-roadmap/skills/roadmap-phases/assets/sync-phases.sh)
 
 ### forge-kit-security
 
-security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR text before it posts.
+Security and API audits, privacy regime duties, a leak guard for a repo going public, and an opt-in scan of forge posts.
 
-- **Version:** 0.18.10
+- **Version:** 0.18.11
 - **Install:** `claude plugin install forge-kit-security@forge-kit`
 - **Needs:** nothing
+- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-security)
 - **Agents:** [`api-security-tester`](../plugins/forge-kit-security/agents/api-security-tester.md), [`security-auditor`](../plugins/forge-kit-security/agents/security-auditor.md)
 - **Skills:** [`leak-guard`](../plugins/forge-kit-security/skills/leak-guard/SKILL.md), [`owasp-api-security`](../plugins/forge-kit-security/skills/owasp-api-security/SKILL.md), [`privacy-regime`](../plugins/forge-kit-security/skills/privacy-regime/SKILL.md)
 - **Hook:** [`scan-forge-writes`](../plugins/forge-kit-security/hooks/scan-forge-writes.py)
@@ -94,10 +101,117 @@ security-auditor and api-security-tester agents, the OWASP API checklist and opt
 
 ### forge-kit-testing
 
-mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships the originals.
+mutation-sweep finds covered lines whose tests cannot fail, the defect class that line coverage cannot see.
 
-- **Version:** 0.3.2
+- **Version:** 0.3.3
 - **Install:** `claude plugin install forge-kit-testing@forge-kit`
 - **Needs:** nothing
+- **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-testing)
 - **Skill:** [`mutation-sweep`](../plugins/forge-kit-testing/skills/mutation-sweep/SKILL.md)
 <!-- plugin-reference:end -->
+
+## Using each group
+
+Hand-written, one section per group: what it needs, the first thing to run, how to switch on its
+opt-in hooks, and how to take it out. The generator refuses a group with no section here, because
+each group above links to its own. Every sentinel file and what a group does in a project that has
+not asked for it are in [install-and-upgrade.md](install-and-upgrade.md#after-you-install-a-group);
+the sections below say only which ones belong to which group.
+
+**Removal is the same for every group.** `claude plugin uninstall <group>@forge-kit` removes it,
+and `claude plugin prune` then removes the groups it pulled in that nothing else needs. Neither
+undoes what the group already did in a project: delete the sentinel files you created, the copies
+forge-adapt wrote into `.claude/` and their wiring in `settings.json` yourself, and know that
+anything already written to the forge (issue bodies, tickets) stays there. The full list is in
+[install-and-upgrade.md](install-and-upgrade.md#after-you-install-a-group).
+
+### Using forge-kit-adapt
+
+- **Prerequisites:** a git repository to adapt, and the marketplace added
+  (`claude plugin marketplace add agigante80/forge-kit`). `bash` and `jq` for its shell assets.
+- **First use:** in the project, run `/forge-kit-adapt:adapt` (or say "run forge-adapt"). It reads
+  the codebase, recommends components with a reason each, and writes nothing until you approve.
+  Later, `forge-adapt drift` reports what is behind and changes nothing.
+- **Opt-in hooks:** none of its own. When you pick another group's hook, it creates that hook's
+  sentinel file where the group is enabled, or installs a project-local copy where it is not.
+- **Removal:** uninstall it as above. The components it already installed stay, because each is
+  registered from its own group or copied into `.claude/`; remove those separately.
+
+### Using forge-kit-devops
+
+- **Prerequisites:** `git` and `jq`. On GitHub, an authenticated `gh`; on a self-hosted Forgejo,
+  `curl`, a `.forge.conf` naming the host, and the token in `FORGEJO_TOKEN`
+  ([forge-host](../plugins/forge-kit-devops/skills/forge-host/SKILL.md) has the setup).
+- **First use:** `/ci-health` checks every CI workflow and files a ticket per failure; say
+  "health check" for the environment check, or "release" to cut a versioned release.
+- **Opt-in hooks:** `block-legacy-host-push` is not registered by the plugin. The
+  [github-to-forgejo](../plugins/forge-kit-devops/skills/github-to-forgejo/SKILL.md) cutover phase
+  wires it into the project's own `settings.json` after a migration, so a push to the old host is
+  refused.
+- **Removal:** uninstall it after the groups that need it (`forge-kit-governance`,
+  `forge-kit-roadmap`), which read `forge-lib.sh` from it. To drop the push hook, remove its entry
+  from the project's `settings.json` and its copy under `.claude/hooks/`.
+
+### Using forge-kit-governance
+
+- **Prerequisites:** `forge-kit-devops`, `forge-kit-review` and `forge-kit-security`, which a fresh
+  install pulls in. The prerequisites of `forge-kit-devops` for the forge, and `python3` for the
+  hooks.
+- **First use:** `/gate-ticket <N>` gates issue N before work starts and writes its review into
+  the issue body. Say "close the session" to save handoff notes, or "work overnight" to set up a
+  governed unattended run.
+- **Opt-in hooks:** six, each dormant until the project asks. Create `.claude/no-dashes`
+  (`block-dashes`), `.claude/no-poll-loops` (`no-poll-loops`), `.claude/masked-exit`
+  (`masked-exit-advisory`) or `.claude/forge-write-consent` (`forge-write-consent`) to arm that
+  hook. `overnight-guard` arms on `.claude/no-destructive` in the daytime and on a run's manifest
+  overnight, and `overnight-continue` only while that manifest exists.
+  [The hooks README](../plugins/forge-kit-governance/hooks/README.md) says what each one blocks.
+- **Removal:** uninstall it as above, then delete the sentinel files you created. Gate reviews
+  already written into issue bodies stay on the forge.
+
+### Using forge-kit-review
+
+- **Prerequisites:** `forge-kit-security`, which a fresh install pulls in, because `/full-review`
+  dispatches its `security-auditor`.
+- **First use:** ask for a code review to run `code-reviewer` on your change, or run
+  `/full-review` before a merge for the multi-lens audit; `/full-review --since <ref>` reviews only
+  the fixes since that commit.
+- **Opt-in hooks:** none.
+- **Removal:** uninstall it as above; `forge-kit-governance` needs it, so remove that first. Delete
+  the `.full-review/` directory a run leaves in the project if you no longer want its round
+  history.
+
+### Using forge-kit-roadmap
+
+- **Prerequisites:** `forge-kit-devops`, which a fresh install pulls in, and a forge with
+  milestones (GitHub or Forgejo).
+- **First use:** write a `docs/roadmap.md` listing your phases, then run `/phase status`. Nothing in
+  the group acts in a project without that file. Adopting it needs no migration: assign the open
+  tickets to phases and start
+  ([roadmap-phases](../plugins/forge-kit-roadmap/skills/roadmap-phases/SKILL.md) has the rules).
+- **Opt-in hooks:** none. Its phase guard runs where you wire it, in CI or a git hook.
+- **Removal:** uninstall it as above. `docs/roadmap.md`, the plans under `docs/plans/` and the
+  forge milestones are yours and stay.
+
+### Using forge-kit-security
+
+- **Prerequisites:** `bash` and `git` for the leak scanners, `python3` for the hook.
+- **First use:** say "security audit" for `security-auditor`, or run the leak guard before a
+  repository goes public; the
+  [leak-guard](../plugins/forge-kit-security/skills/leak-guard/SKILL.md) skill gives the commands.
+- **Opt-in hooks:** one. Create `.claude/scan-forge-writes` to arm `scan-forge-writes`, which runs
+  both leak scanners on an issue or pull request title and body before `gh` publishes it. It also
+  arms when the default branch tracks that file.
+- **Removal:** uninstall it after `forge-kit-governance` and `forge-kit-review`, which need it, and
+  delete `.claude/scan-forge-writes`.
+
+### Using forge-kit-testing
+
+- **Prerequisites:** a test suite, and the maintained mutation engine for your stack (for example
+  `mutmut` for Python or Stryker for JavaScript); the skill adopts one and never builds its own.
+- **First use:** ask for a mutation sweep on a module; the
+  [mutation-sweep](../plugins/forge-kit-testing/skills/mutation-sweep/SKILL.md) skill sets the runner
+  command and the per-PR scope.
+- **Opt-in hooks:** none.
+- **Removal:** uninstall it as above. An engine and its configuration you added stay in the
+  project.

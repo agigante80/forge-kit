@@ -56,8 +56,9 @@ cp "$ROOT/scripts/forge-adapt-catalogue.sh" "$ROOT/scripts/validate-plugins.sh" 
 printf '{ "name": "g", "version": "1.0.0", "description": "fixture", "author": { "name": "fixture" }, "license": "MIT" }\n' \
   > "$FIX/plugins/g/.claude-plugin/plugin.json"
 printf 'MIT License\n' | tee "$FIX/LICENSE" > "$FIX/plugins/g/LICENSE"   # #587: the guard compares them
-printf '{ "plugins": [ { "name": "g", "source": "./plugins/g" } ] }\n' \
+printf '{ "plugins": [ { "name": "g", "source": "./plugins/g", "description": "fixture" } ] }\n' \
   > "$FIX/.claude-plugin/marketplace.json"
+# Check 9 (#594) needs the marketplace description to equal plugin.json's.
 # Check 7 (#253) needs a row per component. Only the three one-level components get one, so a
 # nested decoy counted as a component would also fail with "no row", on the same path rule.
 mkdir -p "$FIX/docs/guides"

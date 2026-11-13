@@ -34,8 +34,8 @@ tree() {
   cat > "$T/tree/.claude-plugin/marketplace.json" <<'M'
 { "name": "forge-kit", "owner": { "name": "probe" },
   "plugins": [
-    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "a" },
-    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "b" } ] }
+    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "d" },
+    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "d" } ] }
 M
   # Check 7 (#253) needs the tiers doc. The default carries every role a case uses and no
   # components; a case adds the rows its components need with row().
@@ -376,9 +376,9 @@ agent_in "$B" scout-lite; agent_in "$G" scout; ref_in "$A" "$USE"
 cat > "$T/tree/.claude-plugin/marketplace.json" <<'M'
 { "name": "forge-kit", "owner": { "name": "probe" },
   "plugins": [
-    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "a" },
-    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "b" },
-    { "name": "forge-kit-gamma", "source": "./plugins/forge-kit-gamma", "description": "c" } ] }
+    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "d" },
+    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "d" },
+    { "name": "forge-kit-gamma", "source": "./plugins/forge-kit-gamma", "description": "d" } ] }
 M
 run
 expect "a prefix-named neighbour resolves to the right owner" 0 "$rc"
@@ -424,9 +424,9 @@ tree; plugin forge-kit-alpha '"dependencies": ["forge-kit-beta-extra@forge-kit"]
 cat > "$T/tree/.claude-plugin/marketplace.json" <<'M'
 { "name": "forge-kit", "owner": { "name": "probe" },
   "plugins": [
-    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "a" },
-    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "b" },
-    { "name": "forge-kit-beta-extra", "source": "./plugins/forge-kit-beta-extra", "description": "c" } ] }
+    { "name": "forge-kit-alpha", "source": "./plugins/forge-kit-alpha", "description": "d" },
+    { "name": "forge-kit-beta",  "source": "./plugins/forge-kit-beta",  "description": "d" },
+    { "name": "forge-kit-beta-extra", "source": "./plugins/forge-kit-beta-extra", "description": "d" } ] }
 M
 agent_in "$B" scout; ref_in "$A" "$USE"
 run
@@ -660,6 +660,43 @@ tieragent "Tier: first
 Tier: second, at high effort."
 expect "every Tier line is read, not only the first" 1 "$rc"
 contains "agents/alpha.md:8:" "$out" "and the second line is the one named"
+
+echo "== check 9: a marketplace entry says what its plugin.json says (#594) =="
+# The fixture marketplace repeats each plugin's description "d", which is why every earlier case
+# carries "d" too: a case must fail only on the rule it is about.
+mp() {  # mp <jq filter>: edit the fixture marketplace in place
+  local f="$T/tree/.claude-plugin/marketplace.json"
+  jq "$1" "$f" > "$f.new" && mv "$f.new" "$f"
+}
+FIELDS='"homepage": "https://example.invalid/a", "keywords": ["one", "two"]'
+SET_A='(.plugins[] | select(.name == "forge-kit-alpha"))'
+agree() { tree; plugin forge-kit-alpha "$FIELDS"; plugin forge-kit-beta
+  mp "$SET_A |= . + {homepage: \"https://example.invalid/a\", keywords: [\"one\", \"two\"]}"; }
+agree; run
+expect "entries equal to their plugin.json in all three fields pass" 0 "$rc"
+agree; mp "$SET_A.description = \"d \""; run
+expect "a description differing by one trailing space fails" 1 "$rc"
+contains "'forge-kit-alpha' description differs" "$out" "and names the group and the field"
+lacks "'forge-kit-beta'" "$out" "and does not name the group that agrees"
+agree; mp "$SET_A.homepage = \"https://example.invalid/b\""; run
+expect "a differing homepage fails" 1 "$rc"
+contains "'forge-kit-alpha' homepage differs" "$out" "and names homepage"
+agree; mp "$SET_A |= del(.keywords)"; run
+expect "keywords in plugin.json but not in the marketplace fail" 1 "$rc"
+contains "'forge-kit-alpha' keywords differs" "$out" "and names keywords"
+agree; mp '(.plugins[] | select(.name == "forge-kit-beta")).homepage = "https://example.invalid/a"'; run
+expect "a homepage in the marketplace but not in plugin.json fails" 1 "$rc"
+contains "'forge-kit-beta' homepage differs" "$out" "and names that group and homepage"
+agree; mp '(.plugins[] | select(.name == "forge-kit-beta")).keywords = null'; run
+expect "an explicit null on one side and no field on the other fail" 1 "$rc"
+contains "'forge-kit-beta' keywords differs" "$out" "and names that group and keywords"
+agree; mp "$SET_A.keywords = [\"two\", \"one\"]"; run
+expect "the same keywords in another order fail" 1 "$rc"
+contains "keywords in another order" "$out" "and the message says order counts"
+agree; mp "$SET_A.keywords = [\"one\"]"; run
+expect "a missing keyword fails" 1 "$rc"
+agree; mp "$SET_A.keywords = \"one, two\""; run
+expect "keywords as a string rather than the array fail" 1 "$rc"
 
 echo "== this repository's own manifests satisfy every rule above =="
 # The regression test that keeps the seven real manifests honest, and the one case that would have

@@ -1,7 +1,15 @@
 {
   "name": "forge-kit-adapt",
-  "description": "forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you",
-  "version": "0.13.17",
+  "description": "Reads your project, recommends the forge-kit components that fit it, and installs the ones you approve, adapted to it.",
+  "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-adapt",
+  "keywords": [
+    "setup",
+    "onboarding",
+    "governance",
+    "claude-code",
+    "recommendations"
+  ],
+  "version": "0.13.18",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"

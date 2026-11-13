@@ -12,6 +12,7 @@
 #   7. each component's model and effort, and each dispatch's model, sit inside its role's range
 #      in docs/guides/model-tiers.md (#253; its blind spots are listed at the check)
 #   8. no agent's `Tier:` body line names a model or an effort level (#548)
+#   9. each marketplace entry's description, homepage and keywords equal its plugin.json's (#594)
 # Exit 1 on any violation, with every violation on stderr. This is the forge-kit analogue of
 # `claude plugin validate`, and check 4 is the half that analogue does NOT cover (see below).
 # Contract test: scripts/test-validate-plugins.sh.
@@ -442,6 +443,26 @@ while IFS= read -r f; do
     fail "$f:${hit%%:*}: Tier: line names a model or effort ('$m'); the values live in the frontmatter only (docs/guides/model-tiers.md)"
   done < <(grep -n '^Tier:' "$f")
 done < <(find plugins -type f -regextype posix-extended -regex '^plugins/[^/]+/agents/[^/]+\.md$' | sort)
+
+# 9. the marketplace entry and the plugin.json it points at say the same thing (#594)
+#
+# WHY. The two manifests are two copies of one description: the marketplace's is what a user reads
+# before installing, the plugin's is what the /plugin panel shows after. They drifted from #178 until
+# 2026-10-31, the marketplace naming agents that had been retired, and nothing failed. The fields are
+# compared as JSON VALUES with jq: a field on one side only is a difference, whitespace is not
+# normalised (the panel prints the string as written), and keyword ORDER counts, so reorder both.
+if jq -e . "$MP" >/dev/null 2>&1; then
+  while IFS=$'\t' read -r name src; do
+    pj="${src#./}/.claude-plugin/plugin.json"
+    jq -e . "$pj" >/dev/null 2>&1 || continue   # check 1 or check 2 already failed it
+    for field in description homepage keywords; do
+      jq -e --arg n "$name" --arg f "$field" --slurpfile p "$pj" \
+        '(.plugins[] | select(.name == $n)) as $e
+         | ($e | has($f)) == ($p[0] | has($f)) and $e[$f] == $p[0][$f]' "$MP" >/dev/null \
+        || fail "marketplace.json: '$name' $field differs from $pj (a field on one side only, or keywords in another order, also differ)"
+    done
+  done < <(jq -r '.plugins[] | [.name, .source] | @tsv' "$MP")
+fi
 
 if [ "$err" -ne 0 ]; then echo ""; echo "forge-kit: plugin validation FAILED."; exit 1; fi
 echo "forge-kit: plugin validation passed."

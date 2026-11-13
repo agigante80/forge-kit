@@ -1,7 +1,14 @@
 {
   "name": "forge-kit-review",
-  "description": "code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security.",
-  "version": "0.8.2",
+  "description": "Code, architecture and standards reviewers, plus /full-review, a multi-lens audit that fixes or tickets its findings.",
+  "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-review",
+  "keywords": [
+    "code-review",
+    "architecture",
+    "coding-standards",
+    "review"
+  ],
+  "version": "0.8.3",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"

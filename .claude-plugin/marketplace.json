@@ -11,37 +11,90 @@
     {
       "name": "forge-kit-adapt",
       "source": "./plugins/forge-kit-adapt",
-      "description": "forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you"
+      "description": "Reads your project, recommends the forge-kit components that fit it, and installs the ones you approve, adapted to it.",
+      "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-adapt",
+      "keywords": [
+        "setup",
+        "onboarding",
+        "governance",
+        "claude-code",
+        "recommendations"
+      ]
     },
     {
       "name": "forge-kit-governance",
       "source": "./plugins/forge-kit-governance",
-      "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-advisory and forge-write-consent hooks"
+      "description": "A ticket readiness gate, governed overnight work, session handoffs, and opt-in hooks that hold sessions to your rules.",
+      "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-governance",
+      "keywords": [
+        "tickets",
+        "governance",
+        "hooks",
+        "overnight",
+        "handoff"
+      ]
     },
     {
       "name": "forge-kit-roadmap",
       "source": "./plugins/forge-kit-roadmap",
-      "description": "Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops."
+      "description": "Rolling wave planning: docs/roadmap.md lists the phases, forge milestones hold their tickets, and a guard checks both.",
+      "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-roadmap",
+      "keywords": [
+        "roadmap",
+        "planning",
+        "milestones",
+        "phases"
+      ]
     },
     {
       "name": "forge-kit-review",
       "source": "./plugins/forge-kit-review",
-      "description": "code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security."
+      "description": "Code, architecture and standards reviewers, plus /full-review, a multi-lens audit that fixes or tickets its findings.",
+      "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-review",
+      "keywords": [
+        "code-review",
+        "architecture",
+        "coding-standards",
+        "review"
+      ]
     },
     {
       "name": "forge-kit-security",
       "source": "./plugins/forge-kit-security",
-      "description": "security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR text before it posts."
+      "description": "Security and API audits, privacy regime duties, a leak guard for a repo going public, and an opt-in scan of forge posts.",
+      "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-security",
+      "keywords": [
+        "security",
+        "owasp",
+        "privacy",
+        "leaks",
+        "audit"
+      ]
     },
     {
       "name": "forge-kit-testing",
       "source": "./plugins/forge-kit-testing",
-      "description": "mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships the originals."
+      "description": "mutation-sweep finds covered lines whose tests cannot fail, the defect class that line coverage cannot see.",
+      "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-testing",
+      "keywords": [
+        "testing",
+        "mutation-testing",
+        "test-quality"
+      ]
     },
     {
       "name": "forge-kit-devops",
       "source": "./plugins/forge-kit-devops",
-      "description": "dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook"
+      "description": "Release, CI health, dependency and dead-code audits, usage reports, and the GitHub or Forgejo adapter other groups use.",
+      "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-devops",
+      "keywords": [
+        "release",
+        "ci",
+        "dependencies",
+        "dead-code",
+        "forgejo",
+        "github"
+      ]
     }
   ]
 }

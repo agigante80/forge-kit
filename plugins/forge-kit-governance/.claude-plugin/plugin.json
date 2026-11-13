@@ -1,7 +1,15 @@
 {
   "name": "forge-kit-governance",
-  "description": "ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-advisory and forge-write-consent hooks",
-  "version": "0.40.8",
+  "description": "A ticket readiness gate, governed overnight work, session handoffs, and opt-in hooks that hold sessions to your rules.",
+  "homepage": "https://github.com/agigante80/forge-kit/blob/main/docs/plugins.md#forge-kit-governance",
+  "keywords": [
+    "tickets",
+    "governance",
+    "hooks",
+    "overnight",
+    "handoff"
+  ],
+  "version": "0.40.9",
   "author": {
     "name": "agigante80",
     "url": "https://github.com/agigante80"
