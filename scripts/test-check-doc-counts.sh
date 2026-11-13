@@ -144,6 +144,19 @@ fresh "# x" "" "We read three" "" "guards in a new paragraph." "Then two" "## Ho
 run
 expect "exit 0" 0 "$rc"
 
+echo "== a new list item takes no carry from the item above =="
+fresh "# x" "" "- Fix issue 5" "- Hook the thing" "* item 7" "* Agents run" "1. Step 2" "2. Tests pass" "3) Step 4" "4) Guards hold"
+run
+expect "exit 0" 0 "$rc"
+fresh "# x" "" "- A list item wrapping its five" "  work templates onto a second line"
+run
+expect "a wrapped list item still carries" 1 "$rc"
+
+echo "== a heading or a table row carries nothing out =="
+fresh "# x" "" "## Phase 2" "Tests run here." "| a | 3" "guards wait"
+run
+expect "exit 0" 0 "$rc"
+
 echo "== a clause break before the wrap ends the carry =="
 fresh "# x" "" "We counted three." "Guards are listed elsewhere."
 run

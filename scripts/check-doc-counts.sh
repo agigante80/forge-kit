@@ -27,7 +27,8 @@
 # "#74 and #75, where component markers" is not read as a count of markers. The look-ahead crosses
 # a hard wrap: the last three words of a prose line lead the next one, so "the five\nwork
 # templates" is a hit, reported at the number's line. A blank line, heading, table row, fence,
-# generated region or exempted line ends the paragraph and carries nothing.
+# generated region or exempted line ends the paragraph and carries nothing, in or out, and a new
+# list item (`-`, `*`, `+`, `1.`, `1)`) takes no carry from the line above.
 #   nouns after any number:  plugin group phase component agent skill command hook asset template
 #                            suite test guard collision label area ticket release (and plurals)
 #   nouns after digits only: line word reference (and plurals); "two lines of an anchor" is a rule,
@@ -83,6 +84,8 @@ FNR == 1 { if (NR > 1) flush(); fence = 0; region = 0; prev = ""; nh = 0; dated 
   if (region) { if (line ~ /:end *-->/) region = 0; prev = line; next }
   if (line ~ /^#+ /) { flush(); nc = 0 }
   if (line ~ /^[ \t]*(\||$)/) nc = 0
+  # A new list item starts a new thought: "- fix 5" then "- Hook it" is two items, not "5 Hook".
+  if (line ~ /^[ \t]*([-*+]|[0-9]+[.)])[ \t]/) nc = 0
   if (line ~ /[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]/) dated = 1
 
   exempt = 0
@@ -98,7 +101,9 @@ FNR == 1 { if (NR > 1) flush(); fence = 0; region = 0; prev = ""; nh = 0; dated 
 
   # tok[1..nc] are the last words of the previous prose line (line cfnr), then this line from nc+1.
   for (i = 1; i <= nc; i++) tok[i] = carry[i]
-  nl = split(line, ltok, /[ \t]+/)
+  # The list marker itself is no number: "4) Guards hold" is item four, not four guards.
+  body = line; sub(/^[ \t]*([-*+]|[0-9]+[.)])[ \t]+/, "", body)
+  nl = split(body, ltok, /[ \t]+/)
   nt = nc
   for (i = 1; i <= nl; i++) if (ltok[i] != "") tok[++nt] = ltok[i]
   for (i = 1; i <= nt; i++) {
@@ -127,6 +132,8 @@ FNR == 1 { if (NR > 1) flush(); fence = 0; region = 0; prev = ""; nh = 0; dated 
   # look-ahead above already stops at it.
   nc = 0; cfnr = FNR; k = nt - 2; if (k < 1) k = 1
   for (i = k; i <= nt; i++) carry[++nc] = tok[i]
+  # A heading or a table row ends its own words too: "## Phase 2" then "Tests run" is no count.
+  if (line ~ /^#+ / || line ~ /^[ \t]*\|/) nc = 0
 }
 END { flush() }
 ' "${files[@]}")
