@@ -27,7 +27,9 @@ later edit:
 >   no scenario or test for it. Add one negative scenario [...] and one unit case in
 >   `scripts/test-template-lockstep.sh` [...]
 
-Fix the body, run it again, and it returns PASS when nothing blocks.
+Fix the body, run it again, and it returns PASS when nothing blocks. Also: a
+[forge-adapt recommendation](docs/media/forge-adapt-recommendation.md) and a
+[failing guard](docs/media/guard-failing-a-build.md).
 
 ## Who it is for
 
