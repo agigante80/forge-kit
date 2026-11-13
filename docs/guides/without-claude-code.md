@@ -30,7 +30,7 @@ Five things, and it is a copy rather than an installer. Fetch the kit once:
 git clone https://github.com/agigante80/forge-kit /tmp/forge-kit
 ```
 
-Copy the five work templates by name, never the whole `ISSUE_TEMPLATE/` directory: forge-kit's
+Copy the work templates by name, never the whole `ISSUE_TEMPLATE/` directory: forge-kit's
 `config.yml` sends security reports to forge-kit's own private advisory form, and
 `contribution.yml` proposes components to forge-kit, so either one copied into your repository
 misroutes your reporters. If you want a private security link in your issue chooser, write your own
@@ -75,7 +75,7 @@ files. Nothing is committed until you commit it.
 
 | What | Why |
 |---|---|
-| `.github/ISSUE_TEMPLATE/` | Five work issue forms carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
+| `.github/ISSUE_TEMPLATE/` | Work issue forms carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact |
 | `.github/labels.yml` | The label taxonomy that routes issues |
 | `docs/guides/labels.md` | The area table the mechanical checks read (`--labels-doc`); edit its rows to declare your own areas, and the gate judges against them rather than forge-kit's nine |
 | `docs/guides/ticket-standards.md` | The rules the templates encode |
@@ -250,7 +250,7 @@ Four artifacts here are portable, and they are the ones that carry the rules:
 
 | Artifact | What it gives you |
 |---|---|
-| `.github/ISSUE_TEMPLATE/` | The five work templates (`feature`, `bug`, `security`, `infrastructure`, `design`), carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact. Copy them by name: `config.yml` and `contribution.yml` belong to forge-kit and would send your reporters to it |
+| `.github/ISSUE_TEMPLATE/` | The work templates (`feature`, `bug`, `security`, `infrastructure`, `design`), carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact. Copy them by name: `config.yml` and `contribution.yml` belong to forge-kit and would send your reporters to it |
 | `.github/labels.yml` | The label taxonomy that routes issues, applied by `sync-labels.sh`, which never deletes a label it does not recognise |
 | `docs/guides/ticket-standards.md` | **The canonical rules**, not a summary. The gate is only allowed to restate it in enumerated places, and `check-restatements.sh` fails the build if the two disagree. Any agent that can read markdown can hold a ticket to it. |
 | The shell assets | Every one bash 3.2 compatible with no package manager, so they run in any CI. The leak guard's `--history` mode is written for macOS (bash 3.2, Apple's awk) and verified against Apple's awk source and bash 3.2 built on Linux, not on a Mac; a report from one is a ticket, not a surprise. `scripts/build-mac-shell-harness.sh` rebuilds that bash and awk from pinned sources on a Linux machine with a compiler, and its `--help` holds the command that runs both leak suites under them |

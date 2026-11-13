@@ -20,7 +20,7 @@ per hook (`.claude/no-dashes`, `.claude/no-poll-loops`, `.claude/no-destructive`
 `.claude/masked-exit`, `.claude/forge-write-consent`; `forge-kit-security` adds `.claude/scan-forge-writes`
 for its one hook, and has no hooks README of its own). `hooks.json` tests it in the shell and exits before `python3` starts: about
 1.8 ms per matched tool call in a project that has not opted in, against about 44 ms if the
-interpreter started first. The gate inside each script is defence in depth and the only gate for a
+interpreter started first (measured 2026-07-09). The gate inside each script is defence in depth and the only gate for a
 project-local copy. A skill or command has no wrapper and can only gate in its own prose.
 
 What is specific to this hook: the no-dash rule is opinionated and a plugin hook is live in *every*
@@ -40,14 +40,17 @@ project installs keep working unchanged.
 
 Both paths are covered by `scripts/test-hooks.py`, which runs in CI.
 
-| Hook | Event | Version | Purpose |
-|---|---|---|---|
-| `block-dashes.py` | PreToolUse | 6 | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
-| `no-poll-loops.py` | PreToolUse | 5 | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
-| `overnight-guard.py` | PreToolUse | 18 | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
-| `forge-write-consent.py` | UserPromptSubmit + PreToolUse | 1 | Deny a forge comment in a Bash call unless the user's own latest prompt said `allow-comment`, and a new ticket once the session's ticket budget (default 3) is spent unless it said `allow-ticket`. Body rewrites, closes and reopens with no `--comment`, and reads are never denied; no comment is exempt, a release note and a closing comment included (#586). Fails open on an unparseable payload; no grant file means no grant. |
-| `masked-exit-advisory.py` | PostToolUse | 2 | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
-| `overnight-continue.py` | Stop | 1 | During a `working-overnight` run only (armed by `.claude/overnight/active.md`), keep one cycle from stopping on a question; Claude Code caps a Stop hook at 8 consecutive blocks, so it is a safety net, not the loop. Fails open: any error allows the stop. |
+Each hook's version is its `# <name>-version: N` marker, listed in the generated inventory in
+[`docs/components.md`](../../../docs/components.md); this table does not repeat it.
+
+| Hook | Event | Purpose |
+|---|---|---|
+| `block-dashes.py` | PreToolUse | Block em dash (U+2014) and en dash (U+2013) in Write/Edit/MultiEdit/NotebookEdit/Bash payloads. Fails open. |
+| `no-poll-loops.py` | PreToolUse | Deny a shell wait on a dispatched subagent in a Bash call: a background `sleep N; echo waited` or a `sleep` loop on a task output file or transcript. Fails open. |
+| `overnight-guard.py` | PreToolUse | Deny destructive git discards and `rm -rf` of a dangerous target in a Bash call. Two arms: an overnight run (full Tier-3 list) and a daytime opt-in (git discards plus bulk delete, no secrets or pipe-to-shell). Fails open by day. |
+| `forge-write-consent.py` | UserPromptSubmit + PreToolUse | Deny a forge comment in a Bash call unless the user's own latest prompt said `allow-comment`, and a new ticket once the session's ticket budget (`DEFAULT_TICKET_BUDGET` in `forge-write-consent.py`) is spent unless it said `allow-ticket`. Body rewrites, closes and reopens with no `--comment`, and reads are never denied; no comment is exempt, a release note and a closing comment included (#586). Fails open on an unparseable payload; no grant file means no grant. |
+| `masked-exit-advisory.py` | PostToolUse | Advise, never deny, when a Bash command pipes a recognised check (`scripts/test-*`, `pytest`, `npm test`, `git apply --check`, and the like) into a filter (`tail`, `head`, `grep`, and the like): the exit code shown is the filter's. Fails open and silent. |
+| `overnight-continue.py` | Stop | During a `working-overnight` run only (armed by `.claude/overnight/active.md`), keep one cycle from stopping on a question; Claude Code caps a Stop hook at 8 consecutive blocks (verified on 2.1.207, 2026-07-11), so it is a safety net, not the loop. Fails open: any error allows the stop. |
 
 Kit-wide inventory note: hooks live per plugin group. `forge-kit-devops` ships
 `block-legacy-host-push.py` (PreToolUse on `Bash`: deny `git push` to an archived legacy
@@ -56,7 +59,7 @@ host after a forge migration; see `plugins/forge-kit-devops/hooks/` and the
 
 ## block-dashes.py
 
-The canonical superset of the four hand-rolled no-dash hooks that drifted across
+The canonical superset of the hand-rolled no-dash hooks that drifted across
 projects (`no_dashes_hook.py`, `no-dash-check.sh`, `block-dashes.sh`, `check-dashes.sh`).
 It covers more tools than any single variant, reports line + context per hit, and
 restructure-don't-substitute guidance.
@@ -127,7 +130,7 @@ corrections and release notes are rewritten into it, and when a comment is legit
 comment rule in `docs/guides/ticket-standards.md` ("Comments on tickets"; the hook enforces the
 user's grant, not that rule's cases) <!-- rule: comment-rule v2 -->; and a
 finding becomes a ticket only when someone would really hit it and it is too big to fix now. One
-session broke both in a day (25 tickets, 12 decision comments), which is the evidence that prose
+session broke both in a day (recorded 2026-10-16: 25 tickets, 12 decision comments), which is the evidence that prose
 alone does not hold them.
 
 **One script, two events.** `UserPromptSubmit` records the grant: every real prompt overwrites

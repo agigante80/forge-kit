@@ -3,7 +3,7 @@
 Rolling wave planning. This file owns **which phases exist and what state each is in**; the host
 owns **which phase each ticket is in**, as the milestone. Different facts, so neither duplicates the
 other. `plugins/forge-kit-roadmap/skills/roadmap-phases/SKILL.md` is canonical for the rules, and
-`check-phases.sh` enforces four of them.
+`check-phases.sh` enforces the ones a script can check.
 
 **Tickets closed before this file existed (everything up to #157) carry no phase, by decision on
 2026-09-08.** Backfilling them would invent a plan that was never made. Rule 1 governs open tickets,

@@ -25,7 +25,7 @@ claude plugin install forge-kit-governance@forge-kit
 
 The second command also installs `forge-kit-devops`, `forge-kit-review` and `forge-kit-security`,
 which the gate depends on, and says so. Restart Claude Code afterwards. `claude plugin list` should
-now show the four groups with the status enabled.
+now show those groups with the status enabled.
 
 Installing enforces nothing and touches no project. What the four states (installed, enabled,
 active, enforcing) mean, and what uninstalling leaves behind, is in
@@ -47,7 +47,7 @@ claude plugin install forge-kit-adapt@forge-kit
 then, in Claude Code, say "forge-adapt templates" and pick what it offers. It can also install the
 CI guard that keeps the templates and the standard on one version.
 
-Or copy the five work templates by name. Leave out forge-kit's own `config.yml` and
+Or copy the work templates by name. Leave out forge-kit's own `config.yml` and
 `contribution.yml`: they would send your reporters to forge-kit.
 
 ```bash

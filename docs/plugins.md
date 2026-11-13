@@ -1,6 +1,6 @@
 # Plugin groups
 
-forge-kit ships as seven plugin groups, each installed independently. This page is the
+forge-kit ships as plugin groups, each installed independently. This page is the
 reference for each: its full description, its version, the command that installs it, the groups
 it pulls in, and every component it carries, linked to its source. The README carries the short
 form of the same table.
@@ -15,7 +15,7 @@ each opt-in hook, and how to upgrade are in [install-and-upgrade.md](install-and
 |---|---|---|---|
 | [`forge-kit-adapt`](#forge-kit-adapt) | 0.13.17 | `claude plugin install forge-kit-adapt@forge-kit` | nothing |
 | [`forge-kit-devops`](#forge-kit-devops) | 0.27.3 | `claude plugin install forge-kit-devops@forge-kit` | nothing |
-| [`forge-kit-governance`](#forge-kit-governance) | 0.40.7 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
+| [`forge-kit-governance`](#forge-kit-governance) | 0.40.8 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
 | [`forge-kit-review`](#forge-kit-review) | 0.8.2 | `claude plugin install forge-kit-review@forge-kit` | [`forge-kit-security`](#forge-kit-security) |
 | [`forge-kit-roadmap`](#forge-kit-roadmap) | 0.15.24 | `claude plugin install forge-kit-roadmap@forge-kit` | [`forge-kit-devops`](#forge-kit-devops) |
 | [`forge-kit-security`](#forge-kit-security) | 0.18.10 | `claude plugin install forge-kit-security@forge-kit` | nothing |
@@ -48,7 +48,7 @@ dep-auditor, health-check agents; /ci-health command; find-dead-code, release, r
 
 ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops, masked-exit-advisory and forge-write-consent hooks
 
-- **Version:** 0.40.7
+- **Version:** 0.40.8
 - **Install:** `claude plugin install forge-kit-governance@forge-kit`
 - **Needs:** [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security)
 - **Agent:** [`ticket-gate`](../plugins/forge-kit-governance/agents/ticket-gate.md)

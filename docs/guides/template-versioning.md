@@ -109,7 +109,7 @@ was serving two consumers that move at different rates, which made the cheap cha
 
 **The problem it fixes.** Before this, editing a rule's prose implied bumping `template-version`,
 because that integer was also read as "the rules changed, refresh installs". The lockstep guard then
-forced the five templates to the same number, `ticket-gate` saw a higher current version, and every
+forced the templates to the same number, `ticket-gate` saw a higher current version, and every
 open ticket took an auto-synthesis round trip. A prose clarification cost a migration. That is why
 the gate and this doc were allowed to fork: fixing the fork correctly was more expensive than
 leaving it.
@@ -123,7 +123,7 @@ kept in step by hand (#568).
 **The rule.**
 
 - Change a form field (add, remove, or redefine a section the templates collect):
-  bump `template-version` in all five work templates AND in `ticket-standards.md`, per the procedure
+  bump `template-version` in every work template AND in `ticket-standards.md`, per the procedure
   below. The synthesis round trip is the point.
 - Change only the rules text in the kit's own copy (clarify a bar, add a rule the forms already
   collect content for, correct the prose): bump `doc-rules-version` alone. The lockstep guard does

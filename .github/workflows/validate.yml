@@ -127,6 +127,12 @@ jobs:
       - name: Label taxonomy
         run: bash scripts/check-label-taxonomy.sh
 
+      - name: Doc counts guard tests
+        run: bash scripts/test-check-doc-counts.sh
+
+      - name: Doc counts
+        run: bash scripts/check-doc-counts.sh
+
       # Anti-drift lock: the work issue-templates must all share one template-version, so
       # the ticket-gate version check stays correct across ticket types.
       - name: Template version lockstep
