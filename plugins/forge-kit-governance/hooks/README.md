@@ -123,7 +123,9 @@ rm .claude/no-poll-loops                          # opt out
 ## forge-write-consent.py
 
 Two written rules held mechanically (#565): a ticket is read by its BODY, so decisions and
-corrections are rewritten into it and a comment is only a retraction or a closing note; and a
+corrections are rewritten into it, and when a comment is legitimate is the comment rule in
+`docs/guides/ticket-standards.md` ("Comments on tickets"; the hook enforces the user's grant, not
+that rule's cases) <!-- rule: comment-rule v2 -->; and a
 finding becomes a ticket only when someone would really hit it and it is too big to fix now. One
 session broke both in a day (25 tickets, 12 decision comments), which is the evidence that prose
 alone does not hold them.

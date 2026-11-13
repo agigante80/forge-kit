@@ -3507,6 +3507,15 @@ with tempfile.TemporaryDirectory() as td:
     p = f.bash('gh issue comment 5 -b x')
     check("fwc reason says body, not comment", "BODY" in fwc_reason(p), True)
     check("fwc reason ends with do-not-work-around", fwc_reason(p).endswith("Do not work around this guard."), True)
+    # #585: the reason points at the one canonical comment rule and no longer licenses a
+    # retraction or closing-note comment (both are body edits under that rule).
+    p = f.bash('gh issue comment 9 --body "x"')
+    check("fwc comment reason points at the comment rule and the grant",
+          ("Comments on tickets" in fwc_reason(p), "ticket-standards.md" in fwc_reason(p),
+           "allow-comment" in fwc_reason(p)), (True, True, True))
+    check("fwc comment reason licenses no retraction or closing note",
+          ("retraction" in fwc_reason(p).lower(), "closing note" in fwc_reason(p).lower()),
+          (False, False))
     check("fwc deny exit 0", p.returncode, 0)
     p = f.bash('forge_issue_create "t" "b"; gh issue comment 5 -b x')
     check("fwc both needed: the ticket reason wins", "allow-ticket" in fwc_reason(p), True)

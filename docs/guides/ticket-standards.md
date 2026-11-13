@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 25 -->
+<!-- doc-rules-version: 26 -->
 
 # Ticket standards (canonical)
 
@@ -290,3 +290,27 @@ gate. Every rule here is scoped: it applies only to tickets whose type and affec
 bring it into play, and the gate derives that scope rather than asking the author to self-declare
 it. When you add a new rule with a coverage-style requirement, give it an explicit
 type-and-area scope here, or it will backfire.
+
+## Comments on tickets
+
+<!-- rule: comment-rule v2 -->
+A ticket is read by its BODY. Many agents, and many people triaging a batch, read only the body and
+never open the comments, so anything parked in a comment is invisible exactly when it matters. The
+forge already keeps every edit of the body, so the body's history is the audit trail and a comment
+adds none.
+
+Post a comment in three cases only:
+
+- the user asks for one;
+- it explains something to another person, a human who will read the thread;
+- it goes on a ticket that is not ours, where the body is someone else's to edit.
+
+Everything else is a body edit: a decision, an answer, a gate review, a correction, and a closing
+note or release note (#583 moves the `Released in <tag>` note into the body). A retraction is a body
+edit too: rewrite the disproven text and say in the body what changed, as the `Disproven:` line in
+decision-brief's rewritten preamble does.
+
+The `forge-write-consent` hook enforces the grant, not these cases: it denies every comment the
+user has not granted with `allow-comment`, so a comment on a ticket that is not ours still needs
+that grant. A component that refers to this rule carries the rule id comment above instead of
+restating it, and `scripts/check-rules.sh` holds it to that.

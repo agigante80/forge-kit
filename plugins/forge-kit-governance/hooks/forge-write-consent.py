@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 8
+# forge-write-consent-version: 9
 """Deny forge comments without the user's grant, and new tickets past a per-session budget (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
-answers and corrections are rewritten into the body, and a comment is only a retraction or a
-closing note. A finding becomes a ticket only as the review-lows skill (forge-kit-review) rules
-it. One session filed 25 tickets in a day and parked decisions in 12
-comments, so the kit enforces both mechanically.
+answers and corrections are rewritten into the body, and when a comment is legitimate is the
+comment rule, section "Comments on tickets" of docs/guides/ticket-standards.md
+(<!-- rule: comment-rule v2 -->). This hook enforces the user's grant, not that rule's cases. A
+finding becomes a ticket only as the review-lows skill (forge-kit-review) rules it. One session
+filed 25 tickets in a day and parked decisions in 12 comments, so the kit enforces both
+mechanically.
 
 ONE SCRIPT, TWO EVENTS.
   UserPromptSubmit: records the grant. Every REAL prompt overwrites
@@ -52,8 +54,8 @@ matched against its RAW text (blanking keeps offsets), so a quoted API path stil
   double quotes is judged as its own command (the text around it stays blanked), and a segment
   asking for --help or -h is not a write.
   never denied: body rewrites (gh issue edit, forge_issue_edit, the body-region primitives),
-           closes (a `gh issue close --comment` is a closing note), reads.
-  exempt:  a release closing note whose whole body is `Released in <version>`, nothing after it
+           closes (`gh issue close --comment` included, until #586), reads.
+  exempt:  a release comment whose whole body is `Released in <version>`, nothing after it
            (`forge_issue_comment <n> "Released in v1.2.3"`, `gh issue comment <n> --body "..."`).
   unseen:  writes made inside a function or script, not in the typed text. ticket-gate posts its
            templates with forge_gate_comment (gate-env.sh), which accepts only a file whose first
@@ -106,8 +108,9 @@ REASONS = {
         "forge-write-consent: no forge comment without the user's explicit go-ahead. A ticket is "
         "read by its BODY: decisions, answers and corrections are rewritten into the body "
         "(forge_issue_edit, the body-region primitives or gh issue edit), never added as a "
-        "comment. If a comment is truly needed (a retraction, or a note the user asked for), "
-        "stop and ask the user; they grant it by writing allow-comment in their next message. "
+        "comment. When a comment is legitimate is the comment rule (section 'Comments on "
+        "tickets' of docs/guides/ticket-standards.md); if it applies, stop and ask the user; "
+        "they grant it by writing allow-comment in their next message. "
         "ticket-gate posts its own templates with forge_gate_comment." + TAIL
     ),
     "ticket": (

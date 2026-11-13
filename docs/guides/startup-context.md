@@ -35,7 +35,7 @@ required.
 `CLAUDE.md` naming the file and saying when to read it. An `@`-import is paid on every session; an
 index line is paid once, by the session that needs it.
 
-**R3. History is not memory.** Superseded investigations and retracted conclusions move out to
+**R3. History is not memory.** Superseded investigations and withdrawn conclusions move out to
 `docs/history/` or an equivalent, each file with a SUPERSEDED header. Memory holds current truth.
 Not every project has history to move; R3 applies only when there is some.
 
