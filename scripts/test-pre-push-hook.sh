@@ -717,7 +717,8 @@ chmod +x scripts/test-fixture-one.sh scripts/test-fixture-two.sh
 # The index generator rewrites four regions across four files (#588), so the fixture carries each.
 printf '# Fixture\n\n<!-- plugin-catalogue:start -->\n<!-- plugin-catalogue:end -->\n' > README.md
 mkdir -p docs
-printf '# Plugins\n\n<!-- plugin-reference:start -->\n<!-- plugin-reference:end -->\n' > docs/plugins.md
+# The generator refuses a group with no hand-written usage section (#594), so g carries one.
+printf '# Plugins\n\n<!-- plugin-reference:start -->\n<!-- plugin-reference:end -->\n\n### Using g\n' > docs/plugins.md
 printf '# Components\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n' > docs/components.md
 printf '# Fixture rules\n\n- `scripts/test-fixture-one.sh`, 7 tests, in CI.\n- `scripts/test-fixture-two.sh`, 3 tests, in CI.\n\n<!-- plugin-groups:start -->\n<!-- plugin-groups:end -->\n' > CLAUDE.md
 git add -A >/dev/null; git commit --quiet -m "fixture: the local doc and its claims"
