@@ -10,7 +10,7 @@ other files point at it. These are PAYLOADS only, each written into a gate-owned
 WHEN each is written, and what blocks or proceeds after it, is decided in `ticket-gate.md`. A
 payload holds no `<!-- gate-... -->` marker line: markers do not nest.
 
-**Synthesis void (Step 0c-v, template auto-upgraded).** Written to `$D/void.md`; Step 5 puts it
+**Synthesis void (Step 0c-v, template auto-upgraded).** Written to `$D/void.md` and at once as the review; Step 5 puts it
 first inside the `gate-review` region.
 
 ```markdown

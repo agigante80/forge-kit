@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 90 -->
+<!-- ticket-gate-version: 91 -->
 
 You are the **Ticket Readiness Gate**. Before implementation you run deterministic MECHANICAL
 CHECKS (Step 3A, no agent), then ONE critic agent (Step 3B), plus a security lens when labels
@@ -58,7 +58,7 @@ call: 0c and Step 6 edit the body, so improvising writes permanently.
 **Preamble** (before any forge call):
 
 ```bash
-D=<scratchpad>/gate-<NUMBER>; mkdir -p "$D"   # per issue: concurrent runs shared one file (#197)
+D=<scratchpad>/gate-<NUMBER>; mkdir -p "$D"; rm -f "$D/round" "$D/void.md"   # per issue: concurrent runs shared one file (#197)
 MECH=scripts/check-ticket-mechanics.sh   # forge-adapt install
 # Never $CLAUDE_PLUGIN_ROOT (hooks only). Else a checkout's tree, else the highest installed marker, last path on a tie (#189).
 [ -f "$MECH" ] || MECH=$(ls "$(git rev-parse --show-toplevel 2>/dev/null)"/plugins/*/skills/*/assets/check-ticket-mechanics.sh 2>/dev/null)
@@ -158,7 +158,8 @@ Synthesis rules per section:
 **0c-iv. Build updated body**
 
 Merge synthesised content into the issue body, preserving all prior AUTHOR text
-verbatim, and clear the gate's regions (Step 6's lifecycle).
+verbatim. Clearing the gate's regions (Step 6's lifecycle) erases the round count, so FIRST run
+`"$A/count-gate-rounds.sh" <NUMBER> > "$D/round" || exit 2`.
 Except for `scenarios`, `unit_tests`, `e2e_tests`, `docs_impact` (checks 4 to 7 read just the
 text under a label), add `## <label>` above a mapped author section with the one line
 `See "<variant>" below.` Replace or add
@@ -168,8 +169,9 @@ Write it with Step 6's primitives, minus the verdict block.
 
 **0c-v. Void note**
 
-Fill the SYNTHESIS VOID template from `references/comment-templates.md` into `$D/void.md`; Step 5
-puts it first in the review. The gate posts no comment (#581).
+Fill the SYNTHESIS VOID template from `references/comment-templates.md` into `$D/void.md`, then at
+once write `$D/review.md` (first line `### Gate review (round P)`, P = `$D/round` minus 1, omitted when
+P is 0; it keeps the count) with the note and run Step 5's call, so an early stop keeps both.
 
 **0c-vi. Proceed to 0b**
 
@@ -207,7 +209,7 @@ script warns on stderr. Its exit 2 makes it `unknown`: every step runs full scop
 ### Step 1.5: Thin ticket pre-check
 
 Runs BEFORE the critic; see the round table. A shrunk-body trigger is #147 (no prior body persists).
-Nothing the gate itself wrote into the body ever counts as author detail. A thin ticket is better halted now with targeted questions than critiqued in full.
+Nothing the gate itself wrote into the body ever counts as author detail.
 
 Launch a `general-purpose` sub-agent (`model: sonnet`) with the issue title and full body. Ask it to evaluate:
 1. Does the ticket have specific acceptance criteria (not just a description)?
@@ -218,8 +220,8 @@ Launch a `general-purpose` sub-agent (`model: sonnet`) with the issue title and 
 **Threshold:** If the sub-agent identifies 3+ unanswered questions that would materially
 change the review (not cosmetic style or wording questions), halt with BLOCKED:
 
-Write the CLARIFICATION template from `references/comment-templates.md` as the `gate-review` region
-(Step 5's call; its heading has no round, so it is not one). No comment (#581).
+Write the CLARIFICATION template from `references/comment-templates.md` to `$D/review.md` (after
+`$D/void.md` when 0c fired) and run Step 5's call; its heading is no round.
 
 Print: `BLOCKED - #<N> needs clarification before review. Questions are in the ticket body.`
 **Do NOT proceed to Step 2.** Return immediately.
@@ -473,20 +475,18 @@ the previous round is in the forge's edit history. Write it (the void note first
 
 ```bash
 D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || exit 2
-echo $(( $(wc -c <"$D/body.md") + $(wc -c <"$D/review.md") ))   # over 60000: cut the review first, below
-forge_body_region_set <NUMBER> gate gate-review "$(cat "$D/review.md")" || exit 2   # STOP: Step 6 never runs
+gate_write_review <NUMBER> || exit 2   # STOP: Step 6 never runs
 ```
 
-GitHub rejects a body over 65,536 characters. Over about 60,000, write a shortened review (verdict,
-blocking items, one line saying it was cut). Never fall back to a comment.
+GitHub rejects a body over 65,536 characters; the helper measures the CURRENT body, cuts the review
+at `#### Mechanical checks` when the total passes 60,000, and never falls back to a comment.
 
 An `exit 2` from any block's own guard line stops the run: relay its stderr line as your final
 message and return `BLOCKED - RUN_FAILED`.
 
 ### Step 6: Return result and auto-remediate
 
-**The `gate-verdict` block is written on EVERY path below, PASS included**: humans triage bodies,
-and it is a projection of Step 1's count, never its source.
+**The `gate-verdict` block is written on EVERY path below, PASS included**; Step 1's count reads it.
 
 ```markdown
 <!-- gate-verdict:start -->

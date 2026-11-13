@@ -123,13 +123,48 @@ m_ge "\$D/mech guard removed" 'if [ -z "${D:-}" ] || [ ! -s "$D/mech" ]; then' '
 # stay out of the total.
 crash_ok=1; crashed=0
 for x in 'exit 127' 'fi fi'; do
-  cap=$(m_ge crash-control '# gate-env-version: 4' "# gate-env-version: 4
+  cap=$(m_ge crash-control '# gate-env-version: 5' "# gate-env-version: 5
 $x" chk_strict)
   cmp -s "$W/mut.sh" "$ASSET" && crash_ok=0
   case "$cap" in *" dies"*|*" survived"*) crash_ok=0 ;; *"FAIL: mutant 'crash-control' crashed ("*) crashed=$((crashed + 1)) ;; esac
 done
 [ "$crash_ok" = 1 ] && [ "$crashed" = 2 ] && ok "crash control (#360): m_ge reports a crashing gate-env.sh as crashed, never as dies" \
   || bad "crash control (#360): m_ge credited or missed a crashing gate-env.sh ($crashed of 2 crashed)"
+
+echo "== gate_write_review (round 1 review: the one writer of the gate-review region) =="
+# gwr <asset> <issue-body-file> <review-file> [n]: run the asset's function in a fresh bash with
+# stubbed forge_issue_view and forge_body_region_set; prints rc, the stub records what was set.
+gwr() {
+  local asset=$1 bodyf=$2 revf=$3 n=${4-42}
+  rm -rf "$W/gd"; mkdir -p "$W/gd"; rm -f "$W/set.out"
+  [ -n "$revf" ] && cp "$revf" "$W/gd/review.md"
+  env -i PATH="$PATH" HOME="$W/home" BODYF="$bodyf" OUT="$W/set.out" ASSETF="$asset" D="$W/gd" N="$n" bash -c '
+    forge_issue_view() { jq -n --rawfile b "$BODYF" "{body:\$b}"; }
+    forge_body_region_set() { printf "%s|%s|%s\n" "$1" "$2" "$3" > "$OUT"; printf "%s\n" "$4" >> "$OUT"; }
+    eval "$(sed -n "/^gate_write_review() {/,/^}/p" "$ASSETF")"
+    gate_write_review "$N"; echo "rc=$?"' 2>"$W/err"
+}
+printf 'Author text\n<!-- gate-review:start -->\nOLD REVIEW\n<!-- gate-review:end -->\nmore\n' > "$W/g-body"
+printf '### Gate review (round 2)\nsmall review\n#### Mechanical checks\ntable\n' > "$W/g-rev"
+o=$(gwr "$ASSET" "$W/g-body" "$W/g-rev")
+[ "$(field "$o" rc)" = 0 ] && [ "$(head -1 "$W/set.out")" = "42|gate|gate-review" ] && [ "$(grep -c 'Mechanical checks' "$W/set.out")" = 1 ] \
+  && ok "a small review is written whole as the gate-review region" || bad "a small review was not written whole: $o $(cat "$W/set.out")"
+awk 'BEGIN { for (i = 0; i < 530; i++) print "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }' > "$W/g-big"
+o=$(gwr "$ASSET" "$W/g-big" "$W/g-rev")
+[ "$(field "$o" rc)" = 0 ] && [ "$(grep -c 'Mechanical checks' "$W/set.out")" = 0 ] && [ "$(grep -c '^Cut: ' "$W/set.out")" = 1 ] && [ "$(grep -c 'Gate review (round 2)' "$W/set.out")" = 1 ] \
+  && ok "a body near the cap: the review is cut at Mechanical checks, keeps its heading, says it was cut" || bad "the over-size cut did not apply: $o $(cat "$W/set.out")"
+{ printf '<!-- gate-review:start -->\n'; cat "$W/g-big"; printf '<!-- gate-review:end -->\n'; } > "$W/g-oldbig"
+o=$(gwr "$ASSET" "$W/g-oldbig" "$W/g-rev")
+[ "$(grep -c 'Mechanical checks' "$W/set.out")" = 1 ] && ok "the region being replaced is not counted against the room" || bad "the old region was counted: $o"
+o=$(gwr "$ASSET" "$W/g-body" ""); [ "$(field "$o" rc)" = 2 ] && [ ! -e "$W/set.out" ] && ok "no review.md: rc 2, nothing written" || bad "missing review.md was not refused: $o"
+: > "$W/g-empty"; o=$(gwr "$ASSET" "$W/g-body" "$W/g-empty"); [ "$(field "$o" rc)" = 2 ] && ok "an empty review.md: rc 2" || bad "empty review.md was not refused: $o"
+o=$(gwr "$ASSET" "$W/g-body" "$W/g-rev" abc); [ "$(field "$o" rc)" = 2 ] && ok "a non-numeric issue: rc 2" || bad "a bad issue number was not refused: $o"
+sed 's/-gt "\$room"/-gt 99999999/' "$ASSET" > "$W/mut1.sh"
+cmp -s "$W/mut1.sh" "$ASSET" && bad "mutant 'size cut disabled' did not apply"
+o=$(gwr "$W/mut1.sh" "$W/g-big" "$W/g-rev"); [ "$(grep -c '^Cut: ' "$W/set.out")" = 0 ] && ok "mutant 'size cut disabled' is caught by the over-size case" || bad "mutant 'size cut disabled' survived"
+sed 's/l == "<!-- gate-review:start -->" { skip = 1; next }//' "$ASSET" > "$W/mut2.sh"
+cmp -s "$W/mut2.sh" "$ASSET" && bad "mutant 'old region counted' did not apply"
+o=$(gwr "$W/mut2.sh" "$W/g-oldbig" "$W/g-rev"); [ "$(grep -c 'Mechanical checks' "$W/set.out")" = 0 ] && ok "mutant 'old region counted' is caught" || bad "mutant 'old region counted' survived"
 
 echo "== ticket-gate.md: every later step sources it =="
 # first_block <step heading prefix>: the first fenced bash block after that heading.

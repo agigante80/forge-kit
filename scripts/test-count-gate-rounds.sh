@@ -327,10 +327,42 @@ expect "a PASS verdict in the body with no required-changes region: exit 0" 0 "$
 expect "  nothing to carry, the older legacy comment is not consulted" "" "$out"
 contains "PASS" "$err" "  and stderr says so"
 
-printf '<!-- gate-verdict:start -->\n### Gate verdict (round 3)\n**Verdict:** NEEDS-WORK\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round 1)\n**Verdict:** NEEDS-WORK\n<!-- gate-verdict:end -->\n' > "$T/b.md"
 comments "$(reviewItems 42 "legacy item")"
 run 42 --memory --body "$T/b.md"
-expect "a NEEDS-WORK verdict but no required-changes region falls back to the legacy comment" "legacy item" "$out"
+expect "a body round NOT newer than the legacy count, no required-changes region: the legacy comment" "legacy item" "$out"
+
+printf '<!-- gate-verdict:start -->\n### Gate verdict (round 3)\n**Verdict:** NEEDS-WORK\n<!-- gate-verdict:end -->\n' > "$T/b.md"
+comments "$(reviewItems 42 "an older round's item")"
+run 42 --memory --body "$T/b.md"
+expect "round 5 review: a body round (3) newer than the legacy count (1) must not return an older comment's items: exit 3" 3 "$rc"
+expect "  nothing on stdout" "" "$out"
+contains "newer than the legacy comments" "$err" "  and stderr says why"
+
+echo "== regions quoted in a fenced block are text (round 1 review) =="
+FENCED='An example of the block the gate writes:
+
+```
+<!-- gate-verdict:start -->
+### Gate verdict (round 7)
+**Verdict:** PASS
+<!-- gate-verdict:end -->
+```
+'
+{ printf '%s\n' "$FENCED"; verdictbody 1; } > "$T/b.md"
+comments
+run 42 --body "$T/b.md"
+expect "a fenced example region (round 7) above the real round 1 region: the count is 2, not 8" 2 "$out"
+printf '%s\n<!-- gate-required-changes:start -->\n- [ ] real item\n<!-- gate-required-changes:end -->\n' "$(cat "$T/b.md")" > "$T/b2.md"
+run 42 --memory --body "$T/b2.md"
+expect "--memory: the fenced PASS does not hide the real required-changes region" "real item" "$out"
+{ printf '%s\n' "$FENCED"; printf '<!-- gate-verdict:start -->\n### Gate verdict (round 1)\n**Verdict:** NEEDS-WORK\n<!-- gate-verdict:end -->\n'; } > "$T/b3.md"
+comments
+run 42 --memory --body "$T/b3.md"
+expect "--memory: a fenced PASS example with a real NEEDS-WORK verdict and nothing else: exit 3, not 0" 3 "$rc"
+printf '~~~\n<!-- gate-verdict:start -->\n### Gate verdict (round 9)\n<!-- gate-verdict:end -->\n~~~\n' > "$T/b4.md"
+run 42 --body "$T/b4.md"
+expect "a ~~~ fence is a fence too: nothing counted, round 1" 1 "$out"
 
 printf '## Summary\n\nnothing of the gate\n' > "$T/b.md"
 comments
@@ -375,6 +407,7 @@ contains "unexpected argument" "$err" "and stderr names it"
 
 echo "== portability =="
 code() { grep -v '^[[:space:]]*#' "$1"; }
+grep -qF '\|' <<< "$(code "$REAL")" && bad "uses a GNU-only \\| alternation (BSD sed matches it literally)" || ok "no GNU-only \\| alternation in sed or grep"
 grep -q ',,}' <<< "$(code "$REAL")" && bad "uses the bash-4 lowercase expansion" || ok "no bash-4 lowercase expansion"
 grep -q 'readlink -f' <<< "$(code "$REAL")" && bad "uses GNU readlink -f" || ok "no GNU readlink -f"
 grep -qE '(^|[^a-z-])(claude|gh) ' <<< "$(code "$REAL")" && bad "shells out to the harness CLI or gh directly" || ok "no dependency on the harness CLI or on gh: the transport is forge-lib's"

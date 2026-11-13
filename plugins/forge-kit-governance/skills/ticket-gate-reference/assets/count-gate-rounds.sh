@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# count-gate-rounds-version: 4
+# count-gate-rounds-version: 5
 # count-gate-rounds.sh <issue-number> [--body FILE]
 # count-gate-rounds.sh <issue-number> --memory [--body FILE]
 #
@@ -22,14 +22,17 @@
 # WHY NOT ONLY THE BODY. #192 moved the count out of the body because an ordinary body edit
 # (the author answering the review, Step 0c rewriting the ticket) can erase the region, and a count
 # that restarts at 1 never reaches a caller's trip wire. #581 moved it back because the maintainer
-# ruled that nothing of the gate may live in a comment. The residual case, stated honestly: an
+# ruled that nothing of the gate may live in a comment. Step 0c-iv DOES clear both round regions, so
+# ticket-gate.md records this script's answer in $D/round just before clearing and 0c-v writes a
+# `### Gate review (round <rounds run>)` heading back with the void note: a run that stops after 0c
+# (labels, clarification) keeps the count. The residual case, stated honestly: an
 # author who deletes the gate regions of a ticket that has NO legacy review comments resets the
 # count to round 1, and nothing in the forge's data can tell this script otherwise. It is not
 # silent: when the body still carries a gate trace (a `Judged body:` stamp, or a gate-verdict,
 # gate-required-changes or gate-alternatives region) but no round heading, and no legacy comment
 # backs a count, one stderr line says the count may have been reset. The trace test costs nothing
-# and the warning is advisory, the answer does not change. The scan reads the region lines
-# themselves and is not fence-aware, so never quote a gate region marker as example text.
+# and the warning is advisory, the answer does not change. The scan is fence-aware: a marker or
+# round heading quoted in an author's fenced code block is text, not a region.
 #
 # --body FILE is the body the gate already fetched; without it the body is read with
 # forge_issue_view. A body that cannot be read exits 2, like a comment listing that cannot.
@@ -42,7 +45,8 @@
 #      `gate-items` marker pair cannot live in a body region: markers do not nest, and the
 #      fingerprint refuses a body that nests them.)
 #   2. else a body whose `gate-verdict` region says `**Verdict:** PASS`: nothing to carry forward.
-#   3. else the LATEST legacy review comment, as before: the gate wrapped its checklist in a
+#   3. else the LATEST legacy review comment, but only when the body's highest round heading is not
+#      newer than the legacy comment count (otherwise exit 3: that comment is an older round's), as before: the gate wrapped its checklist in a
 #      `gate-items` marker pair. That scan is NOT fence-aware: it matches the marker lines wherever
 #      they occur, including inside a fenced block that quotes one, because no regex over a posted
 #      comment can tell a line that delimits from a line that is quoted; two start lines are
@@ -124,23 +128,59 @@ else
 fi
 
 # region_of <name>: the lines between `<!-- <name>:start -->` and `<!-- <name>:end -->`, CR and
-# trailing blanks tolerated on the marker lines (forge-lib's grammar). Not fence-aware, see above.
-region_of() {
-  printf '%s\n' "$bodytext" | awk -v r="$1" '
+# trailing blanks tolerated on the marker lines (forge-lib's grammar). FENCE-AWARE (round 1 review):
+# a marker or heading inside an author's fenced code block is text, never a region, by the same
+# fence rule forge-lib's fenced() and gate-status.sh's fingerprint() apply (fences are tracked
+# outside a region only, as forge-lib does). The first real region of the name wins; a later one
+# is ignored. has_region <name> is true when a real start marker exists.
+_rgn_awk() {  # _rgn_awk <name> <print|has>
+  printf '%s\n' "$bodytext" | awk -v r="$1" -v mode="$2" '
     function norm(l) { sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); return l }
+    function fence_open(s,   o, n, info) {
+      match(s, /^ */); if (RLENGTH > 3) return 0; o = substr(s, RLENGTH + 1)
+      if (substr(o, 1, 3) == "```") match(o, /^`+/)
+      else if (substr(o, 1, 3) == "~~~") match(o, /^~+/)
+      else return 0
+      n = RLENGTH; info = substr(o, n + 1)
+      if (substr(o, 1, 1) == "`" && index(info, "`")) return 0
+      fch = substr(o, 1, 1); flen = n; return 1
+    }
+    function fence_close(s,   c, pat) {
+      match(s, /^ */); if (RLENGTH > 3) return 0; c = substr(s, RLENGTH + 1)
+      if (fch == "`") pat = "^`+$"; else pat = "^~+$"
+      return c ~ pat && length(c) >= flen
+    }
     BEGIN { s = "<!-- " r ":start -->"; e = "<!-- " r ":end -->" }
     { n = norm($0) }
-    n == s { inside = 1; next }
-    n == e { inside = 0; next }
-    inside { print n }'
+    !inside && fopen { if (fence_close(n)) fopen = 0; next }
+    !inside && fence_open(n) { fopen = 1; next }
+    !inside && !done && n == s { inside = 1; found = 1; next }
+    inside && n == e { inside = 0; done = 1; next }
+    inside && mode == "print" { print n }
+    END { if (mode == "has") exit(found ? 0 : 1) }'
 }
-has_region() { [ "$(printf '%s\n' "$bodytext" | tr -d '\r' | grep -c "^<!-- $1:start -->[[:space:]]*\$")" -gt 0 ]; }
+region_of() { _rgn_awk "$1" print; }
+has_region() { _rgn_awk "$1" has; }
 
 listing="$(forge_issue_comments "$ISSUE")" || {
   echo "count-gate-rounds: forge_issue_comments $ISSUE failed; the round cannot be counted." >&2
   exit 2
 }
 H="## Ticket Readiness Review - #$ISSUE"
+
+legacy_count="$(printf '%s' "$listing" | jq -r --arg h "$H" \
+  '[.[]? | select(((.body // "") | split("\n")[0] | rtrimstr("\r")) == $h)] | length' 2>/dev/null)"
+case "$legacy_count" in
+  ''|*[!0-9]*) echo "count-gate-rounds: forge_issue_comments $ISSUE returned something that is not a comment list." >&2; exit 2 ;;
+esac
+
+# The highest round heading inside the two regions that carry one. A heading outside them (an
+# author quoting one) does not count.
+body_round=0
+for r in gate-verdict gate-review; do
+  m="$(region_of "$r" | sed -n -e 's/^### Gate verdict (round \([0-9][0-9]*\)).*/\1/p' -e 's/^### Gate review (round \([0-9][0-9]*\)).*/\1/p' | sort -n | tail -1)"
+  [ -n "$m" ] && [ "$((10#$m))" -gt "$body_round" ] && body_round=$((10#$m))
+done
 
 if [ "$MEMORY" = 1 ]; then
   if has_region gate-required-changes; then
@@ -150,6 +190,14 @@ if [ "$MEMORY" = 1 ]; then
   if [ "$(region_of gate-verdict | grep -c '^\*\*Verdict:\*\* *PASS')" -gt 0 ]; then
     echo "count-gate-rounds: the body's latest verdict is a PASS; nothing to carry forward" >&2
     exit 0
+  fi
+
+  # The legacy comment is the memory only while the body's rounds do not outrun the comments: a body
+  # round newer than the legacy count means the latest review is the body's, whose checklist is gone,
+  # and an older comment's items would belong to another round.
+  if [ "$body_round" -gt "$legacy_count" ]; then
+    echo "count-gate-rounds: the body's latest round ($body_round) is newer than the legacy comments ($legacy_count) and has no gate-required-changes region; no memory to restore" >&2
+    exit 3
   fi
 
   latest="$(printf '%s' "$listing" | jq -r --arg h "$H" \
@@ -216,22 +264,8 @@ if [ "$MEMORY" = 1 ]; then
   exit 0
 fi
 
-legacy="$(printf '%s' "$listing" | jq -r --arg h "$H" \
-  '[.[]? | select(((.body // "") | split("\n")[0] | rtrimstr("\r")) == $h)] | length' 2>/dev/null)"
-case "$legacy" in
-  ''|*[!0-9]*) echo "count-gate-rounds: forge_issue_comments $ISSUE returned something that is not a comment list." >&2; exit 2 ;;
-esac
-
-# The highest round heading inside the two regions that carry one. A heading outside them (an
-# author quoting one) does not count.
-marker=0
-for r in gate-verdict gate-review; do
-  m="$(region_of "$r" | sed -n 's/^### Gate \(verdict\|review\) (round \([0-9][0-9]*\)).*/\2/p' | sort -n | tail -1)"
-  [ -n "$m" ] && [ "$((10#$m))" -gt "$marker" ] && marker=$((10#$m))
-done
-
-done_rounds=$legacy
-[ "$marker" -gt "$done_rounds" ] && done_rounds=$marker
+done_rounds=$legacy_count
+[ "$body_round" -gt "$done_rounds" ] && done_rounds=$body_round
 
 if [ "$done_rounds" -eq 0 ]; then
   trace=0

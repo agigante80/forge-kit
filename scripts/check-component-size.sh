@@ -238,6 +238,9 @@ budget_for() {
 # LOWERED 2026-10-09: adapt 7144 to 7143 (#442). Step 3 item 4 stops asking for the token-env name,
 # which .forge.conf.example no longer carries, and points at the forge host allowlist instead (net -1).
 #
+# LOWERED 2026-11-13: ticket-gate 5628 to 5625 (#581 round 1). The round count is kept across Step 0c and
+# gate_write_review replaces the Step 5 size prose (net -3).
+#
 # LOWERED 2026-11-12: ticket-gate 5632 to 5628 (#581). The review, the void note, the clarification
 # questions and the remediation guide become body regions, so the gate posts no comment; the lens,
 # committee and lens-definitions prose that the rewrite needed room for was tightened (net -4).
@@ -427,7 +430,7 @@ budget_for() {
 baseline_for() {
   case "$1" in
     adapt)       echo 7143 ;;
-    ticket-gate) echo 5628 ;;
+    ticket-gate) echo 5625 ;;
     full-review) echo 3963 ;;
     *)           echo 0 ;;
   esac
