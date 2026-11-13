@@ -5,7 +5,7 @@ phase once it opens). Each work package below is written to become ONE GitHub ti
 goal, the concrete failure it removes, the files it touches, acceptance criteria and its
 dependencies. Nothing here is committed work until the tickets are filed and gated.
 
-**Status (2026-10-30):** WP1, WP2 and WP4 are done. They were filed, gated and shipped before
+**Status (2026-10-30, updated 2026-11-13):** WP1, WP2 and WP4 are done, and WP3 since 2026-11-13. They were filed, gated and shipped before
 the external plan reviews, because each removed real harm whatever the reviews conclude. The
 other work packages wait for those reviews. Round 1 (Codex) and round 2 (Gemini), both
 2026-10-31, are folded in, and the review loop is closed; see the Review record at the end.
@@ -154,6 +154,13 @@ repository description and homepage.
   now covers that table.
 
 ### WP3. Rewrite the README as a landing page
+
+**Done:** [#590](https://github.com/agigante80/forge-kit/issues/590), 2026-11-13. The README is a
+landing page within the cap, with a real gate verdict excerpt, the enforcement table and the four
+install states; `docs/getting-started.md` walks from install to a first verdict. The README's
+remaining explanation moved verbatim to `docs/neighbours.md`, `docs/guides/without-claude-code.md`
+and `docs/install-and-upgrade.md`. Since #581 the gate edits the issue body and posts no comment,
+so the two "comment" phrases below are historical.
 
 - **Failure removed:** at 5,025 words the README is landing page, install guide, reference,
   explanation and history at once (all four Diataxis types). A visitor deciding whether to install
@@ -411,9 +418,9 @@ From the external reviews, worth a ticket only if the maintainer wants them:
 
 ## Order
 
-WP1, WP2 and WP4 are done (2026-10-30); WP1's license follow-up (C2) is done (#587, 2026-11-13). Next WP5,
-then WP3 (the README rewrite needs its destinations and the generator contract), with WP6a and
-then WP6b in parallel. WP7, WP8 and WP9 follow on the final text (WP9's generator links ship
+WP1, WP2 and WP4 are done (2026-10-30); WP1's license follow-up (C2) is done (#587, 2026-11-13).
+WP5 shipped (#588), then WP3 (#590, 2026-11-13; the README rewrite needed its destinations and
+the generator contract), with WP6a and then WP6b in parallel. WP7, WP8 and WP9 follow on the final text (WP9's generator links ship
 inside WP5's generator commit, so WP3 measures the README once); then WP10, and WP11 last
 because it walks the finished docs. The WP4 dogfooding decision (G3) can be taken any time.
 

@@ -244,6 +244,25 @@ with a notice rather than failing, and `.githooks/pre-push` runs them where a co
 you need is in that file: the rules are in `docs/guides/ticket-standards.md`, the component
 inventory is generated into `docs/components.md`, and both are checked by CI.
 
+## The governance layer without Claude Code
+
+Four artifacts here are portable, and they are the ones that carry the rules:
+
+| Artifact | What it gives you |
+|---|---|
+| `.github/ISSUE_TEMPLATE/` | The five work templates (`feature`, `bug`, `security`, `infrastructure`, `design`), carrying GWT scenarios, unit and E2E test specs, personal-data handling, a security checklist and documentation impact. Copy them by name: `config.yml` and `contribution.yml` belong to forge-kit and would send your reporters to it |
+| `.github/labels.yml` | The label taxonomy that routes issues, applied by `sync-labels.sh`, which never deletes a label it does not recognise |
+| `docs/guides/ticket-standards.md` | **The canonical rules**, not a summary. The gate is only allowed to restate it in enumerated places, and `check-restatements.sh` fails the build if the two disagree. Any agent that can read markdown can hold a ticket to it. |
+| The shell assets | Every one bash 3.2 compatible with no package manager, so they run in any CI. The leak guard's `--history` mode is written for macOS (bash 3.2, Apple's awk) and verified against Apple's awk source and bash 3.2 built on Linux, not on a Mac; a report from one is a ticket, not a surprise. `scripts/build-mac-shell-harness.sh` rebuilds that bash and awk from pinned sources on a Linux machine with a compiler, and its `--help` holds the command that runs both leak suites under them |
+
+Copy those into your project and any AI, or none, can work to the same standard.
+
+**Be clear about what you do not get.** Nothing enforces any of it for you. The gate, the hooks, the
+size budget and the drift detection are Claude Code components, and there is no adapter for another
+CLI. "AI-agnostic at the governance layer" means the YAML and the markdown are not Claude-specific,
+which is a property of file formats rather than a feature. The governance layer takes no dependency
+on the `claude` CLI, deliberately and by rule, which is what keeps that door open.
+
 ## If you have no AI CLI at all
 
 The same author maintains [vibe-coding-prompts](https://github.com/agigante80/vibe-coding-prompts):
