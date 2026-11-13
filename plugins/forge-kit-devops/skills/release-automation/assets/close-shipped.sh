@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# close-shipped-version: 6
+# close-shipped-version: 7
 # close-shipped.sh: close the tickets a release shipped, or report the ones still open (#496).
 # Closing shipped tickets was a step someone had to remember (the `release` skill's step 5), and on
 # a two branch model the host's own auto close never fires, because the feature PRs target the
 # development branch. This makes the step mechanical, and makes a skipped step visible.
 #
 # Usage:
-#   close-shipped.sh <tag> [--to <ref>]       comment "Released in <tag>" on, then close, every
-#                                             open issue the release shipped
+#   close-shipped.sh <tag> [--to <ref>]       record "Released in <tag>" in the body of every
+#                                             issue the release shipped, then close the open ones
 #   close-shipped.sh --report <tag>           read only: list shipped issues that are still open
 #   close-shipped.sh --report --last <N>      the same for the N highest release tags in the
 #                                             repository (run `git fetch --tags` first)
@@ -39,10 +39,17 @@
 #
 # PER TICKET, close mode: view it (404 or 410 is `skip #N: not found`, not a failure); a pull
 # request is `skip #N: pull request` and is never written to (decided from the host's
-# `.pull_request`, never guessed); a closed issue is skipped silently. An open issue gets the
-# comment only if no comment with exactly that body exists, so a run that commented and then
-# failed to close converges on rerun with no duplicate; then it is closed. A close is never
-# attempted after a failed comment. Every failure prints `::warning::<step> #N failed (rc=R)` and
+# `.pull_request`, never guessed). Every other issue, open OR already closed (the host often closed
+# it before the release), carries the record in its BODY, never a comment (#583): the region
+# `release-shipped` reading exactly `Released in <tag>`, written by
+# `forge_body_region_set <N> release release-shipped "Released in <tag>"` only when the region does
+# not already say so (another tag's text is replaced). Comments are never read or written. Then an
+# open issue is closed; a closed one gets nothing more. So a run that recorded and then failed to
+# close converges on rerun with no second write, and a closed, recorded ticket gets no write at all.
+# A close is never attempted after a failed region read or write (rc 102 is a body that moved since
+# it was read; rerun). Each ticket counts once: closed, already closed (closed at view time and
+# recorded), kept open, skipped or failed; `recorded` separately counts the region writes made.
+# Every failure prints `::warning::<step> #N failed (rc=R)` and
 # the loop goes on; the run exits 1 at the end if any ticket failed. It runs AFTER the tag, so a
 # red run means: rerun THIS script by hand (`close-shipped.sh <tag>`), which converges. Never rerun
 # the release lane, which would cut another release.
@@ -52,11 +59,15 @@
 # host answers with a 404 that reads as `not found`, a green run that closed nothing.
 #
 # DRY_RUN=1 (or an inherited FORGE_DRY_RUN=1) still READS, with FORGE_DRY_RUN scoped to 0 on the
-# reads so they return real data, and prints `[dry-run] would comment and close #N for <tag>`
-# instead of writing. An empty manifest makes no host call at all.
+# reads so they return real data, and prints instead of writing: `[dry-run] would record and close
+# #N for <tag>`, `... would close #N for <tag> (already recorded)` or `... would record #N for <tag>
+# (already closed)`; a closed, recorded ticket prints nothing. An empty manifest makes no host call.
 #
-# Report mode never writes. It costs one issue read per manifest number per tag, which is fine at
-# release scale; a large --last N multiplies it.
+# Report mode never writes and never reads the region: it lists released but OPEN issues only,
+# because every ticket shipped before #583 has no region and `--last N` would flag all of history.
+# A closed ticket missing its record is repaired by rerunning close mode for that tag. It costs one
+# issue read per manifest number per tag, which is fine at release scale; a large --last N
+# multiplies it.
 #
 # Exit: close mode 0 all done, 1 a ticket failed. Report mode 0 nothing open, 1 a released issue is
 # still open, 2 a read failed and nothing was found open. Both modes: 2 for usage and environment.
@@ -86,8 +97,9 @@ usage() {
 usage: close-shipped.sh <tag> [--to <ref>]
        close-shipped.sh --report <tag>
        close-shipped.sh --report --last <N>
-Close (or, with --report, list) the open issues a release shipped, read from the trailing
-(#N) groups of the commit subjects since the previous release tag. (refs #N) keeps a ticket open.
+Record "Released in <tag>" in the body of, then close, the issues a release shipped (or, with
+--report, list the open ones), read from the trailing (#N) groups of the commit subjects since
+the previous release tag. (refs #N) keeps a ticket open.
 EOF
 }
 
@@ -250,7 +262,7 @@ view() {
 }
 
 release_one() {   # release_one <tag> <end> <label>: one tag's manifest and actions; updates counters
-  local tag="$1" end="$2" label="$3" prev m n kind body rc has
+  local tag="$1" end="$2" label="$3" prev m n kind note rc got
   prev="$(prev_tag "$end" "$tag")"
   if [ -z "$prev" ]; then
     if [ "$mode" = close ]; then echo "$tag: no previous tag; nothing closed"
@@ -261,7 +273,7 @@ release_one() {   # release_one <tag> <end> <label>: one tag's manifest and acti
   echo "manifest: $(grep -c '^close ' <<< "$m") tickets ($prev..$label)"
   [ -n "$m" ] || return 0
   grep -q '^close ' <<< "$m" && need_repo
-  body="Released in $tag"
+  note="Released in $tag"
   while read -r kind n; do
     [ -n "$n" ] || continue
     if [ "$kind" = refs ]; then echo "kept open #$n (refs)"; kept=$((kept + 1)); continue; fi
@@ -269,34 +281,41 @@ release_one() {   # release_one <tag> <end> <label>: one tag's manifest and acti
     case "$V" in
       notfound) echo "skip #$n: not found"; skipped=$((skipped + 1)); continue ;;
       pr)       echo "skip #$n: pull request"; skipped=$((skipped + 1)); continue ;;
-      closed)   already=$((already + 1)); continue ;;
       fail)     echo "::warning::view #$n failed (rc=$VRC)"; failed=$((failed + 1)); continue ;;
     esac
-    if [ "$mode" = report ]; then echo "released but open: #$n"; open=$((open + 1)); continue; fi
-    rc=0; has="$(FORGE_DRY_RUN=0 forge_issue_comments "$n" 2>"$WORK/err")" || rc=$?
-    if [ "$rc" -eq 0 ]; then
-      has="$(jq --arg b "$body" 'any(.[]?; (.body // "") == $b)' <<< "$has" 2>/dev/null)" || rc=1
-      [ "$has" = true ] || [ "$has" = false ] || rc=1
+    if [ "$mode" = report ]; then
+      # Report mode lists open tickets only and never reads the region: every ticket shipped
+      # before #583 has none, so `--last N` would flag all of history (#583).
+      [ "$V" = closed ] && { already=$((already + 1)); continue; }
+      echo "released but open: #$n"; open=$((open + 1)); continue
     fi
+    # The record lives in the body (#583): an agent reads the body, never the comments. A closed
+    # ticket gets it too, since the host often closed it before the release.
+    rc=0; got="$(FORGE_DRY_RUN=0 forge_body_region_get "$n" release-shipped 2>"$WORK/err")" || rc=$?
     if [ "$rc" -ne 0 ]; then
-      cat "$WORK/err" >&2; echo "::warning::comments #$n failed (rc=$rc)"; failed=$((failed + 1)); continue
+      cat "$WORK/err" >&2; echo "::warning::region #$n failed (rc=$rc)"; failed=$((failed + 1)); continue
     fi
     if [ "$DRY" = 1 ]; then
-      if [ "$has" = true ]; then echo "[dry-run] would close #$n for $tag (comment present)"
-      else echo "[dry-run] would comment and close #$n for $tag"; fi
+      if [ "$got" = "$note" ]; then
+        [ "$V" = open ] && echo "[dry-run] would close #$n for $tag (already recorded)"
+      elif [ "$V" = open ]; then echo "[dry-run] would record and close #$n for $tag"
+      else echo "[dry-run] would record #$n for $tag (already closed)"; fi
+      [ "$V" = closed ] && already=$((already + 1))
       continue
     fi
-    if [ "$has" != true ]; then
-      rc=0; forge_issue_comment "$n" "$body" || rc=$?
-      if [ "$rc" -ne 0 ]; then echo "::warning::comment #$n failed (rc=$rc)"; failed=$((failed + 1)); continue; fi
+    if [ "$got" != "$note" ]; then
+      rc=0; forge_body_region_set "$n" release release-shipped "$note" || rc=$?
+      if [ "$rc" -ne 0 ]; then echo "::warning::record #$n failed (rc=$rc)"; failed=$((failed + 1)); continue; fi
+      recorded=$((recorded + 1))
     fi
+    if [ "$V" = closed ]; then already=$((already + 1)); continue; fi
     rc=0; forge_issue_close "$n" || rc=$?
     if [ "$rc" -ne 0 ]; then echo "::warning::close #$n failed (rc=$rc)"; failed=$((failed + 1)); continue; fi
     echo "closed #$n"; closed=$((closed + 1))
   done <<< "$m"
 }
 
-closed=0 already=0 kept=0 skipped=0 failed=0 open=0
+closed=0 already=0 recorded=0 kept=0 skipped=0 failed=0 open=0
 
 if [ -n "$last" ]; then
   # Every release tag in the repository, not only those merged into HEAD: run from a development
@@ -328,5 +347,5 @@ if [ "$mode" = report ]; then
   [ "$failed" -eq 0 ] || exit 2
   exit 0
 fi
-echo "close-shipped: $tag: closed $closed, already closed $already, kept open $kept, skipped $skipped, failed $failed"
+echo "close-shipped: $tag: closed $closed, already closed $already, recorded $recorded, kept open $kept, skipped $skipped, failed $failed"
 [ "$failed" -eq 0 ]

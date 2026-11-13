@@ -32,9 +32,12 @@ gh issue close "$N" --comment "Released in v$VERSION"
 After:
 ```bash
 source scripts/forge-lib.sh
-forge_issue_comment "$N" "Released in v$VERSION"
+forge_body_region_set "$N" release release-shipped "Released in v$VERSION"
 forge_issue_close "$N"
 ```
+
+The note goes in a body region rather than a comment (#583): a rerun replaces the region instead
+of stacking a second note, and the ticket body stays the one place its history is read from.
 
 `forge_issue_list`/`forge_issue_view` return REST JSON on both hosts, so existing `jq` filters
 mostly carry over (mind the PR-vs-issue and pagination differences in `references/forgejo.md`).

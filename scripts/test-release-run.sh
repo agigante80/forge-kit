@@ -20,8 +20,10 @@ bad() { echo "  FAIL: $1"; fail=$((fail + 1)); }
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 FORGE_LIB_SRC="$ROOT/plugins/forge-kit-devops/skills/forge-host/assets/forge-lib.sh"
 
-# The gh shim (the same contract as scripts/test-close-shipped.sh's): issue JSON and comments from
-# $GHSTUB, a close PATCH flips the issue, every call is logged and every write is `WRITE ...`.
+# The gh shim (the same contract as scripts/test-close-shipped.sh's): issue JSON (body included) from
+# $GHSTUB, every PATCH payload is merged into the issue (a `body` PATCH records the release-shipped
+# region, a `state` PATCH closes), every call is logged and every write is `WRITE ...`. It has no
+# comment arm (#583), so a comment call exits 3 and stays visible in the log.
 BIN="$TMP/bin"; mkdir -p "$BIN"
 cat > "$BIN/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -35,27 +37,28 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$path" in
-  */issues/*/comments) n="${path%/comments}"; n="${n##*/}"; kind=comments ;;
-  */issues/*)          n="${path##*/}"; kind=issue ;;
+  */issues/*/comments) exit 3 ;;
+  */issues/*)          n="${path##*/}" ;;
   *) exit 3 ;;
 esac
-op="$method-$kind"
-if [ -f "$S/fail/$op-$n" ]; then echo '{}'; echo "gh: stubbed (HTTP $(cat "$S/fail/$op-$n"))" >&2; exit 1; fi
-case "$op" in
-  GET-issue) [ -f "$S/issues/$n.json" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }; cat "$S/issues/$n.json" ;;
-  GET-comments) if [ -f "$S/c-$n.json" ]; then cat "$S/c-$n.json"; else echo '[]'; fi ;;
-  POST-comments) body="$(cat)"; echo "WRITE POST $n $body" >> "$S/log"
-    [ -f "$S/c-$n.json" ] || echo '[]' > "$S/c-$n.json"
-    jq -c --argjson c "$body" '. + [$c]' "$S/c-$n.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/c-$n.json"; echo '{}' ;;
-  PATCH-issue) echo "WRITE PATCH $n $(cat)" >> "$S/log"
-    jq -c '.state = "closed"' "$S/issues/$n.json" > "$S/i.tmp" && mv "$S/i.tmp" "$S/issues/$n.json"; echo '{}' ;;
+payload="" sub=""
+if [ "$method" = PATCH ]; then
+  payload="$(jq -c .)"; if jq -e 'has("body")' <<< "$payload" >/dev/null; then sub=body; else sub=state; fi
+fi
+for f in "$S/fail/$method-issue-$n" "$S/fail/$method-$sub-$n"; do
+  [ -f "$f" ] && { echo '{}'; echo "gh: stubbed (HTTP $(cat "$f"))" >&2; exit 1; }
+done
+case "$method" in
+  GET) [ -f "$S/issues/$n.json" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }; cat "$S/issues/$n.json" ;;
+  PATCH) echo "WRITE PATCH $n $payload" >> "$S/log"
+    jq -c --argjson p "$payload" '. + $p' "$S/issues/$n.json" > "$S/i.tmp" && mv "$S/i.tmp" "$S/issues/$n.json"; echo '{}' ;;
   *) exit 3 ;;
 esac
 STUB
 chmod +x "$BIN/gh"
 GHSTUB="$TMP/ghstate"; mkdir -p "$GHSTUB/issues" "$GHSTUB/fail"; : > "$GHSTUB/log"
 newstate() { rm -rf "$GHSTUB"; mkdir -p "$GHSTUB/issues" "$GHSTUB/fail"; : > "$GHSTUB/log"; }
-openissue() { printf '{"number":%s,"state":"open","pull_request":null}\n' "$1" > "$GHSTUB/issues/$1.json"; }
+openissue() { printf '{"number":%s,"state":"open","pull_request":null,"body":"Ticket text."}\n' "$1" > "$GHSTUB/issues/$1.json"; }
 
 mkrepo() {                      # a repo with the four release assets copied in, one commit
   local r; r=$(mktemp -d "$TMP/repo.XXXXXX")
@@ -181,7 +184,7 @@ R=$(mkrepo); git -C "$R" tag v1.0.0; run "$R"
 # --- 6. closing what the release shipped (#496) -------------------------------------------------
 newstate; R=$(mkrepo); git -C "$R" tag v1.0.0; echo "1.1.0" > "$R/VERSION"
 git -C "$R" commit --quiet -am "fix(a): x (#10)"; openissue 10; run "$R"
-[ "$rc" -eq 0 ] && grep -q '^\[dry-run\] would comment and close #10 for v1.1.0$' <<< "$out" \
+[ "$rc" -eq 0 ] && grep -q '^\[dry-run\] would record and close #10 for v1.1.0$' <<< "$out" \
   && ! grep -q '^WRITE' "$GHSTUB/log" \
   && ok "a dry run previews the close and writes nothing" \
   || bad "a dry run previews the close and writes nothing (rc=$rc: $out)"
@@ -204,24 +207,28 @@ mkorigin() {   # mkorigin <repo>: a bare origin holding main
 newstate; R=$(mkrepo); git -C "$R" tag v1.0.0; echo "1.1.0" > "$R/VERSION"
 git -C "$R" commit --quiet -am "fix(a): x (#10)"; O=$(mkorigin "$R"); openissue 10; runreal "$R"
 rel=$(grep -n '^gh release create v1.1.0' "$GHSTUB/log" | cut -d: -f1)
-cls=$(grep -n '^WRITE PATCH 10 ' "$GHSTUB/log" | cut -d: -f1)
-[ "$rc" -eq 0 ] && git -C "$O" rev-parse -q --verify refs/tags/v1.1.0 >/dev/null && [ -n "$rel" ] && [ -n "$cls" ] && [ "$rel" -lt "$cls" ] \
-  && ok "a real run tags, creates the release, then closes the shipped ticket" \
-  || bad "a real run tags, releases, then closes (rc=$rc rel=$rel cls=$cls: $out)"
+rec=$(grep -n '^WRITE PATCH 10 {"body":' "$GHSTUB/log" | cut -d: -f1)
+cls=$(grep -n '^WRITE PATCH 10 {"state":' "$GHSTUB/log" | cut -d: -f1)
+[ "$rc" -eq 0 ] && git -C "$O" rev-parse -q --verify refs/tags/v1.1.0 >/dev/null && [ -n "$rel" ] && [ -n "$rec" ] && [ -n "$cls" ] && [ "$rel" -lt "$rec" ] && [ "$rec" -lt "$cls" ] \
+  && ok "a real run tags, creates the release, records it in the ticket body, then closes the ticket" \
+  || bad "a real run tags, releases, records, then closes (rc=$rc rel=$rel rec=$rec cls=$cls: $out)"
+jq -r .body "$GHSTUB/issues/10.json" | grep -qx 'Released in v1.1.0' && ! grep -q comments "$GHSTUB/log" \
+  && ok "the release note is in the body region and no comment call is made (#583)" \
+  || bad "the release note is in the body, no comment call (body: $(jq -r .body "$GHSTUB/issues/10.json"))"
 
 newstate; R=$(mkrepo); git -C "$R" tag v1.0.0; echo "1.1.0" > "$R/VERSION"
 git -C "$R" commit --quiet -am "fix(a): x (#10)"; O=$(mkorigin "$R"); openissue 10
-echo 403 > "$GHSTUB/fail/PATCH-issue-10"; runreal "$R"
+echo 403 > "$GHSTUB/fail/PATCH-state-10"; runreal "$R"
 [ "$rc" -eq 1 ] && git -C "$O" rev-parse -q --verify refs/tags/v1.1.0 >/dev/null \
   && grep -q '^::warning::close #10 failed (rc=1)$' <<< "$out" \
   && grep -q '^::error::shipped tickets not all closed; run: bash ci/close-shipped.sh v1.1.0 (do not rerun this lane)$' <<< "$out" \
   && ok "a failed close turns the run red after the tag exists and prints the recovery command" \
   || bad "a failed close turns the run red after the tag and prints the recovery command (rc=$rc: $out)"
 
-rm -f "$GHSTUB/fail/PATCH-issue-10"
+rm -f "$GHSTUB/fail/PATCH-state-10"
 out=$(CDPATH= cd -- "$R" && env -u DRY_RUN -u FORGE_DRY_RUN -u FORGE_LIB PATH="$BIN:$PATH" GHSTUB="$GHSTUB" FORGE_HOST=github FORGE_REPO=o/r bash ci/close-shipped.sh v1.1.0 2>&1); rc=$?
-[ "$rc" -eq 0 ] && [ "$(grep -c '^WRITE POST 10 ' "$GHSTUB/log")" = 1 ] && grep -q '^closed #10$' <<< "$out" \
-  && ok "manual recovery with the printed command converges with no second comment" \
+[ "$rc" -eq 0 ] && [ "$(grep -c '^WRITE PATCH 10 {"body":' "$GHSTUB/log")" = 1 ] && grep -q '^closed #10$' <<< "$out" \
+  && ok "manual recovery with the printed command converges with no second record" \
   || bad "manual recovery converges (rc=$rc: $out)"
 
 newstate; R=$(mkrepo); git -C "$R" tag v1.0.0; echo "1.1.0" > "$R/VERSION"
@@ -250,7 +257,7 @@ newstate; R=$(mkrepo); git -C "$R" tag v1.0.0
 git -C "$R" checkout --quiet -b side; git -C "$R" commit --quiet --allow-empty -m "fix: side (#11)"; git -C "$R" tag v1.0.1
 git -C "$R" checkout --quiet main; git -C "$R" commit --quiet --allow-empty -m "feat: work"
 openissue 11; run "$R" VERSION_SOURCE=git
-[ "$rc" -eq 1 ] && grep -q '^::error::tag v1.0.1 already exists at ' <<< "$out" && ! grep -q 'would comment and close #11' <<< "$out" && ! grep -q 'would tag' <<< "$out" \
+[ "$rc" -eq 1 ] && grep -q '^::error::tag v1.0.1 already exists at ' <<< "$out" && ! grep -q 'would record and close #11' <<< "$out" && ! grep -q 'would tag' <<< "$out" \
   && ! grep -q '^gh release create' "$GHSTUB/log" \
   && ok "a dry run refuses an existing tag on another commit the same way" \
   || bad "a dry run refuses an existing tag on another commit (rc=$rc: $out)"

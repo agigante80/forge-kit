@@ -3,12 +3,14 @@
 #
 # close-shipped.sh closes the tickets a release shipped (or, with --report, lists the ones still
 # open). Every case runs it as a subprocess inside a throwaway git repository, with a PATH-shim
-# `gh` that serves issue JSON and comment arrays from a per-test state directory, flips an issue
-# to closed on the close PATCH, appends a comment on the POST, answers 403, 404 or 500 when a
-# fixture file says so, and logs every call. A write is logged as `WRITE <METHOD> <n> <body>`, so
-# "no write" is a grep, and a read of an issue is visible as its path. A path with an empty
-# owner/repo (`repos//`) gets the 404 GitHub really answers it with. One row uses a `curl` shim
-# to prove the Forgejo 404 arm (forge_api's rc 44).
+# `gh` that serves issue JSON (body included) from a per-test state directory, merges every PATCH
+# payload into the issue (a `body` PATCH is a region record, a `state` PATCH is a close), answers
+# 403, 404 or 500 when a fixture file says so (per method, per PATCH kind, or per GET ordinal),
+# edits the body under the writer when a drift file says so, and logs every call. It has no
+# comment arm (#583): any comment call exits 3 and shows in the log. A write is logged as
+# `WRITE <METHOD> <n> <payload>`, so "no write" is a grep, and a read of an issue is visible as its
+# path. A path with an empty owner/repo (`repos//`) gets the 404 GitHub really answers it with. One
+# row uses a `curl` shim to prove the Forgejo 404 arm (forge_api's rc 44).
 set -uo pipefail
 HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel)"
@@ -37,31 +39,36 @@ done
 case "$path" in   # an empty owner/repo is what GitHub answers with a 404 (review M1)
   *repos//*) echo '{"message":"Not Found"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
 esac
-case "$path" in
-  */issues/*/comments) n="${path%/comments}"; n="${n##*/}"; kind=comments ;;
-  */issues/*)          n="${path##*/}"; kind=issue ;;
+case "$path" in   # #583: no comment arm, so any comment read or write fails the run loudly
+  */issues/*/comments) echo "gh stub: comment call $method $path" >&2; exit 3 ;;
+  */issues/*)          n="${path##*/}" ;;
   *) echo "gh stub: unexpected path $path" >&2; exit 3 ;;
 esac
-op="$method-$kind"
-if [ -f "$S/fail/$op-$n" ]; then
-  code="$(cat "$S/fail/$op-$n")"
-  echo '{"message":"stubbed failure"}'; echo "gh: stubbed (HTTP $code)" >&2; exit 1
+payload="" sub=""
+if [ "$method" = PATCH ]; then   # a body PATCH records a region, a state PATCH closes
+  payload="$(jq -c .)"
+  if jq -e 'has("body")' <<< "$payload" >/dev/null; then sub=body; else sub=state; fi
 fi
-case "$op" in
-  GET-issue)
+for f in "$S/fail/$method-issue-$n" "$S/fail/$method-$sub-$n"; do
+  [ -f "$f" ] || continue
+  echo '{"message":"stubbed failure"}'; echo "gh: stubbed (HTTP $(cat "$f"))" >&2; exit 1
+done
+case "$method" in
+  GET)
     [ -f "$S/issues/$n.json" ] || { echo '{"message":"Not Found"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+    k=$(( $(cat "$S/gets/$n" 2>/dev/null || echo 0) + 1 )); echo "$k" > "$S/gets/$n"
+    if [ "$(cat "$S/getfail/$n" 2>/dev/null)" = "$k" ]; then   # getfail/N holds the GET ordinal to fail
+      echo '{"message":"stubbed failure"}'; echo "gh: stubbed (HTTP 500)" >&2; exit 1
+    fi
+    if [ "$(cat "$S/drift/$n" 2>/dev/null)" = "$k" ]; then     # drift/N: someone edits the body at that GET
+      jq -c '.body += "\nedited elsewhere"' "$S/issues/$n.json" > "$S/i.tmp" && mv "$S/i.tmp" "$S/issues/$n.json"
+    fi
     cat "$S/issues/$n.json" ;;
-  GET-comments) if [ -f "$S/comments/$n.json" ]; then cat "$S/comments/$n.json"; else echo '[]'; fi ;;
-  POST-comments)
-    body="$(cat)"; echo "WRITE POST $n $body" >> "$S/log"
-    [ -f "$S/comments/$n.json" ] || echo '[]' > "$S/comments/$n.json"
-    jq -c --argjson c "$body" '. + [$c]' "$S/comments/$n.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments/$n.json"
+  PATCH)
+    echo "WRITE PATCH $n $payload" >> "$S/log"
+    jq -c --argjson p "$payload" '. + $p' "$S/issues/$n.json" > "$S/i.tmp" && mv "$S/i.tmp" "$S/issues/$n.json"
     echo '{}' ;;
-  PATCH-issue)
-    body="$(cat)"; echo "WRITE PATCH $n $body" >> "$S/log"
-    jq -c '.state = "closed"' "$S/issues/$n.json" > "$S/i.tmp" && mv "$S/i.tmp" "$S/issues/$n.json"
-    echo '{}' ;;
-  *) echo "gh stub: unexpected $op" >&2; exit 3 ;;
+  *) echo "gh stub: unexpected $method on an issue" >&2; exit 3 ;;
 esac
 STUB
 cat > "$BIN/curl" <<'STUB'
@@ -71,19 +78,27 @@ printf '{"message":"not found"}\n404'
 STUB
 chmod +x "$BIN/gh" "$BIN/curl"
 
-newstate() { S=$(mktemp -d "$TMP/s.XXXXXX"); mkdir -p "$S/issues" "$S/comments" "$S/fail"; : > "$S/log"; }
-issue() {   # issue <n> open|closed [pr]
-  if [ "${3-}" = pr ]; then
-    printf '{"number":%s,"state":"%s","pull_request":{"url":"x"}}\n' "$1" "$2" > "$S/issues/$1.json"
-  else
-    printf '{"number":%s,"state":"%s","pull_request":null}\n' "$1" "$2" > "$S/issues/$1.json"
-  fi
+newstate() { S=$(mktemp -d "$TMP/s.XXXXXX"); mkdir -p "$S/issues" "$S/fail" "$S/gets" "$S/getfail" "$S/drift"; : > "$S/log"; }
+issue() {   # issue <n> open|closed [pr]: the body is one line of author text and no region
+  local pr=null; [ "${3-}" = pr ] && pr='{"url":"x"}'
+  jq -nc --argjson n "$1" --arg s "$2" --argjson pr "$pr" \
+    '{number:$n, state:$s, pull_request:$pr, body:"Ticket text."}' > "$S/issues/$1.json"
 }
-comment() { jq -nc --arg b "$2" '[{body:$b}]' > "$S/comments/$1.json"; }
-failop()  { echo "$3" > "$S/fail/$1-$2"; }   # failop PATCH-issue 10 403
+region()  {   # region <n> <text>: give issue n a release-shipped region holding <text>
+  jq -c --arg t "$2" '.body = "Ticket text.\n\n<!-- release-shipped:start -->\n" + $t + "\n<!-- release-shipped:end -->"' \
+    "$S/issues/$1.json" > "$S/i.tmp" && mv "$S/i.tmp" "$S/issues/$1.json"
+}
+failop()  { echo "$3" > "$S/fail/$1-$2"; }   # failop PATCH-state 10 403 (PATCH-body, or PATCH-issue for either)
 state()   { jq -r .state "$S/issues/$1.json"; }
+body()    { jq -r .body "$S/issues/$1.json"; }
 writes()  { grep -c '^WRITE' "$S/log"; }
-posts()   { grep -c "^WRITE POST $1 " "$S/log"; }
+bpatch()  { grep -c "^WRITE PATCH $1 {\"body\":" "$S/log"; }    # region records
+spatch()  { grep -c "^WRITE PATCH $1 {\"state\":" "$S/log"; }   # closes
+recorded() {   # recorded <n> <text>: exactly one release-shipped pair, holding exactly <text>
+  [ "$(body "$1" | grep -c '^<!-- release-shipped:start -->$')" = 1 ] \
+    && [ "$(body "$1" | sed -n '/^<!-- release-shipped:start -->$/,/^<!-- release-shipped:end -->$/p' | sed '1d;$d')" = "$2" ]
+}
+nocomment() { ! grep -q 'comments' "$S/log"; }
 patched() { grep -q "^WRITE PATCH $1 " "$S/log"; }
 touched() { grep -Eq "issues/$1( |/|\$)|^WRITE [A-Z]+ $1 " "$S/log"; }
 calls()   { wc -l < "$S/log" | tr -d ' '; }
@@ -121,35 +136,61 @@ echo "close mode"
 std; run_cs v1.2.0
 check "shipped issues are closed (rc 0)" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(state 11)" = closed ]'
 check "the closes are reported" 'grep -q "^closed #10$" <<< "$out" && grep -q "^closed #11$" <<< "$out"'
-check "each gets exactly one Released comment" '[ "$(posts 10)" = 1 ] && [ "$(posts 11)" = 1 ] && grep -q "^WRITE POST 10 {\"body\":\"Released in v1.2.0\"}$" "$S/log"'
+check "each is recorded once in its body, then closed once (#583)" '[ "$(bpatch 10)" = 1 ] && [ "$(bpatch 11)" = 1 ] && [ "$(spatch 10)" = 1 ] && recorded 10 "Released in v1.2.0" && recorded 11 "Released in v1.2.0"'
+check "the record comes before the close" '[ "$(grep -n "^WRITE PATCH 10 {\"body\":" "$S/log" | cut -d: -f1)" -lt "$(grep -n "^WRITE PATCH 10 {\"state\":" "$S/log" | cut -d: -f1)" ]'
+check "the author text is kept above the region" '[ "$(body 10 | head -1)" = "Ticket text." ]'
+check "no comment is read or posted" 'nocomment'
 check "the manifest line names the range" 'grep -q "^manifest: 2 tickets (v1.1.0..v1.2.0)$" <<< "$out"'
 check "a ticket before the previous tag is never touched" '! touched 9 && [ "$(state 9)" = open ]'
-check "the summary line" 'grep -q "^close-shipped: v1.2.0: closed 2, already closed 0, kept open 0, skipped 0, failed 0$" <<< "$out"'
+check "the summary line" 'grep -q "^close-shipped: v1.2.0: closed 2, already closed 0, recorded 2, kept open 0, skipped 0, failed 0$" <<< "$out"'
 w0=$(writes); run_cs v1.2.0
 check "a rerun of the same tag writes nothing (idempotent)" '[ $rc -eq 0 ] && [ "$w0" = 4 ] && [ "$(writes)" = 4 ]'
-check "a rerun counts both as already closed" 'grep -q "closed 0, already closed 2" <<< "$out"'
+check "a rerun counts both as already closed and records nothing" 'grep -q "closed 0, already closed 2, recorded 0," <<< "$out"'
+
+# #583: the host often closes a ticket first (a "Closes #N" merge); it still gets the region.
+std; issue 10 closed; run_cs v1.2.0
+check "a closed ticket is recorded and never sent a state PATCH" '[ $rc -eq 0 ] && recorded 10 "Released in v1.2.0" && [ "$(bpatch 10)" = 1 ] && [ "$(spatch 10)" = 0 ]'
+check "the closed ticket counts as already closed, both as recorded" 'grep -q "^close-shipped: v1.2.0: closed 1, already closed 1, recorded 2, kept open 0, skipped 0, failed 0$" <<< "$out"'
+
+std; region 10 "Released in v1.2.0"; issue 11 closed; region 11 "Released in v1.2.0"; run_cs v1.2.0
+check "a present region on an open ticket is not rewritten; the ticket is closed" '[ $rc -eq 0 ] && [ "$(bpatch 10)" = 0 ] && [ "$(spatch 10)" = 1 ] && [ "$(state 10)" = closed ]'
+check "a present region on a closed ticket means no write at all" '! grep -q "^WRITE [A-Z]* 11 " "$S/log"'
+check "both present: recorded 0" 'grep -q "closed 1, already closed 1, recorded 0," <<< "$out"'
+
+std; region 10 "Released in v1.1.0"; run_cs v1.2.0
+check "a region naming another tag is replaced, one marker pair left" '[ $rc -eq 0 ] && recorded 10 "Released in v1.2.0" && [ "$(state 10)" = closed ]'
+
+std; run_cs v1.2.0   # a legacy comment could only count if read; the shim has no comment arm
+check "a legacy Released comment is never read: the region is written and the ticket closed" '[ $rc -eq 0 ] && recorded 10 "Released in v1.2.0" && [ "$(state 10)" = closed ] && nocomment'
 
 mkrepo; tg v1.1.0; c "fix(a): x (#12) (#13)"; tg v1.2.0
 newstate; issue 12 open; issue 13 open pr; run_cs v1.2.0
 check "a pull request number is skipped and never written to" '[ $rc -eq 0 ] && grep -q "^skip #13: pull request$" <<< "$out" && ! grep -q "^WRITE [A-Z]* 13 " "$S/log"'
 check "the issue beside it on the same subject is closed" '[ "$(state 12)" = closed ]'
 
-std; issue 10 closed; issue 11 open; comment 11 "Released in v1.2.0"; run_cs v1.2.0
-check "a present comment is not reposted; the open issue is closed" '[ $rc -eq 0 ] && [ "$(posts 11)" = 0 ] && patched 11 && [ "$(state 11)" = closed ]'
-check "an already closed issue receives no write" '! grep -q "^WRITE [A-Z]* 10 " "$S/log"'
-
-std; failop PATCH-issue 10 403; run_cs v1.2.0
+std; failop PATCH-state 10 403; run_cs v1.2.0
 check "a failed close warns, the loop goes on, the run exits 1" '[ $rc -eq 1 ] && grep -q "^::warning::close #10 failed (rc=1)$" <<< "$out" && [ "$(state 11)" = closed ]'
 check "the failure is counted in the summary" 'grep -q "failed 1$" <<< "$out"'
-rm -f "$S/fail/PATCH-issue-10"; run_cs v1.2.0
-check "the rerun after a failed close converges with no second comment" '[ $rc -eq 0 ] && [ "$(posts 10)" = 1 ] && [ "$(state 10)" = closed ]'
+rm -f "$S/fail/PATCH-state-10"; run_cs v1.2.0
+check "the rerun after a failed close converges with no second record" '[ $rc -eq 0 ] && [ "$(bpatch 10)" = 1 ] && [ "$(state 10)" = closed ]'
 
-std; failop POST-comments 10 403; run_cs v1.2.0
-check "a failed comment means no close" '[ $rc -eq 1 ] && ! patched 10 && [ "$(state 10)" = open ] && grep -q "^::warning::comment #10 failed" <<< "$out"'
-check "the other ticket is still closed" '[ "$(state 11)" = closed ]'
+std; failop PATCH-body 10 500; run_cs v1.2.0
+check "a failed record (HTTP 500) means no close" '[ $rc -eq 1 ] && [ "$(spatch 10)" = 0 ] && [ "$(state 10)" = open ] && grep -q "^::warning::record #10 failed (rc=1)$" <<< "$out"'
+check "the other ticket is still recorded and closed" '[ "$(state 11)" = closed ] && recorded 11 "Released in v1.2.0"'
+check "the failed record counts as failed, not recorded" 'grep -q "closed 1, already closed 0, recorded 1, kept open 0, skipped 0, failed 1$" <<< "$out"'
 
-std; failop GET-comments 10 500; run_cs v1.2.0
-check "a failed comment read writes nothing to that ticket and fails the run" '[ $rc -eq 1 ] && ! grep -q "^WRITE [A-Z]* 10 " "$S/log" && grep -q "^::warning::comments #10 failed" <<< "$out"'
+std; issue 10 closed; failop PATCH-body 10 500; run_cs v1.2.0
+check "a closed ticket whose record fails counts as failed, not already closed" '[ $rc -eq 1 ] && grep -q "closed 1, already closed 0, recorded 1, kept open 0, skipped 0, failed 1$" <<< "$out"'
+
+std; echo 4 > "$S/drift/10"; run_cs v1.2.0   # GET 4 of #10 is the writer's re-read
+check "a body edited between read and write is rc 102: no write, no close" '[ $rc -eq 1 ] && grep -q "^::warning::record #10 failed (rc=102)$" <<< "$out" && ! patched 10 && [ "$(state 10)" = open ] && [ "$(state 11)" = closed ]'
+
+std; jq -c '.body = "Ticket text.\n<!-- release-shipped:start -->\nhalf a region"' "$S/issues/10.json" > "$S/i.tmp" && mv "$S/i.tmp" "$S/issues/10.json"
+run_cs v1.2.0
+check "a body with an unclosed release-shipped marker is refused (rc 103), never overwritten or closed" '[ $rc -eq 1 ] && grep -q "^::warning::record #10 failed (rc=103)$" <<< "$out" && ! patched 10 && [ "$(state 10)" = open ]'
+
+std; echo 2 > "$S/getfail/10"; run_cs v1.2.0  # GET 1 is the view, GET 2 the region read
+check "a failed region read writes nothing to that ticket and fails the run" '[ $rc -eq 1 ] && ! grep -q "^WRITE [A-Z]* 10 " "$S/log" && grep -q "^::warning::region #10 failed (rc=1)$" <<< "$out"'
 
 std; rm "$S/issues/10.json"; run_cs v1.2.0
 check "a 404 is a skip, not a failure" '[ $rc -eq 0 ] && grep -q "^skip #10: not found$" <<< "$out" && [ "$(state 11)" = closed ]'
@@ -186,7 +227,7 @@ check "a mid-subject (#N) is not a match" '[ $rc -eq 0 ] && grep -q "^manifest: 
 
 mkrepo; tg v1.1.0; c "fix(a): x (#10)"; c "fix(a): again (#10)"; tg v1.2.0
 newstate; issue 10 open; run_cs v1.2.0
-check "a number cited twice is closed once with one comment" '[ "$(posts 10)" = 1 ] && grep -q "^manifest: 1 tickets" <<< "$out"'
+check "a number cited twice is recorded once and closed once" '[ "$(bpatch 10)" = 1 ] && [ "$(spatch 10)" = 1 ] && grep -q "^manifest: 1 tickets" <<< "$out"'
 
 mkrepo; tg v1.1.0; c "fix: x (#10)"; c 'Revert "fix: x (#10)" (#25)'; c "feat: y (#11)"; tg v1.2.0
 newstate; issue 10 open; issue 11 open; issue 25 open pr; run_cs v1.2.0
@@ -235,7 +276,7 @@ check "the reverted merge is reported" 'grep -q "^reverted in range: merge [0-9a
 
 mkrepo; tg v1.1.0; mkpr feat "feat: a (#10)" "feat: b (#12)"; revm; fc "fix: redo (#10)"; tg v1.2.0
 newstate; issue 10 open; issue 12 open; run_cs v1.2.0
-check "after a reverted merge, a commit citing the ticket again still closes it" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(posts 10)" = 1 ] && [ "$(state 12)" = open ] && ! touched 12'
+check "after a reverted merge, a commit citing the ticket again still closes it" '[ $rc -eq 0 ] && [ "$(state 10)" = closed ] && [ "$(bpatch 10)" = 1 ] && [ "$(state 12)" = open ] && ! touched 12'
 
 mkrepo; tg v1.1.0; br a "feat: a (#10)"; br b "feat: b (#12)"; br d "feat: d (#13)"
 git -C "$R" merge --quiet --no-ff -m "Merge octopus" a b d >/dev/null 2>&1; revm; tg v1.2.0
@@ -338,18 +379,25 @@ newstate; for n in 101 102 103 104 105 106 107 108 109 110 111 112; do issue "$n
 run_cs v1.2.0
 check "regression: all 12 promoted tickets are closed in one run" '[ $rc -eq 0 ] && [ "$(grep -c "^closed #" <<< "$out")" = 12 ]'
 w1=$(writes); run_cs v1.2.0
-check "regression: a rerun posts nothing" '[ $rc -eq 0 ] && [ "$(writes)" = "$w1" ]'
+check "regression: a rerun writes nothing" '[ $rc -eq 0 ] && [ "$(writes)" = "$w1" ]'
 
 echo "dry run and --to"
 std; run_cs DRY_RUN=1 v1.2.0
-check "DRY_RUN prints and writes nothing" '[ $rc -eq 0 ] && grep -q "^\[dry-run\] would comment and close #10 for v1.2.0$" <<< "$out" && [ "$(writes)" = 0 ] && [ "$(state 10)" = open ]'
-check "DRY_RUN still reads the host" 'grep -q "issues/10" "$S/log"'
+check "DRY_RUN prints and writes nothing" '[ $rc -eq 0 ] && grep -q "^\[dry-run\] would record and close #10 for v1.2.0$" <<< "$out" && [ "$(writes)" = 0 ] && [ "$(state 10)" = open ]'
+check "DRY_RUN still reads the host, the region included" '[ "$(cat "$S/gets/10")" = 2 ]'
+
+mkrepo; tg v1.1.0; c "a (#10)"; c "b (#11)"; c "c (#12)"; tg v1.2.0
+newstate; issue 10 open; region 10 "Released in v1.2.0"; issue 11 closed; region 11 "Released in v1.2.0"; issue 12 closed
+run_cs DRY_RUN=1 v1.2.0
+check "DRY_RUN with the region present on an open ticket says already recorded" '[ $rc -eq 0 ] && grep -q "^\[dry-run\] would close #10 for v1.2.0 (already recorded)$" <<< "$out"'
+check "DRY_RUN prints nothing for a closed, recorded ticket" '! grep -q "#11" <<< "$out"'
+check "DRY_RUN on a closed, unrecorded ticket would record it, and writes nothing" 'grep -q "^\[dry-run\] would record #12 for v1.2.0 (already closed)$" <<< "$out" && [ "$(writes)" = 0 ]'
 
 std; run_cs FORGE_DRY_RUN=1 v1.2.0
-check "an inherited FORGE_DRY_RUN=1 writes nothing and still reads" '[ $rc -eq 0 ] && grep -q "would comment and close #11" <<< "$out" && [ "$(writes)" = 0 ] && grep -q "issues/11" "$S/log"'
+check "an inherited FORGE_DRY_RUN=1 writes nothing and still reads" '[ $rc -eq 0 ] && grep -q "would record and close #11" <<< "$out" && [ "$(writes)" = 0 ] && grep -q "issues/11" "$S/log"'
 
 std; c "fix: next (#50)"; issue 50 open; run_cs v1.3.0 --to HEAD
-check "--to names the range end when the tag does not exist yet" '[ $rc -eq 0 ] && grep -q "^manifest: 1 tickets (v1.2.0..HEAD)$" <<< "$out" && grep -q "^WRITE POST 50 {\"body\":\"Released in v1.3.0\"}$" "$S/log"'
+check "--to names the range end when the tag does not exist yet" '[ $rc -eq 0 ] && grep -q "^manifest: 1 tickets (v1.2.0..HEAD)$" <<< "$out" && recorded 50 "Released in v1.3.0" && [ "$(state 50)" = closed ]'
 
 std; run_cs v1.3.0
 check "a missing tag without --to is a usage error" '[ $rc -eq 2 ] && [ "$(calls)" = 0 ]'
