@@ -170,13 +170,27 @@ core_checks() {
     "$(j '" ".join(r["day"] + ":" + str(r["context"]) for r in d["by_day"])')"
 }
 
+# Premise probe (#580): whether a line nested 100,000 deep exceeds the recursion limit depends on
+# the Python. 3.12 raises RecursionError; a newer one, guarding the C stack instead of a count,
+# parses it, and then the line is valid JSON and no warning is the right answer. The count is a
+# probe, never a guess, so the row asserts what this Python does and the 3.12 run keeps the kill.
+if python3 -c 'import json; json.loads("[" * 100000 + "]" * 100000)' 2>/dev/null; then
+  nest_warn=0; echo "  note: this Python parses the 100,000-deep line, so its warning row is equivalent here"
+else
+  nest_warn=1
+fi
+
 echo "== the report =="
 core_checks
 expect "exit 0" 0 "$rc"
-expect "--json parses and the three warnings are the only stderr" 3 "$(wc -l <<< "$err" | tr -d ' ')"
+expect "--json parses and the warnings are the only stderr" $((2 + nest_warn)) "$(wc -l <<< "$err" | tr -d ' ')"
 has "a truncated last line is one warning naming file and line" "demo-alpha/$S1/subagents/agent-b.jsonl:4: not JSON, skipped" "$err"
 has "a non-UTF-8 line is one warning naming file and line" "demo-alpha/s5000000-0000-4000-8000-000000000005.jsonl:2: not UTF-8, skipped" "$err"
-has "a line nested past the recursion limit is one warning, not a traceback" "demo-alpha/s5000000-0000-4000-8000-000000000005.jsonl:4: not JSON, skipped" "$err"
+if [ "$nest_warn" = 1 ]; then
+  has "a line nested past the recursion limit is one warning, not a traceback" "demo-alpha/s5000000-0000-4000-8000-000000000005.jsonl:4: not JSON, skipped" "$err"
+else
+  hasnt "a line this Python can parse is no warning and no traceback" "Traceback" "$err"
+fi
 hasnt "the warnings never name the root" "$FX" "$err"
 hasnt "nor the slug above the project" "work-demo" "$err"
 expect "mean context per turn" 26518 "$(j 'd["summary"]["context_per_turn"]')"
