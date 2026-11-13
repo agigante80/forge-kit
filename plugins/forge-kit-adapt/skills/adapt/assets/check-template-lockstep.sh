@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-template-lockstep-version: 3
+# check-template-lockstep-version: 4
 # Assert every work issue-template - and the canonical ticket-standards doc - share one
 # template-version marker (lockstep).
 #
@@ -25,7 +25,8 @@
 #
 # The canonical doc is OPTIONAL by design: a downstream project can adopt this guard for
 # template lockstep without having adopted the canonical-doc pattern, so an absent doc is a
-# vacuous pass for the doc portion, not a failure.
+# vacuous pass for the doc portion, not a failure. A doc that IS present but carries no
+# template-version marker fails (exit 1, #576): it was never compared. Marker-less templates stay exempt.
 #
 # Exit: 0 locked (or nothing to lock), 1 drift, 2 the repository root could not be entered (fails
 # closed: running from the wrong directory would report "nothing to check" as a pass).
@@ -104,10 +105,13 @@ done < <(find "$DIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) |
 
 if [ -n "$DOC" ] && [ -f "$DOC" ]; then
   dv=$(tver "$DOC")
-  if [ -n "$dv" ]; then
-    recs="$recs$dv$TAB$DOC$NL"
-    seen=$((seen + 1))
+  if [ -z "$dv" ]; then
+    # A doc that is present but unmarked was never compared; passing would be a vacuous green (#576).
+    echo "check-template-lockstep: canonical doc has no template-version marker: $DOC (add a line like <!-- template-version: N -->)" >&2
+    exit 1
   fi
+  recs="$recs$dv$TAB$DOC$NL"
+  seen=$((seen + 1))
 fi
 
 if [ "$seen" -lt 2 ]; then

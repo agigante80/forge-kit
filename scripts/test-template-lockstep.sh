@@ -258,6 +258,40 @@ if [ "$(ban_count "$t/mut.sh" "$BAN_P")" -eq 0 ] && [ "$(ban_count "$t/mut.sh" "
   echo "  ok: a comment naming the banned tools does not trip the bans"; pass=$((pass + 1))
 else echo "  FAIL: the bans fire on comments"; fail=$((fail + 1)); fi
 
+# #576: a canonical doc that is present but carries no template-version marker fails, naming the doc.
+# A marker-less template stays exempt, and an absent doc stays a vacuous pass.
+d="$t/nomarker"; mkdir -p "$d"
+mk "$d" feature 3; mk "$d" bug 3
+printf '# Ticket standards\nno marker here\n' > "$t/nomarker.md"
+run "#576: an explicit doc with no marker fails" 1 "$d" "$t/nomarker.md"
+out576=$(bash "$SCRIPT" "$d" "$t/nomarker.md" 2>&1)
+case "$out576" in
+  *"canonical doc has no template-version marker: $t/nomarker.md"*) echo "  ok: #576: ...and names the doc"; pass=$((pass + 1)) ;;
+  *) echo "  FAIL: #576: no line naming the doc: $out576"; fail=$((fail + 1)) ;;
+esac
+printf '<!-- template-version: 3 -->\n' > "$t/marked.md"
+run "#576: an explicit doc at the shared version still passes" 0 "$d" "$t/marked.md"
+run "#576: an absent explicit doc keeps its behaviour (a missing path is skipped, not drift)" 0 "$d" "$t/absent.md"
+d="$t/nomarker-one"; mkdir -p "$d"
+mk "$d" feature 3
+run "#576: an unmarked doc fails even with one versioned template" 1 "$d" "$t/nomarker.md"
+# no-arg (CI) mode: a repository fixture whose canonical doc lost its marker.
+rp="$t/repo576"; mkdir -p "$rp/.github/ISSUE_TEMPLATE" "$rp/docs/guides"
+mk "$rp/.github/ISSUE_TEMPLATE" feature 3; mk "$rp/.github/ISSUE_TEMPLATE" bug 3
+printf '# Ticket standards\nno marker here\n' > "$rp/docs/guides/ticket-standards.md"
+git -C "$rp" init -q 2>/dev/null
+out=$(cd "$rp" && bash "$SCRIPT" 2>&1); rc=$?
+case "$out" in
+  *"canonical doc has no template-version marker: docs/guides/ticket-standards.md"*) [ "$rc" -eq 1 ] && { echo "  ok: #576: no-arg mode fails on an unmarked canonical doc and names it"; pass=$((pass + 1)); } || { echo "  FAIL: #576: no-arg exit $rc"; fail=$((fail + 1)); } ;;
+  *) echo "  FAIL: #576: no-arg mode did not name the unmarked doc (rc=$rc): $out"; fail=$((fail + 1)) ;;
+esac
+# a marker without the space is read as unmarked by the gate readers too, so it fails
+printf '<!-- template-version:3 -->\n' > "$t/nospace.md"
+run "#576: a marker with no space after the colon reads as unmarked and fails" 1 "$t/nomarker-one" "$t/nospace.md"
+d="$t/nomarker-exempt"; mkdir -p "$d"
+mk "$d" feature 3; mk "$d" bug 3; mk "$d" contribution -
+run "#576: a marker-less template with no doc is still exempt" 0 "$d"
+
 rm -rf "$t"
 
 # The no-arg path is what CI invokes: it resolves the template dir and the canonical doc
