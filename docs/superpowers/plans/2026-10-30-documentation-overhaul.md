@@ -263,6 +263,12 @@ enforcement contact the maintainer has not chosen, and remains optional.
 
 ### WP6. Make the CHANGELOG readable by a user upgrading
 
+**WP6a done:** [#589](https://github.com/agigante80/forge-kit/issues/589), 2026-11-13, against
+baseline `497e5e6`. Eleven files under `docs/changelog-detail/`, byte identical to the released
+sections; `CHANGELOG.md` keeps `## Unreleased`, each release heading and a link line;
+`check-retired-rules.sh` exempts each file by name; `docs/guides/versioning.md` states the release
+flow. The moved text held no relative link, so WP6b inherits an empty link list. WP6b is open.
+
 - **Failure removed:** `CHANGELOG.md` is 65,136 words. A single bullet routinely runs 300+ words of
   implementation detail (marker bumps, mutant counts, review rounds). A user upgrading cannot find
   what changed for them, what breaks, or what to do; the Keep a Changelog first principle

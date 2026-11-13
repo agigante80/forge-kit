@@ -80,6 +80,23 @@ has "docs/CHANGELOG.md:1: retired rule review-lows" "the basename alone earns no
 fresh 7; printf 'Lows were ticketed immediately.\n' > "$R/$A/notes.md"; git -C "$R" add -A; run
 expect "a file beside the exempt data file is scanned" 1 "$rc"
 
+echo "release history moved out of CHANGELOG.md (#589)"
+CD="docs/changelog-detail"
+fresh 17; mkdir -p "$R/$CD"; printf 'Retired: Lows were ticketed immediately.\n' > "$R/$CD/v0.10.0.md"; git -C "$R" add -A; run
+expect "a listed release detail file is exempt" 0 "$rc"
+fresh 18; mkdir -p "$R/$CD"; printf 'Lows were ticketed immediately.\n' > "$R/$CD/notes.md"; git -C "$R" add -A; run
+expect "another file in the detail directory is scanned" 1 "$rc"
+has "$CD/notes.md:1: retired rule review-lows" "the directory alone earns nothing"
+fresh 19; mkdir -p "$R/$CD"; printf 'Lows were ticketed immediately.\n' > "$R/$CD/v99.0.0.md"; git -C "$R" add -A; run
+expect "an unlisted release file is scanned until the release lists it" 1 "$rc"
+has "$CD/v99.0.0.md:1: retired rule review-lows" "and named"
+for f in "$ROOT/$CD"/*.md; do
+  [ -e "$f" ] || continue
+  p="$CD/$(basename "$f")"
+  if grep -qxF -- "$p" <<< "$(sed -n '/^EXEMPT="/,/"$/p' "$G" | tr -d '"' | sed 's/^EXEMPT=//')"; then ok "$p is listed in EXEMPT"
+  else bad "$p is in the tree but not in EXEMPT"; fi
+done
+
 echo "a non-ASCII path"
 fresh 13; NA="docs/caf$(printf '\303\251').md"; printf 'Lows were ticketed immediately.\n' > "$R/$NA"; git -C "$R" add -A; run
 expect "a tracked non-ASCII path is scanned" 1 "$rc"

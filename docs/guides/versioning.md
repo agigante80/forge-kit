@@ -116,9 +116,14 @@ by matching `template-version:` literally. See `docs/guides/template-versioning.
 ## Cutting a release
 
 1. Confirm main is green and every intended PR is merged.
-2. Update `CHANGELOG.md`: add the new version section, thematic rather than a commit dump.
+2. Write the release's notes. Entries gather under `## Unreleased` in `CHANGELOG.md` as work
+   lands; at release, their text becomes the new version's section, thematic rather than a commit
+   dump, written to `docs/changelog-detail/vX.Y.Z.md` starting with its `## vX.Y.Z (date)`
+   heading. `CHANGELOG.md` keeps an emptied `## Unreleased`, then that heading and one line
+   linking the file, above the previous release. Add the file's path to `EXEMPT` in
+   `scripts/check-retired-rules.sh`, which scans every other file in that directory.
 3. Tag `vX.Y.Z` on main and push the tag.
-4. Create the GitHub release from that tag, with the changelog section as its body.
+4. Create the GitHub release from that tag, with `docs/changelog-detail/vX.Y.Z.md` as its body.
 5. Close the tickets the release shipped.
 
 Plugin semvers are **not** touched by cutting a release. They move when their group changes, on

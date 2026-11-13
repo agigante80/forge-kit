@@ -13,6 +13,9 @@
 #   scripts/test-forge-adapt-stale-rules.sh                          fixture text quotes them
 #   scripts/test-check-retired-rules.sh                              fixture text quotes them
 #   CHANGELOG.md                                                     history quotes what it retires
+#   docs/changelog-detail/<version>.md, each listed below by name    the same history, moved out of
+#     CHANGELOG.md release by release (#589); a release that moves its section there adds its
+#     file here, and a file in that directory not listed is scanned like any other
 # A single deliberate quote anywhere else carries the word `retired-rule-quote` on its line.
 #
 # Usage: check-retired-rules.sh [--root <checkout>]
@@ -39,7 +42,18 @@ SCANNER="plugins/forge-kit-adapt/skills/adapt/assets/stale-rules.sh"
 EXEMPT="plugins/forge-kit-adapt/skills/adapt/assets/retired-rules.tsv
 scripts/test-forge-adapt-stale-rules.sh
 scripts/test-check-retired-rules.sh
-CHANGELOG.md"
+CHANGELOG.md
+docs/changelog-detail/v0.10.0.md
+docs/changelog-detail/v0.9.1.md
+docs/changelog-detail/v0.9.0.md
+docs/changelog-detail/v0.8.0.md
+docs/changelog-detail/v0.7.0.md
+docs/changelog-detail/v0.6.0.md
+docs/changelog-detail/v0.5.0.md
+docs/changelog-detail/v0.4.0.md
+docs/changelog-detail/v0.3.0.md
+docs/changelog-detail/v0.2.0.md
+docs/changelog-detail/v0.1.0.md"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-retired-rules.XXXXXX") || die "cannot create a temporary directory"
 trap 'rm -rf "$WORK"' EXIT

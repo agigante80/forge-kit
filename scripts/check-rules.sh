@@ -10,7 +10,8 @@
 # For every row of rules.tsv this keeps true:
 #   1. the home carries exactly one id comment for the rule, and every anchor phrase of check 4;
 #   2. each declared pointer carries the id, every id comment in it at the home's version;
-#   3. any other tracked file under plugins/ or docs/ that carries the id has the home's version;
+#   3. any other tracked file under plugins/ or docs/ (release history in docs/changelog-detail/
+#      aside) that carries the id has the home's version;
 #   4. the rule's anchor phrases appear under plugins/ in the home only (matched
 #      case-insensitively with whitespace collapsed, so a wrapped restatement is still found);
 #   5. every row for the id in forge-adapt's retired-rules.tsv is below the home's version, so the
@@ -53,7 +54,10 @@ ids() { grep -oE "<!-- rule: $1 v[0-9]+ -->" -- "$2" | sed -E 's/.* v([0-9]+) --
 
 [ -f "$ROOT/$REG" ] || die "missing the rule registry $REG"
 [ -f "$ROOT/$TSV" ] || die "missing $TSV"
-files=$(git -C "$ROOT" ls-files -- plugins docs 2>/dev/null) || die "cannot list tracked files under $ROOT"
+# docs/changelog-detail/ is release history moved out of the root CHANGELOG.md (#589), which was never
+# in scope: a release quotes the rule ids current when it shipped, so it is not a carrier to keep
+# current. Excluded by a pathspec, so only that directory leaves the scan.
+files=$(git -C "$ROOT" ls-files -- plugins docs ':(exclude)docs/changelog-detail/' 2>/dev/null) || die "cannot list tracked files under $ROOT"
 rows=$(grep -v '^#' "$ROOT/$REG" | grep -v '^[[:space:]]*$')
 retired=$(grep -v '^#' "$ROOT/$TSV")
 registered=""

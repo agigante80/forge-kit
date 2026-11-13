@@ -36,7 +36,8 @@ done, a **reference** is looked up, an **explanation** says why.
 |---|---|---|---|
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | contributors | how-to | How to propose work and open a pull request, and the rules CI enforces |
 | [../SECURITY.md](../SECURITY.md) | everyone | how-to | Supported versions and how to report a vulnerability privately |
-| [../CHANGELOG.md](../CHANGELOG.md) | adopters, maintainers | reference | Release history |
+| [../CHANGELOG.md](../CHANGELOG.md) | adopters, maintainers | reference | Release history: one heading per release, each linking its full notes |
+| [changelog-detail/](changelog-detail/) | adopters, maintainers | reference | Each release's full notes, one file per version, moved verbatim from the changelog |
 | [roadmap.md](roadmap.md) | contributors | reference | What is being worked on now, and what each closed phase concluded |
 | [../scripts/check-doc-drift.sh](../scripts/check-doc-drift.sh) | contributors | reference | Which documents a range of commits made stale, reported per line and never as a build failure |
 | Project history: [plans/](plans/) and [superpowers/](superpowers/) | contributors | explanation | Each phase's plan and close record, and the design specs and implementation plans behind shipped components |

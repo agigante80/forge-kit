@@ -91,6 +91,12 @@ fresh; mkdir -p "$R/docs/x"; printf 'See <!-- rule: review-lows v%s -->\n' "$V" 
 expect "another carrier at the canonical version passes" 0 "$rc"
 fresh; mkdir -p "$R/other"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/other/old.md"; track; run  # retired-rule-quote
 expect "a file outside plugins/ and docs/ is not a carrier" 0 "$rc"
+# #589: release history moved out of CHANGELOG.md quotes the ids current when it shipped
+fresh; mkdir -p "$R/docs/changelog-detail"; printf 'See <!-- rule: review-lows v1 --> and <!-- rule: gone v1 -->\n' > "$R/docs/changelog-detail/v0.1.0.md"; track; run  # retired-rule-quote
+expect "release history in docs/changelog-detail/ is not a carrier" 0 "$rc"
+fresh; mkdir -p "$R/docs/changelog-details"; printf 'See <!-- rule: review-lows v1 -->\n' > "$R/docs/changelog-details/v0.1.0.md"; track; run  # retired-rule-quote
+expect "a sibling directory sharing the prefix is still a carrier" 1 "$rc"
+names "docs/changelog-details/v0.1.0.md" "and is named"
 
 echo "anchor phrases"
 fresh; mkdir -p "$R/plugins/g/agents"; printf 'Fix it when it takes ROUGHLY 15\n   minutes.\n' > "$R/plugins/g/agents/a.md"; track; run
