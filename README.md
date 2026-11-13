@@ -55,9 +55,9 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.13.15 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.13.16 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.27.1 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
-| `forge-kit-governance` | 0.40.5 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
+| `forge-kit-governance` | 0.40.6 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
 | `forge-kit-review` | 0.8.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
 | `forge-kit-roadmap` | 0.15.23 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.18.9 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
@@ -282,16 +282,16 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-devops` | shell asset | `release-run` | v6 |  | release-run.sh: the shared side-effecting driver for the auto-release lanes (B and C). |
 | `forge-kit-devops` | shell asset | `sync-labels` | v15 |  | sync-labels.sh: make the host's labels match `.github/labels.yml`, or report that they do not. |
 | `forge-kit-devops` | shell asset | `version-lib` | v1 |  | version-lib.sh: the shared release primitive. |
-| `forge-kit-governance` | agent | `ticket-gate` | v93 | 5105 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
+| `forge-kit-governance` | agent | `ticket-gate` | v94 | 5105 | Ticket readiness gate: is a forge issue ready to implement, and if not, exactly what must change. |
 | `forge-kit-governance` | command | `gate-ticket` | v11 | 322 | Run the ticket readiness gate on a forge issue (GitHub or self-hosted Forgejo). |
 | `forge-kit-governance` | skill | `closing-sessions` | v10 | 1325 | Persist what mattered from the current conversation before the session ends or context is lost. |
 | `forge-kit-governance` | skill | `contributor-docs` | v19 | 2495 | Keep a repository's contributor entry points (AGENTS.md, CONTRIBUTING.md, the PR template) true for everyone who clones… |
-| `forge-kit-governance` | skill | `decision-brief` | v7 | 1493 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
+| `forge-kit-governance` | skill | `decision-brief` | v8 | 1496 | Re-validate a stalled ticket, classify what is actually being decided, cost the options against measured numbers, and r… |
 | `forge-kit-governance` | skill | `ticket-gate-reference` | v17 | 515 | Reference material the ticket-gate agent reads once per run: the review output template it composes, the specialist len… |
 | `forge-kit-governance` | skill | `weighing-options` | v1 | 1168 | Use when the user asks in conversation for an opinion, a suggestion, a recommendation, pros and cons, "what do you thin… |
 | `forge-kit-governance` | skill | `working-overnight` | v18 | 816 | Run governed, unattended overnight work. |
 | `forge-kit-governance` | hook | `block-dashes` | v6 |  | Canonical forge-kit PreToolUse hook: block the unicode em dash (U+2014) and en dash (U+2013) from being written into fi… |
-| `forge-kit-governance` | hook | `forge-write-consent` | v9 |  | Deny forge comments without the user's grant, and new tickets past a per-session budget (#565). |
+| `forge-kit-governance` | hook | `forge-write-consent` | v10 |  | Deny forge comments without the user's grant, and new tickets past a per-session budget (#565). |
 | `forge-kit-governance` | hook | `masked-exit-advisory` | v3 |  | PostToolUse Bash advisory: a check's exit code is masked by the filter it is piped into (#420). |
 | `forge-kit-governance` | hook | `no-poll-loops` | v12 |  | PreToolUse Bash guard: refuse a shell wait on a dispatched subagent (#263). |
 | `forge-kit-governance` | hook | `overnight-continue` | v1 |  | Stop hook for the working-overnight run. |

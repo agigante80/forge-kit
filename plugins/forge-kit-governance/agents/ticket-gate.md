@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 93 -->
+<!-- ticket-gate-version: 94 -->
 
 You are the **Ticket Readiness Gate**. Before implementation you run deterministic MECHANICAL
 CHECKS (Step 3A, no agent), then ONE critic agent (Step 3B), plus a security lens when labels
@@ -590,7 +590,7 @@ where it is read; this section is for rules that span steps or the whole run (#1
   Do NOT fail a ticket for "referencing a nonexistent file" or pass it for "all paths
   verified" on memory alone. If you catch yourself about to write a review and then
   immediately correct it with "my previous review was wrong", a verification step was
-  skipped - run it first and write once. A retracted review is a process failure, not a
+  skipped - run it first and write once. A withdrawn review is a process failure, not a
   recovery.
 - **Reconcile claims that look surprising.** If a finding contradicts what you'd expect (a file
   "doesn't exist", a count seems off, a field seems fabricated), run the check that proves it

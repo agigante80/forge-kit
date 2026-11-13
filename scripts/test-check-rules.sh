@@ -17,6 +17,11 @@ FR="plugins/forge-kit-review/commands/full-review.md"
 PL="plugins/forge-kit-governance/skills/working-overnight/references/pipeline.md"
 RL="docs/guides/review-loop.md"
 TSV="plugins/forge-kit-adapt/skills/adapt/assets/retired-rules.tsv"
+# the comment rule (#585): one home in the ticket standards, three pointers
+CM="docs/guides/ticket-standards.md"
+CHK="plugins/forge-kit-governance/hooks/forge-write-consent.py"
+CRD="plugins/forge-kit-governance/hooks/README.md"
+CDB="plugins/forge-kit-governance/skills/decision-brief/SKILL.md"
 
 pass=0; fail=0
 ok()  { echo "  ok: $1"; pass=$((pass + 1)); }
@@ -37,7 +42,7 @@ T=$(CDPATH= cd -P -- "$T" && pwd -P)
 n=0
 fresh() {
   n=$((n + 1)); R="$T/repo$n"
-  for f in "$CANON" "$CR" "$FR" "$PL" "$RL" "$TSV" "$REG"; do
+  for f in "$CANON" "$CR" "$FR" "$PL" "$RL" "$TSV" "$REG" "$CM" "$CHK" "$CRD" "$CDB"; do
     mkdir -p "$R/$(dirname "$f")"; cp "$ROOT/$f" "$R/$f"
   done
   git -C "$R" init -q
@@ -147,7 +152,8 @@ second() {
 }
 fresh; second; run
 expect "a second registered rule with its home and pointer passes" 0 "$rc"
-names "review-lows v$V second-rule v1" "both rules are reported"
+names "review-lows v$V" "the first rule is reported"
+names "second-rule v1." "the added rule is reported"
 fresh; second; setv "$FR" 1; run
 expect "a failing rule still fails when a later rule passes" 1 "$rc"
 fresh; second; sed -i 's/second-rule v1/second-rule v2/' "$R/plugins/g/skills/two/SKILL.md"; run
@@ -157,6 +163,21 @@ names "no row retires second-rule v1" "its unretired version is named"
 fresh; second; mkdir -p "$R/plugins/g/agents"; printf 'Measure  twice, then cut.\n' > "$R/plugins/g/agents/b.md"; track; run
 expect "the second rule's anchor restated under plugins/ fails" 1 "$rc"
 names "plugins/g/agents/b.md: restates 'measure twice'" "the restating file is named"
+
+echo "the comment rule (#585)"
+CV=$(grep -oE '<!-- rule: comment-rule v[0-9]+ -->' "$ROOT/$CM" | sed -E 's/.* v([0-9]+) -->/\1/')
+fresh; run
+expect "the comment rule's home and three pointers agree" 0 "$rc"
+names "comment-rule v$CV" "the comment rule is reported at its version"
+fresh; printf '\nComment on a ticket that is not ours.\n' >> "$R/$CRD"; run
+expect "the comment rule restated in the hooks README fails" 1 "$rc"
+names "$CRD: restates 'a ticket that is not ours'" "the README and the anchor are named"
+fresh; sed -E -i 's/ ?<!-- rule: comment-rule v[0-9]+ -->//' "$R/$CDB"; run
+expect "decision-brief without the comment rule id fails" 1 "$rc"
+names "$CDB: declared pointer carries no rule id" "the bare decision-brief pointer is named"
+fresh; grep -v "^comment-rule	1	" "$R/$TSV" > "$R/tsv.new"; mv "$R/tsv.new" "$R/$TSV"; run
+expect "the comment rule's v1 with no retired row fails" 1 "$rc"
+names "$TSV: no row retires comment-rule v1" "the unretired comment-rule version is named"
 
 echo "errors"
 fresh; rm "$R/$REG"; run

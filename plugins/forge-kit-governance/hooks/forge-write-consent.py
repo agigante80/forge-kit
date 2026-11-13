@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-# forge-write-consent-version: 9
+# forge-write-consent-version: 10
 """Deny forge comments without the user's grant, and new tickets past a per-session budget (#565).
 
 Two written rules, neither held by prose alone. A ticket is read by its BODY: decisions, gate
-answers, corrections, retractions and release notes are rewritten into the body, and a comment is
-written only when the user asks for one. A finding becomes a ticket only as the review-lows skill (forge-kit-review) rules
-it. One session filed 25 tickets in a day and parked decisions in 12
+answers, corrections, retractions and release notes are rewritten into the body, and when a
+comment is legitimate is the comment rule, section "Comments on tickets" of
+docs/guides/ticket-standards.md (<!-- rule: comment-rule v2 -->). This hook enforces the user's
+grant, not that rule's cases. A finding becomes a ticket only as the review-lows skill
+(forge-kit-review) rules it. One session filed 25 tickets in a day and parked decisions in 12
 comments, so the kit enforces both mechanically.
 
 ONE SCRIPT, TWO EVENTS.
@@ -103,9 +105,10 @@ REASONS = {
         "forge-write-consent: no forge comment without the user's explicit go-ahead. A ticket is "
         "read by its BODY: decisions, answers and corrections are rewritten into the body "
         "(forge_issue_edit, the body-region primitives or gh issue edit), never added as a "
-        "comment. Retractions and release notes go in the body too, and a close or reopen "
-        "carries no --comment. A comment is written only when the user asks for one: stop and "
-        "ask; they grant it by writing allow-comment in their next message." + TAIL
+        "comment. The body also holds release notes, and a close or reopen carries no "
+        "--comment. When a comment is legitimate is the comment rule (section 'Comments on "
+        "tickets' of docs/guides/ticket-standards.md); if it applies, stop and ask the user; "
+        "they grant it by writing allow-comment in their next message." + TAIL
     ),
     "ticket": (
         "forge-write-consent: no new ticket without the user's explicit go-ahead. If it can be "
