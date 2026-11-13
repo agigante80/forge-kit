@@ -420,6 +420,11 @@ beside the live gate verdict from WP3.
 
 ### WP11. Walk the install lifecycle against the final docs
 
+**Done:** [#596](https://github.com/agigante80/forge-kit/issues/596), 2026-11-13: the four paths ran for real
+with Claude Code 2.1.323 under an isolated config directory; `docs/install-and-upgrade.md` now lists what each
+path leaves, and the stale upgrade note, the prune and marketplace-removal behaviour and the unwire-first order
+are corrected there and in `docs/plugins.md`.
+
 - **Failure removed (Codex C9):** the only end-to-end check in the umbrella is a fresh install to a
   first verdict, so an existing user can still meet a missing dependency after an update, or keep
   active wiring after uninstall, while that check passes; those are the defects F11 and the

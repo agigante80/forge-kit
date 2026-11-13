@@ -119,11 +119,13 @@ not asked for it are in [install-and-upgrade.md](install-and-upgrade.md#after-yo
 the sections below say only which ones belong to which group.
 
 **Removal is the same for every group.** `claude plugin uninstall <group>@forge-kit` removes it,
-and `claude plugin prune` then removes the groups it pulled in that nothing else needs. Neither
-undoes what the group already did in a project: delete the sentinel files you created, the copies
-forge-adapt wrote into `.claude/` and their wiring in `settings.json` yourself, and know that
+and `claude plugin prune` then removes the groups Claude Code pulled in as dependencies that nothing
+else needs (a group you installed by name stays). `claude plugin marketplace remove forge-kit`
+uninstalls every remaining group at once. None of them undoes what the group already did in a project: delete the sentinel files you created, the copies
+forge-adapt wrote into `.claude/` and their wiring in `settings.json` yourself (unwire a hook
+before you delete its file), and know that
 anything already written to the forge (issue bodies, tickets) stays there. The full list is in
-[install-and-upgrade.md](install-and-upgrade.md#after-you-install-a-group).
+[install-and-upgrade.md](install-and-upgrade.md#what-each-path-leaves-behind).
 
 ### Using forge-kit-adapt
 
@@ -150,7 +152,8 @@ anything already written to the forge (issue bodies, tickets) stays there. The f
   refused.
 - **Removal:** uninstall it after the groups that need it (`forge-kit-governance`,
   `forge-kit-roadmap`), which read `forge-lib.sh` from it. To drop the push hook, remove its entry
-  from the project's `settings.json` and its copy under `.claude/hooks/`.
+  from the project's `settings.json` first (or run `hook-unwire.sh block-legacy-host-push`), then
+  delete its copy under `.claude/hooks/`: a wired hook whose file is gone is refused as a deny.
 
 ### Using forge-kit-governance
 
