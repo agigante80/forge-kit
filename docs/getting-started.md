@@ -123,12 +123,17 @@ markers, and the previous round stays in the forge's edit history. Then run `/ga
 again. Round 2 checks the mechanics in full and rechecks the previous round's blocking items.
 Repeat until it returns PASS.
 
+Where a project runs the staleness workflow (this repository does, as issue 576 shows; see
+[the guide](guides/without-claude-code.md)), an edit outside the gate's sections marks the verdict
+`STALE` in its heading, and the `Judged body:` line under it fingerprints the text the verdict judged. A stale
+verdict is a prompt to run the gate again, not an error.
+
 ## When it stops
 
 | What you see | Why | What to do |
 |---|---|---|
 | `BLOCKED - NO_TEMPLATES` | No issue template with a `template-version` marker in the working tree | Do [step 2](#2-put-the-issue-templates-in-place), then run it again |
-| `BLOCKED - LABELS_REQUIRED` | The issue has no area label: none from your `docs/guides/labels.md`, or, without that file, none of the built-in areas | Add one from [step 3](#3-open-an-issue-with-an-area-label), then run it again |
+| `BLOCKED - LABELS_REQUIRED` | The issue has no area label: none from your `docs/guides/labels.md`, or, without that file, no label at all outside the built-in area and type sets (a label of your own is referred to the critic instead) | Add one from [step 3](#3-open-an-issue-with-an-area-label), then run it again |
 | `BLOCKED - #<N> needs clarification before review` | The ticket is too thin to review: three or more questions that would change the review. They are written into the body under `Gate clarification` | Answer them in the body, then run it again |
 | `BLOCKED - RUN_FAILED` with one error line | A step's own check stopped the run. Common causes: `gh` not signed in (`gh auth status`), `jq` missing, or `forge-lib.sh not found` because `forge-kit-devops` is not installed or not enabled | Fix what the line names, then run it again |
 | Sections you did not write appear in your issue, with `Template auto-upgraded` at the top of the review | The issue had no `template-version` marker, or an older one, so the gate filled in the current template's sections from what you wrote. Any earlier verdict is void | Read what it added, correct it in the body, and run it again |

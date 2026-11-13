@@ -13,8 +13,8 @@ plugins; the rules themselves are plain markdown and YAML that any agent, or non
 
 You run `/gate-ticket 576` in Claude Code. The gate checks the ticket against the
 [ticket standard](docs/guides/ticket-standards.md), argues with it, and writes its verdict into the
-issue body. Trimmed from [a real ticket](https://github.com/agigante80/forge-kit/issues/576), as it
-read on 2026-11-13:
+issue body. Trimmed from [a real ticket](https://github.com/agigante80/forge-kit/issues/576), before any
+later edit:
 
 > **Gate verdict (round 2)**
 > **Verdict:** NEEDS-WORK

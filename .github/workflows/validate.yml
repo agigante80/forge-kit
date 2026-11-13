@@ -44,7 +44,8 @@ jobs:
   validate:
     # ubuntu-latest is 26.04 since November 2026, with uutils coreutils and mawk 1.3.4 20260129.
     # Three mutants assume a GNU wc or the older mawk; each now probes its premise and reports itself
-    # equivalent where the platform cannot tell it from the fix (#580), so no pin is needed.
+    # equivalent where the platform cannot tell it from the fix (#580). The job below, on the older
+    # image, is where those three mutants are still killed.
     runs-on: ubuntu-latest
     # The checks are seconds of work; the slow steps are the advisory npm install and the
     # contributor-docs suite, which runs three times since #406 (about three to four minutes each).
@@ -610,3 +611,30 @@ jobs:
           else
             echo "claude plugin validate subcommand unavailable in this CLI version; skipping."
           fi
+
+  # Issue #580 round 1 review: on ubuntu-latest (26.04) the bare `wc -w` mutant and the mawk fence
+  # strip mutants (CD1, CB1, CB2) report themselves equivalent, so nothing there would catch their
+  # return. Debian and Ubuntu 24.04 users still run the older mawk that misreads a three-space fence
+  # indent (#488), so this job keeps one image where the premise holds and REQUIRES every one of those
+  # mutants to die: an "equivalent here" row in this job fails it. Retire it only when no supported
+  # platform ships the old wc or mawk any more.
+  mutants-on-older-platform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pin awk to mawk
+        run: bash scripts/pin-awk.sh
+      - name: The three premise-probed suites, where every mutant must die
+        env:
+          AWK_UNDER_TEST: mawk
+        run: |
+          mkdir -p "$RUNNER_TEMP/m"
+          for s in test-component-size.sh test-check-contributor-docs.sh test-context-budget.sh; do
+            bash "scripts/$s" > "$RUNNER_TEMP/m/$s.out" 2>&1; rc=$?
+            tail -1 "$RUNNER_TEMP/m/$s.out"
+            [ "$rc" = 0 ] || { cat "$RUNNER_TEMP/m/$s.out"; exit 1; }
+            if grep -n 'equivalent here' "$RUNNER_TEMP/m/$s.out"; then
+              echo "::error::$s reports a mutant equivalent on ubuntu-24.04, where it must die"; exit 1
+            fi
+          done
