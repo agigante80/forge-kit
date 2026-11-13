@@ -59,7 +59,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 | `forge-kit-devops` | 0.26.9 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.40.3 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
 | `forge-kit-review` | 0.8.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
-| `forge-kit-roadmap` | 0.15.22 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
+| `forge-kit-roadmap` | 0.15.23 | `claude plugin install forge-kit-roadmap@forge-kit` | Rolling wave planning: docs/roadmap.md owns which phases exist, the host owns which phase each ticket is in, and four rules are enforced rather than remembered. Optional; needs forge-kit-devops. |
 | `forge-kit-security` | 0.18.9 | `claude plugin install forge-kit-security@forge-kit` | security-auditor and api-security-tester agents, the OWASP API checklist and opt-in privacy-regime skills, the leak-guard for a repo about to go public, and an opt-in hook that scans gh issue and PR… |
 | `forge-kit-testing` | 0.3.1 | `claude plugin install forge-kit-testing@forge-kit` | mutation-sweep: the defect class line coverage cannot see, which is a covered line whose test cannot fail. The TDD and test-automation agents were retired in favour of wshobson/agents, which ships th… |
 <!-- plugin-catalogue:end -->
@@ -310,12 +310,12 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | `forge-kit-review` | skill | `review-lows` | v2 | 416 | Canonical triage rule for review findings: severity and whether the finding is related to the change decide fix, ticket… |
 | `forge-kit-review` | skill | `review-sizing` | v2 | 889 | How /full-review decides whether a round needs all five phases or code-reviewer alone: the inputs `assets/size-review.s… |
 | `forge-kit-review` | shell asset | `size-review` | v1 |  | size-review.sh: how much of /full-review a round needs, full or scoped (#278). |
-| `forge-kit-roadmap` | command | `phase` | v17 | 2132 | Work the roadmap. |
-| `forge-kit-roadmap` | skill | `roadmap-phases` | v20 | 3692 | Rolling wave planning made mechanical. |
+| `forge-kit-roadmap` | command | `phase` | v18 | 2122 | Work the roadmap. |
+| `forge-kit-roadmap` | skill | `roadmap-phases` | v21 | 3574 | Rolling wave planning made mechanical. |
 | `forge-kit-roadmap` | shell asset | `check-phases` | v12 |  | The roadmap-phases guard: four rules that make rolling wave planning mechanical. |
 | `forge-kit-roadmap` | shell asset | `phase-env` | v2 |  | phase-env.sh: what each /phase Bash call must rebuild, because every call is a fresh shell (#407). |
 | `forge-kit-roadmap` | shell asset | `reassess-phases` | v12 |  | Reshapes the roadmap file and the milestones behind it, one level above /phase review (#244). |
-| `forge-kit-roadmap` | shell asset | `review-mechanics` | v1 |  | The mechanical half of /phase review steps 1 to 4, runnable without the agent harness (#272). |
+| `forge-kit-roadmap` | shell asset | `review-mechanics` | v2 |  | The mechanical half of /phase review steps 1 to 4, runnable without the agent harness (#272). |
 | `forge-kit-roadmap` | shell asset | `roadmap-lib` | v13 |  | The roadmap format, defined ONCE and sourced by both roadmap assets (issue #162). |
 | `forge-kit-roadmap` | shell asset | `sync-phases` | v12 |  | Makes the host's milestones match docs/roadmap.md, or reports that they do not. |
 | `forge-kit-security` | agent | `api-security-tester` | v3 | 746 | Generates and runs comprehensive API security tests covering OWASP Top 10, injection attacks, auth bypass, IDOR, malfor… |

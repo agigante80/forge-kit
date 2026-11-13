@@ -3,7 +3,7 @@ description: Work the roadmap. status, plan, review, reassess, close or triage a
 argument-hint: status | plan <name> | review [name] | reassess <op> ... | close <name> | triage
 ---
 
-<!-- phase-version: 17 -->
+<!-- phase-version: 18 -->
 
 # /phase
 
@@ -136,8 +136,7 @@ FORGE_LIB="${FL:?}" ROADMAP_LIB="${RL:?}" CHECK_PHASES="${CP:?}" bash "${RM:?}" 
 2. Read the plan, the phase's roadmap prose, and the `ticket` and `comment` rows: EVERY ticket in
    the milestone, open and closed, with its comments. A comment whose first line is exactly
    `## Superseded body (phase review)` is a `superseded` row instead, a body a past rewrite
-   replaced, not something that happened during this phase; `preserved` names the one already
-   holding the ticket's current body.
+   replaced, not something that happened during this phase.
 3. Report each ticket against the tree from its `commit` rows (`none` when no commit names it):
    implemented, naming the commit or commits under the skill's rule above, partly implemented (naming what is missing), not started, or superseded.
 4. If `DD` is set, run `bash "$DD" --range <range> --docs <documents>`, read its rows.

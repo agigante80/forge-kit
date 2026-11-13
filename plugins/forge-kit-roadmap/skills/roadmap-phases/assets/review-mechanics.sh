@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# review-mechanics-version: 1
+# review-mechanics-version: 2
 #
 # The mechanical half of /phase review steps 1 to 4, runnable without the agent harness (#272).
 #
@@ -10,9 +10,8 @@
 #   exit 2  could not run: one stderr line, and NOTHING on stdout
 #
 # WHY THIS EXISTS. /phase review's reads were prose in phase.md, so the rules that had already
-# produced review findings (superseded-body exclusion, the no-duplicate-on-retry comparison, the
-# range, the commit listing) could only be checked inside a live agent session. phase.md steps 1 to
-# 4 now CALL this, so its suite pins what the agent runs rather than a second copy.
+# produced review findings (superseded-body exclusion, the range, the commit listing) could only be
+# checked inside a live agent session. phase.md steps 1 to 4 now CALL this, so its suite pins what the agent runs rather than a second copy.
 #
 # IT EMITS ROWS AND DECIDES NOTHING. One fact per row, tab-separated, buffered and printed only once
 # every read has run, so a refusal can never leave half a listing that reads as complete:
@@ -23,7 +22,6 @@
 #   ticket        <N> <open|closed> <title>
 #   comment       <N> <id> <text flattened to one line>
 #   superseded    <N> <id>            a comment whose FIRST line is exactly the marker below
-#   preserved     <N> <id>            that comment's text after line 1 equals the body byte for byte
 #   commit        <N> <sha> <subject>, oldest first; or <N> none
 #   summary       <kind>=<count> per kind, never a verdict
 #
@@ -161,14 +159,9 @@ while IFS= read -r t; do
   row ticket "$N" "$(cat "$W/t")"
   FORGE_DRY_RUN=0 forge_issue_comments "$N" > "$W/c.json" 2> "$W/c.err" \
     || die "could not read the comments of #$N: $(head -1 "$W/c.err")"
-  # One jq program over the raw JSON strings: the preserved comparison never passes through a shell
-  # variable, which would strip trailing newlines and change the bytes compared.
   printf '%s' "$t" | jq -r --arg mark "$MARK" --arg n "$N" --slurpfile c "$W/c.json" '
-    (.body // "") as $body
-    | $c[0][] | (.body // "") as $cb | ($cb | split("\n")) as $ls
-    | if $ls[0] == $mark then
-        ["superseded", $n, (.id | tostring)],
-        (if ($ls[1:] | join("\n")) == $body then ["preserved", $n, (.id | tostring)] else empty end)
+    $c[0][] | (.body // "") as $cb | ($cb | split("\n")) as $ls
+    | if $ls[0] == $mark then ["superseded", $n, (.id | tostring)]
       else ["comment", $n, (.id | tostring), ($cb | gsub("[\t\r\n]"; " "))] end
     | join("\t")' >> "$OUT" 2>/dev/null || die "the comments of #$N are not a JSON array"
 
@@ -184,8 +177,8 @@ while IFS= read -r t; do
 done < "$W/tickets"
 
 awk -F'\t' '{ n[$1]++ } END {
-  split("forge_lib check_phases range ticket comment superseded preserved commit", k, " ")
-  s = "summary"; for (i = 1; i <= 8; i++) s = s "\t" k[i] "=" (n[k[i]] + 0); print s }' "$OUT" > "$W/summary"
+  split("forge_lib check_phases range ticket comment superseded commit", k, " ")
+  s = "summary"; for (i = 1; i <= 7; i++) s = s "\t" k[i] "=" (n[k[i]] + 0); print s }' "$OUT" > "$W/summary"
 cat "$OUT" "$W/summary"
 [ "$CPRC" = 0 ] || exit 1
 exit 0

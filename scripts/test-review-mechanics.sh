@@ -84,7 +84,6 @@ issue 8 open "$M" "eight" "B8"
 issue 9 closed "Other" "nine" "B9"
 issue 10 open "$M" "ten" "B10"
 issue 11 open "$M" "eleven" "$(printf 'keep\nme\n\n')"
-issue 12 open "$M" "twelve" "$(printf 'keep\nme!')"
 issue 13 open "$M" "$(printf 'x $(touch pwned) `touch pwned2` a\tb\nc')" "B13"
 issue 27 open "$M" "twenty-seven" "B27"
 printf '[%s]\n' "$(printf '%s' "$issues" | paste -sd, -)" > "$FX/issues.json"
@@ -94,7 +93,6 @@ comments 10 101 "$(printf 'Previously:\nx\n%s\nold' "$MARK")"
 B11="$(printf 'keep\nme\n\nX')"; B11="${B11%X}"
 comments 11 111 "$MARK
 $B11"
-comments 12 121 "$(printf '%s\nkeep\nme' "$MARK")"
 comments 13 131 "$(printf 'line one\tTAB\nline two $(touch pwned3)')"
 # issue 11's body as served must be byte-equal to $B11: rebuild it with jq from the same string.
 jq --arg b "$B11" 'map(if .number == 11 then .body = $b else . end)' "$FX/issues.json" > "$FX/i.tmp" && mv "$FX/i.tmp" "$FX/issues.json"
@@ -147,7 +145,7 @@ has "ticket${TAB}5${TAB}open${TAB}five" && has "ticket${TAB}6${TAB}closed${TAB}s
   && ok "open #5 and closed #6 both read (forge_issue_list all, not the open-only listing)" || bad "tickets: $(rows ticket)"
 [ "$(count ticket 9)" = 0 ] && ok "closed #9 in another milestone is not read" || bad "#9 was read"
 grep -qx 'issue_list all' "$T/calls" && ! grep -q milestone_list "$T/calls" && ok "the listing asked for state all" || bad "calls: $(cat "$T/calls")"
-expect "the ticket rows come in number order" "5 6 7 8 10 11 12 13 27" "$(rows ticket | cut -f2 | paste -sd' ' -)"
+expect "the ticket rows come in number order" "5 6 7 8 10 11 13 27" "$(rows ticket | cut -f2 | paste -sd' ' -)"
 
 echo "== step 2: superseded bodies are not history =="
 [ "$(count comment 7)" = 1 ] && has "comment${TAB}7${TAB}72${TAB}Shipped in abc1234" \
@@ -157,10 +155,33 @@ has "superseded${TAB}7${TAB}71" && ok "the marked comment is a superseded row" |
 has "comment${TAB}10${TAB}101${TAB}Previously: x $MARK old" && [ "$(count superseded 10)" = 0 ] && [ "$(count comment 10)" = 1 ] \
   && ok "a marker below the first line stays history: a comment row, no superseded row, count equals comments" || bad "#10: $(rows comment | grep "${TAB}10${TAB}")"
 
-echo "== step 2: the already-preserved comparison =="
-has "preserved${TAB}11${TAB}111" && ok "a body equal byte for byte to a marked comment's text after line 1 is preserved (trailing newlines kept)" || bad "#11 preserved: $(rows preserved)"
-[ "$(count preserved 12)" = 0 ] && has "superseded${TAB}12${TAB}121" && ok "a body one byte different is not preserved" || bad "#12 preserved: $(rows preserved)"
-[ "$(count preserved 7)" = 0 ] && ok "a marked comment holding another body is not preserved" || bad "#7 preserved"
+echo "== step 2: the retired preserved row (#582) =="
+has "superseded${TAB}11${TAB}111" && [ "$(count comment 11)" = 0 ] && ok "#11: a marked comment equal to the body is a plain superseded row" || bad "#11: $(rows superseded)"
+[ "$(printf '%s\n' "$out" | awk -F'\t' '$1 == "preserved"' | wc -l | tr -d ' ')" = 0 ] && ok "no preserved row for any ticket" || bad "a preserved row is back"
+
+echo "== the prose components no longer post a superseded-body comment (#582) =="
+# retired_scan <file>: the retired phrasings (a tripwire, not proof of behaviour; the live check is the
+# manual one in #582) and the retired row token. The ROW token is matched, never the bare word:
+# SKILL.md's prose may still say "preserved".
+retired_scan() {
+  local f="$1" h
+  h=$(grep -nEi 'previous body as a comment|already preserved|post a new one before replacing|the comment stands' "$f") \
+    && { printf 'rewrite still posts a superseded-body comment: %s:%s\n' "$f" "${h%%:*}"; return 1; }
+  h=$(grep -nE '`preserved`|preserved=' "$f") \
+    && { printf 'retired row name still referenced: preserved (%s:%s)\n' "$f" "${h%%:*}"; return 1; }
+  return 0
+}
+for f in "$ASSETS/../SKILL.md" "$ASSETS/../../../commands/phase.md"; do
+  msg=$(retired_scan "$f") && ok "no retired phrase or row token in $(basename "$f")" || bad "$msg"
+done
+printf 'x\nit posts the previous body as a comment first\n' > "$T/r1.md"
+msg=$(retired_scan "$T/r1.md"); expect "a retired phrase fails with its message" "rewrite still posts a superseded-body comment: $T/r1.md:2" "$msg"
+printf 'read the `preserved` row\n' > "$T/r2.md"
+msg=$(retired_scan "$T/r2.md"); expect "the backticked row token fails with its message" "retired row name still referenced: preserved ($T/r2.md:1)" "$msg"
+printf 'summary preserved=1\n' > "$T/r3.md"
+retired_scan "$T/r3.md" >/dev/null && bad "a preserved= summary key passed" || ok "a preserved= summary key fails"
+printf 'is ordinary history and not a preserved body\n' > "$T/r4.md"
+retired_scan "$T/r4.md" >/dev/null && ok "the prose 'not a preserved body' does not trigger the row check" || bad "prose tripped the row check"
 
 echo "== step 3: commit rows =="
 expect "#7: A, B, C (named only in its diff), H and I (#7 at end of line) and G, oldest first, no duplicates" \
@@ -175,9 +196,9 @@ expect "#5: the plan's add commit is in the range, the commit before it is not" 
 echo "== rows, never a verdict =="
 grep -qwE 'PASS|aligned|done' <<< "$out" && bad "a verdict word in stdout" || ok "no PASS, aligned or done in stdout"
 S=$(rows summary)
-expect "the summary counts rows by kind" "summary${TAB}forge_lib=1${TAB}check_phases=1${TAB}range=1${TAB}ticket=9${TAB}comment=3${TAB}superseded=3${TAB}preserved=1${TAB}commit=14" "$S"
+expect "the summary counts rows by kind" "summary${TAB}forge_lib=1${TAB}check_phases=1${TAB}range=1${TAB}ticket=8${TAB}comment=3${TAB}superseded=2${TAB}commit=13" "$S"
 [ "$(printf '%s\n' "$out" | tail -1)" = "$S" ] && ok "the summary is the last row" || bad "summary not last"
-printf '%s\n' "$out" | awk -F'\t' '$1 !~ /^(forge_lib|check_phases|range|ticket|comment|superseded|preserved|commit|summary)$/ { b = 1 } END { exit b }' \
+printf '%s\n' "$out" | awk -F'\t' '$1 !~ /^(forge_lib|check_phases|range|ticket|comment|superseded|commit|summary)$/ { b = 1 } END { exit b }' \
   && ok "stdout carries rows only" || bad "a non-row line on stdout"
 first="$out"; run "$M"; [ "$out" = "$first" ] && ok "a second run over an unchanged tree prints the same rows" || bad "second run differs"
 
@@ -207,7 +228,7 @@ has "check_phases${TAB}rc${TAB}1" && has "check_phases${TAB}stdout${TAB}rule 4: 
   && ok "its stdout line is a check_phases row, verbatim" || bad "cp stdout: $(rows check_phases)"
 has "check_phases${TAB}stderr${TAB}check-phases: the host could not be reached, so rules 1, 3 and 4 were SKIPPED." \
   && ok "its stderr (the SKIPPED note) is a check_phases row too" || bad "cp stderr: $(rows check_phases)"
-[ "$(rows ticket | wc -l | tr -d ' ')" = 9 ] && ok "and every ticket row is still emitted" || bad "ticket rows after rc 1: $(rows ticket | wc -l)"
+[ "$(rows ticket | wc -l | tr -d ' ')" = 8 ] && ok "and every ticket row is still emitted" || bad "ticket rows after rc 1: $(rows ticket | wc -l)"
 
 echo "== the range: derived, refused, overridden =="
 newrepo first
@@ -306,6 +327,7 @@ chk_cause()    { FAIL_LIST='forge-lib: HTTP 401 Unauthorized' run "$M"; [ "$rc" 
 # The refusal log's own check, on one refusal: a trace there must not pass as a named message.
 chk_trace()    { : > "$T/refusals"; mv "$R/docs/roadmap.md" "$T/rm.bak"; run "$M"; mv "$T/rm.bak" "$R/docs/roadmap.md"
   [ "$rc" = 2 ] && ! grep -qE "$TRACE_RE" "$T/refusals"; }
+chk_nopres()   { run "$M"; ! printf '%s\n' "$out" | awk -F'\t' '$1 == "preserved" || ($1 == "summary" && /preserved=/) { f = 1 } END { exit !f }'; }
 grep -qw subst <<< "$(declare -f mutant)" && ok "mutant builds its mutant through subst" || bad "mutant no longer calls subst"
 mutant "message boundary dropped" '#$N([^0-9]|\$)" --format=%H "$RANGE" -- &&' '#$N" --format=%H "$RANGE" -- &&' chk_boundary
 mutant "diff boundary dropped" '-S"#$N([^0-9]|\$)"' '-S"#$N"' chk_boundary
@@ -315,6 +337,11 @@ mutant "boundary without \$" '#$N([^0-9]|\$)" --format=%H "$RANGE" -- &&
 mutant "-S half dropped" '    git log --pickaxe-regex -S"#$N([^0-9]|\$)" --format=%H "$RANGE" -- ) > "$W/hits"' '    true ) > "$W/hits"' chk_pickaxe
 mutant "open-only listing" 'forge_issue_list all >' 'forge_issue_milestone_list >' chk_closed
 mutant "marker on any line" 'if $ls[0] == $mark then' 'if any($ls[]; . == $mark) then' chk_anchor
+mutant "preserved row back" '    $c[0][] | (.body // "") as $cb | ($cb | split("\n")) as $ls
+    | if $ls[0] == $mark then ["superseded", $n, (.id | tostring)]' '    (.body // "") as $body | $c[0][] | (.body // "") as $cb | ($cb | split("\n")) as $ls
+    | if $ls[0] == $mark then ["superseded", $n, (.id | tostring)],
+        (if ($ls[1:] | join("\n")) == $body then ["preserved", $n, (.id | tostring)] else empty end)' chk_nopres
+mutant "preserved key back" 'comment superseded commit' 'comment superseded preserved commit' chk_nopres
 mutant "P..HEAD" 'RANGE="$P^..HEAD"' 'RANGE="$P..HEAD"' chk_range
 # An empty override treated as unset falls through to the search and silently uses another library.
 mutant "empty as unset" '\${$1+x}' '\${$1:+x}' chk_empty
