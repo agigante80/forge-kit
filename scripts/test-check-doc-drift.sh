@@ -219,8 +219,8 @@ run --range "$BASE..$(sha HEAD)" --docs README.md
 expect "the same path in prose outside the region IS reported, exactly once" 1 "$(printf '%s' "$OUT" | grep -c .)"
 contains "	3	" "$OUT" "and the row is the prose line, not the region line"
 
-echo "== the three region names this repository actually uses =="
-for marker in plugin-catalogue component-index plugin-groups; do
+echo "== the four region names this repository actually uses =="
+for marker in plugin-catalogue plugin-reference component-index plugin-groups; do
   mkrepo "region-$marker"
   printf 'guard\n' > "$R/scripts/guard.sh"
   printf '# Doc\n\n<!-- %s:start -->\n`scripts/guard.sh`\n<!-- %s:end -->\n' "$marker" "$marker" > "$R/README.md"
@@ -1037,7 +1037,7 @@ expect "no grep -P" 0 "$(printf '%s\n' "$CODE" | grep -cE 'grep [^|]*-[A-Za-z]*P
 lacks "date -d" "$CODE" "no GNU date -d, which BSD date spells differently"
 expect "the header states the residual limit of the line-level rule" 0 "$(grep -qi 'reflow' "$SUT"; echo $?)"
 expect "and the residual limit of the exemptions beside it" 0 "$(grep -qi 'THE EXEMPTIONS HAVE THEIR OWN LIMITS' "$SUT"; echo $?)"
-expect "and names the three marker regions somebody else owns" 3 "$(grep -o 'plugin-catalogue\|component-index\|plugin-groups' "$SUT" | sort -u | grep -c .)"
+expect "and names the four marker regions somebody else owns" 4 "$(grep -o 'plugin-catalogue\|plugin-reference\|component-index\|plugin-groups' "$SUT" | sort -u | grep -c .)"
 
 echo "check-doc-drift tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

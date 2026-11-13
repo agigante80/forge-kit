@@ -30,8 +30,9 @@ against `develop`, never `main`: a pull request merged into `main` breaks that f
   changed component whose marker did not move. A new component ships with a marker at 1.
 - **Plugin semver.** When you change anything in a plugin group under `plugins/<group>/`, bump
   the `version` in that group's `.claude-plugin/plugin.json`.
-- **Generated sections.** The component inventory in `README.md` is generated. Regenerate it
-  with `python3 scripts/update-component-index.py` instead of editing it by hand.
+- **Generated sections.** The plugin catalogue in `README.md`, the plugin reference in
+  `docs/plugins.md` and the component inventory in `docs/components.md` are generated.
+  Regenerate them with `python3 scripts/update-component-index.py` instead of editing them by hand.
 - **No em or en dashes** anywhere in the repository. Restructure the sentence; do not swap in a
   hyphen.
 - **Issue templates and the ticket standard move together.** The work templates and

@@ -32,7 +32,7 @@
 # becomes a real claim while still containing the anchor, the row stays suppressed and nothing says
 # so. That is the same shape as the reflow limit: the check sees text, not meaning.
 #
-# A GENERATED REGION IS SOMEBODY ELSE'S JOB. Claims inside the three marker regions are excluded by
+# A GENERATED REGION IS SOMEBODY ELSE'S JOB. Claims inside the four marker regions are excluded by
 # MARKER and not by document, because update-component-index.py --check already owns them and a
 # second opinion on the same bytes is a duplicate failure. A path named both inside a region and in
 # ordinary prose is reported for the prose line only.
@@ -259,7 +259,7 @@ git ls-tree --name-only HEAD scripts/ 2>/dev/null \
   | awk '/^scripts\/[^\/]+\.sh$/ { b = $0; sub(/^scripts\//, "", b); printf "%s\t%s\n", b, $0 }' >> "$TMP/bare"
 
 # --- the marker regions somebody else owns ------------------------------------------------------
-REGION_IDS="plugin-catalogue component-index plugin-groups"
+REGION_IDS="plugin-catalogue plugin-reference component-index plugin-groups"
 
 found=0
 OLDIFS=$IFS
