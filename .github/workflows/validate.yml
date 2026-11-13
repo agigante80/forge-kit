@@ -631,7 +631,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/m"
           for s in test-component-size.sh test-check-contributor-docs.sh test-context-budget.sh; do
-            bash "scripts/$s" > "$RUNNER_TEMP/m/$s.out" 2>&1; rc=$?
+            rc=0; bash "scripts/$s" > "$RUNNER_TEMP/m/$s.out" 2>&1 || rc=$?
             tail -1 "$RUNNER_TEMP/m/$s.out"
             [ "$rc" = 0 ] || { cat "$RUNNER_TEMP/m/$s.out"; exit 1; }
             if grep -n 'equivalent here' "$RUNNER_TEMP/m/$s.out"; then
