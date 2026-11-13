@@ -43,6 +43,7 @@ EXEMPT="plugins/forge-kit-adapt/skills/adapt/assets/retired-rules.tsv
 scripts/test-forge-adapt-stale-rules.sh
 scripts/test-check-retired-rules.sh
 CHANGELOG.md
+docs/changelog-detail/v0.11.0.md
 docs/changelog-detail/v0.10.0.md
 docs/changelog-detail/v0.9.1.md
 docs/changelog-detail/v0.9.0.md
