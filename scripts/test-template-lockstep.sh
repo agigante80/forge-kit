@@ -258,6 +258,27 @@ if [ "$(ban_count "$t/mut.sh" "$BAN_P")" -eq 0 ] && [ "$(ban_count "$t/mut.sh" "
   echo "  ok: a comment naming the banned tools does not trip the bans"; pass=$((pass + 1))
 else echo "  FAIL: the bans fire on comments"; fail=$((fail + 1)); fi
 
+# #576: a canonical doc that is present but carries no template-version marker fails, naming the doc.
+# A marker-less template stays exempt, and an absent doc stays a vacuous pass.
+d="$t/nomarker"; mkdir -p "$d"
+mk "$d" feature 3; mk "$d" bug 3
+printf '# Ticket standards\nno marker here\n' > "$t/nomarker.md"
+run "#576: an explicit doc with no marker fails" 1 "$d" "$t/nomarker.md"
+out576=$(bash "$SCRIPT" "$d" "$t/nomarker.md" 2>&1)
+case "$out576" in
+  *"canonical doc has no template-version marker: $t/nomarker.md"*) echo "  ok: #576: ...and names the doc"; pass=$((pass + 1)) ;;
+  *) echo "  FAIL: #576: no line naming the doc: $out576"; fail=$((fail + 1)) ;;
+esac
+printf '<!-- template-version: 3 -->\n' > "$t/marked.md"
+run "#576: an explicit doc at the shared version still passes" 0 "$d" "$t/marked.md"
+run "#576: an absent explicit doc keeps its behaviour (a missing path is skipped, not drift)" 0 "$d" "$t/absent.md"
+d="$t/nomarker-one"; mkdir -p "$d"
+mk "$d" feature 3
+run "#576: an unmarked doc fails even with one versioned template" 1 "$d" "$t/nomarker.md"
+d="$t/nomarker-exempt"; mkdir -p "$d"
+mk "$d" feature 3; mk "$d" bug 3; mk "$d" contribution -
+run "#576: a marker-less template with no doc is still exempt" 0 "$d"
+
 rm -rf "$t"
 
 # The no-arg path is what CI invokes: it resolves the template dir and the canonical doc

@@ -55,7 +55,7 @@ project. Inside Claude Code the same commands exist as `/plugin install <group>@
 
 | Plugin group | Version | Install | What you get |
 |---|---|---|---|
-| `forge-kit-adapt` | 0.13.13 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
+| `forge-kit-adapt` | 0.13.14 | `claude plugin install forge-kit-adapt@forge-kit` | forge-adapt skill: analyses your project, suggests the right forge-kit components to adapt to your needs, and installs them for you |
 | `forge-kit-devops` | 0.26.9 | `claude plugin install forge-kit-devops@forge-kit` | dep-auditor, health-check agents; /ci-health command; find-dead-code, release, release-automation, forge-host, github-to-forgejo, context-budget, usage-report skills; block-legacy-host-push hook |
 | `forge-kit-governance` | 0.40.2 | `claude plugin install forge-kit-governance@forge-kit` | ticket-gate agent, gate-ticket command, block-dashes hook, closing-sessions, working-overnight, ticket-gate-reference and weighing-options skills, overnight-continue, overnight-guard, no-poll-loops,… |
 | `forge-kit-review` | 0.8.1 | `claude plugin install forge-kit-review@forge-kit` | code-reviewer, architect-review, code-simplifier, coding-standards-auditor and architecture-standards-auditor agents, and /full-review with its bounded iteration contract. Needs forge-kit-security. |
@@ -259,7 +259,7 @@ per-component `<name>-version` markers that `forge-adapt drift` compares against
 | Plugin group | Type | Component | Version | Words | What it does |
 |---|---|---|---|---:|---|
 | `forge-kit-adapt` | skill | `adapt` | v102 | 7107 | Analyse the current project and recommend the forge-kit components that fit it - subagents, skills, commands, and hooks… |
-| `forge-kit-adapt` | shell asset | `check-template-lockstep` | v3 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
+| `forge-kit-adapt` | shell asset | `check-template-lockstep` | v4 |  | Assert every work issue-template - and the canonical ticket-standards doc - share one |
 | `forge-kit-adapt` | shell asset | `citation-check` | v5 |  | citation-check.sh: find the ticket-standards section titles the gate cites that the project's own |
 | `forge-kit-adapt` | shell asset | `hook-unwire` | v4 |  | hook-unwire.sh: remove one hook's wiring from a project's .claude/settings.json (#564). |
 | `forge-kit-adapt` | shell asset | `retired-paths` | v3 |  | retired-paths.sh: find a file forge-kit RETIRED and an earlier install left behind, and remove it |
