@@ -20,10 +20,10 @@
 # deliberately not exempted and are still reported.
 
 # the sentence is about when roadmap-phases acts; the path is incidental to it
-mention README.md docs/roadmap.md `roadmap-phases` does nothing without a
+mention docs/install-and-upgrade.md docs/roadmap.md `roadmap-phases` does nothing without a
 
 # the sentence is about the roadmap group staying inert, not about what the roadmap contains
-mention README.md docs/roadmap.md the group stays inert
+mention docs/scenarios.md docs/roadmap.md the group stays inert
 
 # an instruction listing files to copy, which claims nothing about any of their contents
-mention README.md docs/guides/ticket-standards.md you copy the issue templates
+mention docs/scenarios.md docs/guides/ticket-standards.md you copy the issue templates

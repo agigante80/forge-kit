@@ -714,8 +714,11 @@ cat > scripts/test-fixture-two.sh <<'F2'
 echo "fixture two: 3 passed, 0 failed"
 F2
 chmod +x scripts/test-fixture-one.sh scripts/test-fixture-two.sh
-# The index generator rewrites three regions across two files, so the fixture carries both.
-printf '# Fixture\n\n<!-- plugin-catalogue:start -->\n<!-- plugin-catalogue:end -->\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n' > README.md
+# The index generator rewrites four regions across four files (#588), so the fixture carries each.
+printf '# Fixture\n\n<!-- plugin-catalogue:start -->\n<!-- plugin-catalogue:end -->\n' > README.md
+mkdir -p docs
+printf '# Plugins\n\n<!-- plugin-reference:start -->\n<!-- plugin-reference:end -->\n' > docs/plugins.md
+printf '# Components\n\n<!-- component-index:start -->\n<!-- component-index:end -->\n' > docs/components.md
 printf '# Fixture rules\n\n- `scripts/test-fixture-one.sh`, 7 tests, in CI.\n- `scripts/test-fixture-two.sh`, 3 tests, in CI.\n\n<!-- plugin-groups:start -->\n<!-- plugin-groups:end -->\n' > CLAUDE.md
 git add -A >/dev/null; git commit --quiet -m "fixture: the local doc and its claims"
 python3 scripts/update-component-index.py >/dev/null 2>&1
@@ -893,18 +896,19 @@ grep -q 'component-index)' <<< "$err" && bad "and does not name a region that is
 python3 scripts/update-component-index.py >/dev/null 2>&1
 git add -A >/dev/null; git commit --quiet -m "regenerate the plugin-catalogue region"
 
-# BOTH README regions stale: both are named, each once, as two distinct entries. Before #311 the
-# list carried the bare file name, which would have printed README.md twice with nothing to tell
-# the two apart.
-sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/; s/component-index:start -->/component-index:start -->\nhand-edited/' README.md
-git add -A >/dev/null; git commit --quiet -m "hand-edit both README regions"
+# TWO regions stale: both are named, each once, as two distinct entries. Before #311 the list
+# carried the bare file name, which could not tell two regions of one file apart; since #588 the
+# two public regions are in two files, and each entry still names file and id.
+sed -i 's/plugin-catalogue:start -->/plugin-catalogue:start -->\nhand-edited/' README.md
+sed -i 's/component-index:start -->/component-index:start -->\nhand-edited/' docs/components.md
+git add -A >/dev/null; git commit --quiet -m "hand-edit two generated regions"
 err="$(push_range_err "$base")"; rc=$?
 [ "$rc" -eq 1 ] && ok "two stale regions exit 1" || bad "two stale regions exit 1 (rc $rc)"
 grep -q 'README.md (plugin-catalogue)' <<< "$err" && ok "the first stale region is named" || bad "the first stale region is named ($err)"
-grep -q 'README.md (component-index)' <<< "$err" && ok "the second stale region is named" || bad "the second stale region is named ($err)"
-[ "$(printf '%s' "$err" | grep -o 'README.md (' | wc -l)" -eq 2 ] && ok "each exactly once" || bad "each exactly once ($err)"
+grep -q 'docs/components.md (component-index)' <<< "$err" && ok "the second stale region is named" || bad "the second stale region is named ($err)"
+[ "$(printf '%s' "$err" | grep -o '\.md (' | wc -l)" -eq 2 ] && ok "each exactly once" || bad "each exactly once ($err)"
 python3 scripts/update-component-index.py >/dev/null 2>&1
-git add -A >/dev/null; git commit --quiet -m "regenerate both README regions"
+git add -A >/dev/null; git commit --quiet -m "regenerate both regions"
 
 # A region whose marker pair is gone is a generator SystemExit on stderr. It is not swallowed by
 # the capture, so the reason (which file, which marker) stays visible next to the hook's own line.

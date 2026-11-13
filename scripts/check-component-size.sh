@@ -208,7 +208,8 @@ desc_of() {
 
 # count_words <file>: THE ONE COUNTING RULE (#410), the index generator's: Python's str.split() over
 # the file read as UTF-8, exactly as update-component-index.py's word_count() counts, so the budget
-# and the README index can never disagree. Not `wc -w`: its count moves with the caller's locale.
+# and the generated index (docs/components.md) can never disagree. Not `wc -w`: its count moves
+# with the caller's locale.
 # Under LC_ALL=C, GNU wc drops a token made only of non-ASCII bytes (a lone `❌`), and C is the only
 # locale both Linux and macOS have, so pinning one is no fix (17 plugin files counted lower, adapt
 # 7135 against 7154). A file that is not valid UTF-8 fails naming the file, never a traceback.

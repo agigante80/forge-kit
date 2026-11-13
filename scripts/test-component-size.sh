@@ -149,9 +149,10 @@ fi
 
 # --- 9. the index word counts must equal what the budget counts --------------------------------
 # Two different counters would silently disagree about whether a component is over budget, so the
-# README's count is compared with the check's OWN counter (count_words, #410), not a bare `wc -w`.
+# index's count (docs/components.md since #588) is compared with the check's OWN counter
+# (count_words, #410), not a bare `wc -w`.
 eval "$(sed -n '/^count_words() {/,/^}/p' "$CHECK")"
-idx=$(grep -oP '^\| `forge-kit-governance` \| agent \| `ticket-gate` \| v\d+ \| \K\d+' "$ROOT/README.md")
+idx=$(grep -oP '^\| `forge-kit-governance` \| agent \| \[`ticket-gate`\]\([^)]*\) \| v\d+ \| \K\d+' "$ROOT/docs/components.md")
 cw=$(count_words "$ROOT/plugins/forge-kit-governance/agents/ticket-gate.md")
 [ -n "$idx" ] && [ "$idx" = "$cw" ] \
   && ok "the index word count equals the check's counter ($cw)" \

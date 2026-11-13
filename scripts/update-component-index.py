@@ -16,6 +16,9 @@ Usage:
 
   default   rewrite the regions in place, report what changed
   --check   exit 1 if any region is stale, printing each as "<file> (<region id>)" (for CI)
+
+  Either mode exits 1, naming the file, when a REQUIRED target (README.md, docs/plugins.md,
+  docs/components.md) is absent; only the local-only CLAUDE.md is skipped with a notice (#588).
 """
 import argparse
 import ast
@@ -36,12 +39,17 @@ TYPE_LABEL = {
     "asset": "shell asset",
 }
 DESC_CAP = 120
-# The catalogue column is the primary answer to "what would I get", so it gets more room than the
-# per-component excerpt, which sits above a table naming every component anyway.
-CATALOGUE_DESC_CAP = 200
+# The README catalogue is the short form (#588): one line per group that says what it is and links
+# to the group's section in docs/plugins.md, where the description is printed whole. So the cut is
+# at a word boundary, never mid-word as the old 200-character cap cut "masked-exit-adviso...".
+SHORT_DESC_CAP = 120
 
 _PLUGIN_SEMVERS = {}
 _PLUGIN_DESCRIPTIONS = {}
+_PLUGIN_DEPENDENCIES = {}
+# The tree root the rows were read from, so a rendered link is relative to it and no absolute path
+# of the generating machine can reach a published page (#588).
+_ROOT = ["."]
 
 # The component version marker, skipped by the comment fallback so a hook is not described
 # as "block-dashes-version: 5".
@@ -206,8 +214,14 @@ def word_count(row):
         return ""
 
 
+def source_link(row):
+    """A component's source file, relative to docs/ (where the index and the reference live)."""
+    rel = os.path.relpath(row["path"], _ROOT[0]).replace(os.sep, "/")
+    return "[`%s`](../%s)" % (row["name"], rel)
+
+
 def render_component_index(rows):
-    """The full inventory, for README.md."""
+    """The full inventory, for docs/components.md (it lived in README.md until #588)."""
     counts = {}
     for r in rows:
         counts[r["type"]] = counts.get(r["type"], 0) + 1
@@ -225,8 +239,8 @@ def render_component_index(rows):
         "|---|---|---|---|---:|---|",
     ]
     for r in rows:
-        out.append("| `%s` | %s | `%s` | v%s | %s | %s |" % (
-            r["group"], TYPE_LABEL[r["type"]], r["name"], r["version"],
+        out.append("| `%s` | %s | %s | v%s | %s | %s |" % (
+            r["group"], TYPE_LABEL[r["type"]], source_link(r), r["version"],
             word_count(r), describe(r["path"]),
         ))
     return "\n".join(out)
@@ -251,8 +265,23 @@ def render_plugin_groups(rows):
     return "\n".join(out)
 
 
+def _short_description(desc):
+    """First sentence, then cut at the last word boundary under SHORT_DESC_CAP."""
+    desc = _first_sentence(desc)
+    if len(desc) > SHORT_DESC_CAP:
+        cut = desc[: SHORT_DESC_CAP - 1]
+        if " " in cut:
+            cut = cut[: cut.rindex(" ")]
+        desc = cut.rstrip(" ,;:") + "\u2026"
+    return desc.replace("|", "\\|")
+
+
+def _install(group):
+    return "`claude plugin install %s@forge-kit`" % group
+
+
 def render_plugin_catalogue(rows):
-    """The user-facing group table, for README.md.
+    """The short user-facing group table, for README.md.
 
     A separate region from render_plugin_groups rather than a shared one: CLAUDE.md's table answers
     "what is in this repo" and lists every component by name, while this one answers "what would I
@@ -260,21 +289,65 @@ def render_plugin_catalogue(rows):
     for the same reason as the others, because a hand-maintained install command is a copy of a
     string that rots (#96), and README's group table did not exist at all until someone tried to
     install a group and found the command written down nowhere.
+
+    Since #588 it is the SHORT form: no version column, a description cut at a word boundary, and
+    each group linked to its section of docs/plugins.md, which carries the detail.
     """
     out = [
         NOTICE,
         "",
-        "| Plugin group | Version | Install | What you get |",
-        "|---|---|---|---|",
+        "| Plugin group | Install | What you get |",
+        "|---|---|---|",
     ]
     for group in sorted({r["group"] for r in rows}):
-        desc = _PLUGIN_DESCRIPTIONS.get(group, "")
-        if len(desc) > CATALOGUE_DESC_CAP:
-            desc = desc[: CATALOGUE_DESC_CAP - 1].rstrip() + "\u2026"
-        out.append(
-            "| `%s` | %s | `claude plugin install %s@forge-kit` | %s |"
-            % (group, plugin_version(group), group, desc)
-        )
+        out.append("| [`%s`](docs/plugins.md#%s) | %s | %s |" % (
+            group, group, _install(group), _short_description(_PLUGIN_DESCRIPTIONS.get(group, "")),
+        ))
+    return "\n".join(out)
+
+
+def _needs(group):
+    deps = _PLUGIN_DEPENDENCIES.get(group, [])
+    if not deps:
+        return "nothing"
+    return ", ".join("[`%s`](#%s)" % (d, d) for d in deps)
+
+
+def render_plugin_reference(rows):
+    """The detailed catalogue, for docs/plugins.md (#588).
+
+    An overview table, then one section per group. The overview links each group to a heading this
+    same function writes, so a group can never link to a section that does not exist, and the
+    README's short catalogue links to the same headings. Descriptions are printed WHOLE here: the
+    README's cut form points at this page for the rest.
+    """
+    groups = sorted({r["group"] for r in rows})
+    out = [
+        NOTICE,
+        "",
+        "| Plugin group | Version | Install | Needs |",
+        "|---|---|---|---|",
+    ]
+    for group in groups:
+        out.append("| [`%s`](#%s) | %s | %s | %s |" % (
+            group, group, plugin_version(group), _install(group), _needs(group),
+        ))
+    for group in groups:
+        members = [r for r in rows if r["group"] == group]
+        out += [
+            "",
+            "### %s" % group,
+            "",
+            _PLUGIN_DESCRIPTIONS.get(group, ""),
+            "",
+            "- **Version:** %s" % plugin_version(group),
+            "- **Install:** %s" % _install(group),
+            "- **Needs:** %s" % _needs(group),
+        ]
+        for ctype in sorted({m["type"] for m in members}, key=lambda c: TYPE_ORDER.get(c, 9)):
+            names = [source_link(m) for m in members if m["type"] == ctype]
+            label = TYPE_LABEL[ctype] + ("" if len(names) == 1 else "s")
+            out.append("- **%s%s:** %s" % (label[0].upper(), label[1:], ", ".join(names)))
     return "\n".join(out)
 
 
@@ -293,14 +366,20 @@ def load_plugin_semvers(root):
                 manifest = json.load(fh)
             _PLUGIN_SEMVERS[group] = manifest.get("version", "?")
             _PLUGIN_DESCRIPTIONS[group] = " ".join(manifest.get("description", "").split())
+            _PLUGIN_DEPENDENCIES[group] = [
+                str(d).split("@", 1)[0] for d in (manifest.get("dependencies") or [])
+            ]
 
 
-# A region whose FILE is absent from the checkout is skipped with a notice (see main): CLAUDE.md
-# is local-only since 2026-09-16 and is in no CI checkout.
+# The last field is REQUIRED. A required target that is absent fails the run in both modes (#588):
+# the public pages are the product, and skipping one silently is how a moved or deleted page would
+# leave the inventory unpublished with CI green. Only CLAUDE.md is optional: it is local-only since
+# 2026-09-16 and is in no CI checkout, so it is skipped with a notice (see main).
 REGIONS = [
-    ("README.md", "plugin-catalogue", render_plugin_catalogue),
-    ("README.md", "component-index", render_component_index),
-    ("CLAUDE.md", "plugin-groups", render_plugin_groups),
+    ("README.md", "plugin-catalogue", render_plugin_catalogue, True),
+    ("docs/plugins.md", "plugin-reference", render_plugin_reference, True),
+    ("docs/components.md", "component-index", render_component_index, True),
+    ("CLAUDE.md", "plugin-groups", render_plugin_groups, False),
 ]
 
 
@@ -328,16 +407,24 @@ def main():
     args = ap.parse_args()
 
     root = args.root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _ROOT[0] = root
     load_plugin_semvers(root)
     rows = catalogue(root)
     if not rows:
         raise SystemExit("update-component-index: catalogue returned no components under " + root)
 
+    missing = [f for f, _, _, required in REGIONS
+               if required and not os.path.isfile(os.path.join(root, f))]
+    if missing:
+        print("update-component-index: required target(s) missing: " + ", ".join(missing))
+        print("Each is a published page carrying a generated region; restore it with its marker pair.")
+        return 1
+
     stale, changed, absent = [], [], []
-    for filename, region_id, render in REGIONS:
+    for filename, region_id, render, _required in REGIONS:
         path = os.path.join(root, filename)
-        # A target doc that is not in this checkout is SKIPPED, loudly, and is never a failure.
-        # CLAUDE.md stopped being published on 2026-09-16 (a maintainer decision: assistant
+        # An OPTIONAL target doc that is not in this checkout is SKIPPED, loudly, and is never a
+        # failure (a required one already failed above). CLAUDE.md stopped being published on 2026-09-16 (a maintainer decision: assistant
         # instructions are local working state), so it is absent from every CI checkout, and
         # present only where someone keeps a local copy. A generator that died on the absence
         # would fail every build for a file the repository has decided not to carry, and one that

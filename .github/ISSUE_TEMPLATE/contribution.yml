@@ -61,6 +61,6 @@ body:
       label: Before merging
       options:
         - label: Generalise any hardcoded project references (repo names, product names, domain-specific paths)
-        - label: Add entry to forge-kit README.md component table
+        - label: Regenerate docs/components.md with python3 scripts/update-component-index.py
         - label: Add or update docs/guides/ if the contribution needs explanation
         - label: Verify no sensitive data (tokens, keys, internal URLs) in the content
