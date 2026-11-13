@@ -1946,6 +1946,8 @@ mutant() {
   S="$M"; "$2" && held=1; S="$SCRIPT"
   why=$(mutant_crash_reason "$M" "$W/mut-err.log" cd_live "$M")
   if [ -n "$why" ]; then bad "mutant '$1' crashed ($why)"
+  elif [ -n "${MUTANT_EQUIV:-}" ] && [ "$held" = 1 ]; then ok "mutant '$1' is equivalent here ($MUTANT_EQUIV), not a kill"
+  elif [ -n "${MUTANT_EQUIV:-}" ]; then bad "mutant '$1' died on $2 although its premise says equivalent ($MUTANT_EQUIV)"
   elif [ "$held" = 1 ]; then bad "mutant '$1' survived $2"
   else ok "mutant '$1' dies on $2"; fi
 }
@@ -2113,7 +2115,14 @@ if command -v python3 >/dev/null 2>&1; then
   mutant "harness: names matched in any case" h_case '{ p = $0 }' '{ p = $0; if (toupper(p) == "GEMINI.MD") p = "GEMINI.md" }'
   # #408: block HTML comments.
   # #488 CD1: the old indent strip restored. It is wrong only under mawk, so the case pins mawk.
-  mutant_needs mawk "fence indent: sub strip restored (CD1)" c_fence_indent_mawk 'lead = line; match(lead, /^ */); if (RLENGTH <= 3) lead = substr(lead, RLENGTH + 1)' 'lead = line; sub(/^ ? ? ?/, "", lead)'
+  # Premise (#580): only a mawk that reads `sub(/^ ? ? ?/, ...)` as stripping ONE space can kill it.
+  # mawk 1.3.4 20240123 (Ubuntu 24.04) does; 20260129 (Ubuntu 26.04) strips all three, so there the
+  # mutant computes what the fix computes and is reported equivalent, never as a survival FAIL.
+  cd1_equiv=
+  if command -v mawk >/dev/null 2>&1 && [ "$(printf '   y\n' | mawk '{ sub(/^ ? ? ?/, ""); print }')" = y ]; then
+    cd1_equiv="this mawk strips 3 spaces with sub(/^ ? ? ?/)"
+  fi
+  MUTANT_EQUIV="$cd1_equiv" mutant_needs mawk "fence indent: sub strip restored (CD1)" c_fence_indent_mawk 'lead = line; match(lead, /^ */); if (RLENGTH <= 3) lead = substr(lead, RLENGTH + 1)' 'lead = line; sub(/^ ? ? ?/, "", lead)'
   mutant "html comment: the skip removed" c_imp_html_comment '  if (!infence) $0 = uncomment($0)' ''
   mutant "html comment: the whole --> line skipped" c_imp_html_comment_after 'if (!k) next; $0 = substr($0, k + 3); incomment = 0 }' 'next }'
   mutant "html comment: a fence wins inside a comment" c_imp_html_comment_fence 'if (incomment) { k = index($0, "-->");' 'if (incomment) { if ($0 ~ /^ ? ? ?(```|~~~)/) { incomment = 0; infence = 1; next } k = index($0, "-->");'

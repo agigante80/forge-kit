@@ -312,6 +312,9 @@ mutate() {  # mutate <src> <dst> <old> <new>: dst is src with the first literal 
   printf '%s' "$n" > "$2"
 }
 dies() { if [ "$2" = red ]; then ok "mutant dies: $1"; else bad "mutant survived: $1"; fi; }
+# equiv <label> <green|red>: a mutant whose premise does not hold here must compute what the fix
+# computes (green), so it is reported equivalent; a red means the premise probe got it wrong.
+equiv() { if [ "$2" = green ]; then ok "mutant equivalent here, not a kill: $1"; else bad "mutant died although its premise says equivalent: $1"; fi; }
 
 # L1: a POSIX sed reads [ \t] as space, backslash or t, so a heading lost a leading t.
 mkdir -p "$T/posixsed"; printf '#!/bin/sh\nexec %s --posix "$@"\n' "$REALSED" > "$T/posixsed/sed"; chmod +x "$T/posixsed/sed"
@@ -472,12 +475,17 @@ if command -v mawk >/dev/null 2>&1; then
   mkdir -p "$T/mawk"; printf '#!/bin/sh\nexec mawk "$@"\n' > "$T/mawk/awk"; chmod +x "$T/mawk/awk"
   AWKD="$T/mawk"; fence_rows "#488 mawk"
   # CB1 and CB2 die only under mawk, where the old strip is wrong, so they live in this branch.
+  # Premise (#580): only a mawk that strips ONE space with sub(/^ ? ? ?/) can kill them. mawk 1.3.4
+  # 20240123 (Ubuntu 24.04) does; 20260129 (Ubuntu 26.04) strips all three, so there both mutants
+  # compute what the fix computes and are reported equivalent, never as a survival FAIL.
+  cb_dies=dies
+  [ "$(printf '   y\n' | mawk '{ sub(/^ ? ? ?/, ""); print }')" = y ] && cb_dies=equiv
   NEWIND='match(s, /^ */); if (RLENGTH > 3) return ""; t = substr(s, RLENGTH + 1)'
   OLDIND='t = s; sub(/^ ? ? ?/, "", t)'
   # CB1: mutate replaces the FIRST literal, and SCAN_AWK's fence_of comes first in the file.
   if mutate "$REALSRC" "$T/mut-cb1.sh" "$NEWIND" "$OLDIND"; then
     SRC="$T/mut-cb1.sh"; fscan '   ' '```'; SRC="$REALSRC"
-    r=green; [ "$(total)" = 24 ] || r=red; dies "CB1 SCAN_AWK fence indent stripped with sub (mawk)" "$r"
+    r=green; [ "$(total)" = 24 ] || r=red; "$cb_dies" "CB1 SCAN_AWK fence indent stripped with sub (mawk)" "$r"
   else bad "mutant CB1 did not apply"; fi
   # CB2: the anchor starts at SECTION_AWK= so it hits the second copy; it spans the why-comment.
   CB2HEAD="SECTION_AWK='
@@ -487,7 +495,7 @@ function fence_of(s,   t) {
   "
   if mutate "$REALSRC" "$T/mut-cb2.sh" "$CB2HEAD$NEWIND" "$CB2HEAD$OLDIND"; then
     SRC="$T/mut-cb2.sh"; fsec '  ' '```'; SRC="$REALSRC"
-    r=green; grep -qF "line 1, 9023 chars, s" <<< "$out" || r=red; dies "CB2 SECTION_AWK fence indent stripped with sub (mawk)" "$r"
+    r=green; grep -qF "line 1, 9023 chars, s" <<< "$out" || r=red; "$cb_dies" "CB2 SECTION_AWK fence indent stripped with sub (mawk)" "$r"
   else bad "mutant CB2 did not apply"; fi
   AWKD=""
 else
