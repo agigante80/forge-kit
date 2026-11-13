@@ -2,7 +2,7 @@
 # Structural validation for the forge-kit marketplace. Runs in CI and locally.
 # Checks (current tree, no git diff needed):
 #   1. each plugin.json is valid JSON with name + description + semver version + author
-#      + license
+#      + license + a LICENSE file byte-equal to the root LICENSE (#587)
 #   2. marketplace.json is valid JSON and every plugin source resolves to a plugin.json
 #   3. every component (agent/command/skill/hook/shell asset) carries a <name>-version marker
 #   4. every declared `dependencies` entry is well shaped and names a plugin this marketplace has
@@ -60,6 +60,17 @@ for pj in plugins/*/.claude-plugin/plugin.json; do
         || fail "$pj: license is empty. Add \"license\": \"MIT\" (an SPDX identifier)" ;;
     *) fail "$pj: license is a $ltype; it must be a string such as \"MIT\" (an SPDX identifier)" ;;
   esac
+
+  # THE LICENSE TEXT TRAVELS WITH THE GROUP (#587). The install cache holds only the plugin's folder,
+  # so a redistributed copy carries the MIT identifier without the notice MIT requires unless the
+  # folder holds the text. Bytes are compared (cmp), never lines, so a later edit to the root
+  # LICENSE cannot leave seven stale copies and a stray trailing newline is caught.
+  gdir=$(dirname "$(dirname "$pj")")
+  if [ ! -f LICENSE ]; then fail "LICENSE: missing at the repository root, so no group's copy can be checked"
+  elif [ ! -f "$gdir/LICENSE" ]; then fail "$gdir/LICENSE: missing. Copy the root LICENSE into the plugin folder (cp LICENSE $gdir/LICENSE)"
+  elif [ -L "$gdir/LICENSE" ]; then fail "$gdir/LICENSE: is a symlink; the install cache needs a regular file (cp --remove-destination LICENSE $gdir/LICENSE)"
+  elif ! cmp -s LICENSE "$gdir/LICENSE"; then fail "$gdir/LICENSE: differs from the root LICENSE. Re-copy it (cp LICENSE $gdir/LICENSE)"
+  fi
 done
 
 # 2. marketplace.json integrity

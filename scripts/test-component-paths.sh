@@ -55,6 +55,7 @@ cp "$ROOT/scripts/forge-adapt-catalogue.sh" "$ROOT/scripts/validate-plugins.sh" 
 # unrelated reason.
 printf '{ "name": "g", "version": "1.0.0", "description": "fixture", "author": { "name": "fixture" }, "license": "MIT" }\n' \
   > "$FIX/plugins/g/.claude-plugin/plugin.json"
+printf 'MIT License\n' | tee "$FIX/LICENSE" > "$FIX/plugins/g/LICENSE"   # #587: the guard compares them
 printf '{ "plugins": [ { "name": "g", "source": "./plugins/g" } ] }\n' \
   > "$FIX/.claude-plugin/marketplace.json"
 # Check 7 (#253) needs a row per component. Only the three one-level components get one, so a
