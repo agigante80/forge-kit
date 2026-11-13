@@ -179,6 +179,9 @@ grep -q 'fixture' <<< "$cat" \
 grep -qF '| [`fix-alpha`](docs/plugins.md#fix-alpha) |' <<< "$cat" \
   && ok "each catalogue row links to its group's section of docs/plugins.md" \
   || bad "each catalogue row links to its group's section of docs/plugins.md"
+# The README is the short form only: no inventory table, which lives in docs/components.md (#588).
+grep -q 'alpha-agent\|| Words |' "$FIX/README.md" \
+  && bad "the README carries no component inventory" || ok "the README carries no component inventory"
 
 # A description longer than the cap is truncated rather than breaking the table across lines.
 python3 - "$FIX" <<'PY2'
