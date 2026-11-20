@@ -480,6 +480,113 @@ setbody "$NOBLANK"; err=$(STUB_RACE_AT=6 GS 7 --stamp 2>&1 >/dev/null); expect "
 contains "an author section changed during the stamp" "$err" "  and says why"
 expect "  and leaves it unrecorded" "unrecorded round 2" "$(GS 7)"
 
+echo "== --tick-box matches the gate checkbox to the verdict (#597) =="
+TBAUTH='<!-- template-version: 6 -->
+
+## Required reviews
+
+- [ ] **ticket-gate** - mandatory before implementation. Must return PASS.
+- [ ] **security-auditor** - when labelled security.
+- [x] npm run build passes
+* [ ] `/gate-ticket` returns PASS before implementation
++ [ ] /gate-ticket returns PASS, plus-bulleted
+- [ ] /gate-ticket was discussed
+- [ ] fix /gate-ticket printing PASS twice
+- [ ] /gate-ticket returns PASSWORD hashes
+- [ ] fix the **ticket-gate** crash
+- [ ] the build returns PASS on CI
+
+```
+- [ ] **ticket-gate** quoted in a fence, must return PASS
+```
+
+<!-- brief-x:start -->
+- [ ] **ticket-gate** inside another writer region, must return PASS
+<!-- brief-x:end -->
+'
+tbv() { printf '<!-- gate-verdict:start -->\n### Gate verdict (round 2)\n**Verdict:** %s\n<!-- gate-verdict:end -->' "$1"; }
+setbody "$TBAUTH
+$(tbv PASS)
+"
+GS 7 --tick-box; expect "PASS: tick-box exits 0" 0 "$?"
+body=$(cat "$S/body")
+contains '- [x] **ticket-gate** - mandatory before implementation. Must return PASS.' "$body" "PASS ticks the template's ticket-gate box"
+contains '* [x] `/gate-ticket` returns PASS before implementation' "$body" "PASS ticks a project's /gate-ticket PASS box"
+contains '+ [x] /gate-ticket returns PASS, plus-bulleted' "$body" "PASS ticks a + bulleted gate box"
+contains '- [ ] **security-auditor** - when labelled security.' "$body" "  another review box is left open"
+contains '- [x] npm run build passes' "$body" "  another ticked box is left ticked"
+contains '- [ ] /gate-ticket was discussed' "$body" "  a /gate-ticket line without PASS is not the gate box"
+contains '- [ ] fix /gate-ticket printing PASS twice' "$body" "  PASS not after return is not the gate box"
+contains '- [ ] /gate-ticket returns PASSWORD hashes' "$body" "  PASSWORD is not PASS"
+contains '- [ ] fix the **ticket-gate** crash' "$body" "  naming the gate without return PASS is not the gate box"
+contains '- [ ] the build returns PASS on CI' "$body" "  return PASS without naming the gate is not the gate box"
+contains '- [ ] **ticket-gate** quoted in a fence, must return PASS' "$body" "  a line in a fenced code block is not changed"
+contains '- [ ] **ticket-gate** inside another writer region, must return PASS' "$body" "  a line inside a region is not changed"
+GS 7 --stamp; expect "PASS then stamp: the verdict reads current" "current round 2 PASS" "$(GS 7)"
+rm -f "$S/patches"; GS 7 --tick-box; expect "a second tick-box writes nothing" 0 "$(patches)"
+cur=$(cat "$S/body"); printf '%s' "${cur/\*\*Verdict:\*\* PASS/**Verdict:** NEEDS-WORK}" > "$S/body"
+GS 7 --tick-box; expect "NEEDS-WORK: tick-box exits 0" 0 "$?"
+body=$(cat "$S/body")
+contains '- [ ] **ticket-gate** - mandatory before implementation. Must return PASS.' "$body" "NEEDS-WORK unticks the ticket-gate box"
+contains '* [ ] `/gate-ticket` returns PASS before implementation' "$body" "NEEDS-WORK unticks the /gate-ticket PASS box"
+contains '- [x] npm run build passes' "$body" "  and leaves another ticked box ticked"
+tbx="${TBAUTH//\[ \] \*\*ticket-gate\*\* - mandatory/[X] **ticket-gate** - mandatory}"
+tbx="${tbx//+ \[ \] /+ [X] }"
+setbody "${tbx//\* \[ \] \`/* [X] \`}
+$(tbv PASS)
+"
+rm -f "$S/patches"; GS 7 --tick-box
+expect "PASS with an [X] box already ticked: nothing to write" 0 "$(patches)"
+cur=$(cat "$S/body"); printf '%s' "${cur/\*\*Verdict:\*\* PASS/**Verdict:** NEEDS-WORK}" > "$S/body"
+GS 7 --tick-box
+contains '- [ ] **ticket-gate** - mandatory before implementation. Must return PASS.' "$(cat "$S/body")" "NEEDS-WORK opens an [X] box"
+# GitHub stores form-born bodies with CRLF line ends: the PASS terminator must accept a carriage return.
+setbody "$(printf '%s\r\n' '## Required reviews' '' '- [ ] **ticket-gate** - mandatory. Must return PASS' '- [ ] /gate-ticket returns `PASS`')
+$(tbv PASS)
+"
+GS 7 --tick-box
+body=$(cat "$S/body")
+contains "$(printf -- '- [x] **ticket-gate** - mandatory. Must return PASS\r')" "$body" "a CRLF line ending in PASS is ticked"
+contains "$(printf -- '- [x] /gate-ticket returns `PASS`\r')" "$body" "  and so is a CRLF line ending in a backquoted PASS"
+setbody "$AUTHOR
+$(tbv PASS)
+"
+GS 7 --tick-box; expect "no gate checkbox: exit 0" 0 "$?"; expect "  and no write" 0 "$(patches)"
+setbody "$TBAUTH"; GS 7 --tick-box; expect "no verdict: exit 0" 0 "$?"; expect "  and no write" 0 "$(patches)"
+setbody "$TBAUTH
+$(tbv PASS)
+"
+cur=$(cat "$S/body"); GS 7 --stamp; GS 7 --tick-box
+cur=$(cat "$S/body"); printf '%s' "${cur/npm run build passes/npm run build and lint pass}" > "$S/body"
+expect "a hand edit after the gate still reads stale" "stale round 2 PASS" "$(GS 7)"
+# --unstamp (Step 1) opens the box, so a BLOCKED run, which stops before Step 6, leaves no PASS tick.
+setbody "$TBAUTH
+$(tbv PASS)
+"
+GS 7 --tick-box; GS 7 --stamp; GS 7 --unstamp; expect "unstamp after a PASS exits 0" 0 "$?"
+body=$(cat "$S/body")
+contains '- [ ] **ticket-gate** - mandatory before implementation. Must return PASS.' "$body" "unstamp opens the ticket-gate box"
+contains '- [x] npm run build passes' "$body" "  and leaves another ticked box ticked"
+expect "  and the verdict reads unrecorded" "unrecorded round 2" "$(GS 7)"
+# The whole Step 6 order on a form-born ticket (box ticked at creation, stamped NEEDS-WORK before).
+setbody "${TBAUTH//\[ \] \*\*ticket-gate\*\*/[x] **ticket-gate**}
+$(tbv NEEDS-WORK)
+"
+GS 7 --stamp; GS 7 --unstamp
+contains '- [ ] **ticket-gate** - mandatory' "$(cat "$S/body")" "Step 1 unstamp opens a form-born ticked box"
+cur=$(cat "$S/body"); printf '%s' "${cur/\*\*Verdict:\*\* NEEDS-WORK/**Verdict:** PASS}" > "$S/body"
+GS 7 --tick-box; GS 7 --stamp
+expect "unstamp, PASS verdict, tick-box, stamp: current" "current round 2 PASS" "$(GS 7)"
+contains '- [x] **ticket-gate** - mandatory' "$(cat "$S/body")" "  and the box is ticked"
+# GETs on --tick-box: 1 body, 2 verdict, 3 tick_box read, 4 its re-read, 5-6 the compose.
+setbody "$TBAUTH
+$(tbv PASS)
+"
+err=$(STUB_RACE_AT=4 GS 7 --tick-box 2>&1 >/dev/null); expect "an author edit before the box write: exit 1" 1 "$?"
+contains "changed while its gate checkbox was set" "$err" "  and says so on stderr"
+contains "racing edit 4" "$(cat "$S/body")" "  and the author edit survives"
+contains '- [ ] **ticket-gate** - mandatory' "$(cat "$S/body")" "  and the box is not ticked"
+
 echo "== mutants =="
 . "$ROOT/scripts/mutant-crash.sh"
 # gs_live: the build still works on a plain body (#360), so a probe it fails is not a crash.
@@ -542,6 +649,40 @@ probe_editline() {  # the body-edit reason for an author edit
   GS 7 --mark-stale >/dev/null 2>&1
   grep -qxF '**Stale:** the sections outside this block changed after this verdict; re-run /gate-ticket 7 before acting on it.' "$S/body"; }
 probe_para() { setbody "$(printf 'a\n\nb\n')"; a=$(GS 7 --fingerprint); setbody "$(printf 'a\nb\n')"; [ "$a" = "$(GS 7 --fingerprint)" ]; }
+probe_tb_fence() { setbody "$TBAUTH
+$(tbv PASS)
+"; GS 7 --tick-box >/dev/null 2>&1; grep -qF -- '- [ ] **ticket-gate** quoted in a fence, must return PASS' "$S/body"; }
+probe_tb_region() { setbody "$TBAUTH
+$(tbv PASS)
+"; GS 7 --tick-box >/dev/null 2>&1; grep -qF -- '- [ ] **ticket-gate** inside another writer region, must return PASS' "$S/body"; }
+probe_tb_pass() { setbody "$TBAUTH
+$(tbv PASS)
+"; GS 7 --tick-box >/dev/null 2>&1; grep -qF -- '- [ ] /gate-ticket was discussed' "$S/body" && grep -qF -- '* [x] `/gate-ticket`' "$S/body"; }
+probe_tb_word() { setbody "$TBAUTH
+$(tbv PASS)
+"; GS 7 --tick-box >/dev/null 2>&1; grep -qF -- '- [ ] /gate-ticket returns PASSWORD hashes' "$S/body"; }
+probe_tb_name() { setbody "$TBAUTH
+$(tbv PASS)
+"; GS 7 --tick-box >/dev/null 2>&1; grep -qF -- '- [ ] the build returns PASS on CI' "$S/body"; }
+probe_tb_clear() { setbody "${TBAUTH//\[ \] \*\*ticket-gate\*\*/[x] **ticket-gate**}
+$(tbv NEEDS-WORK)
+"; GS 7 --tick-box >/dev/null 2>&1; grep -qF -- '- [ ] **ticket-gate** - mandatory' "$S/body"; }
+probe_tb_noverdict() { setbody "${TBAUTH//\[ \] \*\*ticket-gate\*\*/[x] **ticket-gate**}"; GS 7 --tick-box >/dev/null 2>&1; [ "$(patches)" = 0 ]; }
+m "#597 tick-box ignores fences" 's/^      !inside \&\& fopen { if (fence_close(n)) fopen = 0; print l; next }$/      0 { }/' probe_tb_fence
+m "#597 tick-box edits inside regions" 's/^      n ~ \/^<!-- \[^ \\t\]+:start -->$\/ { inside = 1; print l; next }$/      0 { }/' probe_tb_region
+m "#597 tick-box drops the return PASS condition" 's/\&\& match(l, \/\[Rr\]eturns? `?PASS`?(\[^A-Za-z0-9_\]|\$)\/)) {/\&\& 1) {/' probe_tb_pass
+m "#597 tick-box reads PASS as a prefix" 's/`?(\[^A-Za-z0-9_\]|\$)\/)) {/\/)) {/' probe_tb_word
+m "#597 tick-box never unticks" 's/NEEDS-WORK|BLOCKED) want=" " ;;/NEEDS-WORK|BLOCKED) exit 0 ;;/' probe_tb_clear
+m "#597 tick-box drops the gate name" 's/if ((index(l, "\*\*ticket-gate\*\*") || index(l, "\/gate-ticket"))/if ((1)/' probe_tb_name
+m "#597 tick-box acts without a verdict" 's/\*) exit 0 ;; esac$/*) want=" " ;; esac/' probe_tb_noverdict
+probe_tb_unstamp() { setbody "${TBAUTH//\[ \] \*\*ticket-gate\*\*/[x] **ticket-gate**}
+$(tbv PASS)
+"; GS 7 --unstamp >/dev/null 2>&1; grep -qF -- '- [ ] **ticket-gate** - mandatory' "$S/body"; }
+probe_tb_race() { setbody "$TBAUTH
+$(tbv PASS)
+"; STUB_RACE_AT=4 GS 7 --tick-box >/dev/null 2>&1; grep -qF 'racing edit 4' "$S/body"; }
+m "#597 unstamp leaves the gate box ticked" 's/^    tick_box " " || {/    true || {/' probe_tb_unstamp
+m "#597 tick-box skips its re-read" 's/^  \[ "\$now" = "\$b" \] || {/  true || {/' probe_tb_race
 m "hashing the whole body, regions included" '/inside { next }/d' probe_regions
 m "marking an unrecorded verdict" 's/case "$st" in stale\*) ;; \*) exit 0 ;; esac/:/' probe_unrecorded
 m "stamping without top" 's/write_retry gate-verdict "$clean" top/write_retry gate-verdict "$clean"/' probe_top

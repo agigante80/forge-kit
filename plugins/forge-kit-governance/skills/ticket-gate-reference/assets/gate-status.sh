@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# gate-status-version: 14
+# gate-status-version: 15
 # gate-status.sh <issue-number>                 is the body's gate verdict current or stale?
 # gate-status.sh <issue-number> --fingerprint   the hash of the body outside every region
-# gate-status.sh <issue-number> --unstamp       remove the Judged line (gate Step 1)
+# gate-status.sh <issue-number> --unstamp       remove the Judged line, open the gate box (Step 1)
 # gate-status.sh <issue-number> --stamp         move the verdict to the top and record the hash (Step 6, last)
 # gate-status.sh <issue-number> --mark-stale    mark a stale verdict STALE (the issues:edited workflow)
+# gate-status.sh <issue-number> --tick-box      match the gate checkbox to the verdict (Step 6, before --stamp)
 #
 # WHY (#284). Later sessions read a ticket's BODY, not its comments, so the gate's `gate-verdict`
 # block is what they act on. It used to go stale the moment the author folded the required changes
@@ -54,6 +55,24 @@
 # before v14) is read exactly as before: after the tag only `.` then end of line or a space and
 # text is accepted, so no stamped ticket changes state and FP_TAG stays fp11. The fingerprint
 # algorithm is untouched, and it already excludes every region, `gate-review` included.
+#
+# THE GATE CHECKBOX (v15, #597). A work template ships `- [ ] **ticket-gate** ... Must return PASS.`
+# under Required reviews, and projects write their own (`- [ ] /gate-ticket returns PASS`). After a
+# PASS the box stayed open, and ticking it by hand made the verdict stale, because the box is author
+# text and the fingerprint hashes it. `--tick-box` sets that box to the verdict: `[x]` on PASS, `[ ]`
+# on NEEDS-WORK or BLOCKED, nothing without a verdict. The gate runs it after writing the verdict and
+# BEFORE `--stamp`, so the stamp hashes the ticked body and the verdict reads current. It is the one
+# author-text write this script makes, so it is narrow: only a task-list item (`-`, `*` or `+`, then
+# `[ ]`, `[x]` or `[X]`) outside every region and fenced code block, whose text names the gate
+# (`**ticket-gate**` or `/gate-ticket`) AND says it returns PASS (`return PASS`, `returns PASS`, PASS
+# a whole word), so "fix /gate-ticket printing PASS twice" or "redacts PASSWORD" is not the box.
+# Only the box character changes; any other box, ticked or not, is never touched, and a body with
+# no such line is not written at all.
+# `--unstamp` (Step 1) opens the box too, so a BLOCKED run, which stops before Step 6, never leaves a
+# PASS tick beside an unrecorded verdict. A hand tick still makes a stamped verdict stale. Option B,
+# leaving the box line out of the hash, was rejected: it changes fingerprint(), so FP_TAG moves and
+# every stamped ticket reads stale once, and the box would still need ticking by hand (#597).
+# The fingerprint is untouched, so FP_TAG stays fp11.
 #
 # THE TAG (v4, #330). The stamp is `Judged body: sha256:<16 hex> (fp11).` The
 # `(fp11)` after the hash names the algorithm that produced it: it is the gate-status version that
@@ -124,7 +143,7 @@ fi
   exit 2
 }
 
-usage() { echo "gate-status: usage: gate-status.sh <issue-number> [--fingerprint|--unstamp|--stamp|--mark-stale]" >&2; }
+usage() { echo "gate-status: usage: gate-status.sh <issue-number> [--fingerprint|--unstamp|--stamp|--mark-stale|--tick-box]" >&2; }
 
 case "${1-}" in
   ''|*[!0-9]*) usage; exit 2 ;;
@@ -132,7 +151,7 @@ esac
 ISSUE="$1"; MODE="${2-state}"
 [ $# -le 2 ] || { usage; exit 2; }
 case "$MODE" in
-  state|--fingerprint|--unstamp|--stamp|--mark-stale) ;;
+  state|--fingerprint|--unstamp|--stamp|--mark-stale|--tick-box) ;;
   *) echo "gate-status: unrecognised option '$MODE'" >&2; usage; exit 2 ;;
 esac
 command -v jq >/dev/null 2>&1 || { echo "gate-status: jq is required" >&2; exit 2; }
@@ -251,15 +270,71 @@ state_of() {
   if [ "$now" = "$judged" ]; then echo "current round $round $word"; else echo "stale round $round $word"; fi
 }
 
+# tick_box <want>: set every gate checkbox to `x` or ` ` (see THE GATE CHECKBOX). Reads the body
+# afresh, because --unstamp has just written the verdict region, and writes only when a box moves.
+# Returns 0 written or nothing to do, 1 the write failed or the body moved, 2 the body is unreadable.
+tick_box() {
+  local want="$1" b new rc=0 now
+  b="$(body_of)" || return 2
+  new="$(printf '%s\n' "$b" | GS_WANT="$want" awk '
+      function norm(l) { sub(/\r$/, "", l); sub(/[ \t]+$/, "", l); return l }
+      function fence_open(s,   o, n, info) {
+        match(s, /^ */); if (RLENGTH > 3) return 0; o = substr(s, RLENGTH + 1)
+        if (substr(o, 1, 3) == "```") match(o, /^`+/)
+        else if (substr(o, 1, 3) == "~~~") match(o, /^~+/)
+        else return 0
+        n = RLENGTH; info = substr(o, n + 1)
+        if (substr(o, 1, 1) == "`" && index(info, "`")) return 0
+        fch = substr(o, 1, 1); flen = n; return 1
+      }
+      function fence_close(s,   c, pat) {
+        match(s, /^ */); if (RLENGTH > 3) return 0; c = substr(s, RLENGTH + 1)
+        if (fch == "`") pat = "^`+$"; else pat = "^~+$"
+        return c ~ pat && length(c) >= flen
+      }
+      BEGIN { want = ENVIRON["GS_WANT"] }
+      { l = $0; n = norm(l) }
+      !inside && fopen { if (fence_close(n)) fopen = 0; print l; next }
+      !inside && fence_open(n) { fopen = 1; print l; next }
+      n ~ /^<!-- [^ \t]+:start -->$/ { inside = 1; print l; next }
+      n ~ /^<!-- [^ \t]+:end -->$/   { inside = 0; print l; next }
+      !inside && match(l, /^[ \t]*[-*+] \[[ xX]\] /) {
+        bl = RLENGTH   # saved: the name and PASS tests below run match() again
+        if ((index(l, "**ticket-gate**") || index(l, "/gate-ticket")) \
+            && match(l, /[Rr]eturns? `?PASS`?([^A-Za-z0-9_]|$)/)) {
+          b = substr(l, bl - 2, 1)
+          if ((want == "x") != (b != " ")) { l = substr(l, 1, bl - 3) want substr(l, bl - 1); changed = 1 }
+        }
+      }
+      { print l }
+      END { exit changed ? 0 : 1 }
+    ')" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) return 0 ;;   # no gate checkbox, or every one already matches: nothing to write
+    *) return 2 ;;
+  esac
+  # compose_preserving compares against ITS OWN fresh read, not $b: an author edit landing between
+  # the two reads would be overwritten with $b's text. Re-read and refuse if the body moved; the
+  # window left is this re-read to compose's read, both inside one process (#597 gate, item 5).
+  now="$(body_of)" || return 2
+  [ "$now" = "$b" ] || { echo "gate-status: issue #$ISSUE changed while its gate checkbox was set; not written" >&2; return 1; }
+  forge_body_compose_preserving "$ISSUE" "$new" || return 1
+}
+
 case "$MODE" in
   state)
     st="$(state_of)" || { echo "gate-status: could not hash issue #$ISSUE" >&2; exit 2; }
     echo "$st"; exit 0 ;;
 
   --unstamp)
-    grep -q '^Judged body: sha256:' <<< "$verdict" || exit 0
-    write_retry gate-verdict "$(printf '%s\n' "$verdict" | grep -v '^Judged body: sha256:')" || {
-      echo "gate-status: could not unstamp issue #$ISSUE" >&2; exit 1; }
+    if grep -q '^Judged body: sha256:' <<< "$verdict"; then
+      write_retry gate-verdict "$(printf '%s\n' "$verdict" | grep -v '^Judged body: sha256:')" || {
+        echo "gate-status: could not unstamp issue #$ISSUE" >&2; exit 1; }
+    fi
+    # An unrecorded verdict certifies nothing, so the gate box opens with it. This is what resets
+    # the box on BLOCKED, whose paths stop before Step 6 ever runs --tick-box (#597 gate, item 4).
+    tick_box " " || { echo "gate-status: could not clear the gate checkbox of issue #$ISSUE" >&2; exit 1; }
     exit 0 ;;
 
   --stamp)
@@ -280,6 +355,16 @@ case "$MODE" in
 Judged body: $fp ($FP_TAG)." || {
       echo "gate-status: could not stamp issue #$ISSUE" >&2; exit 1; }
     exit 0 ;;
+
+  --tick-box)
+    word="$(printf '%s\n' "$verdict" | sed -n 's/^\*\*Verdict:\*\* *\([A-Za-z-]*\).*/\1/p' | head -1)"
+    case "$word" in PASS) want=x ;; NEEDS-WORK|BLOCKED) want=" " ;; *) exit 0 ;; esac
+    rc=0; tick_box "$want" || rc=$?
+    case "$rc" in
+      0) exit 0 ;;
+      2) echo "gate-status: could not read the checkboxes of issue #$ISSUE" >&2; exit 2 ;;
+      *) echo "gate-status: could not set the gate checkbox of issue #$ISSUE" >&2; exit 1 ;;
+    esac ;;
 
   --mark-stale)
     st="$(state_of)" || { echo "gate-status: could not hash issue #$ISSUE" >&2; exit 2; }

@@ -16,7 +16,7 @@ each opt-in hook, and how to upgrade are in [install-and-upgrade.md](install-and
 |---|---|---|---|
 | [`forge-kit-adapt`](#forge-kit-adapt) | 0.13.18 | `claude plugin install forge-kit-adapt@forge-kit` | nothing |
 | [`forge-kit-devops`](#forge-kit-devops) | 0.27.4 | `claude plugin install forge-kit-devops@forge-kit` | nothing |
-| [`forge-kit-governance`](#forge-kit-governance) | 0.40.9 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
+| [`forge-kit-governance`](#forge-kit-governance) | 0.40.10 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
 | [`forge-kit-review`](#forge-kit-review) | 0.8.3 | `claude plugin install forge-kit-review@forge-kit` | [`forge-kit-security`](#forge-kit-security) |
 | [`forge-kit-roadmap`](#forge-kit-roadmap) | 0.15.25 | `claude plugin install forge-kit-roadmap@forge-kit` | [`forge-kit-devops`](#forge-kit-devops) |
 | [`forge-kit-security`](#forge-kit-security) | 0.18.11 | `claude plugin install forge-kit-security@forge-kit` | nothing |
@@ -51,7 +51,7 @@ Release, CI health, dependency and dead-code audits, usage reports, and the GitH
 
 A ticket readiness gate, governed overnight work, session handoffs, and opt-in hooks that hold sessions to your rules.
 
-- **Version:** 0.40.9
+- **Version:** 0.40.10
 - **Install:** `claude plugin install forge-kit-governance@forge-kit`
 - **Needs:** [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security)
 - **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-governance)

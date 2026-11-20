@@ -1,5 +1,5 @@
 <!-- template-version: 6 -->
-<!-- doc-rules-version: 26 -->
+<!-- doc-rules-version: 27 -->
 
 # Ticket standards (canonical)
 
@@ -131,7 +131,10 @@ unnecessary.
 ### 6. Required reviews
 
 The reviews the ticket must pass before it is considered done, checked off explicitly. This is
-the ticket author's acknowledgement of the gate, not a substitute for it.
+the ticket author's acknowledgement of the gate, not a substitute for it. The gate's own box (a
+line naming `**ticket-gate**` or `/gate-ticket` that says it returns PASS) is the one exception:
+the gate sets it, ticked on PASS and cleared otherwise, before it stamps the verdict, so ticking
+it by hand is unnecessary and makes a stamped verdict stale (#597).
 
 ### 7. Documentation currency
 

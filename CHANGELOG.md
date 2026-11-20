@@ -21,6 +21,8 @@ installed rather than with the release tag. `Repository only` marks a change to 
 lands; the short summary is written when they are released, at the same time as they move to
 `docs/changelog-detail/`.
 
+- **forge-kit-governance 0.40.10:** On PASS the gate now ticks its own checkbox (a task-list line naming `**ticket-gate**` or `/gate-ticket` that says it returns PASS) before it stamps, and Step 1's `--unstamp` clears it, so a NEEDS-WORK or BLOCKED run never leaves a PASS tick; the new `gate-status.sh --tick-box` changes only that box character, outside fences and regions, and refuses when the body moved. Ticking that box by hand made the verdict stale, and still does; ticket-standards section 6 now says the gate owns that box (#597).
+
 ## v0.11.0 (2026-11-13)
 
 [Compare v0.10.0...v0.11.0](https://github.com/agigante80/forge-kit/compare/v0.10.0...v0.11.0). Full release notes: [docs/changelog-detail/v0.11.0.md](docs/changelog-detail/v0.11.0.md).

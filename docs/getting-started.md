@@ -126,7 +126,8 @@ Repeat until it returns PASS.
 Where a project runs the staleness workflow (this repository does, as issue 576 shows; see
 [the guide](guides/without-claude-code.md)), an edit outside the gate's sections marks the verdict
 `STALE` in its heading, and the `Judged body:` line under it fingerprints the text the verdict judged. A stale
-verdict is a prompt to run the gate again, not an error.
+verdict is a prompt to run the gate again, not an error. Leave the **ticket-gate** box under
+Required reviews alone: the gate ticks it on PASS before it stamps, and a hand tick reads as an edit.
 
 ## When it stops
 

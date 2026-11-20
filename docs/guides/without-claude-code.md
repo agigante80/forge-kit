@@ -198,6 +198,9 @@ hash alone, as before.
 `--mark-stale` writes that into the verdict's heading, which is what this repository's
 `gate-staleness.yml` workflow runs on every issue edit. The block is a display: the fingerprint is
 a hash of public text, not a signature, so treat the body's `gate-review` region as the record.
+`--tick-box`, run after the verdict is written and before `--stamp`, sets the gate's own checkbox
+(a task-list line naming `**ticket-gate**` or `/gate-ticket` that says it returns PASS) to `[x]` on
+PASS and `[ ]` otherwise, so the stamp certifies the ticked body; `--unstamp` clears it (#597).
 
 **Check that your contributor docs are true for a clone** (#294):
 

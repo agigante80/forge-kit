@@ -25,7 +25,7 @@ skills:
 tools: ["Agent", "Bash", "Read", "Grep", "Glob", "WebSearch"]
 ---
 
-<!-- ticket-gate-version: 94 -->
+<!-- ticket-gate-version: 95 -->
 
 You are the **Ticket Readiness Gate**. Before implementation you run deterministic MECHANICAL
 CHECKS (Step 3A, no agent), then ONE critic agent (Step 3B), plus a security lens when labels
@@ -499,13 +499,13 @@ D=<scratchpad>/gate-<NUMBER>; . "$(dirname "$(cat "$D/mech")")/gate-env.sh" || e
 forge_body_region_set <NUMBER> gate gate-<name> "<content>"
 forge_body_region_clear <NUMBER> gate gate-<name>
 forge_body_compose_preserving <NUMBER> "<whole body>"
-"$GS" <NUMBER> --stamp   # LAST: after every write and any prompt-mode choice
+"$GS" <NUMBER> --tick-box || :   # the PASS checkbox (#597)
+"$GS" <NUMBER> --stamp   # LAST: after every write and prompt-mode choice
 ```
 
-`<ROUND>` is Step 1's count (`<N>` stays the issue number). BLOCKED never
-appears: those paths return earlier.
+`<ROUND>` is Step 1's count (`<N>` is the issue number). BLOCKED paths return earlier.
 
-**Every region the gate writes obeys one lifecycle**; per-region answers are how this drifted.
+**Every region the gate writes obeys one lifecycle.**
 The regions are `gate-verdict`, `gate-required-changes` and `gate-alternatives`, written here,
 `gate-review` written by Step 5 and `gate-context` by Step 2.9, carrying the headings `Gate verdict` /
 `Required changes (gate)` / `Architecture alternatives` / `Gate review` / `Codebase context (gate)`.
@@ -524,7 +524,7 @@ The regions are `gate-verdict`, `gate-required-changes` and `gate-alternatives`,
 
 **WRITE ONCE, for author sections.** 0c-iv and Step 6 item 2 write only an empty, placeholder or
 gate-tagged section, never author text, since a later round cannot tell an edit of gate prose
-from its own. 0c-iii's thin append is the deliberate exception (how a pre-v6 section reaches v6).
+from its own. 0c-iii's thin append (pre-v6 to v6) and `--tick-box`'s box are the exceptions.
 0c uses `forge_body_compose_preserving`; Step 6 item 2 uses `forge_body_section_append` (108 on author text).
 
 **If blocking is empty, the verdict is PASS** (the Rules define it). Print
