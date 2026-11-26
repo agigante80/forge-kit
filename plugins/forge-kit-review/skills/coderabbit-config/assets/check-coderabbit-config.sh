@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-coderabbit-config-version: 2
+# check-coderabbit-config-version: 3
 # check-coderabbit-config.sh: fail when a .coderabbit.yaml lets the reviewer do more than advise (#598).
 #
 # The CodeRabbit pull request app is installed with write access, and several of its features are
@@ -186,8 +186,8 @@ req_false(["reviews","fail_commit_status"]),
 ( at(["reviews","auto_approvals","overrides"]) as $o
   | if $o == null then "reviews.auto_approvals.overrides: missing, and an entry that is exactly {enabled: false} is what withholds an approval asked for in a comment"
     elif ($o | type) != "array" or ($o | index([{enabled: false}])) == null
-         or any($o[]; type != "object" or (has("enabled") and .enabled != false))
-      then "reviews.auto_approvals.overrides: is \($o | show), and it must hold an entry that is exactly {enabled: false}, which matches every pull request, and no entry that enables anything"
+         or any($o[]; type != "object" or .enabled != false)
+      then "reviews.auto_approvals.overrides: is \($o | show), and it must hold an entry that is exactly {enabled: false}, which matches every pull request, and every entry must set enabled: false, so none can widen an approval"
     else empty end ),
 ( at(["reviews","pre_merge_checks"]) as $pm
   | if ($pm | type) != "object" then empty

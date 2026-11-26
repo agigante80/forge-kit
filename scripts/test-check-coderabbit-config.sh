@@ -120,8 +120,10 @@ breaks "overrides missing" 'del(.reviews.auto_approvals.overrides)' "reviews.aut
 breaks "a disabled override narrowed to some paths" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["src/**"]}]' "reviews.auto_approvals.overrides: is"
 breaks "overrides as a mapping" '.reviews.auto_approvals.overrides = {"enabled": false}' "reviews.auto_approvals.overrides: is"
 breaks "an enabling override beside the catch-all" '.reviews.auto_approvals.overrides = [{"enabled": true}, {"enabled": false}]' "reviews.auto_approvals.overrides: is"
+breaks "an entry that omits enabled beside the catch-all" '.reviews.auto_approvals.overrides = [{"max_merge_risk": "high"}, {"enabled": false}]' "reviews.auto_approvals.overrides: is"
 breaks "a scalar beside the catch-all" '.reviews.auto_approvals.overrides = ["x", {"enabled": false}]' "reviews.auto_approvals.overrides: is"
-holds "the catch-all override beside a narrower one" '.reviews.auto_approvals.overrides = [{"paths": ["src/**"], "max_merge_risk": "low"}, {"enabled": false}]'
+holds "the catch-all override beside a narrower disabled one" '.reviews.auto_approvals.overrides = [{"paths": ["src/**"], "enabled": false}, {"enabled": false}]'
+breaks "a narrower entry that only sets a limit" '.reviews.auto_approvals.overrides = [{"paths": ["src/**"], "max_merge_risk": "low"}, {"enabled": false}]' "reviews.auto_approvals.overrides: is"
 for c in title description issue_assessment a_check_added_later; do
   breaks "pre-merge $c in error mode" ".reviews.pre_merge_checks.$c.mode = \"error\"" "reviews.pre_merge_checks.$c.mode: is \"error\""
 done
