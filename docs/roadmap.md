@@ -297,6 +297,12 @@ plan: docs/plans/twenty-six-open-tickets.md
 
 Closed 2026-10-26, unattended, **done** (#540 to #564, #566). The batch one session filed on 2026-10-16 landed in five worktree streams, each with rows that failed first and a bounded two-model review: citation-check honours aliases and reads the project's own mechanics script, forge-adapt reports shadowed and retired for every component type, forge-lib finds a remote not named `origin` and its leak scan trusts the default branch rather than the working copy, every cross-group dispatch is declared, and `usage-report` ships. Two merge collisions were caught before `main`; one ticket-worthy low waits in the run report.
 
+## Phase: An uncorrelated reviewer
+state: open
+plan: docs/plans/an-uncorrelated-reviewer.md
+
+Split from "Backlog": A downstream project's field report of an outside reviewer finding what same-model review missed; investigated 2026-11-26, slot first (#599), the pull request app as one adapter (#598).
+
 ## Phase: Backlog
 state: backlog
 
