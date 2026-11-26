@@ -89,6 +89,13 @@ case "$NAME" in
     have comprehensive-review && say caveat \
       "comprehensive-review@claude-code-workflows shares an ancestor with this command. Ours added the bounded ITERATION CONTRACT (round accounting, the trip wire, bad-fix injection) which theirs has none of. That is the reason to keep ours."
     ;;
+  coderabbit-config)
+    # #598: a config for somebody else's pull request app. Never suppressed (no neighbour ships
+    # it) and never recommended bare: it is useless to a project without pull requests, and this
+    # script has no host input to tell.
+    say caveat \
+      "Only for a project that lands work through pull requests on GitHub, GitLab, Bitbucket or Azure DevOps and fills the independent reviewer slot with the CodeRabbit app: a hardened .coderabbit.yaml and its checker. Any other project uses a local adapter of that slot (codex-local, coderabbit-local)."
+    ;;
   independent-reviewer)
     # #599: the slot is optional and empty by default, so this arm never suppresses.
     have codex && say recommend \

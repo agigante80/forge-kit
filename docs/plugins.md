@@ -14,10 +14,10 @@ each opt-in hook, and how to upgrade are in [install-and-upgrade.md](install-and
 
 | Plugin group | Version | Install | Needs |
 |---|---|---|---|
-| [`forge-kit-adapt`](#forge-kit-adapt) | 0.13.19 | `claude plugin install forge-kit-adapt@forge-kit` | nothing |
+| [`forge-kit-adapt`](#forge-kit-adapt) | 0.13.20 | `claude plugin install forge-kit-adapt@forge-kit` | nothing |
 | [`forge-kit-devops`](#forge-kit-devops) | 0.27.4 | `claude plugin install forge-kit-devops@forge-kit` | nothing |
 | [`forge-kit-governance`](#forge-kit-governance) | 0.40.11 | `claude plugin install forge-kit-governance@forge-kit` | [`forge-kit-devops`](#forge-kit-devops), [`forge-kit-review`](#forge-kit-review), [`forge-kit-security`](#forge-kit-security) |
-| [`forge-kit-review`](#forge-kit-review) | 0.9.0 | `claude plugin install forge-kit-review@forge-kit` | [`forge-kit-security`](#forge-kit-security) |
+| [`forge-kit-review`](#forge-kit-review) | 0.10.0 | `claude plugin install forge-kit-review@forge-kit` | [`forge-kit-security`](#forge-kit-security) |
 | [`forge-kit-roadmap`](#forge-kit-roadmap) | 0.15.25 | `claude plugin install forge-kit-roadmap@forge-kit` | [`forge-kit-devops`](#forge-kit-devops) |
 | [`forge-kit-security`](#forge-kit-security) | 0.18.11 | `claude plugin install forge-kit-security@forge-kit` | nothing |
 | [`forge-kit-testing`](#forge-kit-testing) | 0.3.3 | `claude plugin install forge-kit-testing@forge-kit` | nothing |
@@ -26,7 +26,7 @@ each opt-in hook, and how to upgrade are in [install-and-upgrade.md](install-and
 
 Reads your project, recommends the forge-kit components that fit it, and installs the ones you approve, adapted to it.
 
-- **Version:** 0.13.19
+- **Version:** 0.13.20
 - **Install:** `claude plugin install forge-kit-adapt@forge-kit`
 - **Needs:** nothing
 - **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-adapt)
@@ -65,14 +65,14 @@ A ticket readiness gate, governed overnight work, session handoffs, and opt-in h
 
 Code, architecture and standards reviewers, plus /full-review, a multi-lens audit that fixes or tickets its findings.
 
-- **Version:** 0.9.0
+- **Version:** 0.10.0
 - **Install:** `claude plugin install forge-kit-review@forge-kit`
 - **Needs:** [`forge-kit-security`](#forge-kit-security)
 - **Using it:** [prerequisites, first use, opt-in hooks, removal](#using-forge-kit-review)
 - **Agents:** [`architect-review`](../plugins/forge-kit-review/agents/architect-review.md), [`architecture-standards-auditor`](../plugins/forge-kit-review/agents/architecture-standards-auditor.md), [`code-reviewer`](../plugins/forge-kit-review/agents/code-reviewer.md), [`code-simplifier`](../plugins/forge-kit-review/agents/code-simplifier.md), [`coding-standards-auditor`](../plugins/forge-kit-review/agents/coding-standards-auditor.md)
 - **Command:** [`full-review`](../plugins/forge-kit-review/commands/full-review.md)
-- **Skills:** [`independent-reviewer`](../plugins/forge-kit-review/skills/independent-reviewer/SKILL.md), [`review-lows`](../plugins/forge-kit-review/skills/review-lows/SKILL.md), [`review-sizing`](../plugins/forge-kit-review/skills/review-sizing/SKILL.md)
-- **Shell asset:** [`size-review`](../plugins/forge-kit-review/skills/review-sizing/assets/size-review.sh)
+- **Skills:** [`coderabbit-config`](../plugins/forge-kit-review/skills/coderabbit-config/SKILL.md), [`independent-reviewer`](../plugins/forge-kit-review/skills/independent-reviewer/SKILL.md), [`review-lows`](../plugins/forge-kit-review/skills/review-lows/SKILL.md), [`review-sizing`](../plugins/forge-kit-review/skills/review-sizing/SKILL.md)
+- **Shell assets:** [`check-coderabbit-config`](../plugins/forge-kit-review/skills/coderabbit-config/assets/check-coderabbit-config.sh), [`size-review`](../plugins/forge-kit-review/skills/review-sizing/assets/size-review.sh)
 
 ### forge-kit-roadmap
 
@@ -176,7 +176,8 @@ anything already written to the forge (issue bodies, tickets) stays there. The f
 ### Using forge-kit-review
 
 - **Prerequisites:** `forge-kit-security`, which a fresh install pulls in, because `/full-review`
-  dispatches its `security-auditor`.
+  dispatches its `security-auditor`. The optional `coderabbit-config` checker needs `jq` and
+  `python3` with PyYAML.
 - **First use:** ask for a code review to run `code-reviewer` on your change, or run
   `/full-review` before a merge for the multi-lens audit; `/full-review --since <ref>` reviews only
   the fixes since that commit.

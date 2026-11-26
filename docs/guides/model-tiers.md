@@ -173,6 +173,7 @@ xhigh < max`.
 | review-sizing | session | knowledge: inert text, the reader's model governs; its script decides |
 | review-lows | session | preloaded into `code-reviewer` and loaded by `/full-review`, so it runs on the reader's model |
 | independent-reviewer | session | loaded by the caller of round 1 only when the project declares the slot; inert contract text |
+| coderabbit-config | session | knowledge: install steps and the pin table; its script decides |
 | phase | session | one file, mixed roles: review, reassess and triage are judgment, and status step 4 is one too |
 
 ### What the user still controls

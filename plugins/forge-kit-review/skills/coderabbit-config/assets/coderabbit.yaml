@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# Hardened CodeRabbit configuration, from forge-kit's coderabbit-config skill.
+# The reviewer is ADVISORY: nothing here lets it push, approve, request changes or fail a status.
+# Fill two values (the integration branch, your dependency bots), then run
+# check-coderabbit-config.sh, which fails if any pin below is loosened or removed.
+# Most pins are written out although they match today's vendor default: a default can change.
+
+# No parent layer: with inheritance on, an organisation-level config fills every key this file
+# leaves out.
+inheritance: false
+
+reviews:
+  # Never a gate.
+  fail_commit_status: false
+  auto_approvals:
+    enabled: false
+    allow_author_approval: false
+    # Withholds an approval asked for in a comment, by anyone, on every pull request.
+    overrides:
+      - enabled: false
+
+  # Quiet.
+  auto_apply_labels: false
+  auto_assign_reviewers: false
+
+  # One source of rules: the app already reads AGENTS.md and CLAUDE.md (knowledge_base below).
+  path_instructions: []
+
+  auto_review:
+    drafts: false
+    # Without this only the default branch is reviewed. Each entry is read as a regex.
+    base_branches:
+      - "<integration-branch>"
+    # Bot accounts only, by exact login. A person listed here silently loses their review.
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+
+  # Nothing may push. Each of these commits to a branch or opens a pull request when a
+  # commenter asks for it, and that branch's workflows then run.
+  finishing_touches:
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+    custom: []
+  post_merge_actions: []
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
+  labeling:
+    auto_apply_labels: false
+
+chat:
+  auto_reply: false
+
+knowledge_base:
+  code_guidelines:
+    enabled: true

@@ -101,6 +101,14 @@ contains "CLAUDE.md" "$r" "the caveat says where the slot is declared"
 installed "superpowers@claude-plugins-official"
 expect "superpowers alone is a caveat, not a suppress" caveat "$(verdict independent-reviewer)"
 
+echo "== coderabbit-config is a caveat whatever is installed (#598) =="
+for rec in "" "coderabbit@claude-plugins-official" "codex@openai-codex" "superpowers@claude-plugins-official"; do
+  if [ -n "$rec" ]; then installed "$rec"; else none; fi
+  expect "coderabbit-config with '${rec:-nothing}' installed is a caveat" caveat "$(verdict coderabbit-config)"
+  contains "pull request" "$(reason coderabbit-config)" "and its reason names pull requests"
+done
+contains "codex-local" "$(reason coderabbit-config)" "the reason names a local adapter for every other project"
+
 echo "== a missing record is an absent neighbour, not an error =="
 rm -f "$T/installed.json"
 rc=0; out=$(bash "$SCRIPT" code-simplifier --installed "$T/installed.json" 2>&1) || rc=$?

@@ -12,7 +12,9 @@ A route is always a documented command. Never call a plugin's internal script.
 
 - **Tool:** the OpenAI Codex CLI. Family: OpenAI.
 - **Route an agent can run:** `codex review --base <branch>`, or `codex review --uncommitted` before
-  a commit (CLI 0.169.0, read 2026-11-26). It reviews without changing files.
+  a commit (CLI 0.169.0, read 2026-11-26). It reviews without changing files. The CLI exited 0 on
+  a usage-limit refusal (observed 2026-11-26), so the caller reads the output, never the exit code,
+  to tell a review from a refusal.
 - **Human route:** `/codex:review --wait` from the `codex@openai-codex` plugin. That command is
   marked `disable-model-invocation: true` (plugin 1.0.6, read 2026-11-26), so no agent or unattended
   run can call it; they use the CLI.
@@ -58,8 +60,9 @@ A route is always a documented command. Never call a plugin's internal script.
   2026-11-26). Forgejo and Gitea are not listed.
 - **What leaves the machine:** the app is installed on the repository with read and write access to
   code, pull requests, checks, commit statuses, issues and workflows, so it reads the repository,
-  not only the change. Its defaults enable features that push commits. Pin them off with a
-  reviewed `.coderabbit.yaml` before the first review.
+  not only the change. Its defaults enable features that push commits. Pin them off before the
+  first review: the `coderabbit-config` skill ships a hardened `.coderabbit.yaml` and the checker
+  that keeps it pinned.
 - **Retention:** the vendor "does not retain your source code after a review completes, except
   when review caching is enabled" (coderabbit.ai/faq, read 2026-11-26). Caching is on by default,
   caches are encrypted except for open source projects and expire within seven days

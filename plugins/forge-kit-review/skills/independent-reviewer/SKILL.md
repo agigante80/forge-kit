@@ -8,7 +8,7 @@ description: |
   the overnight pipeline.
 ---
 
-<!-- independent-reviewer-version: 1 -->
+<!-- independent-reviewer-version: 2 -->
 
 # Independent reviewer
 
