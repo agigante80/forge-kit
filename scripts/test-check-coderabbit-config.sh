@@ -119,6 +119,8 @@ breaks "an empty overrides list" '.reviews.auto_approvals.overrides = []' "revie
 breaks "overrides missing" 'del(.reviews.auto_approvals.overrides)' "reviews.auto_approvals.overrides: missing"
 breaks "a disabled override narrowed to some paths" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["src/**"]}]' "reviews.auto_approvals.overrides: is"
 breaks "overrides as a mapping" '.reviews.auto_approvals.overrides = {"enabled": false}' "reviews.auto_approvals.overrides: is"
+breaks "an enabling override beside the catch-all" '.reviews.auto_approvals.overrides = [{"enabled": true}, {"enabled": false}]' "reviews.auto_approvals.overrides: is"
+breaks "a scalar beside the catch-all" '.reviews.auto_approvals.overrides = ["x", {"enabled": false}]' "reviews.auto_approvals.overrides: is"
 holds "the catch-all override beside a narrower one" '.reviews.auto_approvals.overrides = [{"paths": ["src/**"], "max_merge_risk": "low"}, {"enabled": false}]'
 for c in title description issue_assessment a_check_added_later; do
   breaks "pre-merge $c in error mode" ".reviews.pre_merge_checks.$c.mode = \"error\"" "reviews.pre_merge_checks.$c.mode: is \"error\""
@@ -281,10 +283,15 @@ mk nopy; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; chmod +x "$T/nopy/pyt
 printf '#!/bin/sh\nfor a; do f=$a; done\nexec /bin/cat "$f"\n' > "$T/nopy/yq"; chmod +x "$T/nopy/yq"; runp nopy
 expect "a python3 without PyYAML exits 2, even with a yq on PATH" 2 "$rc"
 contains "cannot parse" "$err" "and says cannot parse"
+# A yaml.py in the checked repository is never imported: it would run and could forge the verdict.
+mkdir -p "$T/evil"; printf 'import os\nopen(os.path.join(os.path.dirname(__file__), "ran"), "w").close()\ndef __getattr__(n): raise ImportError(n)\n' > "$T/evil/yaml.py"
+mut '.'; out=$(cd "$T/evil" && bash "$SRC" --file "$C" 2>"$T/err"); rc=$?
+expect "a yaml.py in the current directory does not change the verdict" 0 "$rc"
+[ ! -e "$T/evil/ran" ]; expect "and is not executed" 0 "$?"
 # A python3 that imports yaml and then dies mid-read.
-mk dies; printf '#!/bin/sh\ncase "$2" in "import yaml") exit 0;; esac\n/bin/cat "%s"; exit 1\n' "$C" > "$T/dies/python3"; chmod +x "$T/dies/python3"; runp dies
+mk dies; printf '#!/bin/sh\ncase "$2" in *"import yaml") exit 0;; esac\n/bin/cat "%s"; exit 1\n' "$C" > "$T/dies/python3"; chmod +x "$T/dies/python3"; runp dies
 expect "a parser that fails after starting exits 2" 2 "$rc"
-mk junk; printf '#!/bin/sh\ncase "$2" in "import yaml") exit 0;; esac\necho "[1]"\n' > "$T/junk/python3"; chmod +x "$T/junk/python3"; runp junk
+mk junk; printf '#!/bin/sh\ncase "$2" in *"import yaml") exit 0;; esac\necho "[1]"\n' > "$T/junk/python3"; chmod +x "$T/junk/python3"; runp junk
 expect "a parser that returns something other than a mapping exits 2" 2 "$rc"
 out=$(PATH="$T/empty-path-dir" "$BASH" "$SRC" --file "$C" 2>&1); rc=$?
 expect "no jq exits 2" 2 "$rc"

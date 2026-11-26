@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-coderabbit-config-version: 1
+# check-coderabbit-config-version: 2
 # check-coderabbit-config.sh: fail when a .coderabbit.yaml lets the reviewer do more than advise (#598).
 #
 # The CodeRabbit pull request app is installed with write access, and several of its features are
@@ -87,12 +87,17 @@ if [ -n "$schema" ]; then
 fi
 
 # The file as JSON. The parser's own message is dropped; the verdict below is the one message.
-if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+# python3 -c puts the current directory first on its module path, and the current directory is
+# the repository being checked: a yaml.py there would run and could forge the verdict. Both
+# calls drop that entry before the import.
+if ! python3 -c 'import sys; sys.path[:] = [p for p in sys.path if p]; import yaml' >/dev/null 2>&1; then
   echo "check-coderabbit-config: $file: cannot parse: python3 with PyYAML is required to read YAML" >&2
   exit 2
 fi
 json=$(python3 -c '
-import sys, json, re, yaml
+import sys
+sys.path[:] = [p for p in sys.path if p]
+import json, re, yaml
 
 class Strict(yaml.SafeLoader):
     pass
@@ -181,7 +186,8 @@ req_false(["reviews","fail_commit_status"]),
 ( at(["reviews","auto_approvals","overrides"]) as $o
   | if $o == null then "reviews.auto_approvals.overrides: missing, and an entry that is exactly {enabled: false} is what withholds an approval asked for in a comment"
     elif ($o | type) != "array" or ($o | index([{enabled: false}])) == null
-      then "reviews.auto_approvals.overrides: is \($o | show), and it must hold an entry that is exactly {enabled: false}, which matches every pull request"
+         or any($o[]; type != "object" or (has("enabled") and .enabled != false))
+      then "reviews.auto_approvals.overrides: is \($o | show), and it must hold an entry that is exactly {enabled: false}, which matches every pull request, and no entry that enables anything"
     else empty end ),
 ( at(["reviews","pre_merge_checks"]) as $pm
   | if ($pm | type) != "object" then empty

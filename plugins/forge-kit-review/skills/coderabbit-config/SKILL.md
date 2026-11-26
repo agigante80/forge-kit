@@ -8,7 +8,7 @@ description: |
   check-coderabbit-config.sh reports a finding.
 ---
 
-<!-- coderabbit-config-version: 1 -->
+<!-- coderabbit-config-version: 2 -->
 
 # CodeRabbit config
 
@@ -94,7 +94,7 @@ only `true` and `false` are booleans, so `enabled: no` fails its pin. Write `fal
 | | `reviews.finishing_touches.custom`, `reviews.post_merge_actions` | present and empty |
 | Never a gate | `reviews.auto_approvals.enabled`, `.allow_author_approval`, `reviews.fail_commit_status` | present and false |
 | | the legacy aliases `reviews.request_changes_workflow`, `reviews.allow_author_approval` | false or absent |
-| | `reviews.auto_approvals.overrides` | present, holding an entry that is exactly `{enabled: false}` |
+| | `reviews.auto_approvals.overrides` | present, holding an entry that is exactly `{enabled: false}` and no entry that enables anything |
 | | every `mode` under `reviews.pre_merge_checks`, custom checks included | never `error` |
 | Scope | `reviews.auto_review.base_branches` | present, a non-empty list, the placeholder replaced, one entry matching `--branch` when given |
 | | `reviews.auto_review.ignore_usernames` | every entry ends in `[bot]` or was passed with `--allow-ignored` |
