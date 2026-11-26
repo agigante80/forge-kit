@@ -89,6 +89,15 @@ case "$NAME" in
     have comprehensive-review && say caveat \
       "comprehensive-review@claude-code-workflows shares an ancestor with this command. Ours added the bounded ITERATION CONTRACT (round accounting, the trip wire, bad-fix injection) which theirs has none of. That is the reason to keep ours."
     ;;
+  independent-reviewer)
+    # #599: the slot is optional and empty by default, so this arm never suppresses.
+    have codex && say recommend \
+      "codex@openai-codex is installed: the codex-local adapter can fill the optional independent reviewer slot. It stays empty until the project's CLAUDE.md declares it."
+    have coderabbit && say recommend \
+      "coderabbit@claude-plugins-official is installed: the coderabbit-local adapter can fill the optional independent reviewer slot. It stays empty until the project's CLAUDE.md declares it."
+    say caveat \
+      "Optional and empty by default: the slot runs somebody else's reviewer, never one the kit ships. To fill it, install the codex or coderabbit CLI and declare the adapter in the project's CLAUDE.md; codex@openai-codex and coderabbit@claude-plugins-official wrap them for a human."
+    ;;
   architecture-standards-auditor)
     have documentation-generation && say caveat \
       "documentation-generation@claude-code-workflows ships an architecture-decision-records skill and a docs-architect agent: ADR authoring guidance and long-form docs. Ours owns docs/architecture/, the ADR index ticket-gate reads, and the immutability of accepted ADRs; keep it if you use the gate."

@@ -84,6 +84,23 @@ echo "== superpowers wins over a neighbour on the same component =="
 installed "superpowers@claude-plugins-official" "code-simplifier@claude-plugins-official"
 expect "superpowers still suppresses code-simplifier" suppress "$(verdict code-simplifier)"
 
+echo "== the independent reviewer slot is offered, never suppressed (#599) =="
+installed "codex@openai-codex"
+expect "codex installed recommends the slot" recommend "$(verdict independent-reviewer)"
+contains "codex-local" "$(reason independent-reviewer)" "and names the codex-local adapter"
+installed "coderabbit@claude-plugins-official"
+expect "coderabbit installed recommends the slot" recommend "$(verdict independent-reviewer)"
+contains "coderabbit-local" "$(reason independent-reviewer)" "and names the coderabbit-local adapter"
+none
+expect "no reviewer plugin is a caveat" caveat "$(verdict independent-reviewer)"
+r=$(reason independent-reviewer)
+contains "codex@openai-codex" "$r" "the caveat names the codex plugin"
+contains "coderabbit@claude-plugins-official" "$r" "the caveat names the coderabbit plugin"
+contains "empty by default" "$r" "the caveat says the slot is empty by default"
+contains "CLAUDE.md" "$r" "the caveat says where the slot is declared"
+installed "superpowers@claude-plugins-official"
+expect "superpowers alone is a caveat, not a suppress" caveat "$(verdict independent-reviewer)"
+
 echo "== a missing record is an absent neighbour, not an error =="
 rm -f "$T/installed.json"
 rc=0; out=$(bash "$SCRIPT" code-simplifier --installed "$T/installed.json" 2>&1) || rc=$?

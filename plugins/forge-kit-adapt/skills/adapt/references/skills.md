@@ -15,6 +15,7 @@ source of truth for existence; this file fixes the canonical ≤60-char "why". E
 | `CLAUDE.md` is large (tens of KB) or `@`-imports other files | `context-budget` | devops | characters loaded per session; warn 40k, fail 80k | P2 |
 | Long Claude Code sessions; decisions/context lost between them | `closing-sessions` | governance | persist session facts to memory + handoff notes | P2 |
 | Public origin with AGENTS.md ignored or absent, a tracked CONTRIBUTING.md, or several commit authors | `contributor-docs` | governance | contributor docs a clone can trust; CI check | P2 |
+| Wants a second opinion from a reviewer of another model family; the `codex` or `coderabbit` plugin or CLI is installed | `independent-reviewer` | review | optional slot: one advisory outside review in round 1 | P3 |
 
 Note: the backend skills are injected knowledge, not actions, so recommend them when the project's
 domain matches, not by default. `find-dead-code` is the source-code counterpart to the `dep-auditor`

@@ -7,7 +7,7 @@ skills:
   - forge-kit-review:review-lows
 ---
 
-<!-- code-reviewer-version: 17 -->
+<!-- code-reviewer-version: 18 -->
 
 Tier: a judgment role; its model and effort are in the frontmatter (see docs/guides/model-tiers.md).
 
@@ -134,7 +134,9 @@ from the preloaded `review-lows` skill, which fixes related ones up to Medium no
 the fix delta; rounds 3 and 4 each need a Critical or High from the previous round; hard
 stop after 4; two consecutive rounds each finding a fix-induced defect stops the loop
 immediately, and continuing is the CALLER's explicit call, never a default (an unattended
-caller defers to a human). What this agent must REPORT so any caller can make the
+caller defers to a human). When the project's CLAUDE.md carries an `Independent reviewer:`
+line, the CALLER (never this agent) adds one outside review to round 1 under the
+`forge-kit-review:independent-reviewer` skill <!-- rule: independent-reviewer v1 -->. What this agent must REPORT so any caller can make the
 stopping decision computable (issue #66):
 
 - **Target discipline.** When the caller supplies a previously reviewed ref R, the review

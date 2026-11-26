@@ -67,6 +67,11 @@ another reviewer: park the item (the reason, naming the missing group, into `dec
 in the report's deferred-decisions section), open no PR for it, and continue with the next item.
 `review-lows` is the one that does not park: its absence has its own rule above.
 
+When the project's CLAUDE.md carries an `Independent reviewer:` line, round 1 of an item's review
+also runs that reviewer, under the `forge-kit-review:independent-reviewer` skill
+<!-- rule: independent-reviewer v1 -->. When that skill is not installed, the item continues
+without it and the report says so.
+
 ## Repeated reviews: chain the rounds, and stop where the contract says stop
 
 full-review's iteration contract is written for a caller who is present. Overnight there is

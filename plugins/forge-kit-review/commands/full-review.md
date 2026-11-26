@@ -3,14 +3,13 @@ description: "Pre-merge or periodic multi-lens audit (architecture, security, pe
 argument-hint: "<target path or description> [--since <ref>] [--security-focus] [--performance-critical] [--strict-mode] [--framework react|spring|django|rails] [--full]"
 ---
 
-<!-- full-review-version: 18 -->
+<!-- full-review-version: 19 -->
 
 # Comprehensive Code Review Orchestrator
 
 ## When to run this (positioning)
 
-This is a **pre-merge or periodic multi-lens AUDIT** (architecture, security, performance,
-testing, standards): run it before a merge to main, before a release, or on an interval.
+This is a **pre-merge or periodic multi-lens AUDIT**: run it before a merge to main, before a release, or on an interval.
 It is NOT the per-task reviewer: multi-agent review earns its cost on independent
 cross-cutting lenses over one change, and loses to a single strong reviewer inside the
 edit-review loop (#71: consensus across reviewers of one task underperforms the best
@@ -18,9 +17,9 @@ single reviewer). For per-task review, dispatch `code-reviewer` alone under the 
 contract below. A `scoped` round (step 2.5) does not reverse this: it is round N+1 of an
 audit, re-checking a small fix with the reviewer round 1 used for correctness.
 
-**Where the findings go (the handoff):** the audit run IS round 1 of the Iteration
-contract below (that section is canonical; this paragraph only summarises it). Its
-findings get `review-lows` outcomes (fix, ticket, note or drop); fixes are verified by a
+**Where the findings go:** the audit run IS round 1 of the Iteration
+contract below (canonical). Its
+findings get `review-lows` outcomes; fixes are verified by a
 round-2 run (`--since` or the verify-fixes pre-flight). <!-- rule: review-lows v3 -->
 
 **Unattended callers** (working-overnight investigations): EVERY interactive prompt in
@@ -630,7 +629,9 @@ without them a later round has no fix set to diff against.
 These rules bound any review-fix-review loop over this command's findings (issue #66; the
 reporting half lives in `code-reviewer.md`):
 
-- **Round 1** reviews the change. Each finding gets its `review-lows` outcome: related
+- **Round 1** reviews the change, plus one outside review under the `independent-reviewer`
+  skill when CLAUDE.md has an `Independent reviewer:` line.
+  <!-- rule: independent-reviewer v1 --> Each finding gets its `review-lows` outcome: related
   ones up to Medium are fixed now. **A ticket, a note or a drop is a finished outcome for a
   finding, not a failure to fix it.**
 - **Round 2** reviews ONLY the delta since the previously reviewed ref (the fix set,
