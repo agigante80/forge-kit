@@ -298,10 +298,10 @@ plan: docs/plans/twenty-six-open-tickets.md
 Closed 2026-10-26, unattended, **done** (#540 to #564, #566). The batch one session filed on 2026-10-16 landed in five worktree streams, each with rows that failed first and a bounded two-model review: citation-check honours aliases and reads the project's own mechanics script, forge-adapt reports shadowed and retired for every component type, forge-lib finds a remote not named `origin` and its leak scan trusts the default branch rather than the working copy, every cross-group dispatch is declared, and `usage-report` ships. Two merge collisions were caught before `main`; one ticket-worthy low waits in the run report.
 
 ## Phase: An uncorrelated reviewer
-state: open
+state: done
 plan: docs/plans/an-uncorrelated-reviewer.md
 
-Split from "Backlog": A downstream project's field report of an outside reviewer finding what same-model review missed; investigated 2026-11-26, slot first (#599), the pull request app as one adapter (#598).
+Closed 2026-11-26, **done** (#599, #598). A project can now add one advisory review by a reviewer of a different model family to round 1 of the review loop: `independent-reviewer` states the contract once (rule `independent-reviewer v1`) with three adapter pointers and ships no reviewer, and `coderabbit-config` ships a hardened `.coderabbit.yaml` template with a checker that fails on a loosened pin, on a file it cannot read strictly, and with `--schema` on a key the vendor no longer defines. Both tickets landed as planned, with no ticket added or moved. No benefit rate was measured, and none is quoted. The close record is in the plan.
 
 ## Phase: Backlog
 state: backlog

@@ -77,3 +77,38 @@ In order:
 - Any reviewer logic, prompt or wrapper for Codex or CodeRabbit.
 - An audit of the downstream project's 126 findings, and any trial run on its side.
 - Making an independent review required anywhere, including overnight.
+
+## Close record
+
+Closed 2026-11-26. **Outcome: done.** The plan expected two tickets and the phase holds exactly
+those two; no work appeared, vanished or moved.
+
+| Ticket | Landed | Notes |
+|---|---|---|
+| #599 | ac4a10c | The slot, its contract as rule `independent-reviewer v1`, three adapter pointers, the forge-adapt recommendation |
+| #598 | d7dd255, e131ed8, 38a9d21 | The template, `check-coderabbit-config.sh` and its suite of 428 tests in `Validate`, the `coderabbit-config` skill |
+
+Against **Done looks like**: every line holds. `adapt` and `full-review` did not grow.
+
+Against **Fails if**:
+
+- The kit ships no reviewer: the adapters are pointers, and the checker reads a config only.
+- The contract has one home; `check-rules.sh` passes.
+- No benefit rate is quoted anywhere, and the skill says none was measured.
+- The checker exits 2 on a file it cannot read. Review widened that past the plan: a duplicate key,
+  a tag, a merge key and a line break only YAML 1.1 honours are all `cannot parse`, because the
+  vendor's parser is not stated and a kinder read could hide a key.
+- The pin set followed the schema, read on 2026-11-26: custom recipes, post-merge actions, approval
+  overrides, the deprecated aliases and `inheritance` were added to what the ticket first listed,
+  and `--schema` reports a pinned key the vendor no longer defines.
+- The trip wire was not hit. #599: 4 gate rounds, 2 review rounds, 9 findings fixed. #598: 3 gate
+  rounds, 2 review rounds, 12 findings fixed, then 3 more from the commit security check after the
+  first commit (a `yaml.py` in the checked repository could be imported; two gaps in the override
+  pin), each fixed with a failing case first.
+
+Not verified, and said so in the skill: that the catch-all override withholds an approval asked for
+in a comment was read from the vendor schema text, not observed on the app.
+
+One process slip: on #599, `main` was pushed before the `develop` run had finished. Both runs
+passed. On #598 each push waited for a completed, successful run.
+
