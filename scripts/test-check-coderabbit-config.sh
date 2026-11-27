@@ -199,6 +199,74 @@ holds "path_instructions absent" 'del(.reviews.path_instructions)'
 breaks "code guidelines off" '.knowledge_base.code_guidelines.enabled = false' "knowledge_base.code_guidelines.enabled: is false"
 holds "knowledge_base absent" 'del(.knowledge_base)'
 
+echo "a present key is never read as absent (#601)"
+# The checker read a missing key and a null alike, so a bare `inheritance:` passed. Absent now
+# means the key is not written: every optional pin fails when present and null.
+breaks "a bare inheritance" '.inheritance = null' "inheritance: is null, and it must be false or absent"
+for k in '.reviews.auto_review.drafts' '.reviews.auto_apply_labels' '.reviews.auto_assign_reviewers' \
+         '.issue_enrichment.auto_enrich.enabled' '.issue_enrichment.labeling.auto_apply_labels' \
+         '.reviews.request_changes_workflow' '.reviews.allow_author_approval'; do
+  breaks "a bare ${k#.}" "$k = null" "${k#.}: is null, and it must be false or absent"
+  holds "${k#.} left out" "del($k)"
+done
+holds "inheritance left out" 'del(.inheritance)'
+breaks "a bare path_instructions" '.reviews.path_instructions = null' "reviews.path_instructions: is null, and it must be empty or absent"
+holds "path_instructions left out" 'del(.reviews.path_instructions)'
+breaks "a bare code_guidelines.enabled" '.knowledge_base.code_guidelines.enabled = null' "knowledge_base.code_guidelines.enabled: is null, and it must be true or absent"
+holds "code_guidelines.enabled left out" 'del(.knowledge_base.code_guidelines.enabled)'
+breaks "a bare custom_checks" '.reviews.pre_merge_checks.custom_checks = null' "reviews.pre_merge_checks.custom_checks: is null, and it must be a list"
+breaks "a bare ignore_usernames" '.reviews.auto_review.ignore_usernames = null' "reviews.auto_review.ignore_usernames: is null, and it must be a list"
+holds "ignore_usernames left out" 'del(.reviews.auto_review.ignore_usernames)'
+
+echo "a present parent of a pinned key is a mapping (#601)"
+breaks "knowledge_base as a number" '.knowledge_base = 7' "knowledge_base: is 7, and it must be a mapping"
+breaks "a bare knowledge_base" '.knowledge_base = null' "knowledge_base: is null, and it must be a mapping"
+breaks "code_guidelines as a list" '.knowledge_base.code_guidelines = []' "knowledge_base.code_guidelines: is [], and it must be a mapping"
+holds "an empty knowledge_base" '.knowledge_base = {}'
+holds "knowledge_base left out" 'del(.knowledge_base)'
+breaks "a bare pre_merge_checks" '.reviews.pre_merge_checks = null' "reviews.pre_merge_checks: is null, and it must be a mapping"
+breaks "pre_merge_checks as a number" '.reviews.pre_merge_checks = 7' "reviews.pre_merge_checks: is 7, and it must be a mapping"
+for c in title description issue_assessment docstrings; do
+  breaks "a pre-merge $c as a number" ".reviews.pre_merge_checks.$c = 7" "reviews.pre_merge_checks.$c: is 7, and it must be a mapping"
+done
+breaks "a bare retired pre-merge docstrings" '.reviews.pre_merge_checks.docstrings = null' "reviews.pre_merge_checks.docstrings: is null, and it must be a mapping"
+# Each parent with a required pin below it: one line names the parent, beside the missing lines.
+for c in reviews.finishing_touches reviews.finishing_touches.unit_tests reviews.finishing_touches.simplify \
+         reviews.finishing_touches.autofix reviews.finishing_touches.fix_ci reviews.finishing_touches.resolve_merge_conflict \
+         reviews.auto_review issue_enrichment issue_enrichment.planning issue_enrichment.planning.auto_planning; do
+  mut ".$c = 7"; run
+  expect "$c as a number names the parent once" 1 "$(grep -cF "$c: is 7, and it must be a mapping" <<< "$err")"
+done
+breaks "auto_enrich as a string" '.issue_enrichment.auto_enrich = "x"' 'issue_enrichment.auto_enrich: is "x", and it must be a mapping'
+breaks "labeling as a number" '.issue_enrichment.labeling = 7' "issue_enrichment.labeling: is 7, and it must be a mapping"
+holds "a pre-merge entry added later that is not a mapping" '.reviews.pre_merge_checks.a_check_added_later = 7'
+mut '.reviews.auto_approvals = 7'; run
+expect "auto_approvals as a number exits 1" 1 "$rc"
+expect "it is three findings" 3 "$(grep -c . <<< "$err")"
+expect "one names the parent" 1 "$(grep -c 'reviews.auto_approvals: is 7, and it must be a mapping' <<< "$err")"
+expect "two are the required keys below it" 2 "$(grep -c 'reviews.auto_approvals\..*: missing' <<< "$err")"
+mut '.reviews = 7'; run
+expect "reviews as a number exits 1" 1 "$rc"
+expect "the parent is named once" 1 "$(grep -c ': is 7, and it must be a mapping' <<< "$err")"
+contains "reviews: is 7, and it must be a mapping" "$err" "and it is reviews"
+mut '.chat = null'; run
+expect "a bare chat is two findings" 2 "$(grep -c . <<< "$err")"
+contains "chat: is null, and it must be a mapping" "$err" "one names chat as null"
+
+echo "list steps and mode (#601)"
+holds "a valid custom check beside a valid override" '.reviews.pre_merge_checks.custom_checks = [{"name": "w", "mode": "warning"}] | .reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["src/**"]}]'
+breaks "a custom check that is a number" '.reviews.pre_merge_checks.custom_checks = [7]' "reviews.pre_merge_checks.custom_checks[0]: is 7, and it must be a mapping"
+breaks "a custom check that is null" '.reviews.pre_merge_checks.custom_checks = [{"name": "w"}, null]' "reviews.pre_merge_checks.custom_checks[1]: is null, and it must be a mapping"
+breaks "a custom check with a null mode" '.reviews.pre_merge_checks.custom_checks = [{"name": "w", "mode": null}]' 'reviews.pre_merge_checks.custom_checks[0].mode: is null, and it must be a string, never "error"'
+breaks "a custom check with a number mode" '.reviews.pre_merge_checks.custom_checks = [{"name": "w", "mode": 7}]' 'reviews.pre_merge_checks.custom_checks[0].mode: is 7, and it must be a string'
+holds "a custom check with no mode" '.reviews.pre_merge_checks.custom_checks = [{"name": "w"}]'
+breaks "a bare pre-merge mode" '.reviews.pre_merge_checks.title.mode = null' 'reviews.pre_merge_checks.title.mode: is null, and it must be a string, never "error"'
+breaks "a pre-merge mode that is a number" '.reviews.pre_merge_checks.title.mode = 7' "reviews.pre_merge_checks.title.mode: is 7, and it must be a string"
+breaks "a pre-merge mode that is a boolean" '.reviews.pre_merge_checks.description.mode = true' "reviews.pre_merge_checks.description.mode: is true, and it must be a string"
+breaks "a wrong-typed mode under an entry added later" '.reviews.pre_merge_checks.a_check_added_later.mode = 7' "reviews.pre_merge_checks.a_check_added_later.mode: is 7, and it must be a string"
+breaks "custom_checks as a mapping is one finding" '.reviews.pre_merge_checks.custom_checks = {"mode": 7}' "reviews.pre_merge_checks.custom_checks: is"
+holds "a pre-merge entry with no mode" '.reviews.pre_merge_checks.title = {}'
+
 echo "every finding is reported, not only the first"
 mut '.reviews.finishing_touches.autofix.enabled = true | .reviews.auto_approvals.enabled = true | .chat.auto_reply = true | .reviews.auto_review.drafts = true'; run
 expect "four broken pins exit 1" 1 "$rc"

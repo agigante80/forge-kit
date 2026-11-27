@@ -8,7 +8,7 @@ description: |
   check-coderabbit-config.sh reports a finding.
 ---
 
-<!-- coderabbit-config-version: 4 -->
+<!-- coderabbit-config-version: 5 -->
 
 # CodeRabbit config
 
@@ -48,11 +48,11 @@ are the contract in `forge-kit-review:independent-reviewer`; read that skill and
   value type, the app ignores all of it for that review and uses the next layers: central
   configuration, web interface settings, then vendor defaults, which leave the pushing features
   on. The pull request summary then opens with a parsing warning (vendor "Configuration
-  file" page, read 2026-11-27). This checker tests the values of the pinned keys, not the
-  types of everything in the file, so it passes a file the app drops for a wrong type on another
-  key or on an optional pinned key (a bare `inheritance:`, say), or for a rule the published
-  schema does not state. The vendor validator below and the warning step 4 looks for are the
-  checks for that.
+  file" page, read 2026-11-27). This checker types the pinned keys and their parents, never the
+  rest of the file, and not the elements of a pinned list beyond what its row states
+  (`base_branches: ["develop", 7]` passes). So it passes a file the app drops for a wrong type on
+  another key, or for a rule the published schema does not state. The vendor validator below and
+  the warning step 4 looks for are the checks for that.
 - **Some writing stays on.** The review itself, its summary in the pull request description
   (`reviews.high_level_summary`) and the label of the vendor's low-quality pull request detection
   (`reviews.slop_detection`) are not pinned, nor are `reviews.auto_title_placeholder` and
@@ -105,7 +105,7 @@ only `true` and `false` are booleans, so `enabled: no` fails its pin. Write `fal
 | Never a gate | `reviews.auto_approvals.enabled`, `.allow_author_approval`, `reviews.fail_commit_status` | present and false |
 | | the legacy aliases `reviews.request_changes_workflow`, `reviews.allow_author_approval` | false or absent |
 | | `reviews.auto_approvals.overrides` | absent or an empty list; otherwise every entry sets `enabled: false` and names a non-empty `paths` or `teams` list |
-| | every `mode` under `reviews.pre_merge_checks`, custom checks included | never `error` |
+| | every `mode` under `reviews.pre_merge_checks`, custom checks included | a string, never `error`; every custom check is a mapping |
 | Scope | `reviews.auto_review.base_branches` | present, a non-empty list, the placeholder replaced, one entry matching `--branch` when given |
 | | `reviews.auto_review.ignore_usernames` | every entry ends in `[bot]` or was passed with `--allow-ignored` |
 | | `reviews.auto_review.drafts` | false or absent |
@@ -114,6 +114,11 @@ only `true` and `false` are booleans, so `enabled: no` fails its pin. Write `fal
 | One source of rules | `reviews.path_instructions` | empty or absent |
 | | `knowledge_base.code_guidelines.enabled` | true or absent |
 
+"Absent" means the key is not written. A key written with no value (a bare `inheritance:`) is
+null and fails its pin, and a parent of a pinned key that is written must be a mapping
+(`knowledge_base: 7` fails). The vendor drops a file with a wrong value type; that a key with no
+value counts as one is the checker's reading of that sentence, which nobody here has tried on a
+pull request.
 "Present" is deliberate. Several of these are on by vendor default, so a deleted key turns the
 feature on, and a key that matches today's default is still written out because a default can
 change. `--branch` applies each entry as a regex anchored at both ends, so a pass holds under a

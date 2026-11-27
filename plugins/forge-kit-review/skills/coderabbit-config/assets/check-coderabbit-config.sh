@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-coderabbit-config-version: 4
+# check-coderabbit-config-version: 5
 # check-coderabbit-config.sh: fail when a .coderabbit.yaml lets the reviewer do more than advise (#598).
 #
 # The CodeRabbit pull request app is installed with write access, and several of its features are
@@ -32,7 +32,9 @@
 #         say `cannot parse`. It never exits 0 without having read every pin.
 #
 # The pins, in five groups (a key marked REQUIRED fails when missing, because the vendor default
-# is the unsafe value or because a default can change; every other key may be absent):
+# is the unsafe value or because a default can change; every other key may be absent, and absent
+# means not written: a key written with no value is null and fails, and so does a parent of a
+# pinned key that is written and is not a mapping, #601):
 #   0. the file itself    `inheritance` not true (a parent layer would fill every absent key);
 #                         `version` absent or the number 2 (3 selects another schema, anything else is an error)
 #   1. nothing may push   reviews.finishing_touches.<five built-ins>.enabled REQUIRED false;
@@ -43,8 +45,9 @@
 #                         reviews.fail_commit_status REQUIRED false; the two legacy aliases
 #                         reviews.request_changes_workflow and reviews.allow_author_approval not
 #                         true; every reviews.auto_approvals.overrides entry sets enabled false and names paths or
-#                         teams (the vendor requires one; an entry with neither was reported to drop the file); no `mode` under
-#                         reviews.pre_merge_checks equal to `error`
+#                         teams (the vendor requires one; an entry with neither was reported to drop the file); every `mode` under
+#                         reviews.pre_merge_checks, custom checks included, a string and never `error`;
+#                         every custom check a mapping
 #   3. scope              base_branches REQUIRED, a non-empty list without the template
 #                         placeholder; every ignore_usernames entry ends in [bot] or was allowed;
 #                         drafts not true
@@ -151,8 +154,8 @@ if ! printf '%s' "$json" | jq -e 'type == "object"' >/dev/null 2>&1; then
 fi
 
 # One line per broken pin. `at` reads a path from the DOCUMENT, whatever `.` is at the call (the
-# pins iterate over name lists), and without failing on a list or scalar in the way: anything
-# that is not where the pin expects it reads as missing.
+# pins iterate over name lists), and without failing on a list or scalar in the way: a required
+# pin that is not where it is expected reads as missing, and the parent in the way is reported.
 checks='
 . as $doc |
 def at(p): try ($doc | getpath(p)) catch null;
@@ -161,15 +164,31 @@ def show: tojson;
 def req_false(p): at(p) as $v
   | if $v == null then "\(name(p)): missing, and it must be false"
     elif $v != false then "\(name(p)): is \($v | show), and it must be false" else empty end;
+# present(p): the key is written in its parent mapping. A key written with no value is present
+# and null, and no rule reads that as absent (#601). The vendor drops a file with a wrong value
+# type; that a null counts as one is this script reading that sentence, not a vendor statement.
+def present(p): try ($doc | getpath(p[:-1]) | has(p[-1])) catch false;
 def opt_false(p): at(p) as $v
-  | if $v == null or $v == false then empty else "\(name(p)): is \($v | show), and it must be false or absent" end;
+  | if (present(p) | not) or $v == false then empty else "\(name(p)): is \($v | show), and it must be false or absent" end;
 def req_empty(p): at(p) as $v
   | if $v == null then "\(name(p)): missing, and it must be an empty list"
     elif ($v | type) != "array" or ($v | length) > 0 then "\(name(p)): is \($v | show), and it must be an empty list" else empty end;
 def sel: type == "array" and length > 0 and all(.[]; type == "string");
 def opt_empty(p): at(p) as $v
-  | if $v == null or $v == [] then empty else "\(name(p)): is \($v | show), and it must be empty or absent" end;
+  | if (present(p) | not) or $v == [] then empty else "\(name(p)): is \($v | show), and it must be empty or absent" end;
 
+# Every mapping step of a pinned path. A present one that is not a mapping fails once, here; the
+# optional pins below it then read as not written, and the required ones keep their missing line.
+( ( ["reviews"], ["reviews","finishing_touches"],
+    ( ["unit_tests","simplify","autofix","fix_ci","resolve_merge_conflict"][] | ["reviews","finishing_touches",.] ),
+    ["reviews","auto_approvals"], ["reviews","pre_merge_checks"],
+    ( ["title","description","issue_assessment","docstrings"][] | ["reviews","pre_merge_checks",.] ),
+    ["reviews","auto_review"], ["issue_enrichment"], ["issue_enrichment","auto_enrich"],
+    ["issue_enrichment","labeling"], ["issue_enrichment","planning"],
+    ["issue_enrichment","planning","auto_planning"], ["chat"], ["knowledge_base"],
+    ["knowledge_base","code_guidelines"] ) as $p
+  | if present($p) and (at($p) | type) != "object"
+    then "\(name($p)): is \(at($p) | show), and it must be a mapping" else empty end ),
 opt_false(["inheritance"]),
 ( at(["version"]) as $v
   | if ($doc | has("version") | not) then empty
@@ -207,13 +226,23 @@ req_false(["reviews","fail_commit_status"]),
   end ),
 ( at(["reviews","pre_merge_checks"]) as $pm
   | if ($pm | type) != "object" then empty
-    else $pm | to_entries[] | select(.key != "custom_checks" and (.value | type) == "object" and .value.mode == "error")
-         | "reviews.pre_merge_checks.\(.key).mode: is \"error\", which blocks a merge" end ),
+    else $pm | to_entries[] | select(.key != "custom_checks" and (.value | type) == "object" and (.value | has("mode")))
+         | if (.value.mode | type) != "string"
+           then "reviews.pre_merge_checks.\(.key).mode: is \(.value.mode | show), and it must be a string, never \"error\""
+           elif .value.mode == "error" then "reviews.pre_merge_checks.\(.key).mode: is \"error\", which blocks a merge"
+           else empty end
+    end ),
 ( at(["reviews","pre_merge_checks","custom_checks"]) as $cc
-  | if $cc == null then empty
+  | if present(["reviews","pre_merge_checks","custom_checks"]) | not then empty
     elif ($cc | type) != "array" then "reviews.pre_merge_checks.custom_checks: is \($cc | show), and it must be a list"
-    else $cc[] | select((try .mode catch null) == "error")
-         | "reviews.pre_merge_checks.custom_checks: the check \((try .name catch null) | show) is in \"error\" mode, which blocks a merge"
+    else $cc | to_entries[] | .key as $i | .value as $e
+         | if ($e | type) != "object" then "reviews.pre_merge_checks.custom_checks[\($i)]: is \($e | show), and it must be a mapping"
+           elif ($e | has("mode") | not) then empty
+           elif ($e.mode | type) != "string"
+             then "reviews.pre_merge_checks.custom_checks[\($i)].mode: is \($e.mode | show), and it must be a string, never \"error\""
+           elif $e.mode == "error"
+             then "reviews.pre_merge_checks.custom_checks: the check \((try $e.name catch null) | show) is in \"error\" mode, which blocks a merge"
+           else empty end
     end ),
 
 ( at(["reviews","auto_review","base_branches"]) as $b
@@ -225,7 +254,7 @@ req_false(["reviews","fail_commit_status"]),
       then "reviews.auto_review.base_branches: no entry matches the branch \($branch | show)"
     else empty end ),
 ( at(["reviews","auto_review","ignore_usernames"]) as $u
-  | if $u == null then empty
+  | if present(["reviews","auto_review","ignore_usernames"]) | not then empty
     elif ($u | type) != "array" then "reviews.auto_review.ignore_usernames: is \($u | show), and it must be a list"
     else $u[] | select((type != "string") or ((endswith("[bot]") | not) and (. as $l | $allowed | index($l)) == null))
          | "reviews.auto_review.ignore_usernames: \(show) does not end in [bot] and was not passed with --allow-ignored; whoever is listed loses their review"
@@ -242,7 +271,7 @@ req_false(["chat","auto_reply"]),
 
 opt_empty(["reviews","path_instructions"]),
 ( at(["knowledge_base","code_guidelines","enabled"]) as $g
-  | if $g == null or $g == true then empty
+  | if (present(["knowledge_base","code_guidelines","enabled"]) | not) or $g == true then empty
     else "knowledge_base.code_guidelines.enabled: is \($g | show), and it must be true or absent" end )
 '
 if ! found=$(printf '%s' "$json" | jq -r --arg branch "$branch" --argjson allowed "$allowed" "$checks" 2>&1); then
