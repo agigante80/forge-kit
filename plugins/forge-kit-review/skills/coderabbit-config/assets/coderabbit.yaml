@@ -6,6 +6,9 @@
 # check-coderabbit-config.sh, which fails if any pin below is loosened or removed.
 # Most pins are written out although they match today's vendor default: a default can change.
 
+# Leave `version` out: without it the app reads this file as V2, the schema these pins were read
+# from, and the vendor's own CLI validator fails a file that sets it.
+
 # No parent layer: with inheritance on, an organisation-level config fills every key this file
 # leaves out.
 inheritance: false
@@ -36,8 +39,8 @@ reviews:
       - "dependabot[bot]"
       - "renovate[bot]"
 
-  # Nothing may push. Each of these commits to a branch or opens a pull request when a
-  # commenter asks for it, and that branch's workflows then run.
+  # Nothing may push. Each of these commits to a branch or opens a pull request when someone
+  # with write access asks for it in a comment, and that branch's workflows then run.
   finishing_touches:
     unit_tests:
       enabled: false

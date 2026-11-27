@@ -91,6 +91,21 @@ breaks "version 3 as a string" '.version = "3"' 'version: is "3", and the vendor
 breaks "version 1" '.version = 1' "version: is 1, and the vendor reports a version error"
 breaks "version with no value" '.version = null' "version: is null, and the vendor reports a version error"
 
+echo "three keys added from the schema on 2026-11-27 (#602)"
+breaks "early access on" '.early_access = true' "early_access: is true, and it must be false or absent"
+breaks "a bare early_access" '.early_access = null' "early_access: is null, and it must be false or absent"
+breaks "approval of a skipped review" '.reviews.auto_approvals.approve_on_skipped_review = true' "reviews.auto_approvals.approve_on_skipped_review: is true, and it must be false or absent"
+breaks "review info off" '.reviews.review_info = false' "reviews.review_info: is false, and it must be true or absent; the Run configuration block"
+breaks "review info as a string" '.reviews.review_info = "true"' 'reviews.review_info: is "true", and it must be true or absent'
+breaks "a bare review_info" '.reviews.review_info = null' "reviews.review_info: is null, and it must be true or absent"
+holds "the three keys at their pinned values" '.early_access = false | .reviews.review_info = true | .reviews.auto_approvals.approve_on_skipped_review = false'
+if grep -q "^version:" "$TPL"; then bad "the template sets version"; else ok "the template sets no version key"; fi
+if grep -q '^# Leave `version` out' "$TPL"; then ok "the template says to leave version out"; else bad "the template says to leave version out"; fi
+for k in early_access review_info approve_on_skipped_review; do
+  if grep -q "^ *$k:" "$TPL"; then bad "the template writes $k"; else ok "the template leaves $k out"; fi
+done
+if grep -qi "commenter" "$TPL" "$SRC"; then bad "the template or the checker still says a commenter can make the app push"; else ok "neither the template nor the checker names a bare commenter"; fi
+
 echo "group 1: nothing may push"
 for t in unit_tests simplify autofix fix_ci resolve_merge_conflict; do
   breaks "$t enabled" ".reviews.finishing_touches.$t.enabled = true" "reviews.finishing_touches.$t.enabled: is true"
@@ -386,11 +401,12 @@ S="$T/schema.json"
 SCHEMA='def en: {type: "object", properties: {enabled: {type: "boolean"}}};
 def md: {type: "object", properties: {mode: {type: "string"}}};
 {type: "object", properties: {
-  inheritance: {},
+  inheritance: {}, early_access: {},
   reviews: {type: "object", properties: {
+    review_info: {},
     request_changes_workflow: {}, fail_commit_status: {}, auto_apply_labels: {}, auto_assign_reviewers: {},
     path_instructions: {}, post_merge_actions: {},
-    auto_approvals: {properties: {enabled: {}, allow_author_approval: {}, overrides: {type: "array", items: en}}},
+    auto_approvals: {properties: {enabled: {}, allow_author_approval: {}, approve_on_skipped_review: {}, overrides: {type: "array", items: en}}},
     pre_merge_checks: {properties: {docstrings: md, title: md, description: md, issue_assessment: md,
       custom_checks: {type: "array", items: md}}},
     auto_review: {properties: {drafts: {}, base_branches: {}, ignore_usernames: {}}},
@@ -419,6 +435,13 @@ contains "reviews.pre_merge_checks.custom_checks[].mode" "$err" "it names the li
 sch 'del(.properties.reviews.properties.auto_approvals.properties.overrides.items.properties.enabled)'; run --schema "$S"
 expect "a schema whose override entry lost enabled exits 1" 1 "$rc"
 contains "reviews.auto_approvals.overrides[].enabled" "$err" "it names the override item key"
+for d in '.properties.early_access:early_access' '.properties.reviews.properties.review_info:reviews.review_info' \
+         '.properties.reviews.properties.auto_approvals.properties.approve_on_skipped_review:reviews.auto_approvals.approve_on_skipped_review'; do
+  sch "del(${d%%:*})"; run --schema "$S"
+  expect "a schema without ${d##*:} exits 1" 1 "$rc"
+  contains "$S: ${d##*:}: the vendor schema no longer defines" "$err" "it names ${d##*:}"
+  expect "it is the only finding for ${d##*:}" 1 "$(grep -c . <<< "$err")"
+done
 sch 'del(.properties.chat)'; run --schema "$S"
 contains "chat.auto_reply" "$err" "a removed top-level block names its pinned key"
 sch '.properties.reviews.properties.auto_review.properties.base_branches = null'; run --schema "$S"
@@ -427,7 +450,7 @@ sch 'del(.properties.reviews.properties.request_changes_workflow)'; run --schema
 expect "a deprecated alias leaving the schema is not drift" 0 "$rc"
 printf '{}\n' > "$S"; run --schema "$S"
 expect "an empty schema exits 1" 1 "$rc"
-expect "and names all twenty-eight pinned keys" 28 "$(grep -c 'schema no longer defines' <<< "$err")"
+expect "and names all thirty-one pinned keys" 31 "$(grep -c 'schema no longer defines' <<< "$err")"
 sch 'del(.properties.chat)'; mut '.reviews.fail_commit_status = true'; run --schema "$S"
 expect "a broken pin and a drifted key exit 1" 1 "$rc"
 expect "and are two lines" 2 "$(grep -c . <<< "$err")"

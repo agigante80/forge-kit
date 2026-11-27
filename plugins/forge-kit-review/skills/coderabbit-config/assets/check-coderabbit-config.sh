@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# check-coderabbit-config-version: 5
+# check-coderabbit-config-version: 6
 # check-coderabbit-config.sh: fail when a .coderabbit.yaml lets the reviewer do more than advise (#598).
 #
 # The CodeRabbit pull request app is installed with write access, and several of its features are
-# ON by vendor default: a commenter can ask it to commit to a branch, and one key lets it approve.
+# ON by vendor default: someone with write access can ask it in a comment to commit to a branch,
+# and one key lets it approve.
 # The template beside this script pins those off. This script is what keeps them pinned: a config
 # nobody checks drifts the first time somebody tidies it.
 #
@@ -36,7 +37,9 @@
 # means not written: a key written with no value is null and fails, and so does a parent of a
 # pinned key that is written and is not a mapping, #601):
 #   0. the file itself    `inheritance` not true (a parent layer would fill every absent key);
-#                         `version` absent or the number 2 (3 selects another schema, anything else is an error)
+#                         `version` absent or the number 2 (3 selects another schema, anything else is an error);
+#                         `early_access` not true; reviews.review_info not false (it prints which
+#                         file a review applied, the one positive sign that this file was read, #602)
 #   1. nothing may push   reviews.finishing_touches.<five built-ins>.enabled REQUIRED false;
 #                         reviews.finishing_touches.custom and reviews.post_merge_actions
 #                         REQUIRED empty lists. (`docstrings` is retired by the vendor and has no
@@ -44,7 +47,7 @@
 #   2. never a gate       reviews.auto_approvals.enabled, .allow_author_approval and
 #                         reviews.fail_commit_status REQUIRED false; the two legacy aliases
 #                         reviews.request_changes_workflow and reviews.allow_author_approval not
-#                         true; every reviews.auto_approvals.overrides entry sets enabled false and names paths or
+#                         true; reviews.auto_approvals.approve_on_skipped_review not true; every reviews.auto_approvals.overrides entry sets enabled false and names paths or
 #                         teams (the vendor requires one; an entry with neither was reported to drop the file); every `mode` under
 #                         reviews.pre_merge_checks, custom checks included, a string and never `error`;
 #                         every custom check a mapping
@@ -190,6 +193,10 @@ def opt_empty(p): at(p) as $v
   | if present($p) and (at($p) | type) != "object"
     then "\(name($p)): is \(at($p) | show), and it must be a mapping" else empty end ),
 opt_false(["inheritance"]),
+opt_false(["early_access"]),
+( at(["reviews","review_info"]) as $r
+  | if (present(["reviews","review_info"]) | not) or $r == true then empty
+    else "reviews.review_info: is \($r | show), and it must be true or absent; the Run configuration block that shows which file a review applied depends on it" end ),
 ( at(["version"]) as $v
   | if ($doc | has("version") | not) then empty
     elif $v == 2 then empty
@@ -203,6 +210,7 @@ req_empty(["reviews","post_merge_actions"]),
 
 req_false(["reviews","auto_approvals","enabled"]),
 req_false(["reviews","auto_approvals","allow_author_approval"]),
+opt_false(["reviews","auto_approvals","approve_on_skipped_review"]),
 opt_false(["reviews","request_changes_workflow"]),
 opt_false(["reviews","allow_author_approval"]),
 req_false(["reviews","fail_commit_status"]),
@@ -281,7 +289,8 @@ fi
 
 # Every pinned path, for --schema. `[]` steps into a list's items.
 pinned='
-[ ["inheritance"],
+[ ["inheritance"], ["early_access"], ["reviews","review_info"],
+  ["reviews","auto_approvals","approve_on_skipped_review"],
   (["unit_tests","simplify","autofix","fix_ci","resolve_merge_conflict"][]
     | ["reviews","finishing_touches",.,"enabled"]),
   ["reviews","finishing_touches","custom"],
