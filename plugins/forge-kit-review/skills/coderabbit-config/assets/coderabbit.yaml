@@ -16,9 +16,8 @@ reviews:
   auto_approvals:
     enabled: false
     allow_author_approval: false
-    # Withholds an approval asked for in a comment, by anyone, on every pull request.
-    overrides:
-      - enabled: false
+    # No overrides on purpose. With enabled false an approve command gets no approval, and
+    # an override entry without paths or teams was reported to make the app reject this whole file.
 
   # Quiet.
   auto_apply_labels: false

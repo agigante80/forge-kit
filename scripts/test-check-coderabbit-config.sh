@@ -32,7 +32,7 @@ GOOD='{
   "inheritance": false,
   "reviews": {
     "fail_commit_status": false,
-    "auto_approvals": {"enabled": false, "allow_author_approval": false, "overrides": [{"enabled": false}]},
+    "auto_approvals": {"enabled": false, "allow_author_approval": false},
     "auto_apply_labels": false, "auto_assign_reviewers": false, "path_instructions": [],
     "auto_review": {"drafts": false, "base_branches": ["develop"], "ignore_usernames": ["dependabot[bot]"]},
     "finishing_touches": {
@@ -79,13 +79,17 @@ expect "the placeholder is its only finding" 1 "$(grep -c . <<< "$err")"
 sed 's/<integration-branch>/develop/' "$TPL" > "$C"; run --branch develop
 expect "the template with the branch filled exits 0" 0 "$rc"
 if grep -q "$(printf '\t')" "$TPL"; then bad "the template holds a tab"; else ok "the template holds no tab"; fi
+if grep -q "^ *overrides:" "$TPL"; then bad "the template writes an overrides key"; else ok "the template writes no overrides key (#600)"; fi
 
 echo "the file itself"
 breaks "inheritance on" '.inheritance = true' "inheritance: is true"
 holds "inheritance absent" 'del(.inheritance)'
-breaks "version 2, which the vendor schema rejects" '.version = 2' "version: is 2"
-breaks "version 3" '.version = 3' "version: is 3"
-breaks "version with no value" '.version = null' "version: is null"
+holds "version 2, which the vendor reads as V2" '.version = 2'
+holds "version 2.0, the same number" '.version = 2.0'
+breaks "version 3, another schema" '.version = 3' "version: is 3, and that selects the vendor V3 schema"
+breaks "version 3 as a string" '.version = "3"' 'version: is "3", and the vendor reports a version error'
+breaks "version 1" '.version = 1' "version: is 1, and the vendor reports a version error"
+breaks "version with no value" '.version = null' "version: is null, and the vendor reports a version error"
 
 echo "group 1: nothing may push"
 for t in unit_tests simplify autofix fix_ci resolve_merge_conflict; do
@@ -114,16 +118,25 @@ for k in request_changes_workflow allow_author_approval; do
   breaks "the legacy alias $k true" ".reviews.$k = true" "reviews.$k: is true"
   holds "the legacy alias $k false" ".reviews.$k = false"
 done
-breaks "an enabling override alone" '.reviews.auto_approvals.overrides = [{"enabled": true}]' "reviews.auto_approvals.overrides: is"
-breaks "an empty overrides list" '.reviews.auto_approvals.overrides = []' "reviews.auto_approvals.overrides: is []"
-breaks "overrides missing" 'del(.reviews.auto_approvals.overrides)' "reviews.auto_approvals.overrides: missing"
-breaks "a disabled override narrowed to some paths" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["src/**"]}]' "reviews.auto_approvals.overrides: is"
-breaks "overrides as a mapping" '.reviews.auto_approvals.overrides = {"enabled": false}' "reviews.auto_approvals.overrides: is"
-breaks "an enabling override beside the catch-all" '.reviews.auto_approvals.overrides = [{"enabled": true}, {"enabled": false}]' "reviews.auto_approvals.overrides: is"
-breaks "an entry that omits enabled beside the catch-all" '.reviews.auto_approvals.overrides = [{"max_merge_risk": "high"}, {"enabled": false}]' "reviews.auto_approvals.overrides: is"
-breaks "a scalar beside the catch-all" '.reviews.auto_approvals.overrides = ["x", {"enabled": false}]' "reviews.auto_approvals.overrides: is"
-holds "the catch-all override beside a narrower disabled one" '.reviews.auto_approvals.overrides = [{"paths": ["src/**"], "enabled": false}, {"enabled": false}]'
-breaks "a narrower entry that only sets a limit" '.reviews.auto_approvals.overrides = [{"paths": ["src/**"], "max_merge_risk": "low"}, {"enabled": false}]' "reviews.auto_approvals.overrides: is"
+holds "overrides absent" 'del(.reviews.auto_approvals.overrides)'
+holds "an empty overrides list" '.reviews.auto_approvals.overrides = []'
+holds "a disabled override with paths" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["**"]}]'
+holds "a disabled override with teams" '.reviews.auto_approvals.overrides = [{"enabled": false, "teams": ["o/t"]}]'
+holds "a disabled override with both and a risk limit" '.reviews.auto_approvals.overrides = [{"enabled": false, "teams": ["o/t"], "paths": ["src/**"], "max_merge_risk": "low"}]'
+breaks "the entry with no selector that 0.10.2 shipped" '.reviews.auto_approvals.overrides = [{"enabled": false}]' 'reviews.auto_approvals.overrides[0]: is {"enabled":false}, and it names no paths or teams; the vendor requires one, and such an entry was reported to make the app drop the whole file'
+breaks "a bare overrides key" '.reviews.auto_approvals.overrides = null' 'reviews.auto_approvals.overrides: is null, and the vendor types it as a list'
+breaks "overrides as a mapping" '.reviews.auto_approvals.overrides = {"enabled": false}' 'reviews.auto_approvals.overrides: is {"enabled":false}, and it must be a list'
+breaks "an empty paths list" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": []}]' 'and paths and teams must each be a non-empty list'
+breaks "an empty teams list beside filled paths" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["**"], "teams": []}]' 'and paths and teams must each be a non-empty list'
+breaks "paths given as a string" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": "**"}]' 'and paths and teams must each be a non-empty list'
+breaks "teams given as a string beside filled paths" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["**"], "teams": "o/t"}]' 'and paths and teams must each be a non-empty list'
+breaks "a null selector element" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": [null]}]' 'and paths and teams must each be a non-empty list'
+breaks "a risk limit that is a number" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["**"], "max_merge_risk": 3}]' 'max_merge_risk must be a string when given'
+breaks "a security risk limit with no value" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["**"], "max_security_risk": null}]' 'max_security_risk must be a string when given'
+breaks "an enabling override" '.reviews.auto_approvals.overrides = [{"enabled": true, "paths": ["**"]}]' 'and every entry must set enabled: false'
+breaks "an entry that leaves enabled out" '.reviews.auto_approvals.overrides = [{"paths": ["src/**"], "max_merge_risk": "low"}]' 'and every entry must set enabled: false'
+breaks "a scalar entry" '.reviews.auto_approvals.overrides = ["x"]' 'reviews.auto_approvals.overrides[0]: is "x", and it must be a mapping'
+breaks "a bad second entry beside a good first" '.reviews.auto_approvals.overrides = [{"enabled": false, "paths": ["**"]}, {"enabled": false}]' 'reviews.auto_approvals.overrides[1]: is'
 for c in title description issue_assessment a_check_added_later; do
   breaks "pre-merge $c in error mode" ".reviews.pre_merge_checks.$c.mode = \"error\"" "reviews.pre_merge_checks.$c.mode: is \"error\""
 done
@@ -193,7 +206,7 @@ expect "and are four lines" 4 "$(grep -c . <<< "$err")"
 expect "each line opens with the file" 4 "$(grep -c "^$C: " <<< "$err")"
 printf '{}\n' > "$C"; run
 expect "an empty mapping exits 1" 1 "$rc"
-expect "and reports the fifteen required keys" 15 "$(grep -c . <<< "$err")"
+expect "and reports the fourteen required keys" 14 "$(grep -c . <<< "$err")"
 
 echo "what it cannot read"
 printf 'reviews: [\n' > "$C"; run

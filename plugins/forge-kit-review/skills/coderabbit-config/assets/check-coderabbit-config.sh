@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-coderabbit-config-version: 3
+# check-coderabbit-config-version: 4
 # check-coderabbit-config.sh: fail when a .coderabbit.yaml lets the reviewer do more than advise (#598).
 #
 # The CodeRabbit pull request app is installed with write access, and several of its features are
@@ -34,7 +34,7 @@
 # The pins, in five groups (a key marked REQUIRED fails when missing, because the vendor default
 # is the unsafe value or because a default can change; every other key may be absent):
 #   0. the file itself    `inheritance` not true (a parent layer would fill every absent key);
-#                         `version` is absent (schema.v2 defines no such key and rejects it)
+#                         `version` absent or the number 2 (3 selects another schema, anything else is an error)
 #   1. nothing may push   reviews.finishing_touches.<five built-ins>.enabled REQUIRED false;
 #                         reviews.finishing_touches.custom and reviews.post_merge_actions
 #                         REQUIRED empty lists. (`docstrings` is retired by the vendor and has no
@@ -42,7 +42,8 @@
 #   2. never a gate       reviews.auto_approvals.enabled, .allow_author_approval and
 #                         reviews.fail_commit_status REQUIRED false; the two legacy aliases
 #                         reviews.request_changes_workflow and reviews.allow_author_approval not
-#                         true; reviews.auto_approvals.overrides REQUIRED to hold {enabled: false}; no `mode` under
+#                         true; every reviews.auto_approvals.overrides entry sets enabled false and names paths or
+#                         teams (the vendor requires one; an entry with neither was reported to drop the file); no `mode` under
 #                         reviews.pre_merge_checks equal to `error`
 #   3. scope              base_branches REQUIRED, a non-empty list without the template
 #                         placeholder; every ignore_usernames entry ends in [bot] or was allowed;
@@ -165,13 +166,16 @@ def opt_false(p): at(p) as $v
 def req_empty(p): at(p) as $v
   | if $v == null then "\(name(p)): missing, and it must be an empty list"
     elif ($v | type) != "array" or ($v | length) > 0 then "\(name(p)): is \($v | show), and it must be an empty list" else empty end;
+def sel: type == "array" and length > 0 and all(.[]; type == "string");
 def opt_empty(p): at(p) as $v
   | if $v == null or $v == [] then empty else "\(name(p)): is \($v | show), and it must be empty or absent" end;
 
 opt_false(["inheritance"]),
 ( at(["version"]) as $v
   | if ($doc | has("version") | not) then empty
-    else "version: is \($v | show), and the vendor schema these pins were read from defines no such key, so its validator rejects the file; remove it" end ),
+    elif $v == 2 then empty
+    elif $v == 3 then "version: is 3, and that selects the vendor V3 schema, a different one these pins were not read from; none of them is known to apply"
+    else "version: is \($v | show), and the vendor reports a version error for anything but the numbers 2 and 3" end ),
 
 ( ["unit_tests","simplify","autofix","fix_ci","resolve_merge_conflict"][]
   | . as $t | req_false(["reviews","finishing_touches",$t,"enabled"]) ),
@@ -183,12 +187,24 @@ req_false(["reviews","auto_approvals","allow_author_approval"]),
 opt_false(["reviews","request_changes_workflow"]),
 opt_false(["reviews","allow_author_approval"]),
 req_false(["reviews","fail_commit_status"]),
-( at(["reviews","auto_approvals","overrides"]) as $o
-  | if $o == null then "reviews.auto_approvals.overrides: missing, and an entry that is exactly {enabled: false} is what withholds an approval asked for in a comment"
-    elif ($o | type) != "array" or ($o | index([{enabled: false}])) == null
-         or any($o[]; type != "object" or .enabled != false)
-      then "reviews.auto_approvals.overrides: is \($o | show), and it must hold an entry that is exactly {enabled: false}, which matches every pull request, and every entry must set enabled: false, so none can widen an approval"
-    else empty end ),
+( if ($doc | (try (.reviews.auto_approvals | has("overrides")) catch false) | not) then empty
+  else at(["reviews","auto_approvals","overrides"]) as $o
+  | if $o == null then "reviews.auto_approvals.overrides: is null, and the vendor types it as a list and drops a file with a wrong value type, so every pin stops applying; remove the key or write []"
+    elif ($o | type) != "array" then "reviews.auto_approvals.overrides: is \($o | show), and it must be a list or absent"
+    else ( $o | to_entries[] | .key as $i | .value as $e
+      | "reviews.auto_approvals.overrides[\($i)]: is \($e | show), and " as $at
+      | if ($e | type) != "object" then $at + "it must be a mapping"
+        elif $e.enabled != false then $at + "every entry must set enabled: false, so none can widen an approval"
+        elif (($e | has("paths")) and ($e.paths | sel | not)) or (($e | has("teams")) and ($e.teams | sel | not))
+          then $at + "paths and teams must each be a non-empty list of strings when given; the vendor says not to use an empty list"
+        elif (($e | has("paths")) or ($e | has("teams"))) | not
+          then $at + "it names no paths or teams; the vendor requires one, and such an entry was reported to make the app drop the whole file, so no pin applies; remove the entry or give it paths"
+        else ( ("max_merge_risk","max_security_risk") as $k
+               | if ($e | has($k)) and ($e[$k] | type) != "string"
+                 then $at + "\($k) must be a string when given; the vendor drops a file with a wrong value type" else empty end )
+        end )
+    end
+  end ),
 ( at(["reviews","pre_merge_checks"]) as $pm
   | if ($pm | type) != "object" then empty
     else $pm | to_entries[] | select(.key != "custom_checks" and (.value | type) == "object" and .value.mode == "error")

@@ -8,7 +8,7 @@ description: |
   check-coderabbit-config.sh reports a finding.
 ---
 
-<!-- coderabbit-config-version: 3 -->
+<!-- coderabbit-config-version: 4 -->
 
 # CodeRabbit config
 
@@ -43,7 +43,16 @@ are the contract in `forge-kit-review:independent-reviewer`; read that skill and
 - **The file is one of several places settings live.** The vendor's web interface and an
   organisation-level config can set the same keys, and the checker sees neither. The template sets
   `inheritance: false` so a parent layer fills nothing in; check the web interface settings by
-  hand at install. What the app does with a file its own schema rejects: not stated by the vendor.
+  hand at install.
+- **A file the app rejects is dropped whole.** When the file fails to parse or holds a wrong
+  value type, the app ignores all of it for that review and uses the next layers: central
+  configuration, web interface settings, then vendor defaults, which leave the pushing features
+  on. The pull request summary then opens with a parsing warning (vendor "Configuration
+  file" page, read 2026-11-27). This checker tests the values of the pinned keys, not the
+  types of everything in the file, so it passes a file the app drops for a wrong type on another
+  key or on an optional pinned key (a bare `inheritance:`, say), or for a rule the published
+  schema does not state. The vendor validator below and the warning step 4 looks for are the
+  checks for that.
 - **Some writing stays on.** The review itself, its summary in the pull request description
   (`reviews.high_level_summary`) and the label of the vendor's low-quality pull request detection
   (`reviews.slop_detection`) are not pinned, nor are `reviews.auto_title_placeholder` and
@@ -67,9 +76,10 @@ are the contract in `forge-kit-review:independent-reviewer`; read that skill and
 bash scripts/check-coderabbit-config.sh --branch <integration-branch>
 ```
 
-4. Install the app, open one pull request, and confirm four things once: one advisory review
-   arrives; a comment asking the bot to fix something is declined; a comment by someone other
-   than the author asking it to approve is declined; the app pushed no commit and opened no
+4. Install the app, open one pull request, and confirm five things once: one advisory review
+   arrives, and its summary carries no parsing warning and lists no unrecognized property; a comment asking the bot to fix something is declined; a comment by someone other
+   than the author asking it to approve gets no approval (the bot reports that approval is
+   disabled and may still resolve its own threads); the app pushed no commit and opened no
    branch.
 
 ## What the checker pins
@@ -89,12 +99,12 @@ only `true` and `false` are booleans, so `enabled: no` fails its pin. Write `fal
 | Group | Keys | Rule |
 |---|---|---|
 | The file itself | `inheritance` | false or absent |
-| | `version` | absent |
+| | `version` | absent or the number `2` |
 | Nothing may push | `reviews.finishing_touches.{unit_tests,simplify,autofix,fix_ci,resolve_merge_conflict}.enabled` | present and false |
 | | `reviews.finishing_touches.custom`, `reviews.post_merge_actions` | present and empty |
 | Never a gate | `reviews.auto_approvals.enabled`, `.allow_author_approval`, `reviews.fail_commit_status` | present and false |
 | | the legacy aliases `reviews.request_changes_workflow`, `reviews.allow_author_approval` | false or absent |
-| | `reviews.auto_approvals.overrides` | present, holding an entry that is exactly `{enabled: false}` and every entry setting `enabled: false` |
+| | `reviews.auto_approvals.overrides` | absent or an empty list; otherwise every entry sets `enabled: false` and names a non-empty `paths` or `teams` list |
 | | every `mode` under `reviews.pre_merge_checks`, custom checks included | never `error` |
 | Scope | `reviews.auto_review.base_branches` | present, a non-empty list, the placeholder replaced, one entry matching `--branch` when given |
 | | `reviews.auto_review.ignore_usernames` | every entry ends in `[bot]` or was passed with `--allow-ignored` |
@@ -108,14 +118,25 @@ only `true` and `false` are booleans, so `enabled: no` fails its pin. Write `fal
 feature on, and a key that matches today's default is still written out because a default can
 change. `--branch` applies each entry as a regex anchored at both ends, so a pass holds under a
 looser reading too. The vendor's `docstrings` finishing touch is retired and has no effect,
-so it is not pinned. The override entry matches every pull request and, by the vendor's schema
-text, withholds an approval that someone other than the author asks for in a comment; that was
-read from the schema, not observed on the app, so step 4 above checks it once. The last group keeps the project's own `AGENTS.md` and `CLAUDE.md` as the one place its
+so it is not pinned. The template writes no `overrides` entry: with `auto_approvals.enabled` false an approve command
+gets no approval (vendor command reference, read 2026-11-27). The vendor says each entry needs
+`teams`, `paths` or both, a rule its published schema does not state, and on one public pull
+request an entry with neither was reported as a validation error; nobody here has reproduced it.
+The template shipped such an entry before `coderabbit-config-version: 4`; a config copied from it
+must drop the entry. `version: 3` selects a different vendor schema these pins were not read
+from, so it fails. The last group keeps the project's own `AGENTS.md` and `CLAUDE.md` as the one place its
 review rules live; the app reads them through `code_guidelines`.
 
 The pin list was read from the vendor's schema on 2026-11-26. A project that loosens a pin on
 purpose edits its copy of the checker and says why in the config, so the next reader finds the
 decision next to the key.
+
+## The vendor's own validator
+
+`coderabbit config validate [path]` (vendor CLI 0.7.1 or later) checks a file against the V2
+schema. Run it too when the CLI is at hand, knowing two limits: it fails a file that sets
+`version`, which the app accepts, and nothing says it applies the rules the schema leaves out.
+The parsing warning on a real pull request is the only confirmed signal.
 
 ## When the vendor changes its schema
 
