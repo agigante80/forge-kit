@@ -6,7 +6,7 @@ Closes #
 
 ## Checklist
 
-- [ ] The base branch is `develop`, not `main`.
+- [ ] The base branch is `develop`, not `main`. The one exception is the maintainer's own `develop` to `main` landing pull request.
 - [ ] Every changed agent, skill, command, hook or shell asset has its `<name>-version` marker bumped.
 - [ ] Every changed plugin group has its `.claude-plugin/plugin.json` version bumped.
 - [ ] I ran the checks my change touches, from https://github.com/agigante80/forge-kit/blob/develop/.github/workflows/validate.yml, and they pass.

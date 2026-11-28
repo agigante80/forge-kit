@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# Hardened CodeRabbit configuration, from forge-kit's coderabbit-config skill.
+# The reviewer is ADVISORY: nothing here lets it push, approve, request changes or fail a status.
+# This repository's own copy (#603): CI runs check-coderabbit-config.sh on it for `main` and for
+# `develop`, and the checker fails if any pin below is loosened or removed.
+# Most pins are written out although they match today's vendor default: a default can change.
+
+# Leave `version` out: without it the app reads this file as V2, the schema these pins were read
+# from, and the vendor's own CLI validator fails a file that sets it.
+
+# No parent layer: with inheritance on, an organisation-level config fills every key this file
+# leaves out.
+inheritance: false
+
+reviews:
+  # Never a gate.
+  fail_commit_status: false
+  auto_approvals:
+    enabled: false
+    allow_author_approval: false
+    # No overrides on purpose. With enabled false an approve command gets no approval, and
+    # an override entry without paths or teams was reported to make the app reject this whole file.
+
+  # Quiet.
+  auto_apply_labels: false
+  auto_assign_reviewers: false
+
+  # One source of rules: the app already reads AGENTS.md and CLAUDE.md (knowledge_base below).
+  path_instructions: []
+
+  auto_review:
+    drafts: false
+    # Without this only the default branch is reviewed. Each entry is read as a regex.
+    # `main` is the base of the maintainer's landing pull request, `develop` of a contributor's.
+    base_branches:
+      - "main"
+      - "develop"
+    # One outside round (independent-reviewer contract, item 3): a fix pushed to an open pull
+    # request is never sent back for a second review. The vendor default is true. The checker
+    # does not pin this key, so nothing fails if it is removed.
+    auto_incremental_review: false
+    # Bot accounts only, by exact login. A person listed here silently loses their review.
+    ignore_usernames:
+      - "dependabot[bot]"
+
+  # Nothing may push. Each of these commits to a branch or opens a pull request when someone
+  # with write access asks for it in a comment, and that branch's workflows then run.
+  finishing_touches:
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+    custom: []
+  post_merge_actions: []
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
+  labeling:
+    auto_apply_labels: false
+
+chat:
+  auto_reply: false
+
+knowledge_base:
+  code_guidelines:
+    enabled: true

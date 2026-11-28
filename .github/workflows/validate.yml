@@ -8,7 +8,9 @@ name: Validate
 # never reports on PRs that miss the paths, leaving them blocked forever. The job is fast,
 # so running it unconditionally is the cost of being a reliable required status check.
 
-# `develop` is listed because work now lands there and merges to main without a PR (2026-09-08).
+# `develop` is listed because work lands there by push (2026-09-08). Since #603 a `develop` to
+# `main` pull request exists as a review surface for the independent reviewer; it is landed by a
+# local fast-forward, so the push run on `develop` is still the first run a commit gets.
 # Without it the develop branch got NO CI at all, not merely no range guards: `pull_request` never
 # fires and `push` only matched main, so every check ran for the first time AFTER the merge. The
 # range guards below were `pull_request`-only at the time; #158 made them run on `push` too, with
@@ -469,6 +471,15 @@ jobs:
         run: python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
       - name: CodeRabbit config checker tests
         run: bash scripts/test-check-coderabbit-config.sh
+      # Issue #603: this repository uses the app it ships a config for, so its own .coderabbit.yaml
+      # is held to the same pins. Two runs because both branches take pull requests: `main` from the
+      # maintainer's landing pull request, `develop` from contributors. Dropping either from
+      # base_branches would silently end reviews there. The asset runs in place: validate-plugins.sh
+      # check 6 refuses a scripts/ copy.
+      - name: This repository's CodeRabbit config holds every pin
+        run: |
+          bash plugins/forge-kit-review/skills/coderabbit-config/assets/check-coderabbit-config.sh --branch main
+          bash plugins/forge-kit-review/skills/coderabbit-config/assets/check-coderabbit-config.sh --branch develop
 
       # Issue #297: context-budget.sh reports how many characters a session loads before the first
       # prompt; a byte count or a wrong import walk would read low on every multibyte CLAUDE.md.

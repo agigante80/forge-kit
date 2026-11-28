@@ -22,6 +22,14 @@ issue body before anything is built.
 Work lands on `develop` and is fast-forwarded to `main` when it is green. Open your pull request
 against `develop`, never `main`: a pull request merged into `main` breaks that fast-forward.
 
+You will see one pull request that does target `main`: the maintainer's own, from `develop`. It
+exists so the reviewer below can read the change, and it is landed by a local fast-forward, never
+merged on the web.
+
+The CodeRabbit app reviews pull requests to both branches. Its review is advice: it cannot
+approve, block or push, and its status is not a required check
+([.coderabbit.yaml](.coderabbit.yaml) pins that, and CI checks the pins).
+
 ## The rules CI enforces
 
 - **Version markers.** Every agent, skill and command carries a `<!-- <name>-version: N -->`
