@@ -26,9 +26,12 @@ You will see one pull request that does target `main`: the maintainer's own, fro
 exists so the reviewer below can read the change, and it is landed by a local fast-forward, never
 merged on the web.
 
-The CodeRabbit app reviews pull requests to both branches. Its review is advice: it cannot
-approve, block or push, and its status is not a required check
-([.coderabbit.yaml](.coderabbit.yaml) pins that, and CI checks the pins).
+The CodeRabbit app reviews pull requests to both branches. Its review is advice.
+[.coderabbit.yaml](.coderabbit.yaml) switches off the features that approve, request changes,
+fail a status or push, and CI checks those pins. The file is not the only limit, because someone
+with write access can replace it for one review with a `--with-config` comment: both branches are
+protected, and branch protection, not the file, is what keeps the app's status out of the
+required checks.
 
 ## The rules CI enforces
 
